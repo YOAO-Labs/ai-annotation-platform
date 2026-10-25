@@ -9,19 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.application.task_workflow_errors import TaskWorkflowError
 from app.application.task_workflow_locks import lock_current_task_target
 from app.services import task_access
-from app.services.annotation_evidence import (
-    capture_first_review_contributor_snapshot,
-    clear_review_contributor_evidence,
-    ensure_review_round,
-    freeze_review_contributor_evidence,
-    task_contributor_snapshot,
-)
+from app.services.annotation_evidence import task_contributor_snapshot
 from app.services.audit import AuditAction, AuditService
 from app.services.audit_origin_contract import AuditOriginContext
 from app.services.batch import BatchService
 from app.services.labeling_tasks import LabelingTaskService
 from app.services.notification import NotificationService
-from app.services.workspace_contract import ProjectAccess
+from aap_workspace_contract.access import ProjectAccess
 
 
 class TaskLifecycleWorkflow:
@@ -73,15 +67,17 @@ class TaskLifecycleWorkflow:
             await batch_service.recalculate_counters(task.batch_id)
 
         contributor_ids = await task_contributor_snapshot(self.db, task)
+        await self.labeling.capture_first_review_contributor_snapshot(
+            task, actor_id=actor.id, contributor_ids=contributor_ids
+        )
         first_review_contributors = list(contributor_ids)
 
-        capture_first_review_contributor_snapshot(task, contributor_ids)
         if (
             inherited_assignee_id is not None
             and str(inherited_assignee_id) not in first_review_contributors
         ):
             first_review_contributors.append(str(inherited_assignee_id))
-        freeze_review_contributor_evidence(
+        await self.labeling.freeze_review_contributor_evidence(
             task,
             submitter_id=actor.id,
             contributor_ids=first_review_contributors,
@@ -145,8 +141,8 @@ class TaskLifecycleWorkflow:
                 },
             )
 
-        self.labeling.withdraw_task(task)
-        clear_review_contributor_evidence(task)
+        await self.labeling.withdraw_task(task, actor_id=actor.id)
+        await self.labeling.clear_review_contributor_evidence(task, actor_id=actor.id)
         await self.labeling.decrement_project_review_count(project)
         batch_service = BatchService(self.db)
         await batch_service.check_auto_transitions(task.batch_id)
@@ -192,10 +188,10 @@ class TaskLifecycleWorkflow:
                 409, {"reason": "task_not_completed", "status": task.status}
             )
 
-        original_reviewer_id = self.labeling.reopen_task(
-            task, now=datetime.now(timezone.utc)
+        original_reviewer_id = await self.labeling.reopen_task(
+            task, actor_id=actor.id, now=datetime.now(timezone.utc)
         )
-        clear_review_contributor_evidence(task)
+        await self.labeling.clear_review_contributor_evidence(task, actor_id=actor.id)
         await self.labeling.decrement_project_completed_count(project)
         batch_service = BatchService(self.db)
         await batch_service.check_auto_transitions(task.batch_id)
@@ -215,7 +211,7 @@ class TaskLifecycleWorkflow:
                 if original_reviewer_id
                 else None,
                 "contributor_ids": await task_contributor_snapshot(self.db, task),
-                "review_round_id": str(ensure_review_round(task)),
+                "review_round_id": str(task.review_round_id),
                 "reopened_count": task.reopened_count,
             },
         )
@@ -272,8 +268,8 @@ class TaskLifecycleWorkflow:
                 409, {"reason": "task_not_rejected", "status": task.status}
             )
 
-        self.labeling.accept_rejection(task)
-        clear_review_contributor_evidence(task)
+        await self.labeling.accept_rejection(task, actor_id=actor.id)
+        await self.labeling.clear_review_contributor_evidence(task, actor_id=actor.id)
         batch_service = BatchService(self.db)
         await batch_service.check_auto_transitions(task.batch_id)
         if task.batch_id:
@@ -289,7 +285,7 @@ class TaskLifecycleWorkflow:
             detail={
                 "project_id": str(task.project_id),
                 "reject_reason": task.reject_reason,
-                "review_round_id": str(ensure_review_round(task)),
+                "review_round_id": str(task.review_round_id),
                 "contributor_ids": await task_contributor_snapshot(self.db, task),
             },
         )

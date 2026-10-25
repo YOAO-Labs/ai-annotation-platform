@@ -14,13 +14,15 @@ from app.db.models.annotation import Annotation
 from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
 from app.services.video_tracking.adapters import TrackerContext, TrackerFrameResult
 from app.services.video_tracking.runner import run_tracker_job
+from tests.tracker_input_test_ports import yield_tracker_fake_results
 
 # 复用多实例测试里的视频 task/dataset 建置, 避免重复 ~40 行 fixture。
 from tests.test_video_tracker_multi_instance import _make_video_task
 
 
 @pytest.fixture(autouse=True)
-def _tracker_input_owner_test_port(tracker_input_owner_fakes):
+def _tracker_input_owner_test_port(tracker_input_owner_fakes, savepoint_routing_owner):
+    tracker_input_owner_fakes.declare_tracker_backend = True
     return tracker_input_owner_fakes
 
 
@@ -34,19 +36,24 @@ class _CaptureAdapter:
 
     async def propagate(self, ctx: TrackerContext):
         self.windows.append((ctx.from_frame, ctx.to_frame, ctx.seeds))
+        results = []
         for frame_index in range(ctx.from_frame, ctx.to_frame + 1):
-            yield TrackerFrameResult(
-                frame_index=frame_index,
-                geometry={
-                    "type": "bbox",
-                    "x": float(frame_index),
-                    "y": 0.0,
-                    "w": 5.0,
-                    "h": 5.0,
-                },
-                confidence=1.0,
-                outside=False,
+            results.append(
+                TrackerFrameResult(
+                    frame_index=frame_index,
+                    geometry={
+                        "type": "bbox",
+                        "x": float(frame_index),
+                        "y": 0.0,
+                        "w": 5.0,
+                        "h": 5.0,
+                    },
+                    confidence=1.0,
+                    outside=False,
+                )
             )
+        async for result in yield_tracker_fake_results(ctx, results):
+            yield result
 
 
 async def _run_with_capture(db_session, super_admin, monkeypatch, *, direction: str):
@@ -126,29 +133,42 @@ class _TwoInstanceCaptureAdapter:
 
     async def propagate(self, ctx: TrackerContext):
         self.windows.append((ctx.from_frame, ctx.to_frame, ctx.seeds))
+        results = []
         for f in range(ctx.from_frame, ctx.to_frame + 1):
-            yield TrackerFrameResult(
-                frame_index=f,
-                geometry={"type": "bbox", "x": float(f), "y": 0.0, "w": 5.0, "h": 5.0},
-                confidence=1.0,
-                outside=False,
-                instance_id="1",
-                primary=True,
+            results.append(
+                TrackerFrameResult(
+                    frame_index=f,
+                    geometry={
+                        "type": "bbox",
+                        "x": float(f),
+                        "y": 0.0,
+                        "w": 5.0,
+                        "h": 5.0,
+                    },
+                    confidence=1.0,
+                    outside=False,
+                    instance_id="1",
+                    primary=True,
+                )
             )
-            yield TrackerFrameResult(
-                frame_index=f,
-                geometry={
-                    "type": "bbox",
-                    "x": float(f) + 100.0,
-                    "y": 0.0,
-                    "w": 8.0,
-                    "h": 8.0,
-                },
-                confidence=1.0,
-                outside=False,
-                instance_id="2",
-                primary=False,
+            results.append(
+                TrackerFrameResult(
+                    frame_index=f,
+                    geometry={
+                        "type": "bbox",
+                        "x": float(f) + 100.0,
+                        "y": 0.0,
+                        "w": 8.0,
+                        "h": 8.0,
+                    },
+                    confidence=1.0,
+                    outside=False,
+                    instance_id="2",
+                    primary=False,
+                )
             )
+        async for result in yield_tracker_fake_results(ctx, results):
+            yield result
 
 
 class _SingleInstanceWithoutPrimaryCaptureAdapter:
@@ -167,21 +187,26 @@ class _SingleInstanceWithoutPrimaryCaptureAdapter:
         frame_indices = list(range(ctx.from_frame, ctx.to_frame + 1))
         if self.reverse_results:
             frame_indices.reverse()
+        results = []
         for frame_index in frame_indices:
-            yield TrackerFrameResult(
-                frame_index=frame_index,
-                geometry={
-                    "type": "bbox",
-                    "x": float(frame_index),
-                    "y": 0.0,
-                    "w": 5.0,
-                    "h": 5.0,
-                },
-                confidence=1.0,
-                outside=False,
-                instance_id="1",
-                primary=False,
+            results.append(
+                TrackerFrameResult(
+                    frame_index=frame_index,
+                    geometry={
+                        "type": "bbox",
+                        "x": float(frame_index),
+                        "y": 0.0,
+                        "w": 5.0,
+                        "h": 5.0,
+                    },
+                    confidence=1.0,
+                    outside=False,
+                    instance_id="1",
+                    primary=False,
+                )
             )
+        async for result in yield_tracker_fake_results(ctx, results):
+            yield result
 
 
 @pytest.mark.parametrize(

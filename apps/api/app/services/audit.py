@@ -1,18 +1,24 @@
 from __future__ import annotations
 
+import logging
+from datetime import datetime
 from enum import Enum
 from typing import Any
-from uuid import UUID
 
 from fastapi import Request
-from sqlalchemy import text, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import make_transient_to_detached
+
+from aap_audit.append_contract import AppendEvent, AppendRequest
+from aap_audit.postgres import AuditAppendPostgresData
 
 from app.db.models.audit_log import AuditLog
 from app.db.models.user import User
 from app.middleware.request_id import request_id_var
 from app.services.audit_origin_contract import AuditOriginContext as _AuditOriginContext
 from app.services.identity_contracts import IdentityActorFacts
+
+logger = logging.getLogger(__name__)
 
 
 class AuditAction(str, Enum):
@@ -218,27 +224,84 @@ def export_metadata_header(
     return f"# Exported by: {actor_email}\n# Exported at: {ts}\n# Request ID: {rid}\n"
 
 
+async def append_http_metadata(db: AsyncSession, payload: dict[str, Any]) -> None:
+    """Append one post-response HTTP row, preserving the anonymous FK fallback."""
+    from uuid import UUID
+
+    from sqlalchemy.exc import IntegrityError
+
+    actor_id_raw = payload.get("actor_id")
+    actor_id: UUID | None = None
+    if actor_id_raw:
+        try:
+            actor_id = UUID(actor_id_raw)
+        except (ValueError, TypeError):
+            actor_id = None
+
+    def _event(aid: UUID | None) -> AppendEvent:
+        return AppendEvent(
+            actor_id=aid,
+            actor_email=None,
+            actor_role=payload.get("actor_role"),
+            action=payload["action"],
+            target_type=None,
+            target_id=None,
+            method=payload["method"],
+            path=payload["path"],
+            status_code=payload["status_code"],
+            ip=payload.get("ip"),
+            detail_json=None,
+            request_id=payload.get("request_id"),
+        )
+
+    try:
+        await AuditAppendPostgresData(db).append(
+            AppendRequest.create([_event(actor_id)])
+        )
+    except IntegrityError:
+        await db.rollback()
+        if actor_id is None:
+            raise
+        logger.warning(
+            "audit actor_id=%s not in users; persisted as anonymous", actor_id
+        )
+        await AuditAppendPostgresData(db).append(AppendRequest.create([_event(None)]))
+
+
 class AuditService:
     """业务层显式打点。同事务 flush，由调用方 commit。"""
 
     @staticmethod
-    async def redact_actor_history(
-        db: AsyncSession, actor_id: UUID, *, deletion_entry: AuditLog | None = None
-    ) -> int:
-        """Redact historical actor identity in the caller's deletion transaction."""
-        await db.execute(text("SET LOCAL \"app.allow_audit_update\" = 'true'"))
-        result = await db.execute(
-            update(AuditLog)
-            .where(AuditLog.actor_id == actor_id)
-            .values(actor_email=None, actor_role=None)
-        )
-        count = result.rowcount or 0
-        if count and deletion_entry is not None:
-            deletion_entry.detail_json = {
-                **(deletion_entry.detail_json or {}),
-                "redacted_audit_rows": count,
-            }
-        return count
+    async def _append_events(
+        db: AsyncSession, events: list[AppendEvent]
+    ) -> list[AuditLog]:
+        reply = await AuditAppendPostgresData(db).append(AppendRequest.create(events))
+        rows: list[AuditLog] = []
+        with db.no_autoflush:
+            for event, receipt in zip(events, reply.data.events, strict=True):
+                row = AuditLog(
+                    id=int(receipt.id),
+                    created_at=datetime.fromisoformat(
+                        receipt.created_at.replace("Z", "+00:00")
+                    ),
+                    actor_id=event.actor_id,
+                    actor_email=event.actor_email,
+                    actor_role=event.actor_role,
+                    action=event.action,
+                    target_type=event.target_type,
+                    target_id=event.target_id,
+                    method=event.method,
+                    path=event.path,
+                    status_code=event.status_code,
+                    ip=event.ip,
+                    detail_json=event.detail_json,
+                    request_id=event.request_id,
+                )
+                make_transient_to_detached(row)
+                rows.append(await db.merge(row, load=False))
+        # Match the old `db.add(entry); await db.flush()` completion point.
+        await db.flush()
+        return rows
 
     @staticmethod
     async def log(
@@ -266,7 +329,7 @@ class AuditService:
             else None
         )
         ip = origin.ip if origin is not None else extract_client_ip(request)
-        entry = AuditLog(
+        event = AppendEvent(
             actor_id=getattr(actor, "id", None),
             actor_email=getattr(actor, "email", None),
             actor_role=getattr(actor, "role", None),
@@ -280,9 +343,7 @@ class AuditService:
             detail_json=detail,
             request_id=rid or None,
         )
-        db.add(entry)
-        await db.flush()
-        return entry
+        return (await AuditService._append_events(db, [event]))[0]
 
     @staticmethod
     async def log_many(
@@ -316,10 +377,10 @@ class AuditService:
         actor_id = getattr(actor, "id", None)
         actor_email = getattr(actor, "email", None)
         actor_role = getattr(actor, "role", None)
-        entries: list[AuditLog] = []
+        events: list[AppendEvent] = []
         for it in items:
-            entries.append(
-                AuditLog(
+            events.append(
+                AppendEvent(
                     actor_id=actor_id,
                     actor_email=actor_email,
                     actor_role=actor_role,
@@ -336,6 +397,4 @@ class AuditService:
                     request_id=rid or None,
                 )
             )
-        db.add_all(entries)
-        await db.flush()
-        return entries
+        return await AuditService._append_events(db, events)

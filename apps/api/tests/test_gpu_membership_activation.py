@@ -281,8 +281,11 @@ def _ack(
     )
 
 
+@pytest.mark.parametrize("default_client", [False, True])
 async def test_pending_membership_atomically_activates_and_receives_signed_ack(
     promotion_db,
+    monkeypatch,
+    default_client,
 ) -> None:
     factory, backend_ids = promotion_db
     backend_id = await _create_pending_backend(factory)
@@ -291,7 +294,10 @@ async def test_pending_membership_atomically_activates_and_receives_signed_ack(
     requests: list[tuple[object, object]] = []
 
     class Client:
-        def __init__(self, backend: MLBackendRegistry) -> None:
+        def __init__(
+            self, backend: MLBackendRegistry, *, shadow_session_factory=None
+        ) -> None:
+            assert shadow_session_factory is (factory if default_client else None)
             self.backend = backend
 
         async def lifecycle_mode(self, request, *, admission_token):
@@ -307,6 +313,10 @@ async def test_pending_membership_atomically_activates_and_receives_signed_ack(
                 control_epoch=request.control_epoch,
             )
 
+    if default_client:
+        monkeypatch.setattr(
+            "app.services.gpu_arbitration.membership_activation.MLBackendClient", Client
+        )
     result = await promote_gpu_backend_membership(
         factory,
         signer,
@@ -314,7 +324,7 @@ async def test_pending_membership_atomically_activates_and_receives_signed_ack(
         gpu_resource_id=_RESOURCE_A,
         membership_epoch=1,
         readiness_demoter=_demote_ready,
-        client_factory=Client,
+        client_factory=None if default_client else Client,
     )
 
     assert result.status == "promoted"

@@ -1,21 +1,7 @@
-"""v0.23.3 ADR-0050 §15 · topology + runtime-snapshot diagnostics for v0.23.4.
+"""Role-scoped topology and durable routing observations for the model market.
 
-These read models are the contract v0.23.4's model-market UI consumes. They join
-pool/member/registry/GPU/health by stable IDs (never by URL). topology is role-scoped
-(Project Admin sees a trimmed view); runtime-snapshot is Super-Admin-only.
-
-v0.23.4 enrichment (plan §1 / Appendix A.7 — read-only field fixes only):
-* both builders return typed Pydantic models (``TopologyResponse`` /
-  ``RuntimeSnapshotResponse``) so OpenAPI + generated TS types are real, not ``unknown``;
-* topology carries derived ``routable_instances`` / ``status`` / ``status_reason_codes``;
-* Project Admin projection is enforced server-side (``routing_policy="unknown"``,
-  member ``weight`` / ``state`` / ``last_checked_at`` / ``gpu_resource_id`` → ``None``);
-* runtime snapshot carries a freshness envelope (``observed_at`` / ``sources`` /
-  ``partial`` / ``partial_reason``) per plan §6.3.
-
-No routing-core changes: the router, route lease, selector and project binding
-migration remain v0.23.3's. Metrics-driven fields stay ``None`` (plan §4.2 forbids
-wiring shared route counters; v0.23.3's Prometheus module is declared but unwired).
+The routing owner supplies execution counts in every mode. Redis supplies only
+optional circuit hints; neither observation authorizes lifecycle management.
 """
 
 from __future__ import annotations
@@ -39,7 +25,7 @@ from app.schemas.ml_routing import (
     TopologyResponse,
 )
 from app.services.ml_routing.ledger import RoutingLedger
-from app.services.ml_routing.capability import capability_fingerprint
+from aap_inference.pool_capability import capability_fingerprint
 
 
 def _derive_pool_status(
@@ -201,16 +187,7 @@ async def build_topology(db: AsyncSession, *, super_admin: bool) -> TopologyResp
 async def build_runtime_snapshot(
     db: AsyncSession, ledger: RoutingLedger | None
 ) -> RuntimeSnapshotResponse:
-    """Full runtime snapshot (Super Admin only): router mode + per-pool/member
-    inflight / circuit / health + a freshness envelope (plan §6.3).
-
-    Best-effort Redis reads: a ledger/Redis failure flips the ``router_ledger``
-    source to ``stale`` + ``error`` rather than dropping the whole snapshot.
-    GPU / residency sources are honestly marked ``stale`` with a documented
-    reason (``not_bundled_in_v0_23_3``): v0.23.3 does not surface them in the
-    snapshot, and v0.23.4 surfaces them via ``/observe`` in the Instance Detail
-    Sheet instead. Partial-fail must not erase the trustworthy sources.
-    """
+    """Read durable execution counts; keep Redis circuit hints non-authoritative."""
     mode = settings.ml_backend_router_mode
     observed_at = datetime.now(UTC)
     max_age = timedelta(seconds=settings.ml_backend_router_health_max_age_seconds)
@@ -219,18 +196,11 @@ async def build_runtime_snapshot(
     pools = list(pools_q.scalars().all())
     pool_snapshots: list[RuntimePoolSnapshot] = []
 
-    ledger_error: str | None = None
-    any_health_stale = False
-    health_timestamps: list[datetime] = []
+    from .authority import RoutingAuthority
 
-    if mode != "off" and ledger is not None:
-        try:
-            await ledger.healthcheck()
-        except Exception as exc:  # noqa: BLE001
-            ledger_error = str(exc) or "redis_unavailable"
-
+    member_groups = {}
     for pool in pools:
-        members_q = await db.execute(
+        rows = await db.execute(
             select(MLBackendPoolMember, MLBackendRegistry)
             .join(
                 MLBackendRegistry,
@@ -238,8 +208,38 @@ async def build_runtime_snapshot(
             )
             .where(MLBackendPoolMember.pool_id == pool.id)
         )
+        member_groups[pool.id] = list(rows.all())
+    registry_ids = sorted(
+        {registry.id for rows in member_groups.values() for _, registry in rows}
+    )
+    execution_rows = {}
+    routing_error = None
+    routing_observed_at = observed_at
+    authority = RoutingAuthority(db.bind)
+    try:
+        for offset in range(0, len(registry_ids), 512):
+            reply = await authority.runtime_snapshot(
+                registry_ids[offset : offset + 512]
+            )
+            routing_observed_at = min(routing_observed_at, reply.observed_at)
+            execution_rows.update({row.registry_id: row for row in reply.registries})
+        if set(execution_rows) != set(registry_ids):
+            routing_error = "routing_registry_unavailable"
+    except Exception:
+        routing_error = "routing_owner_unavailable"
+
+    any_health_stale = False
+    health_timestamps: list[datetime] = []
+    circuit_available = ledger is not None
+    if circuit_available:
+        try:
+            await ledger.healthcheck()
+        except Exception:
+            circuit_available = False
+
+    for pool in pools:
         member_snapshots: list[RuntimeMemberSnapshot] = []
-        for member, registry in members_q.all():
+        for member, registry in member_groups[pool.id]:
             health_fresh = (
                 registry.last_checked_at is not None
                 and registry.last_checked_at >= observed_at - max_age
@@ -248,25 +248,19 @@ async def build_runtime_snapshot(
                 any_health_stale = True
             if registry.last_checked_at is not None:
                 health_timestamps.append(registry.last_checked_at)
-            # route inflight from Redis ledger (best-effort; observe mode may
-            # have no ledger; ledger/Redis failure is captured for the source).
-            inflight: int | None = None
+            execution = execution_rows.get(registry.id)
+            inflight = execution.open_scopes if execution is not None else None
             circuit_open: bool | None = None
-            if ledger is not None and ledger_error is None:
+            if circuit_available:
                 try:
-                    inflight = await ledger.member_inflight(
-                        str(pool.id), str(registry.id)
-                    )
                     circuit = await ledger._redis.hgetall(
                         f"{ledger.namespace}:pool:{pool.id}:member:{registry.id}:circuit"
                     )
                     circuit_open = circuit.get("state") == "open" and int(
                         circuit.get("open_until", 0)
-                    ) > int(datetime.now(UTC).timestamp() * 1000)
-                except Exception as exc:  # noqa: BLE001 — capture for source flag
-                    ledger_error = str(exc) or "redis_unavailable"
-                    inflight = None
-                    circuit_open = None
+                    ) > int(observed_at.timestamp() * 1000)
+                except Exception:
+                    circuit_available = False
             member_snapshots.append(
                 RuntimeMemberSnapshot(
                     registry_id=registry.id,
@@ -301,25 +295,14 @@ async def build_runtime_snapshot(
             stale=False,
         )
     )
-    # router_ledger: fresh only when mode != off AND ledger present AND no Redis error.
-    if mode == "off":
-        # router is off → ledger reads are intentionally absent, not stale.
-        sources.append(
-            SourceFreshness(name="router_ledger", updated_at=observed_at, stale=False)
+    sources.append(
+        SourceFreshness(
+            name="router_ledger",
+            updated_at=routing_observed_at if routing_error is None else None,
+            stale=routing_error is not None,
+            error=routing_error,
         )
-    elif ledger is None or ledger_error is not None:
-        sources.append(
-            SourceFreshness(
-                name="router_ledger",
-                updated_at=None,
-                stale=True,
-                error=ledger_error or "ledger_unavailable",
-            )
-        )
-    else:
-        sources.append(
-            SourceFreshness(name="router_ledger", updated_at=observed_at, stale=False)
-        )
+    )
     # health: stale if any member's last_checked_at exceeds the freshness window.
     sources.append(
         SourceFreshness(

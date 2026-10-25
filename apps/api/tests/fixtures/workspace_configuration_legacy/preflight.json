@@ -1,0 +1,694 @@
+{
+  "capture_sha256": "d02870da0eddccfd4ab1b2f7bef978b96b7c63e6b20046e06f92c0122fce8cd5",
+  "source_head": "087a0a3874a82381e29746a433c6d5b787e147b0",
+  "kind": "remaining-pre-port-caller-numeric-and-setup-fence-capture",
+  "column_catalog": [
+    {
+      "table_name": "project_templates",
+      "column_name": "id",
+      "type": "uuid",
+      "server_default": "gen_random_uuid()",
+      "not_null": true
+    },
+    {
+      "table_name": "project_templates",
+      "column_name": "display_id",
+      "type": "character varying(20)",
+      "server_default": null,
+      "not_null": true
+    },
+    {
+      "table_name": "project_templates",
+      "column_name": "name",
+      "type": "character varying(255)",
+      "server_default": null,
+      "not_null": true
+    },
+    {
+      "table_name": "project_templates",
+      "column_name": "description",
+      "type": "text",
+      "server_default": null,
+      "not_null": false
+    },
+    {
+      "table_name": "project_templates",
+      "column_name": "type_label",
+      "type": "character varying(50)",
+      "server_default": null,
+      "not_null": true
+    },
+    {
+      "table_name": "project_templates",
+      "column_name": "type_key",
+      "type": "character varying(30)",
+      "server_default": null,
+      "not_null": true
+    },
+    {
+      "table_name": "project_templates",
+      "column_name": "label_config",
+      "type": "jsonb",
+      "server_default": "'{}'::jsonb",
+      "not_null": true
+    },
+    {
+      "table_name": "project_templates",
+      "column_name": "ai_enabled",
+      "type": "boolean",
+      "server_default": "false",
+      "not_null": true
+    },
+    {
+      "table_name": "project_templates",
+      "column_name": "sampling",
+      "type": "character varying(30)",
+      "server_default": "'sequence'::character varying",
+      "not_null": true
+    },
+    {
+      "table_name": "project_templates",
+      "column_name": "maximum_annotations",
+      "type": "integer",
+      "server_default": "1",
+      "not_null": true
+    },
+    {
+      "table_name": "project_templates",
+      "column_name": "show_overlap_first",
+      "type": "boolean",
+      "server_default": "false",
+      "not_null": true
+    },
+    {
+      "table_name": "project_templates",
+      "column_name": "iou_dedup_threshold",
+      "type": "double precision",
+      "server_default": "0.7",
+      "not_null": true
+    },
+    {
+      "table_name": "project_templates",
+      "column_name": "box_threshold",
+      "type": "double precision",
+      "server_default": "0.35",
+      "not_null": true
+    },
+    {
+      "table_name": "project_templates",
+      "column_name": "text_threshold",
+      "type": "double precision",
+      "server_default": "0.25",
+      "not_null": true
+    },
+    {
+      "table_name": "project_templates",
+      "column_name": "rendering_config",
+      "type": "jsonb",
+      "server_default": "'{}'::jsonb",
+      "not_null": true
+    },
+    {
+      "table_name": "project_templates",
+      "column_name": "annotation_guide",
+      "type": "text",
+      "server_default": null,
+      "not_null": false
+    },
+    {
+      "table_name": "project_templates",
+      "column_name": "scope",
+      "type": "character varying(20)",
+      "server_default": "'private'::character varying",
+      "not_null": true
+    },
+    {
+      "table_name": "project_templates",
+      "column_name": "organization_id",
+      "type": "uuid",
+      "server_default": null,
+      "not_null": false
+    },
+    {
+      "table_name": "project_templates",
+      "column_name": "created_by",
+      "type": "uuid",
+      "server_default": null,
+      "not_null": true
+    },
+    {
+      "table_name": "project_templates",
+      "column_name": "source_project_id",
+      "type": "uuid",
+      "server_default": null,
+      "not_null": false
+    },
+    {
+      "table_name": "project_templates",
+      "column_name": "usage_count",
+      "type": "integer",
+      "server_default": "0",
+      "not_null": true
+    },
+    {
+      "table_name": "project_templates",
+      "column_name": "created_at",
+      "type": "timestamp with time zone",
+      "server_default": "now()",
+      "not_null": true
+    },
+    {
+      "table_name": "project_templates",
+      "column_name": "updated_at",
+      "type": "timestamp with time zone",
+      "server_default": "now()",
+      "not_null": true
+    },
+    {
+      "table_name": "project_templates",
+      "column_name": "tool_bindings",
+      "type": "jsonb",
+      "server_default": "'{}'::jsonb",
+      "not_null": true
+    },
+    {
+      "table_name": "project_templates",
+      "column_name": "data_type",
+      "type": "character varying(30)",
+      "server_default": "'image'::character varying",
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "id",
+      "type": "uuid",
+      "server_default": null,
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "display_id",
+      "type": "character varying(20)",
+      "server_default": null,
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "name",
+      "type": "character varying(255)",
+      "server_default": null,
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "type_label",
+      "type": "character varying(50)",
+      "server_default": null,
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "type_key",
+      "type": "character varying(30)",
+      "server_default": null,
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "owner_id",
+      "type": "uuid",
+      "server_default": null,
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "status",
+      "type": "character varying(30)",
+      "server_default": "'in_progress'::character varying",
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "ai_enabled",
+      "type": "boolean",
+      "server_default": "false",
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "total_tasks",
+      "type": "integer",
+      "server_default": "0",
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "completed_tasks",
+      "type": "integer",
+      "server_default": "0",
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "review_tasks",
+      "type": "integer",
+      "server_default": "0",
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "due_date",
+      "type": "date",
+      "server_default": null,
+      "not_null": false
+    },
+    {
+      "table_name": "projects",
+      "column_name": "created_at",
+      "type": "timestamp with time zone",
+      "server_default": "now()",
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "updated_at",
+      "type": "timestamp with time zone",
+      "server_default": "now()",
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "organization_id",
+      "type": "uuid",
+      "server_default": null,
+      "not_null": false
+    },
+    {
+      "table_name": "projects",
+      "column_name": "label_config",
+      "type": "jsonb",
+      "server_default": "'{}'::jsonb",
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "sampling",
+      "type": "character varying(30)",
+      "server_default": "'sequence'::character varying",
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "maximum_annotations",
+      "type": "integer",
+      "server_default": "1",
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "show_overlap_first",
+      "type": "boolean",
+      "server_default": "false",
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "model_version",
+      "type": "character varying(100)",
+      "server_default": null,
+      "not_null": false
+    },
+    {
+      "table_name": "projects",
+      "column_name": "task_lock_ttl_seconds",
+      "type": "integer",
+      "server_default": "300",
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "iou_dedup_threshold",
+      "type": "double precision",
+      "server_default": "0.7",
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "in_progress_tasks",
+      "type": "integer",
+      "server_default": "0",
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "ml_backend_pool_id",
+      "type": "uuid",
+      "server_default": null,
+      "not_null": false
+    },
+    {
+      "table_name": "projects",
+      "column_name": "box_threshold",
+      "type": "real",
+      "server_default": "0.35",
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "text_threshold",
+      "type": "real",
+      "server_default": "0.25",
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "rendering_config",
+      "type": "jsonb",
+      "server_default": "'{}'::jsonb",
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "annotation_guide",
+      "type": "text",
+      "server_default": null,
+      "not_null": false
+    },
+    {
+      "table_name": "projects",
+      "column_name": "guide_assets",
+      "type": "jsonb",
+      "server_default": "'[]'::jsonb",
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "tool_bindings",
+      "type": "jsonb",
+      "server_default": "'{}'::jsonb",
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "batch_summary",
+      "type": "jsonb",
+      "server_default": "'{}'::jsonb",
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "data_type",
+      "type": "character varying(30)",
+      "server_default": "'image'::character varying",
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "video_sampling",
+      "type": "jsonb",
+      "server_default": "'{}'::jsonb",
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "prefer_same_scene_continuation",
+      "type": "boolean",
+      "server_default": "false",
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "scene_continuation_window_min",
+      "type": "integer",
+      "server_default": "30",
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "scene_mode",
+      "type": "boolean",
+      "server_default": "false",
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "default_variants",
+      "type": "jsonb",
+      "server_default": "'{}'::jsonb",
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "preannotate_pipeline",
+      "type": "jsonb",
+      "server_default": null,
+      "not_null": false
+    },
+    {
+      "table_name": "projects",
+      "column_name": "ai_interactive_enabled",
+      "type": "boolean",
+      "server_default": "true",
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "raster_mask_native_editing_enabled",
+      "type": "boolean",
+      "server_default": "true",
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "mask_qc_config",
+      "type": "jsonb",
+      "server_default": "'{}'::jsonb",
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "video_collaboration",
+      "type": "jsonb",
+      "server_default": "'{}'::jsonb",
+      "not_null": true
+    },
+    {
+      "table_name": "projects",
+      "column_name": "point_cloud_quality_config",
+      "type": "jsonb",
+      "server_default": "'{}'::jsonb",
+      "not_null": true
+    }
+  ],
+  "numeric": {
+    "postgres_json_real": {
+      "double_value": 0.3499999940395355,
+      "row_json": 0.35,
+      "double_json": 0.3499999940395355
+    },
+    "exact_loaded": {
+      "before_value": 0.3499999940395355,
+      "requested": 0.3499999940395355,
+      "after_value": 0.3499999940395355,
+      "dirty_before_commit": false,
+      "timestamp_changed": false,
+      "timestamp_is_caller_transaction": false,
+      "project_updates": 0,
+      "failure": null
+    },
+    "decimal": {
+      "before_value": 0.3499999940395355,
+      "requested": 0.35,
+      "after_value": 0.3499999940395355,
+      "dirty_before_commit": true,
+      "timestamp_changed": true,
+      "timestamp_is_caller_transaction": true,
+      "project_updates": 1,
+      "failure": null
+    },
+    "repeat_decimal": {
+      "before_value": 0.3499999940395355,
+      "requested": 0.35,
+      "after_value": 0.3499999940395355,
+      "dirty_before_commit": true,
+      "timestamp_changed": true,
+      "timestamp_is_caller_transaction": true,
+      "project_updates": 1,
+      "failure": null
+    },
+    "exact_half": {
+      "before_value": 0.3499999940395355,
+      "requested": 0.5,
+      "after_value": 0.5,
+      "dirty_before_commit": true,
+      "timestamp_changed": true,
+      "timestamp_is_caller_transaction": true,
+      "project_updates": 1,
+      "failure": null
+    },
+    "repeat_half": {
+      "before_value": 0.5,
+      "requested": 0.5,
+      "after_value": 0.5,
+      "dirty_before_commit": false,
+      "timestamp_changed": false,
+      "timestamp_is_caller_transaction": false,
+      "project_updates": 0,
+      "failure": null
+    },
+    "explicit_null": {
+      "before_value": 0.5,
+      "requested": null,
+      "after_value": 0.5,
+      "dirty_before_commit": true,
+      "timestamp_changed": false,
+      "timestamp_is_caller_transaction": false,
+      "project_updates": 1,
+      "failure": {
+        "sqlstate": "23502",
+        "is_active": false,
+        "in_transaction": true
+      }
+    },
+    "template_exact_loaded": {
+      "before_value": 0.35,
+      "after_value": 0.35,
+      "dirty_before_commit": false,
+      "timestamp_changed": false,
+      "template_updates": 0
+    },
+    "template_decimal": {
+      "before_value": 0.35,
+      "after_value": 0.35,
+      "dirty_before_commit": false,
+      "timestamp_changed": false,
+      "template_updates": 0
+    }
+  },
+  "account_busy": {
+    "actor_helper_autoflush_False": {
+      "status": 409,
+      "detail": {
+        "reason": "account_busy"
+      },
+      "pending_unflushed": true,
+      "in_transaction": true,
+      "is_active": true,
+      "trace": ["account:share_lock"],
+      "next_query_sqlstate": "25P02"
+    },
+    "actor_helper_autoflush_True": {
+      "status": 409,
+      "detail": {
+        "reason": "account_busy"
+      },
+      "pending_unflushed": false,
+      "in_transaction": true,
+      "is_active": true,
+      "trace": ["pending:insert", "account:share_lock"],
+      "next_query_sqlstate": "25P02"
+    },
+    "project_access_autoflush_False": {
+      "status": 409,
+      "detail": {
+        "reason": "account_busy"
+      },
+      "pending_unflushed": true,
+      "in_transaction": true,
+      "is_active": true,
+      "trace": ["account:share_lock"],
+      "next_query_sqlstate": "25P02"
+    },
+    "project_access_autoflush_True": {
+      "status": 409,
+      "detail": {
+        "reason": "account_busy"
+      },
+      "pending_unflushed": true,
+      "in_transaction": true,
+      "is_active": true,
+      "trace": ["account:share_lock"],
+      "next_query_sqlstate": "25P02"
+    },
+    "create_template_autoflush_False": {
+      "status": 409,
+      "detail": {
+        "reason": "account_busy"
+      },
+      "pending_unflushed": true,
+      "in_transaction": true,
+      "is_active": true,
+      "trace": ["account:share_lock"],
+      "next_query_sqlstate": "25P02"
+    },
+    "create_template_autoflush_True": {
+      "status": 409,
+      "detail": {
+        "reason": "account_busy"
+      },
+      "pending_unflushed": false,
+      "in_transaction": true,
+      "is_active": true,
+      "trace": ["pending:insert", "account:share_lock"],
+      "next_query_sqlstate": "25P02"
+    },
+    "create_project_autoflush_False": {
+      "status": 409,
+      "detail": {
+        "reason": "account_busy"
+      },
+      "pending_unflushed": true,
+      "in_transaction": true,
+      "is_active": true,
+      "trace": ["account:share_lock"],
+      "next_query_sqlstate": "25P02"
+    },
+    "create_project_autoflush_True": {
+      "status": 409,
+      "detail": {
+        "reason": "account_busy"
+      },
+      "pending_unflushed": false,
+      "in_transaction": true,
+      "is_active": true,
+      "trace": ["pending:insert", "account:share_lock"],
+      "next_query_sqlstate": "25P02"
+    },
+    "update_project_autoflush_False": {
+      "status": 409,
+      "detail": {
+        "reason": "account_busy"
+      },
+      "pending_unflushed": true,
+      "in_transaction": true,
+      "is_active": true,
+      "trace": ["account:share_lock"],
+      "next_query_sqlstate": "25P02"
+    },
+    "update_project_autoflush_True": {
+      "status": 409,
+      "detail": {
+        "reason": "account_busy"
+      },
+      "pending_unflushed": false,
+      "in_transaction": true,
+      "is_active": true,
+      "trace": ["pending:insert", "account:share_lock"],
+      "next_query_sqlstate": "25P02"
+    }
+  },
+  "setup_role_revocation": {
+    "False": {
+      "status": 403,
+      "detail": "需要角色权限: super_admin或project_admin",
+      "in_transaction": true,
+      "is_active": true
+    },
+    "True": {
+      "status": 404,
+      "detail": "项目不存在",
+      "in_transaction": true,
+      "is_active": true
+    }
+  }
+}

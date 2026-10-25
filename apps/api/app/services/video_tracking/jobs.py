@@ -9,20 +9,16 @@ from types import SimpleNamespace
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import case, func, select, update
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.services.project_access import get_workspace_project
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import VideoSegment
-from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.db.models.video_tracker_job import (
     VideoTrackerJob,
-    VideoTrackerJobKind,
-    VideoTrackerJobStatus,
 )
 from app.schemas.video_tracker_job import (
     VideoMaskCorrectionRequest,
@@ -48,10 +44,34 @@ from app.services.raster_mask_storage import (
     validate_mask_geometry_for_task,
 )
 from app.services.video_context import VideoContext, derive_step
-from app.services.video_segment_service import ensure_segments
 from app.services.video_tracking.adapters import registered_tracker_models
 from app.services.video_tracking import runner as _runner
 from app.services.video_tracking.dispatch import VideoTrackerJobDispatcher
+from app.services.video_tracking.control import (
+    VideoControlRejected,
+    video_control_command,
+)
+from app.services.labeling_core_read_relations import (
+    get_core_row,
+    lock_task_for_core_read,
+    task_row,
+)
+from aap_labeling.video_control_contract import (
+    CancelJob,
+    CreateJob,
+    ExpireCandidates,
+    EnsureSegments,
+    MarkEnqueued,
+    MarkEnqueueFailed,
+    ListTimeline,
+    ReadAnnotations,
+    ReadActiveCorrection,
+    ReadJob,
+    ReadSegments,
+    ReadTaskJobs,
+    SaveKeyframe,
+    OperateKeyframe,
+)
 from app.services.video_tracks import (
     is_polyline_track,
     normalize_outside_ranges,
@@ -65,24 +85,6 @@ from app.services.identity_contracts import IdentityActorFacts, IdentityActorSta
 
 log = logging.getLogger(__name__)
 
-_TERMINAL_STATUSES = {
-    VideoTrackerJobStatus.COMPLETED.value,
-    VideoTrackerJobStatus.FAILED.value,
-    VideoTrackerJobStatus.CANCELLED.value,
-    # v0.21.28 · 候选/接受: 追踪已完成 (待审/已接受/已丢弃) 均不可再「取消追踪」。
-    VideoTrackerJobStatus.PENDING_REVIEW.value,
-    VideoTrackerJobStatus.PARTIALLY_REVIEWED.value,
-    VideoTrackerJobStatus.ACCEPTED.value,
-    VideoTrackerJobStatus.DISCARDED.value,
-}
-
-_ACTIVE_CORRECTION_STATUSES = {
-    VideoTrackerJobStatus.QUEUED.value,
-    VideoTrackerJobStatus.RUNNING.value,
-    VideoTrackerJobStatus.PENDING_REVIEW.value,
-    VideoTrackerJobStatus.PARTIALLY_REVIEWED.value,
-}
-
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -91,43 +93,66 @@ def _now() -> datetime:
 VIDEO_TRACKER_STAGED_TTL = timedelta(hours=24)
 
 
+def _job_record(value: dict[str, Any] | None):
+    if not isinstance(value, dict):
+        return None
+    model = VideoTrackerJobOut.model_validate(value)
+    fields = dict(value)
+    fields.update(model.model_dump())
+    fields["staged_result"] = value.get("staged_result")
+    return SimpleNamespace(**fields)
+
+
+def _annotation_record(value: dict[str, Any]):
+    fields = dict(value)
+    for name in (
+        "id",
+        "task_id",
+        "project_id",
+        "video_segment_id",
+        "user_id",
+        "parent_prediction_id",
+        "parent_annotation_id",
+        "scene_track_id",
+        "sensor_dataset_item_id",
+    ):
+        if fields.get(name) is not None:
+            fields[name] = uuid.UUID(str(fields[name]))
+    for name in ("created_at", "updated_at"):
+        if isinstance(fields.get(name), str):
+            fields[name] = datetime.fromisoformat(fields[name].replace("Z", "+00:00"))
+    return SimpleNamespace(**fields)
+
+
+def _segment_record(value: dict[str, Any]):
+    fields = dict(value)
+    for name in ("id", "dataset_item_id", "assignee_id", "locked_by"):
+        if fields.get(name) is not None:
+            fields[name] = uuid.UUID(str(fields[name]))
+    for name in ("created_at", "updated_at", "locked_at", "lock_expires_at"):
+        if isinstance(fields.get(name), str):
+            fields[name] = datetime.fromisoformat(fields[name].replace("Z", "+00:00"))
+    return SimpleNamespace(**fields)
+
+
+def _video_control_http_error(exc: VideoControlRejected) -> HTTPException:
+    return HTTPException(status_code=exc.status_code, detail=exc.detail)
+
+
 async def expire_stale_tracker_candidates(
     db: AsyncSession, *, now: datetime | None = None
 ) -> int:
     """Release abandoned staged Mask refs and correction track leases after 24h."""
     cutoff = (now or _now()) - VIDEO_TRACKER_STAGED_TTL
-    expirable = (
-        VideoTrackerJobStatus.PENDING_REVIEW.value,
-        VideoTrackerJobStatus.PARTIALLY_REVIEWED.value,
-        VideoTrackerJobStatus.CANCELLED.value,
+    result = await video_control_command(
+        db,
+        ExpireCandidates(
+            schema="aap-labeling-video-control/v1",
+            operation="expire_candidates",
+            cutoff=cutoff,
+        ),
     )
-    result = await db.execute(
-        update(VideoTrackerJob)
-        .where(
-            VideoTrackerJob.staged_result.is_not(None),
-            VideoTrackerJob.status.in_(expirable),
-            VideoTrackerJob.completed_at.is_not(None),
-            VideoTrackerJob.completed_at <= cutoff,
-        )
-        .values(
-            staged_result=None,
-            status=case(
-                (
-                    VideoTrackerJob.status.in_(
-                        (
-                            VideoTrackerJobStatus.PENDING_REVIEW.value,
-                            VideoTrackerJobStatus.PARTIALLY_REVIEWED.value,
-                        )
-                    ),
-                    VideoTrackerJobStatus.DISCARDED.value,
-                ),
-                else_=VideoTrackerJob.status,
-            ),
-            revision=VideoTrackerJob.revision + 1,
-        )
-        .returning(VideoTrackerJob.id)
-    )
-    return len(result.scalars().all())
+    return int(result["expired"])
 
 
 def _assert_frame_range(ctx: VideoContext, from_frame: int, to_frame: int) -> None:
@@ -141,9 +166,17 @@ def _assert_frame_range(ctx: VideoContext, from_frame: int, to_frame: int) -> No
 
 
 async def _load_annotation(
-    db: AsyncSession, task: Task, annotation_id: uuid.UUID
+    db: AsyncSession, task: Task, annotation_id: uuid.UUID, actor_id: uuid.UUID
 ) -> Annotation:
-    annotation = await db.get(Annotation, annotation_id)
+    if task.dataset_item_id is None:
+        raise HTTPException(status_code=404, detail="Annotation not found")
+    try:
+        rows = await _read_annotation_rows(
+            db, task_id=task.id, actor_id=actor_id, annotation_ids=(annotation_id,)
+        )
+    except VideoControlRejected as exc:
+        raise _video_control_http_error(exc) from exc
+    annotation = _annotation_record(rows[0]) if rows else None
     if annotation is None or not annotation.is_active:
         raise HTTPException(status_code=404, detail="Annotation not found")
     if annotation.task_id != task.id:
@@ -153,10 +186,31 @@ async def _load_annotation(
     return annotation
 
 
+async def _read_annotation_rows(
+    db: AsyncSession,
+    *,
+    task_id: uuid.UUID,
+    actor_id: uuid.UUID,
+    annotation_ids: tuple[uuid.UUID, ...],
+    lock_for_update: bool = False,
+) -> list[dict[str, Any]]:
+    return await video_control_command(
+        db,
+        ReadAnnotations(
+            schema="aap-labeling-video-control/v1",
+            operation="read_annotations",
+            task_id=task_id,
+            actor_id=actor_id,
+            annotation_ids=annotation_ids,
+            lock_for_update=lock_for_update,
+        ),
+    )
+
+
 async def _is_privileged(
     db: AsyncSession, task: Task, user: User | IdentityActorFacts
 ) -> bool:
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, project_id=task.project_id)
     return bool(project and is_privileged_for_project(user, project))
 
 
@@ -173,14 +227,20 @@ def _lock_valid_for_user(
 async def _assert_segment_lock(
     db: AsyncSession,
     ctx: VideoContext,
+    task: Task,
     payload: VideoTrackerPropagateRequest,
     user: User | IdentityActorFacts,
     *,
     privileged: bool,
 ) -> uuid.UUID:
-    await ensure_segments(db, ctx)
+    if task.dataset_item_id != ctx.dataset_item_id or task.project_id is None:
+        raise HTTPException(status_code=409, detail={"reason": "task_target_changed"})
     now = _now()
-    project = await db.get(Project, ctx.project_id) if ctx.project_id else None
+    project = (
+        await get_workspace_project(db, project_id=ctx.project_id)
+        if ctx.project_id
+        else None
+    )
     collaboration = collaboration_config(project)
 
     if collaboration.enabled and payload.segment_id is None:
@@ -188,41 +248,51 @@ async def _assert_segment_lock(
             status_code=422, detail={"reason": "video_segment_required"}
         )
 
-    async def _work_bounds(segment: VideoSegment) -> tuple[int, int]:
+    async def _work_bounds(
+        segment: SimpleNamespace, segment_count: int
+    ) -> tuple[int, int]:
         if not collaboration.enabled:
             return segment.start_frame, segment.end_frame
-        count = int(
-            (
-                await db.execute(
-                    select(func.count())
-                    .select_from(VideoSegment)
-                    .where(VideoSegment.dataset_item_id == ctx.dataset_item_id)
-                )
-            ).scalar_one()
-        )
         return segment_work_bounds(
             start_frame=segment.start_frame,
             end_frame=segment.end_frame,
             segment_index=segment.segment_index,
-            segment_count=max(1, count),
+            segment_count=max(1, segment_count),
             frame_count=max(1, int(ctx.metadata.frame_count or 1)),
             overlap_frames=collaboration.overlap_frames,
         )
 
+    try:
+        data = await video_control_command(
+            db,
+            EnsureSegments(
+                schema="aap-labeling-video-control/v1",
+                operation="ensure_segments",
+                task_id=task.id,
+                project_id=task.project_id,
+                actor_id=user.id,
+                expected_batch_id=task.batch_id,
+                expected_task_status=task.status,
+                expected_review_round_id=task.review_round_id,
+                dataset_item_id=ctx.dataset_item_id,
+                segment_id=payload.segment_id,
+                from_frame=payload.from_frame,
+                to_frame=payload.to_frame,
+                frame_count=max(1, int(ctx.metadata.frame_count or 1)),
+                segment_size_frames=max(1, settings.video_segment_size_frames),
+                now=now,
+                count_segments=collaboration.enabled,
+            ),
+        )
+    except VideoControlRejected as exc:
+        raise _video_control_http_error(exc) from exc
+    segments = [_segment_record(row) for row in data["segments"]]
+    segment_count = int(data["segment_count"])
     if payload.segment_id is not None:
-        segment = (
-            await db.execute(
-                select(VideoSegment)
-                .where(
-                    VideoSegment.id == payload.segment_id,
-                    VideoSegment.dataset_item_id == ctx.dataset_item_id,
-                )
-                .with_for_update()
-            )
-        ).scalar_one_or_none()
+        segment = segments[0] if segments else None
         if segment is None:
             raise HTTPException(status_code=404, detail="Video segment not found")
-        work_start, work_end = await _work_bounds(segment)
+        work_start, work_end = await _work_bounds(segment, segment_count)
         if payload.from_frame < work_start or payload.to_frame > work_end:
             raise HTTPException(
                 status_code=400, detail="Frame range is outside the video segment"
@@ -239,22 +309,7 @@ async def _assert_segment_lock(
             )
         return segment.id
 
-    overlapping = (
-        (
-            await db.execute(
-                select(VideoSegment)
-                .where(
-                    VideoSegment.dataset_item_id == ctx.dataset_item_id,
-                    VideoSegment.start_frame <= payload.to_frame,
-                    VideoSegment.end_frame >= payload.from_frame,
-                )
-                .order_by(VideoSegment.segment_index.asc())
-                .with_for_update()
-            )
-        )
-        .scalars()
-        .all()
-    )
+    overlapping = segments
     if not overlapping:
         raise HTTPException(status_code=404, detail="Video segment not found")
     if len(overlapping) > 1:
@@ -276,7 +331,7 @@ def _keyframe_digest(value: dict | None) -> str | None:
 async def _assert_task_write_allowed(
     db: AsyncSession, task_id: uuid.UUID, user_id: uuid.UUID
 ) -> None:
-    task = await db.get(Task, task_id)
+    task = await get_core_row(db, task_row, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     try:
@@ -303,20 +358,22 @@ async def save_video_mask_keyframe(
     _assert_frame_range(ctx, frame_index, frame_index)
     # Match atomic Mask mutation ordering. The Task row is the first database
     # row lock and serializes same-task writers before content/annotation locks.
-    task = (
-        await db.execute(
-            select(Task)
-            .where(Task.id == task.id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
+    task = await lock_task_for_core_read(db, task.id, populate_existing=True)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     await _assert_task_write_allowed(db, task.id, user.id)
-    annotation = (
-        await db.execute(select(Annotation).where(Annotation.id == annotation_id))
-    ).scalar_one_or_none()
+    if task.dataset_item_id is None:
+        raise HTTPException(status_code=404, detail="Annotation not found")
+    try:
+        rows = await _read_annotation_rows(
+            db,
+            task_id=task.id,
+            actor_id=user.id,
+            annotation_ids=(annotation_id,),
+        )
+    except VideoControlRejected as exc:
+        raise _video_control_http_error(exc) from exc
+    annotation = _annotation_record(rows[0]) if rows else None
     if annotation is None or not annotation.is_active:
         raise HTTPException(status_code=404, detail="Annotation not found")
     if annotation.task_id != task.id:
@@ -344,6 +401,7 @@ async def save_video_mask_keyframe(
     segment_id = await _assert_segment_lock(
         db,
         ctx,
+        task,
         SimpleNamespace(
             from_frame=frame_index,
             to_frame=frame_index,
@@ -400,14 +458,17 @@ async def save_video_mask_keyframe(
     # RLE locks precede the Annotation row lock. Recheck every mutable
     # precondition after acquiring the row so a non-compliant legacy writer
     # cannot publish over this save.
-    annotation = (
-        await db.execute(
-            select(Annotation)
-            .where(Annotation.id == annotation_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
+    try:
+        rows = await _read_annotation_rows(
+            db,
+            task_id=task.id,
+            actor_id=user.id,
+            annotation_ids=(annotation_id,),
+            lock_for_update=True,
         )
-    ).scalar_one_or_none()
+    except VideoControlRejected as exc:
+        raise _video_control_http_error(exc) from exc
+    annotation = _annotation_record(rows[0]) if rows else None
     if annotation is None or not annotation.is_active:
         raise HTTPException(status_code=404, detail="Annotation not found")
     if annotation.task_id != task.id:
@@ -431,10 +492,32 @@ async def save_video_mask_keyframe(
         )
 
     source_version = int(annotation.version or 1)
+    try:
+        written = await video_control_command(
+            db,
+            SaveKeyframe(
+                schema="aap-labeling-video-control/v1",
+                operation="save_keyframe",
+                task_id=task.id,
+                project_id=task.project_id,
+                actor_id=user.id,
+                expected_batch_id=task.batch_id,
+                expected_task_status=task.status,
+                expected_review_round_id=task.review_round_id,
+                annotation_id=annotation.id,
+                segment_id=segment_id,
+                frame_index=frame_index,
+                expected_version=source_version,
+                geometry=next_geometry,
+            ),
+        )
+    except VideoControlRejected as exc:
+        raise _video_control_http_error(exc) from exc
     annotation.geometry = next_geometry
-    annotation.version = source_version + 1
-    await db.flush()
-    await db.refresh(annotation)
+    annotation.version = int(written["version"])
+    annotation.updated_at = datetime.fromisoformat(
+        str(written["updated_at"]).replace("Z", "+00:00")
+    )
     return annotation, {
         "task_id": str(task.id),
         "track_id": str(annotation.track_id or geometry.get("track_id") or ""),
@@ -467,21 +550,23 @@ async def operate_video_mask_keyframe(
     """
 
     _assert_frame_range(ctx, frame_index, frame_index)
-    task = (
-        await db.execute(
-            select(Task)
-            .where(Task.id == task.id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
+    task = await lock_task_for_core_read(db, task.id, populate_existing=True)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     await _assert_task_write_allowed(db, task.id, user.id)
 
-    annotation = (
-        await db.execute(select(Annotation).where(Annotation.id == annotation_id))
-    ).scalar_one_or_none()
+    if task.dataset_item_id is None:
+        raise HTTPException(status_code=404, detail="Annotation not found")
+    try:
+        rows = await _read_annotation_rows(
+            db,
+            task_id=task.id,
+            actor_id=user.id,
+            annotation_ids=(annotation_id,),
+        )
+    except VideoControlRejected as exc:
+        raise _video_control_http_error(exc) from exc
+    annotation = _annotation_record(rows[0]) if rows else None
     if annotation is None or not annotation.is_active:
         raise HTTPException(status_code=404, detail="Annotation not found")
     if annotation.task_id != task.id:
@@ -507,6 +592,7 @@ async def operate_video_mask_keyframe(
     segment_id = await _assert_segment_lock(
         db,
         ctx,
+        task,
         SimpleNamespace(
             from_frame=frame_index,
             to_frame=frame_index,
@@ -516,14 +602,17 @@ async def operate_video_mask_keyframe(
         privileged=privileged,
     )
 
-    annotation = (
-        await db.execute(
-            select(Annotation)
-            .where(Annotation.id == annotation_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
+    try:
+        rows = await _read_annotation_rows(
+            db,
+            task_id=task.id,
+            actor_id=user.id,
+            annotation_ids=(annotation_id,),
+            lock_for_update=True,
         )
-    ).scalar_one_or_none()
+    except VideoControlRejected as exc:
+        raise _video_control_http_error(exc) from exc
+    annotation = _annotation_record(rows[0]) if rows else None
     if annotation is None or not annotation.is_active:
         raise HTTPException(status_code=404, detail="Annotation not found")
     if annotation.task_id != task.id:
@@ -601,10 +690,32 @@ async def operate_video_mask_keyframe(
         }
 
     source_version = int(annotation.version or 1)
+    try:
+        written = await video_control_command(
+            db,
+            OperateKeyframe(
+                schema="aap-labeling-video-control/v1",
+                operation="operate_keyframe",
+                task_id=task.id,
+                project_id=task.project_id,
+                actor_id=user.id,
+                expected_batch_id=task.batch_id,
+                expected_task_status=task.status,
+                expected_review_round_id=task.review_round_id,
+                annotation_id=annotation.id,
+                segment_id=segment_id,
+                frame_index=frame_index,
+                expected_version=source_version,
+                geometry=next_geometry,
+            ),
+        )
+    except VideoControlRejected as exc:
+        raise _video_control_http_error(exc) from exc
     annotation.geometry = next_geometry
-    annotation.version = source_version + 1
-    await db.flush()
-    await db.refresh(annotation)
+    annotation.version = int(written["version"])
+    annotation.updated_at = datetime.fromisoformat(
+        str(written["updated_at"]).replace("Z", "+00:00")
+    )
     resolved = resolve_track_at_frame(next_geometry, frame_index)
     normalized_outside = normalize_outside_ranges(next_geometry.get("outside") or [])
     visible_keyframes = [
@@ -679,55 +790,56 @@ def _bbox_correction_supported(model: dict) -> bool:
 
 async def enqueue_tracker_job(
     db: AsyncSession,
-    row_or_id: VideoTrackerJob | uuid.UUID,
+    row_or_id: VideoTrackerJob | VideoTrackerJobOut | uuid.UUID,
     *,
     dispatcher: VideoTrackerJobDispatcher,
     fail_closed: bool = False,
 ) -> VideoTrackerJobOut:
-    row = (
-        row_or_id
-        if isinstance(row_or_id, VideoTrackerJob)
-        else await db.get(VideoTrackerJob, row_or_id)
-    )
-    if row is None:
-        raise HTTPException(status_code=404, detail="Video tracker job not found")
-    row_id = row.id
+    row_id = row_or_id.id if hasattr(row_or_id, "id") else row_or_id
     try:
         execution_id = dispatcher.dispatch_tracker_job(row_id)
-        row.celery_task_id = execution_id
+        raw = await video_control_command(
+            db,
+            MarkEnqueued(
+                schema="aap-labeling-video-control/v1",
+                operation="mark_enqueued",
+                job_id=row_id,
+                celery_task_id=execution_id,
+            ),
+        )
+        if raw is None:
+            raise HTTPException(status_code=404, detail="Video tracker job not found")
         await db.commit()
-        await db.refresh(row)
     except Exception as exc:
         log.warning("video tracker job enqueue failed job_id=%s err=%s", row_id, exc)
         await db.rollback()
-        row = (
-            await db.execute(
-                select(VideoTrackerJob)
-                .where(VideoTrackerJob.id == row_id)
-                .with_for_update()
+        try:
+            raw = await video_control_command(
+                db,
+                MarkEnqueueFailed(
+                    schema="aap-labeling-video-control/v1",
+                    operation="mark_enqueue_failed",
+                    job_id=row_id,
+                    completed_at=_now(),
+                ),
             )
-        ).scalar_one_or_none()
-        if row is None:
+        except VideoControlRejected as control_exc:
+            raise _video_control_http_error(control_exc) from exc
+        if raw is None:
             raise HTTPException(
                 status_code=404, detail="Video tracker job not found"
             ) from exc
-        if row.status == VideoTrackerJobStatus.QUEUED.value:
-            row.status = VideoTrackerJobStatus.FAILED.value
-            row.error_message = "tracker_enqueue_failed"
-            row.completed_at = _now()
-            row.staged_result = None
         await db.commit()
-        await db.refresh(row)
         if fail_closed:
             raise HTTPException(
                 status_code=503,
                 detail={
                     "reason": "tracker_enqueue_failed",
-                    "job_id": str(row.id),
+                    "job_id": str(row_id),
                     "retryable": True,
                 },
             ) from exc
-    return _job_out(row)
+    return VideoTrackerJobOut.model_validate(raw)
 
 
 async def create_video_mask_correction_job(
@@ -740,14 +852,17 @@ async def create_video_mask_correction_job(
     user: User | IdentityActorFacts | IdentityActorStatus,
 ) -> VideoTrackerJobOut:
     _assert_frame_range(ctx, payload.from_frame, payload.to_frame)
-    annotation = (
-        await db.execute(
-            select(Annotation)
-            .where(Annotation.id == annotation_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
+    try:
+        rows = await _read_annotation_rows(
+            db,
+            task_id=task.id,
+            actor_id=user.id,
+            annotation_ids=(annotation_id,),
+            lock_for_update=True,
         )
-    ).scalar_one_or_none()
+    except VideoControlRejected as exc:
+        raise _video_control_http_error(exc) from exc
+    annotation = _annotation_record(rows[0]) if rows else None
     if annotation is None or not annotation.is_active:
         raise HTTPException(status_code=404, detail="Annotation not found")
     if annotation.task_id != task.id:
@@ -798,16 +913,20 @@ async def create_video_mask_correction_job(
             },
         )
 
-    existing = (
-        await db.execute(
-            select(VideoTrackerJob.id).where(
-                VideoTrackerJob.task_id == task.id,
-                VideoTrackerJob.job_kind == VideoTrackerJobKind.CORRECTION.value,
-                VideoTrackerJob.track_id_snapshot == track_id,
-                VideoTrackerJob.status.in_(_ACTIVE_CORRECTION_STATUSES),
-            )
+    try:
+        existing = await video_control_command(
+            db,
+            ReadActiveCorrection(
+                schema="aap-labeling-video-control/v1",
+                operation="read_active_correction",
+                task_id=task.id,
+                actor_id=user.id,
+                track_id=track_id,
+            ),
         )
-    ).scalar_one_or_none()
+    except VideoControlRejected as exc:
+        raise _video_control_http_error(exc) from exc
+    existing = uuid.UUID(str(existing)) if existing is not None else None
     if existing is not None:
         raise HTTPException(
             status_code=409,
@@ -899,15 +1018,37 @@ async def create_video_mask_correction_job(
         )
 
     privileged = await _is_privileged(db, task, user)
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, project_id=task.project_id)
     grid_step = derive_step(
         ctx.metadata.fps,
         (project.video_sampling or {}) if project else {},
     )
     segment_id = await _assert_segment_lock(
-        db, ctx, payload, user, privileged=privileged
+        db, ctx, task, payload, user, privileged=privileged
     )
-    segment = await db.get(VideoSegment, segment_id)
+    try:
+        segment_data = await video_control_command(
+            db,
+            ReadSegments(
+                schema="aap-labeling-video-control/v1",
+                operation="read_segments",
+                task_id=task.id,
+                project_id=task.project_id,
+                actor_id=user.id,
+                dataset_item_id=ctx.dataset_item_id,
+                segment_id=segment_id,
+                from_frame=payload.from_frame,
+                to_frame=payload.to_frame,
+                count_segments=False,
+            ),
+        )
+    except VideoControlRejected as exc:
+        raise _video_control_http_error(exc) from exc
+    segment = (
+        _segment_record(segment_data["segments"][0])
+        if segment_data["segments"]
+        else None
+    )
     if segment is None:
         raise HTTPException(status_code=404, detail="Video segment not found")
     pool_id = await backend_service.pool_id_for_registry(backend.id)
@@ -944,44 +1085,54 @@ async def create_video_mask_correction_job(
         "fallback_confirmed": bool(not native_mask and payload.allow_bbox_fallback),
         "seed_bbox": None if native_mask else seed_bbox,
     }
-    row = VideoTrackerJob(
-        task_id=task.id,
-        dataset_item_id=ctx.dataset_item_id,
-        annotation_id=annotation.id,
-        segment_id=segment_id,
-        created_by=user.id,
-        status=VideoTrackerJobStatus.QUEUED.value,
-        job_kind=VideoTrackerJobKind.CORRECTION.value,
-        track_id_snapshot=track_id,
-        correction_frame=payload.correction_frame,
-        model_key=payload.model_key,
-        direction=payload.direction,
-        from_frame=payload.from_frame,
-        to_frame=payload.to_frame,
-        prompt={
-            "output_geometry": "mask",
-            "expected_source_versions": {str(annotation.id): current_version},
-            "correction": correction,
-            **({"text": payload.text} if payload.text else {}),
-            **({"sam_variant": payload.sam_variant} if payload.sam_variant else {}),
-        },
-        event_channel="pending",
-    )
-    db.add(row)
+    prompt = {
+        "output_geometry": "mask",
+        "expected_source_versions": {str(annotation.id): current_version},
+        "correction": correction,
+        **({"text": payload.text} if payload.text else {}),
+        **({"sam_variant": payload.sam_variant} if payload.sam_variant else {}),
+    }
     try:
-        await db.flush()
-        row.event_channel = f"video-tracker-job:{row.id}"
+        row = _job_record(
+            await video_control_command(
+                db,
+                CreateJob(
+                    schema="aap-labeling-video-control/v1",
+                    operation="create_job",
+                    task_id=task.id,
+                    project_id=task.project_id,
+                    dataset_item_id=ctx.dataset_item_id,
+                    actor_id=user.id,
+                    expected_batch_id=task.batch_id,
+                    expected_task_status=task.status,
+                    expected_review_round_id=task.review_round_id,
+                    annotation_id=annotation.id,
+                    segment_id=segment_id,
+                    target_class_name=None,
+                    target_tool_unit_id=None,
+                    job_kind="correction",
+                    track_id_snapshot=track_id,
+                    correction_frame=payload.correction_frame,
+                    model_key=payload.model_key,
+                    direction=payload.direction,
+                    from_frame=payload.from_frame,
+                    to_frame=payload.to_frame,
+                    prompt=prompt,
+                ),
+            )
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail="Video tracker job not found")
         await capture_video_tracker_input(
             db,
             actor_id=user.id,
             tracker_job_id=row.id,
             grid_step=grid_step,
         )
-    except IntegrityError as exc:
+        await db.flush()
+    except VideoControlRejected as exc:
         await db.rollback()
-        raise HTTPException(
-            status_code=409, detail={"reason": "correction_job_active"}
-        ) from exc
+        raise _video_control_http_error(exc) from exc
     return _job_out(row)
 
 
@@ -1022,7 +1173,7 @@ async def _validate_sourceless_target(
             status_code=422,
             detail="Sourceless tracking requires target_class_name and target_tool_unit_id",
         )
-    project = await db.get(Project, project_id)
+    project = await get_workspace_project(db, project_id=project_id)
     binding = (project.tool_bindings or {}).get(tool_unit_id) if project else None
     classes = binding.get("classes") if isinstance(binding, dict) else None
     allowed = {
@@ -1093,7 +1244,7 @@ async def create_tracker_job(
         annotation_id = None
         seeds: list[dict] = []
         for obj_id, sid in enumerate(multi_source_ids, start=1):
-            source = await _load_annotation(db, task, sid)
+            source = await _load_annotation(db, task, sid, user.id)
             if is_polyline_track(source.geometry or {}):
                 raise HTTPException(status_code=400, detail="polyline 轨迹追踪暂不支持")
             expected_source_versions[str(sid)] = int(source.version or 1)
@@ -1110,7 +1261,7 @@ async def create_tracker_job(
     # v0.22.1 · B · 源轨迹可选: 无源检测 (annotation_id is None) 不加载 source / 不查 polyline,
     # 新建轨迹类别由 payload.target_* 显式指定。有源延展保留 polyline 400 拒绝。
     elif annotation_id is not None:
-        annotation = await _load_annotation(db, task, annotation_id)
+        annotation = await _load_annotation(db, task, annotation_id, user.id)
         # polyline 轨迹追踪暂不支持: runner 只识别 polygon/bbox track, polyline 会命中 bbox
         # fallback → 原关键帧被静默改写成空 bbox 轨迹 (points 全丢), 故在入口用 400 明确拒绝。
         if is_polyline_track(annotation.geometry or {}):
@@ -1125,62 +1276,75 @@ async def create_tracker_job(
             payload.target_tool_unit_id,
         )
     privileged = await _is_privileged(db, task, user)
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, project_id=task.project_id)
     grid_step = derive_step(
         ctx.metadata.fps,
         (project.video_sampling or {}) if project else {},
     )
     segment_id = await _assert_segment_lock(
-        db, ctx, payload, user, privileged=privileged
+        db, ctx, task, payload, user, privileged=privileged
     )
 
     # v0.22.1 · B · 无源检测 (无单主且非多源) 才存显式目标类别; 有源延展 / 多源批量各自继承源。
-    row = VideoTrackerJob(
-        task_id=task.id,
-        dataset_item_id=ctx.dataset_item_id,
-        annotation_id=annotation_id,
-        target_class_name=payload.target_class_name if sourceless else None,
-        target_tool_unit_id=payload.target_tool_unit_id if sourceless else None,
-        segment_id=segment_id,
-        created_by=user.id,
-        status=VideoTrackerJobStatus.QUEUED.value,
-        model_key=payload.model_key,
-        direction=payload.direction,
-        from_frame=payload.from_frame,
-        to_frame=payload.to_frame,
-        # v0.10.36 · sam_variant 存进自由 JSONB prompt (无需 DB 迁移).
-        # v0.21.19 · text-driven 追踪的 text/exemplars 同样落 prompt JSONB, runner 读出后
-        # 经 TrackerContext 显式字段透传到 backend (见 video_tracker_adapters context)。
-        prompt={
-            **(payload.prompt or {}),
-            # v0.22.2 · M · 多源 seeds (各 obj_id ↔ 各源) 覆盖 payload.prompt 里同名键。
-            **seed_prompt,
-            **({"sam_variant": payload.sam_variant} if payload.sam_variant else {}),
-            **({"text": payload.text} if payload.text else {}),
-            **(
-                {"output_geometry": payload.output_geometry}
-                if payload.output_geometry
-                else {}
+    prompt = {
+        **(payload.prompt or {}),
+        # v0.22.2 · M · 多源 seeds (各 obj_id ↔ 各源) 覆盖 payload.prompt 里同名键。
+        **seed_prompt,
+        **({"sam_variant": payload.sam_variant} if payload.sam_variant else {}),
+        **({"text": payload.text} if payload.text else {}),
+        **(
+            {"output_geometry": payload.output_geometry}
+            if payload.output_geometry
+            else {}
+        ),
+        **(
+            {"exemplars": [e.model_dump() for e in payload.exemplars]}
+            if payload.exemplars
+            else {}
+        ),
+        # v0.23.5 · WS-D · D4 · snapshot of source annotation versions at job
+        # creation; accept_tracker_job re-reads with_for_update and 409s on
+        # any drift. Source-backed legacy jobs without this proof fail closed.
+        **(
+            {"expected_source_versions": expected_source_versions}
+            if expected_source_versions
+            else {}
+        ),
+    }
+    try:
+        raw = await video_control_command(
+            db,
+            CreateJob(
+                schema="aap-labeling-video-control/v1",
+                operation="create_job",
+                task_id=task.id,
+                project_id=task.project_id,
+                dataset_item_id=ctx.dataset_item_id,
+                actor_id=user.id,
+                expected_batch_id=task.batch_id,
+                expected_task_status=task.status,
+                expected_review_round_id=task.review_round_id,
+                annotation_id=annotation_id,
+                segment_id=segment_id,
+                target_class_name=payload.target_class_name if sourceless else None,
+                target_tool_unit_id=payload.target_tool_unit_id if sourceless else None,
+                job_kind="tracking",
+                track_id_snapshot=None,
+                correction_frame=None,
+                model_key=payload.model_key,
+                direction=payload.direction,
+                from_frame=payload.from_frame,
+                to_frame=payload.to_frame,
+                prompt=prompt,
             ),
-            **(
-                {"exemplars": [e.model_dump() for e in payload.exemplars]}
-                if payload.exemplars
-                else {}
-            ),
-            # v0.23.5 · WS-D · D4 · snapshot of source annotation versions at job
-            # creation; accept_tracker_job re-reads with_for_update and 409s on
-            # any drift. Source-backed legacy jobs without this proof fail closed.
-            **(
-                {"expected_source_versions": expected_source_versions}
-                if expected_source_versions
-                else {}
-            ),
-        },
-        event_channel="pending",
-    )
-    db.add(row)
-    await db.flush()
-    row.event_channel = f"video-tracker-job:{row.id}"
+        )
+    except VideoControlRejected as exc:
+        raise _video_control_http_error(exc) from exc
+    row = _job_record(raw)
+    if row is None:
+        raise HTTPException(
+            status_code=503, detail={"reason": "video_control_unavailable"}
+        )
     await capture_video_tracker_input(
         db,
         actor_id=user.id,
@@ -1188,70 +1352,56 @@ async def create_tracker_job(
         grid_step=grid_step,
     )
     await db.commit()
-    await db.refresh(row)
 
-    await enqueue_tracker_job(db, row, dispatcher=dispatcher)
-
-    return _job_out(row)
+    return await enqueue_tracker_job(db, row.id, dispatcher=dispatcher)
 
 
-async def get_tracker_job(db: AsyncSession, job_id: uuid.UUID) -> VideoTrackerJob:
-    row = await db.get(VideoTrackerJob, job_id)
+async def get_tracker_job(db: AsyncSession, job_id: uuid.UUID, actor_id: uuid.UUID):
+    try:
+        raw = await video_control_command(
+            db,
+            ReadJob(
+                schema="aap-labeling-video-control/v1",
+                operation="read_job",
+                job_id=job_id,
+                actor_id=actor_id,
+            ),
+        )
+    except VideoControlRejected as exc:
+        if exc.status_code == 404:
+            raise HTTPException(
+                status_code=404, detail="Video tracker job not found"
+            ) from exc
+        raise _video_control_http_error(exc) from exc
+    row = _job_record(raw)
     if row is None:
         raise HTTPException(status_code=404, detail="Video tracker job not found")
     return row
 
 
-async def cancel_tracker_job(db: AsyncSession, job_id: uuid.UUID) -> VideoTrackerJobOut:
-    row = (
-        await db.execute(
-            select(VideoTrackerJob)
-            .where(VideoTrackerJob.id == job_id)
-            .with_for_update()
+async def cancel_tracker_job(
+    db: AsyncSession, job_id: uuid.UUID, *, actor_id: uuid.UUID
+) -> VideoTrackerJobOut:
+    try:
+        raw = await video_control_command(
+            db,
+            CancelJob(
+                schema="aap-labeling-video-control/v1",
+                operation="cancel_job",
+                job_id=job_id,
+                actor_id=actor_id,
+                now=_now(),
+            ),
         )
-    ).scalar_one_or_none()
+    except VideoControlRejected as exc:
+        if exc.status_code == 404:
+            raise HTTPException(
+                status_code=404, detail="Video tracker job not found"
+            ) from exc
+        raise _video_control_http_error(exc) from exc
+    row = _job_record(raw)
     if row is None:
         raise HTTPException(status_code=404, detail="Video tracker job not found")
-    is_correction = row.job_kind == VideoTrackerJobKind.CORRECTION.value
-    if is_correction and row.status in {
-        VideoTrackerJobStatus.ACCEPTED.value,
-        VideoTrackerJobStatus.DISCARDED.value,
-        VideoTrackerJobStatus.FAILED.value,
-    }:
-        await db.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail={"reason": "correction_job_terminal", "status": row.status},
-        )
-    if is_correction and row.status in {
-        VideoTrackerJobStatus.PENDING_REVIEW.value,
-        VideoTrackerJobStatus.PARTIALLY_REVIEWED.value,
-    }:
-        now = _now()
-        row.status = VideoTrackerJobStatus.CANCELLED.value
-        row.staged_result = None
-        row.cancel_requested_at = row.cancel_requested_at or now
-        row.completed_at = row.completed_at or now
-    elif row.status in {
-        VideoTrackerJobStatus.PENDING_REVIEW.value,
-        VideoTrackerJobStatus.PARTIALLY_REVIEWED.value,
-    }:
-        # 候选待审不是"运行中"任务, 不能 cancel; 让前端据 409 引导用户改用 discard,
-        # 而不是静默返回 200 让人以为取消没生效。
-        await db.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail="Candidate awaiting review cannot be cancelled; discard it instead",
-        )
-    if row.status not in _TERMINAL_STATUSES:
-        now = _now()
-        row.status = VideoTrackerJobStatus.CANCELLED.value
-        if is_correction:
-            row.staged_result = None
-        row.cancel_requested_at = row.cancel_requested_at or now
-        row.completed_at = row.completed_at or now
-    await db.flush()
-    await db.refresh(row)
     return _job_out(row)
 
 
@@ -1275,11 +1425,11 @@ async def accept_tracker_job(
 
 
 async def discard_tracker_job(
-    db: AsyncSession, job_id: uuid.UUID
+    db: AsyncSession, job_id: uuid.UUID, *, actor_id: uuid.UUID
 ) -> VideoTrackerJobOut:
     """v0.21.28 · 丢弃候选: status=DISCARDED, 清 staged_result, annotation 零改动。"""
     try:
-        row = await _runner.discard_tracker_job(db, job_id)
+        row = await _runner.discard_tracker_job(db, job_id, actor_id=actor_id)
     except _runner.TrackerJobStateConflict as exc:
         raise HTTPException(status_code=409, detail=exc.detail) from exc
     if row is None:
@@ -1322,28 +1472,36 @@ async def decide_tracker_job(
     return result
 
 
-async def tracker_job_preview(db: AsyncSession, row: VideoTrackerJob) -> dict[str, Any]:
+async def tracker_job_preview(
+    db: AsyncSession, row: VideoTrackerJob, *, actor_id: uuid.UUID
+) -> dict[str, Any]:
     staged = dict(row.staged_result or {})
     results = [
         _runner._ensure_candidate_contract(item)
         for item in (staged.get("results") or [])
         if isinstance(item, dict)
     ]
-    source_ids = _runner._review_source_map_ids(row, staged)
+    source_ids = (
+        {}
+        if row.staged_result is None
+        and row.status in {"queued", "running", "failed", "cancelled"}
+        else _runner._review_source_map_ids(row, staged)
+    )
     annotation_ids = set(source_ids.values())
     annotations = {}
     if annotation_ids:
+        try:
+            rows = await _read_annotation_rows(
+                db,
+                task_id=row.task_id,
+                actor_id=actor_id,
+                annotation_ids=tuple(sorted(annotation_ids, key=str)),
+            )
+        except VideoControlRejected as exc:
+            raise _video_control_http_error(exc) from exc
         annotations = {
             annotation.id: annotation
-            for annotation in (
-                (
-                    await db.execute(
-                        select(Annotation).where(Annotation.id.in_(annotation_ids))
-                    )
-                )
-                .scalars()
-                .all()
-            )
+            for annotation in (_annotation_record(item) for item in rows)
         }
     state = _runner._review_state(row)
     instance_annotations = dict(state.get("instance_annotations") or {})
@@ -1419,36 +1577,24 @@ async def list_reviewable_tracker_jobs(
     user: User | IdentityActorFacts,
 ) -> list[VideoTrackerJobOut]:
     """Return server-side candidates that the current workbench user can resume."""
-    conditions = [
-        VideoTrackerJob.task_id == task.id,
-        VideoTrackerJob.status.in_(
-            [
-                VideoTrackerJobStatus.PENDING_REVIEW.value,
-                VideoTrackerJobStatus.PARTIALLY_REVIEWED.value,
-                VideoTrackerJobStatus.CANCELLED.value,
-            ]
-        ),
-        VideoTrackerJob.staged_result.is_not(None),
-    ]
-    claimed_reviewer = bool(
-        task.status == "review"
-        and task.reviewer_id == user.id
-        and task.reviewer_claimed_at is not None
-    )
-    if not claimed_reviewer and not await _is_privileged(db, task, user):
-        conditions.append(VideoTrackerJob.created_by == user.id)
-    rows = (
-        (
-            await db.execute(
-                select(VideoTrackerJob)
-                .where(*conditions)
-                .order_by(VideoTrackerJob.created_at.desc(), VideoTrackerJob.id.desc())
-            )
+    try:
+        rows = await video_control_command(
+            db,
+            ReadTaskJobs(
+                schema="aap-labeling-video-control/v1",
+                operation="read_task_jobs",
+                task_id=task.id,
+                actor_id=user.id,
+                statuses=("pending_review", "partially_reviewed", "cancelled"),
+            ),
         )
-        .scalars()
-        .all()
-    )
-    return [_job_out(row) for row in rows]
+    except VideoControlRejected as exc:
+        raise _video_control_http_error(exc) from exc
+    return [
+        _job_out(_job_record(row))
+        for row in rows
+        if row.get("staged_result") is not None
+    ]
 
 
 async def list_active_tracker_jobs(
@@ -1458,29 +1604,52 @@ async def list_active_tracker_jobs(
     user: User | IdentityActorFacts,
 ) -> list[VideoTrackerJobOut]:
     """Return in-flight (queued/running) jobs so the workbench can reconnect their WS after reload."""
-    conditions = [
-        VideoTrackerJob.task_id == task.id,
-        VideoTrackerJob.status.in_(
-            [
-                VideoTrackerJobStatus.QUEUED.value,
-                VideoTrackerJobStatus.RUNNING.value,
-            ]
-        ),
-    ]
-    if not await _is_privileged(db, task, user):
-        conditions.append(VideoTrackerJob.created_by == user.id)
-    rows = (
-        (
-            await db.execute(
-                select(VideoTrackerJob)
-                .where(*conditions)
-                .order_by(VideoTrackerJob.created_at.desc(), VideoTrackerJob.id.desc())
-            )
+    try:
+        rows = await video_control_command(
+            db,
+            ReadTaskJobs(
+                schema="aap-labeling-video-control/v1",
+                operation="read_task_jobs",
+                task_id=task.id,
+                actor_id=user.id,
+                statuses=("queued", "running"),
+            ),
         )
-        .scalars()
-        .all()
-    )
-    return [_job_out(row) for row in rows]
+    except VideoControlRejected as exc:
+        raise _video_control_http_error(exc) from exc
+    return [_job_out(_job_record(row)) for row in rows]
+
+
+async def list_tracker_timeline(
+    db: AsyncSession,
+    *,
+    actor_id: uuid.UUID,
+    model_key: str | None,
+    project_id: uuid.UUID | None,
+    allowed_project_ids: tuple[uuid.UUID, ...] | None,
+    status: str | None,
+    cursor_created_at: datetime | None,
+    cursor_id: uuid.UUID | None,
+    limit: int,
+) -> dict[str, Any]:
+    try:
+        return await video_control_command(
+            db,
+            ListTimeline(
+                schema="aap-labeling-video-control/v1",
+                operation="list_timeline",
+                actor_id=actor_id,
+                model_key=model_key,
+                project_id=project_id,
+                allowed_project_ids=allowed_project_ids,
+                status=status,
+                cursor_created_at=cursor_created_at,
+                cursor_id=cursor_id,
+                limit=limit,
+            ),
+        )
+    except VideoControlRejected as exc:
+        raise _video_control_http_error(exc) from exc
 
 
 def tracker_job_out(row: VideoTrackerJob) -> VideoTrackerJobOut:

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-jobs-fixture-cleanup/v1",
+  "$defs": {
+    "FixtureProjectCleanupRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "project_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Project Ids",
+          "type": "array"
+        }
+      },
+      "required": ["project_ids"],
+      "title": "FixtureProjectCleanupRequest",
+      "type": "object"
+    },
+    "FixtureCleanupCount": {
+      "maximum": 9223372036854775807,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "x-postgresql-functions": {
+    "aap_jobs_v1.delete_fixture_project_jobs": {
+      "arguments": "uuid[]",
+      "returns": "bigint",
+      "volatility": "volatile",
+      "parallel": "unsafe"
+    }
+  },
+  "x-scope": "current project_id = ANY(project_ids); all kinds/statuses; retained scope excluded",
+  "x-empty-scope": "zero rows; duplicate IDs do not duplicate affected rows",
+  "x-security": {
+    "database": "actual database name must end in _test or _e2e",
+    "owner": "Jobs definer; PUBLIC execute revoked",
+    "guard": "aap_workspace_fixture_v1.guard_project_cleanup(uuid[])",
+    "search_path": "pg_catalog,pg_temp"
+  },
+  "x-errors": {
+    "42501": "non-test database or missing capability",
+    "22023": "NULL/null-element scope or malformed Workspace guard",
+    "23514": "video_execution_not_retired",
+    "55P03": "project NOWAIT lock contention"
+  },
+  "x-transactions": {
+    "commit": false,
+    "rollback": false,
+    "locks": "Workspace project/retirement guard retained in caller transaction",
+    "triggers": "original DELETE constraints and triggers retained",
+    "caller": "existing fixture gates, project selection and savepoint boundary"
+  }
+}

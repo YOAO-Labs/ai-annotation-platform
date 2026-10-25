@@ -1,0 +1,1333 @@
+{
+  "cases": {
+    "clean:autoflush=False:refresh=False": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "initial",
+          "status": "in_progress",
+          "tool_bindings": {
+            "initial": true
+          }
+        }
+      },
+      "error": null,
+      "pending_task": true,
+      "result": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "initial",
+          "status": "in_progress",
+          "tool_bindings": {
+            "initial": true
+          }
+        }
+      },
+      "same_identity": true,
+      "trace": []
+    },
+    "clean:autoflush=False:refresh=True": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "committed",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "error": null,
+      "pending_task": true,
+      "result": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "committed",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "same_identity": true,
+      "trace": ["project_read"]
+    },
+    "clean:autoflush=True:refresh=False": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "initial",
+          "status": "in_progress",
+          "tool_bindings": {
+            "initial": true
+          }
+        }
+      },
+      "error": null,
+      "pending_task": true,
+      "result": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "initial",
+          "status": "in_progress",
+          "tool_bindings": {
+            "initial": true
+          }
+        }
+      },
+      "same_identity": true,
+      "trace": []
+    },
+    "clean:autoflush=True:refresh=True": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "committed",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "error": null,
+      "pending_task": false,
+      "result": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "committed",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "same_identity": true,
+      "trace": ["task_insert", "project_read"]
+    },
+    "deleted_expired:autoflush=False:refresh=False": {
+      "cached": {
+        "deleted": true,
+        "detached": false,
+        "expired": true,
+        "modified": false,
+        "persistent": false,
+        "unloaded": [
+          "ai_enabled",
+          "ai_interactive_enabled",
+          "annotation_guide",
+          "batch_summary",
+          "box_threshold",
+          "completed_tasks",
+          "created_at",
+          "data_type",
+          "default_variants",
+          "display_id",
+          "due_date",
+          "guide_assets",
+          "id",
+          "in_progress_tasks",
+          "iou_dedup_threshold",
+          "label_config",
+          "mask_qc_config",
+          "maximum_annotations",
+          "ml_backend_pool_id",
+          "model_version",
+          "name",
+          "organization_id",
+          "owner_id",
+          "point_cloud_quality_config",
+          "preannotate_pipeline",
+          "prefer_same_scene_continuation",
+          "raster_mask_native_editing_enabled",
+          "rendering_config",
+          "review_tasks",
+          "sampling",
+          "scene_continuation_window_min",
+          "scene_mode",
+          "show_overlap_first",
+          "status",
+          "task_lock_ttl_seconds",
+          "text_threshold",
+          "tool_bindings",
+          "total_tasks",
+          "type_key",
+          "type_label",
+          "updated_at",
+          "video_collaboration",
+          "video_sampling"
+        ],
+        "values": {
+          "name": "__unloaded__",
+          "status": "__unloaded__",
+          "tool_bindings": "__unloaded__"
+        }
+      },
+      "error": null,
+      "pending_task": false,
+      "result": null,
+      "same_identity": false,
+      "trace": ["project_read", "project_read"]
+    },
+    "deleted_expired:autoflush=False:refresh=True": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": true,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [
+          "ai_enabled",
+          "ai_interactive_enabled",
+          "annotation_guide",
+          "batch_summary",
+          "box_threshold",
+          "completed_tasks",
+          "created_at",
+          "data_type",
+          "default_variants",
+          "display_id",
+          "due_date",
+          "guide_assets",
+          "id",
+          "in_progress_tasks",
+          "iou_dedup_threshold",
+          "label_config",
+          "mask_qc_config",
+          "maximum_annotations",
+          "ml_backend_pool_id",
+          "model_version",
+          "name",
+          "organization_id",
+          "owner_id",
+          "point_cloud_quality_config",
+          "preannotate_pipeline",
+          "prefer_same_scene_continuation",
+          "raster_mask_native_editing_enabled",
+          "rendering_config",
+          "review_tasks",
+          "sampling",
+          "scene_continuation_window_min",
+          "scene_mode",
+          "show_overlap_first",
+          "status",
+          "task_lock_ttl_seconds",
+          "text_threshold",
+          "tool_bindings",
+          "total_tasks",
+          "type_key",
+          "type_label",
+          "updated_at",
+          "video_collaboration",
+          "video_sampling"
+        ],
+        "values": {
+          "name": "__unloaded__",
+          "status": "__unloaded__",
+          "tool_bindings": "__unloaded__"
+        }
+      },
+      "error": null,
+      "pending_task": false,
+      "result": null,
+      "same_identity": false,
+      "trace": ["project_read"]
+    },
+    "deleted_expired:autoflush=True:refresh=False": {
+      "cached": {
+        "deleted": true,
+        "detached": false,
+        "expired": true,
+        "modified": false,
+        "persistent": false,
+        "unloaded": [
+          "ai_enabled",
+          "ai_interactive_enabled",
+          "annotation_guide",
+          "batch_summary",
+          "box_threshold",
+          "completed_tasks",
+          "created_at",
+          "data_type",
+          "default_variants",
+          "display_id",
+          "due_date",
+          "guide_assets",
+          "id",
+          "in_progress_tasks",
+          "iou_dedup_threshold",
+          "label_config",
+          "mask_qc_config",
+          "maximum_annotations",
+          "ml_backend_pool_id",
+          "model_version",
+          "name",
+          "organization_id",
+          "owner_id",
+          "point_cloud_quality_config",
+          "preannotate_pipeline",
+          "prefer_same_scene_continuation",
+          "raster_mask_native_editing_enabled",
+          "rendering_config",
+          "review_tasks",
+          "sampling",
+          "scene_continuation_window_min",
+          "scene_mode",
+          "show_overlap_first",
+          "status",
+          "task_lock_ttl_seconds",
+          "text_threshold",
+          "tool_bindings",
+          "total_tasks",
+          "type_key",
+          "type_label",
+          "updated_at",
+          "video_collaboration",
+          "video_sampling"
+        ],
+        "values": {
+          "name": "__unloaded__",
+          "status": "__unloaded__",
+          "tool_bindings": "__unloaded__"
+        }
+      },
+      "error": null,
+      "pending_task": false,
+      "result": null,
+      "same_identity": false,
+      "trace": ["project_read", "project_read"]
+    },
+    "deleted_expired:autoflush=True:refresh=True": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": true,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [
+          "ai_enabled",
+          "ai_interactive_enabled",
+          "annotation_guide",
+          "batch_summary",
+          "box_threshold",
+          "completed_tasks",
+          "created_at",
+          "data_type",
+          "default_variants",
+          "display_id",
+          "due_date",
+          "guide_assets",
+          "id",
+          "in_progress_tasks",
+          "iou_dedup_threshold",
+          "label_config",
+          "mask_qc_config",
+          "maximum_annotations",
+          "ml_backend_pool_id",
+          "model_version",
+          "name",
+          "organization_id",
+          "owner_id",
+          "point_cloud_quality_config",
+          "preannotate_pipeline",
+          "prefer_same_scene_continuation",
+          "raster_mask_native_editing_enabled",
+          "rendering_config",
+          "review_tasks",
+          "sampling",
+          "scene_continuation_window_min",
+          "scene_mode",
+          "show_overlap_first",
+          "status",
+          "task_lock_ttl_seconds",
+          "text_threshold",
+          "tool_bindings",
+          "total_tasks",
+          "type_key",
+          "type_label",
+          "updated_at",
+          "video_collaboration",
+          "video_sampling"
+        ],
+        "values": {
+          "name": "__unloaded__",
+          "status": "__unloaded__",
+          "tool_bindings": "__unloaded__"
+        }
+      },
+      "error": null,
+      "pending_task": false,
+      "result": null,
+      "same_identity": false,
+      "trace": ["project_read"]
+    },
+    "deleted_refresh:autoflush=False:refresh=False": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "initial",
+          "status": "in_progress",
+          "tool_bindings": {
+            "initial": true
+          }
+        }
+      },
+      "error": null,
+      "pending_task": false,
+      "result": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "initial",
+          "status": "in_progress",
+          "tool_bindings": {
+            "initial": true
+          }
+        }
+      },
+      "same_identity": true,
+      "trace": []
+    },
+    "deleted_refresh:autoflush=False:refresh=True": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "initial",
+          "status": "in_progress",
+          "tool_bindings": {
+            "initial": true
+          }
+        }
+      },
+      "error": null,
+      "pending_task": false,
+      "result": null,
+      "same_identity": false,
+      "trace": ["project_read"]
+    },
+    "deleted_refresh:autoflush=True:refresh=False": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "initial",
+          "status": "in_progress",
+          "tool_bindings": {
+            "initial": true
+          }
+        }
+      },
+      "error": null,
+      "pending_task": false,
+      "result": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "initial",
+          "status": "in_progress",
+          "tool_bindings": {
+            "initial": true
+          }
+        }
+      },
+      "same_identity": true,
+      "trace": []
+    },
+    "deleted_refresh:autoflush=True:refresh=True": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "initial",
+          "status": "in_progress",
+          "tool_bindings": {
+            "initial": true
+          }
+        }
+      },
+      "error": null,
+      "pending_task": false,
+      "result": null,
+      "same_identity": false,
+      "trace": ["project_read"]
+    },
+    "dirty:autoflush=False:refresh=False": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": true,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "pending local",
+          "status": "in_progress",
+          "tool_bindings": {
+            "initial": true
+          }
+        }
+      },
+      "error": null,
+      "pending_task": true,
+      "result": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": true,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "pending local",
+          "status": "in_progress",
+          "tool_bindings": {
+            "initial": true
+          }
+        }
+      },
+      "same_identity": true,
+      "trace": []
+    },
+    "dirty:autoflush=False:refresh=True": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "committed",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "error": null,
+      "pending_task": true,
+      "result": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "committed",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "same_identity": true,
+      "trace": ["project_read"]
+    },
+    "dirty:autoflush=True:refresh=False": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": true,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "pending local",
+          "status": "in_progress",
+          "tool_bindings": {
+            "initial": true
+          }
+        }
+      },
+      "error": null,
+      "pending_task": true,
+      "result": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": true,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "pending local",
+          "status": "in_progress",
+          "tool_bindings": {
+            "initial": true
+          }
+        }
+      },
+      "same_identity": true,
+      "trace": []
+    },
+    "dirty:autoflush=True:refresh=True": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "pending local",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "error": null,
+      "pending_task": false,
+      "result": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "pending local",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "same_identity": true,
+      "trace": ["project_update", "task_insert", "project_read"]
+    },
+    "expired:autoflush=False:refresh=False": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "committed",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "error": null,
+      "pending_task": true,
+      "result": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "committed",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "same_identity": true,
+      "trace": ["project_read"]
+    },
+    "expired:autoflush=False:refresh=True": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "committed",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "error": null,
+      "pending_task": true,
+      "result": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "committed",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "same_identity": true,
+      "trace": ["project_read"]
+    },
+    "expired:autoflush=True:refresh=False": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "committed",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "error": null,
+      "pending_task": false,
+      "result": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "committed",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "same_identity": true,
+      "trace": ["task_insert", "project_read"]
+    },
+    "expired:autoflush=True:refresh=True": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "committed",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "error": null,
+      "pending_task": false,
+      "result": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "committed",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "same_identity": true,
+      "trace": ["task_insert", "project_read"]
+    },
+    "expired_dirty:autoflush=False:refresh=False": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": true,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "pending local",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "error": null,
+      "pending_task": true,
+      "result": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": true,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "pending local",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "same_identity": true,
+      "trace": ["project_read"]
+    },
+    "expired_dirty:autoflush=False:refresh=True": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "committed",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "error": null,
+      "pending_task": true,
+      "result": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "committed",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "same_identity": true,
+      "trace": ["project_read"]
+    },
+    "expired_dirty:autoflush=True:refresh=False": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "pending local",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "error": null,
+      "pending_task": false,
+      "result": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "pending local",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "same_identity": true,
+      "trace": ["project_read", "project_update", "task_insert", "project_read"]
+    },
+    "expired_dirty:autoflush=True:refresh=True": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "pending local",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "error": null,
+      "pending_task": false,
+      "result": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "pending local",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "same_identity": true,
+      "trace": ["project_read", "project_update", "task_insert", "project_read"]
+    },
+    "invalid_date_cached:autoflush=False:refresh=False": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "initial",
+          "status": "in_progress",
+          "tool_bindings": {
+            "initial": true
+          }
+        }
+      },
+      "error": null,
+      "pending_task": true,
+      "result": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "initial",
+          "status": "in_progress",
+          "tool_bindings": {
+            "initial": true
+          }
+        }
+      },
+      "same_identity": true,
+      "trace": []
+    },
+    "invalid_date_cached:autoflush=False:refresh=True": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "initial",
+          "status": "in_progress",
+          "tool_bindings": {
+            "initial": true
+          }
+        }
+      },
+      "error": "ValueError",
+      "pending_task": true,
+      "result": null,
+      "same_identity": false,
+      "trace": ["project_read"]
+    },
+    "invalid_date_cached:autoflush=True:refresh=False": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "initial",
+          "status": "in_progress",
+          "tool_bindings": {
+            "initial": true
+          }
+        }
+      },
+      "error": null,
+      "pending_task": true,
+      "result": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "initial",
+          "status": "in_progress",
+          "tool_bindings": {
+            "initial": true
+          }
+        }
+      },
+      "same_identity": true,
+      "trace": []
+    },
+    "invalid_date_cached:autoflush=True:refresh=True": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "initial",
+          "status": "in_progress",
+          "tool_bindings": {
+            "initial": true
+          }
+        }
+      },
+      "error": "ValueError",
+      "pending_task": false,
+      "result": null,
+      "same_identity": false,
+      "trace": ["task_insert", "project_read"]
+    },
+    "miss:autoflush=False:refresh=False": {
+      "cached": null,
+      "error": null,
+      "pending_task": true,
+      "result": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "committed",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "same_identity": false,
+      "trace": ["project_read"]
+    },
+    "miss:autoflush=False:refresh=True": {
+      "cached": null,
+      "error": null,
+      "pending_task": true,
+      "result": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "committed",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "same_identity": false,
+      "trace": ["project_read"]
+    },
+    "miss:autoflush=True:refresh=False": {
+      "cached": null,
+      "error": null,
+      "pending_task": false,
+      "result": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "committed",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "same_identity": false,
+      "trace": ["task_insert", "project_read"]
+    },
+    "miss:autoflush=True:refresh=True": {
+      "cached": null,
+      "error": null,
+      "pending_task": false,
+      "result": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "committed",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "same_identity": false,
+      "trace": ["task_insert", "project_read"]
+    },
+    "missing:autoflush=False:refresh=False": {
+      "cached": null,
+      "error": null,
+      "pending_task": true,
+      "result": null,
+      "same_identity": false,
+      "trace": ["project_read"]
+    },
+    "missing:autoflush=False:refresh=True": {
+      "cached": null,
+      "error": null,
+      "pending_task": true,
+      "result": null,
+      "same_identity": false,
+      "trace": ["project_read"]
+    },
+    "missing:autoflush=True:refresh=False": {
+      "cached": null,
+      "error": null,
+      "pending_task": false,
+      "result": null,
+      "same_identity": false,
+      "trace": ["task_insert", "project_read"]
+    },
+    "missing:autoflush=True:refresh=True": {
+      "cached": null,
+      "error": null,
+      "pending_task": false,
+      "result": null,
+      "same_identity": false,
+      "trace": ["task_insert", "project_read"]
+    },
+    "partial:autoflush=False:refresh=False": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": ["status"],
+        "values": {
+          "name": "initial",
+          "status": "__unloaded__",
+          "tool_bindings": {
+            "initial": true
+          }
+        }
+      },
+      "error": null,
+      "pending_task": true,
+      "result": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": ["status"],
+        "values": {
+          "name": "initial",
+          "status": "__unloaded__",
+          "tool_bindings": {
+            "initial": true
+          }
+        }
+      },
+      "same_identity": true,
+      "trace": []
+    },
+    "partial:autoflush=False:refresh=True": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "committed",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "error": null,
+      "pending_task": true,
+      "result": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "committed",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "same_identity": true,
+      "trace": ["project_read"]
+    },
+    "partial:autoflush=True:refresh=False": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": ["status"],
+        "values": {
+          "name": "initial",
+          "status": "__unloaded__",
+          "tool_bindings": {
+            "initial": true
+          }
+        }
+      },
+      "error": null,
+      "pending_task": true,
+      "result": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": ["status"],
+        "values": {
+          "name": "initial",
+          "status": "__unloaded__",
+          "tool_bindings": {
+            "initial": true
+          }
+        }
+      },
+      "same_identity": true,
+      "trace": []
+    },
+    "partial:autoflush=True:refresh=True": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "committed",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "error": null,
+      "pending_task": false,
+      "result": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "name": "committed",
+          "status": "completed",
+          "tool_bindings": {
+            "committed": true
+          }
+        }
+      },
+      "same_identity": true,
+      "trace": ["task_insert", "project_read"]
+    }
+  },
+  "source_commit": "a6ebe369bbb3d6a966ca05b9e40a6440ea2544f3"
+}

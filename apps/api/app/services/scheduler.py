@@ -6,17 +6,23 @@ from sqlalchemy import select, func, or_, and_, false
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import ProjectRole
+from app.services.project_access import get_workspace_project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
-from app.db.models.task_dataset_item_link import TaskDatasetItemLink
-from app.db.models.task_lock import TaskLock
-from app.db.models.annotation import Annotation
-from app.db.models.prediction import Prediction
 from app.db.models.project import Project
 from app.services.project_access import is_privileged_for_project
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.labeling_scene import read_spatial_item_facts, resolve_primary_item_id
 from app.services.task_lock import TaskLockService, assert_task_user_active
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    batch_row,
+    get_core_row,
+    prediction_row,
+    task_row,
+    task_dataset_item_link_row,
+    task_lock_row,
+)
 
 _PRIMARY_LIDAR_ROLE = "primary_lidar"
 
@@ -49,7 +55,9 @@ REVIEWER_VISIBLE_BATCH_STATUSES = ["active", "annotating", "reviewing"]
 WORKBENCH_VISIBLE_BATCH_STATUSES = ["active", "annotating"]
 
 
-def batch_visibility_clause(actor_id: uuid.UUID, *, project_role: str | None = None):
+def batch_visibility_clause(
+    actor_id: uuid.UUID, *, project_role: str | None = None, batch_model=TaskBatch
+):
     """返回应用到 TaskBatch 的可见性 WHERE 子句，按**项目职责**分支：
 
     - reviewer：active / annotating / reviewing，**不**受 annotator 约束
@@ -63,25 +71,27 @@ def batch_visibility_clause(actor_id: uuid.UUID, *, project_role: str | None = N
     调用方需自行 JOIN TaskBatch。
     """
     if project_role == ProjectRole.REVIEWER.value:
-        return TaskBatch.status.in_(REVIEWER_VISIBLE_BATCH_STATUSES)
+        return batch_model.status.in_(REVIEWER_VISIBLE_BATCH_STATUSES)
     if project_role not in (
         ProjectRole.ANNOTATOR.value,
         ProjectRole.VIEWER.value,
     ):
         return false()
 
-    is_self = TaskBatch.annotator_id == actor_id
+    is_self = batch_model.annotator_id == actor_id
     return or_(
         and_(
-            TaskBatch.status.in_(["active", "annotating"]),
-            or_(TaskBatch.annotator_id.is_(None), is_self),
+            batch_model.status.in_(["active", "annotating"]),
+            or_(batch_model.annotator_id.is_(None), is_self),
         ),
         # rejected 对**被分派**的标注员可见（看 reviewer 留言 + 重做）
-        and_(TaskBatch.status == "rejected", is_self),
+        and_(batch_model.status == "rejected", is_self),
     )
 
 
-def _task_assigned_to_user(actor_id: uuid.UUID):
+def _task_assigned_to_user(
+    actor_id: uuid.UUID, *, task_model=Task, batch_model=TaskBatch
+):
     """Match an explicit task assignee, falling back to its batch assignee.
 
     ``Task.assignee_id`` is the task-level override used by Data Manager
@@ -91,11 +101,11 @@ def _task_assigned_to_user(actor_id: uuid.UUID):
     reviewing work visible to every annotator.
     """
     return or_(
-        Task.assignee_id == actor_id,
+        task_model.assignee_id == actor_id,
         and_(
-            Task.assignee_id.is_(None),
-            Task.batch_id.is_not(None),
-            TaskBatch.annotator_id == actor_id,
+            task_model.assignee_id.is_(None),
+            task_model.batch_id.is_not(None),
+            batch_model.annotator_id == actor_id,
         ),
     )
 
@@ -118,21 +128,23 @@ def effective_task_reviewer_id(task: Task, batch: TaskBatch | None) -> uuid.UUID
     )
 
 
-def effective_task_assignee_expr():
+def effective_task_assignee_expr(task_model=Task, batch_model=TaskBatch):
     """Return the SQL expression matching :func:`effective_task_assignee_id`.
 
     Callers must outer-join ``TaskBatch`` when the query also includes
     unbatched tasks.
     """
-    return func.coalesce(Task.assignee_id, TaskBatch.annotator_id)
+    return func.coalesce(task_model.assignee_id, batch_model.annotator_id)
 
 
-def effective_task_reviewer_expr():
+def effective_task_reviewer_expr(task_model=Task, batch_model=TaskBatch):
     """Return the SQL expression matching the effective reviewer fallback."""
-    return func.coalesce(Task.reviewer_id, TaskBatch.reviewer_id)
+    return func.coalesce(task_model.reviewer_id, batch_model.reviewer_id)
 
 
-def task_assignment_clause(actor_id: uuid.UUID):
+def task_assignment_clause(
+    actor_id: uuid.UUID, *, task_model=Task, batch_model=TaskBatch
+):
     """Return the SQL scope for an annotator's effective task assignment.
 
     Explicit task assignments take precedence over a batch assignment.  A
@@ -141,11 +153,13 @@ def task_assignment_clause(actor_id: uuid.UUID):
     Callers must join ``TaskBatch`` with an outer join.
     """
     return or_(
-        _task_assigned_to_user(actor_id),
+        _task_assigned_to_user(
+            actor_id, task_model=task_model, batch_model=batch_model
+        ),
         and_(
-            Task.batch_id.is_not(None),
-            Task.assignee_id.is_(None),
-            TaskBatch.annotator_id.is_(None),
+            task_model.batch_id.is_not(None),
+            task_model.assignee_id.is_(None),
+            batch_model.annotator_id.is_(None),
         ),
     )
 
@@ -176,7 +190,13 @@ def annotator_can_rework_task(
     )
 
 
-def task_visibility_clause(actor_id: uuid.UUID, *, project_role: str | None = None):
+def task_visibility_clause(
+    actor_id: uuid.UUID,
+    *,
+    project_role: str | None = None,
+    task_model=Task,
+    batch_model=TaskBatch,
+):
     """Return the canonical visibility scope for a ``Task`` query.
 
     Branches on the resolved ``project_role`` (missing/unknown fails closed).
@@ -189,10 +209,12 @@ def task_visibility_clause(actor_id: uuid.UUID, *, project_role: str | None = No
     """
     if project_role == ProjectRole.REVIEWER.value:
         return or_(
-            and_(Task.batch_id.is_(None), Task.reviewer_id == actor_id),
+            and_(task_model.batch_id.is_(None), task_model.reviewer_id == actor_id),
             and_(
-                Task.batch_id.is_not(None),
-                batch_visibility_clause(actor_id, project_role=project_role),
+                task_model.batch_id.is_not(None),
+                batch_visibility_clause(
+                    actor_id, project_role=project_role, batch_model=batch_model
+                ),
             ),
         )
     if project_role not in (
@@ -201,20 +223,24 @@ def task_visibility_clause(actor_id: uuid.UUID, *, project_role: str | None = No
     ):
         return false()
     is_annotator = project_role == ProjectRole.ANNOTATOR.value
-    assigned = _task_assigned_to_user(actor_id)
+    assigned = _task_assigned_to_user(
+        actor_id, task_model=task_model, batch_model=batch_model
+    )
     arms = [
         # Keep the existing active/annotating open-pool behavior, while an
         # explicit task assignee narrows a normally batch-scoped task.  This
         # task-level override filtering applies to viewer too.
         and_(
-            Task.batch_id.is_not(None),
-            TaskBatch.status.in_(["active", "annotating"]),
-            task_assignment_clause(actor_id),
+            task_model.batch_id.is_not(None),
+            batch_model.status.in_(["active", "annotating"]),
+            task_assignment_clause(
+                actor_id, task_model=task_model, batch_model=batch_model
+            ),
         ),
         # Rejected work is visible only to its effective assignee.
         and_(
-            Task.batch_id.is_not(None),
-            TaskBatch.status == "rejected",
+            task_model.batch_id.is_not(None),
+            batch_model.status == "rejected",
             assigned,
         ),
     ]
@@ -222,15 +248,15 @@ def task_visibility_clause(actor_id: uuid.UUID, *, project_role: str | None = No
         arms.append(
             # An explicitly assigned unbatched task has no batch status to gate
             # it; only an annotator may see it.
-            and_(Task.batch_id.is_(None), Task.assignee_id == actor_id)
+            and_(task_model.batch_id.is_(None), task_model.assignee_id == actor_id)
         )
         arms.append(
             # A rejected/in-progress task can be resumed during batch review by
             # its annotator assignee; a viewer must not enter this rework arm.
             and_(
-                Task.batch_id.is_not(None),
-                TaskBatch.status == "reviewing",
-                Task.status.in_(["rejected", "in_progress"]),
+                task_model.batch_id.is_not(None),
+                batch_model.status == "reviewing",
+                task_model.status.in_(["rejected", "in_progress"]),
                 assigned,
             )
         )
@@ -249,51 +275,58 @@ async def _filter_assignable_task_ids(
     """v0.14.1 · 在 task_ids 子集内套用与 get_next_task 主路径一致的可标候选约束,
     额外排除被**他人**持有的未过期锁。返回可分配的 task_id 集合。"""
     already_annotated = (
-        select(Annotation.id)
+        select(annotation_row.id)
         .where(
-            Annotation.task_id == Task.id,
-            Annotation.user_id == actor_id,
-            Annotation.is_active.is_(True),
+            annotation_row.task_id == task_row.id,
+            annotation_row.user_id == actor_id,
+            annotation_row.is_active.is_(True),
         )
-        .correlate(Task)
+        .correlate(task_row)
         .exists()
     )
     now = datetime.now(timezone.utc)
     other_lock = (
-        select(TaskLock.id)
+        select(task_lock_row.id)
         .where(
-            TaskLock.task_id == Task.id,
-            TaskLock.user_id != actor_id,
-            TaskLock.expire_at > now,
+            task_lock_row.task_id == task_row.id,
+            task_lock_row.user_id != actor_id,
+            task_lock_row.expire_at > now,
         )
-        .correlate(Task)
+        .correlate(task_row)
         .exists()
     )
     q = (
-        select(Task.id)
-        .outerjoin(TaskBatch, Task.batch_id == TaskBatch.id)
+        select(task_row.id)
+        .outerjoin(batch_row, task_row.batch_id == batch_row.id)
         .where(
-            Task.id.in_(task_ids),
-            Task.project_id == project.id,
-            Task.is_labeled.is_(False),
+            task_row.id.in_(task_ids),
+            task_row.project_id == project.id,
+            task_row.is_labeled.is_(False),
             ~already_annotated,
             ~other_lock,
             or_(
-                Task.batch_id.is_(None),
+                task_row.batch_id.is_(None),
                 and_(
-                    TaskBatch.status.in_(["active", "annotating"]),
-                    TaskBatch.admin_locked.is_(False),
+                    batch_row.status.in_(["active", "annotating"]),
+                    batch_row.admin_locked.is_(False),
                 ),
             ),
         )
     )
     if batch_id:
-        q = q.where(Task.batch_id == batch_id)
+        q = q.where(task_row.batch_id == batch_id)
     actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
     if actor is None or not is_privileged_for_project(actor, project):
-        q = q.where(task_visibility_clause(actor_id, project_role=project_role))
+        q = q.where(
+            task_visibility_clause(
+                actor_id,
+                project_role=project_role,
+                task_model=task_row,
+                batch_model=batch_row,
+            )
+        )
     if project.maximum_annotations > 1:
-        q = q.where(Task.total_annotations < project.maximum_annotations)
+        q = q.where(task_row.total_annotations < project.maximum_annotations)
     rows = (await db.execute(q)).scalars().all()
     return set(rows)
 
@@ -317,21 +350,21 @@ async def _next_same_scene_task(
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=window_min)
     recent_task_id = (
         await db.execute(
-            select(Annotation.task_id)
+            select(annotation_row.task_id)
             .where(
-                Annotation.user_id == actor_id,
-                Annotation.project_id == project.id,
-                Annotation.is_active.is_(True),
-                Annotation.created_at >= cutoff,
+                annotation_row.user_id == actor_id,
+                annotation_row.project_id == project.id,
+                annotation_row.is_active.is_(True),
+                annotation_row.created_at >= cutoff,
             )
-            .order_by(Annotation.created_at.desc())
+            .order_by(annotation_row.created_at.desc())
             .limit(1)
         )
     ).scalar_one_or_none()
     if recent_task_id is None:
         return None
 
-    recent_task = await db.get(Task, recent_task_id)
+    recent_task = await get_core_row(db, task_row, recent_task_id)
     if recent_task is None:
         return None
     primary_item_id = await resolve_primary_item_id(db, recent_task)
@@ -343,17 +376,17 @@ async def _next_same_scene_task(
         return None
     direct_rows = (
         await db.execute(
-            select(Task.id, Task.dataset_item_id)
-            .where(Task.project_id == project.id)
-            .where(Task.dataset_item_id.is_not(None))
+            select(task_row.id, task_row.dataset_item_id)
+            .where(task_row.project_id == project.id)
+            .where(task_row.dataset_item_id.is_not(None))
         )
     ).all()
     link_rows = (
         await db.execute(
-            select(Task.id, TaskDatasetItemLink.dataset_item_id)
-            .join(Task, Task.id == TaskDatasetItemLink.task_id)
-            .where(Task.project_id == project.id)
-            .where(TaskDatasetItemLink.role == _PRIMARY_LIDAR_ROLE)
+            select(task_row.id, task_dataset_item_link_row.dataset_item_id)
+            .join(task_row, task_row.id == task_dataset_item_link_row.task_id)
+            .where(task_row.project_id == project.id)
+            .where(task_dataset_item_link_row.role == _PRIMARY_LIDAR_ROLE)
         )
     ).all()
     item_facts, _ = await read_spatial_item_facts(
@@ -403,7 +436,7 @@ async def _next_same_scene_task(
     )
     for tid in ordered_task_ids:
         if tid in valid:
-            return await db.get(Task, tid)
+            return await get_core_row(db, task_row, tid)
     return None
 
 
@@ -427,19 +460,19 @@ async def get_next_task(
     # B-6 修复：用户在同一项目下可能因切换任务残留多把锁，scalar_one_or_none() 会抛 500。
     # 改用 .first() 取最新一把作为"当前任务"。
     locked_result = await db.execute(
-        select(TaskLock)
-        .join(Task, Task.id == TaskLock.task_id)
-        .where(TaskLock.user_id == user_id, Task.project_id == project_id)
-        .order_by(TaskLock.expire_at.desc())
+        select(task_lock_row)
+        .join(task_row, task_row.id == task_lock_row.task_id)
+        .where(task_lock_row.user_id == user_id, task_row.project_id == project_id)
+        .order_by(task_lock_row.expire_at.desc())
     )
     existing_lock = locked_result.scalars().first()
     if existing_lock:
-        task = await db.get(Task, existing_lock.task_id)
+        task = await get_core_row(db, task_row, existing_lock.task_id)
         if task and not task.is_labeled:
             return task
 
     # 2. Get project config
-    project = await db.get(Project, project_id)
+    project = await get_workspace_project(db, project_id=project_id)
     if not project:
         return None
 
@@ -468,28 +501,28 @@ async def get_next_task(
     # v0.11.30 · 相关 NOT EXISTS 取代 NOT IN(子查询)：标注员标注量大时 NOT IN 会让
     # Postgres 物化整个 task_id 集合（大表热路径放大）；NOT EXISTS 可直接走索引短路。
     already_annotated = (
-        select(Annotation.id)
+        select(annotation_row.id)
         .where(
-            Annotation.task_id == Task.id,
-            Annotation.user_id == user_id,
-            Annotation.is_active.is_(True),
+            annotation_row.task_id == task_row.id,
+            annotation_row.user_id == user_id,
+            annotation_row.is_active.is_(True),
         )
-        .correlate(Task)
+        .correlate(task_row)
         .exists()
     )
 
     candidates = (
-        select(Task)
-        .outerjoin(TaskBatch, Task.batch_id == TaskBatch.id)
+        select(task_row)
+        .outerjoin(batch_row, task_row.batch_id == batch_row.id)
         .where(
-            Task.project_id == project_id,
-            Task.is_labeled.is_(False),
+            task_row.project_id == project_id,
+            task_row.is_labeled.is_(False),
             ~already_annotated,
             or_(
-                Task.batch_id.is_(None),
+                task_row.batch_id.is_(None),
                 and_(
-                    TaskBatch.status.in_(["active", "annotating"]),
-                    TaskBatch.admin_locked.is_(False),  # v0.9.15 · ADR-0008
+                    batch_row.status.in_(["active", "annotating"]),
+                    batch_row.admin_locked.is_(False),  # v0.9.15 · ADR-0008
                 ),
             ),
         )
@@ -497,20 +530,25 @@ async def get_next_task(
 
     # Batch filtering
     if batch_id:
-        candidates = candidates.where(Task.batch_id == batch_id)
+        candidates = candidates.where(task_row.batch_id == batch_id)
 
     # Assignment filtering: super_admin / 项目 owner 越权放行（可代标注员补刀），
     # 其他角色无论是否显式指定 batch_id，都必须命中 assigned_user_ids（或批次未分派）。
     actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
     if actor is None or not is_privileged_for_project(actor, project):
         candidates = candidates.where(
-            task_visibility_clause(actor_id, project_role=project_role)
+            task_visibility_clause(
+                actor_id,
+                project_role=project_role,
+                task_model=task_row,
+                batch_model=batch_row,
+            )
         )
 
     # 4. Multi-annotator overlap
     if project.maximum_annotations > 1:
         candidates = candidates.where(
-            Task.total_annotations < project.maximum_annotations
+            task_row.total_annotations < project.maximum_annotations
         )
 
     # 5. Apply sampling strategy (batch priority as primary sort)
@@ -518,23 +556,23 @@ async def get_next_task(
         # v0.11.30 · 相关标量子查询取每 task 最低预测分，取代 outerjoin Prediction：
         # outerjoin 会按预测条数行扇出（一 task 多 prediction）再对扇出行排序，大表代价高。
         min_pred_score = (
-            select(func.min(Prediction.score))
-            .where(Prediction.task_id == Task.id)
-            .correlate(Task)
+            select(func.min(prediction_row.score))
+            .where(prediction_row.task_id == task_row.id)
+            .correlate(task_row)
             .scalar_subquery()
         )
         candidates = candidates.order_by(
-            TaskBatch.priority.desc().nullslast(), min_pred_score.asc().nullslast()
+            batch_row.priority.desc().nullslast(), min_pred_score.asc().nullslast()
         )
     elif project.sampling == "uniform":
         candidates = candidates.order_by(
-            TaskBatch.priority.desc().nullslast(), func.random()
+            batch_row.priority.desc().nullslast(), func.random()
         )
     else:
         candidates = candidates.order_by(
-            TaskBatch.priority.desc().nullslast(),
-            Task.sequence_order.asc().nullslast(),
-            Task.created_at,
+            batch_row.priority.desc().nullslast(),
+            task_row.sequence_order.asc().nullslast(),
+            task_row.created_at,
         )
 
     # 6. Pick and lock — 逐个候选尝试 acquire,跳过他人在 TOCTOU 窗口抢先上锁的 task,

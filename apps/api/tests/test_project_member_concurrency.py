@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from aap_workspace.contract import MembershipRecord
 
 from app.db.models.audit_log import AuditLog
 from app.db.models.project import Project
@@ -23,10 +24,10 @@ from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.task_lock import TaskLock
 from app.db.models.user import User
-from app.services.workspace_contract import ProjectCapability
+from aap_workspace_contract.access import ProjectCapability
 from app.services.project_access import resolve_project_access
-from app.application.project_membership import change_role, remove_member
-from app.services.project_membership import add_member, preview_role_change
+from app.services.workspace_membership import change_role, remove_member
+from app.services.workspace_membership import add_member, preview_role_change
 from tests.factory import (
     create_batch,
     create_membership,
@@ -201,8 +202,8 @@ async def _preview(
     actor = await db.get(User, fixture["admin"], populate_existing=True)
     return await preview_role_change(
         db,
-        project=project,
-        actor=actor,
+        project_id=project.id,
+        actor_id=actor.id,
         member_id=fixture["member_row"],
         target_role=target_role,
         replacement_annotator_id=replacement_annotator_id,
@@ -224,8 +225,8 @@ async def _change(
     actor = await db.get(User, fixture["admin"], populate_existing=True)
     return await change_role(
         db,
-        project=project,
-        actor=actor,
+        project_id=project.id,
+        actor_id=actor.id,
         member_id=fixture["member_row"],
         target_role=target_role,
         expected_version=expected_version,
@@ -641,15 +642,15 @@ async def test_delete_rejoin_rejects_stale_member_id(test_engine):
             actor = await session.get(User, fixture["admin"])
             await remove_member(
                 session,
-                project=project,
-                actor=actor,
+                project_id=project.id,
+                actor_id=actor.id,
                 member_id=fixture["member_row"],
             )
             # Re-joining the same account creates a brand-new membership row.
             new_member = await add_member(
                 session,
-                project=project,
-                actor=actor,
+                project_id=project.id,
+                actor_id=actor.id,
                 target_user_id=fixture["member_user"],
                 project_role="annotator",
             )
@@ -666,8 +667,8 @@ async def test_delete_rejoin_rejects_stale_member_id(test_engine):
             with pytest.raises(Exception) as caught:
                 await preview_role_change(
                     stale,
-                    project=project,
-                    actor=actor,
+                    project_id=project.id,
+                    actor_id=actor.id,
                     member_id=fixture["member_row"],
                     target_role="reviewer",
                     replacement_annotator_id=None,
@@ -677,8 +678,8 @@ async def test_delete_rejoin_rejects_stale_member_id(test_engine):
             # The new membership is independently usable.
             fresh_preview = await preview_role_change(
                 stale,
-                project=project,
-                actor=actor,
+                project_id=project.id,
+                actor_id=actor.id,
                 member_id=new_member_id,
                 target_role="reviewer",
                 replacement_annotator_id=None,
@@ -796,7 +797,7 @@ async def test_concurrent_duplicate_change_only_one_wins(test_engine):
         results = await asyncio.gather(
             _apply(first), _apply(second), return_exceptions=True
         )
-        succeeded = [r for r in results if isinstance(r, ProjectMember)]
+        succeeded = [r for r in results if isinstance(r, MembershipRecord)]
         failed = [r for r in results if isinstance(r, Exception)]
         assert len(succeeded) == 1, results
         assert len(failed) == 1, results
@@ -991,8 +992,8 @@ async def test_stale_actor_object_cannot_authorize_after_deactivation(test_engin
                 with pytest.raises(Exception) as caught:
                     await change_role(
                         session,
-                        project=project,
-                        actor=stale_actor,
+                        project_id=project.id,
+                        actor_id=stale_actor.id,
                         member_id=fixture["member_row"],
                         target_role="reviewer",
                         expected_version=1,
@@ -1043,8 +1044,8 @@ async def test_preview_and_apply_agree_on_target_platform_incompatibility(
             actor = await session.get(User, fixture["admin"])
             preview = await preview_role_change(
                 session,
-                project=project,
-                actor=actor,
+                project_id=project.id,
+                actor_id=actor.id,
                 member_id=viewer_member_id,
                 target_role="annotator",
                 replacement_annotator_id=None,
@@ -1055,8 +1056,8 @@ async def test_preview_and_apply_agree_on_target_platform_incompatibility(
             with pytest.raises(Exception) as caught:
                 await change_role(
                     session,
-                    project=project,
-                    actor=actor,
+                    project_id=project.id,
+                    actor_id=actor.id,
                     member_id=viewer_member_id,
                     target_role="annotator",
                     expected_version=preview["current_version"],

@@ -1,0 +1,1768 @@
+{
+  "capture_kind": "actual-pre-extraction-workspace-directory-http",
+  "observations": {
+    "caller_autoflush": {
+      "default": {
+        "caller_transaction_open_after_read": true,
+        "no_autoflush": false,
+        "pending_member_in_route_result": true,
+        "pending_member_in_session_new_after_read": false,
+        "pending_user_alias": "$actor_pending_probe",
+        "visible_from_owner_before_caller_rollback": false
+      },
+      "no_autoflush": {
+        "caller_transaction_open_after_read": true,
+        "no_autoflush": true,
+        "pending_member_in_route_result": false,
+        "pending_member_in_session_new_after_read": true,
+        "pending_user_alias": "$actor_pending_probe",
+        "visible_from_owner_before_caller_rollback": false
+      },
+      "ordered_sql_and_transaction_events": {
+        "briefs_calls": [
+          {
+            "request": {
+              "operation": "get_user_briefs",
+              "payload": {
+                "user_ids": [
+                  "$actor_pending_probe",
+                  "$actor_owner",
+                  "$actor_inactive_super_admin",
+                  "$actor_super_admin",
+                  "$actor_unicode_member",
+                  "$actor_inactive_member",
+                  "$actor_viewer"
+                ]
+              },
+              "schema": "aap-identity-briefs/v1"
+            },
+            "returned_users": [
+              {
+                "avatar_initial": "P",
+                "avatar_ref": null,
+                "email": "$email_owner",
+                "id": "$actor_owner",
+                "name": "Project Owner",
+                "role": "project_admin"
+              },
+              {
+                "avatar_initial": "I",
+                "avatar_ref": null,
+                "email": "$email_inactive_super_admin",
+                "id": "$actor_inactive_super_admin",
+                "name": "Inactive System Admin",
+                "role": "super_admin"
+              },
+              {
+                "avatar_initial": "SS",
+                "avatar_ref": "preset:blue",
+                "email": "$email_unicode_member",
+                "id": "$actor_unicode_member",
+                "name": "ßeta Annotator",
+                "role": "employee"
+              },
+              {
+                "avatar_initial": "Z",
+                "avatar_ref": null,
+                "email": "$email_super_admin",
+                "id": "$actor_super_admin",
+                "name": "Zeta Capture Admin",
+                "role": "super_admin"
+              },
+              {
+                "avatar_initial": "P",
+                "avatar_ref": null,
+                "email": "$email_pending_probe",
+                "id": "$actor_pending_probe",
+                "name": "Pending Membership Probe",
+                "role": "employee"
+              },
+              {
+                "avatar_initial": "P",
+                "avatar_ref": null,
+                "email": "$email_viewer",
+                "id": "$actor_viewer",
+                "name": "Project Viewer",
+                "role": "viewer"
+              },
+              {
+                "avatar_initial": "I",
+                "avatar_ref": null,
+                "email": "$email_inactive_member",
+                "id": "$actor_inactive_member",
+                "name": "Inactive Annotator",
+                "role": "employee"
+              }
+            ]
+          },
+          {
+            "request": {
+              "operation": "get_user_briefs",
+              "payload": {
+                "user_ids": [
+                  "$actor_owner",
+                  "$actor_inactive_super_admin",
+                  "$actor_super_admin",
+                  "$actor_unicode_member",
+                  "$actor_inactive_member",
+                  "$actor_viewer"
+                ]
+              },
+              "schema": "aap-identity-briefs/v1"
+            },
+            "returned_users": [
+              {
+                "avatar_initial": "P",
+                "avatar_ref": null,
+                "email": "$email_owner",
+                "id": "$actor_owner",
+                "name": "Project Owner",
+                "role": "project_admin"
+              },
+              {
+                "avatar_initial": "I",
+                "avatar_ref": null,
+                "email": "$email_inactive_super_admin",
+                "id": "$actor_inactive_super_admin",
+                "name": "Inactive System Admin",
+                "role": "super_admin"
+              },
+              {
+                "avatar_initial": "SS",
+                "avatar_ref": "preset:blue",
+                "email": "$email_unicode_member",
+                "id": "$actor_unicode_member",
+                "name": "ßeta Annotator",
+                "role": "employee"
+              },
+              {
+                "avatar_initial": "Z",
+                "avatar_ref": null,
+                "email": "$email_super_admin",
+                "id": "$actor_super_admin",
+                "name": "Zeta Capture Admin",
+                "role": "super_admin"
+              },
+              {
+                "avatar_initial": "P",
+                "avatar_ref": null,
+                "email": "$email_viewer",
+                "id": "$actor_viewer",
+                "name": "Project Viewer",
+                "role": "viewer"
+              },
+              {
+                "avatar_initial": "I",
+                "avatar_ref": null,
+                "email": "$email_inactive_member",
+                "id": "$actor_inactive_member",
+                "name": "Inactive Annotator",
+                "role": "employee"
+              }
+            ]
+          }
+        ],
+        "sql": [
+          {
+            "phase": "project_visibility_or_snapshot",
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "other",
+            "sha256": "25d8318a411412f85ff70c5753441ceca3d36e381421095b7bbd7de168ed7f59",
+            "statement": "INSERT INTO project_members (id, project_id, user_id, role, assigned_by, assigned_at, version, updated_at, weekly_target) VALUES ($1::UUID, $2::UUID, $3::UUID, $4::VARCHAR, $5::UUID, $6::TIMESTAMP WITH TIME ZONE, $7::INTEGER, $8::TIMESTAMP WITH TIME ZONE, $9::INTEGER)"
+          },
+          {
+            "phase": "project_member_list",
+            "sha256": "7be44bacfef74618944b481cfe6b3dd7e6e3bda4c33d90071ae10c9f49dae375",
+            "statement": "SELECT project_members.id, project_members.project_id, project_members.user_id, project_members.role, project_members.assigned_by, project_members.assigned_at, project_members.version, project_members.updated_at, project_members.weekly_target FROM project_members WHERE project_members.project_id = $1::UUID ORDER BY project_members.assigned_at DESC"
+          },
+          {
+            "phase": "identity_briefs_command",
+            "sha256": "2c5c939b9551d328804d711edd4c0399cc1047b131a515a960839924210fcc04",
+            "statement": "SELECT aap_identity_briefs_v1.execute_briefs_command(CAST($1 AS jsonb))"
+          },
+          {
+            "phase": "project_visibility_or_snapshot",
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "project_member_list",
+            "sha256": "7be44bacfef74618944b481cfe6b3dd7e6e3bda4c33d90071ae10c9f49dae375",
+            "statement": "SELECT project_members.id, project_members.project_id, project_members.user_id, project_members.role, project_members.assigned_by, project_members.assigned_at, project_members.version, project_members.updated_at, project_members.weekly_target FROM project_members WHERE project_members.project_id = $1::UUID ORDER BY project_members.assigned_at DESC"
+          },
+          {
+            "phase": "identity_briefs_command",
+            "sha256": "2c5c939b9551d328804d711edd4c0399cc1047b131a515a960839924210fcc04",
+            "statement": "SELECT aap_identity_briefs_v1.execute_briefs_command(CAST($1 AS jsonb))"
+          }
+        ],
+        "transaction_events": [
+          "rollback",
+          "rollback"
+        ]
+      }
+    },
+    "historical_role_response": {
+      "briefs_calls": [
+        {
+          "request": {
+            "operation": "get_user_briefs",
+            "payload": {
+              "user_ids": [
+                "$actor_historical_role"
+              ]
+            },
+            "schema": "aap-identity-briefs/v1"
+          },
+          "returned_users": [
+            {
+              "avatar_initial": "H",
+              "avatar_ref": null,
+              "email": "$email_historical_role",
+              "id": "$actor_historical_role",
+              "name": "Historical Role Member",
+              "role": "historical_staff_role"
+            }
+          ]
+        }
+      ],
+      "status": 500
+    },
+    "historical_role_seed": {
+      "reason": null,
+      "seeded": true
+    }
+  },
+  "runtime_identity": {
+    "container_id": "6f53a52e251326d76764236ad4b1caef2ae0554e2b9ae5c23d2f81bc8328a771",
+    "container_identity": "2a3f29bc098b30db5c0f1214",
+    "container_name": "aap-module-data-f307080df73e",
+    "database": "aap_wt_7882b36ec1f63221_test",
+    "database_role": "legacy_runtime"
+  },
+  "samples": [
+    {
+      "label": "target_members_super_admin",
+      "observation": {
+        "briefs_calls": [
+          {
+            "request": {
+              "operation": "get_user_briefs",
+              "payload": {
+                "user_ids": [
+                  "$actor_owner",
+                  "$actor_inactive_super_admin",
+                  "$actor_super_admin",
+                  "$actor_unicode_member",
+                  "$actor_inactive_member",
+                  "$actor_viewer"
+                ]
+              },
+              "schema": "aap-identity-briefs/v1"
+            },
+            "returned_users": [
+              {
+                "avatar_initial": "P",
+                "avatar_ref": null,
+                "email": "$email_owner",
+                "id": "$actor_owner",
+                "name": "Project Owner",
+                "role": "project_admin"
+              },
+              {
+                "avatar_initial": "I",
+                "avatar_ref": null,
+                "email": "$email_inactive_super_admin",
+                "id": "$actor_inactive_super_admin",
+                "name": "Inactive System Admin",
+                "role": "super_admin"
+              },
+              {
+                "avatar_initial": "SS",
+                "avatar_ref": "preset:blue",
+                "email": "$email_unicode_member",
+                "id": "$actor_unicode_member",
+                "name": "ßeta Annotator",
+                "role": "employee"
+              },
+              {
+                "avatar_initial": "Z",
+                "avatar_ref": null,
+                "email": "$email_super_admin",
+                "id": "$actor_super_admin",
+                "name": "Zeta Capture Admin",
+                "role": "super_admin"
+              },
+              {
+                "avatar_initial": "P",
+                "avatar_ref": null,
+                "email": "$email_viewer",
+                "id": "$actor_viewer",
+                "name": "Project Viewer",
+                "role": "viewer"
+              },
+              {
+                "avatar_initial": "I",
+                "avatar_ref": null,
+                "email": "$email_inactive_member",
+                "id": "$actor_inactive_member",
+                "name": "Inactive Annotator",
+                "role": "employee"
+              }
+            ]
+          }
+        ],
+        "sql": [
+          {
+            "phase": "other",
+            "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+            "statement": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)"
+          },
+          {
+            "phase": "other",
+            "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+            "statement": "SELECT aap_identity_v1.read_actor_context($1, $2)"
+          },
+          {
+            "phase": "project_visibility_or_snapshot",
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "other",
+            "sha256": "7ace85e5b02cdb2a5e38c7fa6cad1739bc7841381316ae8a03f3a9b095924151",
+            "statement": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))"
+          },
+          {
+            "phase": "project_visibility_or_snapshot",
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "project_member_list",
+            "sha256": "7be44bacfef74618944b481cfe6b3dd7e6e3bda4c33d90071ae10c9f49dae375",
+            "statement": "SELECT project_members.id, project_members.project_id, project_members.user_id, project_members.role, project_members.assigned_by, project_members.assigned_at, project_members.version, project_members.updated_at, project_members.weekly_target FROM project_members WHERE project_members.project_id = $1::UUID ORDER BY project_members.assigned_at DESC"
+          },
+          {
+            "phase": "identity_briefs_command",
+            "sha256": "2c5c939b9551d328804d711edd4c0399cc1047b131a515a960839924210fcc04",
+            "statement": "SELECT aap_identity_briefs_v1.execute_briefs_command(CAST($1 AS jsonb))"
+          }
+        ],
+        "transaction_events": []
+      },
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "super_admin",
+          "id": "$actor_super_admin",
+          "role": "super_admin"
+        },
+        "method": "GET",
+        "path": "/api/v1/projects/$project_target/members"
+      },
+      "response": {
+        "body": [
+          {
+            "assigned_at": "2026-01-10T00:00:00Z",
+            "avatar_ref": null,
+            "id": "c2ba87a3-cd8e-45ad-ad8a-a15250a5e4b5",
+            "platform_role": "project_admin",
+            "role": "reviewer",
+            "updated_at": "2026-01-10T00:00:00Z",
+            "user_email": "$email_owner",
+            "user_id": "$actor_owner",
+            "user_name": "Project Owner",
+            "version": 1
+          },
+          {
+            "assigned_at": "2026-01-09T00:00:00Z",
+            "avatar_ref": null,
+            "id": "1140fcf2-fbeb-45ba-9939-521b15b9e30b",
+            "platform_role": "super_admin",
+            "role": "reviewer",
+            "updated_at": "2026-01-09T00:00:00Z",
+            "user_email": "$email_inactive_super_admin",
+            "user_id": "$actor_inactive_super_admin",
+            "user_name": "Inactive System Admin",
+            "version": 1
+          },
+          {
+            "assigned_at": "2026-01-08T00:00:00Z",
+            "avatar_ref": null,
+            "id": "05ffbfc9-3c17-4757-9f3f-f5471f7b08ab",
+            "platform_role": "super_admin",
+            "role": "annotator",
+            "updated_at": "2026-01-08T00:00:00Z",
+            "user_email": "$email_super_admin",
+            "user_id": "$actor_super_admin",
+            "user_name": "Zeta Capture Admin",
+            "version": 1
+          },
+          {
+            "assigned_at": "2026-01-07T00:00:00Z",
+            "avatar_ref": "preset:blue",
+            "id": "e61273e8-18de-4bb8-b505-f4441204c11a",
+            "platform_role": "employee",
+            "role": "annotator",
+            "updated_at": "2026-01-07T00:00:00Z",
+            "user_email": "$email_unicode_member",
+            "user_id": "$actor_unicode_member",
+            "user_name": "ßeta Annotator",
+            "version": 1
+          },
+          {
+            "assigned_at": "2026-01-06T00:00:00Z",
+            "avatar_ref": null,
+            "id": "c98e5e75-2800-46c1-849e-8ba061bc7b71",
+            "platform_role": "employee",
+            "role": "annotator",
+            "updated_at": "2026-01-06T00:00:00Z",
+            "user_email": "$email_inactive_member",
+            "user_id": "$actor_inactive_member",
+            "user_name": "Inactive Annotator",
+            "version": 1
+          },
+          {
+            "assigned_at": "2026-01-05T00:00:00Z",
+            "avatar_ref": null,
+            "id": "6acb5445-b67d-4733-9a8e-c4677c5eafc5",
+            "platform_role": "viewer",
+            "role": "viewer",
+            "updated_at": "2026-01-05T00:00:00Z",
+            "user_email": "$email_viewer",
+            "user_id": "$actor_viewer",
+            "user_name": "Project Viewer",
+            "version": 1
+          }
+        ],
+        "headers": {
+          "content-type": "application/json"
+        },
+        "raw_body": {
+          "base64": "W3siaWQiOiJjMmJhODdhMy1jZDhlLTQ1YWQtYWQ4YS1hMTUyNTBhNWU0YjUiLCJ1c2VyX2lkIjoiNWJiMzYzODEtZmI2Zi00OTY5LWJjMmQtZTE5NmE5NmE2MzJjIiwidXNlcl9uYW1lIjoiUHJvamVjdCBPd25lciIsInVzZXJfZW1haWwiOiJkaXJlY3Rvcnktb3duZXItNDFmNjExNGIxOUBleGFtcGxlLnRlc3QiLCJyb2xlIjoicmV2aWV3ZXIiLCJwbGF0Zm9ybV9yb2xlIjoicHJvamVjdF9hZG1pbiIsInZlcnNpb24iOjEsImFzc2lnbmVkX2F0IjoiMjAyNi0wMS0xMFQwMDowMDowMFoiLCJ1cGRhdGVkX2F0IjoiMjAyNi0wMS0xMFQwMDowMDowMFoiLCJhdmF0YXJfcmVmIjpudWxsfSx7ImlkIjoiMTE0MGZjZjItZmJlYi00NWJhLTk5MzktNTIxYjE1YjllMzBiIiwidXNlcl9pZCI6IjZiNWUxZGEwLTllZDUtNGU2NS05ZjJhLTBmZTRlMzhhYWMzYyIsInVzZXJfbmFtZSI6IkluYWN0aXZlIFN5c3RlbSBBZG1pbiIsInVzZXJfZW1haWwiOiJkaXJlY3RvcnktaW5hY3RpdmVfc3VwZXJfYWRtaW4tNDFmNjExNGIxOUBleGFtcGxlLnRlc3QiLCJyb2xlIjoicmV2aWV3ZXIiLCJwbGF0Zm9ybV9yb2xlIjoic3VwZXJfYWRtaW4iLCJ2ZXJzaW9uIjoxLCJhc3NpZ25lZF9hdCI6IjIwMjYtMDEtMDlUMDA6MDA6MDBaIiwidXBkYXRlZF9hdCI6IjIwMjYtMDEtMDlUMDA6MDA6MDBaIiwiYXZhdGFyX3JlZiI6bnVsbH0seyJpZCI6IjA1ZmZiZmM5LTNjMTctNDc1Ny05ZjNmLWY1NDcxZjdiMDhhYiIsInVzZXJfaWQiOiJiMTdlNWQxOC01NzU2LTQ5YTAtYTljNi04YzhmMGU2ZWZhMmUiLCJ1c2VyX25hbWUiOiJaZXRhIENhcHR1cmUgQWRtaW4iLCJ1c2VyX2VtYWlsIjoiZGlyZWN0b3J5LXN1cGVyX2FkbWluLTQxZjYxMTRiMTlAZXhhbXBsZS50ZXN0Iiwicm9sZSI6ImFubm90YXRvciIsInBsYXRmb3JtX3JvbGUiOiJzdXBlcl9hZG1pbiIsInZlcnNpb24iOjEsImFzc2lnbmVkX2F0IjoiMjAyNi0wMS0wOFQwMDowMDowMFoiLCJ1cGRhdGVkX2F0IjoiMjAyNi0wMS0wOFQwMDowMDowMFoiLCJhdmF0YXJfcmVmIjpudWxsfSx7ImlkIjoiZTYxMjczZTgtMThkZS00YmI4LWI1MDUtZjQ0NDEyMDRjMTFhIiwidXNlcl9pZCI6Ijk4NzRkMjlmLTUyOWYtNDRlNC04ZDFhLWE0Y2U1NzJlYmRiOSIsInVzZXJfbmFtZSI6IsOfZXRhIEFubm90YXRvciIsInVzZXJfZW1haWwiOiJkaXJlY3RvcnktdW5pY29kZV9tZW1iZXItNDFmNjExNGIxOUBleGFtcGxlLnRlc3QiLCJyb2xlIjoiYW5ub3RhdG9yIiwicGxhdGZvcm1fcm9sZSI6ImVtcGxveWVlIiwidmVyc2lvbiI6MSwiYXNzaWduZWRfYXQiOiIyMDI2LTAxLTA3VDAwOjAwOjAwWiIsInVwZGF0ZWRfYXQiOiIyMDI2LTAxLTA3VDAwOjAwOjAwWiIsImF2YXRhcl9yZWYiOiJwcmVzZXQ6Ymx1ZSJ9LHsiaWQiOiJjOThlNWU3NS0yODAwLTQ2YzEtODQ5ZS04YmEwNjFiYzdiNzEiLCJ1c2VyX2lkIjoiZDRiNmE3NzctYmZmZi00MThhLWFhNzgtZDI4NTgwNjU3ZmJjIiwidXNlcl9uYW1lIjoiSW5hY3RpdmUgQW5ub3RhdG9yIiwidXNlcl9lbWFpbCI6ImRpcmVjdG9yeS1pbmFjdGl2ZV9tZW1iZXItNDFmNjExNGIxOUBleGFtcGxlLnRlc3QiLCJyb2xlIjoiYW5ub3RhdG9yIiwicGxhdGZvcm1fcm9sZSI6ImVtcGxveWVlIiwidmVyc2lvbiI6MSwiYXNzaWduZWRfYXQiOiIyMDI2LTAxLTA2VDAwOjAwOjAwWiIsInVwZGF0ZWRfYXQiOiIyMDI2LTAxLTA2VDAwOjAwOjAwWiIsImF2YXRhcl9yZWYiOm51bGx9LHsiaWQiOiI2YWNiNTQ0NS1iNjdkLTQ3MzMtOWE4ZS1jNDY3N2M1ZWFmYzUiLCJ1c2VyX2lkIjoiYzZiNDBmN2ItODQ2MC00N2U5LTllNDEtYTkyZDU3Mjk5NGUzIiwidXNlcl9uYW1lIjoiUHJvamVjdCBWaWV3ZXIiLCJ1c2VyX2VtYWlsIjoiZGlyZWN0b3J5LXZpZXdlci00MWY2MTE0YjE5QGV4YW1wbGUudGVzdCIsInJvbGUiOiJ2aWV3ZXIiLCJwbGF0Zm9ybV9yb2xlIjoidmlld2VyIiwidmVyc2lvbiI6MSwiYXNzaWduZWRfYXQiOiIyMDI2LTAxLTA1VDAwOjAwOjAwWiIsInVwZGF0ZWRfYXQiOiIyMDI2LTAxLTA1VDAwOjAwOjAwWiIsImF2YXRhcl9yZWYiOm51bGx9XQ==",
+          "byte_length": 2038,
+          "sha256": "00214db4405a5756a1f28fe89a34e7c44bcd988393bf6e9d93592aba2b939349"
+        },
+        "status": 200
+      }
+    },
+    {
+      "label": "target_mention_candidates_super_admin",
+      "observation": {
+        "briefs_calls": [],
+        "sql": [
+          {
+            "phase": "other",
+            "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+            "statement": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)"
+          },
+          {
+            "phase": "other",
+            "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+            "statement": "SELECT aap_identity_v1.read_actor_context($1, $2)"
+          },
+          {
+            "phase": "project_visibility_or_snapshot",
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "other",
+            "sha256": "7ace85e5b02cdb2a5e38c7fa6cad1739bc7841381316ae8a03f3a9b095924151",
+            "statement": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))"
+          },
+          {
+            "phase": "project_visibility_or_snapshot",
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "mention_owner_lookup",
+            "sha256": "a9c7eb4a17a7eb1cd8bcaed63e34f2df784953d8ab08b0816ee2111668ea0d9f",
+            "statement": "SELECT users.name, users.email, users.is_active FROM users WHERE users.id = $1::UUID"
+          },
+          {
+            "phase": "mention_active_superadmins",
+            "sha256": "e847977f0b40ceff075500bfecd2daf9e934b753a3eec9b2e1537ee52f8b2d0c",
+            "statement": "SELECT users.id, users.name, users.email FROM users WHERE users.role = $1::VARCHAR AND users.is_active IS true ORDER BY users.name"
+          },
+          {
+            "phase": "mention_project_members",
+            "sha256": "0b2b6f8932be3aff7f0c1d4d12e1beb20ea23512c3ba9fde6c1c469bc3aba2f2",
+            "statement": "SELECT project_members.id, project_members.project_id, project_members.user_id, project_members.role, project_members.assigned_by, project_members.assigned_at, project_members.version, project_members.updated_at, project_members.weekly_target, users.name, users.email FROM project_members JOIN users ON users.id = project_members.user_id WHERE project_members.project_id = $1::UUID ORDER BY project_members.assigned_at DESC"
+          }
+        ],
+        "transaction_events": []
+      },
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "super_admin",
+          "id": "$actor_super_admin",
+          "role": "super_admin"
+        },
+        "method": "GET",
+        "path": "/api/v1/projects/$project_target/mention-candidates"
+      },
+      "response": {
+        "body": [
+          {
+            "kind": "owner",
+            "user_email": "$email_owner",
+            "user_id": "$actor_owner",
+            "user_name": "Project Owner"
+          },
+          {
+            "kind": "super_admin",
+            "user_email": "$email_external_super_admin",
+            "user_id": "$actor_external_super_admin",
+            "user_name": "Alpha External Admin"
+          },
+          {
+            "kind": "super_admin",
+            "user_email": "$email_super_admin",
+            "user_id": "$actor_super_admin",
+            "user_name": "Zeta Capture Admin"
+          },
+          {
+            "kind": "member",
+            "user_email": "$email_inactive_super_admin",
+            "user_id": "$actor_inactive_super_admin",
+            "user_name": "Inactive System Admin"
+          },
+          {
+            "kind": "member",
+            "user_email": "$email_unicode_member",
+            "user_id": "$actor_unicode_member",
+            "user_name": "ßeta Annotator"
+          },
+          {
+            "kind": "member",
+            "user_email": "$email_inactive_member",
+            "user_id": "$actor_inactive_member",
+            "user_name": "Inactive Annotator"
+          },
+          {
+            "kind": "member",
+            "user_email": "$email_viewer",
+            "user_id": "$actor_viewer",
+            "user_name": "Project Viewer"
+          }
+        ],
+        "headers": {
+          "content-type": "application/json"
+        },
+        "raw_body": {
+          "base64": "W3sidXNlcl9pZCI6IjViYjM2MzgxLWZiNmYtNDk2OS1iYzJkLWUxOTZhOTZhNjMyYyIsInVzZXJfbmFtZSI6IlByb2plY3QgT3duZXIiLCJ1c2VyX2VtYWlsIjoiZGlyZWN0b3J5LW93bmVyLTQxZjYxMTRiMTlAZXhhbXBsZS50ZXN0Iiwia2luZCI6Im93bmVyIn0seyJ1c2VyX2lkIjoiM2ExMTFiMjItMzE0MS00MjBkLWFmYmQtMjY5ODE1NWZlOTY4IiwidXNlcl9uYW1lIjoiQWxwaGEgRXh0ZXJuYWwgQWRtaW4iLCJ1c2VyX2VtYWlsIjoiZGlyZWN0b3J5LWV4dGVybmFsX3N1cGVyX2FkbWluLTQxZjYxMTRiMTlAZXhhbXBsZS50ZXN0Iiwia2luZCI6InN1cGVyX2FkbWluIn0seyJ1c2VyX2lkIjoiYjE3ZTVkMTgtNTc1Ni00OWEwLWE5YzYtOGM4ZjBlNmVmYTJlIiwidXNlcl9uYW1lIjoiWmV0YSBDYXB0dXJlIEFkbWluIiwidXNlcl9lbWFpbCI6ImRpcmVjdG9yeS1zdXBlcl9hZG1pbi00MWY2MTE0YjE5QGV4YW1wbGUudGVzdCIsImtpbmQiOiJzdXBlcl9hZG1pbiJ9LHsidXNlcl9pZCI6IjZiNWUxZGEwLTllZDUtNGU2NS05ZjJhLTBmZTRlMzhhYWMzYyIsInVzZXJfbmFtZSI6IkluYWN0aXZlIFN5c3RlbSBBZG1pbiIsInVzZXJfZW1haWwiOiJkaXJlY3RvcnktaW5hY3RpdmVfc3VwZXJfYWRtaW4tNDFmNjExNGIxOUBleGFtcGxlLnRlc3QiLCJraW5kIjoibWVtYmVyIn0seyJ1c2VyX2lkIjoiOTg3NGQyOWYtNTI5Zi00NGU0LThkMWEtYTRjZTU3MmViZGI5IiwidXNlcl9uYW1lIjoiw59ldGEgQW5ub3RhdG9yIiwidXNlcl9lbWFpbCI6ImRpcmVjdG9yeS11bmljb2RlX21lbWJlci00MWY2MTE0YjE5QGV4YW1wbGUudGVzdCIsImtpbmQiOiJtZW1iZXIifSx7InVzZXJfaWQiOiJkNGI2YTc3Ny1iZmZmLTQxOGEtYWE3OC1kMjg1ODA2NTdmYmMiLCJ1c2VyX25hbWUiOiJJbmFjdGl2ZSBBbm5vdGF0b3IiLCJ1c2VyX2VtYWlsIjoiZGlyZWN0b3J5LWluYWN0aXZlX21lbWJlci00MWY2MTE0YjE5QGV4YW1wbGUudGVzdCIsImtpbmQiOiJtZW1iZXIifSx7InVzZXJfaWQiOiJjNmI0MGY3Yi04NDYwLTQ3ZTktOWU0MS1hOTJkNTcyOTk0ZTMiLCJ1c2VyX25hbWUiOiJQcm9qZWN0IFZpZXdlciIsInVzZXJfZW1haWwiOiJkaXJlY3Rvcnktdmlld2VyLTQxZjYxMTRiMTlAZXhhbXBsZS50ZXN0Iiwia2luZCI6Im1lbWJlciJ9XQ==",
+          "byte_length": 1144,
+          "sha256": "161ca2f6d555d569dfe755c6621f8e3f3f61c4db3962df2b9829a5b1fdff723d"
+        },
+        "status": 200
+      }
+    },
+    {
+      "label": "target_members_unicode_member",
+      "observation": {
+        "briefs_calls": [
+          {
+            "request": {
+              "operation": "get_user_briefs",
+              "payload": {
+                "user_ids": [
+                  "$actor_owner",
+                  "$actor_inactive_super_admin",
+                  "$actor_super_admin",
+                  "$actor_unicode_member",
+                  "$actor_inactive_member",
+                  "$actor_viewer"
+                ]
+              },
+              "schema": "aap-identity-briefs/v1"
+            },
+            "returned_users": [
+              {
+                "avatar_initial": "P",
+                "avatar_ref": null,
+                "email": "$email_owner",
+                "id": "$actor_owner",
+                "name": "Project Owner",
+                "role": "project_admin"
+              },
+              {
+                "avatar_initial": "I",
+                "avatar_ref": null,
+                "email": "$email_inactive_super_admin",
+                "id": "$actor_inactive_super_admin",
+                "name": "Inactive System Admin",
+                "role": "super_admin"
+              },
+              {
+                "avatar_initial": "SS",
+                "avatar_ref": "preset:blue",
+                "email": "$email_unicode_member",
+                "id": "$actor_unicode_member",
+                "name": "ßeta Annotator",
+                "role": "employee"
+              },
+              {
+                "avatar_initial": "Z",
+                "avatar_ref": null,
+                "email": "$email_super_admin",
+                "id": "$actor_super_admin",
+                "name": "Zeta Capture Admin",
+                "role": "super_admin"
+              },
+              {
+                "avatar_initial": "P",
+                "avatar_ref": null,
+                "email": "$email_viewer",
+                "id": "$actor_viewer",
+                "name": "Project Viewer",
+                "role": "viewer"
+              },
+              {
+                "avatar_initial": "I",
+                "avatar_ref": null,
+                "email": "$email_inactive_member",
+                "id": "$actor_inactive_member",
+                "name": "Inactive Annotator",
+                "role": "employee"
+              }
+            ]
+          }
+        ],
+        "sql": [
+          {
+            "phase": "other",
+            "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+            "statement": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)"
+          },
+          {
+            "phase": "other",
+            "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+            "statement": "SELECT aap_identity_v1.read_actor_context($1, $2)"
+          },
+          {
+            "phase": "project_visibility_or_snapshot",
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "other",
+            "sha256": "7ace85e5b02cdb2a5e38c7fa6cad1739bc7841381316ae8a03f3a9b095924151",
+            "statement": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))"
+          },
+          {
+            "phase": "project_visibility_or_snapshot",
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "project_access_membership",
+            "sha256": "59df978738ec0433838c83e8f8419ce875c559a64609ce51cd2aad50b777ced5",
+            "statement": "SELECT project_members.id, project_members.project_id, project_members.user_id, project_members.role, project_members.assigned_by, project_members.assigned_at, project_members.version, project_members.updated_at, project_members.weekly_target FROM project_members WHERE project_members.project_id = $1::UUID AND project_members.user_id = $2::UUID"
+          },
+          {
+            "phase": "project_member_list",
+            "sha256": "7be44bacfef74618944b481cfe6b3dd7e6e3bda4c33d90071ae10c9f49dae375",
+            "statement": "SELECT project_members.id, project_members.project_id, project_members.user_id, project_members.role, project_members.assigned_by, project_members.assigned_at, project_members.version, project_members.updated_at, project_members.weekly_target FROM project_members WHERE project_members.project_id = $1::UUID ORDER BY project_members.assigned_at DESC"
+          },
+          {
+            "phase": "identity_briefs_command",
+            "sha256": "2c5c939b9551d328804d711edd4c0399cc1047b131a515a960839924210fcc04",
+            "statement": "SELECT aap_identity_briefs_v1.execute_briefs_command(CAST($1 AS jsonb))"
+          }
+        ],
+        "transaction_events": []
+      },
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "unicode_member",
+          "id": "$actor_unicode_member",
+          "role": "employee"
+        },
+        "method": "GET",
+        "path": "/api/v1/projects/$project_target/members"
+      },
+      "response": {
+        "body": [
+          {
+            "assigned_at": "2026-01-10T00:00:00Z",
+            "avatar_ref": null,
+            "id": "c2ba87a3-cd8e-45ad-ad8a-a15250a5e4b5",
+            "platform_role": "project_admin",
+            "role": "reviewer",
+            "updated_at": "2026-01-10T00:00:00Z",
+            "user_email": "$email_owner",
+            "user_id": "$actor_owner",
+            "user_name": "Project Owner",
+            "version": 1
+          },
+          {
+            "assigned_at": "2026-01-09T00:00:00Z",
+            "avatar_ref": null,
+            "id": "1140fcf2-fbeb-45ba-9939-521b15b9e30b",
+            "platform_role": "super_admin",
+            "role": "reviewer",
+            "updated_at": "2026-01-09T00:00:00Z",
+            "user_email": "$email_inactive_super_admin",
+            "user_id": "$actor_inactive_super_admin",
+            "user_name": "Inactive System Admin",
+            "version": 1
+          },
+          {
+            "assigned_at": "2026-01-08T00:00:00Z",
+            "avatar_ref": null,
+            "id": "05ffbfc9-3c17-4757-9f3f-f5471f7b08ab",
+            "platform_role": "super_admin",
+            "role": "annotator",
+            "updated_at": "2026-01-08T00:00:00Z",
+            "user_email": "$email_super_admin",
+            "user_id": "$actor_super_admin",
+            "user_name": "Zeta Capture Admin",
+            "version": 1
+          },
+          {
+            "assigned_at": "2026-01-07T00:00:00Z",
+            "avatar_ref": "preset:blue",
+            "id": "e61273e8-18de-4bb8-b505-f4441204c11a",
+            "platform_role": "employee",
+            "role": "annotator",
+            "updated_at": "2026-01-07T00:00:00Z",
+            "user_email": "$email_unicode_member",
+            "user_id": "$actor_unicode_member",
+            "user_name": "ßeta Annotator",
+            "version": 1
+          },
+          {
+            "assigned_at": "2026-01-06T00:00:00Z",
+            "avatar_ref": null,
+            "id": "c98e5e75-2800-46c1-849e-8ba061bc7b71",
+            "platform_role": "employee",
+            "role": "annotator",
+            "updated_at": "2026-01-06T00:00:00Z",
+            "user_email": "$email_inactive_member",
+            "user_id": "$actor_inactive_member",
+            "user_name": "Inactive Annotator",
+            "version": 1
+          },
+          {
+            "assigned_at": "2026-01-05T00:00:00Z",
+            "avatar_ref": null,
+            "id": "6acb5445-b67d-4733-9a8e-c4677c5eafc5",
+            "platform_role": "viewer",
+            "role": "viewer",
+            "updated_at": "2026-01-05T00:00:00Z",
+            "user_email": "$email_viewer",
+            "user_id": "$actor_viewer",
+            "user_name": "Project Viewer",
+            "version": 1
+          }
+        ],
+        "headers": {
+          "content-type": "application/json"
+        },
+        "raw_body": {
+          "base64": "W3siaWQiOiJjMmJhODdhMy1jZDhlLTQ1YWQtYWQ4YS1hMTUyNTBhNWU0YjUiLCJ1c2VyX2lkIjoiNWJiMzYzODEtZmI2Zi00OTY5LWJjMmQtZTE5NmE5NmE2MzJjIiwidXNlcl9uYW1lIjoiUHJvamVjdCBPd25lciIsInVzZXJfZW1haWwiOiJkaXJlY3Rvcnktb3duZXItNDFmNjExNGIxOUBleGFtcGxlLnRlc3QiLCJyb2xlIjoicmV2aWV3ZXIiLCJwbGF0Zm9ybV9yb2xlIjoicHJvamVjdF9hZG1pbiIsInZlcnNpb24iOjEsImFzc2lnbmVkX2F0IjoiMjAyNi0wMS0xMFQwMDowMDowMFoiLCJ1cGRhdGVkX2F0IjoiMjAyNi0wMS0xMFQwMDowMDowMFoiLCJhdmF0YXJfcmVmIjpudWxsfSx7ImlkIjoiMTE0MGZjZjItZmJlYi00NWJhLTk5MzktNTIxYjE1YjllMzBiIiwidXNlcl9pZCI6IjZiNWUxZGEwLTllZDUtNGU2NS05ZjJhLTBmZTRlMzhhYWMzYyIsInVzZXJfbmFtZSI6IkluYWN0aXZlIFN5c3RlbSBBZG1pbiIsInVzZXJfZW1haWwiOiJkaXJlY3RvcnktaW5hY3RpdmVfc3VwZXJfYWRtaW4tNDFmNjExNGIxOUBleGFtcGxlLnRlc3QiLCJyb2xlIjoicmV2aWV3ZXIiLCJwbGF0Zm9ybV9yb2xlIjoic3VwZXJfYWRtaW4iLCJ2ZXJzaW9uIjoxLCJhc3NpZ25lZF9hdCI6IjIwMjYtMDEtMDlUMDA6MDA6MDBaIiwidXBkYXRlZF9hdCI6IjIwMjYtMDEtMDlUMDA6MDA6MDBaIiwiYXZhdGFyX3JlZiI6bnVsbH0seyJpZCI6IjA1ZmZiZmM5LTNjMTctNDc1Ny05ZjNmLWY1NDcxZjdiMDhhYiIsInVzZXJfaWQiOiJiMTdlNWQxOC01NzU2LTQ5YTAtYTljNi04YzhmMGU2ZWZhMmUiLCJ1c2VyX25hbWUiOiJaZXRhIENhcHR1cmUgQWRtaW4iLCJ1c2VyX2VtYWlsIjoiZGlyZWN0b3J5LXN1cGVyX2FkbWluLTQxZjYxMTRiMTlAZXhhbXBsZS50ZXN0Iiwicm9sZSI6ImFubm90YXRvciIsInBsYXRmb3JtX3JvbGUiOiJzdXBlcl9hZG1pbiIsInZlcnNpb24iOjEsImFzc2lnbmVkX2F0IjoiMjAyNi0wMS0wOFQwMDowMDowMFoiLCJ1cGRhdGVkX2F0IjoiMjAyNi0wMS0wOFQwMDowMDowMFoiLCJhdmF0YXJfcmVmIjpudWxsfSx7ImlkIjoiZTYxMjczZTgtMThkZS00YmI4LWI1MDUtZjQ0NDEyMDRjMTFhIiwidXNlcl9pZCI6Ijk4NzRkMjlmLTUyOWYtNDRlNC04ZDFhLWE0Y2U1NzJlYmRiOSIsInVzZXJfbmFtZSI6IsOfZXRhIEFubm90YXRvciIsInVzZXJfZW1haWwiOiJkaXJlY3RvcnktdW5pY29kZV9tZW1iZXItNDFmNjExNGIxOUBleGFtcGxlLnRlc3QiLCJyb2xlIjoiYW5ub3RhdG9yIiwicGxhdGZvcm1fcm9sZSI6ImVtcGxveWVlIiwidmVyc2lvbiI6MSwiYXNzaWduZWRfYXQiOiIyMDI2LTAxLTA3VDAwOjAwOjAwWiIsInVwZGF0ZWRfYXQiOiIyMDI2LTAxLTA3VDAwOjAwOjAwWiIsImF2YXRhcl9yZWYiOiJwcmVzZXQ6Ymx1ZSJ9LHsiaWQiOiJjOThlNWU3NS0yODAwLTQ2YzEtODQ5ZS04YmEwNjFiYzdiNzEiLCJ1c2VyX2lkIjoiZDRiNmE3NzctYmZmZi00MThhLWFhNzgtZDI4NTgwNjU3ZmJjIiwidXNlcl9uYW1lIjoiSW5hY3RpdmUgQW5ub3RhdG9yIiwidXNlcl9lbWFpbCI6ImRpcmVjdG9yeS1pbmFjdGl2ZV9tZW1iZXItNDFmNjExNGIxOUBleGFtcGxlLnRlc3QiLCJyb2xlIjoiYW5ub3RhdG9yIiwicGxhdGZvcm1fcm9sZSI6ImVtcGxveWVlIiwidmVyc2lvbiI6MSwiYXNzaWduZWRfYXQiOiIyMDI2LTAxLTA2VDAwOjAwOjAwWiIsInVwZGF0ZWRfYXQiOiIyMDI2LTAxLTA2VDAwOjAwOjAwWiIsImF2YXRhcl9yZWYiOm51bGx9LHsiaWQiOiI2YWNiNTQ0NS1iNjdkLTQ3MzMtOWE4ZS1jNDY3N2M1ZWFmYzUiLCJ1c2VyX2lkIjoiYzZiNDBmN2ItODQ2MC00N2U5LTllNDEtYTkyZDU3Mjk5NGUzIiwidXNlcl9uYW1lIjoiUHJvamVjdCBWaWV3ZXIiLCJ1c2VyX2VtYWlsIjoiZGlyZWN0b3J5LXZpZXdlci00MWY2MTE0YjE5QGV4YW1wbGUudGVzdCIsInJvbGUiOiJ2aWV3ZXIiLCJwbGF0Zm9ybV9yb2xlIjoidmlld2VyIiwidmVyc2lvbiI6MSwiYXNzaWduZWRfYXQiOiIyMDI2LTAxLTA1VDAwOjAwOjAwWiIsInVwZGF0ZWRfYXQiOiIyMDI2LTAxLTA1VDAwOjAwOjAwWiIsImF2YXRhcl9yZWYiOm51bGx9XQ==",
+          "byte_length": 2038,
+          "sha256": "00214db4405a5756a1f28fe89a34e7c44bcd988393bf6e9d93592aba2b939349"
+        },
+        "status": 200
+      }
+    },
+    {
+      "label": "target_mention-candidates_unicode_member",
+      "observation": {
+        "briefs_calls": [],
+        "sql": [
+          {
+            "phase": "other",
+            "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+            "statement": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)"
+          },
+          {
+            "phase": "other",
+            "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+            "statement": "SELECT aap_identity_v1.read_actor_context($1, $2)"
+          },
+          {
+            "phase": "project_visibility_or_snapshot",
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "other",
+            "sha256": "7ace85e5b02cdb2a5e38c7fa6cad1739bc7841381316ae8a03f3a9b095924151",
+            "statement": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))"
+          },
+          {
+            "phase": "project_visibility_or_snapshot",
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "project_access_membership",
+            "sha256": "59df978738ec0433838c83e8f8419ce875c559a64609ce51cd2aad50b777ced5",
+            "statement": "SELECT project_members.id, project_members.project_id, project_members.user_id, project_members.role, project_members.assigned_by, project_members.assigned_at, project_members.version, project_members.updated_at, project_members.weekly_target FROM project_members WHERE project_members.project_id = $1::UUID AND project_members.user_id = $2::UUID"
+          },
+          {
+            "phase": "mention_owner_lookup",
+            "sha256": "a9c7eb4a17a7eb1cd8bcaed63e34f2df784953d8ab08b0816ee2111668ea0d9f",
+            "statement": "SELECT users.name, users.email, users.is_active FROM users WHERE users.id = $1::UUID"
+          },
+          {
+            "phase": "mention_active_superadmins",
+            "sha256": "e847977f0b40ceff075500bfecd2daf9e934b753a3eec9b2e1537ee52f8b2d0c",
+            "statement": "SELECT users.id, users.name, users.email FROM users WHERE users.role = $1::VARCHAR AND users.is_active IS true ORDER BY users.name"
+          },
+          {
+            "phase": "mention_project_members",
+            "sha256": "0b2b6f8932be3aff7f0c1d4d12e1beb20ea23512c3ba9fde6c1c469bc3aba2f2",
+            "statement": "SELECT project_members.id, project_members.project_id, project_members.user_id, project_members.role, project_members.assigned_by, project_members.assigned_at, project_members.version, project_members.updated_at, project_members.weekly_target, users.name, users.email FROM project_members JOIN users ON users.id = project_members.user_id WHERE project_members.project_id = $1::UUID ORDER BY project_members.assigned_at DESC"
+          }
+        ],
+        "transaction_events": []
+      },
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "unicode_member",
+          "id": "$actor_unicode_member",
+          "role": "employee"
+        },
+        "method": "GET",
+        "path": "/api/v1/projects/$project_target/mention-candidates"
+      },
+      "response": {
+        "body": [
+          {
+            "kind": "owner",
+            "user_email": "$email_owner",
+            "user_id": "$actor_owner",
+            "user_name": "Project Owner"
+          },
+          {
+            "kind": "super_admin",
+            "user_email": "$email_external_super_admin",
+            "user_id": "$actor_external_super_admin",
+            "user_name": "Alpha External Admin"
+          },
+          {
+            "kind": "super_admin",
+            "user_email": "$email_super_admin",
+            "user_id": "$actor_super_admin",
+            "user_name": "Zeta Capture Admin"
+          },
+          {
+            "kind": "member",
+            "user_email": "$email_inactive_super_admin",
+            "user_id": "$actor_inactive_super_admin",
+            "user_name": "Inactive System Admin"
+          },
+          {
+            "kind": "member",
+            "user_email": "$email_unicode_member",
+            "user_id": "$actor_unicode_member",
+            "user_name": "ßeta Annotator"
+          },
+          {
+            "kind": "member",
+            "user_email": "$email_inactive_member",
+            "user_id": "$actor_inactive_member",
+            "user_name": "Inactive Annotator"
+          },
+          {
+            "kind": "member",
+            "user_email": "$email_viewer",
+            "user_id": "$actor_viewer",
+            "user_name": "Project Viewer"
+          }
+        ],
+        "headers": {
+          "content-type": "application/json"
+        },
+        "raw_body": {
+          "base64": "W3sidXNlcl9pZCI6IjViYjM2MzgxLWZiNmYtNDk2OS1iYzJkLWUxOTZhOTZhNjMyYyIsInVzZXJfbmFtZSI6IlByb2plY3QgT3duZXIiLCJ1c2VyX2VtYWlsIjoiZGlyZWN0b3J5LW93bmVyLTQxZjYxMTRiMTlAZXhhbXBsZS50ZXN0Iiwia2luZCI6Im93bmVyIn0seyJ1c2VyX2lkIjoiM2ExMTFiMjItMzE0MS00MjBkLWFmYmQtMjY5ODE1NWZlOTY4IiwidXNlcl9uYW1lIjoiQWxwaGEgRXh0ZXJuYWwgQWRtaW4iLCJ1c2VyX2VtYWlsIjoiZGlyZWN0b3J5LWV4dGVybmFsX3N1cGVyX2FkbWluLTQxZjYxMTRiMTlAZXhhbXBsZS50ZXN0Iiwia2luZCI6InN1cGVyX2FkbWluIn0seyJ1c2VyX2lkIjoiYjE3ZTVkMTgtNTc1Ni00OWEwLWE5YzYtOGM4ZjBlNmVmYTJlIiwidXNlcl9uYW1lIjoiWmV0YSBDYXB0dXJlIEFkbWluIiwidXNlcl9lbWFpbCI6ImRpcmVjdG9yeS1zdXBlcl9hZG1pbi00MWY2MTE0YjE5QGV4YW1wbGUudGVzdCIsImtpbmQiOiJzdXBlcl9hZG1pbiJ9LHsidXNlcl9pZCI6IjZiNWUxZGEwLTllZDUtNGU2NS05ZjJhLTBmZTRlMzhhYWMzYyIsInVzZXJfbmFtZSI6IkluYWN0aXZlIFN5c3RlbSBBZG1pbiIsInVzZXJfZW1haWwiOiJkaXJlY3RvcnktaW5hY3RpdmVfc3VwZXJfYWRtaW4tNDFmNjExNGIxOUBleGFtcGxlLnRlc3QiLCJraW5kIjoibWVtYmVyIn0seyJ1c2VyX2lkIjoiOTg3NGQyOWYtNTI5Zi00NGU0LThkMWEtYTRjZTU3MmViZGI5IiwidXNlcl9uYW1lIjoiw59ldGEgQW5ub3RhdG9yIiwidXNlcl9lbWFpbCI6ImRpcmVjdG9yeS11bmljb2RlX21lbWJlci00MWY2MTE0YjE5QGV4YW1wbGUudGVzdCIsImtpbmQiOiJtZW1iZXIifSx7InVzZXJfaWQiOiJkNGI2YTc3Ny1iZmZmLTQxOGEtYWE3OC1kMjg1ODA2NTdmYmMiLCJ1c2VyX25hbWUiOiJJbmFjdGl2ZSBBbm5vdGF0b3IiLCJ1c2VyX2VtYWlsIjoiZGlyZWN0b3J5LWluYWN0aXZlX21lbWJlci00MWY2MTE0YjE5QGV4YW1wbGUudGVzdCIsImtpbmQiOiJtZW1iZXIifSx7InVzZXJfaWQiOiJjNmI0MGY3Yi04NDYwLTQ3ZTktOWU0MS1hOTJkNTcyOTk0ZTMiLCJ1c2VyX25hbWUiOiJQcm9qZWN0IFZpZXdlciIsInVzZXJfZW1haWwiOiJkaXJlY3Rvcnktdmlld2VyLTQxZjYxMTRiMTlAZXhhbXBsZS50ZXN0Iiwia2luZCI6Im1lbWJlciJ9XQ==",
+          "byte_length": 1144,
+          "sha256": "161ca2f6d555d569dfe755c6621f8e3f3f61c4db3962df2b9829a5b1fdff723d"
+        },
+        "status": 200
+      }
+    },
+    {
+      "label": "target_members_viewer",
+      "observation": {
+        "briefs_calls": [
+          {
+            "request": {
+              "operation": "get_user_briefs",
+              "payload": {
+                "user_ids": [
+                  "$actor_owner",
+                  "$actor_inactive_super_admin",
+                  "$actor_super_admin",
+                  "$actor_unicode_member",
+                  "$actor_inactive_member",
+                  "$actor_viewer"
+                ]
+              },
+              "schema": "aap-identity-briefs/v1"
+            },
+            "returned_users": [
+              {
+                "avatar_initial": "P",
+                "avatar_ref": null,
+                "email": "$email_owner",
+                "id": "$actor_owner",
+                "name": "Project Owner",
+                "role": "project_admin"
+              },
+              {
+                "avatar_initial": "I",
+                "avatar_ref": null,
+                "email": "$email_inactive_super_admin",
+                "id": "$actor_inactive_super_admin",
+                "name": "Inactive System Admin",
+                "role": "super_admin"
+              },
+              {
+                "avatar_initial": "SS",
+                "avatar_ref": "preset:blue",
+                "email": "$email_unicode_member",
+                "id": "$actor_unicode_member",
+                "name": "ßeta Annotator",
+                "role": "employee"
+              },
+              {
+                "avatar_initial": "Z",
+                "avatar_ref": null,
+                "email": "$email_super_admin",
+                "id": "$actor_super_admin",
+                "name": "Zeta Capture Admin",
+                "role": "super_admin"
+              },
+              {
+                "avatar_initial": "P",
+                "avatar_ref": null,
+                "email": "$email_viewer",
+                "id": "$actor_viewer",
+                "name": "Project Viewer",
+                "role": "viewer"
+              },
+              {
+                "avatar_initial": "I",
+                "avatar_ref": null,
+                "email": "$email_inactive_member",
+                "id": "$actor_inactive_member",
+                "name": "Inactive Annotator",
+                "role": "employee"
+              }
+            ]
+          }
+        ],
+        "sql": [
+          {
+            "phase": "other",
+            "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+            "statement": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)"
+          },
+          {
+            "phase": "other",
+            "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+            "statement": "SELECT aap_identity_v1.read_actor_context($1, $2)"
+          },
+          {
+            "phase": "project_visibility_or_snapshot",
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "other",
+            "sha256": "7ace85e5b02cdb2a5e38c7fa6cad1739bc7841381316ae8a03f3a9b095924151",
+            "statement": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))"
+          },
+          {
+            "phase": "project_visibility_or_snapshot",
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "project_access_membership",
+            "sha256": "59df978738ec0433838c83e8f8419ce875c559a64609ce51cd2aad50b777ced5",
+            "statement": "SELECT project_members.id, project_members.project_id, project_members.user_id, project_members.role, project_members.assigned_by, project_members.assigned_at, project_members.version, project_members.updated_at, project_members.weekly_target FROM project_members WHERE project_members.project_id = $1::UUID AND project_members.user_id = $2::UUID"
+          },
+          {
+            "phase": "project_member_list",
+            "sha256": "7be44bacfef74618944b481cfe6b3dd7e6e3bda4c33d90071ae10c9f49dae375",
+            "statement": "SELECT project_members.id, project_members.project_id, project_members.user_id, project_members.role, project_members.assigned_by, project_members.assigned_at, project_members.version, project_members.updated_at, project_members.weekly_target FROM project_members WHERE project_members.project_id = $1::UUID ORDER BY project_members.assigned_at DESC"
+          },
+          {
+            "phase": "identity_briefs_command",
+            "sha256": "2c5c939b9551d328804d711edd4c0399cc1047b131a515a960839924210fcc04",
+            "statement": "SELECT aap_identity_briefs_v1.execute_briefs_command(CAST($1 AS jsonb))"
+          }
+        ],
+        "transaction_events": []
+      },
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "viewer",
+          "id": "$actor_viewer",
+          "role": "viewer"
+        },
+        "method": "GET",
+        "path": "/api/v1/projects/$project_target/members"
+      },
+      "response": {
+        "body": [
+          {
+            "assigned_at": "2026-01-10T00:00:00Z",
+            "avatar_ref": null,
+            "id": "c2ba87a3-cd8e-45ad-ad8a-a15250a5e4b5",
+            "platform_role": "project_admin",
+            "role": "reviewer",
+            "updated_at": "2026-01-10T00:00:00Z",
+            "user_email": "$email_owner",
+            "user_id": "$actor_owner",
+            "user_name": "Project Owner",
+            "version": 1
+          },
+          {
+            "assigned_at": "2026-01-09T00:00:00Z",
+            "avatar_ref": null,
+            "id": "1140fcf2-fbeb-45ba-9939-521b15b9e30b",
+            "platform_role": "super_admin",
+            "role": "reviewer",
+            "updated_at": "2026-01-09T00:00:00Z",
+            "user_email": "$email_inactive_super_admin",
+            "user_id": "$actor_inactive_super_admin",
+            "user_name": "Inactive System Admin",
+            "version": 1
+          },
+          {
+            "assigned_at": "2026-01-08T00:00:00Z",
+            "avatar_ref": null,
+            "id": "05ffbfc9-3c17-4757-9f3f-f5471f7b08ab",
+            "platform_role": "super_admin",
+            "role": "annotator",
+            "updated_at": "2026-01-08T00:00:00Z",
+            "user_email": "$email_super_admin",
+            "user_id": "$actor_super_admin",
+            "user_name": "Zeta Capture Admin",
+            "version": 1
+          },
+          {
+            "assigned_at": "2026-01-07T00:00:00Z",
+            "avatar_ref": "preset:blue",
+            "id": "e61273e8-18de-4bb8-b505-f4441204c11a",
+            "platform_role": "employee",
+            "role": "annotator",
+            "updated_at": "2026-01-07T00:00:00Z",
+            "user_email": "$email_unicode_member",
+            "user_id": "$actor_unicode_member",
+            "user_name": "ßeta Annotator",
+            "version": 1
+          },
+          {
+            "assigned_at": "2026-01-06T00:00:00Z",
+            "avatar_ref": null,
+            "id": "c98e5e75-2800-46c1-849e-8ba061bc7b71",
+            "platform_role": "employee",
+            "role": "annotator",
+            "updated_at": "2026-01-06T00:00:00Z",
+            "user_email": "$email_inactive_member",
+            "user_id": "$actor_inactive_member",
+            "user_name": "Inactive Annotator",
+            "version": 1
+          },
+          {
+            "assigned_at": "2026-01-05T00:00:00Z",
+            "avatar_ref": null,
+            "id": "6acb5445-b67d-4733-9a8e-c4677c5eafc5",
+            "platform_role": "viewer",
+            "role": "viewer",
+            "updated_at": "2026-01-05T00:00:00Z",
+            "user_email": "$email_viewer",
+            "user_id": "$actor_viewer",
+            "user_name": "Project Viewer",
+            "version": 1
+          }
+        ],
+        "headers": {
+          "content-type": "application/json"
+        },
+        "raw_body": {
+          "base64": "W3siaWQiOiJjMmJhODdhMy1jZDhlLTQ1YWQtYWQ4YS1hMTUyNTBhNWU0YjUiLCJ1c2VyX2lkIjoiNWJiMzYzODEtZmI2Zi00OTY5LWJjMmQtZTE5NmE5NmE2MzJjIiwidXNlcl9uYW1lIjoiUHJvamVjdCBPd25lciIsInVzZXJfZW1haWwiOiJkaXJlY3Rvcnktb3duZXItNDFmNjExNGIxOUBleGFtcGxlLnRlc3QiLCJyb2xlIjoicmV2aWV3ZXIiLCJwbGF0Zm9ybV9yb2xlIjoicHJvamVjdF9hZG1pbiIsInZlcnNpb24iOjEsImFzc2lnbmVkX2F0IjoiMjAyNi0wMS0xMFQwMDowMDowMFoiLCJ1cGRhdGVkX2F0IjoiMjAyNi0wMS0xMFQwMDowMDowMFoiLCJhdmF0YXJfcmVmIjpudWxsfSx7ImlkIjoiMTE0MGZjZjItZmJlYi00NWJhLTk5MzktNTIxYjE1YjllMzBiIiwidXNlcl9pZCI6IjZiNWUxZGEwLTllZDUtNGU2NS05ZjJhLTBmZTRlMzhhYWMzYyIsInVzZXJfbmFtZSI6IkluYWN0aXZlIFN5c3RlbSBBZG1pbiIsInVzZXJfZW1haWwiOiJkaXJlY3RvcnktaW5hY3RpdmVfc3VwZXJfYWRtaW4tNDFmNjExNGIxOUBleGFtcGxlLnRlc3QiLCJyb2xlIjoicmV2aWV3ZXIiLCJwbGF0Zm9ybV9yb2xlIjoic3VwZXJfYWRtaW4iLCJ2ZXJzaW9uIjoxLCJhc3NpZ25lZF9hdCI6IjIwMjYtMDEtMDlUMDA6MDA6MDBaIiwidXBkYXRlZF9hdCI6IjIwMjYtMDEtMDlUMDA6MDA6MDBaIiwiYXZhdGFyX3JlZiI6bnVsbH0seyJpZCI6IjA1ZmZiZmM5LTNjMTctNDc1Ny05ZjNmLWY1NDcxZjdiMDhhYiIsInVzZXJfaWQiOiJiMTdlNWQxOC01NzU2LTQ5YTAtYTljNi04YzhmMGU2ZWZhMmUiLCJ1c2VyX25hbWUiOiJaZXRhIENhcHR1cmUgQWRtaW4iLCJ1c2VyX2VtYWlsIjoiZGlyZWN0b3J5LXN1cGVyX2FkbWluLTQxZjYxMTRiMTlAZXhhbXBsZS50ZXN0Iiwicm9sZSI6ImFubm90YXRvciIsInBsYXRmb3JtX3JvbGUiOiJzdXBlcl9hZG1pbiIsInZlcnNpb24iOjEsImFzc2lnbmVkX2F0IjoiMjAyNi0wMS0wOFQwMDowMDowMFoiLCJ1cGRhdGVkX2F0IjoiMjAyNi0wMS0wOFQwMDowMDowMFoiLCJhdmF0YXJfcmVmIjpudWxsfSx7ImlkIjoiZTYxMjczZTgtMThkZS00YmI4LWI1MDUtZjQ0NDEyMDRjMTFhIiwidXNlcl9pZCI6Ijk4NzRkMjlmLTUyOWYtNDRlNC04ZDFhLWE0Y2U1NzJlYmRiOSIsInVzZXJfbmFtZSI6IsOfZXRhIEFubm90YXRvciIsInVzZXJfZW1haWwiOiJkaXJlY3RvcnktdW5pY29kZV9tZW1iZXItNDFmNjExNGIxOUBleGFtcGxlLnRlc3QiLCJyb2xlIjoiYW5ub3RhdG9yIiwicGxhdGZvcm1fcm9sZSI6ImVtcGxveWVlIiwidmVyc2lvbiI6MSwiYXNzaWduZWRfYXQiOiIyMDI2LTAxLTA3VDAwOjAwOjAwWiIsInVwZGF0ZWRfYXQiOiIyMDI2LTAxLTA3VDAwOjAwOjAwWiIsImF2YXRhcl9yZWYiOiJwcmVzZXQ6Ymx1ZSJ9LHsiaWQiOiJjOThlNWU3NS0yODAwLTQ2YzEtODQ5ZS04YmEwNjFiYzdiNzEiLCJ1c2VyX2lkIjoiZDRiNmE3NzctYmZmZi00MThhLWFhNzgtZDI4NTgwNjU3ZmJjIiwidXNlcl9uYW1lIjoiSW5hY3RpdmUgQW5ub3RhdG9yIiwidXNlcl9lbWFpbCI6ImRpcmVjdG9yeS1pbmFjdGl2ZV9tZW1iZXItNDFmNjExNGIxOUBleGFtcGxlLnRlc3QiLCJyb2xlIjoiYW5ub3RhdG9yIiwicGxhdGZvcm1fcm9sZSI6ImVtcGxveWVlIiwidmVyc2lvbiI6MSwiYXNzaWduZWRfYXQiOiIyMDI2LTAxLTA2VDAwOjAwOjAwWiIsInVwZGF0ZWRfYXQiOiIyMDI2LTAxLTA2VDAwOjAwOjAwWiIsImF2YXRhcl9yZWYiOm51bGx9LHsiaWQiOiI2YWNiNTQ0NS1iNjdkLTQ3MzMtOWE4ZS1jNDY3N2M1ZWFmYzUiLCJ1c2VyX2lkIjoiYzZiNDBmN2ItODQ2MC00N2U5LTllNDEtYTkyZDU3Mjk5NGUzIiwidXNlcl9uYW1lIjoiUHJvamVjdCBWaWV3ZXIiLCJ1c2VyX2VtYWlsIjoiZGlyZWN0b3J5LXZpZXdlci00MWY2MTE0YjE5QGV4YW1wbGUudGVzdCIsInJvbGUiOiJ2aWV3ZXIiLCJwbGF0Zm9ybV9yb2xlIjoidmlld2VyIiwidmVyc2lvbiI6MSwiYXNzaWduZWRfYXQiOiIyMDI2LTAxLTA1VDAwOjAwOjAwWiIsInVwZGF0ZWRfYXQiOiIyMDI2LTAxLTA1VDAwOjAwOjAwWiIsImF2YXRhcl9yZWYiOm51bGx9XQ==",
+          "byte_length": 2038,
+          "sha256": "00214db4405a5756a1f28fe89a34e7c44bcd988393bf6e9d93592aba2b939349"
+        },
+        "status": 200
+      }
+    },
+    {
+      "label": "target_mention-candidates_viewer",
+      "observation": {
+        "briefs_calls": [],
+        "sql": [
+          {
+            "phase": "other",
+            "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+            "statement": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)"
+          },
+          {
+            "phase": "other",
+            "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+            "statement": "SELECT aap_identity_v1.read_actor_context($1, $2)"
+          },
+          {
+            "phase": "project_visibility_or_snapshot",
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "other",
+            "sha256": "7ace85e5b02cdb2a5e38c7fa6cad1739bc7841381316ae8a03f3a9b095924151",
+            "statement": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))"
+          },
+          {
+            "phase": "project_visibility_or_snapshot",
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "project_access_membership",
+            "sha256": "59df978738ec0433838c83e8f8419ce875c559a64609ce51cd2aad50b777ced5",
+            "statement": "SELECT project_members.id, project_members.project_id, project_members.user_id, project_members.role, project_members.assigned_by, project_members.assigned_at, project_members.version, project_members.updated_at, project_members.weekly_target FROM project_members WHERE project_members.project_id = $1::UUID AND project_members.user_id = $2::UUID"
+          },
+          {
+            "phase": "mention_owner_lookup",
+            "sha256": "a9c7eb4a17a7eb1cd8bcaed63e34f2df784953d8ab08b0816ee2111668ea0d9f",
+            "statement": "SELECT users.name, users.email, users.is_active FROM users WHERE users.id = $1::UUID"
+          },
+          {
+            "phase": "mention_active_superadmins",
+            "sha256": "e847977f0b40ceff075500bfecd2daf9e934b753a3eec9b2e1537ee52f8b2d0c",
+            "statement": "SELECT users.id, users.name, users.email FROM users WHERE users.role = $1::VARCHAR AND users.is_active IS true ORDER BY users.name"
+          },
+          {
+            "phase": "mention_project_members",
+            "sha256": "0b2b6f8932be3aff7f0c1d4d12e1beb20ea23512c3ba9fde6c1c469bc3aba2f2",
+            "statement": "SELECT project_members.id, project_members.project_id, project_members.user_id, project_members.role, project_members.assigned_by, project_members.assigned_at, project_members.version, project_members.updated_at, project_members.weekly_target, users.name, users.email FROM project_members JOIN users ON users.id = project_members.user_id WHERE project_members.project_id = $1::UUID ORDER BY project_members.assigned_at DESC"
+          }
+        ],
+        "transaction_events": []
+      },
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "viewer",
+          "id": "$actor_viewer",
+          "role": "viewer"
+        },
+        "method": "GET",
+        "path": "/api/v1/projects/$project_target/mention-candidates"
+      },
+      "response": {
+        "body": [
+          {
+            "kind": "owner",
+            "user_email": "$email_owner",
+            "user_id": "$actor_owner",
+            "user_name": "Project Owner"
+          },
+          {
+            "kind": "super_admin",
+            "user_email": "$email_external_super_admin",
+            "user_id": "$actor_external_super_admin",
+            "user_name": "Alpha External Admin"
+          },
+          {
+            "kind": "super_admin",
+            "user_email": "$email_super_admin",
+            "user_id": "$actor_super_admin",
+            "user_name": "Zeta Capture Admin"
+          },
+          {
+            "kind": "member",
+            "user_email": "$email_inactive_super_admin",
+            "user_id": "$actor_inactive_super_admin",
+            "user_name": "Inactive System Admin"
+          },
+          {
+            "kind": "member",
+            "user_email": "$email_unicode_member",
+            "user_id": "$actor_unicode_member",
+            "user_name": "ßeta Annotator"
+          },
+          {
+            "kind": "member",
+            "user_email": "$email_inactive_member",
+            "user_id": "$actor_inactive_member",
+            "user_name": "Inactive Annotator"
+          },
+          {
+            "kind": "member",
+            "user_email": "$email_viewer",
+            "user_id": "$actor_viewer",
+            "user_name": "Project Viewer"
+          }
+        ],
+        "headers": {
+          "content-type": "application/json"
+        },
+        "raw_body": {
+          "base64": "W3sidXNlcl9pZCI6IjViYjM2MzgxLWZiNmYtNDk2OS1iYzJkLWUxOTZhOTZhNjMyYyIsInVzZXJfbmFtZSI6IlByb2plY3QgT3duZXIiLCJ1c2VyX2VtYWlsIjoiZGlyZWN0b3J5LW93bmVyLTQxZjYxMTRiMTlAZXhhbXBsZS50ZXN0Iiwia2luZCI6Im93bmVyIn0seyJ1c2VyX2lkIjoiM2ExMTFiMjItMzE0MS00MjBkLWFmYmQtMjY5ODE1NWZlOTY4IiwidXNlcl9uYW1lIjoiQWxwaGEgRXh0ZXJuYWwgQWRtaW4iLCJ1c2VyX2VtYWlsIjoiZGlyZWN0b3J5LWV4dGVybmFsX3N1cGVyX2FkbWluLTQxZjYxMTRiMTlAZXhhbXBsZS50ZXN0Iiwia2luZCI6InN1cGVyX2FkbWluIn0seyJ1c2VyX2lkIjoiYjE3ZTVkMTgtNTc1Ni00OWEwLWE5YzYtOGM4ZjBlNmVmYTJlIiwidXNlcl9uYW1lIjoiWmV0YSBDYXB0dXJlIEFkbWluIiwidXNlcl9lbWFpbCI6ImRpcmVjdG9yeS1zdXBlcl9hZG1pbi00MWY2MTE0YjE5QGV4YW1wbGUudGVzdCIsImtpbmQiOiJzdXBlcl9hZG1pbiJ9LHsidXNlcl9pZCI6IjZiNWUxZGEwLTllZDUtNGU2NS05ZjJhLTBmZTRlMzhhYWMzYyIsInVzZXJfbmFtZSI6IkluYWN0aXZlIFN5c3RlbSBBZG1pbiIsInVzZXJfZW1haWwiOiJkaXJlY3RvcnktaW5hY3RpdmVfc3VwZXJfYWRtaW4tNDFmNjExNGIxOUBleGFtcGxlLnRlc3QiLCJraW5kIjoibWVtYmVyIn0seyJ1c2VyX2lkIjoiOTg3NGQyOWYtNTI5Zi00NGU0LThkMWEtYTRjZTU3MmViZGI5IiwidXNlcl9uYW1lIjoiw59ldGEgQW5ub3RhdG9yIiwidXNlcl9lbWFpbCI6ImRpcmVjdG9yeS11bmljb2RlX21lbWJlci00MWY2MTE0YjE5QGV4YW1wbGUudGVzdCIsImtpbmQiOiJtZW1iZXIifSx7InVzZXJfaWQiOiJkNGI2YTc3Ny1iZmZmLTQxOGEtYWE3OC1kMjg1ODA2NTdmYmMiLCJ1c2VyX25hbWUiOiJJbmFjdGl2ZSBBbm5vdGF0b3IiLCJ1c2VyX2VtYWlsIjoiZGlyZWN0b3J5LWluYWN0aXZlX21lbWJlci00MWY2MTE0YjE5QGV4YW1wbGUudGVzdCIsImtpbmQiOiJtZW1iZXIifSx7InVzZXJfaWQiOiJjNmI0MGY3Yi04NDYwLTQ3ZTktOWU0MS1hOTJkNTcyOTk0ZTMiLCJ1c2VyX25hbWUiOiJQcm9qZWN0IFZpZXdlciIsInVzZXJfZW1haWwiOiJkaXJlY3Rvcnktdmlld2VyLTQxZjYxMTRiMTlAZXhhbXBsZS50ZXN0Iiwia2luZCI6Im1lbWJlciJ9XQ==",
+          "byte_length": 1144,
+          "sha256": "161ca2f6d555d569dfe755c6621f8e3f3f61c4db3962df2b9829a5b1fdff723d"
+        },
+        "status": 200
+      }
+    },
+    {
+      "label": "empty_project_members",
+      "observation": {
+        "briefs_calls": [],
+        "sql": [
+          {
+            "phase": "other",
+            "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+            "statement": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)"
+          },
+          {
+            "phase": "other",
+            "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+            "statement": "SELECT aap_identity_v1.read_actor_context($1, $2)"
+          },
+          {
+            "phase": "project_visibility_or_snapshot",
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "other",
+            "sha256": "7ace85e5b02cdb2a5e38c7fa6cad1739bc7841381316ae8a03f3a9b095924151",
+            "statement": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))"
+          },
+          {
+            "phase": "project_visibility_or_snapshot",
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "project_member_list",
+            "sha256": "7be44bacfef74618944b481cfe6b3dd7e6e3bda4c33d90071ae10c9f49dae375",
+            "statement": "SELECT project_members.id, project_members.project_id, project_members.user_id, project_members.role, project_members.assigned_by, project_members.assigned_at, project_members.version, project_members.updated_at, project_members.weekly_target FROM project_members WHERE project_members.project_id = $1::UUID ORDER BY project_members.assigned_at DESC"
+          }
+        ],
+        "transaction_events": []
+      },
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "super_admin",
+          "id": "$actor_super_admin",
+          "role": "super_admin"
+        },
+        "method": "GET",
+        "path": "/api/v1/projects/$project_empty/members"
+      },
+      "response": {
+        "body": [],
+        "headers": {
+          "content-type": "application/json"
+        },
+        "raw_body": {
+          "base64": "W10=",
+          "byte_length": 2,
+          "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "status": 200
+      }
+    },
+    {
+      "label": "empty_project_mention_candidates",
+      "observation": {
+        "briefs_calls": [],
+        "sql": [
+          {
+            "phase": "other",
+            "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+            "statement": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)"
+          },
+          {
+            "phase": "other",
+            "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+            "statement": "SELECT aap_identity_v1.read_actor_context($1, $2)"
+          },
+          {
+            "phase": "project_visibility_or_snapshot",
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "other",
+            "sha256": "7ace85e5b02cdb2a5e38c7fa6cad1739bc7841381316ae8a03f3a9b095924151",
+            "statement": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))"
+          },
+          {
+            "phase": "project_visibility_or_snapshot",
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "mention_owner_lookup",
+            "sha256": "a9c7eb4a17a7eb1cd8bcaed63e34f2df784953d8ab08b0816ee2111668ea0d9f",
+            "statement": "SELECT users.name, users.email, users.is_active FROM users WHERE users.id = $1::UUID"
+          },
+          {
+            "phase": "mention_active_superadmins",
+            "sha256": "e847977f0b40ceff075500bfecd2daf9e934b753a3eec9b2e1537ee52f8b2d0c",
+            "statement": "SELECT users.id, users.name, users.email FROM users WHERE users.role = $1::VARCHAR AND users.is_active IS true ORDER BY users.name"
+          },
+          {
+            "phase": "mention_project_members",
+            "sha256": "0b2b6f8932be3aff7f0c1d4d12e1beb20ea23512c3ba9fde6c1c469bc3aba2f2",
+            "statement": "SELECT project_members.id, project_members.project_id, project_members.user_id, project_members.role, project_members.assigned_by, project_members.assigned_at, project_members.version, project_members.updated_at, project_members.weekly_target, users.name, users.email FROM project_members JOIN users ON users.id = project_members.user_id WHERE project_members.project_id = $1::UUID ORDER BY project_members.assigned_at DESC"
+          }
+        ],
+        "transaction_events": []
+      },
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "super_admin",
+          "id": "$actor_super_admin",
+          "role": "super_admin"
+        },
+        "method": "GET",
+        "path": "/api/v1/projects/$project_empty/mention-candidates"
+      },
+      "response": {
+        "body": [
+          {
+            "kind": "owner",
+            "user_email": "$email_owner",
+            "user_id": "$actor_owner",
+            "user_name": "Project Owner"
+          },
+          {
+            "kind": "super_admin",
+            "user_email": "$email_external_super_admin",
+            "user_id": "$actor_external_super_admin",
+            "user_name": "Alpha External Admin"
+          },
+          {
+            "kind": "super_admin",
+            "user_email": "$email_super_admin",
+            "user_id": "$actor_super_admin",
+            "user_name": "Zeta Capture Admin"
+          }
+        ],
+        "headers": {
+          "content-type": "application/json"
+        },
+        "raw_body": {
+          "base64": "W3sidXNlcl9pZCI6IjViYjM2MzgxLWZiNmYtNDk2OS1iYzJkLWUxOTZhOTZhNjMyYyIsInVzZXJfbmFtZSI6IlByb2plY3QgT3duZXIiLCJ1c2VyX2VtYWlsIjoiZGlyZWN0b3J5LW93bmVyLTQxZjYxMTRiMTlAZXhhbXBsZS50ZXN0Iiwia2luZCI6Im93bmVyIn0seyJ1c2VyX2lkIjoiM2ExMTFiMjItMzE0MS00MjBkLWFmYmQtMjY5ODE1NWZlOTY4IiwidXNlcl9uYW1lIjoiQWxwaGEgRXh0ZXJuYWwgQWRtaW4iLCJ1c2VyX2VtYWlsIjoiZGlyZWN0b3J5LWV4dGVybmFsX3N1cGVyX2FkbWluLTQxZjYxMTRiMTlAZXhhbXBsZS50ZXN0Iiwia2luZCI6InN1cGVyX2FkbWluIn0seyJ1c2VyX2lkIjoiYjE3ZTVkMTgtNTc1Ni00OWEwLWE5YzYtOGM4ZjBlNmVmYTJlIiwidXNlcl9uYW1lIjoiWmV0YSBDYXB0dXJlIEFkbWluIiwidXNlcl9lbWFpbCI6ImRpcmVjdG9yeS1zdXBlcl9hZG1pbi00MWY2MTE0YjE5QGV4YW1wbGUudGVzdCIsImtpbmQiOiJzdXBlcl9hZG1pbiJ9XQ==",
+          "byte_length": 493,
+          "sha256": "5f1153da82e5d4fd187981d529296c8a0349b31064e3ed5ee2e25766d12f7aae"
+        },
+        "status": 200
+      }
+    },
+    {
+      "label": "inactive_owner_member_fallback",
+      "observation": {
+        "briefs_calls": [],
+        "sql": [
+          {
+            "phase": "other",
+            "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+            "statement": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)"
+          },
+          {
+            "phase": "other",
+            "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+            "statement": "SELECT aap_identity_v1.read_actor_context($1, $2)"
+          },
+          {
+            "phase": "project_visibility_or_snapshot",
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "other",
+            "sha256": "7ace85e5b02cdb2a5e38c7fa6cad1739bc7841381316ae8a03f3a9b095924151",
+            "statement": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))"
+          },
+          {
+            "phase": "project_visibility_or_snapshot",
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "mention_owner_lookup",
+            "sha256": "a9c7eb4a17a7eb1cd8bcaed63e34f2df784953d8ab08b0816ee2111668ea0d9f",
+            "statement": "SELECT users.name, users.email, users.is_active FROM users WHERE users.id = $1::UUID"
+          },
+          {
+            "phase": "mention_active_superadmins",
+            "sha256": "e847977f0b40ceff075500bfecd2daf9e934b753a3eec9b2e1537ee52f8b2d0c",
+            "statement": "SELECT users.id, users.name, users.email FROM users WHERE users.role = $1::VARCHAR AND users.is_active IS true ORDER BY users.name"
+          },
+          {
+            "phase": "mention_project_members",
+            "sha256": "0b2b6f8932be3aff7f0c1d4d12e1beb20ea23512c3ba9fde6c1c469bc3aba2f2",
+            "statement": "SELECT project_members.id, project_members.project_id, project_members.user_id, project_members.role, project_members.assigned_by, project_members.assigned_at, project_members.version, project_members.updated_at, project_members.weekly_target, users.name, users.email FROM project_members JOIN users ON users.id = project_members.user_id WHERE project_members.project_id = $1::UUID ORDER BY project_members.assigned_at DESC"
+          }
+        ],
+        "transaction_events": []
+      },
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "super_admin",
+          "id": "$actor_super_admin",
+          "role": "super_admin"
+        },
+        "method": "GET",
+        "path": "/api/v1/projects/$project_inactive_owner/mention-candidates"
+      },
+      "response": {
+        "body": [
+          {
+            "kind": "super_admin",
+            "user_email": "$email_external_super_admin",
+            "user_id": "$actor_external_super_admin",
+            "user_name": "Alpha External Admin"
+          },
+          {
+            "kind": "super_admin",
+            "user_email": "$email_super_admin",
+            "user_id": "$actor_super_admin",
+            "user_name": "Zeta Capture Admin"
+          },
+          {
+            "kind": "member",
+            "user_email": "$email_inactive_owner",
+            "user_id": "$actor_inactive_owner",
+            "user_name": "Inactive Project Owner"
+          }
+        ],
+        "headers": {
+          "content-type": "application/json"
+        },
+        "raw_body": {
+          "base64": "W3sidXNlcl9pZCI6IjNhMTExYjIyLTMxNDEtNDIwZC1hZmJkLTI2OTgxNTVmZTk2OCIsInVzZXJfbmFtZSI6IkFscGhhIEV4dGVybmFsIEFkbWluIiwidXNlcl9lbWFpbCI6ImRpcmVjdG9yeS1leHRlcm5hbF9zdXBlcl9hZG1pbi00MWY2MTE0YjE5QGV4YW1wbGUudGVzdCIsImtpbmQiOiJzdXBlcl9hZG1pbiJ9LHsidXNlcl9pZCI6ImIxN2U1ZDE4LTU3NTYtNDlhMC1hOWM2LThjOGYwZTZlZmEyZSIsInVzZXJfbmFtZSI6IlpldGEgQ2FwdHVyZSBBZG1pbiIsInVzZXJfZW1haWwiOiJkaXJlY3Rvcnktc3VwZXJfYWRtaW4tNDFmNjExNGIxOUBleGFtcGxlLnRlc3QiLCJraW5kIjoic3VwZXJfYWRtaW4ifSx7InVzZXJfaWQiOiIwZTE4ZTRiNi1lYjY3LTQwMjQtOWQ0ZC04OWZkYzNjMGMxMmYiLCJ1c2VyX25hbWUiOiJJbmFjdGl2ZSBQcm9qZWN0IE93bmVyIiwidXNlcl9lbWFpbCI6ImRpcmVjdG9yeS1pbmFjdGl2ZV9vd25lci00MWY2MTE0YjE5QGV4YW1wbGUudGVzdCIsImtpbmQiOiJtZW1iZXIifV0=",
+          "byte_length": 512,
+          "sha256": "11ea6769b0edee356215f135301ad439c3919ec63d049a306386375b4c312e14"
+        },
+        "status": 200
+      }
+    },
+    {
+      "label": "out_of_scope_members",
+      "observation": {
+        "briefs_calls": [],
+        "sql": [
+          {
+            "phase": "other",
+            "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+            "statement": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)"
+          },
+          {
+            "phase": "other",
+            "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+            "statement": "SELECT aap_identity_v1.read_actor_context($1, $2)"
+          },
+          {
+            "phase": "project_visibility_or_snapshot",
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "other",
+            "sha256": "7ace85e5b02cdb2a5e38c7fa6cad1739bc7841381316ae8a03f3a9b095924151",
+            "statement": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))"
+          },
+          {
+            "phase": "project_visibility_or_snapshot",
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "project_access_membership",
+            "sha256": "59df978738ec0433838c83e8f8419ce875c559a64609ce51cd2aad50b777ced5",
+            "statement": "SELECT project_members.id, project_members.project_id, project_members.user_id, project_members.role, project_members.assigned_by, project_members.assigned_at, project_members.version, project_members.updated_at, project_members.weekly_target FROM project_members WHERE project_members.project_id = $1::UUID AND project_members.user_id = $2::UUID"
+          }
+        ],
+        "transaction_events": []
+      },
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "outsider",
+          "id": "$actor_outsider",
+          "role": "employee"
+        },
+        "method": "GET",
+        "path": "/api/v1/projects/$project_target/members"
+      },
+      "response": {
+        "body": {
+          "detail": "项目不存在"
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "raw_body": {
+          "base64": "eyJkZXRhaWwiOiLpobnnm67kuI3lrZjlnKgifQ==",
+          "byte_length": 28,
+          "sha256": "77fdb5db30ea6727c6cf8879bc29a1d1a6a83d7e525f77c87e5fb01c54f152d4"
+        },
+        "status": 404
+      }
+    },
+    {
+      "label": "out_of_scope_mention-candidates",
+      "observation": {
+        "briefs_calls": [],
+        "sql": [
+          {
+            "phase": "other",
+            "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+            "statement": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)"
+          },
+          {
+            "phase": "other",
+            "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+            "statement": "SELECT aap_identity_v1.read_actor_context($1, $2)"
+          },
+          {
+            "phase": "project_visibility_or_snapshot",
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "other",
+            "sha256": "7ace85e5b02cdb2a5e38c7fa6cad1739bc7841381316ae8a03f3a9b095924151",
+            "statement": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))"
+          },
+          {
+            "phase": "project_visibility_or_snapshot",
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "project_access_membership",
+            "sha256": "59df978738ec0433838c83e8f8419ce875c559a64609ce51cd2aad50b777ced5",
+            "statement": "SELECT project_members.id, project_members.project_id, project_members.user_id, project_members.role, project_members.assigned_by, project_members.assigned_at, project_members.version, project_members.updated_at, project_members.weekly_target FROM project_members WHERE project_members.project_id = $1::UUID AND project_members.user_id = $2::UUID"
+          }
+        ],
+        "transaction_events": []
+      },
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "outsider",
+          "id": "$actor_outsider",
+          "role": "employee"
+        },
+        "method": "GET",
+        "path": "/api/v1/projects/$project_target/mention-candidates"
+      },
+      "response": {
+        "body": {
+          "detail": "项目不存在"
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "raw_body": {
+          "base64": "eyJkZXRhaWwiOiLpobnnm67kuI3lrZjlnKgifQ==",
+          "byte_length": 28,
+          "sha256": "77fdb5db30ea6727c6cf8879bc29a1d1a6a83d7e525f77c87e5fb01c54f152d4"
+        },
+        "status": 404
+      }
+    },
+    {
+      "label": "missing_project_mention_candidates",
+      "observation": {
+        "briefs_calls": [],
+        "sql": [
+          {
+            "phase": "other",
+            "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+            "statement": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)"
+          },
+          {
+            "phase": "other",
+            "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+            "statement": "SELECT aap_identity_v1.read_actor_context($1, $2)"
+          },
+          {
+            "phase": "project_visibility_or_snapshot",
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          }
+        ],
+        "transaction_events": []
+      },
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "super_admin",
+          "id": "$actor_super_admin",
+          "role": "super_admin"
+        },
+        "method": "GET",
+        "path": "/api/v1/projects/$missing_project/mention-candidates"
+      },
+      "response": {
+        "body": {
+          "detail": "项目不存在"
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "raw_body": {
+          "base64": "eyJkZXRhaWwiOiLpobnnm67kuI3lrZjlnKgifQ==",
+          "byte_length": 28,
+          "sha256": "77fdb5db30ea6727c6cf8879bc29a1d1a6a83d7e525f77c87e5fb01c54f152d4"
+        },
+        "status": 404
+      }
+    },
+    {
+      "label": "historical_platform_role_member_response",
+      "observation": {
+        "briefs_calls": [
+          {
+            "request": {
+              "operation": "get_user_briefs",
+              "payload": {
+                "user_ids": [
+                  "$actor_historical_role"
+                ]
+              },
+              "schema": "aap-identity-briefs/v1"
+            },
+            "returned_users": [
+              {
+                "avatar_initial": "H",
+                "avatar_ref": null,
+                "email": "$email_historical_role",
+                "id": "$actor_historical_role",
+                "name": "Historical Role Member",
+                "role": "historical_staff_role"
+              }
+            ]
+          }
+        ],
+        "sql": [
+          {
+            "phase": "other",
+            "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+            "statement": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)"
+          },
+          {
+            "phase": "other",
+            "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+            "statement": "SELECT aap_identity_v1.read_actor_context($1, $2)"
+          },
+          {
+            "phase": "project_visibility_or_snapshot",
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "other",
+            "sha256": "7ace85e5b02cdb2a5e38c7fa6cad1739bc7841381316ae8a03f3a9b095924151",
+            "statement": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))"
+          },
+          {
+            "phase": "project_visibility_or_snapshot",
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "project_member_list",
+            "sha256": "7be44bacfef74618944b481cfe6b3dd7e6e3bda4c33d90071ae10c9f49dae375",
+            "statement": "SELECT project_members.id, project_members.project_id, project_members.user_id, project_members.role, project_members.assigned_by, project_members.assigned_at, project_members.version, project_members.updated_at, project_members.weekly_target FROM project_members WHERE project_members.project_id = $1::UUID ORDER BY project_members.assigned_at DESC"
+          },
+          {
+            "phase": "identity_briefs_command",
+            "sha256": "2c5c939b9551d328804d711edd4c0399cc1047b131a515a960839924210fcc04",
+            "statement": "SELECT aap_identity_briefs_v1.execute_briefs_command(CAST($1 AS jsonb))"
+          }
+        ],
+        "transaction_events": []
+      },
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "super_admin",
+          "id": "$actor_super_admin",
+          "role": "super_admin"
+        },
+        "method": "GET",
+        "path": "/api/v1/projects/$project_historical_role/members"
+      },
+      "response": {
+        "body": "Internal Server Error",
+        "headers": {
+          "content-type": "text/plain; charset=utf-8"
+        },
+        "raw_body": {
+          "base64": "SW50ZXJuYWwgU2VydmVyIEVycm9y",
+          "byte_length": 21,
+          "sha256": "e41656eb2ba6c6293bf6dd928e5a88cdbc50535cab661c1969e0f598e497ed62"
+        },
+        "status": 500
+      }
+    }
+  ],
+  "source": {
+    "capture_driver_sha256": "f1c689eac0b363ef3e89359f487576400d2963488ef401b8c247e62c66881e02",
+    "captured_head": "bdc11dfb315c247cedaa97b9fb7092c273e0425a",
+    "pre_extraction_base": "9ec01c682fb7f3de265feb655e411e9458edb2d6",
+    "runtime_source_sha256": {
+      "apps/api/alembic/sql/0249_identity_briefs.sql": "9621a1461061d8e685a64125c25d004167f60e544aa411988e8cb5731f7d63b2",
+      "apps/api/alembic/sql/0249_identity_briefs_support.sql": "98610350c3e5269ba1aac3613b5bba5b3d101544b342de15a6a49ede11f77989",
+      "apps/api/alembic/sql/0253_workspace_membership_support.sql": "9ce5c0f393af76f4a24ac6585063a0e823d502e7637917a7d089c1e8867e048a",
+      "apps/api/app/api/v1/projects.py": "3bb3b21274886555cf3cc3e7245574691c6ab7eae5a00b410cc64b28a471b2a3",
+      "apps/api/app/api/v1/router.py": "379b4d055c01fe0386562284d83ed38b4a2a0759660331f11c2413233ebefb53",
+      "apps/api/app/config.py": "65aea3e81a53ca71d620c6e08dc3930be92771484a2711e299b7f25be6548bb3",
+      "apps/api/app/core/security.py": "70ca9d3325406f3128bcac0dc5048f6b1387cb1a795dfb1b76d6df29a2ac0b9b",
+      "apps/api/app/db/enums.py": "5341c4e4dafc0147bfc5d24a3dd44d128b875f004daa3493cc0e6dee091d424c",
+      "apps/api/app/db/models/project.py": "b274f2a7765a14e1ec62b3f9e1253e09046f592edd94c0a769fedd6be7e31da4",
+      "apps/api/app/db/models/project_member.py": "55857f5fe62a1c591eae8357029e497a02ac3a04ac0bff1cd6d4b00feb96d107",
+      "apps/api/app/db/models/user.py": "ab646405f6960cee9dce564ca6caff5ea9a9676c4551f9af1b2a738251ded687",
+      "apps/api/app/deps.py": "fbb9af9ab07e6ca3adce3b8b170c2e5cc37fc8c17afea8a10fe341896a932168",
+      "apps/api/app/main.py": "5cf730f8e5584c15a56dc19cc02d4ab10808cc30e714b3c7a9b17b2dfb3e5d0c",
+      "apps/api/app/schemas/project.py": "f74d44920b7e8d632c02cae64ba92849272e36a06386acafb4d87e12e75a4cb8",
+      "apps/api/app/schemas/user.py": "5f9200c5ffa4ea50e1b7bd4652a8d2ef9846e58e0c5b698ae79619334231dd45",
+      "apps/api/app/services/identity_account_lock_data.py": "4bea102159fb190d140767211734a9e9426e9b3c98006e98364204d68390bfe1",
+      "apps/api/app/services/identity_briefs_commands.py": "3730102fcbd8bd192b4ee7929351682468ef52d9fe7737f61ddcf8db4595d2f4",
+      "apps/api/app/services/identity_briefs_data.py": "bbf6b72f97523209fb13aea165499dd39061a5cfe280c5b77125aef7d426df3a",
+      "apps/api/app/services/identity_contracts.py": "39fc901226518dcfa6adb840992b70c2131b361beeb5ed7aadd915f06d595b3e",
+      "apps/api/app/services/identity_gateway.py": "a81f0b92875ff28e1248d3e26e573ca3a20ba172a911264ca100d12723f8b914",
+      "apps/api/app/services/identity_session_data.py": "bc765bf901a2c274703d98d21193a1a8548fc2bbd31b5112d8493a66e52626d9",
+      "apps/api/app/services/project_access.py": "8a9d111b038e40070c17f2b6296f119855e26dc6f235bce613dc3eed08a1ab82",
+      "apps/api/app/services/user_brief.py": "eb23a7abc95184cb76eb480acda970497d031e4ae80560356d48fad5646f9869",
+      "apps/api/tests/factory.py": "145647dab2e72e09bf8516b935e497b99f67f59ef7bf07d5d19afce81d3a1c40",
+      "apps/identity/src/aap_identity/briefs_contract.py": "1f16a96e05a6ebcfcab180ce5b73b4fe9d1cd64a7116ca28b1544971fa8efe01",
+      "apps/identity/src/aap_identity/briefs_manager.py": "d3efbaf17e51285e2e41eda61b771836930946db9d1128929527be967d2bbf49",
+      "apps/identity/src/aap_identity/briefs_postgres.py": "21804c2774bb60467c0b6676e6f02093d0bbaada1ca36de91c44f8e0429e072e",
+      "apps/web/src/api/projects.ts": "c03bc0fd23e29389d378e9ca13a9e8f653dcb9f7a8179b5a4b67de1a1fe0ffc0",
+      "apps/web/src/hooks/useProjects.ts": "6ddf821eb617241ed5405f87e296e7460d9883bd8487d2fb8f904788be596d06",
+      "apps/web/src/pages/Workbench/shell/CommentsPanel.tsx": "bd20fc5e4478cc4e13c35fa3975ecd2a8d6bcf354925dca9a7383b4244544828"
+    }
+  }
+}

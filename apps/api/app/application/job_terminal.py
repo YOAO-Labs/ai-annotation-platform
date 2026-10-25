@@ -56,6 +56,13 @@ async def apply_signal_terminal(
     error: str | None = None,
 ) -> bool:
     """Apply fallback in the caller's transaction; return whether to commit it."""
+    if job.kind in {"video_tracker", "video_correction"} and (
+        (job.payload or {}).get("video_execution_protocol")
+        == "aap-video-execution-data/v1"
+    ):
+        # A broker signal has no execution capability. It cannot terminalize
+        # the projection while a replacement may own the canonical tracker.
+        return False
     interruption = _INTERRUPTION_HANDLERS.get(job.kind)
     if interruption is not None:
         await interruption(db, job, cancelled=cancelled)

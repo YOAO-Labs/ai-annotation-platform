@@ -25008,10 +25008,8 @@
             "type": "string"
           },
           "payload": {
-            "additionalProperties": true,
             "default": {},
-            "title": "Payload",
-            "type": "object"
+            "title": "Payload"
           },
           "read_at": {
             "anyOf": [
@@ -26838,7 +26836,7 @@
       },
       "PipelineStage": {
         "additionalProperties": false,
-        "description": "v0.18.1 · 多阶段预标注的单个阶段声明 (路径 B).\n\nstage 0 (parent_stage=None) 是源检测阶段, 吃整图产框; 下游阶段 (parent_stage 指向源阶段)\n平台按父框 bbox 裁 ROI crop 喂入, 把返回的 attributes 合并进父框 (write.target=attributes)。\nv0.18.2 (M2): 支持单层并行扇出 (多个下游共享同一 parent_stage)、按类别路由\n(parent_class_filter)、阶段级失败策略 (on_failure)。深度≥3 / new_shape 留 M3。",
+        "description": "多阶段预标注的一项声明。\n\nparent_stage=None 标识源阶段；下游阶段消费父阶段几何，可写入属性、\n独立几何或中间结果。阶段序号不必从零开始，任一依赖链最多三层。",
         "properties": {
           "class_filter": {
             "anyOf": [
@@ -40965,6 +40963,44 @@
         "title": "TrackerExemplar",
         "type": "object"
       },
+      "TrackerRetirementRedriveUnavailable": {
+        "properties": {
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "reason": {
+            "const": "tracker_retirement_redrive_unavailable",
+            "title": "Reason",
+            "type": "string"
+          },
+          "retryable": {
+            "const": true,
+            "title": "Retryable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "reason",
+          "job_id",
+          "retryable"
+        ],
+        "title": "TrackerRetirementRedriveUnavailable",
+        "type": "object"
+      },
+      "TrackerRetirementRedriveUnavailableResponse": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/TrackerRetirementRedriveUnavailable"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "TrackerRetirementRedriveUnavailableResponse",
+        "type": "object"
+      },
       "TrainedModelCreate": {
         "additionalProperties": false,
         "properties": {
@@ -52976,7 +53012,7 @@
     },
     "/api/v1/admin/ml-integrations/runtime-snapshot": {
       "get": {
-        "description": "Full runtime snapshot (Super Admin only): router mode + per-pool inflight /\ncircuit / health + a freshness envelope (§12.3 + plan §6.3). Best-effort Redis\nreads — a Redis failure flips the ``router_ledger`` source to ``stale`` rather\nthan dropping the snapshot. Metrics-driven fields stay ``None`` (plan §4.2).",
+        "description": "Super Admin runtime observations with per-source freshness.\n\nExecution counts come from the durable routing owner in every mode; failed\nowner reads remain unknown. Redis circuit hints are independently best effort.",
         "operationId": "get_runtime_snapshot_api_v1_admin_ml_integrations_runtime_snapshot_get",
         "responses": {
           "200": {
@@ -62069,7 +62105,7 @@
     },
     "/api/v1/notification-preferences": {
       "get": {
-        "description": "v0.7.0：返回所有已知 type 的偏好；无记录默认 in_app=True / email=False。\n\ntoast 是 v0.15 计划新增的有效弹出选择：显式存储值优先，未存储时按类型的\n默认重要程度（services/notification_preferences.py）。",
+        "description": "v0.7.0：返回所有已知 type 的偏好；无记录默认 in_app=True / email=False。\n\ntoast 的未存储值由 Notifications 偏好合同按类型给出默认重要程度。",
         "operationId": "get_preferences_api_v1_notification_preferences_get",
         "responses": {
           "200": {
@@ -86790,6 +86826,16 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackerRetirementRedriveUnavailableResponse"
+                }
+              }
+            },
+            "description": "Cancellation is committed; retry the same request if the worker redrive could not be acknowledged."
           }
         },
         "security": [

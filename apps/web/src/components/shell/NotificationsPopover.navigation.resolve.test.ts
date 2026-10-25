@@ -8,6 +8,7 @@ import {
   DiscussionNotificationError,
   resolveDiscussionNotification,
 } from "./NotificationsPopover.navigation";
+import { notificationPayloadRecord } from "./NotificationsPopover.helpers";
 
 const mocks = vi.hoisted(() => ({
   task: vi.fn(),
@@ -277,7 +278,10 @@ describe("notification discussion target resolution", () => {
 
   it("classifies malformed payloads and permission failures without issuing a guessed lookup", async () => {
     const malformed = feedbackNotification("feedback.status_changed");
-    malformed.payload.source = "annotation_comment";
+    malformed.payload = {
+      ...notificationPayloadRecord(malformed.payload),
+      source: "annotation_comment",
+    };
     await expect(
       resolveDiscussionNotification(malformed, new AbortController().signal),
     ).rejects.toMatchObject({
@@ -294,6 +298,18 @@ describe("notification discussion target resolution", () => {
       ),
     ).rejects.toMatchObject({ kind: "permission-denied" });
   });
+
+  it.each([null, [], "legacy", 42, true])(
+    "fails closed on non-object discussion payload %j without guessing a lookup",
+    async (payload) => {
+      const item = feedbackNotification("feedback.status_changed");
+      item.payload = payload;
+      await expect(
+        resolveDiscussionNotification(item, new AbortController().signal),
+      ).rejects.toMatchObject({ kind: "invalid" });
+      expect(mocks.thread).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     ["inactive root", { ...root, is_active: false }],

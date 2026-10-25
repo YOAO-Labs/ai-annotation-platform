@@ -713,7 +713,7 @@ async def test_smoke_test_never_warms_when_full_residency_is_not_proven_empty(
 
 
 @pytest.mark.asyncio
-async def test_registered_smoke_test_uses_unified_ml_client(
+async def test_registered_smoke_test_uses_managed_lifecycle_service(
     httpx_client, db_session, super_admin, monkeypatch
 ):
     from app.db.models.ml_backend_registry import MLBackendRegistry
@@ -738,7 +738,8 @@ async def test_registered_smoke_test_uses_unified_ml_client(
         calls.append(("health", {}))
         return True, {"loaded": False, "pool": {"loaded_variants": []}}
 
-    async def fake_reload(self, **kwargs):
+    async def fake_reload(self, registry_id, **kwargs):
+        assert registry_id == backend.id
         calls.append(("reload", kwargs))
         return {
             "ok": True,
@@ -747,7 +748,8 @@ async def test_registered_smoke_test_uses_unified_ml_client(
             "dino_variant": kwargs["dino_variant"],
         }
 
-    async def fake_unload(self):
+    async def fake_unload(self, registry_id):
+        assert registry_id == backend.id
         calls.append(("unload", {}))
         return {"ok": True}
 
@@ -756,10 +758,10 @@ async def test_registered_smoke_test_uses_unified_ml_client(
         fake_health_meta,
     )
     monkeypatch.setattr(
-        "app.api.v1.admin_ml_integrations.MLBackendClient.reload", fake_reload
+        "app.api.v1.admin_ml_integrations.MLBackendService.reload", fake_reload
     )
     monkeypatch.setattr(
-        "app.api.v1.admin_ml_integrations.MLBackendClient.unload", fake_unload
+        "app.api.v1.admin_ml_integrations.MLBackendService.unload", fake_unload
     )
     routes = {
         ("get", "/health"): _FakeResp(
@@ -809,14 +811,16 @@ async def test_registered_smoke_test_preserves_gpu_arbiter_error_contract(
     async def fake_health_meta(self):
         return True, {"loaded": False, "pool": {"loaded_variants": []}}
 
-    async def fake_reload(self, **_kwargs):
+    async def fake_reload(self, registry_id, **_kwargs):
+        assert registry_id == backend.id
         raise GPUArbiterDispatchError(
             GPUArbiterErrorCode.BACKEND_CONCURRENCY_SATURATED,
             message="lease full",
             retry_after_s=7,
         )
 
-    async def fake_unload(self):
+    async def fake_unload(self, registry_id):
+        assert registry_id == backend.id
         nonlocal unload_calls
         unload_calls += 1
         return {"ok": True}
@@ -826,10 +830,10 @@ async def test_registered_smoke_test_preserves_gpu_arbiter_error_contract(
         fake_health_meta,
     )
     monkeypatch.setattr(
-        "app.api.v1.admin_ml_integrations.MLBackendClient.reload", fake_reload
+        "app.api.v1.admin_ml_integrations.MLBackendService.reload", fake_reload
     )
     monkeypatch.setattr(
-        "app.api.v1.admin_ml_integrations.MLBackendClient.unload", fake_unload
+        "app.api.v1.admin_ml_integrations.MLBackendService.unload", fake_unload
     )
     with patch(
         "app.api.v1.admin_ml_integrations.httpx.AsyncClient",
@@ -906,7 +910,10 @@ async def test_registry_unload_injects_shadow_factory_and_preserves_numeric_resu
     db_session,
     super_admin,
     monkeypatch,
+    isolated_routing_port,
 ):
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock
     from app.config import GPUArbiterMode, settings
     from app.db.models.ml_backend_registry import MLBackendRegistry
     from app.deps import get_gpu_shadow_session_factory
@@ -934,6 +941,21 @@ async def test_registry_unload_injects_shadow_factory_and_preserves_numeric_resu
 
     marker = object()
     observed: list[tuple[str, str, object]] = []
+    controls = []
+
+    @asynccontextmanager
+    async def control(_db, registry_id, kind, **_kwargs):
+        assert registry_id == backend.id and kind == "unload"
+        controls.append("enter")
+        yield object()
+        controls.append("exit")
+
+    # This fixture checks response/shadow assembly with fake HTTP. Physical
+    # control admission is qualified by the committed owner integration tests.
+    monkeypatch.setattr(
+        "app.services.ml_routing.safety.require_registry_quiescent", AsyncMock()
+    )
+    monkeypatch.setattr("app.services.ml_routing.authority.lifecycle_control", control)
 
     async def fake_record(backend_id, operation, session_factory):
         observed.append((backend_id, operation, session_factory))
@@ -944,7 +966,9 @@ async def test_registry_unload_injects_shadow_factory_and_preserves_numeric_resu
     )
     app_module.dependency_overrides[get_gpu_shadow_session_factory] = lambda: marker
     try:
-        with patch("app.services.ml_client.httpx.AsyncClient", _fake_client(routes)):
+        with patch(
+            "aap_inference.backend_transport.httpx.AsyncClient", _fake_client(routes)
+        ):
             res = await httpx_client.post(
                 f"/api/v1/admin/ml-integrations/registry/{backend.id}/unload",
                 headers={"Authorization": f"Bearer {token}"},
@@ -956,6 +980,7 @@ async def test_registry_unload_injects_shadow_factory_and_preserves_numeric_resu
     assert res.json()["unloaded"] == 2
     assert type(res.json()["unloaded"]) is int
     assert observed == [(str(backend.id), "unload", marker)]
+    assert controls == ["enter", "exit"]
 
 
 @pytest.mark.asyncio

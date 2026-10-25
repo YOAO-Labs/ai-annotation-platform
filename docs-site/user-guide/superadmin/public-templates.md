@@ -25,7 +25,7 @@ last_reviewed: 2026-10-14
 
 ### 公共模板专属限制（super_admin 专属）
 
-- `scope=public` **仅超级管理员可创建或将已有模板升级到 public**（`apps/api/app/services/project_template.py:79`）。
+- `scope=public` **仅超级管理员可创建或将已有模板升级到 public**。
 - 非超管在模板编辑界面选 `scope=public` 会被禁用 / 后端返 403。
 
 > 设计意图：公共模板是平台层面的"官方背书"，需要超管把关 schema 一致性、命名规范、合规性，避免出现"野生公共模板"污染列表。

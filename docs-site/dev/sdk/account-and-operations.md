@@ -3,7 +3,7 @@ title: 账户、管理与运维
 audience: [dev]
 type: how-to
 status: beta
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-20
 ---
 
 # 账户、管理与运维
@@ -40,7 +40,7 @@ aap api-keys list --json
 
 偏好 GET 返回可扩展 JSON。PATCH 只发送需要改变的键，保留未知字段、null 和服务端合并语义；不要将完整 GET 结果重新提交。命名预设变更携带当前 `namedPresetsRevision`，409 后重新读取并核对草稿，不自动刷新版本重试。
 
-头像上传使用 multipart，文件上限 2 MiB；服务端校验图片并转换为 WebP，替换会清理旧上传对象。公开头像下载使用 `upload:` 引用里的 32 位小写十六进制 token；下载原子替换目标文件。修改密码成功返回 204，不表示同时吊销全部 JWT/API key。自助注销有七天冷静期，可在期间取消。
+头像上传使用 multipart，文件上限 2 MiB；服务端校验图片并转换为 WebP，替换会清理旧上传对象。公开头像下载使用 `upload:` 引用里的 32 位小写十六进制 token；下载原子替换目标文件。修改密码成功返回 204，不表示同时吊销全部 JWT/API key。自助注销有七天冷静期，可在期间取消；被管理员临时 suspend/reactivate 不会撤销已接受的申请。超级管理员申请及到期注销还会重新检查是否留下另一名启用管理员；完整行为见[认证与账号生命周期](../../api/guides/auth#自助注销申请)。
 
 heartbeat 显式更新在线状态；SDK 不自动发送。任务事件只提交真实、已结束的时间区间，调用方保存稳定的 `client_id`，重试沿用原 ID。结果可能部分丢弃；CLI 输出完整回执后在 `discarded>0` 时退出 1。`queued_async=true` 只是排队证明。
 

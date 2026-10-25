@@ -11,8 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.db.models.annotation import Annotation
 from app.db.models.task import Task
+from app.services.labeling_core_read_relations import annotation_row, get_core_row
 from app.services.raster_mask_storage import (
     RasterMaskContractError,
     load_coco_rle,
@@ -72,7 +72,7 @@ async def resolve_authorized_mask_prompt(
             "Mask prompt source locator failed schema validation",
         )
 
-    annotation = await db.get(Annotation, source.annotation_id)
+    annotation = await get_core_row(db, annotation_row, source.annotation_id)
     if (
         annotation is None
         or not annotation.is_active

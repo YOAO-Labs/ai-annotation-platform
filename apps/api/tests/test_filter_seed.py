@@ -362,14 +362,40 @@ async def test_filtering_seed_manifest_matches_constructed_memberships(
         )
         == 4
     )
-    assert (
-        await db_session.scalar(
-            select(func.count())
-            .select_from(AsyncJob)
-            .where(AsyncJob.id.in_([UUID(value) for value in operations["job_ids"]]))
-        )
-        == 2
-    )
+    seeded_jobs = {
+        job.id: job
+        for job in (
+            await db_session.scalars(
+                select(AsyncJob).where(
+                    AsyncJob.id.in_([UUID(value) for value in operations["job_ids"]])
+                )
+            )
+        ).all()
+    }
+    assert len(seeded_jobs) == 2
+    completed_job = seeded_jobs[UUID(operations["job_ids"][0])]
+    assert completed_job.kind == "batch_predict"
+    assert completed_job.status == "completed"
+    assert completed_job.progress_pct == 100
+    assert completed_job.payload == {
+        "model_key": "filter-detector",
+        "prompt": "alpha complete",
+    }
+    assert completed_job.result == {"success_count": 2}
+    assert completed_job.error_message is None
+    assert completed_job.started_at is None and completed_job.completed_at is None
+
+    failed_job = seeded_jobs[UUID(operations["job_ids"][1])]
+    assert failed_job.kind == "export"
+    assert failed_job.status == "failed"
+    assert failed_job.progress_pct == 40
+    assert failed_job.payload == {
+        "model_key": "filter-export",
+        "prompt": "beta failed",
+    }
+    assert failed_job.result == {}
+    assert failed_job.error_message == "fixture failure"
+    assert failed_job.started_at is None and failed_job.completed_at is None
     assert (
         await db_session.scalar(
             select(func.count())

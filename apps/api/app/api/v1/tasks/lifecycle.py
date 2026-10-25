@@ -14,7 +14,7 @@ from app.deps import (
     get_quality_job_dispatcher,
 )
 from app.services.audit import audit_origin_from_request
-from app.services.workspace_contract import ProjectAccess
+from aap_workspace_contract.access import ProjectAccess
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.api.v1.tasks._shared import require_task_annotation_write_lifecycle
 

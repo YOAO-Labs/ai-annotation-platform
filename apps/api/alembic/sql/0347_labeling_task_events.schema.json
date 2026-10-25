@@ -1,0 +1,354 @@
+{
+  "$defs": {
+    "InsertTaskEvents": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "insert",
+          "title": "Operation",
+          "type": "string"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/TaskEventInsertRow"
+          },
+          "maxItems": 200,
+          "title": "Rows",
+          "type": "array"
+        },
+        "schema": {
+          "const": "aap-labeling-task-events/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "rows"],
+      "title": "InsertTaskEvents",
+      "type": "object"
+    },
+    "ReadTaskEvents": {
+      "additionalProperties": false,
+      "properties": {
+        "event_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Event Ids",
+          "type": "array"
+        },
+        "operation": {
+          "const": "read_ids",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-task-events/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "event_ids"],
+      "title": "ReadTaskEvents",
+      "type": "object"
+    },
+    "TaskEventInsertRow": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_count": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "title": "Annotation Count",
+          "type": "integer"
+        },
+        "collection_coverage": {
+          "enum": ["qualified", "partial", "unverified_collection"],
+          "title": "Collection Coverage",
+          "type": "string"
+        },
+        "collection_source": {
+          "enum": ["session", "legacy"],
+          "title": "Collection Source",
+          "type": "string"
+        },
+        "collector_version": {
+          "anyOf": [
+            {
+              "maxLength": 32,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Collector Version"
+        },
+        "duration_ms": {
+          "maximum": 14400000,
+          "minimum": 0,
+          "title": "Duration Ms",
+          "type": "integer"
+        },
+        "ended_at": {
+          "format": "date-time",
+          "title": "Ended At",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": ["annotate", "review"],
+          "title": "Kind",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "was_rejected": {
+          "title": "Was Rejected",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "task_id",
+        "user_id",
+        "project_id",
+        "kind",
+        "started_at",
+        "ended_at",
+        "duration_ms",
+        "annotation_count",
+        "was_rejected",
+        "collector_version",
+        "collection_source",
+        "collection_coverage"
+      ],
+      "title": "TaskEventInsertRow",
+      "type": "object"
+    },
+    "TaskEventRow": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_count": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "title": "Annotation Count",
+          "type": "integer"
+        },
+        "collection_coverage": {
+          "enum": ["qualified", "partial", "unverified_collection"],
+          "title": "Collection Coverage",
+          "type": "string"
+        },
+        "collection_source": {
+          "enum": ["session", "legacy"],
+          "title": "Collection Source",
+          "type": "string"
+        },
+        "collector_version": {
+          "anyOf": [
+            {
+              "maxLength": 32,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Collector Version"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "duration_ms": {
+          "maximum": 14400000,
+          "minimum": 0,
+          "title": "Duration Ms",
+          "type": "integer"
+        },
+        "ended_at": {
+          "format": "date-time",
+          "title": "Ended At",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": ["annotate", "review"],
+          "title": "Kind",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "reject_reason_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reject Reason Type"
+        },
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "was_rejected": {
+          "title": "Was Rejected",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "task_id",
+        "user_id",
+        "project_id",
+        "kind",
+        "started_at",
+        "ended_at",
+        "duration_ms",
+        "annotation_count",
+        "was_rejected",
+        "collector_version",
+        "collection_source",
+        "collection_coverage",
+        "created_at"
+      ],
+      "title": "TaskEventRow",
+      "type": "object"
+    },
+    "_TaskEventData": {
+      "additionalProperties": false,
+      "properties": {
+        "conflicts": {
+          "anyOf": [
+            {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Conflicts"
+        },
+        "event_rows": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/TaskEventRow"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Event Rows"
+        },
+        "inserted": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inserted"
+        }
+      },
+      "title": "_TaskEventData",
+      "type": "object"
+    }
+  },
+  "$id": "aap-labeling-task-events/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "data": {
+      "$ref": "#/$defs/_TaskEventData"
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "request": {
+      "discriminator": {
+        "mapping": {
+          "insert": "#/$defs/InsertTaskEvents",
+          "read_ids": "#/$defs/ReadTaskEvents"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ReadTaskEvents"
+        },
+        {
+          "$ref": "#/$defs/InsertTaskEvents"
+        }
+      ],
+      "title": "Request"
+    },
+    "schema": {
+      "const": "aap-labeling-task-events/v1",
+      "title": "Schema",
+      "type": "string"
+    }
+  },
+  "required": ["schema", "ok", "request", "data"],
+  "title": "_TaskEventReply",
+  "type": "object",
+  "x-postgresql-functions": ["aap_labeling_v1.task_event_command(jsonb)"],
+  "x-postgresql-relations": ["aap_labeling_v1.task_event_facts"]
+}

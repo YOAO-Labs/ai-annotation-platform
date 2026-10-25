@@ -1,0 +1,13 @@
+# Workspace directory legacy capture
+
+`workspace-directory-reads-legacy.json` records the actual pre-extraction responses and read phases for the project member directory and mention-candidate endpoints. It is generated only by `test_workspace_directory_reads_legacy.py` when both `AAP_MODULE_DATA_ROLE_ACCEPTANCE=1` and `AAP_WORKSPACE_DIRECTORY_CAPTURE=1` are explicitly set.
+
+The capture driver verifies that the runtime connection uses the owned `legacy_runtime` role, targets the same disposable `_test` database as pytest, and matches the verified loopback PostgreSQL container identity. It refuses to overwrite `.worktree/workspace-directory-reads-legacy.json`. It also compares every protected API, schema, Identity, database-model, and frontend caller source byte-for-byte with the pre-extraction base commit before issuing requests.
+
+Each sample stores the normalized HTTP request and response, selected response headers, exact response body bytes as base64 with length and SHA-256, ordered parameter-free SQL statements, transaction events, and the real Identity Briefs reply observed for member-profile reads. UUIDs and addresses are replaced with stable aliases in decoded values; the raw body remains the exact server response. Fixed membership timestamps remain visible so the observed `assigned_at DESC` order can be reviewed without inventing a tie-breaker.
+
+The capture seeds committed rows through an owner session and serves each HTTP request with a separate `legacy_runtime` session. It includes active and inactive accounts, project owner/superadmin/member precedence and deduplication, employee and viewer visibility, an empty project, out-of-scope and missing-project 404s, Unicode initials and avatar references, and the historical platform-role failure if the database accepts that stored value. A direct caller probe records default autoflush and `no_autoflush` behavior, the open caller transaction, and cross-session visibility before rollback.
+
+This fixture is a pre-extraction oracle, not a proposed contract or a replacement implementation. The gated capture passed before production extraction, with 13 HTTP observations and two caller/autoflush probes. Unknown stored platform roles were seedable and produced the observed member-response 500 after the real Briefs lookup. Existing member-profile fixtures remain independent and immutable.
+
+The promoted `samples.json` is byte-exact with the original owned capture (`SHA-256 a18b31c5a229b8d06690a7ef6788a5a036059974216097cf37059087f1562de0`). Preserve it as an immutable oracle. Normalized response values are returned to capture assertions; raw server bytes remain unchanged in each sample.

@@ -84,7 +84,7 @@ async def _seed_project_with_two_batches(
         batch_id=b_mine.id,
         display_id="T-MINE",
         file_name="m.jpg",
-        file_path="/tmp/m.jpg",
+        file_path="visibility/m.jpg",
         file_type="image",
         status="pending",
     )
@@ -94,7 +94,7 @@ async def _seed_project_with_two_batches(
         batch_id=b_other.id,
         display_id="T-OTHER",
         file_name="o.jpg",
-        file_path="/tmp/o.jpg",
+        file_path="visibility/o.jpg",
         file_type="image",
         status="pending",
     )
@@ -262,7 +262,7 @@ async def test_draft_batch_hidden_from_annotator_even_if_unassigned(
         batch_id=b_active_mine.id,
         display_id="T-A",
         file_name="m.jpg",
-        file_path="/tmp/m.jpg",
+        file_path="visibility/m.jpg",
         file_type="image",
         status="pending",
     )
@@ -272,7 +272,7 @@ async def test_draft_batch_hidden_from_annotator_even_if_unassigned(
         batch_id=b_draft_open.id,
         display_id="T-D",
         file_name="d.jpg",
-        file_path="/tmp/d.jpg",
+        file_path="visibility/d.jpg",
         file_type="image",
         status="pending",
     )
@@ -345,7 +345,7 @@ async def test_unassigned_batch_visible_to_all_members(
         batch_id=b_open.id,
         display_id="T-OPEN",
         file_name="x.jpg",
-        file_path="/tmp/x.jpg",
+        file_path="visibility/x.jpg",
         file_type="image",
         status="pending",
     )
@@ -385,7 +385,7 @@ async def test_unbatched_filter_returns_only_orphan_tasks(
         batch_id=None,
         display_id="T-ORPHAN",
         file_name="orphan.jpg",
-        file_path="/tmp/orphan.jpg",
+        file_path="visibility/orphan.jpg",
         file_type="image",
         status="pending",
     )

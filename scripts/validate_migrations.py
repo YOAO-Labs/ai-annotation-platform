@@ -232,7 +232,8 @@ async def database_state(anchor: Anchor, name: str) -> tuple[bool, str | None, i
                     await connection.execute(
                         text(
                             "SELECT shobj_description(oid, 'pg_database') AS owner, "
-                            "(SELECT count(*) FROM pg_stat_activity WHERE datname = :name) AS sessions "
+                            "(SELECT count(*) FROM pg_stat_activity WHERE datname = :name "
+                            "AND backend_type IS DISTINCT FROM 'autovacuum worker') AS sessions "
                             "FROM pg_database WHERE datname = :name"
                         ),
                         {"name": name},

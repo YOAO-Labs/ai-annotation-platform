@@ -10,8 +10,36 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from app.services.exporting import cache
+from app.services.identity_contracts import IdentityActorStatus
 from app.workers import export as export_worker
 from app.workers.celery_app import celery_app
+
+
+class _Engine:
+    def __init__(self) -> None:
+        self.dispose = AsyncMock()
+        self.connection = SimpleNamespace(invalidated=False)
+
+    def connect(self):
+        connection = self.connection
+
+        class Context:
+            async def __aenter__(self):
+                return connection
+
+            async def __aexit__(self, *_args):
+                return False
+
+        return Context()
+
+
+@pytest.fixture(autouse=True)
+def export_execution(monkeypatch):
+    acquire = AsyncMock()
+    assert_owned = AsyncMock()
+    monkeypatch.setattr(export_worker._ExportExecution, "acquire", acquire)
+    monkeypatch.setattr(export_worker._ExportExecution, "assert_owned", assert_owned)
+    return SimpleNamespace(acquire=acquire, assert_owned=assert_owned)
 
 
 class _ScalarResult:
@@ -140,6 +168,10 @@ async def test_export_worker_rejects_removed_member_before_cache_or_build(
     task_id = uuid.UUID("33333333-3333-3333-3333-333333333333")
     actor_id = uuid.UUID("44444444-4444-4444-4444-444444444444")
     project = SimpleNamespace(id=project_id, owner_id=uuid.uuid4())
+    monkeypatch.setattr(
+        "app.services.project_access.get_workspace_project",
+        AsyncMock(return_value=project),
+    )
     job = SimpleNamespace(
         id=job_id,
         status="pending",
@@ -148,7 +180,12 @@ async def test_export_worker_rejects_removed_member_before_cache_or_build(
         user_id=actor_id,
         payload={"scope": {"task_ids": [str(task_id)]}},
     )
-    actor = SimpleNamespace(id=actor_id, is_active=True, role="annotator")
+    actor = IdentityActorStatus(id=actor_id, is_active=True, role="annotator")
+    monkeypatch.setattr(
+        export_worker.IdentityAccountLockData,
+        "read_actor_status",
+        AsyncMock(return_value=actor),
+    )
     db = SimpleNamespace(
         commit=AsyncMock(),
         rollback=AsyncMock(),
@@ -161,8 +198,6 @@ async def test_export_worker_rejects_removed_member_before_cache_or_build(
             return project
         if model is export_worker.AsyncJob:
             return job
-        if model is export_worker.User:
-            return actor
         return None
 
     db.get = AsyncMock(side_effect=get)
@@ -175,10 +210,10 @@ async def test_export_worker_rejects_removed_member_before_cache_or_build(
             return False
 
     class _SessionFactory:
-        def __call__(self):
+        def __call__(self, **_kwargs):
             return _SessionContext()
 
-    engine = SimpleNamespace(dispose=AsyncMock())
+    engine = _Engine()
     monkeypatch.setattr(export_worker, "create_async_engine", lambda *a, **kw: engine)
     monkeypatch.setattr(
         export_worker, "async_sessionmaker", lambda *a, **kw: _SessionFactory()
@@ -186,7 +221,9 @@ async def test_export_worker_rejects_removed_member_before_cache_or_build(
     monkeypatch.setattr(export_worker.async_job_svc, "mark_running", AsyncMock())
     mark_failed = AsyncMock()
     monkeypatch.setattr(export_worker.async_job_svc, "mark_failed", mark_failed)
-    monkeypatch.setattr(export_worker, "_emit_export_notification", AsyncMock())
+    monkeypatch.setattr(
+        export_worker, "_emit_export_notification", AsyncMock(return_value=None)
+    )
     lookup = AsyncMock()
     monkeypatch.setattr(export_worker.export_cache, "lookup", lookup)
     build_export_zip = AsyncMock()
@@ -235,10 +272,10 @@ async def test_export_worker_cache_hit_skips_packaging(
             return False
 
     class _SessionFactory:
-        def __call__(self):
+        def __call__(self, **_kwargs):
             return _SessionContext()
 
-    engine = SimpleNamespace(dispose=AsyncMock())
+    engine = _Engine()
     monkeypatch.setattr(export_worker, "create_async_engine", lambda *a, **kw: engine)
     monkeypatch.setattr(
         export_worker,
@@ -272,7 +309,9 @@ async def test_export_worker_cache_hit_skips_packaging(
         "_scope_naming",
         AsyncMock(return_value=("image", "dataset", "P-1")),
     )
-    monkeypatch.setattr(export_worker, "_emit_export_notification", AsyncMock())
+    monkeypatch.setattr(
+        export_worker, "_emit_export_notification", AsyncMock(return_value=None)
+    )
     compute_cache_key = Mock(return_value="cache-key")
     monkeypatch.setattr(
         export_worker.export_cache,
@@ -391,12 +430,12 @@ async def test_export_worker_final_reauth_blocks_url_after_cache_hit(
         async def __aexit__(self, *_args):
             return False
 
-    engine = SimpleNamespace(dispose=AsyncMock())
+    engine = _Engine()
     monkeypatch.setattr(export_worker, "create_async_engine", lambda *a, **kw: engine)
     monkeypatch.setattr(
         export_worker,
         "async_sessionmaker",
-        lambda *a, **kw: lambda: _SessionContext(),
+        lambda *a, **kw: lambda **_kwargs: _SessionContext(),
     )
     monkeypatch.setattr(export_worker.async_job_svc, "mark_running", AsyncMock())
     mark_complete = AsyncMock()
@@ -413,7 +452,9 @@ async def test_export_worker_final_reauth_blocks_url_after_cache_hit(
         "_scope_naming",
         AsyncMock(return_value=("image", "dataset", "P-1")),
     )
-    monkeypatch.setattr(export_worker, "_emit_export_notification", AsyncMock())
+    monkeypatch.setattr(
+        export_worker, "_emit_export_notification", AsyncMock(return_value=None)
+    )
     monkeypatch.setattr(
         export_worker.export_cache, "compute_cache_key", Mock(return_value="cache-key")
     )
@@ -452,6 +493,7 @@ async def test_export_worker_final_reauth_blocks_url_after_cache_hit(
 @pytest.mark.asyncio
 async def test_export_worker_cache_miss_contender_retries_without_packaging(
     monkeypatch: pytest.MonkeyPatch,
+    export_execution,
 ) -> None:
     monkeypatch.setattr(export_worker, "_assert_export_task_scope", AsyncMock())
     monkeypatch.setattr(export_worker, "_reauthorize_export_final_write", AsyncMock())
@@ -472,12 +514,12 @@ async def test_export_worker_cache_miss_contender_retries_without_packaging(
         async def __aexit__(self, *_args):
             return False
 
-    engine = SimpleNamespace(dispose=AsyncMock())
+    engine = _Engine()
     monkeypatch.setattr(export_worker, "create_async_engine", lambda *a, **kw: engine)
     monkeypatch.setattr(
         export_worker,
         "async_sessionmaker",
-        lambda *a, **kw: lambda: _SessionContext(),
+        lambda *a, **kw: lambda **_kwargs: _SessionContext(),
     )
     monkeypatch.setattr(export_worker.async_job_svc, "mark_running", AsyncMock())
     monkeypatch.setattr(
@@ -499,16 +541,11 @@ async def test_export_worker_cache_miss_contender_retries_without_packaging(
     monkeypatch.setattr(export_worker.export_cache, "lookup", lookup)
     build_export_zip = AsyncMock()
     monkeypatch.setattr(export_worker, "build_export_zip", build_export_zip)
-    redis_client = SimpleNamespace(
-        set=AsyncMock(return_value=False),
-        eval=AsyncMock(),
-        aclose=AsyncMock(),
-    )
-    monkeypatch.setattr(
-        export_worker.aioredis,
-        "from_url",
-        lambda *a, **kw: redis_client,
-    )
+
+    export_execution.acquire.side_effect = [
+        None,
+        export_worker.ExportBuildInProgress("cache busy"),
+    ]
 
     with pytest.raises(export_worker.ExportBuildInProgress):
         await export_worker._run_export(
@@ -521,9 +558,6 @@ async def test_export_worker_cache_miss_contender_retries_without_packaging(
         )
 
     lookup.assert_awaited_once()
-    redis_client.set.assert_awaited_once()
-    redis_client.eval.assert_not_awaited()
-    redis_client.aclose.assert_awaited_once()
     build_export_zip.assert_not_awaited()
     engine.dispose.assert_awaited_once()
 
@@ -551,12 +585,12 @@ async def test_export_worker_rechecks_cache_after_winning_singleflight_lock(
         async def __aexit__(self, *_args):
             return False
 
-    engine = SimpleNamespace(dispose=AsyncMock())
+    engine = _Engine()
     monkeypatch.setattr(export_worker, "create_async_engine", lambda *a, **kw: engine)
     monkeypatch.setattr(
         export_worker,
         "async_sessionmaker",
-        lambda *a, **kw: lambda: _SessionContext(),
+        lambda *a, **kw: lambda **_kwargs: _SessionContext(),
     )
     monkeypatch.setattr(export_worker.async_job_svc, "mark_running", AsyncMock())
     mark_complete = AsyncMock()
@@ -571,7 +605,9 @@ async def test_export_worker_rechecks_cache_after_winning_singleflight_lock(
         "_scope_naming",
         AsyncMock(return_value=("image", "dataset", "P-1")),
     )
-    monkeypatch.setattr(export_worker, "_emit_export_notification", AsyncMock())
+    monkeypatch.setattr(
+        export_worker, "_emit_export_notification", AsyncMock(return_value=None)
+    )
     monkeypatch.setattr(
         export_worker.export_cache,
         "compute_cache_key",
@@ -592,16 +628,6 @@ async def test_export_worker_rechecks_cache_after_winning_singleflight_lock(
         "generate_download_url",
         lambda *a, **kw: "https://download.invalid/cached.zip",
     )
-    redis_client = SimpleNamespace(
-        set=AsyncMock(return_value=True),
-        eval=AsyncMock(return_value=1),
-        aclose=AsyncMock(),
-    )
-    monkeypatch.setattr(
-        export_worker.aioredis,
-        "from_url",
-        lambda *a, **kw: redis_client,
-    )
 
     await export_worker._run_export(
         project_id="11111111-1111-1111-1111-111111111111",
@@ -615,15 +641,15 @@ async def test_export_worker_rechecks_cache_after_winning_singleflight_lock(
     assert lookup.await_count == 2
     build_export_zip.assert_not_awaited()
     assert mark_complete.await_args.kwargs["result"]["cache_hit"] is True
-    redis_client.eval.assert_awaited_once()
-    redis_client.aclose.assert_awaited_once()
     engine.dispose.assert_awaited_once()
 
 
+@pytest.mark.parametrize("lost_session", [False, True])
 @pytest.mark.asyncio
 async def test_export_worker_removes_uploaded_object_when_cache_record_fails(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
+    lost_session,
 ) -> None:
     monkeypatch.setattr(export_worker, "_assert_export_task_scope", AsyncMock())
     monkeypatch.setattr(export_worker, "_reauthorize_export_final_write", AsyncMock())
@@ -644,18 +670,20 @@ async def test_export_worker_removes_uploaded_object_when_cache_record_fails(
         async def __aexit__(self, *_args):
             return False
 
-    engine = SimpleNamespace(dispose=AsyncMock())
+    engine = _Engine()
     monkeypatch.setattr(export_worker, "create_async_engine", lambda *a, **kw: engine)
     monkeypatch.setattr(
         export_worker,
         "async_sessionmaker",
-        lambda *a, **kw: lambda: _SessionContext(),
+        lambda *a, **kw: lambda **_kwargs: _SessionContext(),
     )
     monkeypatch.setattr(export_worker.async_job_svc, "mark_running", AsyncMock())
     monkeypatch.setattr(export_worker.async_job_svc, "update_progress", AsyncMock())
     mark_failed = AsyncMock()
     monkeypatch.setattr(export_worker.async_job_svc, "mark_failed", mark_failed)
-    monkeypatch.setattr(export_worker, "_emit_export_notification", AsyncMock())
+    monkeypatch.setattr(
+        export_worker, "_emit_export_notification", AsyncMock(return_value=None)
+    )
     monkeypatch.setattr(
         export_worker,
         "_scope_fingerprint",
@@ -676,11 +704,12 @@ async def test_export_worker_removes_uploaded_object_when_cache_record_fails(
         "lookup",
         AsyncMock(side_effect=[None, None]),
     )
-    monkeypatch.setattr(
-        export_worker.export_cache,
-        "record",
-        AsyncMock(side_effect=RuntimeError("cache record failed")),
-    )
+
+    async def record(*_args, **_kwargs):
+        engine.connection.invalidated = lost_session
+        raise RuntimeError("cache record failed")
+
+    monkeypatch.setattr(export_worker.export_cache, "record", record)
     zip_path = tmp_path / "export.zip"
     zip_path.write_bytes(b"zip")
     monkeypatch.setattr(
@@ -691,18 +720,9 @@ async def test_export_worker_removes_uploaded_object_when_cache_record_fails(
     monkeypatch.setattr(export_worker.storage_service, "upload_file", Mock())
     delete_object = Mock()
     monkeypatch.setattr(export_worker.storage_service, "delete_object", delete_object)
-    redis_client = SimpleNamespace(
-        set=AsyncMock(return_value=True),
-        eval=AsyncMock(return_value=1),
-        aclose=AsyncMock(),
-    )
-    monkeypatch.setattr(
-        export_worker.aioredis,
-        "from_url",
-        lambda *a, **kw: redis_client,
-    )
 
-    with pytest.raises(RuntimeError, match="cache record failed"):
+    expected_error = export_worker.ExportExecutionLost if lost_session else RuntimeError
+    with pytest.raises(expected_error):
         await export_worker._run_export(
             project_id="11111111-1111-1111-1111-111111111111",
             batch_id=None,
@@ -712,13 +732,21 @@ async def test_export_worker_removes_uploaded_object_when_cache_record_fails(
             celery_task_id="celery-4",
         )
 
-    delete_object.assert_called_once_with(
+    object_key = export_worker.storage_service.upload_file.call_args.args[1]
+    assert object_key.startswith(
         "image/11111111-1111-1111-1111-111111111111/"
-        "22222222-2222-2222-2222-222222222222.zip",
-        bucket=export_worker.settings.minio_export_bucket,
+        "22222222-2222-2222-2222-222222222222/"
     )
+    assert object_key.endswith(".zip")
+    if lost_session:
+        delete_object.assert_not_called()
+    else:
+        delete_object.assert_called_once_with(
+            object_key, bucket=export_worker.settings.minio_export_bucket
+        )
     assert not zip_path.exists()
-    mark_failed.assert_awaited_once()
-    redis_client.eval.assert_awaited_once()
-    redis_client.aclose.assert_awaited_once()
+    if lost_session:
+        mark_failed.assert_not_awaited()
+    else:
+        mark_failed.assert_awaited_once()
     engine.dispose.assert_awaited_once()

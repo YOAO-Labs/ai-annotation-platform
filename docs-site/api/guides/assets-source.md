@@ -2,7 +2,7 @@
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-20
+last_reviewed: 2026-10-21
 ---
 
 # 独立素材来源控制
@@ -27,6 +27,41 @@ last_reviewed: 2026-10-20
 409 的响应体保留具体原因：`detail.code=source_in_use` 表示仍有保留引用，`detail.reason` 可表示 `source_busy` 或 `operation_conflict`。前者须由对应项目或功能处理；忙锁可稍后重试，幂等键冲突须核对原请求。取消 tracker、终止轨迹或软删除相机标注会保留历史记录，仍有引用时继续拒绝来源删除。部分历史引用没有单独的解除入口，不能将取消执行或项目解绑视为保留原任务与标注的通用解除方式。
 
 普通来源操作使用 `aap-assets-source/v1` 信封：成功仅含 `schema,ok:true,data`，失败仅含 `schema,ok:false,error:{code}`。批量导入使用独立的 `aap-dataset-source-ingest/v1` 数据合同。完整 JSON Schema 随纯合同 wheel 分发，位于 `apps/assets-source/src/aap_assets_source/protocol.schema.json`。调用方检查 actor、父子与操作 UUID，未知版本、字段、错误或错误 scope 明确失败，不接受部分结果。JSON 请求/响应默认上限为 1/16 MiB；ZIP 使用单独的归档预算。
+
+## 可选指南对象能力
+
+同一二进制支持 `ASSETS_SOURCE_MODE=guide-only` 和 `source-and-guide`，默认仍为 `source`。
+`guide-only` 无需数据库或原来源凭据，仅开放健康检查及带 bearer 认证的
+`POST /v1/guide-objects/execute`；其 readiness 不探测 S3 或 IAM。
+组合模式为指南对象使用独立存储身份，不扩大原来源凭据的权限。
+
+`aap-assets-guide-object/v1` 请求固定包含 `schema,request_id,operation,project_id,key,content_type`。
+`presign_put` 的 `content_type` 必须为字符串，其他操作必须传 null；业务 MIME 校验由 Workspace 持有。
+`key` 必须属于请求项目的 `projects/{project_id}/guide/`，桶由部署配置固定；
+不接受版本、凭据、actor 或权限布尔值。回复绑定请求 UUID、操作、项目和 key。
+Schema 随合同包分发于 `aap_assets_source/guide_object_contract.schema.json`。
+
+| 操作          | `result`                                       |
+| ------------- | ---------------------------------------------- |
+| `presign_put` | `url,expires_in=900`                           |
+| `head`        | `content_length`；缺失对象为 null              |
+| `delete`      | `deleted=true`；普通删除，不指定版本           |
+| `presign_get` | `url,expires_in=3600`；签名保留 600 秒对齐窗口 |
+
+失败返回绑定作用域的 `ok=false,error:{code}`，code 仅为 `storage_error`、
+`invalid_request`、`unavailable` 或 `busy`。无效请求返回通用 400，未认证为 401，
+请求超限为 413；未预期的存储异常为通用 500，不透传 SDK 信息。
+客户端与 SDK 均不自动重试。`ASSETS_SOURCE_GUIDE_MAX_IN_FLIGHT` 默认 4，超额立即拒绝。
+
+指南身份只允许配置标注桶 `projects/*/guide/*` 的 Get/Put/普通 Delete，
+无需 ListBucket 或桶管理；本地 MinIO 验证使用显式 Deny `s3:DeleteObjectVersion` 保留历史版本。
+内部普通 I/O 使用 SigV4；预签名保留旧 SigV2 内部签名后重写 `/minio` 前缀的行为。
+配置使用 `ASSETS_SOURCE_GUIDE_S3_*`，不从 API/MinIO/AWS 环境回退；完整变量见
+[环境变量参考](/dev/reference/env-vars)和服务 README。
+
+本接口只执行对象操作，Workspace 仍负责项目权限与元数据。公共指南工作流已接入 Workspace，命令的三路径与恢复验收仍在推进。
+网络超时或取消后的对象效果可能不确定；S3 与 SQL 没有原子提交，也不提供可自动重放的删除回执。
+实现边界、当前本地证据与后续命令验收见 [ADR-0144](/dev/adr/0144-workspace-guide-assets-owner)。
 
 ## 存储连接器管理
 
@@ -74,7 +109,7 @@ S3 身份只拥有 import 桶 `dataset-uploads/*` 的 Get/Put、datasets 桶历�
 
 ## 运行与回退
 
-先应用至 0217 的迁移、module-data owner 授权与 `infra/docker/assets-source-grants.sql`，再为非 root 用户 10003 准备专用 secret、固定桶和 S3 origin。独立启动配置见仓库 `DEV.md`、`docker-compose.assets-source.yml` 及服务 README。先确认服务 `/health` 与 `/ready`，再设置网关 `ASSETS_SOURCE_URL`、`ASSETS_SOURCE_TOKEN` 并刷新 API。网关 I/O 超时默认 300 秒，上限 3600 秒；独立服务的池、SQL、S3 连接/读取和消息预算均可独立限制。0215 的 SQL 工件仍按 core 后 delivery 的顺序安装；降级会移除来源和连接器回执并丢失同键重放结果，故应先停止来源写入并排空活动操作和待派发媒体记录。
+先应用当前迁移、module-data owner 授权与 `infra/docker/assets-source-grants.sql`，再为非 root 用户 10003 准备专用 secret、固定桶和 S3 origin。独立启动配置见仓库 `DEV.md`、`docker-compose.assets-source.yml` 及服务 README。先确认服务 `/health` 与 `/ready`，再设置网关 `ASSETS_SOURCE_URL`、`ASSETS_SOURCE_TOKEN` 并刷新 API。网关 I/O 超时默认 300 秒，上限 3600 秒；独立服务的池、SQL、S3 连接/读取和消息预算均可独立限制。0215 的 SQL 工件仍按 core 后 delivery 的顺序安装；降级会移除来源和连接器回执并丢失同键重放结果，故应先停止来源写入并排空活动操作和待派发媒体记录。
 
 回退到本地模式可清空网关 URL 并刷新 API，保留兼容的 SQL 与完成回执，再停止指定独立 Compose 项目。回退迁移前须停止来源写入并处理仍需确认的操作；空库迁移往返不证明删除在途回执安全。Go 仍是隔离实验，不进入本服务或真实环境。
 

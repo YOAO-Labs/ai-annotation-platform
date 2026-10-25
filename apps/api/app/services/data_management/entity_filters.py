@@ -8,9 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.db.models.annotation import Annotation
-from app.db.models.annotation_feedback import AnnotationFeedback
 from app.db.models.project import Project
-from app.db.models.task import Task
 from app.db.models.user import User
 from app.services.data_management.filter_tree import (
     iter_filter_rules,
@@ -18,8 +16,9 @@ from app.services.data_management.filter_tree import (
     validate_in_value,
 )
 from app.services.data_management.schema import build_data_manager_schema
-from app.services.project_kind import project_kind
+from aap_workspace.configuration_policy import project_kind
 from app.services.feedback import annotation_unresolved_issue_count_sq
+from app.services.labeling_discussion_relations import annotation_feedback_facts
 from app.services.data_management.task_filters import (
     _compile_annotation_object_condition,
     _compare_column,
@@ -30,6 +29,7 @@ from app.services.data_management.task_filters import (
     visible_tasks_stmt,
 )
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.labeling_core_read_relations import annotation_row, task_row
 
 
 _NUMERIC_OPS = {"eq", "ne", "gt", "gte", "lt", "lte", "in"}
@@ -46,7 +46,7 @@ def compile_entity_filter(
     annotation,
     *,
     project: Project,
-    user: User | None = None,
+    user: User | IdentityActorFacts | None = None,
 ) -> ColumnElement[bool]:
     """Compile a Data Manager filter at one concrete annotation grain.
 
@@ -63,7 +63,7 @@ def _compile_entity_node(
     annotation,
     *,
     project: Project,
-    user: User | None = None,
+    user: User | IdentityActorFacts | None = None,
 ) -> ColumnElement[bool]:
     if not filter_json:
         return literal(True)
@@ -107,15 +107,15 @@ def _compile_entity_node(
                 status_code=422, detail="Unsupported feedback.status op"
             )
         clause = and_(
-            AnnotationFeedback.annotation_id == annotation.id,
-            AnnotationFeedback.is_active.is_(True),
+            annotation_feedback_facts.annotation_id == annotation.id,
+            annotation_feedback_facts.is_active.is_(True),
         )
         if op == "eq":
-            return exists().where(clause, AnnotationFeedback.status == value)
+            return exists().where(clause, annotation_feedback_facts.status == value)
         if not isinstance(value, list):
             raise HTTPException(status_code=422, detail="in value must be a list")
         validate_in_value(value, max_values=_MAX_IN_VALUES)
-        return exists().where(clause, AnnotationFeedback.status.in_(value))
+        return exists().where(clause, annotation_feedback_facts.status.in_(value))
     return compile_filter(filter_json, project=project, user=user)
 
 
@@ -297,36 +297,36 @@ async def count_entity_filters(
         for item in filters
     ]
     active = and_(
-        Annotation.project_id == project_id,
-        Annotation.is_active.is_(True),
-        Annotation.was_cancelled.is_(False),
+        annotation_row.project_id == project_id,
+        annotation_row.is_active.is_(True),
+        annotation_row.was_cancelled.is_(False),
     )
     if entity_scope == "objects":
-        base = and_(active, Annotation.annotation_type.not_in(_COMPACT_TRACK_TYPES))
+        base = and_(active, annotation_row.annotation_type.not_in(_COMPACT_TRACK_TYPES))
         columns = [
-            func.count(Annotation.id).filter(condition).label(f"c{index}")
+            func.count(annotation_row.id).filter(condition).label(f"c{index}")
             for index, condition in enumerate(conditions)
         ]
     elif entity_scope == "tracks":
-        kind = project_kind(project)
+        kind = project_kind(project.data_type, project.scene_mode)
         if kind.data_type == "video" and not kind.scene_mode:
             base = and_(
                 active,
-                Annotation.track_id.is_not(None),
-                Annotation.annotation_type.in_(_COMPACT_TRACK_TYPES),
+                annotation_row.track_id.is_not(None),
+                annotation_row.annotation_type.in_(_COMPACT_TRACK_TYPES),
             )
             columns = [
-                func.count(Annotation.id).filter(condition).label(f"c{index}")
+                func.count(annotation_row.id).filter(condition).label(f"c{index}")
                 for index, condition in enumerate(conditions)
             ]
         else:
             base = and_(
                 active,
-                Annotation.track_id.is_not(None),
-                Annotation.annotation_type.not_in(_COMPACT_TRACK_TYPES),
+                annotation_row.track_id.is_not(None),
+                annotation_row.annotation_type.not_in(_COMPACT_TRACK_TYPES),
             )
             columns = [
-                func.count(func.distinct(Annotation.track_id))
+                func.count(func.distinct(annotation_row.track_id))
                 .filter(condition)
                 .label(f"c{index}")
                 for index, condition in enumerate(conditions)
@@ -336,9 +336,9 @@ async def count_entity_filters(
     row = (
         await db.execute(
             select(*columns)
-            .select_from(Annotation)
-            .join(visible, visible.c.id == Annotation.task_id)
-            .join(Task, Task.id == Annotation.task_id)
+            .select_from(annotation_row)
+            .join(visible, visible.c.id == annotation_row.task_id)
+            .join(task_row, task_row.id == annotation_row.task_id)
             .where(base)
         )
     ).one()

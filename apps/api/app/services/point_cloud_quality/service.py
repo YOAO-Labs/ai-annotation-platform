@@ -4,27 +4,25 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
+from sqlalchemy.orm.attributes import set_committed_value
+from sqlalchemy.orm.util import identity_key
 
-from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob, AsyncJobKind
-from app.db.models.dataset import ProjectDataset
 from app.db.models.point_cloud_quality import (
     PointCloudQualityIssue,
     PointCloudQualityRun,
 )
 from app.db.models.project import Project
-from app.db.models.scene_track import SceneTrack, SceneTrackInterval
-from app.db.models.task import Task
-from app.db.models.task_dataset_item_link import TaskDatasetItemLink
+from aap_workspace.point_quality_configuration_values import PointCloudQualityConfig
 from app.schemas.point_cloud_quality import (
-    PointCloudQualityConfig,
     PointCloudQualityRunRequest,
 )
 from app.services.quality_job_dispatch import QualityJobDispatcher
-from app.services.async_job import create_job
+from app.services.async_job import create_job, get_job
 from app.services.async_job_terminal import JobTerminal
 from app.services.mask_qc.service import canonical_digest
 from app.services.point_cloud_quality.config import (
@@ -41,6 +39,13 @@ from aap_assets_catalog.spatial_contract import (
     normalize_calibration_record,
 )
 from app.services.assets_spatial import AssetsSpatialGateway, AssetsSpatialGatewayError
+from app.services.labeling_spatial_quality import (
+    quality_records,
+    quality_row,
+    quality_rows,
+    spatial_quality_data,
+)
+from app.services.workspace_read_relations import project_rows
 
 
 MAX_QUALITY_TASKS = 5_000
@@ -65,41 +70,22 @@ async def build_source_snapshot(
     request: PointCloudQualityRunRequest,
     validate_expected: bool = True,
 ) -> tuple[list[dict], dict]:
-    tasks = list(
-        (
-            await db.execute(
-                select(Task).where(Task.project_id == project.id).order_by(Task.id)
-            )
-        )
-        .scalars()
-        .all()
-    )
+    source = await spatial_quality_data(db, "read_point_source", project_id=project.id)
+    tasks = quality_records(source.get("tasks"))
     task_by_id = {row.id: row for row in tasks}
     scene_frames = await resolve_task_scene_frames(db, list(task_by_id))
 
     project_scene_ids = {
         value.scene_id for value in scene_frames.values() if value.scene_id is not None
     }
-    track_scene_ids = set(
-        (
-            await db.execute(
-                select(SceneTrack.scene_id).where(SceneTrack.project_id == project.id)
-            )
-        ).scalars()
-    )
+    track_scene_ids = {
+        uuid.UUID(str(value)) for value in source.get("track_scene_ids", [])
+    }
+    dataset_ids = {uuid.UUID(str(value)) for value in source.get("dataset_ids", [])}
     project_scene_ids.update(track_scene_ids)
 
     if request.scope == "scene_ids":
         requested_scene_ids = set(request.scene_ids)
-        dataset_ids = set(
-            (
-                await db.execute(
-                    select(ProjectDataset.dataset_id).where(
-                        ProjectDataset.project_id == project.id
-                    )
-                )
-            ).scalars()
-        )
         gateway = AssetsSpatialGateway(db)
         linked_scene_ids = set()
         for scene_id in requested_scene_ids:
@@ -137,23 +123,23 @@ async def build_source_snapshot(
         selected_task_ids = set()
         selected_scene_ids = set()
 
-    annotation_stmt = select(Annotation).where(
-        Annotation.project_id == project.id,
-        Annotation.annotation_type == "box_3d",
-        Annotation.is_active.is_(True),
-        Annotation.was_cancelled.is_(False),
-    )
     if request.scope == "annotation_ids":
-        annotation_stmt = annotation_stmt.where(
-            Annotation.id.in_(set(request.annotation_ids))
-        )
+        initial_annotation_scope = "annotation_ids"
+    elif request.scope == "project":
+        initial_annotation_scope = "all"
     else:
-        annotation_stmt = annotation_stmt.where(
-            Annotation.task_id.in_(selected_task_ids)
-        )
-    annotations = list(
-        (await db.execute(annotation_stmt.order_by(Annotation.id))).scalars().all()
+        initial_annotation_scope = "task_ids"
+    initial_details = await spatial_quality_data(
+        db,
+        "read_point_details",
+        project_id=project.id,
+        task_ids=sorted(selected_task_ids, key=str),
+        scene_ids=sorted(selected_scene_ids, key=str),
+        track_ids=[],
+        annotation_ids=list(request.annotation_ids),
+        annotation_scope=initial_annotation_scope,
     )
+    annotations = quality_records(initial_details.get("annotations"))
     if request.scope == "annotation_ids":
         if {row.id for row in annotations} != set(request.annotation_ids):
             raise PointCloudQualityError(
@@ -193,6 +179,26 @@ async def build_source_snapshot(
     if not selected_scene_ids:
         raise PointCloudQualityError(422, "point_cloud_quality_scene_required")
 
+    selected_track_ids = {
+        row.scene_track_id for row in annotations if row.scene_track_id
+    }
+    if request.scope == "project":
+        details = initial_details
+    else:
+        details = await spatial_quality_data(
+            db,
+            "read_point_details",
+            project_id=project.id,
+            task_ids=sorted(selected_task_ids, key=str),
+            scene_ids=sorted(selected_scene_ids, key=str),
+            track_ids=sorted(selected_track_ids, key=str),
+            annotation_ids=list(request.annotation_ids),
+            annotation_scope=initial_annotation_scope,
+        )
+    annotations = quality_records(details.get("annotations"))
+    camera_annotations = quality_records(details.get("camera_annotations"))
+    tracks = quality_records(details.get("tracks"))
+    intervals = quality_records(details.get("intervals"))
     current_versions = {str(row.id): row.version for row in annotations}
     if validate_expected:
         conflicts = {
@@ -204,52 +210,12 @@ async def build_source_snapshot(
             raise PointCloudQualityError(
                 409, "point_cloud_quality_version_conflict", conflicts=conflicts
             )
-
-    selected_track_ids = {
-        row.scene_track_id for row in annotations if row.scene_track_id
-    }
-    camera_annotation_stmt = select(Annotation).where(
-        Annotation.project_id == project.id,
-        Annotation.sensor_role.is_not(None),
-        Annotation.is_active.is_(True),
-        Annotation.was_cancelled.is_(False),
-        Annotation.task_id.in_(selected_task_ids),
-    )
-    if request.scope in {"task_ids", "annotation_ids"}:
-        camera_annotation_stmt = camera_annotation_stmt.where(
-            Annotation.scene_track_id.in_(selected_track_ids)
-        )
-    camera_annotations = list(
-        (await db.execute(camera_annotation_stmt.order_by(Annotation.id))).scalars()
-    )
     if len(annotations) + len(camera_annotations) > MAX_QUALITY_ANNOTATIONS:
         raise PointCloudQualityError(
             422,
             "point_cloud_quality_annotation_budget_exceeded",
             limit=MAX_QUALITY_ANNOTATIONS,
         )
-    track_stmt = select(SceneTrack).where(
-        SceneTrack.project_id == project.id,
-        SceneTrack.scene_id.in_(selected_scene_ids),
-        SceneTrack.retired_at.is_(None),
-    )
-    if request.scope in {"task_ids", "annotation_ids"}:
-        track_stmt = track_stmt.where(SceneTrack.id.in_(selected_track_ids))
-    tracks = list((await db.execute(track_stmt.order_by(SceneTrack.id))).scalars())
-    intervals = list(
-        (
-            await db.execute(
-                select(SceneTrackInterval)
-                .where(
-                    SceneTrackInterval.scene_track_id.in_([row.id for row in tracks])
-                )
-                .order_by(
-                    SceneTrackInterval.scene_track_id,
-                    SceneTrackInterval.start_frame,
-                )
-            )
-        ).scalars()
-    )
     gateway = AssetsSpatialGateway(db)
     poses = [
         (scene_id, pose)
@@ -263,25 +229,19 @@ async def build_source_snapshot(
     direct_item_ids = {
         task.dataset_item_id for task in selected_tasks if task.dataset_item_id
     }
-    all_link_rows = list(
-        await db.execute(
-            select(
-                TaskDatasetItemLink.task_id,
-                TaskDatasetItemLink.dataset_item_id,
-                TaskDatasetItemLink.role,
-            ).where(TaskDatasetItemLink.task_id.in_(selected_task_ids))
-        )
-    )
+    all_link_rows = quality_records(details.get("links"))
     linked_item_by_task = {
-        task_id: item_id
-        for task_id, item_id, role in all_link_rows
-        if role == "primary_lidar"
+        row.task_id: row.dataset_item_id
+        for row in all_link_rows
+        if row.role == "primary_lidar"
     }
     camera_links_by_task: dict[uuid.UUID, list[tuple[str, uuid.UUID]]] = {}
-    for task_id, item_id, role in all_link_rows:
-        if role.startswith("camera_"):
-            camera_links_by_task.setdefault(task_id, []).append((role, item_id))
-    item_ids = direct_item_ids | {item_id for _, item_id, _ in all_link_rows}
+    for row in all_link_rows:
+        if row.role.startswith("camera_"):
+            camera_links_by_task.setdefault(row.task_id, []).append(
+                (row.role, row.dataset_item_id)
+            )
+    item_ids = direct_item_ids | {row.dataset_item_id for row in all_link_rows}
     item_by_id, _ = await read_spatial_item_facts(db, list(item_ids))
     calibration_by_item: dict[uuid.UUID, dict] = {}
     camera_item_ids = {
@@ -482,18 +442,16 @@ async def create_quality_run(
             "config_digest": config_digest,
         }
     )
+    result = await spatial_quality_data(
+        db,
+        "find_point_run",
+        project_id=project.id,
+        singleflight_key=singleflight_key,
+        statuses=["pending", "running", "completed"],
+    )
     existing = (
-        await db.execute(
-            select(PointCloudQualityRun)
-            .where(
-                PointCloudQualityRun.project_id == project.id,
-                PointCloudQualityRun.singleflight_key == singleflight_key,
-                PointCloudQualityRun.status.in_(("pending", "running", "completed")),
-            )
-            .order_by(PointCloudQualityRun.created_at.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+        quality_row(PointCloudQualityRun, result["row"]) if result["row"] else None
+    )
     if existing is not None:
         return existing, None, False
 
@@ -511,10 +469,14 @@ async def create_quality_run(
                 },
                 celery_task_id=celery_task_id,
             )
-            run = PointCloudQualityRun(
+            run_id = uuid.uuid4()
+            run_result = await spatial_quality_data(
+                db,
+                "create_point_run",
+                new_run_id=run_id,
                 project_id=project.id,
                 async_job_id=job.id,
-                requested_by_id=actor_id,
+                actor_id=actor_id,
                 scope_json=scope_json,
                 config_revision=config.config_revision,
                 config_digest=config_digest,
@@ -528,18 +490,21 @@ async def create_quality_run(
                     "scene_count": len(scope_json["scene_ids"]),
                 },
             )
-            db.add(run)
             await db.flush()
+            run = quality_row(PointCloudQualityRun, run_result["row"])
     except IntegrityError:
+        result = await spatial_quality_data(
+            db,
+            "find_point_run",
+            project_id=project.id,
+            singleflight_key=singleflight_key,
+            statuses=["pending", "running"],
+        )
         existing = (
-            await db.execute(
-                select(PointCloudQualityRun).where(
-                    PointCloudQualityRun.project_id == project.id,
-                    PointCloudQualityRun.singleflight_key == singleflight_key,
-                    PointCloudQualityRun.status.in_(("pending", "running")),
-                )
-            )
-        ).scalar_one()
+            quality_row(PointCloudQualityRun, result["row"]) if result["row"] else None
+        )
+        if existing is None:
+            raise
         return existing, None, False
     return run, job, True
 
@@ -551,8 +516,9 @@ async def dispatch_quality_run(
     async_job_id: uuid.UUID,
     dispatcher: QualityJobDispatcher,
 ) -> None:
-    run = await db.get(PointCloudQualityRun, run_id)
-    job = await db.get(AsyncJob, async_job_id)
+    result = await spatial_quality_data(db, "get_point_run", run_id=run_id)
+    run = quality_row(PointCloudQualityRun, result["row"]) if result["row"] else None
+    job = await get_job(db, async_job_id)
     if run is None or job is None or not job.celery_task_id:
         raise PointCloudQualityError(500, "point_cloud_quality_dispatch_invalid")
     try:
@@ -569,11 +535,14 @@ async def record_dispatch_failure(
     db: AsyncSession, *, run_id: uuid.UUID, error: str
 ) -> None:
     """Stage the original dispatch-failure fields; the caller owns commit."""
-    run = await db.get(PointCloudQualityRun, run_id)
-    if run is not None:
-        run.status = "failed"
-        run.error_message = error[:4000]
-        run.completed_at = datetime.now(timezone.utc)
+    await spatial_quality_data(
+        db,
+        "update_point_run",
+        run_id=run_id,
+        status="failed",
+        error_message=error[:4000],
+        completed_at=datetime.now(timezone.utc).isoformat(),
+    )
 
 
 async def refresh_issue_staleness(
@@ -597,22 +566,37 @@ async def decide_issue(
 
     if issue.task_id != expected_task_id or await refresh_issue_staleness(db, issue):
         raise PointCloudQualityError(409, "point_cloud_quality_issue_stale")
+    resolved_at = datetime.now(timezone.utc) if status != "open" else None
+    reviewed_at = (
+        datetime.now(timezone.utc)
+        if status != "open" and review_verdict is not None
+        else None
+    )
+    result = await spatial_quality_data(
+        db,
+        "decide_point_issue",
+        issue_id=issue.id,
+        actor_id=actor_id,
+        review_status=status,
+        expected_task_id=expected_task_id,
+        resolution_reason=(reason or "").strip() or None,
+        review_verdict=review_verdict,
+        review_note=(review_note or "").strip() or None,
+        resolved_at=resolved_at.isoformat() if resolved_at else None,
+        reviewed_at=reviewed_at.isoformat() if reviewed_at else None,
+    )
+    if not result.get("row"):
+        raise PointCloudQualityError(409, "point_cloud_quality_issue_stale")
     issue.status = status
     issue.resolution_reason = (reason or "").strip() or None
-    if status == "open":
-        issue.resolved_by_id = None
-        issue.resolved_at = None
-        issue.review_verdict = None
-        issue.review_note = None
-        issue.reviewed_by_id = None
-        issue.reviewed_at = None
-    else:
-        issue.resolved_by_id = actor_id
-        issue.resolved_at = datetime.now(timezone.utc)
-        issue.review_verdict = review_verdict
-        issue.review_note = (review_note or "").strip() or None
-        issue.reviewed_by_id = actor_id if review_verdict else None
-        issue.reviewed_at = datetime.now(timezone.utc) if review_verdict else None
+    issue.resolved_by_id = actor_id if status != "open" else None
+    issue.resolved_at = resolved_at
+    issue.review_verdict = review_verdict if status != "open" else None
+    issue.review_note = (
+        (review_note or "").strip() or None if status != "open" else None
+    )
+    issue.reviewed_by_id = actor_id if reviewed_at is not None else None
+    issue.reviewed_at = reviewed_at
 
 
 async def refresh_issue_staleness_bulk(
@@ -621,10 +605,13 @@ async def refresh_issue_staleness_bulk(
     if not issues:
         return {}
     project_ids = {issue.project_id for issue in issues}
+    project_rows_alias = aliased(Project, project_rows(), adapt_on_names=True)
     projects = {
         row.id: row
         for row in (
-            await db.execute(select(Project).where(Project.id.in_(project_ids)))
+            await db.execute(
+                select(project_rows_alias).where(project_rows_alias.id.in_(project_ids))
+            )
         ).scalars()
     }
     run_ids = {
@@ -632,50 +619,36 @@ async def refresh_issue_staleness_bulk(
         for issue in issues
         if (run_id := issue.last_seen_run_id or issue.run_id) is not None
     }
-    runs = {
-        row.id: row
-        for row in (
-            await db.execute(
-                select(PointCloudQualityRun).where(PointCloudQualityRun.id.in_(run_ids))
-            )
-        ).scalars()
-    }
     annotation_ids = {
         uuid.UUID(raw_id)
         for issue in issues
         for raw_id in (issue.source_versions or {})
     }
-    annotations = {
-        row.id: row
-        for row in (
-            await db.execute(
-                select(Annotation).where(Annotation.id.in_(annotation_ids))
-            )
-        ).scalars()
-    }
     task_ids = {issue.task_id for issue in issues if issue.task_id is not None}
-    tasks = {
-        row.id: row
-        for row in (
-            await db.execute(select(Task).where(Task.id.in_(task_ids)))
-        ).scalars()
+    track_ids = {
+        issue.scene_track_id for issue in issues if issue.scene_track_id is not None
     }
+    facts = await spatial_quality_data(
+        db,
+        "read_quality_facts",
+        annotation_ids=sorted(annotation_ids, key=str),
+        task_ids=sorted(task_ids, key=str),
+        track_ids=sorted(track_ids, key=str),
+        run_ids=sorted(run_ids, key=str),
+    )
+    runs = {row.id: row for row in quality_records(facts.get("runs"))}
+    annotations = {row.id: row for row in quality_records(facts.get("annotations"))}
+    tasks = {row.id: row for row in quality_records(facts.get("tasks"))}
+    tracks = {row.id: row for row in quality_records(facts.get("tracks"))}
+    links = quality_records(facts.get("links"))
     missing_direct_task_ids = {
         task_id for task_id, task in tasks.items() if task.dataset_item_id is None
     }
-    linked_item_by_task = dict(
-        (
-            await db.execute(
-                select(
-                    TaskDatasetItemLink.task_id,
-                    TaskDatasetItemLink.dataset_item_id,
-                ).where(
-                    TaskDatasetItemLink.task_id.in_(missing_direct_task_ids),
-                    TaskDatasetItemLink.role == "primary_lidar",
-                )
-            )
-        ).all()
-    )
+    linked_item_by_task = {
+        row.task_id: row.dataset_item_id
+        for row in links
+        if row.task_id in missing_direct_task_ids and row.role == "primary_lidar"
+    }
     pointcloud_item_ids = {
         uuid.UUID(str(source_item_id))
         for issue in issues
@@ -688,31 +661,12 @@ async def refresh_issue_staleness_bulk(
     }
     item_ids = pointcloud_item_ids | camera_item_ids
     items, _ = await read_spatial_item_facts(db, list(item_ids))
-    track_ids = {
-        issue.scene_track_id for issue in issues if issue.scene_track_id is not None
-    }
-    tracks = {
-        row.id: row
-        for row in (
-            await db.execute(select(SceneTrack).where(SceneTrack.id.in_(track_ids)))
-        ).scalars()
-    }
     camera_link_by_task_role: dict[tuple[uuid.UUID, str], uuid.UUID] = {}
     if camera_item_ids:
         camera_link_by_task_role = {
-            (task_id, role): item_id
-            for task_id, item_id, role in (
-                await db.execute(
-                    select(
-                        TaskDatasetItemLink.task_id,
-                        TaskDatasetItemLink.dataset_item_id,
-                        TaskDatasetItemLink.role,
-                    ).where(
-                        TaskDatasetItemLink.task_id.in_(task_ids),
-                        TaskDatasetItemLink.role.like("camera_%"),
-                    )
-                )
-            ).all()
+            (row.task_id, row.role): row.dataset_item_id
+            for row in links
+            if row.task_id in task_ids and row.role.startswith("camera_")
         }
     camera_calibration_states = {}
     for record in await AssetsSpatialGateway(db).read_calibrations(
@@ -740,6 +694,7 @@ async def refresh_issue_staleness_bulk(
     }
 
     result: dict[uuid.UUID, bool] = {}
+    stale_issue_ids: list[uuid.UUID] = []
     for issue in issues:
         stale = False
         run_id = issue.last_seen_run_id or issue.run_id
@@ -792,10 +747,25 @@ async def refresh_issue_staleness_bulk(
             track = tracks.get(issue.scene_track_id)
             stale = track is None or track.revision != issue.track_revision
         if stale and issue.status != "stale":
-            issue.status = "stale"
-            issue.resolved_at = None
-            issue.resolved_by_id = None
+            stale_issue_ids.append(issue.id)
         result[issue.id] = stale
+    if stale_issue_ids:
+        await spatial_quality_data(
+            db,
+            "mark_point_issues_stale",
+            stale_issue_ids=sorted(stale_issue_ids, key=str),
+        )
+        stale_ids = set(stale_issue_ids)
+        for issue in issues:
+            if issue.id not in stale_ids:
+                continue
+            cached = db.identity_map.get(identity_key(PointCloudQualityIssue, issue.id))
+            # Update cached identities after the owner write without ORM UPDATEs.
+            for target in (issue, cached):
+                if target is not None:
+                    set_committed_value(target, "status", "stale")
+                    set_committed_value(target, "resolved_at", None)
+                    set_committed_value(target, "resolved_by_id", None)
     return result
 
 
@@ -815,73 +785,31 @@ async def list_issues(
     limit: int = 100,
     offset: int = 0,
 ) -> tuple[list[PointCloudQualityIssue], int]:
-    filters = [PointCloudQualityIssue.project_id == project_id]
+    values = {
+        "project_id": project_id,
+        "limit": limit,
+        "offset": offset,
+        "review_status": status,
+        "refresh_candidates": True,
+        "severity_filter": severity,
+        "code_filter": code,
+        "scene_filter": scene_id,
+        "task_filter": task_id,
+        "annotation_filter": annotation_id,
+        "track_filter": scene_track_id,
+        "frame_filter": frame,
+    }
     if allowed_task_ids is not None:
-        filters.append(PointCloudQualityIssue.task_id.in_(allowed_task_ids))
-    if severity:
-        filters.append(PointCloudQualityIssue.severity == severity)
-    if code:
-        filters.append(PointCloudQualityIssue.code == code)
-    if scene_id:
-        filters.append(PointCloudQualityIssue.scene_id == scene_id)
-    if task_id:
-        filters.append(PointCloudQualityIssue.task_id == task_id)
-    if annotation_id:
-        filters.append(
-            or_(
-                PointCloudQualityIssue.annotation_id == annotation_id,
-                PointCloudQualityIssue.related_annotation_ids.any(annotation_id),
-            )
-        )
-    if scene_track_id:
-        filters.append(PointCloudQualityIssue.scene_track_id == scene_track_id)
-    if frame is not None:
-        filters.extend(
-            [
-                PointCloudQualityIssue.frame_start <= frame,
-                PointCloudQualityIssue.frame_end >= frame,
-            ]
-        )
-    if status:
-        refresh_filters = list(filters)
-        if status == "stale":
-            refresh_filters.append(PointCloudQualityIssue.status != "stale")
-        else:
-            refresh_filters.append(PointCloudQualityIssue.status == status)
-        candidates = list(
-            (
-                await db.execute(select(PointCloudQualityIssue).where(*refresh_filters))
-            ).scalars()
-        )
-        await refresh_issue_staleness_bulk(db, candidates)
-        await db.flush()
-        filters.append(PointCloudQualityIssue.status == status)
-    rows = list(
-        (
-            await db.execute(
-                select(PointCloudQualityIssue)
-                .where(*filters)
-                .order_by(
-                    PointCloudQualityIssue.severity_rank,
-                    PointCloudQualityIssue.created_at.desc(),
-                    PointCloudQualityIssue.id,
-                )
-                .offset(offset)
-                .limit(limit)
-            )
-        ).scalars()
+        values["allowed_task_ids"] = sorted(allowed_task_ids, key=str)
+    data = await spatial_quality_data(db, "list_point_issues", **values)
+    rows = quality_rows(PointCloudQualityIssue, data.get("rows"))
+    await refresh_issue_staleness_bulk(db, rows)
+    await db.flush()
+    values["refresh_candidates"] = False
+    data = await spatial_quality_data(db, "list_point_issues", **values)
+    return quality_rows(PointCloudQualityIssue, data.get("rows")), int(
+        data.get("total", 0)
     )
-    if not status:
-        await refresh_issue_staleness_bulk(db, rows)
-        await db.flush()
-    total = int(
-        (
-            await db.execute(
-                select(func.count()).select_from(PointCloudQualityIssue).where(*filters)
-            )
-        ).scalar_one()
-    )
-    return rows, total
 
 
 def thresholds_from_config(
@@ -921,18 +849,15 @@ def issue_dedupe_key(
 
 async def reconcile_job_terminal(db: AsyncSession, terminal: JobTerminal) -> None:
     """Reconcile the quality ledger without changing a terminal run."""
-    run = (
-        await db.execute(
-            select(PointCloudQualityRun)
-            .where(PointCloudQualityRun.async_job_id == terminal.job_id)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
-    if run is None or run.status not in {"pending", "running"}:
-        return
-    if terminal.cancelled:
-        run.status = "cancelled"
-    else:
-        run.status = "failed"
-        run.error_message = (terminal.error or "")[:4000]
-    run.completed_at = datetime.now(timezone.utc)
+    await spatial_quality_data(
+        db,
+        "reconcile_point_run",
+        async_job_id=terminal.job_id,
+        status="cancelled" if terminal.cancelled else "failed",
+        completed_at=datetime.now(timezone.utc).isoformat(),
+        **(
+            {}
+            if terminal.cancelled
+            else {"error_message": (terminal.error or "")[:4000]}
+        ),
+    )

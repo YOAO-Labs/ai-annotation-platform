@@ -16,9 +16,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import get_current_user_id, get_db
-from app.db.models.annotation import Annotation
-from app.db.models.annotation_comment import AnnotationComment
-from app.db.models.audit_log import AuditLog
+from app.services.annotation_comment import AnnotationCommentService
+from app.services.audit_read_relations import audit_event
 from app.schemas.annotation_history import (
     AnnotationHistoryResponse,
     HistoryEntry,
@@ -28,6 +27,8 @@ from app.services.task_discussion import (
     require_visible_annotation,
     require_visible_task,
 )
+
+from app.services.labeling_core_read_relations import annotation_row
 
 router = APIRouter()
 
@@ -56,9 +57,9 @@ async def get_annotation_history(
     ann_audits = (
         (
             await db.execute(
-                select(AuditLog).where(
-                    AuditLog.target_type == "annotation",
-                    AuditLog.target_id == str(annotation_id),
+                select(audit_event).where(
+                    audit_event.target_type == "annotation",
+                    audit_event.target_id == str(annotation_id),
                 )
             )
         )
@@ -70,10 +71,10 @@ async def get_annotation_history(
     task_audits = (
         (
             await db.execute(
-                select(AuditLog).where(
-                    AuditLog.target_type == "task",
-                    AuditLog.target_id == str(ann.task_id),
-                    AuditLog.action.in_(_RELEVANT_TASK_ACTIONS),
+                select(audit_event).where(
+                    audit_event.target_type == "task",
+                    audit_event.target_id == str(ann.task_id),
+                    audit_event.action.in_(_RELEVANT_TASK_ACTIONS),
                 )
             )
         )
@@ -82,16 +83,8 @@ async def get_annotation_history(
     )
 
     # 3. 评论
-    comments = (
-        (
-            await db.execute(
-                select(AnnotationComment).where(
-                    AnnotationComment.annotation_id == annotation_id,
-                )
-            )
-        )
-        .scalars()
-        .all()
+    comments = await AnnotationCommentService(db).list_for_annotation(
+        annotation_id, active_only=False
     )
 
     # 解析 actor / author UserBrief（一次 IN 查询）
@@ -169,9 +162,9 @@ async def get_task_audit_history(
     task_audits = (
         (
             await db.execute(
-                select(AuditLog).where(
-                    AuditLog.target_type == "task",
-                    AuditLog.target_id == str(task_id),
+                select(audit_event).where(
+                    audit_event.target_type == "task",
+                    audit_event.target_id == str(task_id),
                 )
             )
         )
@@ -181,7 +174,11 @@ async def get_task_audit_history(
 
     # 该 task 下所有 annotation.id
     ann_ids = (
-        (await db.execute(select(Annotation.id).where(Annotation.task_id == task_id)))
+        (
+            await db.execute(
+                select(annotation_row.id).where(annotation_row.task_id == task_id)
+            )
+        )
         .scalars()
         .all()
     )
@@ -190,9 +187,9 @@ async def get_task_audit_history(
         ann_audits = (
             (
                 await db.execute(
-                    select(AuditLog).where(
-                        AuditLog.target_type == "annotation",
-                        AuditLog.target_id.in_([str(aid) for aid in ann_ids]),
+                    select(audit_event).where(
+                        audit_event.target_type == "annotation",
+                        audit_event.target_id.in_([str(aid) for aid in ann_ids]),
                     )
                 )
             )

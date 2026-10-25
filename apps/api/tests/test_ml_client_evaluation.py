@@ -10,8 +10,10 @@ import httpx
 import pytest
 from fastapi import HTTPException
 
-from app.services import ml_client, trained_models
-from app.services.ml_client import MLBackendClient, PredictionResult
+from aap_inference import backend_transport
+from app.services import trained_models
+from aap_inference.backend_transport import PredictionResult
+from app.services.ml_client import MLBackendClient
 from app.services.ml_routing.client import RoutedMLBackendClient
 from tests.test_ml_client_metrics import _backend
 
@@ -31,6 +33,9 @@ class Stream(httpx.AsyncByteStream):
         self.closed = True
 
 
+pytestmark = pytest.mark.usefixtures("isolated_routing_port")
+
+
 def transport_factory(monkeypatch, response):
     real = httpx.AsyncClient
     seen = []
@@ -42,7 +47,7 @@ def transport_factory(monkeypatch, response):
     def factory(*args, **kwargs):
         return real(*args, transport=httpx.MockTransport(handler), **kwargs)
 
-    monkeypatch.setattr(ml_client.httpx, "AsyncClient", factory)
+    monkeypatch.setattr(backend_transport.httpx, "AsyncClient", factory)
     return seen
 
 

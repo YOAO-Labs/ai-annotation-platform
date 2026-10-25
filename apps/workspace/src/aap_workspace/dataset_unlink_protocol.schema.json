@@ -1,0 +1,409 @@
+{
+  "$defs": {
+    "DatasetUnlinkCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "cleanup_bucket": {
+          "maxLength": 63,
+          "minLength": 3,
+          "not": {
+            "pattern": "^[0-9]+(\\.[0-9]+){3}$"
+          },
+          "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$",
+          "title": "Cleanup Bucket",
+          "type": "string"
+        },
+        "audit_context": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectDeletionAuditContext"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": ["operation_id", "actor_id", "dataset_id", "project_id", "cleanup_bucket"],
+      "title": "DatasetUnlinkCommand",
+      "type": "object"
+    },
+    "DatasetUnlinkPreview": {
+      "additionalProperties": false,
+      "properties": {
+        "will_delete_tasks": {
+          "minimum": 0,
+          "title": "Will Delete Tasks",
+          "type": "integer"
+        },
+        "will_delete_annotations": {
+          "minimum": 0,
+          "title": "Will Delete Annotations",
+          "type": "integer"
+        },
+        "will_delete_batches": {
+          "minimum": 0,
+          "title": "Will Delete Batches",
+          "type": "integer"
+        }
+      },
+      "required": ["will_delete_tasks", "will_delete_annotations", "will_delete_batches"],
+      "title": "DatasetUnlinkPreview",
+      "type": "object"
+    },
+    "DatasetUnlinkPreviewCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        }
+      },
+      "required": ["actor_id", "dataset_id", "project_id"],
+      "title": "DatasetUnlinkPreviewCommand",
+      "type": "object"
+    },
+    "DatasetUnlinkReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "association_id": {
+          "format": "uuid",
+          "title": "Association Id",
+          "type": "string"
+        },
+        "cleanup_bucket": {
+          "maxLength": 63,
+          "minLength": 3,
+          "not": {
+            "pattern": "^[0-9]+(\\.[0-9]+){3}$"
+          },
+          "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$",
+          "title": "Cleanup Bucket",
+          "type": "string"
+        },
+        "audit_id": {
+          "exclusiveMinimum": 0,
+          "title": "Audit Id",
+          "type": "integer"
+        },
+        "deleted_tasks": {
+          "minimum": 0,
+          "title": "Deleted Tasks",
+          "type": "integer"
+        },
+        "deleted_annotations": {
+          "minimum": 0,
+          "title": "Deleted Annotations",
+          "type": "integer"
+        },
+        "deleted_batches": {
+          "minimum": 0,
+          "title": "Deleted Batches",
+          "type": "integer"
+        },
+        "deleted_batch_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Deleted Batch Ids",
+          "type": "array"
+        },
+        "soft": {
+          "const": false,
+          "title": "Soft",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "operation_id",
+        "actor_id",
+        "dataset_id",
+        "project_id",
+        "association_id",
+        "cleanup_bucket",
+        "audit_id",
+        "deleted_tasks",
+        "deleted_annotations",
+        "deleted_batches",
+        "deleted_batch_ids",
+        "soft"
+      ],
+      "title": "DatasetUnlinkReceipt",
+      "type": "object"
+    },
+    "ProjectDeletionAuditContext": {
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "anyOf": [
+            {
+              "maxLength": 8,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Method"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "ip": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ip"
+        },
+        "request_id": {
+          "anyOf": [
+            {
+              "maxLength": 36,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Request Id"
+        }
+      },
+      "title": "ProjectDeletionAuditContext",
+      "type": "object"
+    },
+    "_Failure": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": ["code"],
+      "title": "_Failure",
+      "type": "object"
+    },
+    "_FailureReply": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "enum": ["aap-dataset-unlink/v1", "aap-dataset-unlink-preview/v1"],
+          "title": "Schema",
+          "type": "string"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "error": {
+          "$ref": "#/$defs/_Failure"
+        }
+      },
+      "required": ["schema", "ok", "error"],
+      "title": "_FailureReply",
+      "type": "object"
+    },
+    "_PreviewSuccess": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-dataset-unlink-preview/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "data": {
+          "$ref": "#/$defs/DatasetUnlinkPreview"
+        }
+      },
+      "required": ["schema", "ok", "data"],
+      "title": "_PreviewSuccess",
+      "type": "object"
+    },
+    "_UnlinkSuccess": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-dataset-unlink/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "data": {
+          "$ref": "#/$defs/DatasetUnlinkReceipt"
+        }
+      },
+      "required": ["schema", "ok", "data"],
+      "title": "_UnlinkSuccess",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:contract:dataset-unlink:v1",
+  "title": "Workspace transactional dataset unlink v1",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/DatasetUnlinkCommand"
+    },
+    {
+      "$ref": "#/$defs/DatasetUnlinkPreviewCommand"
+    },
+    {
+      "$ref": "#/$defs/_UnlinkSuccess"
+    },
+    {
+      "$ref": "#/$defs/_PreviewSuccess"
+    },
+    {
+      "$ref": "#/$defs/_FailureReply"
+    }
+  ],
+  "x-postgresql-functions": [
+    "aap_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jsonb)",
+    "aap_workspace_v1.preview_dataset_unlink(uuid, uuid, uuid)"
+  ],
+  "x-native-capabilities": {
+    "protocols": ["aap-dataset-unlink/v1", "aap-dataset-unlink-preview/v1"],
+    "postgres_schema": "aap_workspace_v1",
+    "functions": [
+      {
+        "name": "unlink_dataset",
+        "signature": "aap_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jsonb)",
+        "arguments": [
+          {
+            "name": "operation_id",
+            "postgres_type": "uuid"
+          },
+          {
+            "name": "actor_id",
+            "postgres_type": "uuid"
+          },
+          {
+            "name": "dataset_id",
+            "postgres_type": "uuid"
+          },
+          {
+            "name": "project_id",
+            "postgres_type": "uuid"
+          },
+          {
+            "name": "cleanup_bucket",
+            "postgres_type": "text"
+          },
+          {
+            "name": "audit_context",
+            "postgres_type": "jsonb",
+            "nullable": true
+          }
+        ],
+        "result_postgres_type": "jsonb",
+        "volatility": "VOLATILE",
+        "transaction_semantics": "Execute on the caller's existing active transaction; native unlink retains its current locks, deletion, audit, cleanup preparation, and receipt behavior. The caller owns commit and rollback."
+      },
+      {
+        "name": "preview_dataset_unlink",
+        "signature": "aap_workspace_v1.preview_dataset_unlink(uuid, uuid, uuid)",
+        "arguments": [
+          {
+            "name": "actor_id",
+            "postgres_type": "uuid"
+          },
+          {
+            "name": "dataset_id",
+            "postgres_type": "uuid"
+          },
+          {
+            "name": "project_id",
+            "postgres_type": "uuid"
+          }
+        ],
+        "result_postgres_type": "jsonb",
+        "volatility": "VOLATILE",
+        "transaction_semantics": "Execute on the caller's existing active transaction. Preview locks the current project authority, so it must not use a read-only transaction. The caller owns transaction completion."
+      }
+    ],
+    "authorization_boundary": "The existing Native functions retain account and project authority checks; this portable binding adds no authorization policy.",
+    "transaction_boundary": "The caller owns the active transaction, commit, and rollback."
+  }
+}

@@ -7,7 +7,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import defer
+from sqlalchemy.orm import aliased, defer
 
 from app.config import settings
 from app.db.enums import MANAGER_PLATFORM_ROLES
@@ -25,6 +25,7 @@ from app.services import training_runs as service
 from app.services import training_adapters as adapters
 from app.services.project_aggregates import managed_project_scope_clause
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.workspace_read_relations import project_facts, project_rows
 
 router = APIRouter(
     prefix="/training",
@@ -35,8 +36,8 @@ router = APIRouter(
 )
 
 
-def project_scope(user):
-    predicate = managed_project_scope_clause(user, Project.id)
+def project_scope(user: IdentityActorFacts, project_id_column):
+    predicate = managed_project_scope_clause(user, project_id_column)
     return [] if predicate is None else [predicate]
 
 
@@ -129,44 +130,58 @@ async def projects(
     user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    predicates = project_scope(user)
+    count_projects = aliased(Project, project_facts(), adapt_on_names=True)
+    count_predicates = project_scope(user, count_projects.id)
+    search_value = None
     if search.strip():
         escaped = (
             search.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         )
-        predicates.append(
+        search_value = f"%{escaped}%"
+        count_predicates.append(
             or_(
-                Project.name.ilike(f"%{escaped}%", escape="\\"),
-                Project.display_id.ilike(f"%{escaped}%", escape="\\"),
+                count_projects.name.ilike(search_value, escape="\\"),
+                count_projects.display_id.ilike(search_value, escape="\\"),
             )
         )
     total = await db.scalar(
-        select(func.count()).select_from(Project).where(*predicates)
+        select(func.count()).select_from(count_projects).where(*count_predicates)
     )
+
+    project = aliased(Project, project_rows(), adapt_on_names=True)
+    project_predicates = project_scope(user, project.id)
+    if search_value is not None:
+        project_predicates.append(
+            or_(
+                project.name.ilike(search_value, escape="\\"),
+                project.display_id.ilike(search_value, escape="\\"),
+            )
+        )
     ready_count = (
         select(func.count())
         .where(
-            TrainingDatasetVersion.project_id == Project.id,
+            TrainingDatasetVersion.project_id == project.id,
             TrainingDatasetVersion.status == "ready",
             TrainingDatasetVersion.package_sha256.is_not(None),
         )
-        .correlate(Project)
+        .correlate(project)
         .scalar_subquery()
     )
     active_count = (
         select(func.count())
         .where(
-            TrainingRun.project_id == Project.id, TrainingRun.status.in_(service.ACTIVE)
+            TrainingRun.project_id == project.id,
+            TrainingRun.status.in_(service.ACTIVE),
         )
-        .correlate(Project)
+        .correlate(project)
         .scalar_subquery()
     )
     rows = (
         await db.execute(
-            select(Project, ready_count, active_count)
-            .options(defer(Project.annotation_guide), defer(Project.guide_assets))
-            .where(*predicates)
-            .order_by(Project.updated_at.desc(), Project.id)
+            select(project, ready_count, active_count)
+            .options(defer(project.annotation_guide), defer(project.guide_assets))
+            .where(*project_predicates)
+            .order_by(project.updated_at.desc(), project.id)
             .limit(limit)
             .offset(offset)
         )
@@ -204,17 +219,18 @@ async def runs(
         lease = await service.lock_resource(db)
         await service.observe_lost(db, lease)
         await db.commit()
-    predicates = project_scope(user)
+    counts_projects = project_facts()
+    count_predicates = project_scope(user, counts_projects.c.id)
     if project_id:
-        predicates.append(Project.id == project_id)
+        count_predicates.append(counts_projects.c.id == project_id)
     if framework:
-        predicates.append(TrainingRun.config["framework"].astext == framework)
+        count_predicates.append(TrainingRun.config["framework"].astext == framework)
     counts = dict(
         (
             await db.execute(
                 select(TrainingRun.status, func.count())
-                .join(Project, Project.id == TrainingRun.project_id)
-                .where(*predicates)
+                .join(counts_projects, counts_projects.c.id == TrainingRun.project_id)
+                .where(*count_predicates)
                 .group_by(TrainingRun.status)
             )
         ).all()
@@ -225,16 +241,22 @@ async def runs(
         "running": sum(counts.get(key, 0) for key in service.ACTIVE - {"queued"}),
         **{key: counts.get(key, 0) for key in ("succeeded", "failed", "cancelled")},
     }
+    run_projects = project_facts()
+    run_predicates = project_scope(user, run_projects.c.id)
+    if project_id:
+        run_predicates.append(run_projects.c.id == project_id)
+    if framework:
+        run_predicates.append(TrainingRun.config["framework"].astext == framework)
     if state == "active":
-        predicates.append(TrainingRun.status.in_(service.ACTIVE))
+        run_predicates.append(TrainingRun.status.in_(service.ACTIVE))
     elif state == "finished":
-        predicates.append(TrainingRun.status.in_(service.TERMINAL))
+        run_predicates.append(TrainingRun.status.in_(service.TERMINAL))
     elif state == "failed":
-        predicates.append(TrainingRun.status.in_({"failed", "lost"}))
+        run_predicates.append(TrainingRun.status.in_({"failed", "lost"}))
     statement = (
-        select(TrainingRun, Project.name, Project.display_id)
-        .join(Project, Project.id == TrainingRun.project_id)
-        .where(*predicates)
+        select(TrainingRun, run_projects.c.name, run_projects.c.display_id)
+        .join(run_projects, run_projects.c.id == TrainingRun.project_id)
+        .where(*run_predicates)
     )
     total = await db.scalar(select(func.count()).select_from(statement.subquery()))
     rows = (

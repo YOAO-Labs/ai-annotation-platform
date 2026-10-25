@@ -1,0 +1,34 @@
+services:
+  workspace-configuration:
+    image: aap-workspace:local
+    build:
+      context: .
+      dockerfile: apps/workspace/Dockerfile
+    environment:
+      WORKSPACE_HOST: 0.0.0.0
+      WORKSPACE_PORT: 8174
+      WORKSPACE_CONFIGURATION_DATABASE_URL_FILE: /run/secrets/configuration_database_url
+      WORKSPACE_MEMBERSHIP_CONTROL_TOKEN_FILE: /run/secrets/membership_control_token
+      WORKSPACE_CONFIGURATION_SETUP_TIMEOUT_SECONDS: ${ML_HEALTH_TIMEOUT:-10}
+      WORKSPACE_CONFIGURATION_VIDEO_SEGMENT_SIZE_FRAMES: ${VIDEO_SEGMENT_SIZE_FRAMES:-18000}
+      WORKSPACE_CONFIGURATION_VIDEO_TRACKER_WINDOW_SIZE_FRAMES: ${VIDEO_TRACKER_WINDOW_SIZE_FRAMES:-300}
+      WORKSPACE_CONFIGURATION_VIDEO_TRACKER_SAM3_WINDOW_SIZE_FRAMES: ${VIDEO_TRACKER_SAM3_WINDOW_SIZE_FRAMES:-16}
+    secrets:
+      - configuration_database_url
+      - membership_control_token
+    ports:
+      - "127.0.0.1:8174:8174"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 1
+
+secrets:
+  configuration_database_url:
+    file: ${WORKSPACE_RUNTIME_CONFIGURATION_DATABASE_URL_FILE:?Set Workspace configuration function-only DSN file}
+  membership_control_token:
+    file: ${WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE:?Set Workspace private bearer file}

@@ -1,0 +1,2560 @@
+{
+  "$defs": {
+    "AttachRepairJob": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "attach_job",
+          "title": "Operation",
+          "type": "string"
+        },
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "async_job_id": {
+          "format": "uuid",
+          "title": "Async Job Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "batch_id", "async_job_id"],
+      "title": "AttachRepairJob",
+      "type": "object"
+    },
+    "AttachRepairRollbackJob": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "attach_rollback_job",
+          "title": "Operation",
+          "type": "string"
+        },
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "rollback_job_id": {
+          "format": "uuid",
+          "title": "Rollback Job Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "batch_id", "rollback_job_id"],
+      "title": "AttachRepairRollbackJob",
+      "type": "object"
+    },
+    "BeginMaskQCRun": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "begin_run",
+          "title": "Operation",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "run_id", "at"],
+      "title": "BeginMaskQCRun",
+      "type": "object"
+    },
+    "BeginRepairExecution": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "begin_execution",
+          "title": "Operation",
+          "type": "string"
+        },
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "async_job_id": {
+          "format": "uuid",
+          "title": "Async Job Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "batch_id", "async_job_id", "at"],
+      "title": "BeginRepairExecution",
+      "type": "object"
+    },
+    "BeginRepairRollback": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "begin_rollback",
+          "title": "Operation",
+          "type": "string"
+        },
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "rollback_job_id": {
+          "format": "uuid",
+          "title": "Rollback Job Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "batch_id", "rollback_job_id"],
+      "title": "BeginRepairRollback",
+      "type": "object"
+    },
+    "CancelMaskQCRun": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "cancel_run",
+          "title": "Operation",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "run_id", "at"],
+      "title": "CancelMaskQCRun",
+      "type": "object"
+    },
+    "CancelRepairBatch": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "cancel_pending",
+          "title": "Operation",
+          "type": "string"
+        },
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": ["cancelled", "partial"],
+          "title": "Status",
+          "type": "string"
+        },
+        "completed_at": {
+          "format": "date-time",
+          "title": "Completed At",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "batch_id", "status", "completed_at"],
+      "title": "CancelRepairBatch",
+      "type": "object"
+    },
+    "CheckMaskQCIssueVersions": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "issue_versions_current",
+          "title": "Operation",
+          "type": "string"
+        },
+        "issue_id": {
+          "format": "uuid",
+          "title": "Issue Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "issue_id"],
+      "title": "CheckMaskQCIssueVersions",
+      "type": "object"
+    },
+    "CheckRasterMaskReference": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "check_reference",
+          "title": "Operation",
+          "type": "string"
+        },
+        "object_key": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Object Key",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "object_key"],
+      "title": "CheckRasterMaskReference",
+      "type": "object"
+    },
+    "CompleteMaskQCRun": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "complete_run",
+          "title": "Operation",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "summary": {
+          "additionalProperties": true,
+          "title": "Summary",
+          "type": "object"
+        }
+      },
+      "required": ["schema", "operation", "run_id", "at", "summary"],
+      "title": "CompleteMaskQCRun",
+      "type": "object"
+    },
+    "CreateMaskQCRun": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "create_run",
+          "title": "Operation",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "async_job_id": {
+          "format": "uuid",
+          "title": "Async Job Id",
+          "type": "string"
+        },
+        "requested_by_id": {
+          "format": "uuid",
+          "title": "Requested By Id",
+          "type": "string"
+        },
+        "scope_json": {
+          "additionalProperties": true,
+          "title": "Scope Json",
+          "type": "object"
+        },
+        "config_revision": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Config Revision",
+          "type": "integer"
+        },
+        "config_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Config Digest",
+          "type": "string"
+        },
+        "config_snapshot": {
+          "additionalProperties": true,
+          "title": "Config Snapshot",
+          "type": "object"
+        },
+        "source_snapshot": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Source Snapshot",
+          "type": "array"
+        },
+        "source_snapshot_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Snapshot Digest",
+          "type": "string"
+        },
+        "task_snapshot_digests": {
+          "additionalProperties": true,
+          "title": "Task Snapshot Digests",
+          "type": "object"
+        },
+        "singleflight_key": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Singleflight Key",
+          "type": "string"
+        },
+        "summary": {
+          "additionalProperties": true,
+          "title": "Summary",
+          "type": "object"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "run_id",
+        "project_id",
+        "async_job_id",
+        "requested_by_id",
+        "scope_json",
+        "config_revision",
+        "config_digest",
+        "config_snapshot",
+        "source_snapshot",
+        "source_snapshot_digest",
+        "task_snapshot_digests",
+        "singleflight_key",
+        "summary"
+      ],
+      "title": "CreateMaskQCRun",
+      "type": "object"
+    },
+    "CreateMaskRepairBatch": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "create_batch",
+          "title": "Operation",
+          "type": "string"
+        },
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "requested_by_id": {
+          "format": "uuid",
+          "title": "Requested By Id",
+          "type": "string"
+        },
+        "token_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Token Hash",
+          "type": "string"
+        },
+        "plan_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Plan Digest",
+          "type": "string"
+        },
+        "request_json": {
+          "additionalProperties": true,
+          "title": "Request Json",
+          "type": "object"
+        },
+        "plan_json": {
+          "additionalProperties": true,
+          "title": "Plan Json",
+          "type": "object"
+        },
+        "result_json": {
+          "additionalProperties": true,
+          "title": "Result Json",
+          "type": "object"
+        },
+        "receipt_expires_at": {
+          "format": "date-time",
+          "title": "Receipt Expires At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "batch_id",
+        "project_id",
+        "requested_by_id",
+        "token_hash",
+        "plan_digest",
+        "request_json",
+        "plan_json",
+        "result_json",
+        "receipt_expires_at"
+      ],
+      "title": "CreateMaskRepairBatch",
+      "type": "object"
+    },
+    "DecideMaskQCIssue": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "decide_issue",
+          "title": "Operation",
+          "type": "string"
+        },
+        "issue_id": {
+          "format": "uuid",
+          "title": "Issue Id",
+          "type": "string"
+        },
+        "expected_task_id": {
+          "format": "uuid",
+          "title": "Expected Task Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": ["open", "resolved", "wont_fix"],
+          "title": "Status",
+          "type": "string"
+        },
+        "decided_at": {
+          "format": "date-time",
+          "title": "Decided At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "issue_id",
+        "expected_task_id",
+        "actor_id",
+        "status",
+        "decided_at"
+      ],
+      "title": "DecideMaskQCIssue",
+      "type": "object"
+    },
+    "FailMaskQCRun": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "fail_run",
+          "title": "Operation",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "error_message": {
+          "title": "Error Message",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "run_id", "at", "error_message"],
+      "title": "FailMaskQCRun",
+      "type": "object"
+    },
+    "FailRepairDispatch": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "enum": ["fail_dispatch", "fail_rollback_dispatch"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "async_job_id": {
+          "format": "uuid",
+          "title": "Async Job Id",
+          "type": "string"
+        },
+        "error_message": {
+          "title": "Error Message",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "batch_id", "async_job_id", "error_message"],
+      "title": "FailRepairDispatch",
+      "type": "object"
+    },
+    "FailRepairRollback": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "fail_rollback",
+          "title": "Operation",
+          "type": "string"
+        },
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "rollback_job_id": {
+          "format": "uuid",
+          "title": "Rollback Job Id",
+          "type": "string"
+        },
+        "error_message": {
+          "title": "Error Message",
+          "type": "string"
+        },
+        "result_json": {
+          "additionalProperties": true,
+          "title": "Result Json",
+          "type": "object"
+        },
+        "failed_at": {
+          "format": "date-time",
+          "title": "Failed At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "batch_id",
+        "rollback_job_id",
+        "error_message",
+        "result_json",
+        "failed_at"
+      ],
+      "title": "FailRepairRollback",
+      "type": "object"
+    },
+    "FailRepairShard": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "record_shard_failure",
+          "title": "Operation",
+          "type": "string"
+        },
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "async_job_id": {
+          "format": "uuid",
+          "title": "Async Job Id",
+          "type": "string"
+        },
+        "shard_id": {
+          "pattern": "^[0-9a-f]{24}$",
+          "title": "Shard Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "error_message": {
+          "maxLength": 500,
+          "title": "Error Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "batch_id",
+        "async_job_id",
+        "shard_id",
+        "task_id",
+        "error_message"
+      ],
+      "title": "FailRepairShard",
+      "type": "object"
+    },
+    "FindCurrentCompletedTaskMaskQCRun": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "find_current_completed_task_run",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "config_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Config Digest",
+          "type": "string"
+        },
+        "source_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "project_id",
+        "task_id",
+        "config_digest",
+        "source_digest"
+      ],
+      "title": "FindCurrentCompletedTaskMaskQCRun",
+      "type": "object"
+    },
+    "FindLatestTaskMaskQCRun": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "find_latest_task_run",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "project_id", "task_id"],
+      "title": "FindLatestTaskMaskQCRun",
+      "type": "object"
+    },
+    "FindMaskQCRun": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "find_run",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "singleflight_key": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Singleflight Key",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "project_id", "singleflight_key"],
+      "title": "FindMaskQCRun",
+      "type": "object"
+    },
+    "FinishRepairExecution": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "finish_execution",
+          "title": "Operation",
+          "type": "string"
+        },
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "async_job_id": {
+          "format": "uuid",
+          "title": "Async Job Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": ["completed", "partial", "failed"],
+          "title": "Status",
+          "type": "string"
+        },
+        "completed_at": {
+          "format": "date-time",
+          "title": "Completed At",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "batch_id", "async_job_id", "status", "completed_at"],
+      "title": "FinishRepairExecution",
+      "type": "object"
+    },
+    "FinishRepairRollback": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "finish_rollback",
+          "title": "Operation",
+          "type": "string"
+        },
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "rollback_job_id": {
+          "format": "uuid",
+          "title": "Rollback Job Id",
+          "type": "string"
+        },
+        "rolled_back_at": {
+          "format": "date-time",
+          "title": "Rolled Back At",
+          "type": "string"
+        },
+        "result_json": {
+          "additionalProperties": true,
+          "title": "Result Json",
+          "type": "object"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "batch_id",
+        "rollback_job_id",
+        "rolled_back_at",
+        "result_json"
+      ],
+      "title": "FinishRepairRollback",
+      "type": "object"
+    },
+    "InsertMaskReviewScope": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "insert_review_scope",
+          "title": "Operation",
+          "type": "string"
+        },
+        "scope_id": {
+          "format": "uuid",
+          "title": "Scope Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "qc_issue_id": {
+          "format": "uuid",
+          "title": "Qc Issue Id",
+          "type": "string"
+        },
+        "source_job_id": {
+          "format": "uuid",
+          "title": "Source Job Id",
+          "type": "string"
+        },
+        "expected_segment_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Segment Id"
+        },
+        "reviewer_id": {
+          "format": "uuid",
+          "title": "Reviewer Id",
+          "type": "string"
+        },
+        "source_annotation_version": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Source Annotation Version",
+          "type": "integer"
+        },
+        "result_annotation_version": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Result Annotation Version",
+          "type": "integer"
+        },
+        "source_job_revision": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Source Job Revision",
+          "type": "integer"
+        },
+        "frame_start": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Frame Start",
+          "type": "integer"
+        },
+        "frame_end": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Frame End",
+          "type": "integer"
+        },
+        "region_mask_ref": {
+          "additionalProperties": true,
+          "title": "Region Mask Ref",
+          "type": "object"
+        },
+        "region_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Region Digest",
+          "type": "string"
+        },
+        "candidate_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Candidate Digest",
+          "type": "string"
+        },
+        "decision": {
+          "enum": ["accept", "reject"],
+          "title": "Decision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "scope_id",
+        "project_id",
+        "task_id",
+        "annotation_id",
+        "qc_issue_id",
+        "source_job_id",
+        "expected_segment_id",
+        "reviewer_id",
+        "source_annotation_version",
+        "result_annotation_version",
+        "source_job_revision",
+        "frame_start",
+        "frame_end",
+        "region_mask_ref",
+        "region_digest",
+        "candidate_digest",
+        "decision"
+      ],
+      "title": "InsertMaskReviewScope",
+      "type": "object"
+    },
+    "ListMaskQCIssues": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "list_issues",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "limit": {
+          "maximum": 201,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "enum": ["open", "resolved", "wont_fix", "stale"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Status"
+        },
+        "severity": {
+          "anyOf": [
+            {
+              "enum": ["blocker", "warning", "info"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Severity"
+        },
+        "code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Code"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Id"
+        },
+        "annotation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Annotation Id"
+        },
+        "frame": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Frame"
+        },
+        "allowed_task_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Allowed Task Ids"
+        },
+        "cursor_rank": {
+          "anyOf": [
+            {
+              "maximum": 2,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cursor Rank"
+        },
+        "cursor_created_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cursor Created At"
+        },
+        "cursor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cursor Id"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "project_id",
+        "limit",
+        "status",
+        "severity",
+        "code",
+        "task_id",
+        "annotation_id",
+        "frame",
+        "allowed_task_ids",
+        "cursor_rank",
+        "cursor_created_at",
+        "cursor_id"
+      ],
+      "title": "ListMaskQCIssues",
+      "type": "object"
+    },
+    "MarkMaskQCIssuesSeen": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "mark_seen",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "dedupe_keys": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Dedupe Keys",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "project_id", "run_id", "dedupe_keys"],
+      "title": "MarkMaskQCIssuesSeen",
+      "type": "object"
+    },
+    "MaskQCIssueData": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "last_seen_run_id": {
+          "format": "uuid",
+          "title": "Last Seen Run Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "annotation_version": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Annotation Version",
+          "type": "integer"
+        },
+        "related_annotation_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Related Annotation Ids",
+          "type": "array"
+        },
+        "source_versions": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Source Versions",
+          "type": "object"
+        },
+        "code": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Code",
+          "type": "string"
+        },
+        "severity": {
+          "enum": ["blocker", "warning", "info"],
+          "title": "Severity",
+          "type": "string"
+        },
+        "severity_rank": {
+          "maximum": 2,
+          "minimum": 0,
+          "title": "Severity Rank",
+          "type": "integer"
+        },
+        "status": {
+          "const": "open",
+          "title": "Status",
+          "type": "string"
+        },
+        "frame_start": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Frame Start"
+        },
+        "frame_end": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Frame End"
+        },
+        "metric": {
+          "additionalProperties": true,
+          "title": "Metric",
+          "type": "object"
+        },
+        "threshold": {
+          "additionalProperties": true,
+          "title": "Threshold",
+          "type": "object"
+        },
+        "region_bbox": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Region Bbox"
+        },
+        "region_mask_ref": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Region Mask Ref"
+        },
+        "region_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Region Digest"
+        },
+        "dedupe_key": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Dedupe Key",
+          "type": "string"
+        },
+        "source": {
+          "additionalProperties": true,
+          "title": "Source",
+          "type": "object"
+        },
+        "suggestion": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Suggestion"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "run_id",
+        "last_seen_run_id",
+        "project_id",
+        "task_id",
+        "annotation_id",
+        "annotation_version",
+        "related_annotation_ids",
+        "source_versions",
+        "code",
+        "severity",
+        "severity_rank",
+        "status",
+        "frame_start",
+        "frame_end",
+        "metric",
+        "threshold",
+        "region_bbox",
+        "region_mask_ref",
+        "region_digest",
+        "dedupe_key",
+        "source",
+        "suggestion",
+        "updated_at"
+      ],
+      "title": "MaskQCIssueData",
+      "type": "object"
+    },
+    "ProgressMaskQCRun": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "progress_run",
+          "title": "Operation",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "progress_pct": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Progress Pct",
+          "type": "integer"
+        }
+      },
+      "required": ["schema", "operation", "run_id", "progress_pct"],
+      "title": "ProgressMaskQCRun",
+      "type": "object"
+    },
+    "ReadMaskAnnotationRevision": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_annotation_revision",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "annotation_version": {
+          "minimum": 1,
+          "title": "Annotation Version",
+          "type": "integer"
+        }
+      },
+      "required": ["schema", "operation", "task_id", "annotation_id", "annotation_version"],
+      "title": "ReadMaskAnnotationRevision",
+      "type": "object"
+    },
+    "ReadMaskQCIssue": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_issue",
+          "title": "Operation",
+          "type": "string"
+        },
+        "issue_id": {
+          "format": "uuid",
+          "title": "Issue Id",
+          "type": "string"
+        },
+        "lock": {
+          "title": "Lock",
+          "type": "boolean"
+        },
+        "nowait": {
+          "title": "Nowait",
+          "type": "boolean"
+        }
+      },
+      "required": ["schema", "operation", "issue_id", "lock", "nowait"],
+      "title": "ReadMaskQCIssue",
+      "type": "object"
+    },
+    "ReadMaskQCIssueStatuses": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_issue_statuses",
+          "title": "Operation",
+          "type": "string"
+        },
+        "issue_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Issue Ids",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "issue_ids"],
+      "title": "ReadMaskQCIssueStatuses",
+      "type": "object"
+    },
+    "ReadMaskQCIssues": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_issues",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "issue_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Issue Ids",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "project_id", "issue_ids"],
+      "title": "ReadMaskQCIssues",
+      "type": "object"
+    },
+    "ReadMaskQCRun": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_run",
+          "title": "Operation",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "lock": {
+          "title": "Lock",
+          "type": "boolean"
+        }
+      },
+      "required": ["schema", "operation", "run_id", "lock"],
+      "title": "ReadMaskQCRun",
+      "type": "object"
+    },
+    "ReadMaskQCRunByJob": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_run_by_job",
+          "title": "Operation",
+          "type": "string"
+        },
+        "async_job_id": {
+          "format": "uuid",
+          "title": "Async Job Id",
+          "type": "string"
+        },
+        "lock": {
+          "title": "Lock",
+          "type": "boolean"
+        }
+      },
+      "required": ["schema", "operation", "async_job_id", "lock"],
+      "title": "ReadMaskQCRunByJob",
+      "type": "object"
+    },
+    "ReadMaskQCRunSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_run_summary",
+          "title": "Operation",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "run_id"],
+      "title": "ReadMaskQCRunSummary",
+      "type": "object"
+    },
+    "ReadMaskQCSource": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_source",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "scope": {
+          "enum": ["project", "task_ids", "annotation_ids"],
+          "title": "Scope",
+          "type": "string"
+        },
+        "task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 1000,
+          "title": "Task Ids",
+          "type": "array"
+        },
+        "annotation_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 1000,
+          "title": "Annotation Ids",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "project_id", "scope", "task_ids", "annotation_ids"],
+      "title": "ReadMaskQCSource",
+      "type": "object"
+    },
+    "ReadMaskRepairBatchById": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_batch_by_id",
+          "title": "Operation",
+          "type": "string"
+        },
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "lock": {
+          "title": "Lock",
+          "type": "boolean"
+        }
+      },
+      "required": ["schema", "operation", "batch_id", "lock"],
+      "title": "ReadMaskRepairBatchById",
+      "type": "object"
+    },
+    "ReadMaskRepairBatchByJob": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_batch_by_job",
+          "title": "Operation",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "terminal_kind": {
+          "enum": ["mask_repair", "mask_repair_rollback"],
+          "title": "Terminal Kind",
+          "type": "string"
+        },
+        "lock": {
+          "title": "Lock",
+          "type": "boolean"
+        }
+      },
+      "required": ["schema", "operation", "job_id", "terminal_kind", "lock"],
+      "title": "ReadMaskRepairBatchByJob",
+      "type": "object"
+    },
+    "ReadMaskRepairBatchByToken": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_batch_by_token",
+          "title": "Operation",
+          "type": "string"
+        },
+        "token_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Token Hash",
+          "type": "string"
+        },
+        "lock": {
+          "title": "Lock",
+          "type": "boolean"
+        }
+      },
+      "required": ["schema", "operation", "token_hash", "lock"],
+      "title": "ReadMaskRepairBatchByToken",
+      "type": "object"
+    },
+    "ReadMaskRepairTargets": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_repair_targets",
+          "title": "Operation",
+          "type": "string"
+        },
+        "issue_id": {
+          "format": "uuid",
+          "title": "Issue Id",
+          "type": "string"
+        },
+        "include_related": {
+          "title": "Include Related",
+          "type": "boolean"
+        }
+      },
+      "required": ["schema", "operation", "issue_id", "include_related"],
+      "title": "ReadMaskRepairTargets",
+      "type": "object"
+    },
+    "ReadMaskReviewScopes": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_review_scopes",
+          "title": "Operation",
+          "type": "string"
+        },
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "result_annotation_version": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Result Annotation Version",
+          "type": "integer"
+        },
+        "frame_start": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Frame Start",
+          "type": "integer"
+        },
+        "frame_end": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Frame End",
+          "type": "integer"
+        },
+        "lock": {
+          "title": "Lock",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "annotation_id",
+        "result_annotation_version",
+        "frame_start",
+        "frame_end",
+        "lock"
+      ],
+      "title": "ReadMaskReviewScopes",
+      "type": "object"
+    },
+    "ReadMaskVideoSegment": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_video_segment",
+          "title": "Operation",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Dataset Item Id"
+        },
+        "frame_index": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Frame Index",
+          "type": "integer"
+        },
+        "requested_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Requested Id"
+        }
+      },
+      "required": ["schema", "operation", "dataset_item_id", "frame_index", "requested_id"],
+      "title": "ReadMaskVideoSegment",
+      "type": "object"
+    },
+    "ReadOpenTaskMaskQCIssues": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_open_task_issues",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "severity": {
+          "anyOf": [
+            {
+              "enum": ["blocker", "warning", "info"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Severity"
+        },
+        "issue_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Issue Ids"
+        }
+      },
+      "required": ["schema", "operation", "task_id", "severity", "issue_ids"],
+      "title": "ReadOpenTaskMaskQCIssues",
+      "type": "object"
+    },
+    "ReadRasterMaskReferences": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_all_references",
+          "title": "Operation",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation"],
+      "title": "ReadRasterMaskReferences",
+      "type": "object"
+    },
+    "ReadTaskRunMaskQCIssues": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_task_run_issues",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "task_id", "run_id"],
+      "title": "ReadTaskRunMaskQCIssues",
+      "type": "object"
+    },
+    "ReadTrackerCandidateContext": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_tracker_candidate_context",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "task_id", "job_id"],
+      "title": "ReadTrackerCandidateContext",
+      "type": "object"
+    },
+    "ReconcileMaskQCRun": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "reconcile_run",
+          "title": "Operation",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "terminal_cancelled": {
+          "title": "Terminal Cancelled",
+          "type": "boolean"
+        },
+        "error_message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error Message"
+        }
+      },
+      "required": ["schema", "operation", "run_id", "at", "terminal_cancelled", "error_message"],
+      "title": "ReconcileMaskQCRun",
+      "type": "object"
+    },
+    "ReconcileRepairBatch": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "reconcile_terminal",
+          "title": "Operation",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "terminal_kind": {
+          "enum": ["mask_repair", "mask_repair_rollback"],
+          "title": "Terminal Kind",
+          "type": "string"
+        },
+        "terminal_cancelled": {
+          "title": "Terminal Cancelled",
+          "type": "boolean"
+        },
+        "status": {
+          "enum": ["cancelled", "partial", "failed", "rollback_failed"],
+          "title": "Status",
+          "type": "string"
+        },
+        "completed_at": {
+          "format": "date-time",
+          "title": "Completed At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "job_id",
+        "terminal_kind",
+        "terminal_cancelled",
+        "status",
+        "completed_at"
+      ],
+      "title": "ReconcileRepairBatch",
+      "type": "object"
+    },
+    "RecordRepairCandidate": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "record_candidate",
+          "title": "Operation",
+          "type": "string"
+        },
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "async_job_id": {
+          "format": "uuid",
+          "title": "Async Job Id",
+          "type": "string"
+        },
+        "item_index": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Item Index",
+          "type": "integer"
+        },
+        "result_value": {
+          "additionalProperties": true,
+          "title": "Result Value",
+          "type": "object"
+        }
+      },
+      "required": ["schema", "operation", "batch_id", "async_job_id", "item_index", "result_value"],
+      "title": "RecordRepairCandidate",
+      "type": "object"
+    },
+    "RecordRepairShard": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "record_shard",
+          "title": "Operation",
+          "type": "string"
+        },
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "async_job_id": {
+          "format": "uuid",
+          "title": "Async Job Id",
+          "type": "string"
+        },
+        "shard_id": {
+          "pattern": "^[0-9a-f]{24}$",
+          "title": "Shard Id",
+          "type": "string"
+        },
+        "result_value": {
+          "additionalProperties": true,
+          "title": "Result Value",
+          "type": "object"
+        },
+        "rollback_expires_at": {
+          "format": "date-time",
+          "title": "Rollback Expires At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "batch_id",
+        "async_job_id",
+        "shard_id",
+        "result_value",
+        "rollback_expires_at"
+      ],
+      "title": "RecordRepairShard",
+      "type": "object"
+    },
+    "ResolveRepairedMaskQCIssue": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "resolve_repaired_issue",
+          "title": "Operation",
+          "type": "string"
+        },
+        "issue_id": {
+          "format": "uuid",
+          "title": "Issue Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "decided_at": {
+          "format": "date-time",
+          "title": "Decided At",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "issue_id", "actor_id", "decided_at"],
+      "title": "ResolveRepairedMaskQCIssue",
+      "type": "object"
+    },
+    "ResumeRepairBatch": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "resume_batch",
+          "title": "Operation",
+          "type": "string"
+        },
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "async_job_id": {
+          "format": "uuid",
+          "title": "Async Job Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "batch_id", "async_job_id", "actor_id"],
+      "title": "ResumeRepairBatch",
+      "type": "object"
+    },
+    "UpsertMaskQCIssue": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-quality-data/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "upsert_issue",
+          "title": "Operation",
+          "type": "string"
+        },
+        "issue": {
+          "$ref": "#/$defs/MaskQCIssueData"
+        }
+      },
+      "required": ["schema", "operation", "issue"],
+      "title": "UpsertMaskQCIssue",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "aap-labeling-quality-data/v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "request": {
+      "discriminator": {
+        "mapping": {
+          "attach_job": "#/$defs/AttachRepairJob",
+          "attach_rollback_job": "#/$defs/AttachRepairRollbackJob",
+          "begin_execution": "#/$defs/BeginRepairExecution",
+          "begin_rollback": "#/$defs/BeginRepairRollback",
+          "begin_run": "#/$defs/BeginMaskQCRun",
+          "cancel_pending": "#/$defs/CancelRepairBatch",
+          "cancel_run": "#/$defs/CancelMaskQCRun",
+          "check_reference": "#/$defs/CheckRasterMaskReference",
+          "complete_run": "#/$defs/CompleteMaskQCRun",
+          "create_batch": "#/$defs/CreateMaskRepairBatch",
+          "create_run": "#/$defs/CreateMaskQCRun",
+          "decide_issue": "#/$defs/DecideMaskQCIssue",
+          "fail_dispatch": "#/$defs/FailRepairDispatch",
+          "fail_rollback": "#/$defs/FailRepairRollback",
+          "fail_rollback_dispatch": "#/$defs/FailRepairDispatch",
+          "fail_run": "#/$defs/FailMaskQCRun",
+          "find_current_completed_task_run": "#/$defs/FindCurrentCompletedTaskMaskQCRun",
+          "find_latest_task_run": "#/$defs/FindLatestTaskMaskQCRun",
+          "find_run": "#/$defs/FindMaskQCRun",
+          "finish_execution": "#/$defs/FinishRepairExecution",
+          "finish_rollback": "#/$defs/FinishRepairRollback",
+          "insert_review_scope": "#/$defs/InsertMaskReviewScope",
+          "issue_versions_current": "#/$defs/CheckMaskQCIssueVersions",
+          "list_issues": "#/$defs/ListMaskQCIssues",
+          "mark_seen": "#/$defs/MarkMaskQCIssuesSeen",
+          "progress_run": "#/$defs/ProgressMaskQCRun",
+          "read_all_references": "#/$defs/ReadRasterMaskReferences",
+          "read_annotation_revision": "#/$defs/ReadMaskAnnotationRevision",
+          "read_batch_by_id": "#/$defs/ReadMaskRepairBatchById",
+          "read_batch_by_job": "#/$defs/ReadMaskRepairBatchByJob",
+          "read_batch_by_token": "#/$defs/ReadMaskRepairBatchByToken",
+          "read_issue": "#/$defs/ReadMaskQCIssue",
+          "read_issue_statuses": "#/$defs/ReadMaskQCIssueStatuses",
+          "read_issues": "#/$defs/ReadMaskQCIssues",
+          "read_open_task_issues": "#/$defs/ReadOpenTaskMaskQCIssues",
+          "read_repair_targets": "#/$defs/ReadMaskRepairTargets",
+          "read_review_scopes": "#/$defs/ReadMaskReviewScopes",
+          "read_run": "#/$defs/ReadMaskQCRun",
+          "read_run_by_job": "#/$defs/ReadMaskQCRunByJob",
+          "read_run_summary": "#/$defs/ReadMaskQCRunSummary",
+          "read_source": "#/$defs/ReadMaskQCSource",
+          "read_task_run_issues": "#/$defs/ReadTaskRunMaskQCIssues",
+          "read_tracker_candidate_context": "#/$defs/ReadTrackerCandidateContext",
+          "read_video_segment": "#/$defs/ReadMaskVideoSegment",
+          "reconcile_run": "#/$defs/ReconcileMaskQCRun",
+          "reconcile_terminal": "#/$defs/ReconcileRepairBatch",
+          "record_candidate": "#/$defs/RecordRepairCandidate",
+          "record_shard": "#/$defs/RecordRepairShard",
+          "record_shard_failure": "#/$defs/FailRepairShard",
+          "resolve_repaired_issue": "#/$defs/ResolveRepairedMaskQCIssue",
+          "resume_batch": "#/$defs/ResumeRepairBatch",
+          "upsert_issue": "#/$defs/UpsertMaskQCIssue"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ReadMaskQCSource"
+        },
+        {
+          "$ref": "#/$defs/CreateMaskQCRun"
+        },
+        {
+          "$ref": "#/$defs/FindMaskQCRun"
+        },
+        {
+          "$ref": "#/$defs/ReadMaskQCRun"
+        },
+        {
+          "$ref": "#/$defs/ReadMaskQCRunByJob"
+        },
+        {
+          "$ref": "#/$defs/BeginMaskQCRun"
+        },
+        {
+          "$ref": "#/$defs/ProgressMaskQCRun"
+        },
+        {
+          "$ref": "#/$defs/CompleteMaskQCRun"
+        },
+        {
+          "$ref": "#/$defs/FailMaskQCRun"
+        },
+        {
+          "$ref": "#/$defs/CancelMaskQCRun"
+        },
+        {
+          "$ref": "#/$defs/ReconcileMaskQCRun"
+        },
+        {
+          "$ref": "#/$defs/ReadMaskQCRunSummary"
+        },
+        {
+          "$ref": "#/$defs/UpsertMaskQCIssue"
+        },
+        {
+          "$ref": "#/$defs/MarkMaskQCIssuesSeen"
+        },
+        {
+          "$ref": "#/$defs/ReadMaskQCIssue"
+        },
+        {
+          "$ref": "#/$defs/ReadMaskQCIssues"
+        },
+        {
+          "$ref": "#/$defs/ListMaskQCIssues"
+        },
+        {
+          "$ref": "#/$defs/ReadTaskRunMaskQCIssues"
+        },
+        {
+          "$ref": "#/$defs/FindLatestTaskMaskQCRun"
+        },
+        {
+          "$ref": "#/$defs/FindCurrentCompletedTaskMaskQCRun"
+        },
+        {
+          "$ref": "#/$defs/ReadOpenTaskMaskQCIssues"
+        },
+        {
+          "$ref": "#/$defs/DecideMaskQCIssue"
+        },
+        {
+          "$ref": "#/$defs/ResolveRepairedMaskQCIssue"
+        },
+        {
+          "$ref": "#/$defs/ReadMaskQCIssueStatuses"
+        },
+        {
+          "$ref": "#/$defs/CheckMaskQCIssueVersions"
+        },
+        {
+          "$ref": "#/$defs/ReadMaskAnnotationRevision"
+        },
+        {
+          "$ref": "#/$defs/ReadTrackerCandidateContext"
+        },
+        {
+          "$ref": "#/$defs/CreateMaskRepairBatch"
+        },
+        {
+          "$ref": "#/$defs/ReadMaskRepairBatchById"
+        },
+        {
+          "$ref": "#/$defs/ReadMaskRepairBatchByToken"
+        },
+        {
+          "$ref": "#/$defs/ReadMaskRepairBatchByJob"
+        },
+        {
+          "$ref": "#/$defs/AttachRepairJob"
+        },
+        {
+          "$ref": "#/$defs/AttachRepairRollbackJob"
+        },
+        {
+          "$ref": "#/$defs/ResumeRepairBatch"
+        },
+        {
+          "$ref": "#/$defs/BeginRepairExecution"
+        },
+        {
+          "$ref": "#/$defs/BeginRepairRollback"
+        },
+        {
+          "$ref": "#/$defs/RecordRepairShard"
+        },
+        {
+          "$ref": "#/$defs/RecordRepairCandidate"
+        },
+        {
+          "$ref": "#/$defs/FailRepairShard"
+        },
+        {
+          "$ref": "#/$defs/FinishRepairExecution"
+        },
+        {
+          "$ref": "#/$defs/FinishRepairRollback"
+        },
+        {
+          "$ref": "#/$defs/FailRepairRollback"
+        },
+        {
+          "$ref": "#/$defs/FailRepairDispatch"
+        },
+        {
+          "$ref": "#/$defs/CancelRepairBatch"
+        },
+        {
+          "$ref": "#/$defs/ReconcileRepairBatch"
+        },
+        {
+          "$ref": "#/$defs/InsertMaskReviewScope"
+        },
+        {
+          "$ref": "#/$defs/ReadMaskReviewScopes"
+        },
+        {
+          "$ref": "#/$defs/ReadMaskRepairTargets"
+        },
+        {
+          "$ref": "#/$defs/ReadMaskVideoSegment"
+        },
+        {
+          "$ref": "#/$defs/ReadRasterMaskReferences"
+        },
+        {
+          "$ref": "#/$defs/CheckRasterMaskReference"
+        }
+      ],
+      "title": "Request"
+    },
+    "data": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "type": "array"
+        },
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Data"
+    }
+  },
+  "required": ["schema", "ok", "request", "data"],
+  "title": "_Reply",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-labeling-quality-data/v1",
+  "x-postgresql-functions": [
+    "aap_labeling_v1.mask_qc_command(jsonb)",
+    "aap_labeling_v1.mask_repair_command(jsonb)",
+    "aap_labeling_v1.raster_mask_retention_query(jsonb)"
+  ],
+  "x-postgresql-dependencies": [
+    "aap_identity_v1.lock_active_actor(uuid)",
+    "aap_labeling_v1.video_tracker_input_referenced(uuid)"
+  ]
+}

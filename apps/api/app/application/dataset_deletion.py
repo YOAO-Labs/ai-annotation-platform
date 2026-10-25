@@ -65,6 +65,7 @@ def _restore_unlink_failure(exc: DatasetUnlinkFailure) -> NoReturn:
         "task_feedback_retained": "任务或标注仍有反馈记录，未取消关联或删除内容",
         "annotation_reference_retained": "其他任务的标注仍引用此来源，未取消关联或删除内容",
         "source_in_use": "其他记录仍引用此来源，未取消关联或删除内容",
+        "video_execution_not_retired": "存在尚未退役的视频执行，请先取消并完成退役后重试",
     }
     if exc.code in retained:
         raise HTTPException(

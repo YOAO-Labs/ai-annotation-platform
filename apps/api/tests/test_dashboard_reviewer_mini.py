@@ -60,7 +60,7 @@ async def _seed_task(
         project_id=project_id,
         display_id=f"T-RM-{uuid.uuid4().hex[:6]}",
         file_name="x.jpg",
-        file_path="/tmp/x.jpg",
+        file_path="visibility/x.jpg",
         file_type="image",
         tags=[],
         status=status,
@@ -185,7 +185,7 @@ async def test_reviewer_mini_other_user_isolated(httpx_client, db_session, super
 
 @pytest.mark.asyncio
 async def test_reviewer_mini_rejects_legacy_global_annotator(httpx_client, db_session):
-    """Legacy global annotator must not access the reviewer mini endpoint."""
+    """Identity rejects historical platform roles before endpoint authorization."""
     legacy = await create_user(
         db_session, "annotator", f"legacy-mini-{uuid.uuid4()}@test.local", "Legacy"
     )
@@ -195,7 +195,7 @@ async def test_reviewer_mini_rejects_legacy_global_annotator(httpx_client, db_se
         "/api/v1/dashboard/reviewer/today-mini",
         headers={"Authorization": f"Bearer {token}"},
     )
-    assert resp.status_code == 403
+    assert resp.status_code == 401
 
 
 @pytest.mark.asyncio

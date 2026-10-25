@@ -25,6 +25,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import AnyHttpUrl, BaseModel, Field, TypeAdapter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.application.ml_registry_deletion import (
     delete_registry as delete_registry_command,
@@ -109,6 +110,7 @@ from app.services.ml_backend import (
 from app.services.ml_client import MLBackendClient
 from app.services.storage import storage_service
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.workspace_read_relations import project_rows
 
 router = APIRouter()
 
@@ -181,9 +183,10 @@ async def get_overview(
     # v0.19.0 ADR-0044 · backend 全局化; 「按项目分组」改为按项目「已启用」关联分组
     # (project_ml_backend_pool join pool member join registry)。total/connected
     # 统计全局注册表去重后的真值。v0.23.3 ADR-0050 · 项目启用经服务池层。
+    projects = aliased(Project, project_rows(), adapt_on_names=True)
     res = await db.execute(
-        select(Project, MLBackendRegistry)
-        .join(ProjectMLBackendPool, ProjectMLBackendPool.project_id == Project.id)
+        select(projects, MLBackendRegistry)
+        .join(ProjectMLBackendPool, ProjectMLBackendPool.project_id == projects.id)
         .join(
             MLBackendPoolMember,
             MLBackendPoolMember.pool_id == ProjectMLBackendPool.pool_id,
@@ -193,7 +196,7 @@ async def get_overview(
             MLBackendRegistry.id == MLBackendPoolMember.registry_id,
         )
         .where(ProjectMLBackendPool.enabled.is_(True))
-        .order_by(Project.name, MLBackendRegistry.created_at.desc())
+        .order_by(projects.name, MLBackendRegistry.created_at.desc())
     )
     grouped: dict[str, ProjectMLBackendsGroup] = {}
     for proj, b in res.all():
@@ -208,8 +211,11 @@ async def get_overview(
             )
         )
 
+    ai_projects = aliased(Project, project_rows(), adapt_on_names=True)
     ai_projects_res = await db.execute(
-        select(Project).where(Project.ai_enabled.is_(True)).order_by(Project.name)
+        select(ai_projects)
+        .where(ai_projects.ai_enabled.is_(True))
+        .order_by(ai_projects.name)
     )
     for proj in ai_projects_res.scalars().all():
         pid_str = str(proj.id)
@@ -1031,7 +1037,7 @@ async def delete_registry(
     projects.ml_backend_pool_id / project_ml_backend_pool (CASCADE) / 历史 prediction (SET NULL)。
     v0.23.3 ADR-0050 · 删除前须先 drain + inflight=0 + GPU retirement + 成员移除
     (legacy_instance_id FK RESTRICT + member FK RESTRICT)。"""
-    from app.services.ml_routing.safety import MLBackendQuiescenceError
+    from app.services.ml_routing.contracts import MLBackendQuiescenceError
 
     admin = await IdentityCommandService(db).lock_platform_super_admin(
         admin.id, nowait=False
@@ -1109,10 +1115,8 @@ async def unload_registry_backend(
 ) -> MLBackendUnloadResponse:
     """全局卸载 backend，不要求它已被任一项目启用。"""
 
-    from app.services.ml_routing.safety import (
-        MLBackendQuiescenceError,
-        require_registry_quiescent,
-    )
+    from app.services.ml_routing.contracts import MLBackendQuiescenceError
+    from app.services.ml_routing.safety import require_registry_quiescent
 
     svc = MLBackendService(
         db,
@@ -1120,8 +1124,8 @@ async def unload_registry_backend(
         dispatch_context_factory=dispatch_context_factory,
     )
     try:
-        await require_registry_quiescent(db, registry_id)
-        result = await svc.unload(registry_id)
+        topology = await require_registry_quiescent(db, registry_id)
+        result = await svc.unload(registry_id, expected_topology=topology)
     except MLBackendQuiescenceError as exc:
         raise HTTPException(
             status_code=503 if exc.unavailable else 409, detail=exc.as_detail()
@@ -1390,6 +1394,11 @@ async def smoke_test_backend(
         if registered_backend is not None
         else None
     )
+    registered_service = MLBackendService(
+        db,
+        shadow_session_factory=shadow_session_factory,
+        dispatch_context_factory=dispatch_context_factory,
+    )
 
     async def _audit(result: SmokeTestResponse) -> None:
         await AuditService.log(
@@ -1612,11 +1621,13 @@ async def smoke_test_backend(
         start = time.monotonic()
         try:
             if registered_backend is not None:
-                assert registered_client is not None
-                reload_data = await registered_client.reload(
+                reload_data = await registered_service.reload(
+                    registered_backend.id,
                     sam_variant=payload.sam_variant,
                     dino_variant=payload.dino_variant,
                 )
+                if reload_data is None:
+                    raise ValueError("registered backend unavailable")
             else:
                 record_unregistered_gpu_shadow_dispatch(base, "reload")
                 rresp = await client.post(f"{base}/reload", json=body or None)
@@ -1638,9 +1649,9 @@ async def smoke_test_backend(
         auto_unloaded = False
         try:
             if registered_backend is not None:
-                assert registered_client is not None
-                await registered_client.unload()
-                auto_unloaded = True
+                auto_unloaded = (
+                    await registered_service.unload(registered_backend.id)
+                ) is not None
             else:
                 record_unregistered_gpu_shadow_dispatch(base, "unload")
                 uresp = await client.post(
@@ -1930,6 +1941,7 @@ async def add_or_update_pool_member(
     )
     await db.commit()
     pool = await svc.get_pool(pool_id)
+    await db.refresh(pool)
     return await _pool_to_admin_item(db, pool)
 
 
@@ -1944,15 +1956,15 @@ async def remove_pool_member(
     db: AsyncSession = Depends(get_db),
     admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ) -> ServicePoolAdminItem:
-    from app.services.ml_routing.safety import (
-        MLBackendQuiescenceError,
-        require_registry_quiescent,
-    )
+    from app.services.ml_routing.contracts import MLBackendQuiescenceError
+    from app.services.ml_routing.safety import require_registry_quiescent
 
     svc = MLBackendService(db)
     try:
-        await require_registry_quiescent(db, registry_id)
-        ok = await svc.remove_pool_member(pool_id, registry_id)
+        topology = await require_registry_quiescent(db, registry_id)
+        ok = await svc.remove_pool_member(
+            pool_id, registry_id, expected_topology=topology
+        )
     except MLBackendQuiescenceError as exc:
         raise HTTPException(
             status_code=503 if exc.unavailable else 409, detail=exc.as_detail()
@@ -1971,6 +1983,7 @@ async def remove_pool_member(
     )
     await db.commit()
     pool = await svc.get_pool(pool_id)
+    await db.refresh(pool)
     return await _pool_to_admin_item(db, pool)
 
 
@@ -2001,6 +2014,7 @@ async def drain_pool_member(
     )
     await db.commit()
     pool = await svc.get_pool(pool_id)
+    await db.refresh(pool)
     return await _pool_to_admin_item(db, pool)
 
 
@@ -2034,6 +2048,7 @@ async def resume_pool_member(
     )
     await db.commit()
     pool = await svc.get_pool(pool_id)
+    await db.refresh(pool)
     return await _pool_to_admin_item(db, pool)
 
 
@@ -2155,10 +2170,11 @@ async def get_runtime_snapshot(
     db: AsyncSession = Depends(get_db),
     _admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ) -> RuntimeSnapshotResponse:
-    """Full runtime snapshot (Super Admin only): router mode + per-pool inflight /
-    circuit / health + a freshness envelope (§12.3 + plan §6.3). Best-effort Redis
-    reads — a Redis failure flips the ``router_ledger`` source to ``stale`` rather
-    than dropping the snapshot. Metrics-driven fields stay ``None`` (plan §4.2)."""
+    """Super Admin runtime observations with per-source freshness.
+
+    Execution counts come from the durable routing owner in every mode; failed
+    owner reads remain unknown. Redis circuit hints are independently best effort.
+    """
     from app.services.ml_routing.diagnostics import build_runtime_snapshot
 
     ledger = None

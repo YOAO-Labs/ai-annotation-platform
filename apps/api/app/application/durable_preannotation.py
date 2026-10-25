@@ -21,6 +21,7 @@ from app.application.preannotation_results import (
 from app.services.labeling_prediction_contract import ApplyPredictionResultError
 from app.services.labeling_write_scope import capture_labeling_write_scope
 from app.services.raster_mask_contract import RasterMaskContractError
+from app.services.labeling_core_read_relations import get_core_row, task_row
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,9 +196,9 @@ async def freeze_batch_members(
 
 
 async def _cancel_requested(db, job_id):
-    from app.db.models.async_job import AsyncJob
+    from app.services import async_job as async_job_svc
 
-    job = await db.get(AsyncJob, job_id, populate_existing=True)
+    job = await async_job_svc.get_job(db, job_id, populate_existing=True)
     return (
         job is None
         or job.status == "cancelled"
@@ -206,14 +207,14 @@ async def _cancel_requested(db, job_id):
 
 
 async def _actor_available(db, execution):
-    from app.db.models.project import Project
+    from app.services.project_access import get_workspace_project
     from app.services.identity_account_lock_data import IdentityAccountLockData
     from app.services.project_access import is_privileged_for_project
 
     actor_id = uuid.UUID(str(execution.scope["actor_id"]))
     actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
-    project = await db.get(
-        Project, execution.scope["project_id"], populate_existing=True
+    project = await get_workspace_project(
+        db, project_id=execution.scope["project_id"], populate_existing=True
     )
     return (
         actor is not None
@@ -279,7 +280,6 @@ async def _apply_ready_result(
 
 
 async def _overwrite(execution, db, request, *, member=None):
-    from app.db.models.task import Task
     from app.services.batch import BatchService
     from app.services.labeling_write_guard import lock_labeling_write
 
@@ -297,7 +297,10 @@ async def _overwrite(execution, db, request, *, member=None):
         if item.write_scope is None:
             continue
         scope = restore_write_scope(item.write_scope)
-        if await db.get(Task, item.task_id, populate_existing=True) is None:
+        if (
+            await get_core_row(db, task_row, item.task_id, populate_existing=True)
+            is None
+        ):
             continue
         await lock_labeling_write(
             db,
@@ -343,7 +346,6 @@ async def run_durable_batch(
     """Resume captured raw/prepared bodies; count only atomic native outcomes."""
     from aap_preannotation_results.contract import BatchResultFailure
     from aap_assets_mask_content.contract import MaskContentFailure
-    from app.db.models.task import Task
     from app.services import prediction_progress
     from app.services.async_job_notify import notify_job_terminal
     from app.services.batch_result_masks import normalize_batch_prediction_masks
@@ -401,7 +403,9 @@ async def run_durable_batch(
             current = await execution.read_result(member.ordinal)
             result = current.result
             if result is None or not result.raw_complete:
-                task = await db.get(Task, member.task_id, populate_existing=True)
+                task = await get_core_row(
+                    db, task_row, member.task_id, populate_existing=True
+                )
                 if task is None:
                     await execution.call(
                         "finish_batch_result_failure",
@@ -524,7 +528,9 @@ async def run_durable_batch(
             if gpu_error is not None:
                 context = {**context, "gpu_arbiter_failures": [gpu_error]}
                 error_code = gpu_error["error_code"]
-            current_task = await db.get(Task, member.task_id, populate_existing=True)
+            current_task = await get_core_row(
+                db, task_row, member.task_id, populate_existing=True
+            )
             if current_task is None:
                 error_code = "task_missing"
             elif current_task.project_id != execution.scope["project_id"]:
@@ -632,9 +638,9 @@ async def run_durable_batch(
         else None,
         result_extra=extra,
     )
-    from app.db.models.async_job import AsyncJob
+    from app.services import async_job as async_job_svc
 
-    await db.get(AsyncJob, execution.scope["job_id"], populate_existing=True)
+    await async_job_svc.get_job(db, execution.scope["job_id"], populate_existing=True)
     await notify_job_terminal(db, job_id=execution.scope["job_id"])
     try:
         await db.commit()

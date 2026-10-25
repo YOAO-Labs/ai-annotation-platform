@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import uuid
 
 import pytest
 from sqlalchemy import select
@@ -10,7 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.audit_log import AuditLog
 from app.db.models.user import User
-from app.services.deactivation_service import DeactivationService
+from aap_identity.deactivation_contract import decode_deactivation_due_request
+from app.services.identity_deactivation_data import IdentityDeactivationDueData
 
 
 pytestmark = pytest.mark.asyncio
@@ -79,7 +81,7 @@ async def test_last_super_admin_cannot_self_deactivate(httpx_client, super_admin
 
 
 async def test_execute_due_processes_overdue_users(db_session: AsyncSession, annotator):
-    """模拟 cron 任务调用 execute_due — overdue 用户被 is_active=False。"""
+    """The operator adopts an existing pending request and commits its deletion."""
     user, _ = annotator
     # 直接 SQL 把 scheduled_at 提前到过去
     user.deactivation_requested_at = datetime.now(timezone.utc) - timedelta(days=8)
@@ -87,9 +89,16 @@ async def test_execute_due_processes_overdue_users(db_session: AsyncSession, ann
     user.deactivation_scheduled_at = datetime.now(timezone.utc) - timedelta(seconds=10)
     await db_session.flush()
 
-    n, pending = await DeactivationService.execute_due(db_session)
-    assert n == 1
-    assert isinstance(pending, list)
+    result = await IdentityDeactivationDueData(db_session).process_due_deactivations(
+        decode_deactivation_due_request(
+            {
+                "schema": "aap-identity-deactivation-due/v1",
+                "operation_id": str(uuid.uuid4()),
+                "limit": 256,
+            }
+        )
+    )
+    assert result.processed == 1
 
     refreshed = await db_session.get(User, user.id)
     await db_session.refresh(refreshed)
@@ -119,9 +128,16 @@ async def test_execute_due_skips_not_yet_due(db_session: AsyncSession, annotator
     user.deactivation_scheduled_at = datetime.now(timezone.utc) + timedelta(days=3)
     await db_session.flush()
 
-    n, pending = await DeactivationService.execute_due(db_session)
-    assert n == 0
-    assert isinstance(pending, list)
+    result = await IdentityDeactivationDueData(db_session).process_due_deactivations(
+        decode_deactivation_due_request(
+            {
+                "schema": "aap-identity-deactivation-due/v1",
+                "operation_id": str(uuid.uuid4()),
+                "limit": 256,
+            }
+        )
+    )
+    assert result.processed == 0
     refreshed = await db_session.get(User, user.id)
     await db_session.refresh(refreshed)
     assert refreshed.is_active is True

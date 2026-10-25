@@ -1,0 +1,244 @@
+{
+  "$defs": {
+    "ProjectDeletionAuditContext": {
+      "additionalProperties": false,
+      "properties": {
+        "ip": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ip"
+        },
+        "method": {
+          "anyOf": [
+            {
+              "maxLength": 8,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Method"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "request_id": {
+          "anyOf": [
+            {
+              "maxLength": 36,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Request Id"
+        }
+      },
+      "title": "ProjectDeletionAuditContext",
+      "type": "object"
+    },
+    "ProjectDeletionCommand": {
+      "additionalProperties": false,
+      "description": "The frozen four-field command accepted by the existing native function.",
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "audit_context": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectDeletionAuditContext"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        }
+      },
+      "required": ["operation_id", "actor_id", "project_id", "audit_context"],
+      "title": "ProjectDeletionCommand",
+      "type": "object"
+    },
+    "ProjectDeletionReceipt": {
+      "additionalProperties": false,
+      "description": "The public immutable receipt; keep this shape aligned with frozen v1.",
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "audit_id": {
+          "exclusiveMinimum": 0,
+          "title": "Audit Id",
+          "type": "integer"
+        },
+        "deleted_annotations": {
+          "minimum": 0,
+          "title": "Deleted Annotations",
+          "type": "integer"
+        },
+        "deleted_tasks": {
+          "minimum": 0,
+          "title": "Deleted Tasks",
+          "type": "integer"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "actor_id",
+        "project_id",
+        "deleted_tasks",
+        "deleted_annotations",
+        "audit_id"
+      ],
+      "title": "ProjectDeletionReceipt",
+      "type": "object"
+    },
+    "_Error": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": ["code"],
+      "title": "_Error",
+      "type": "object"
+    },
+    "_FailureReply": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/_Error"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-project-delete/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "error"],
+      "title": "_FailureReply",
+      "type": "object"
+    },
+    "_Success": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/ProjectDeletionReceipt"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-project-delete/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "data"],
+      "title": "_Success",
+      "type": "object"
+    }
+  },
+  "$id": "aap-project-delete/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ProjectDeletionCommand"
+    },
+    {
+      "$ref": "#/$defs/_Success"
+    },
+    {
+      "$ref": "#/$defs/_FailureReply"
+    }
+  ],
+  "title": "Transactional Workspace project deletion v1",
+  "x-native-capabilities": {
+    "authorization_boundary": "The application caller retains credential admission. The Native coordinator rechecks the active account and current project manager before first deletion; receipt replay retains its existing active-actor rule.",
+    "functions": [
+      {
+        "arguments": [
+          {
+            "name": "operation_id",
+            "postgres_type": "uuid"
+          },
+          {
+            "name": "actor_id",
+            "postgres_type": "uuid"
+          },
+          {
+            "name": "project_id",
+            "postgres_type": "uuid"
+          },
+          {
+            "name": "audit_context",
+            "nullable": true,
+            "postgres_type": "jsonb"
+          }
+        ],
+        "name": "delete_project",
+        "result_postgres_type": "jsonb",
+        "signature": "aap_workspace_v1.delete_project(uuid, uuid, uuid, jsonb)",
+        "transaction_semantics": "The binding borrows the caller's already-active transaction. Credential admission and commit remain caller-owned; the Native coordinator rechecks current authority. A failed outer commit rolls back the project graph, audit row, and receipt."
+      }
+    ],
+    "postgres_schema": "aap_workspace_v1",
+    "protocol": "aap-project-delete/v1",
+    "transaction_boundary": "The caller owns the active transaction and commit."
+  }
+}

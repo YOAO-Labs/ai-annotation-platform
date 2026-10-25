@@ -22,32 +22,31 @@ from sqlalchemy import (
     true,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import aliased
-
-from app.db.models.annotation import Annotation
-from app.db.models.prediction import (
-    INTERACTIVE_ACCEPT_PREDICTION_SOURCE,
-    Prediction,
-)
+from app.db.models.prediction import INTERACTIVE_ACCEPT_PREDICTION_SOURCE
 from app.db.models.project import Project
-from app.db.models.task import Task
 from app.db.models.user import User
-from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
+from app.db.models.video_tracker_job import VideoTrackerJobStatus
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.project_access import is_privileged_for_project
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    prediction_row,
+    task_row,
+    video_tracker_job_row,
+)
 
 LOW_CONFIDENCE_THRESHOLD = 0.5
 
 
 def pending_prediction_shapes_expr():
     pending = _pending_prediction_shape_rows(
-        lambda prediction: prediction.task_id == Task.id,
+        lambda prediction: prediction.task_id == task_row.id,
         alias_name="dm_task_pending_count",
-    ).correlate(Task)
+    ).correlate(task_row)
     return (
         select(func.count())
         .select_from(pending.subquery("dm_task_pending_count_rows"))
-        .correlate(Task)
+        .correlate(task_row)
         .scalar_subquery()
     )
 
@@ -57,7 +56,7 @@ def _pending_prediction_shape_rows(
     *,
     alias_name: str,
 ):
-    prediction = aliased(Prediction)
+    prediction = prediction_row
     guarded_result = case(
         (func.jsonb_typeof(prediction.result) == "array", prediction.result),
         else_=literal([], type_=JSONB),
@@ -89,13 +88,14 @@ def _pending_prediction_shape_rows(
         else_=literal([], type_=JSONB),
     )
     accepted = (
-        select(Annotation.id)
+        select(annotation_row.id)
         .where(
-            Annotation.parent_prediction_id == prediction.id,
-            Annotation.is_active.is_(True),
-            Annotation.was_cancelled.is_(False),
-            Annotation.attributes.has_key("_shape_index"),  # noqa: W601
-            cast(Annotation.attributes["_shape_index"].astext, Integer) == shape_index,
+            annotation_row.parent_prediction_id == prediction.id,
+            annotation_row.is_active.is_(True),
+            annotation_row.was_cancelled.is_(False),
+            annotation_row.attributes.has_key("_shape_index"),  # noqa: W601
+            cast(annotation_row.attributes["_shape_index"].astext, Integer)
+            == shape_index,
         )
         .correlate(prediction, shape)
         .exists()
@@ -124,31 +124,31 @@ def _pending_prediction_shape_rows(
 
 def low_confidence_pending_prediction_shapes_expr():
     pending = _pending_prediction_shape_rows(
-        lambda prediction: prediction.task_id == Task.id,
+        lambda prediction: prediction.task_id == task_row.id,
         alias_name="dm_task_pending",
-    ).correlate(Task)
+    ).correlate(task_row)
     pending_rows = pending.subquery("dm_task_pending_rows")
     return (
         select(func.count())
         .select_from(pending_rows)
         .where(pending_rows.c.confidence < LOW_CONFIDENCE_THRESHOLD)
-        .correlate(Task)
+        .correlate(task_row)
         .scalar_subquery()
     )
 
 
 def pending_tracker_jobs_expr(user: User | IdentityActorFacts | None, project: Project):
-    results = VideoTrackerJob.staged_result["results"]
+    results = video_tracker_job_row.staged_result["results"]
     reviewable = and_(
-        VideoTrackerJob.task_id == Task.id,
-        VideoTrackerJob.status.in_(
+        video_tracker_job_row.task_id == task_row.id,
+        video_tracker_job_row.status.in_(
             [
                 VideoTrackerJobStatus.PENDING_REVIEW.value,
                 VideoTrackerJobStatus.PARTIALLY_REVIEWED.value,
                 VideoTrackerJobStatus.CANCELLED.value,
             ]
         ),
-        VideoTrackerJob.staged_result.is_not(None),
+        video_tracker_job_row.staged_result.is_not(None),
         case(
             (func.jsonb_typeof(results) == "array", func.jsonb_array_length(results)),
             else_=0,
@@ -156,10 +156,10 @@ def pending_tracker_jobs_expr(user: User | IdentityActorFacts | None, project: P
         > 0,
     )
     if user is not None and not is_privileged_for_project(user, project):
-        reviewable = and_(reviewable, VideoTrackerJob.created_by == user.id)
+        reviewable = and_(reviewable, video_tracker_job_row.created_by == user.id)
     return (
-        select(func.count(VideoTrackerJob.id))
+        select(func.count(video_tracker_job_row.id))
         .where(reviewable)
-        .correlate(Task)
+        .correlate(task_row)
         .scalar_subquery()
     )

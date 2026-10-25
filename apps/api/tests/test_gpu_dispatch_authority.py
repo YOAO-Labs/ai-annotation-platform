@@ -1202,7 +1202,9 @@ def _install_eviction_authority_fakes(
         )
 
     class SuccessfulEvictionClient:
-        def __init__(self, backend: MLBackendRegistry) -> None:
+        def __init__(
+            self, backend: MLBackendRegistry, *, shadow_session_factory=None
+        ) -> None:
             self.backend_id = backend.id
 
         async def lifecycle_drain(self, grant):
@@ -1548,7 +1550,9 @@ async def test_busy_eviction_end_to_end_waits_then_unloads(monkeypatch) -> None:
         )
 
     class BusyEvictionClient:
-        def __init__(self, backend: MLBackendRegistry) -> None:
+        def __init__(
+            self, backend: MLBackendRegistry, *, shadow_session_factory=None
+        ) -> None:
             assert backend.id == prepared.backend_registry_id
 
         async def lifecycle_drain(self, grant):
@@ -1667,7 +1671,9 @@ async def test_busy_eviction_cancel_orders_durable_intent_arm_resume_and_proof(
             )
 
     class CancelClient:
-        def __init__(self, backend: MLBackendRegistry) -> None:
+        def __init__(
+            self, backend: MLBackendRegistry, *, shadow_session_factory=None
+        ) -> None:
             assert backend.id == cancel_subject.backend_registry_id
 
         async def lifecycle_cancel_drain(self, grant):
@@ -1768,7 +1774,9 @@ async def test_busy_eviction_cancel_never_sends_resume_after_unload_branch_wins(
             )
 
     class ForbiddenClient:
-        def __init__(self, backend: MLBackendRegistry) -> None:
+        def __init__(
+            self, backend: MLBackendRegistry, *, shadow_session_factory=None
+        ) -> None:
             raise AssertionError("unload branch must fence real RESUME")
 
     async def no_health(backend_id: uuid.UUID, challenge: str) -> bool:
@@ -1953,6 +1961,26 @@ async def test_resident_authority_marks_missing_outcome_uncertain(monkeypatch) -
     assert "release" not in events
     assert store.admit_kwargs is not None
     assert store.uncertain_kwargs[0]["owner_id"] == store.admit_kwargs["owner_id"]
+
+
+@pytest.mark.asyncio
+async def test_resident_authority_releases_only_its_proven_unsent_lease(monkeypatch):
+    events = []
+    subject = _subject()
+    store = _RecordingStore(events)
+    _install_authority_fakes(monkeypatch, events, subject)
+    factory = authority_module.build_gpu_dispatch_context_factory(
+        _session_factory(events),
+        store_factory=lambda: store,
+        signer_factory=lambda: _RecordingSigner(events),
+    )
+    async with factory(_request(subject)) as grant:
+        assert grant.report_not_sent()
+    assert events[-2:] == ["release", "close"]
+    assert store.uncertain_kwargs == []
+    assert store.release_kwargs[0]["lease_id"] == store.admit_kwargs["lease_id"]
+    assert store.release_kwargs[0]["owner_id"] == store.admit_kwargs["owner_id"]
+    assert store.release_kwargs[0]["generation"] == subject.generation
 
 
 @pytest.mark.asyncio
@@ -2757,6 +2785,30 @@ async def test_cold_authority_rolls_back_unexposed_signing_failure(
         store.finalize_kwargs[-1]["request_owner_id"]
         == (store.admit_kwargs or {})["owner_id"]
     )
+
+
+@pytest.mark.asyncio
+async def test_cold_authority_retracts_only_its_proven_unsent_loading_reservation(
+    monkeypatch,
+):
+    events = []
+    subject = _cold_subject()
+    store = _RecordingStore(events)
+    _install_cold_authority_fakes(monkeypatch, events, subject)
+    factory = authority_module.build_gpu_dispatch_context_factory(
+        _session_factory(events),
+        store_factory=lambda: store,
+        signer_factory=lambda: _RecordingSigner(events),
+    )
+    async with factory(_request(subject)) as grant:
+        assert grant.report_not_sent()
+    assert events[-3:] == ["finalize:unloaded", "release", "close"]
+    assert store.uncertain_kwargs == []
+    assert not any(event.startswith("terminal:") for event in events)
+    final = store.finalize_kwargs[-1]
+    assert final["request_owner_id"] == store.admit_kwargs["owner_id"]
+    assert final["request_lease_id"] == store.admit_kwargs["lease_id"]
+    assert final["expected_generation"] == store.admit_kwargs["generation"]
 
 
 @pytest.mark.asyncio
@@ -3621,7 +3673,9 @@ async def test_cold_eviction_timeout_reserves_owner_for_unknown_cleanup(
     monkeypatch.setattr(store, "begin_idle_eviction", record_owner_deadline)
 
     class BlockingDrainClient:
-        def __init__(self, backend: MLBackendRegistry) -> None:
+        def __init__(
+            self, backend: MLBackendRegistry, *, shadow_session_factory=None
+        ) -> None:
             self.backend_id = backend.id
 
         async def lifecycle_drain(self, grant):
@@ -4033,9 +4087,11 @@ async def test_cold_authority_rejects_when_only_higher_priority_victim_exists(
     assert events[-1] == "close"
 
 
+@pytest.mark.parametrize("all_unload_responses_lost", (False, True))
 @pytest.mark.asyncio
 async def test_eviction_retries_same_route_token_with_fresh_outcome_channel(
     monkeypatch,
+    all_unload_responses_lost: bool,
 ) -> None:
     events: list[str] = []
     subject = replace(_cold_subject(), budget_mb=4096)
@@ -4086,7 +4142,9 @@ async def test_eviction_retries_same_route_token_with_fresh_outcome_channel(
     )
 
     class RetryClient:
-        def __init__(self, backend: MLBackendRegistry) -> None:
+        def __init__(
+            self, backend: MLBackendRegistry, *, shadow_session_factory=None
+        ) -> None:
             self.backend_id = backend.id
 
         async def lifecycle_drain(self, grant):
@@ -4099,7 +4157,7 @@ async def test_eviction_retries_same_route_token_with_fresh_outcome_channel(
 
         async def lifecycle_unload(self, grant):
             attempts["unload"].append(grant)
-            if len(attempts["unload"]) == 1:
+            if all_unload_responses_lost or len(attempts["unload"]) == 1:
                 grant.report_uncertain_if_missing("request_aborted")
                 raise RuntimeError("response lost")
             grant.report_response(200)
@@ -4374,7 +4432,9 @@ async def test_uncertain_victim_stops_before_evicting_another_or_target(
     )
 
     class InvalidDrainClient:
-        def __init__(self, backend: MLBackendRegistry) -> None:
+        def __init__(
+            self, backend: MLBackendRegistry, *, shadow_session_factory=None
+        ) -> None:
             self.backend_id = backend.id
 
         async def lifecycle_drain(self, grant):
@@ -4436,13 +4496,23 @@ async def test_uncertain_victim_stops_before_evicting_another_or_target(
     assert f"eviction_release:{first_victim.backend_id}" in events
 
 
-@pytest.mark.parametrize("failed_phase", ("drain", "unload"))
-@pytest.mark.parametrize("health_failure", ("false", "raise"))
+@pytest.mark.parametrize(
+    ("failed_phase", "health_failure", "lost_unload_responses"),
+    (
+        ("drain", "false", False),
+        ("drain", "raise", False),
+        ("unload", "false", False),
+        ("unload", "raise", False),
+        ("unload", "false", True),
+        ("unload", "raise", True),
+    ),
+)
 @pytest.mark.asyncio
 async def test_phase_health_failure_converges_unknown_and_stops_eviction(
     monkeypatch,
     failed_phase: str,
     health_failure: str,
+    lost_unload_responses: bool,
 ) -> None:
     events: list[str] = []
     subject = replace(_cold_subject(), budget_mb=4096)
@@ -4474,6 +4544,17 @@ async def test_phase_health_failure_converges_unknown_and_stops_eviction(
         (victim,),
         subject.gpu_resource_id,
     )
+    if lost_unload_responses:
+
+        class LostUnloadResponseClient(authority_module.MLBackendClient):
+            async def lifecycle_unload(self, grant):
+                events.append(f"unload:{self.backend_id}")
+                grant.report_uncertain_if_missing("request_aborted")
+                raise TimeoutError("unload response lost")
+
+        monkeypatch.setattr(
+            authority_module, "MLBackendClient", LostUnloadResponseClient
+        )
     commit_calls: list[tuple[str, str | None]] = []
 
     async def commit_phase(
@@ -4538,6 +4619,8 @@ async def test_phase_health_failure_converges_unknown_and_stops_eviction(
         assert victim_health_calls == 2
     else:
         assert any(event.startswith("unload:") for event in events)
+        if lost_unload_responses:
+            assert events.count(f"unload:{victim.backend_id}") == 2
         assert victim_health_calls == 3
 
 

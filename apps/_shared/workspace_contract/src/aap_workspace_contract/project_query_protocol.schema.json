@@ -1,0 +1,1956 @@
+{
+  "$defs": {
+    "ProjectClassRenameEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "const": "class_rename",
+          "title": "Source",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "source_operation": {
+          "const": "rename_class",
+          "title": "Source Operation",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "owner_id": {
+          "format": "uuid",
+          "title": "Owner Id",
+          "type": "string"
+        },
+        "platform_role": {
+          "title": "Platform Role",
+          "type": "string"
+        },
+        "is_active": {
+          "title": "Is Active",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "source",
+        "operation_id",
+        "source_operation",
+        "actor_id",
+        "project_id",
+        "owner_id",
+        "platform_role",
+        "is_active"
+      ],
+      "title": "ProjectClassRenameEvidence",
+      "type": "object"
+    },
+    "ProjectConfigurationEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "const": "configuration",
+          "title": "Source",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "operation": {
+          "enum": ["create_project", "update_project"],
+          "title": "Operation",
+          "type": "string"
+        }
+      },
+      "required": ["source", "operation_id", "operation"],
+      "title": "ProjectConfigurationEvidence",
+      "type": "object"
+    },
+    "ProjectOwnerTransferEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "const": "owner_transfer",
+          "title": "Source",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "new_owner_id": {
+          "format": "uuid",
+          "title": "New Owner Id",
+          "type": "string"
+        }
+      },
+      "required": ["source", "operation_id", "new_owner_id"],
+      "title": "ProjectOwnerTransferEvidence",
+      "type": "object"
+    },
+    "ProjectQueryAccessMemberRowsFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "rows_json": {
+          "title": "Rows Json",
+          "type": "string"
+        }
+      },
+      "required": ["rows_json"],
+      "title": "ProjectQueryAccessMemberRowsFacts",
+      "type": "object"
+    },
+    "ProjectQueryAccountStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "platform_role": {
+          "title": "Platform Role",
+          "type": "string"
+        },
+        "is_active": {
+          "title": "Is Active",
+          "type": "boolean"
+        }
+      },
+      "required": ["actor_id", "platform_role", "is_active"],
+      "title": "ProjectQueryAccountStatus",
+      "type": "object"
+    },
+    "ProjectQueryActiveMember": {
+      "additionalProperties": false,
+      "properties": {
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "project_role": {
+          "title": "Project Role",
+          "type": "string"
+        }
+      },
+      "required": ["user_id", "project_role"],
+      "title": "ProjectQueryActiveMember",
+      "type": "object"
+    },
+    "ProjectQueryActiveMembersFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "members": {
+          "items": {
+            "$ref": "#/$defs/ProjectQueryActiveMember"
+          },
+          "title": "Members",
+          "type": "array"
+        }
+      },
+      "required": ["members"],
+      "title": "ProjectQueryActiveMembersFacts",
+      "type": "object"
+    },
+    "ProjectQueryActor": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        }
+      },
+      "required": ["id", "role"],
+      "title": "ProjectQueryActor",
+      "type": "object"
+    },
+    "ProjectQueryActorFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectQueryAccountStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["actor"],
+      "title": "ProjectQueryActorFacts",
+      "type": "object"
+    },
+    "ProjectQueryAiCountsFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "counts": {
+          "items": {
+            "$ref": "#/$defs/ProjectQueryProjectCount"
+          },
+          "title": "Counts",
+          "type": "array"
+        }
+      },
+      "required": ["counts"],
+      "title": "ProjectQueryAiCountsFacts",
+      "type": "object"
+    },
+    "ProjectQueryAnnotationCountParameters": {
+      "additionalProperties": false,
+      "properties": {
+        "project_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Project Ids",
+          "type": "array"
+        },
+        "ai_only": {
+          "title": "Ai Only",
+          "type": "boolean"
+        }
+      },
+      "required": ["project_ids", "ai_only"],
+      "title": "ProjectQueryAnnotationCountParameters",
+      "type": "object"
+    },
+    "ProjectQueryAnnotationSeriesFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "total": {
+          "items": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "type": "string"
+          },
+          "maxItems": 12,
+          "minItems": 12,
+          "title": "Total",
+          "type": "array"
+        },
+        "ai_derived": {
+          "items": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "type": "string"
+          },
+          "maxItems": 12,
+          "minItems": 12,
+          "title": "Ai Derived",
+          "type": "array"
+        }
+      },
+      "required": ["total", "ai_derived"],
+      "title": "ProjectQueryAnnotationSeriesFacts",
+      "type": "object"
+    },
+    "ProjectQueryBatch": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "annotator_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Annotator Id"
+        },
+        "reviewer_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reviewer Id"
+        }
+      },
+      "required": ["id", "status", "annotator_id", "reviewer_id"],
+      "title": "ProjectQueryBatch",
+      "type": "object"
+    },
+    "ProjectQueryBatchCount": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "count": {
+          "pattern": "^(0|[1-9][0-9]*)$",
+          "title": "Count",
+          "type": "string"
+        }
+      },
+      "required": ["batch_id", "count"],
+      "title": "ProjectQueryBatchCount",
+      "type": "object"
+    },
+    "ProjectQueryBatchCountsFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_task_counts": {
+          "items": {
+            "$ref": "#/$defs/ProjectQueryBatchCount"
+          },
+          "title": "Batch Task Counts",
+          "type": "array"
+        }
+      },
+      "required": ["batch_task_counts"],
+      "title": "ProjectQueryBatchCountsFacts",
+      "type": "object"
+    },
+    "ProjectQueryBatchesFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "batches": {
+          "items": {
+            "$ref": "#/$defs/ProjectQueryBatch"
+          },
+          "title": "Batches",
+          "type": "array"
+        }
+      },
+      "required": ["batches"],
+      "title": "ProjectQueryBatchesFacts",
+      "type": "object"
+    },
+    "ProjectQueryCountFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "pattern": "^(0|[1-9][0-9]*)$",
+          "title": "Count",
+          "type": "string"
+        }
+      },
+      "required": ["count"],
+      "title": "ProjectQueryCountFacts",
+      "type": "object"
+    },
+    "ProjectQueryDatasetIds": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Dataset Ids",
+          "type": "array"
+        }
+      },
+      "required": ["dataset_ids"],
+      "title": "ProjectQueryDatasetIds",
+      "type": "object"
+    },
+    "ProjectQueryDatasetIdsFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Dataset Ids",
+          "type": "array"
+        }
+      },
+      "required": ["dataset_ids"],
+      "title": "ProjectQueryDatasetIdsFacts",
+      "type": "object"
+    },
+    "ProjectQueryDateBounds": {
+      "additionalProperties": false,
+      "properties": {
+        "created_from_us": {
+          "anyOf": [
+            {
+              "maxLength": 19,
+              "pattern": "^(0|-?[1-9][0-9]*)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Created From Us"
+        },
+        "created_to_us": {
+          "anyOf": [
+            {
+              "maxLength": 19,
+              "pattern": "^(0|-?[1-9][0-9]*)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Created To Us"
+        }
+      },
+      "required": ["created_from_us", "created_to_us"],
+      "title": "ProjectQueryDateBounds",
+      "type": "object"
+    },
+    "ProjectQueryError": {
+      "additionalProperties": false,
+      "properties": {
+        "status_code": {
+          "enum": [401, 403, 404, 422, 503],
+          "title": "Status Code",
+          "type": "integer"
+        },
+        "detail": {
+          "enum": [
+            "\u8d26\u53f7\u5df2\u505c\u7528\u6216\u4e0d\u5b58\u5728",
+            "\u8d26\u53f7\u89d2\u8272\u65e0\u6548\uff0c\u8bbf\u95ee\u88ab\u62d2\u7edd",
+            "\u9879\u76ee\u4e0d\u5b58\u5728",
+            "\u9879\u76ee\u804c\u8d23\u65e0\u6548\uff0c\u8bbf\u95ee\u88ab\u62d2\u7edd",
+            "\u8d26\u53f7\u5e73\u53f0\u89d2\u8272\u4e0e\u9879\u76ee\u804c\u8d23\u4e0d\u517c\u5bb9",
+            "\u4ec5\u9879\u76ee\u8d1f\u8d23\u4eba\u6216\u8d85\u7ea7\u7ba1\u7406\u5458\u53ef\u6267\u884c",
+            "\u975e\u6cd5\u9879\u76ee\u804c\u8d23",
+            "\u521b\u5efa\u65e5\u671f\u987b\u4e3a ISO \u65e5\u671f\u6216\u65f6\u95f4",
+            "\u521b\u5efa\u5f00\u59cb\u65e5\u671f\u4e0d\u80fd\u665a\u4e8e\u7ed3\u675f\u65e5\u671f",
+            "\u8eab\u4efd\u8ba4\u8bc1\u670d\u52a1\u6682\u4e0d\u53ef\u7528",
+            "\u8eab\u4efd\u8d44\u6599\u670d\u52a1\u6682\u4e0d\u53ef\u7528"
+          ],
+          "title": "Detail",
+          "type": "string"
+        },
+        "headers": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "const": "Bearer",
+                "type": "string"
+              },
+              "propertyNames": {
+                "const": "WWW-Authenticate"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Headers"
+        }
+      },
+      "required": ["status_code", "detail", "headers"],
+      "title": "ProjectQueryError",
+      "type": "object"
+    },
+    "ProjectQueryFailure": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-workspace-project-query/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "request": {
+          "$ref": "#/$defs/ProjectQueryRequest"
+        },
+        "error": {
+          "$ref": "#/$defs/ProjectQueryError"
+        }
+      },
+      "required": ["schema", "ok", "request", "error"],
+      "title": "ProjectQueryFailure",
+      "type": "object"
+    },
+    "ProjectQueryJobCountsFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "statuses": {
+          "items": {
+            "$ref": "#/$defs/ProjectQueryJobStatusCount"
+          },
+          "title": "Statuses",
+          "type": "array"
+        }
+      },
+      "required": ["statuses"],
+      "title": "ProjectQueryJobCountsFacts",
+      "type": "object"
+    },
+    "ProjectQueryJobStatusCount": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "count": {
+          "pattern": "^(0|[1-9][0-9]*)$",
+          "title": "Count",
+          "type": "string"
+        }
+      },
+      "required": ["status", "count"],
+      "title": "ProjectQueryJobStatusCount",
+      "type": "object"
+    },
+    "ProjectQueryLatestJobFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Status"
+        }
+      },
+      "required": ["status"],
+      "title": "ProjectQueryLatestJobFacts",
+      "type": "object"
+    },
+    "ProjectQueryMemberFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "member": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectQueryMembership"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["member"],
+      "title": "ProjectQueryMemberFacts",
+      "type": "object"
+    },
+    "ProjectQueryMembership": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Role"
+        }
+      },
+      "required": ["id", "project_id", "user_id", "role"],
+      "title": "ProjectQueryMembership",
+      "type": "object"
+    },
+    "ProjectQueryMyRolesFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "memberships": {
+          "items": {
+            "$ref": "#/$defs/ProjectQueryProjectRole"
+          },
+          "title": "Memberships",
+          "type": "array"
+        }
+      },
+      "required": ["memberships"],
+      "title": "ProjectQueryMyRolesFacts",
+      "type": "object"
+    },
+    "ProjectQueryPagination": {
+      "additionalProperties": false,
+      "properties": {
+        "page": {
+          "pattern": "^[1-9][0-9]*$",
+          "title": "Page",
+          "type": "string"
+        },
+        "page_size": {
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Page Size",
+          "type": "integer"
+        }
+      },
+      "required": ["page", "page_size"],
+      "title": "ProjectQueryPagination",
+      "type": "object"
+    },
+    "ProjectQueryPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-workspace-project-query/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema"],
+      "title": "ProjectQueryPolicy",
+      "type": "object"
+    },
+    "ProjectQueryPoolFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "legacy_instance_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Legacy Instance Id"
+        }
+      },
+      "required": ["legacy_instance_id"],
+      "title": "ProjectQueryPoolFacts",
+      "type": "object"
+    },
+    "ProjectQueryPoolId": {
+      "additionalProperties": false,
+      "properties": {
+        "pool_id": {
+          "format": "uuid",
+          "title": "Pool Id",
+          "type": "string"
+        }
+      },
+      "required": ["pool_id"],
+      "title": "ProjectQueryPoolId",
+      "type": "object"
+    },
+    "ProjectQueryProjectCount": {
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "count": {
+          "pattern": "^(0|[1-9][0-9]*)$",
+          "title": "Count",
+          "type": "string"
+        }
+      },
+      "required": ["project_id", "count"],
+      "title": "ProjectQueryProjectCount",
+      "type": "object"
+    },
+    "ProjectQueryProjectId": {
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        }
+      },
+      "required": ["project_id"],
+      "title": "ProjectQueryProjectId",
+      "type": "object"
+    },
+    "ProjectQueryProjectIds": {
+      "additionalProperties": false,
+      "properties": {
+        "project_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Project Ids",
+          "type": "array"
+        }
+      },
+      "required": ["project_ids"],
+      "title": "ProjectQueryProjectIds",
+      "type": "object"
+    },
+    "ProjectQueryProjectRole": {
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Role"
+        }
+      },
+      "required": ["project_id", "role"],
+      "title": "ProjectQueryProjectRole",
+      "type": "object"
+    },
+    "ProjectQueryRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-workspace-project-query/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "request_id": {
+          "format": "uuid",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "operation": {
+          "enum": [
+            "list_projects",
+            "query_projects",
+            "get_project",
+            "project_stats",
+            "project_readiness",
+            "get_project_projection",
+            "get_project_access",
+            "require_project_manager",
+            "require_project_visible",
+            "search_projects"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "admitted_actor": {
+          "$ref": "#/$defs/ProjectQueryActor"
+        },
+        "target_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Id"
+        },
+        "filters_ascii": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Filters Ascii"
+        },
+        "pagination": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectQueryPagination"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "projection_evidence": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "class_rename": "#/$defs/ProjectClassRenameEvidence",
+                  "configuration": "#/$defs/ProjectConfigurationEvidence",
+                  "owner_transfer": "#/$defs/ProjectOwnerTransferEvidence"
+                },
+                "propertyName": "source"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/ProjectConfigurationEvidence"
+                },
+                {
+                  "$ref": "#/$defs/ProjectOwnerTransferEvidence"
+                },
+                {
+                  "$ref": "#/$defs/ProjectClassRenameEvidence"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Projection Evidence"
+        }
+      },
+      "required": [
+        "schema",
+        "request_id",
+        "operation",
+        "admitted_actor",
+        "target_id",
+        "filters_ascii",
+        "pagination",
+        "projection_evidence"
+      ],
+      "title": "ProjectQueryRequest",
+      "type": "object"
+    },
+    "ProjectQueryRowFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "row_json": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Row Json"
+        }
+      },
+      "required": ["row_json"],
+      "title": "ProjectQueryRowFacts",
+      "type": "object"
+    },
+    "ProjectQueryRowsFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "rows_json": {
+          "title": "Rows Json",
+          "type": "string"
+        }
+      },
+      "required": ["rows_json"],
+      "title": "ProjectQueryRowsFacts",
+      "type": "object"
+    },
+    "ProjectQuerySeriesParameters": {
+      "additionalProperties": false,
+      "properties": {
+        "project_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Project Ids",
+          "type": "array"
+        },
+        "bucket_ends": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 12,
+          "minItems": 12,
+          "title": "Bucket Ends",
+          "type": "array"
+        }
+      },
+      "required": ["project_ids", "bucket_ends"],
+      "title": "ProjectQuerySeriesParameters",
+      "type": "object"
+    },
+    "ProjectQueryStep": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-workspace-project-query/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/ProjectQueryRequest"
+        },
+        "action": {
+          "enum": [
+            "list_rows",
+            "count_rows",
+            "visible_rows",
+            "get_row",
+            "actor_status",
+            "member_access",
+            "access_member_rows",
+            "ai_counts",
+            "member_count",
+            "pool",
+            "my_roles",
+            "annotation_count",
+            "task_series",
+            "annotation_series",
+            "dataset_ids",
+            "dataset_item_count",
+            "linked_task_count",
+            "task_count",
+            "job_counts",
+            "latest_job_status",
+            "batches",
+            "batch_task_counts",
+            "active_members",
+            "projection_row",
+            "search_rows"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "parameters": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectQueryDateBounds"
+            },
+            {
+              "$ref": "#/$defs/ProjectQueryProjectIds"
+            },
+            {
+              "$ref": "#/$defs/ProjectQueryProjectId"
+            },
+            {
+              "$ref": "#/$defs/ProjectQueryPoolId"
+            },
+            {
+              "$ref": "#/$defs/ProjectQueryAnnotationCountParameters"
+            },
+            {
+              "$ref": "#/$defs/ProjectQuerySeriesParameters"
+            },
+            {
+              "$ref": "#/$defs/ProjectQueryDatasetIds"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Parameters"
+        },
+        "facts": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectQueryRowFacts"
+            },
+            {
+              "$ref": "#/$defs/ProjectQueryRowsFacts"
+            },
+            {
+              "$ref": "#/$defs/ProjectQueryCountFacts"
+            },
+            {
+              "$ref": "#/$defs/ProjectQueryActorFacts"
+            },
+            {
+              "$ref": "#/$defs/ProjectQueryMemberFacts"
+            },
+            {
+              "$ref": "#/$defs/ProjectQueryAccessMemberRowsFacts"
+            },
+            {
+              "$ref": "#/$defs/ProjectQueryAiCountsFacts"
+            },
+            {
+              "$ref": "#/$defs/ProjectQueryPoolFacts"
+            },
+            {
+              "$ref": "#/$defs/ProjectQueryMyRolesFacts"
+            },
+            {
+              "$ref": "#/$defs/ProjectQueryTaskSeriesFacts"
+            },
+            {
+              "$ref": "#/$defs/ProjectQueryAnnotationSeriesFacts"
+            },
+            {
+              "$ref": "#/$defs/ProjectQueryDatasetIdsFacts"
+            },
+            {
+              "$ref": "#/$defs/ProjectQueryJobCountsFacts"
+            },
+            {
+              "$ref": "#/$defs/ProjectQueryLatestJobFacts"
+            },
+            {
+              "$ref": "#/$defs/ProjectQueryBatchesFacts"
+            },
+            {
+              "$ref": "#/$defs/ProjectQueryBatchCountsFacts"
+            },
+            {
+              "$ref": "#/$defs/ProjectQueryActiveMembersFacts"
+            }
+          ],
+          "title": "Facts"
+        }
+      },
+      "required": ["schema", "request", "action", "parameters", "facts"],
+      "title": "ProjectQueryStep",
+      "type": "object",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "list_rows"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/ProjectQueryDateBounds"
+              },
+              "facts": {
+                "$ref": "#/$defs/ProjectQueryRowsFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "count_rows"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/ProjectQueryDateBounds"
+              },
+              "facts": {
+                "$ref": "#/$defs/ProjectQueryCountFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "visible_rows"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "type": "null"
+              },
+              "facts": {
+                "$ref": "#/$defs/ProjectQueryRowsFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "get_row"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "type": "null"
+              },
+              "facts": {
+                "$ref": "#/$defs/ProjectQueryRowFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "actor_status"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "type": "null"
+              },
+              "facts": {
+                "$ref": "#/$defs/ProjectQueryActorFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "member_access"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "type": "null"
+              },
+              "facts": {
+                "$ref": "#/$defs/ProjectQueryMemberFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "access_member_rows"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "type": "null"
+              },
+              "facts": {
+                "$ref": "#/$defs/ProjectQueryAccessMemberRowsFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "ai_counts"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/ProjectQueryProjectIds"
+              },
+              "facts": {
+                "$ref": "#/$defs/ProjectQueryAiCountsFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "member_count"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/ProjectQueryProjectId"
+              },
+              "facts": {
+                "$ref": "#/$defs/ProjectQueryCountFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "pool"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/ProjectQueryPoolId"
+              },
+              "facts": {
+                "$ref": "#/$defs/ProjectQueryPoolFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "my_roles"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/ProjectQueryProjectIds"
+              },
+              "facts": {
+                "$ref": "#/$defs/ProjectQueryMyRolesFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "annotation_count"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/ProjectQueryAnnotationCountParameters"
+              },
+              "facts": {
+                "$ref": "#/$defs/ProjectQueryCountFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "task_series"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/ProjectQuerySeriesParameters"
+              },
+              "facts": {
+                "$ref": "#/$defs/ProjectQueryTaskSeriesFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "annotation_series"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/ProjectQuerySeriesParameters"
+              },
+              "facts": {
+                "$ref": "#/$defs/ProjectQueryAnnotationSeriesFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "dataset_ids"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "type": "null"
+              },
+              "facts": {
+                "$ref": "#/$defs/ProjectQueryDatasetIdsFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "dataset_item_count"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/ProjectQueryDatasetIds"
+              },
+              "facts": {
+                "$ref": "#/$defs/ProjectQueryCountFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "linked_task_count"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/ProjectQueryDatasetIds"
+              },
+              "facts": {
+                "$ref": "#/$defs/ProjectQueryCountFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "task_count"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "type": "null"
+              },
+              "facts": {
+                "$ref": "#/$defs/ProjectQueryCountFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "job_counts"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "type": "null"
+              },
+              "facts": {
+                "$ref": "#/$defs/ProjectQueryJobCountsFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "latest_job_status"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "type": "null"
+              },
+              "facts": {
+                "$ref": "#/$defs/ProjectQueryLatestJobFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "batches"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "type": "null"
+              },
+              "facts": {
+                "$ref": "#/$defs/ProjectQueryBatchesFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "batch_task_counts"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "type": "null"
+              },
+              "facts": {
+                "$ref": "#/$defs/ProjectQueryBatchCountsFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "active_members"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "type": "null"
+              },
+              "facts": {
+                "$ref": "#/$defs/ProjectQueryActiveMembersFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "projection_row"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "type": "null"
+              },
+              "facts": {
+                "$ref": "#/$defs/ProjectQueryRowFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "search_rows"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "type": "null"
+              },
+              "facts": {
+                "$ref": "#/$defs/ProjectQueryRowsFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "request": {
+                "properties": {
+                  "operation": {
+                    "const": "list_projects"
+                  }
+                },
+                "required": ["operation"]
+              }
+            },
+            "required": ["request"]
+          },
+          "then": {
+            "properties": {
+              "action": {
+                "enum": ["ai_counts", "list_rows", "member_count", "my_roles", "pool"]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "request": {
+                "properties": {
+                  "operation": {
+                    "const": "query_projects"
+                  }
+                },
+                "required": ["operation"]
+              }
+            },
+            "required": ["request"]
+          },
+          "then": {
+            "properties": {
+              "action": {
+                "enum": ["ai_counts", "count_rows", "list_rows", "member_count", "my_roles", "pool"]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "request": {
+                "properties": {
+                  "operation": {
+                    "const": "get_project"
+                  }
+                },
+                "required": ["operation"]
+              }
+            },
+            "required": ["request"]
+          },
+          "then": {
+            "properties": {
+              "action": {
+                "enum": [
+                  "actor_status",
+                  "ai_counts",
+                  "get_row",
+                  "member_access",
+                  "member_count",
+                  "my_roles",
+                  "pool"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "request": {
+                "properties": {
+                  "operation": {
+                    "const": "get_project_access"
+                  }
+                },
+                "required": ["operation"]
+              }
+            },
+            "required": ["request"]
+          },
+          "then": {
+            "properties": {
+              "action": {
+                "enum": ["access_member_rows", "actor_status", "get_row"]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "request": {
+                "properties": {
+                  "operation": {
+                    "const": "require_project_manager"
+                  }
+                },
+                "required": ["operation"]
+              }
+            },
+            "required": ["request"]
+          },
+          "then": {
+            "properties": {
+              "action": {
+                "enum": ["access_member_rows", "actor_status", "get_row"]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "request": {
+                "properties": {
+                  "operation": {
+                    "const": "require_project_visible"
+                  }
+                },
+                "required": ["operation"]
+              }
+            },
+            "required": ["request"]
+          },
+          "then": {
+            "properties": {
+              "action": {
+                "enum": ["access_member_rows", "actor_status", "get_row"]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "request": {
+                "properties": {
+                  "operation": {
+                    "const": "project_stats"
+                  }
+                },
+                "required": ["operation"]
+              }
+            },
+            "required": ["request"]
+          },
+          "then": {
+            "properties": {
+              "action": {
+                "enum": ["annotation_count", "annotation_series", "task_series", "visible_rows"]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "request": {
+                "properties": {
+                  "operation": {
+                    "const": "project_readiness"
+                  }
+                },
+                "required": ["operation"]
+              }
+            },
+            "required": ["request"]
+          },
+          "then": {
+            "properties": {
+              "action": {
+                "enum": [
+                  "active_members",
+                  "actor_status",
+                  "batch_task_counts",
+                  "batches",
+                  "dataset_ids",
+                  "dataset_item_count",
+                  "get_row",
+                  "job_counts",
+                  "latest_job_status",
+                  "linked_task_count",
+                  "member_access",
+                  "task_count"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "request": {
+                "properties": {
+                  "operation": {
+                    "const": "get_project_projection"
+                  }
+                },
+                "required": ["operation"]
+              }
+            },
+            "required": ["request"]
+          },
+          "then": {
+            "properties": {
+              "action": {
+                "enum": ["ai_counts", "member_count", "pool", "projection_row"]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "request": {
+                "properties": {
+                  "operation": {
+                    "const": "search_projects"
+                  }
+                },
+                "required": ["operation"]
+              }
+            },
+            "required": ["request"]
+          },
+          "then": {
+            "properties": {
+              "action": {
+                "enum": ["search_rows"]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "ProjectQuerySuccess": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-workspace-project-query/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "request": {
+          "$ref": "#/$defs/ProjectQueryRequest"
+        },
+        "data_json": {
+          "title": "Data Json",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "request", "data_json"],
+      "title": "ProjectQuerySuccess",
+      "type": "object"
+    },
+    "ProjectQueryTaskSeriesFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "total_data": {
+          "items": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "type": "string"
+          },
+          "maxItems": 12,
+          "minItems": 12,
+          "title": "Total Data",
+          "type": "array"
+        },
+        "completed": {
+          "items": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "type": "string"
+          },
+          "maxItems": 12,
+          "minItems": 12,
+          "title": "Completed",
+          "type": "array"
+        },
+        "pending_review": {
+          "items": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "type": "string"
+          },
+          "maxItems": 12,
+          "minItems": 12,
+          "title": "Pending Review",
+          "type": "array"
+        }
+      },
+      "required": ["total_data", "completed", "pending_review"],
+      "title": "ProjectQueryTaskSeriesFacts",
+      "type": "object"
+    }
+  },
+  "anyOf": [
+    {
+      "$ref": "#/$defs/ProjectQueryRequest"
+    },
+    {
+      "$ref": "#/$defs/ProjectQueryPolicy"
+    },
+    {
+      "$ref": "#/$defs/ProjectQuerySuccess"
+    },
+    {
+      "$ref": "#/$defs/ProjectQueryFailure"
+    },
+    {
+      "$ref": "#/$defs/ProjectQueryStep"
+    }
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-workspace-project-query/v1",
+  "x-project-row-columns": [
+    "id",
+    "organization_id",
+    "display_id",
+    "name",
+    "type_label",
+    "type_key",
+    "data_type",
+    "owner_id",
+    "status",
+    "ai_enabled",
+    "ml_backend_pool_id",
+    "default_variants",
+    "preannotate_pipeline",
+    "label_config",
+    "tool_bindings",
+    "sampling",
+    "maximum_annotations",
+    "show_overlap_first",
+    "iou_dedup_threshold",
+    "box_threshold",
+    "text_threshold",
+    "ai_interactive_enabled",
+    "raster_mask_native_editing_enabled",
+    "mask_qc_config",
+    "point_cloud_quality_config",
+    "rendering_config",
+    "annotation_guide",
+    "guide_assets",
+    "model_version",
+    "task_lock_ttl_seconds",
+    "total_tasks",
+    "completed_tasks",
+    "review_tasks",
+    "in_progress_tasks",
+    "batch_summary",
+    "video_sampling",
+    "video_collaboration",
+    "scene_mode",
+    "prefer_same_scene_continuation",
+    "scene_continuation_window_min",
+    "due_date",
+    "created_at",
+    "updated_at"
+  ],
+  "x-json-text-columns": [
+    "default_variants",
+    "preannotate_pipeline",
+    "label_config",
+    "tool_bindings",
+    "mask_qc_config",
+    "point_cloud_quality_config",
+    "rendering_config",
+    "guide_assets",
+    "batch_summary",
+    "video_sampling",
+    "video_collaboration"
+  ],
+  "x-project-enrichment-columns": [
+    "ml_backend_id",
+    "owner_name",
+    "owner_avatar_ref",
+    "member_count",
+    "ai_completed_tasks"
+  ],
+  "x-bigint-codec": "canonical decimal strings; persisted int4 counters remain signed numbers"
+}

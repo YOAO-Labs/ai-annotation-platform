@@ -12,14 +12,23 @@ from unittest.mock import MagicMock, patch
 
 from sqlalchemy.engine import make_url
 
-from worktree_env import atomic_json, load_identity, read_state, topology
+from worktree_env import WorktreeError, atomic_json, load_identity, read_state, topology
 from worktree_resources import (
+    AUDIT_RUNTIME_CAPABILITIES,
+    IDENTITY_RUNTIME_CAPABILITIES,
     IMAGE_ACCEPTED_INPUT_RUNTIME_CAPABILITIES,
     IMAGE_ACCEPTED_RUNTIME_CAPABILITIES,
     IMAGE_LABELING_INPUT_RUNTIME_CAPABILITIES,
     IMAGE_MANIFEST_RUNTIME_CAPABILITIES,
     IMAGE_MEDIA_RUNTIME_CAPABILITIES,
     LocalResources,
+    INFERENCE_ROUTING_RUNTIME_CAPABILITIES,
+    NOTIFICATION_RUNTIME_CAPABILITIES,
+    JOBS_LIST_RUNTIME_CAPABILITIES,
+    JOBS_LIFECYCLE_RUNTIME_CAPABILITIES,
+    JOBS_ROW_LOCK_RUNTIME_CAPABILITIES,
+    JOBS_DOMAIN_QUERY_RUNTIME_CAPABILITIES,
+    JOBS_ACTION_IDEMPOTENCY_RUNTIME_CAPABILITIES,
     VIDEO_RUNTIME_CAPABILITIES,
 )
 
@@ -99,8 +108,71 @@ class BucketUpgradeTests(unittest.TestCase):
         async def database(action="inspect"):
             return {"owner": owner, "sessions": 0} if action == "inspect" else None
 
+        async def owned_runtime_role(action="inspect"):
+            return None
+
         backend.database = database
+        backend.owned_runtime_role = owned_runtime_role
         backend.redis_info = lambda: None
+
+    def test_same_owner_requires_private_mode_credentials_and_never_falls_back(self):
+        from worktree_env import WorktreeError
+
+        with self.assertRaisesRegex(WorktreeError, "运行 init"):
+            self.backend.runtime_url()
+        document = {**self.backend._runtime_credential_identity(), "password": "a" * 43}
+        path = self.path.with_name("runtime-credentials.json")
+        atomic_json(path, document)
+        url = self.backend.runtime_url()
+        self.assertEqual(url.username, self.backend.resources["database"] + "_app")
+        self.assertEqual(url.password, document["password"])
+        self.assertEqual(self.backend.settings.database_url, self.settings.database_url)
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        path.chmod(0o644)
+        with self.assertRaisesRegex(WorktreeError, "0600"):
+            self.backend.runtime_url()
+        path.chmod(0o600)
+        atomic_json(path, {**document, "owner": "foreign-owner"})
+        with self.assertRaisesRegex(WorktreeError, "不一致"):
+            self.backend.runtime_url()
+
+    def test_runtime_credentials_do_not_follow_symlinks_or_replace_corrupt_state(self):
+        from worktree_env import WorktreeError
+
+        path = self.path.with_name("runtime-credentials.json")
+        outside = self.root / "outside.json"
+        outside.write_text("preserve")
+        path.symlink_to(outside)
+        with self.assertRaisesRegex(WorktreeError, "symlink|符号链接"):
+            self.backend.runtime_url()
+        self.assertEqual(outside.read_text(), "preserve")
+        path.unlink()
+        path.write_text("{")
+        path.chmod(0o600)
+        with self.assertRaisesRegex(WorktreeError, "损坏"):
+            self.backend.runtime_url()
+        self.assertEqual(path.read_text(), "{")
+
+    def test_prepare_uses_inventory_after_inputs_upgrade(self):
+        self._use_legacy_9()
+
+        async def revisions():
+            return ["owned-head"]
+
+        async def granted():
+            return True
+
+        self.backend.revisions = revisions
+        self.backend.grant_runtime = granted
+        self.backend.verify_runtime_login = granted
+        self.backend.start_redis = lambda: None
+        with patch(
+            "worktree_resources.migration_graph",
+            return_value=(["owned-head"], ["owned-head"]),
+        ):
+            self.backend.prepare(skip_migrations=True)
+        self.mock_s3.create_bucket.assert_called_once_with(Bucket=self.input_name)
+        self.assertEqual(read_state(self.path), self.target)
 
     def _use_legacy_9(self):
         atomic_json(self.path, self.legacy_9)
@@ -358,6 +430,39 @@ class BucketUpgradeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "目标.*不一致"):
             LocalResources(self.target["resources"], self.settings, code_root=self.root)
 
+    def test_lan_runtime_preserves_embedded_identity_capabilities(self):
+        sql = (
+            Path(__file__).resolve().parents[1]
+            / "infra/docker/lan-production-grants.sql"
+        ).read_text()
+        grants = re.findall(
+            r'GRANT EXECUTE ON FUNCTION\s+([^;]*?)\s+TO\s+:"application_role";',
+            sql,
+            flags=re.DOTALL,
+        )
+        normalized = re.sub(r"\s+", "", ",".join(grants))
+        for signature in IDENTITY_RUNTIME_CAPABILITIES:
+            self.assertIn(signature, normalized)
+        for signature in NOTIFICATION_RUNTIME_CAPABILITIES:
+            self.assertIn(signature, normalized)
+        for signature in (
+            *JOBS_LIST_RUNTIME_CAPABILITIES,
+            *JOBS_LIFECYCLE_RUNTIME_CAPABILITIES,
+            *JOBS_ROW_LOCK_RUNTIME_CAPABILITIES,
+            *JOBS_DOMAIN_QUERY_RUNTIME_CAPABILITIES,
+        ):
+            self.assertIn(signature, normalized)
+        self.assertNotIn(
+            "aap_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)",
+            normalized,
+        )
+        for private in (
+            "aap_identity_recovery_v1._actor_record(uuid)",
+            "aap_identity_recovery_v1._token_record(text,uuid)",
+            "aap_settings_v1.identity_recovery_policy(jsonb)",
+        ):
+            self.assertNotIn(private, normalized)
+
     def test_lan_runtime_grants_exact_video_capabilities_without_sweep_or_gc(self):
         grant_file = (
             Path(__file__).resolve().parents[1]
@@ -365,7 +470,7 @@ class BucketUpgradeTests(unittest.TestCase):
         )
         sql = grant_file.read_text()
         runtime_grants = re.findall(
-            r'GRANT EXECUTE ON FUNCTION\s+(.*?)\s+TO\s+:"application_role";',
+            r'GRANT EXECUTE ON FUNCTION\s+([^;]*?)\s+TO\s+:"application_role";',
             sql,
             flags=re.DOTALL,
         )
@@ -389,7 +494,7 @@ class BucketUpgradeTests(unittest.TestCase):
         )
         sql = grant_file.read_text()
         runtime_grants = re.findall(
-            r'GRANT EXECUTE ON FUNCTION\s+(.*?)\s+TO\s+:"application_role";',
+            r'GRANT EXECUTE ON FUNCTION\s+([^;]*?)\s+TO\s+:"application_role";',
             sql,
             flags=re.DOTALL,
         )
@@ -416,6 +521,22 @@ class BucketUpgradeTests(unittest.TestCase):
         ):
             self.assertNotIn(excluded, normalized)
 
+    def test_lan_runtime_grants_only_the_closed_routing_entrypoints(self):
+        sql = (
+            Path(__file__).resolve().parents[1]
+            / "infra/docker/lan-production-grants.sql"
+        ).read_text()
+        runtime_grants = re.findall(
+            r'GRANT EXECUTE ON FUNCTION\s+([^;]*?)\s+TO\s+:"application_role";',
+            sql,
+            flags=re.DOTALL,
+        )
+        normalized = re.sub(r"\s+", "", ",".join(runtime_grants))
+        self.assertEqual(len(INFERENCE_ROUTING_RUNTIME_CAPABILITIES), 4)
+        for signature in INFERENCE_ROUTING_RUNTIME_CAPABILITIES:
+            self.assertIn(signature, normalized)
+        self.assertNotIn("aap_inference_routing_v1._routing_secret()", normalized)
+
         image_grant_section = sql.split(
             "-- The monolithic API/Celery runtime still composes the image media owner",
             maxsplit=1,
@@ -437,6 +558,7 @@ class BucketUpgradeTests(unittest.TestCase):
 
     def test_worktree_runtime_grant_uses_media_allowlists(self):
         backend = object.__new__(LocalResources)
+        backend.code_root = Path(__file__).resolve().parents[1]
         backend.settings = SimpleNamespace(
             database_url="postgresql+asyncpg://app@localhost/app"
         )
@@ -447,6 +569,57 @@ class BucketUpgradeTests(unittest.TestCase):
         class Connection:
             async def exec_driver_sql(self, sql):
                 statements.append(sql)
+
+            async def execute(self, sql, parameters):
+                if "has_function_privilege" in str(sql):
+                    assert parameters == {"role": "app"}
+                    return FunctionPrivileges()
+                assert parameters == {"role": "app", "database": "aap_test"}
+                statements.append(str(sql))
+
+        privileges = {
+            "preferences": True,
+            "append": True,
+            "terminal_append": True,
+            "read_state": True,
+            "notification_delete": True,
+            "inbox_page": True,
+            "inbox_total": True,
+            "inbox_unread": True,
+            "inbox_private_helper": False,
+            "notification_private": False,
+            "notification_column_private": False,
+            "notification_facts": False,
+            "notification_facts_column_read": False,
+            "notification_delivery_reads": True,
+            "notification_facts_write": False,
+            "notification_facts_column_write": False,
+            "audit_append": True,
+            "audit_query": True,
+            "audit_maintenance": True,
+            "audit_parent_read": True,
+            "audit_log_write": False,
+            "audit_sequence_private": False,
+            "audit_read": True,
+            "audit_read_write": False,
+            "audit_read_column_write": False,
+            "audit_daily_read": True,
+            "audit_daily_write": False,
+            "audit_daily_private": False,
+            "audit_daily_refresh": False,
+            "jobs_notification_scope": True,
+            "jobs_notification_scope_write": False,
+            "jobs_list_page": True,
+            "jobs_list_total": True,
+            "jobs_list_private_helper": False,
+        }
+
+        class FunctionPrivileges:
+            def mappings(self):
+                return self
+
+            def one(self):
+                return privileges
 
         class Preparer:
             @staticmethod
@@ -473,6 +646,100 @@ class BucketUpgradeTests(unittest.TestCase):
         )
         self.assertIn(expected, statements)
         self.assertIn(
+            'REVOKE ALL ON TABLE public.notifications FROM "app", PUBLIC',
+            statements,
+        )
+        for table in ("notification_preferences", "notification_delivery_outbox"):
+            self.assertIn(
+                f'REVOKE ALL ON TABLE public.{table} FROM "app", PUBLIC', statements
+            )
+        self.assertNotIn(
+            'GRANT SELECT ON aap_notifications_v1.notification_facts TO "app"',
+            statements,
+        )
+        self.assertIn(
+            'REVOKE ALL ON TABLE aap_notifications_v1.notification_facts FROM "app", PUBLIC',
+            statements,
+        )
+        self.assertIn('GRANT SELECT ON aap_audit_v1.audit_events TO "app"', statements)
+        self.assertIn(
+            'GRANT SELECT ON aap_jobs_v1.notification_scope_facts TO "app"', statements
+        )
+        self.assertIn(
+            'GRANT SELECT ON aap_audit_v1.audit_daily_facts TO "app"', statements
+        )
+        self.assertIn(
+            'REVOKE ALL ON TABLE public.mv_audit_bi_daily FROM "app", PUBLIC',
+            statements,
+        )
+        self.assertIn(
+            "GRANT EXECUTE ON FUNCTION "
+            + ", ".join(AUDIT_RUNTIME_CAPABILITIES)
+            + ' TO "app"',
+            statements,
+        )
+        audit_acl = next(
+            statement
+            for statement in statements
+            if statement.lstrip().startswith("DO $audit_private_acl$")
+        )
+        self.assertIn("pg_partition_tree('public.audit_logs')", audit_acl)
+        self.assertIn("REVOKE ALL ON SEQUENCE %s FROM %I, PUBLIC", audit_acl)
+        self.assertIn("GRANT SELECT ON TABLE public.audit_logs TO %I", audit_acl)
+        self.assertIn(
+            "GRANT EXECUTE ON FUNCTION "
+            + ", ".join(NOTIFICATION_RUNTIME_CAPABILITIES)
+            + ' TO "app"',
+            statements,
+        )
+        self.assertIn(
+            "GRANT EXECUTE ON FUNCTION "
+            + ", ".join(
+                (
+                    *JOBS_LIST_RUNTIME_CAPABILITIES,
+                    *JOBS_LIFECYCLE_RUNTIME_CAPABILITIES,
+                    *JOBS_ROW_LOCK_RUNTIME_CAPABILITIES,
+                    *JOBS_DOMAIN_QUERY_RUNTIME_CAPABILITIES,
+                    *JOBS_ACTION_IDEMPOTENCY_RUNTIME_CAPABILITIES,
+                )
+            )
+            + ' TO "app"',
+            statements,
+        )
+        self.assertIn(
+            'GRANT SELECT, INSERT ON aap_jobs_v1.async_job_creation TO "app"',
+            statements,
+        )
+        creation_acl = next(
+            statement
+            for statement in statements
+            if statement.lstrip().startswith("DO $jobs_creation_acl$")
+        )
+        self.assertLess(
+            statements.index(
+                'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "app"'
+            ),
+            statements.index(creation_acl),
+        )
+        self.assertLess(
+            statements.index(
+                'GRANT SELECT, INSERT ON aap_jobs_v1.async_job_creation TO "app"'
+            ),
+            statements.index(creation_acl),
+        )
+        self.assertIn(
+            "REVOKE ALL ON FUNCTION "
+            "aap_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text) "
+            'FROM "app", PUBLIC',
+            statements,
+        )
+        self.assertTrue(
+            any(
+                "GRANT USAGE ON SCHEMA" in statement and "aap_audit_v1" in statement
+                for statement in statements
+            )
+        )
+        self.assertIn(
             "GRANT EXECUTE ON FUNCTION "
             + ", ".join(IMAGE_MEDIA_RUNTIME_CAPABILITIES)
             + ' TO "app"',
@@ -484,6 +751,17 @@ class BucketUpgradeTests(unittest.TestCase):
             + ' TO "app"',
             statements,
         )
+        runtime_sql = " ".join(statements)
+        labeling_acl = backend.labeling_private_runtime_acl()
+        self.assertIn(labeling_acl, statements)
+        self.assertLess(
+            statements.index(
+                'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "app"'
+            ),
+            statements.index(labeling_acl),
+        )
+        for signature in INFERENCE_ROUTING_RUNTIME_CAPABILITIES:
+            self.assertIn(signature, runtime_sql)
         worktree_image_signatures = re.findall(
             r"aap_(?:assets|labeling)_v1\.[a-z0-9_]+\([^)]*\)",
             " ".join(
@@ -508,6 +786,106 @@ class BucketUpgradeTests(unittest.TestCase):
             "aap_assets_v1._lock_accepted_image_input_pin(uuid,uuid,text)",
         ):
             self.assertNotIn(excluded, " ".join(statements))
+
+        for key in (
+            "terminal_append",
+            "inbox_page",
+            "inbox_total",
+            "inbox_unread",
+            "inbox_private_helper",
+            "notification_private",
+            "notification_column_private",
+            "notification_facts",
+            "notification_facts_column_read",
+            "notification_delivery_reads",
+            "notification_facts_write",
+            "notification_facts_column_write",
+            "audit_read",
+            "audit_maintenance",
+            "audit_parent_read",
+            "audit_log_write",
+            "audit_sequence_private",
+            "audit_read_write",
+            "audit_read_column_write",
+            "audit_daily_read",
+            "audit_daily_write",
+            "audit_daily_private",
+            "audit_daily_refresh",
+            "jobs_notification_scope",
+            "jobs_notification_scope_write",
+            "jobs_list_page",
+            "jobs_list_total",
+            "jobs_list_private_helper",
+        ):
+            with self.subTest(unsafe_owner_privilege=key):
+                original = privileges[key]
+                privileges[key] = not original
+                try:
+                    with (
+                        patch(
+                            "worktree_resources.create_async_engine",
+                            return_value=Engine(),
+                        ),
+                        self.assertRaisesRegex(
+                            WorktreeError, "Notifications read/write boundary"
+                        ),
+                    ):
+                        asyncio.run(backend.grant_runtime())
+                finally:
+                    privileges[key] = original
+
+    def test_labeling_acl_covers_owner_storage_and_rejects_missing_source(self):
+        root = Path(__file__).resolve().parents[1]
+        backend = object.__new__(LocalResources)
+        backend.code_root = root
+        acl = backend.labeling_private_runtime_acl()
+        tables = set(
+            re.findall(
+                r"'([a-z_]+)'",
+                acl.split("v_tables text[] := ARRAY[", 1)[1].split("];", 1)[0],
+            )
+        )
+        grants = (root / "infra/docker/module-data-grants.sql").read_text()
+        owned = set()
+        for grant in re.findall(
+            r'\bGRANT\b[^;]+TO :"labeling_owner";', grants, re.DOTALL
+        ):
+            if "ON FUNCTION" not in grant and "ON SEQUENCE" not in grant:
+                owned.update(re.findall(r"public\.([a-z_]+)", grant))
+        self.assertEqual(tables, owned - {"projects", "video_chapters"})
+        self.assertNotIn("GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES", acl)
+        backend.code_root = self.root
+        target = self.root / "infra/docker/lan-production-grants.sql"
+        target.parent.mkdir(parents=True)
+        for content in ("", acl + acl):
+            target.write_text(content)
+            with self.assertRaisesRegex(WorktreeError, "missing or duplicated"):
+                backend.labeling_private_runtime_acl()
+
+    def test_audit_maintenance_grant_is_bounded_to_its_owner_command(self):
+        sql = (
+            Path(__file__).resolve().parents[1]
+            / "infra/docker/audit-maintenance-grants.sql"
+        ).read_text()
+        self.assertNotIn("\\ir", sql)
+        self.assertEqual(
+            sql.count(
+                "GRANT EXECUTE ON FUNCTION aap_audit_v1.maintenance_command(jsonb)"
+            ),
+            1,
+        )
+        for required in (
+            "function.prosecdef",
+            "function.provolatile='v'",
+            "search_path=pg_catalog, pg_temp",
+            "TimeZone=UTC",
+            "'CREATE,TEMP'",
+            "REVOKE ALL ON ALL TABLES IN SCHEMA",
+            "REVOKE ALL ON ALL SEQUENCES IN SCHEMA",
+            "Audit maintenance LOGIN owns database objects",
+        ):
+            with self.subTest(required_guard=required):
+                self.assertIn(required, sql)
 
 
 if __name__ == "__main__":

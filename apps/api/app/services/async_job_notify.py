@@ -6,11 +6,10 @@ import logging
 import uuid
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.async_job import AsyncJob, AsyncJobStatus
-from app.db.models.notification import Notification
+from app.services import async_job as jobs
 from app.services.notification import NotificationService
 
 
@@ -138,7 +137,7 @@ async def notify_job_terminal(db: AsyncSession, *, job_id: uuid.UUID) -> None:
     the job state transition.
     """
     try:
-        job = await db.get(AsyncJob, job_id)
+        job = await jobs.get_job(db, job_id)
         if job is None:
             return
         if job.user_id is None:
@@ -150,34 +149,18 @@ async def notify_job_terminal(db: AsyncSession, *, job_id: uuid.UUID) -> None:
         if notif_type is None:
             return
 
-        existing = (
-            await db.execute(
-                select(Notification.id)
-                .where(
-                    Notification.user_id == job.user_id,
-                    Notification.type == notif_type,
-                    Notification.target_type == "async_job",
-                    Notification.target_id == job.id,
-                )
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-        if existing is not None:
-            return
-
         # This helper's documented contract is "write + publish before the
         # caller's commit" across 60+ worker call sites.  The WS delivery gate
         # briefly retries when the row is not yet visible in its own session, so
         # the message is delivered once the caller's commit lands instead of
         # being dropped; publish only after commit is not possible here without
         # touching every caller.
-        await NotificationService(db).notify(
+        service = NotificationService(db)
+        await service.notify_terminal(
             user_id=job.user_id,
             type=notif_type,
-            target_type="async_job",
             target_id=job.id,
             payload=_terminal_payload(job),
-            defer_publish=False,
         )
     except Exception:  # noqa: BLE001
         log.exception("async job terminal notification failed job=%s", job_id)

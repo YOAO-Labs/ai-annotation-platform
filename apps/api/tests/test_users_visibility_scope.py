@@ -1,7 +1,7 @@
 """Project-admin read visibility vs manage scope for user management endpoints.
 
 Issue #115: 项目管理员在成员分配中可见未分配标注员，但在用户与权限列表中不可见。
-Read scope (list / stats / export via ``build_user_query``) includes enabled
+Directory query / stats / export read scope includes enabled
 annotators/reviewers (incl. unassigned ones, matching the member-assignment
 candidate picker) and enabled super admins (read-only lookup).
 
@@ -390,31 +390,32 @@ async def test_pa_account_writes_on_foreign_member_but_lifecycle_gated(
 
     world = await _seed_scope_world(db_session, project_admin, super_admin)
     target = world.foreign_member
+    target_id = target.id
     headers = _headers(project_admin)
 
     role = await httpx_client.patch(
-        f"/api/v1/users/{target.id}/role",
+        f"/api/v1/users/{target_id}/role",
         json={"role": "employee"},
         headers=headers,
     )
     assert role.status_code == 403, role.text
 
     reset = await httpx_client.post(
-        f"/api/v1/users/{target.id}/admin-reset-password", headers=headers
+        f"/api/v1/users/{target_id}/admin-reset-password", headers=headers
     )
     assert reset.status_code == 200, reset.text
 
     offboard = await httpx_client.get(
-        f"/api/v1/users/{target.id}/offboarding-preview", headers=headers
+        f"/api/v1/users/{target_id}/offboarding-preview", headers=headers
     )
     assert offboard.status_code == 403, offboard.text
 
     deactivate = await httpx_client.post(
-        f"/api/v1/users/{target.id}/deactivate", headers=headers
+        f"/api/v1/users/{target_id}/deactivate", headers=headers
     )
     assert deactivate.status_code == 403, deactivate.text
 
-    delete = await httpx_client.delete(f"/api/v1/users/{target.id}", headers=headers)
+    delete = await httpx_client.delete(f"/api/v1/users/{target_id}", headers=headers)
     assert delete.status_code == 403, delete.text
 
 
@@ -488,21 +489,22 @@ async def test_pa_lifecycle_blocked_for_task_straddling_annotator(
     )
     await db_session.flush()
 
+    straddler_id = straddler.id
     headers = _headers(project_admin)
 
     # Account-level writes stay open on the enabled annotator.
     reset = await httpx_client.post(
-        f"/api/v1/users/{straddler.id}/admin-reset-password", headers=headers
+        f"/api/v1/users/{straddler_id}/admin-reset-password", headers=headers
     )
     assert reset.status_code == 200, reset.text
 
     # Lifecycle writes must stay gated even without any ProjectMember row.
     deactivate = await httpx_client.post(
-        f"/api/v1/users/{straddler.id}/deactivate", headers=headers
+        f"/api/v1/users/{straddler_id}/deactivate", headers=headers
     )
     assert deactivate.status_code == 403, deactivate.text
 
-    delete = await httpx_client.delete(f"/api/v1/users/{straddler.id}", headers=headers)
+    delete = await httpx_client.delete(f"/api/v1/users/{straddler_id}", headers=headers)
     assert delete.status_code == 403, delete.text
 
 
@@ -554,14 +556,16 @@ async def test_pa_delete_transfer_receiver_must_cover_task_projects(
             ),
         ]
     )
-    await db_session.flush()
+    target_id, receiver_id, outsider_id = target.id, receiver.id, outsider.id
+    # Persist setup across the rejected command's rollback; retain plain IDs.
+    await db_session.commit()
 
     # The enabled outsider would pass the account-level manage arm but has no
     # membership in the project holding the pending task.
     blocked = await httpx_client.request(
         "DELETE",
-        f"/api/v1/users/{target.id}",
-        json={"transfer_to_user_id": str(outsider.id)},
+        f"/api/v1/users/{target_id}",
+        json={"transfer_to_user_id": str(outsider_id)},
         headers=headers,
     )
     assert blocked.status_code == 403, blocked.text
@@ -569,8 +573,8 @@ async def test_pa_delete_transfer_receiver_must_cover_task_projects(
     # A member of the affected project is a valid receiver.
     ok = await httpx_client.request(
         "DELETE",
-        f"/api/v1/users/{target.id}",
-        json={"transfer_to_user_id": str(receiver.id)},
+        f"/api/v1/users/{target_id}",
+        json={"transfer_to_user_id": str(receiver_id)},
         headers=headers,
     )
     assert ok.status_code == 200, ok.text
@@ -587,75 +591,87 @@ async def test_pa_offboarding_blocked_on_disabled_unassigned_account(
     """
 
     suspended = await create_user(
-        db_session, "annotator", "suspended-free@e.test", "Suspended Free"
+        db_session, "employee", "suspended-free@e.test", "Suspended Free"
     )
     suspended.is_active = False
     suspended.disabled_kind = "suspended"
-    await db_session.flush()
-
+    suspended_id = suspended.id
     headers = _headers(project_admin)
+    sa_headers = _headers(super_admin)
+    await db_session.commit()
     preview = await httpx_client.get(
-        f"/api/v1/users/{suspended.id}/offboarding-preview", headers=headers
+        f"/api/v1/users/{suspended_id}/offboarding-preview", headers=headers
     )
     assert preview.status_code == 403, preview.text
+    assert (
+        preview.json()["detail"]
+        == "该用户已停用且不在你管理的项目内，须由超级管理员处理"
+    )
 
     commit = await httpx_client.post(
-        f"/api/v1/users/{suspended.id}/offboarding",
+        f"/api/v1/users/{suspended_id}/offboarding",
         json={"preview_version": "0", "reason": "越权尝试"},
         headers=headers,
     )
     assert commit.status_code == 403, commit.text
+    assert commit.json()["detail"] == preview.json()["detail"]
 
     # Super admins keep full offboarding access to the same account.
     sa_preview = await httpx_client.get(
-        f"/api/v1/users/{suspended.id}/offboarding-preview",
-        headers=_headers(super_admin),
+        f"/api/v1/users/{suspended_id}/offboarding-preview",
+        headers=sa_headers,
     )
     assert sa_preview.status_code == 200, sa_preview.text
+    assert sa_preview.json()["user"]["id"] == str(suspended_id)
 
 
 async def test_pa_writes_blocked_on_super_admin(
     httpx_client: httpx.AsyncClient, project_admin, super_admin, db_session
 ):
     world = await _seed_scope_world(db_session, project_admin, super_admin)
+    # Owner denials roll back the command; retain fixture rows in the outer savepoint.
+    await db_session.commit()
     target = world.admin
+    target_id, target_email, target_name = target.id, target.email, target.name
     headers = _headers(project_admin)
 
     role = await httpx_client.patch(
-        f"/api/v1/users/{target.id}/role",
+        f"/api/v1/users/{target_id}/role",
         json={"role": "employee"},
         headers=headers,
     )
     assert role.status_code == 403, role.text
 
     reset = await httpx_client.post(
-        f"/api/v1/users/{target.id}/admin-reset-password", headers=headers
+        f"/api/v1/users/{target_id}/admin-reset-password", headers=headers
     )
     assert reset.status_code == 403, reset.text
 
     deactivate = await httpx_client.post(
-        f"/api/v1/users/{target.id}/deactivate", headers=headers
+        f"/api/v1/users/{target_id}/deactivate", headers=headers
     )
     assert deactivate.status_code == 403, deactivate.text
 
-    delete = await httpx_client.delete(f"/api/v1/users/{target.id}", headers=headers)
+    delete = await httpx_client.delete(f"/api/v1/users/{target_id}", headers=headers)
     assert delete.status_code == 403, delete.text
 
     # Platform-role preview is super-admin only, so an out-of-scope project
     # administrator is denied before any user detail is disclosed.
     preview = await httpx_client.get(
-        f"/api/v1/users/{target.id}/role/preview?role=employee", headers=headers
+        f"/api/v1/users/{target_id}/role/preview?role=employee", headers=headers
     )
     assert preview.status_code == 403, preview.text
-    assert target.email not in preview.text and target.name not in preview.text
+    assert target_email not in preview.text and target_name not in preview.text
 
 
 async def test_legacy_role_filters_are_rejected(
-    httpx_client: httpx.AsyncClient, super_admin
+    httpx_client: httpx.AsyncClient, super_admin, db_session
 ):
     """role=annotator/reviewer must be a validation error, not an empty list."""
 
     _, token = super_admin
+    # Owner failures roll back their transaction; keep the fixture in its outer savepoint.
+    await db_session.commit()
     headers = {"Authorization": f"Bearer {token}"}
     for url in ("/api/v1/users", "/api/v1/users/query", "/api/v1/users/stats"):
         response = await httpx_client.get(

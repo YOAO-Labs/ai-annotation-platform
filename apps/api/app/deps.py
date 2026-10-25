@@ -7,7 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from aap_identity.contract import Principal
 from app.db.base import async_session
 from app.db.models.project import Project
-from app.services.workspace_contract import ProjectAccess
+from aap_workspace_contract.access import ProjectAccess
 from app.services.identity_contracts import (
     IdentityActorFacts,
     IdentityCredentialRejected,
@@ -71,9 +71,9 @@ def get_gpu_dispatch_context_factory() -> GPUDispatchContextFactory:
 
 def get_quality_job_dispatcher() -> QualityJobDispatcher:
     """Bind the quality execution port without importing tasks into services."""
-    from app.workers.quality_dispatch import CeleryQualityJobDispatcher
+    from app.services.jobs_queue import build_quality_job_dispatcher
 
-    return CeleryQualityJobDispatcher()
+    return build_quality_job_dispatcher()
 
 
 def get_media_job_dispatcher() -> MediaJobDispatcher:
@@ -110,9 +110,9 @@ def get_training_authority(
 
 def get_job_execution_control() -> JobExecutionControl:
     """Bind cooperative execution cancellation without importing brokers into services."""
-    from app.workers.job_execution_control import CeleryJobExecutionControl
+    from app.services.jobs_queue import build_job_execution_control
 
-    return CeleryJobExecutionControl()
+    return build_job_execution_control()
 
 
 def get_prediction_retry_dispatcher() -> PredictionRetryDispatcher:
@@ -162,9 +162,9 @@ def get_batch_prediction_dispatcher() -> BatchPredictionDispatcher:
 
 def get_video_tracker_job_dispatcher() -> VideoTrackerJobDispatcher:
     """Bind video tracker execution at the HTTP composition boundary."""
-    from app.workers.video_tracker_dispatch import CeleryVideoTrackerJobDispatcher
+    from app.services.jobs_queue import build_video_tracker_job_dispatcher
 
-    return CeleryVideoTrackerJobDispatcher()
+    return build_video_tracker_job_dispatcher()
 
 
 async def get_current_principal(

@@ -1,50 +1,62 @@
-"""SMTP transport never falls back after an attempted TLS upgrade fails."""
+"""The API keeps its existing mail helpers on the shared SMTP transport."""
 
-import smtplib
-from email.mime.text import MIMEText
-from unittest.mock import MagicMock
+from email.message import EmailMessage
 
 import pytest
 
+from aap_mail_transport import MailDeliveryResult, MailOutcome, MailReason, SMTPConfig
 from app.services.email import SmtpConfigError, _send_message
 
 
-@pytest.mark.parametrize("port,advertises_tls", [(25, True), (587, False)])
-def test_tls_upgrade_failure_stops_credentials_and_message(
-    monkeypatch, port, advertises_tls
+def test_api_adapter_passes_one_snapshot_and_raises_only_safe_transport_status(
+    monkeypatch,
 ):
-    smtp = MagicMock()
-    smtp.__enter__.return_value = smtp
-    smtp.has_extn.return_value = advertises_tls
-    smtp.starttls.side_effect = smtplib.SMTPException("TLS rejected")
-    monkeypatch.setattr("app.services.email.smtplib.SMTP", lambda *args, **kwargs: smtp)
-    with pytest.raises(SmtpConfigError, match="TLS rejected"):
+    observed = {}
+
+    def fail(config, message):
+        observed["config"] = config
+        observed["message"] = message
+        return MailDeliveryResult(MailOutcome.RETRY, MailReason.CONNECT_FAILED)
+
+    monkeypatch.setattr("app.services.email.send_message", fail)
+    message = EmailMessage()
+    message["From"] = "sender@example.test"
+    message["To"] = "recipient@example.test"
+    message.set_content("test")
+
+    with pytest.raises(SmtpConfigError, match="connect_failed") as caught:
         _send_message(
             {
                 "smtp_host": "mail.test",
-                "smtp_port": port,
-                "smtp_user": "test",
-                "smtp_password": "synthetic",
+                "smtp_port": 587,
+                "smtp_user": "user-secret",
+                "smtp_password": "password-secret",
+                "smtp_from": "sender@example.test",
             },
-            MIMEText("test"),
+            message,
         )
-    smtp.login.assert_not_called()
-    smtp.send_message.assert_not_called()
 
-
-def test_explicit_plain_relay_remains_supported(monkeypatch):
-    smtp = MagicMock()
-    smtp.__enter__.return_value = smtp
-    smtp.has_extn.return_value = False
-    monkeypatch.setattr("app.services.email.smtplib.SMTP", lambda *args, **kwargs: smtp)
-    _send_message(
-        {
-            "smtp_host": "127.0.0.1",
-            "smtp_port": 1048,
-            "smtp_user": "",
-            "smtp_password": "",
-        },
-        MIMEText("test"),
+    assert observed["config"] == SMTPConfig(
+        host="mail.test",
+        port=587,
+        user="user-secret",
+        password="password-secret",
+        sender="sender@example.test",
     )
-    smtp.starttls.assert_not_called()
-    smtp.send_message.assert_called_once()
+    assert observed["message"] is message
+    assert "user-secret" not in str(caught.value)
+    assert "password-secret" not in str(caught.value)
+
+
+def test_api_adapter_preserves_missing_configuration_error():
+    with pytest.raises(SmtpConfigError, match="SMTP 未完整配置"):
+        _send_message(
+            {
+                "smtp_host": "",
+                "smtp_port": 587,
+                "smtp_user": "",
+                "smtp_password": "",
+                "smtp_from": "",
+            },
+            EmailMessage(),
+        )

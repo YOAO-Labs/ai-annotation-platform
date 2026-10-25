@@ -10,7 +10,7 @@ from app.application.task_workflow_errors import TaskWorkflowError
 from app.deps import get_current_user_id, get_db
 from app.schemas.task import ReviewClaimResponse
 from app.services.audit import audit_origin_from_request
-from app.services.workspace_contract import ProjectAccess
+from aap_workspace_contract.access import ProjectAccess
 from app.api.v1.tasks._shared import require_task_review_write
 
 router = APIRouter()

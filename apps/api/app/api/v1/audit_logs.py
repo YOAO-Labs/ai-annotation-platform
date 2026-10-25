@@ -11,15 +11,21 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import String, and_, cast, func, or_, outerjoin, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
+
+from aap_audit import (
+    EXPORT_MAX_ROWS,
+    AuditQueryAfter,
+    AuditQueryFilters,
+    AuditQueryRequest,
+)
+from aap_audit.query_postgres import AuditQueryPostgresData
 
 from app.deps import get_db, require_roles
 from app.db.enums import UserRole
-from app.db.models.audit_log import AuditLog
+from app.services.audit_read_relations import audit_event
 from app.db.models.project import Project
-from app.db.models.task import Task
-from app.db.models.task_batch import TaskBatch
-from app.db.models.annotation import Annotation
-from app.db.models.annotation_feedback import AnnotationFeedback
+from app.services.labeling_discussion_relations import annotation_feedback_facts
 from app.config import settings
 from app.schemas.audit import (
     AuditArchiveOut,
@@ -34,6 +40,13 @@ from app.services.identity_contracts import IdentityActorFacts
 from app.services.identity_read_relations import (
     account_profiles,
     invitation_audit_targets,
+)
+from app.services.workspace_read_relations import project_facts
+
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    batch_row,
+    task_row,
 )
 
 router = APIRouter()
@@ -63,7 +76,7 @@ async def _load_monthly_summary_rows(
     db: AsyncSession, *, month_start: date, month_end: date, business_only: bool
 ) -> tuple[date | None, list[tuple]]:
     materialized_through = (
-        await db.execute(text("SELECT MAX(day) FROM mv_audit_bi_daily"))
+        await db.execute(text("SELECT MAX(day) FROM aap_audit_v1.audit_daily_facts"))
     ).scalar_one_or_none()
     mv_end = month_start
     if materialized_through is not None:
@@ -79,7 +92,7 @@ async def _load_monthly_summary_rows(
                     text(
                         """
                         SELECT day, action, target_type, actor_role, status_family, event_count
-                        FROM mv_audit_bi_daily
+                        FROM aap_audit_v1.audit_daily_facts
                         WHERE day >= :month_start AND day < :mv_end
                           AND (:business_only = false OR action NOT LIKE 'http.%')
                         """
@@ -111,7 +124,7 @@ async def _load_monthly_summary_rows(
                                 ELSE 0::smallint
                             END AS status_family,
                             COUNT(*)::bigint AS event_count
-                        FROM audit_logs
+                        FROM aap_audit_v1.audit_events
                         WHERE created_at >= :raw_start AND created_at < :month_end
                           AND (:business_only = false OR action NOT LIKE 'http.%')
                         GROUP BY day, action, target_type, actor_role, status_family
@@ -149,36 +162,38 @@ def _build_base_query(
     例如 `?detail_key=role&detail_value=super_admin` 等价 `WHERE detail_json @> '{"role":"super_admin"}'`。
     """
     actor_profile = account_profiles.alias("audit_actor_profile")
-    j = outerjoin(AuditLog, actor_profile, AuditLog.actor_id == actor_profile.c.id)
-    base = select(AuditLog, actor_profile.c.email.label("_u_email")).select_from(j)
-    count_base = select(func.count()).select_from(AuditLog)
+    j = outerjoin(
+        audit_event, actor_profile, audit_event.actor_id == actor_profile.c.id
+    )
+    base = select(audit_event, actor_profile.c.email.label("_u_email")).select_from(j)
+    count_base = select(func.count()).select_from(audit_event)
 
     if action:
-        base = base.where(AuditLog.action == action)
-        count_base = count_base.where(AuditLog.action == action)
+        base = base.where(audit_event.action == action)
+        count_base = count_base.where(audit_event.action == action)
     if target_type:
-        base = base.where(AuditLog.target_type == target_type)
-        count_base = count_base.where(AuditLog.target_type == target_type)
+        base = base.where(audit_event.target_type == target_type)
+        count_base = count_base.where(audit_event.target_type == target_type)
     if target_id:
-        base = base.where(AuditLog.target_id == target_id)
-        count_base = count_base.where(AuditLog.target_id == target_id)
+        base = base.where(audit_event.target_id == target_id)
+        count_base = count_base.where(audit_event.target_id == target_id)
     if actor_id:
-        base = base.where(AuditLog.actor_id == actor_id)
-        count_base = count_base.where(AuditLog.actor_id == actor_id)
+        base = base.where(audit_event.actor_id == actor_id)
+        count_base = count_base.where(audit_event.actor_id == actor_id)
     if from_:
-        base = base.where(AuditLog.created_at >= from_)
-        count_base = count_base.where(AuditLog.created_at >= from_)
+        base = base.where(audit_event.created_at >= from_)
+        count_base = count_base.where(audit_event.created_at >= from_)
     if to:
-        base = base.where(AuditLog.created_at <= to)
-        count_base = count_base.where(AuditLog.created_at <= to)
+        base = base.where(audit_event.created_at <= to)
+        count_base = count_base.where(audit_event.created_at <= to)
     if business_only:
-        base = base.where(~AuditLog.action.like("http.%"))
-        count_base = count_base.where(~AuditLog.action.like("http.%"))
+        base = base.where(~audit_event.action.like("http.%"))
+        count_base = count_base.where(~audit_event.action.like("http.%"))
     if detail_key and detail_value is not None:
         # JSONB 子集匹配 —— 走 GIN 索引（仅 PG）；测试态 SQLite 走通用 contains
         match = {detail_key: detail_value}
-        base = base.where(AuditLog.detail_json.contains(match))
-        count_base = count_base.where(AuditLog.detail_json.contains(match))
+        base = base.where(audit_event.detail_json.contains(match))
+        count_base = count_base.where(audit_event.detail_json.contains(match))
 
     return base, count_base
 
@@ -191,31 +206,83 @@ def _row_to_out(row) -> AuditLogOut:
     return result
 
 
+def _query_event_to_out(event) -> AuditLogOut:
+    values = event.model_dump()
+    values["id"] = int(event.id)
+    return AuditLogOut.model_validate(values)
+
+
+def _legacy_query_datetime(value: datetime | None) -> datetime | None:
+    if value is not None and value.utcoffset() is None:
+        return value.astimezone()
+    return value
+
+
+def _legacy_query_actor_id(value: str | None) -> str | None:
+    if value is None or value == "":
+        return value
+    if re.fullmatch(
+        r"(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32})",
+        value,
+        re.IGNORECASE,
+    ):
+        return str(UUID(value))
+    return value
+
+
+def _query_filters(
+    *,
+    action: str | None,
+    target_type: str | None,
+    target_id: str | None,
+    actor_id: str | None,
+    from_: datetime | None,
+    to: datetime | None,
+    business_only: bool,
+    detail_key: str | None,
+    detail_value: str | None,
+) -> AuditQueryFilters:
+    return AuditQueryFilters(
+        action=action,
+        target_type=target_type,
+        target_id=target_id,
+        actor_id=_legacy_query_actor_id(actor_id),
+        from_=_legacy_query_datetime(from_),
+        to=_legacy_query_datetime(to),
+        business_only=business_only,
+        detail_key=detail_key,
+        detail_value=detail_value,
+    )
+
+
 def _managed_audit_scope(actor: IdentityActorFacts, *, project_id: UUID | None = None):
+    project = aliased(Project, project_facts(), adapt_on_names=True)
     conditions = (
-        [] if actor.role == UserRole.SUPER_ADMIN else [Project.owner_id == actor.id]
+        [] if actor.role == UserRole.SUPER_ADMIN else [project.owner_id == actor.id]
     )
     if project_id is not None:
-        conditions.append(Project.id == project_id)
-    project_ids = select(Project.id).where(*conditions)
-    projects = select(cast(Project.id, String)).where(*conditions)
-    tasks = select(cast(Task.id, String)).where(Task.project_id.in_(project_ids))
-    batches = select(cast(TaskBatch.id, String)).where(
-        TaskBatch.project_id.in_(project_ids)
+        conditions.append(project.id == project_id)
+    project_ids = select(project.id).where(*conditions)
+    projects = select(cast(project.id, String)).where(*conditions)
+    tasks = select(cast(task_row.id, String)).where(
+        task_row.project_id.in_(project_ids)
+    )
+    batches = select(cast(batch_row.id, String)).where(
+        batch_row.project_id.in_(project_ids)
     )
     annotations = (
-        select(cast(Annotation.id, String))
-        .join(Task, Task.id == Annotation.task_id)
-        .where(Task.project_id.in_(project_ids))
+        select(cast(annotation_row.id, String))
+        .join(task_row, task_row.id == annotation_row.task_id)
+        .where(task_row.project_id.in_(project_ids))
     )
-    feedbacks = select(cast(AnnotationFeedback.id, String)).where(
-        AnnotationFeedback.project_id.in_(project_ids)
+    feedbacks = select(cast(annotation_feedback_facts.id, String)).where(
+        annotation_feedback_facts.project_id.in_(project_ids)
     )
     invitations = select(cast(invitation_audit_targets.c.id, String)).where(
         invitation_audit_targets.c.project_id.in_(project_ids)
     )
-    video_items = select(cast(Task.dataset_item_id, String)).where(
-        Task.project_id.in_(project_ids), Task.dataset_item_id.is_not(None)
+    video_items = select(cast(task_row.dataset_item_id, String)).where(
+        task_row.project_id.in_(project_ids), task_row.dataset_item_id.is_not(None)
     )
     primary = ("project", "task", "batch", "annotation", "feedback", "invitation")
     contexts = (
@@ -242,54 +309,64 @@ def _managed_audit_scope(actor: IdentityActorFacts, *, project_id: UUID | None =
     )
     path_scope = or_(
         and_(
-            AuditLog.path.like("/api/v1/projects/%"),
-            func.split_part(AuditLog.path, "/", 5).in_(projects),
+            audit_event.path.like("/api/v1/projects/%"),
+            func.split_part(audit_event.path, "/", 5).in_(projects),
         ),
         and_(
-            AuditLog.path.like("/api/v1/tasks/%"),
-            func.split_part(AuditLog.path, "/", 5).in_(tasks),
+            audit_event.path.like("/api/v1/tasks/%"),
+            func.split_part(audit_event.path, "/", 5).in_(tasks),
         ),
         and_(
-            AuditLog.path.like("/api/v1/annotations/%"),
-            func.split_part(AuditLog.path, "/", 5).in_(annotations),
+            audit_event.path.like("/api/v1/annotations/%"),
+            func.split_part(audit_event.path, "/", 5).in_(annotations),
         ),
         and_(
-            AuditLog.path.like("/api/v1/admin/projects/%"),
-            func.split_part(AuditLog.path, "/", 6).in_(projects),
+            audit_event.path.like("/api/v1/admin/projects/%"),
+            func.split_part(audit_event.path, "/", 6).in_(projects),
         ),
     )
     return or_(
-        and_(AuditLog.target_type == "project", AuditLog.target_id.in_(projects)),
-        and_(AuditLog.target_type == "task", AuditLog.target_id.in_(tasks)),
-        and_(AuditLog.target_type == "batch", AuditLog.target_id.in_(batches)),
-        and_(AuditLog.target_type == "annotation", AuditLog.target_id.in_(annotations)),
-        and_(AuditLog.target_type == "feedback", AuditLog.target_id.in_(feedbacks)),
-        and_(AuditLog.target_type == "invitation", AuditLog.target_id.in_(invitations)),
+        and_(audit_event.target_type == "project", audit_event.target_id.in_(projects)),
+        and_(audit_event.target_type == "task", audit_event.target_id.in_(tasks)),
+        and_(audit_event.target_type == "batch", audit_event.target_id.in_(batches)),
         and_(
-            AuditLog.target_type == "invitation",
-            AuditLog.target_id.is_(None),
-            AuditLog.action == "invitation.export",
-            AuditLog.detail_json["project_id"].astext.in_(projects),
+            audit_event.target_type == "annotation",
+            audit_event.target_id.in_(annotations),
         ),
         and_(
-            AuditLog.target_type == "video_chapter",
-            AuditLog.detail_json["dataset_item_id"].astext.in_(video_items),
+            audit_event.target_type == "feedback", audit_event.target_id.in_(feedbacks)
         ),
         and_(
-            AuditLog.target_type == "batch",
-            AuditLog.action == "batch.deleted",
-            ~AuditLog.target_id.in_(select(cast(TaskBatch.id, String))),
-            or_(AuditLog.detail_json["project_id"].astext.in_(projects), path_scope),
+            audit_event.target_type == "invitation",
+            audit_event.target_id.in_(invitations),
         ),
         and_(
-            AuditLog.target_type.in_(contexts),
+            audit_event.target_type == "invitation",
+            audit_event.target_id.is_(None),
+            audit_event.action == "invitation.export",
+            audit_event.detail_json["project_id"].astext.in_(projects),
+        ),
+        and_(
+            audit_event.target_type == "video_chapter",
+            audit_event.detail_json["dataset_item_id"].astext.in_(video_items),
+        ),
+        and_(
+            audit_event.target_type == "batch",
+            audit_event.action == "batch.deleted",
+            ~audit_event.target_id.in_(select(cast(batch_row.id, String))),
+            or_(audit_event.detail_json["project_id"].astext.in_(projects), path_scope),
+        ),
+        and_(
+            audit_event.target_type.in_(contexts),
             or_(
-                AuditLog.detail_json["project_id"].astext.in_(projects),
-                AuditLog.detail_json["task_id"].astext.in_(tasks),
+                audit_event.detail_json["project_id"].astext.in_(projects),
+                audit_event.detail_json["task_id"].astext.in_(tasks),
             ),
         ),
         and_(
-            or_(AuditLog.target_type.is_(None), ~AuditLog.target_type.in_(primary)),
+            or_(
+                audit_event.target_type.is_(None), ~audit_event.target_type.in_(primary)
+            ),
             path_scope,
         ),
     )
@@ -331,6 +408,43 @@ async def list_audit_logs(
         require_roles(UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
     ),
 ):
+    if actor.role == UserRole.SUPER_ADMIN:
+        after = None
+        if cursor:
+            cur_ts, cur_id = _decode_cursor(cursor)
+            cur_ts = _legacy_query_datetime(cur_ts)
+            after = AuditQueryAfter(created_at=cur_ts.isoformat(), id=str(cur_id))
+        reply = await AuditQueryPostgresData(db).query(
+            AuditQueryRequest.list_page(
+                _query_filters(
+                    action=action,
+                    target_type=target_type,
+                    target_id=target_id,
+                    actor_id=actor_id,
+                    from_=from_,
+                    to=to,
+                    business_only=business_only,
+                    detail_key=detail_key,
+                    detail_value=detail_value,
+                ),
+                page=page,
+                page_size=page_size,
+                after=after,
+            )
+        )
+        items = [_query_event_to_out(event) for event in reply.data.events]
+        next_cursor = None
+        if len(items) == page_size and items:
+            last = items[-1]
+            next_cursor = _encode_cursor(last.created_at, last.id)
+        return AuditLogList(
+            items=items,
+            total=int(reply.data.total),
+            page=page,
+            page_size=page_size,
+            next_cursor=next_cursor,
+        )
+
     base, count_q = _build_base_query(
         action,
         target_type,
@@ -353,15 +467,15 @@ async def list_audit_logs(
     if cursor:
         cur_ts, cur_id = _decode_cursor(cursor)
         paged = base.where(
-            (AuditLog.created_at < cur_ts)
-            | ((AuditLog.created_at == cur_ts) & (AuditLog.id < cur_id))
+            (audit_event.created_at < cur_ts)
+            | ((audit_event.created_at == cur_ts) & (audit_event.id < cur_id))
         )
     else:
         paged = base.offset((page - 1) * page_size)
 
     rows = (
         await db.execute(
-            paged.order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).limit(
+            paged.order_by(audit_event.created_at.desc(), audit_event.id.desc()).limit(
                 page_size
             )
         )
@@ -471,35 +585,28 @@ async def export_audit_logs(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
-    _MAX_ROWS = 50_000
-    base, count_q = _build_base_query(
-        action,
-        target_type,
-        target_id,
-        actor_id,
-        from_,
-        to,
-        business_only,
-        detail_key,
-        detail_value,
+    _MAX_ROWS = EXPORT_MAX_ROWS
+    reply = await AuditQueryPostgresData(db).query(
+        AuditQueryRequest.export(
+            _query_filters(
+                action=action,
+                target_type=target_type,
+                target_id=target_id,
+                actor_id=actor_id,
+                from_=from_,
+                to=to,
+                business_only=business_only,
+                detail_key=detail_key,
+                detail_value=detail_value,
+            )
+        )
     )
-
-    total = (await db.execute(count_q)).scalar_one()
+    total = int(reply.data.total)
     if total > _MAX_ROWS:
-        from fastapi import HTTPException
-
         raise HTTPException(
             status_code=413, detail=f"导出条数超过 {_MAX_ROWS}，请缩小筛选范围"
         )
-
-    rows = (
-        await db.execute(
-            base.order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).limit(
-                _MAX_ROWS
-            )
-        )
-    ).all()
-    items = [_row_to_out(r) for r in rows]
+    items = [_query_event_to_out(event) for event in reply.data.events]
 
     # 记录自身的导出操作
     from app.services.audit import AuditService, export_detail, export_metadata_header

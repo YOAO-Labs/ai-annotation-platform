@@ -9,7 +9,7 @@ from app.deps import (
 from app.schemas.task import (
     TaskLockResponse,
 )
-from app.services.workspace_contract import ProjectAccess
+from aap_workspace_contract.access import ProjectAccess
 from app.services.task_lock import TaskLockService
 from app.services.user_brief import resolve_briefs
 

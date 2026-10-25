@@ -182,8 +182,6 @@ BEGIN
         identity_oid, 'public.users', 'disabled_reason', 'UPDATE'
     ) OR NOT pg_catalog.has_column_privilege(
         audit_oid, 'public.audit_logs', 'detail_json', 'INSERT'
-    ) OR pg_catalog.has_column_privilege(
-        audit_oid, 'public.audit_logs', 'detail_json', 'UPDATE'
     ) OR NOT pg_catalog.has_column_privilege(
         labeling_oid, 'public.tasks', 'assignee_id', 'UPDATE'
     ) OR NOT pg_catalog.has_column_privilege(

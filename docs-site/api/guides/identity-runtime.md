@@ -11,7 +11,7 @@ last_reviewed: 2026-10-23
 
 Identity 运行时提供认证准入、API key、核心会话、自助账户、全局分组目录与指派、完整邀请生命周期、四项用户目录读取、自助注销、注销到期处理、账号恢复和在线扫描命令；平台角色预览／变更、管理员暂停／恢复与 UserBrief 批量 reads 均通过各自限定的本地资格。公开用户接口仍是 `/api/v1/auth/`、`/api/v1/me/api-keys` 与 `/api/v1/users`。私有接口要求独立控制 Bearer；需要用户身份的操作将凭据放在 JSON 的 `token` 中，不能代替控制凭据。注册/邀请证明凭据另置于 `payload`，与调用者身份 token 分开。账号恢复使用匿名请求或单次挑战证明，邮件与注销通知分别由独立执行进程投递。
 
-已配置能力的装配通过本地 Compose 私网功能验收：独立安装／冷镜像、全部配置能力、受限远程 API、不同签名密钥、邮件／通知 worker、真实消费者及完整数据库恢复。运维与门控测试操作已按 owner 收口；默认兼容运行角色的私表权限仍按台账验收。旧宿主机数据库转发路径仍未修复；日常主环境尚未切换。精确证据、网络边界和其他模块剩余工作见[模块台账](/dev/concepts/module-deployment#identity-整模块独立装配)。本页各操作的案例数只证明各自合同，不能相加作为整模块覆盖率。
+已配置能力的装配通过本地 Compose 私网功能验收：独立安装／冷镜像、全部配置能力、受限远程 API、不同签名密钥、邮件／通知 worker、真实消费者及完整数据库恢复。运维与门控测试操作已按 owner 收口；默认兼容运行角色的私表权限仍按台账验收。旧宿主机数据库转发实验的间歇性 503 根因仍未确认；日常主环境尚未切换。精确证据、网络边界和其他模块剩余工作见[模块台账](/dev/concepts/module-deployment#identity-整模块独立装配)。本页各操作的案例数只证明各自合同，不能相加作为整模块覆盖率。
 
 | 接口                                             | 用途                                           |
 | ------------------------------------------------ | ---------------------------------------------- |
@@ -19,6 +19,7 @@ Identity 运行时提供认证准入、API key、核心会话、自助账户、�
 | `GET /ready`                                     | 原生策略和所配置能力的精确函数权限             |
 | `POST /v1/identity/authenticate`                 | JWT／API key 准入，返回 `aap-identity/v1` 主体 |
 | `POST /v1/identity/actor-context`                | 准入后读取当前主体的基础资料事实               |
+| `POST /v1/identity/actor-status`                 | 已准入账号的最小活动状态读取                   |
 | `POST /v1/identity/api-keys/execute`             | API key 列表、创建、修改、轮换和撤销           |
 | `POST /v1/identity/sessions/execute`             | 登录、刷新、登出和全端登出                     |
 | `POST /v1/identity/accounts/execute`             | 当前资料、改名、偏好、心跳、改密和头像引用     |
@@ -37,9 +38,27 @@ Identity 运行时提供认证准入、API key、核心会话、自助账户、�
 | `POST /v1/identity/recovery/execute`             | 开放注册、重置请求／消费、验证邮件重发／消费   |
 | `POST /v1/identity/recovery/registration-status` | 有效注册开关或 owner 部署默认值的只读查询      |
 
-## 旧 Workspace 绑定的组织读取
+## 限权准入与账号活动状态
 
-普通 API 的固定 allowlist 还包含 `aap_identity_v1.workspace_template_query_org_ids(uuid)`，供尚未迁移的模板与编排消费者读取当前账号的有效组织 ID。此能力复用已有 `aap-identity-workspace-template-query/v1` 回复；调用方校验 actor UUID 和完整回复，保留原 `autoflush` 与外层事务，不获取组织成员私表权限。普通 API 共保留两张公开视图和六项函数；独立 Identity AUTH／命令账号的职责保持分离。实际受限 SQL、HTTP 可见性和 Node 调用均有定向验收，完整运行装配及主环境采用按模块台账分别记录。
+可选 `IDENTITY_ADMISSION_TOKEN(_FILE)` 必须与通用控制 token 不同，只能调用
+`/authenticate` 与 `/actor-status`；其他私有接口仍仅接受通用控制 bearer。
+Notifications 不持有通用控制凭据、签名密钥或 API 数据库凭据。共享
+`aap-identity-admission` 包保留原 Principal／异常类型的类身份；旧 Python 导入路径
+继续导出相同对象，远程客户端支持 API 已有的 HTTP(S) base path。
+
+`POST /v1/identity/actor-status` 请求精确为
+`{"schema":"aap-identity-actor-status/v1","actor_id":"<uuid>"}`。成功回复精确为
+`schema/ok/data`，`data.actor` 是 null 或 `{actor_id,is_active}`，`is_active` 必须是
+JSON boolean，返回的 UUID 必须匹配请求。它不验证 JWT、比较先前 role、加锁或写入；
+握手先认证再单独读取活动状态，保留“角色变化但账号仍活动”的原行为。
+
+仅此 endpoint 使用可选 `IDENTITY_ACTOR_STATUS_DATABASE_URL(_FILE)` 和既有
+`read_actor_facts(uuid)`。专用 LOGIN 由 `identity-actor-status-grants.sql` 授予一项
+EXECUTE，无表／列权限或其他 owner 能力，不扩大原 AUTH 五函数。
+未配置或不可用返回 HTTP 503；非法 JSON／闭合字段返回 HTTP 400 的
+`invalid_request` 失败封套；错误 bearer 返回 401。配置该数据源后 `/ready` 也检查
+它，未配置时不影响原能力就绪。原整模块资格覆盖原先配置的能力，本次新增接口的
+独立运行资格单独列于模块台账，不计入旧案例或能力数量。
 
 ## 认证后的主体上下文
 
@@ -62,7 +81,7 @@ Migration 0251 在 `aap_identity_v1` 提供三项安全函数：`lock_accounts_s
 ## 门控 E2E 夹具
 
 `aap-identity-e2e-fixtures/v1` 是可信测试运维的固定 PostgreSQL 契约，独立于普通
-API 的六函数／两视图配置。`aap_identity_fixture_v1.account_profiles` 只提供原
+API 的五函数／两视图配置。`aap_identity_fixture_v1.account_profiles` 只提供原
 `UserOut` 的 21 个资料字段；不返回密码哈希、凭据代际、注销原因或周目标默认值。
 关系使用 security barrier，并仅在实际数据库名转小写后以 `_test`／`_e2e` 结尾时
 返回行。登录仍可返回停用账号，精确邮箱、缓存资料及 peek 优先级保持。
@@ -90,7 +109,7 @@ API 的六函数／两视图配置。`aap_identity_fixture_v1.account_profiles` 
 隐式提交、重试、审计或账号授权。SQL NULL／非 object 值返回 SQLSTATE 22023。
 
 函数在实际数据库名严格以 `_test` 或 `_e2e` 结尾时才执行，否则返回 42501；大小写不被
-规范化。普通 API 仍是两视图／六函数，不能执行此能力。可信录制 LOGIN 先应用普通
+规范化。普通 API 仍是两视图／五函数，不能执行此能力。可信录制 LOGIN 先应用普通
 Identity 围栏，再由 `identity-recording-fixture-grants.sql` 追加一项 EXECUTE；它仍无
 User 私表或列权限。原始脚本的生产拒绝、来源／任务守卫及偏好工具的 URL 检查保持。
 此能力不授予其他领域的夹具写入权限；命令和限定资格见仓库 `DEV.md` 及
@@ -113,7 +132,7 @@ User 私表或列权限。原始脚本的生产拒绝、来源／任务守卫及
 维护者显式运行 `infra/docker/identity-role-audit-grants.sql`，验证目标库及迁移角色、
 既有非 LOGIN Identity owner 和受限审计 LOGIN。该步骤兼容普通 Identity schema
 出现之前的数据库，不属于审计 CLI 的只读事务，也不修改 Alembic revision。普通
-Identity API 仍只有两视图／六函数；审计 LOGIN 仅追加三个审计关系的 SELECT，并
+Identity API 仍只有两视图／五函数；审计 LOGIN 仅追加三个审计关系的 SELECT，并
 被撤销 User／邀请私表及列权限。其他领域的读取与 Alembic 元数据由原 owner 提供。
 
 审计 CLI 继续使用 `REPEATABLE READ, READ ONLY`，缺少关系或权限时返回退出码 2，
@@ -133,7 +152,7 @@ Identity API 仍只有两视图／六函数；审计 LOGIN 仅追加三个审计
 没有额外的 UUID 排序、账号锁、授权或提交。这些 `STABLE` 函数只对调用语句的快照
 负责；规模种子把 Workspace annotator 成员事实组成 UUID 数组，在同一 SQL 语句中传给
 第二项能力。可信账号的追加配置是 `identity-scale-seed-grants.sql`；普通消费者仍是
-既有两视图／六函数，无法执行选择能力。不能拆成跨连接的先读候选、再选账号。
+既有两视图／五函数，无法执行选择能力。不能拆成跨连接的先读候选、再选账号。
 
 图片导入只复用既有公开账号事实，无序选择任意首账号，不增加角色或启用条件。
 定向与冷运行范围见[运维账号选择](/dev/concepts/module-deployment#identity-运维账号选择)。
@@ -147,7 +166,7 @@ Identity API 仍只有两视图／六函数；审计 LOGIN 仅追加三个审计
 重复仍以原始约束错误中止。主脚本继续拒绝 `production`，账号循环后统一提交一次。
 
 迁移新增的函数独立于原 provisioning 合同。可信 `identity_provisioning_client` 当前
-具有三项固定 Identity 函数；普通 Identity API 消费者仍只有两张视图与六项函数。
+具有三项固定 Identity 函数；普通 Identity API 消费者仍只有两张视图与五项函数。
 已应用普通围栏的可信种子运维连接可通过
 `infra/docker/identity-seed-operator-grants.sql` 追加精确查询与 persona 创建能力；
 该配置拒绝普通 API 账号、角色继承和 User 私表／列权限。
@@ -581,7 +600,7 @@ Audit 只允许 `user.deactivation_request`、`user.deactivation_cancel`、`user
 
 独立 publisher 使用 `aap-notifications-delivery/v1` 和仅有三个函数权限的 `notification_publish_client`：`identity_delivery_policy()`、`claim_identity_deliveries(jsonb)`、`finish_identity_delivery(jsonb)`。领取必须先提交 lease，再向 `notify:{user_id}` 发布；只有 Redis 接受后才能确认。过期或旧 lease 不能确认，worker 失联后可由下一次 claim 接管；same Notification ID 会跨 retry 保持，因此语义为至少一次、允许重复 broker 消息。领取量 1–100（默认 16）、lease 60 秒、进程并发 4、Redis I/O timeout 不超过 5 秒，不需要 lease renewal。只有 `delivered` 和 `retry` 两种安全 finish 状态；publisher 不持有 Identity、AUTH、JWT signing secret 或其他 SQL 能力。
 
-同一安装工件的独立进程命令为 `python -m aap_identity_runtime.notification_worker`，由 `aap_identity_runtime.notification_config.NotificationPublisherSettings` 读取 `NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)` 与 `NOTIFICATION_PUBLISH_REDIS_URL(_FILE)` 两组必需 secret。默认模式持续 poll，`--once` 只领取并处理一个 batch；它不是 HTTP server，也没有 HTTP health endpoint。API/Celery 可复用相同 executor、显式设置 `notification_publish_database_url` 并使用现有 task Redis 配置；default queue 每 10 秒的 relay 与独立 publisher 处理同一 leased outbox，不再并行做 ephemeral best-effort publish。Notifications owner、Compose secret 和运行限制见 [开发部署说明](/ops/deploy/development) 与 [ADR-0121](/dev/adr/0121-identity-self-deactivation-and-notification-delivery)。
+独立进程由 Notifications 包的 `aap-notifications-publisher` 或 `python -m aap_notifications.delivery_worker` 启动，配置类为 `aap_notifications.delivery_config.NotificationPublisherSettings`，仍读取 `NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)` 与 `NOTIFICATION_PUBLISH_REDIS_URL(_FILE)` 两组必需 secret。默认模式持续 poll，`--once` 只领取并处理一个 batch；它不是 HTTP server，也没有 HTTP health endpoint。`apps/notifications/Dockerfile` 定义独立运行工件，Identity 原导入路径和 `python -m aap_identity_runtime.notification_worker` 继续兼容，现有 Compose 命令不变。API/Celery 复用 Notifications executor、显式设置 `notification_publish_database_url` 并使用现有 task Redis 配置；default queue 每 10 秒的 relay 与独立 publisher 处理同一 leased outbox，不再并行做 ephemeral best-effort publish。Notifications owner、Compose secret 和运行限制见 [开发部署说明](/ops/deploy/development) 与 [ADR-0121](/dev/adr/0121-identity-self-deactivation-and-notification-delivery)。
 
 API／独立 Identity runtime 的自助 DSN 分别使用 `IDENTITY_DEACTIVATION_DATABASE_URL(_FILE)` 和 `IDENTITY_DEACTIVATION_OPERATOR_DATABASE_URL(_FILE)`；选择器可留空用于调用方事务，明确选择后连接失败不回退。API/Celery 的可选 Notifications SQL binding 为 `NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)`，Redis 继续使用现有 task settings。可选 Compose 的 host selectors 是 `IDENTITY_RUNTIME_DEACTIVATION_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_DEACTIVATION_OPERATOR_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_DATABASE_URL_FILE` 和 `IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_REDIS_URL_FILE`。独立 publisher secret 只映射到它自己的两项 `NOTIFICATION_PUBLISH_*_FILE`；这些 owner 能力须在共享 PostgreSQL transaction owner 中组合。
 

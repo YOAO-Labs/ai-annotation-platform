@@ -9,15 +9,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
-from app.db.models.async_job import AsyncJob, AsyncJobKind
+from app.db.models.async_job import AsyncJobKind
 from app.db.models.dataset import VideoSegment
-from app.db.models.mask_qc import MaskQCIssue, MaskQCRun
+from app.db.models.mask_qc import MaskQCIssue
 from app.db.models.mask_repair_batch import MaskRepairBatch
-from app.db.models.mask_review_scope import MaskReviewScope
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
@@ -42,7 +40,11 @@ from app.services.async_job_notify import notify_job_terminal
 from app.services.async_job_terminal import JobTerminal
 from app.services.mask_mutation import MaskMutationService, scope_fingerprint
 from app.services.mask_qc.config import load_mask_qc_config, mask_qc_config_digest
-from app.services.mask_qc.service import effective_issue_status
+from app.services.mask_qc.service import (
+    effective_issue_status,
+    load_mask_qc_issue,
+    load_mask_qc_run,
+)
 from app.services.mask_qc.topology import rle_and_not, rle_or, rle_xor
 from app.services.project_access import is_privileged_for_project
 from app.services.raster_mask_storage import (
@@ -58,6 +60,36 @@ from app.services.video_tracks import (
 )
 from app.utils.raster_mask_rle import coco_rle_area
 from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
+from aap_labeling.quality_data_contract import (
+    AttachRepairJob,
+    AttachRepairRollbackJob,
+    BeginRepairExecution,
+    BeginRepairRollback,
+    CancelRepairBatch,
+    CheckMaskQCIssueVersions,
+    CreateMaskRepairBatch,
+    FailRepairDispatch,
+    FailRepairRollback,
+    FailRepairShard,
+    FinishRepairExecution,
+    FinishRepairRollback,
+    RecordRepairCandidate,
+    RecordRepairShard,
+    ReconcileRepairBatch,
+    ReadMaskRepairBatchById,
+    ReadMaskRepairBatchByJob,
+    ReadMaskRepairBatchByToken,
+    ReadMaskRepairTargets,
+    ReadMaskVideoSegment,
+    ReadMaskReviewScopes,
+    ResumeRepairBatch,
+    QUALITY_DATA_PROTOCOL,
+)
+from app.services.labeling_quality_data import (
+    model_from_quality_row,
+    quality_data_command,
+)
+from app.services.labeling_core_read_relations import get_core_row, task_row
 
 
 PLAN_TTL = timedelta(minutes=15)
@@ -126,6 +158,45 @@ def batch_out(batch: MaskRepairBatch) -> MaskRepairBatchOut:
         created_at=batch.created_at,
         completed_at=batch.completed_at,
         rolled_back_at=batch.rolled_back_at,
+    )
+
+
+async def load_repair_batch(
+    db: AsyncSession, *, batch_id: uuid.UUID, lock: bool = False
+) -> MaskRepairBatch | None:
+    row = await quality_data_command(
+        db,
+        ReadMaskRepairBatchById(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="read_batch_by_id",
+            batch_id=batch_id,
+            lock=lock,
+        ),
+    )
+    return (
+        model_from_quality_row(MaskRepairBatch, row) if isinstance(row, dict) else None
+    )
+
+
+async def load_repair_batch_for_job(
+    db: AsyncSession,
+    *,
+    job_id: uuid.UUID,
+    rollback: bool = False,
+    lock: bool = False,
+) -> MaskRepairBatch | None:
+    row = await quality_data_command(
+        db,
+        ReadMaskRepairBatchByJob(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="read_batch_by_job",
+            job_id=job_id,
+            terminal_kind="mask_repair_rollback" if rollback else "mask_repair",
+            lock=lock,
+        ),
+    )
+    return (
+        model_from_quality_row(MaskRepairBatch, row) if isinstance(row, dict) else None
     )
 
 
@@ -213,18 +284,17 @@ async def _video_segment(
     frame_index: int,
     requested_id: uuid.UUID | None,
 ) -> VideoSegment | None:
-    query = select(VideoSegment).where(
-        VideoSegment.dataset_item_id == task.dataset_item_id,
-        VideoSegment.start_frame <= frame_index,
-        VideoSegment.end_frame >= frame_index,
+    row = await quality_data_command(
+        db,
+        ReadMaskVideoSegment(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="read_video_segment",
+            dataset_item_id=task.dataset_item_id,
+            frame_index=frame_index,
+            requested_id=requested_id,
+        ),
     )
-    if requested_id is not None:
-        query = query.where(VideoSegment.id == requested_id)
-    return (
-        (await db.execute(query.order_by(VideoSegment.segment_index.asc())))
-        .scalars()
-        .first()
-    )
+    return model_from_quality_row(VideoSegment, row) if isinstance(row, dict) else None
 
 
 async def _has_current_reviewed_scope(
@@ -233,40 +303,31 @@ async def _has_current_reviewed_scope(
     annotation: Annotation,
     frame_index: int,
 ) -> bool:
-    return (
-        await db.execute(
-            select(MaskReviewScope.id).where(
-                MaskReviewScope.annotation_id == annotation.id,
-                MaskReviewScope.result_annotation_version
-                == int(annotation.version or 1),
-                MaskReviewScope.frame_start <= frame_index,
-                MaskReviewScope.frame_end >= frame_index,
-            )
-        )
-    ).scalar_one_or_none() is not None
+    rows = await quality_data_command(
+        db,
+        ReadMaskReviewScopes(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="read_review_scopes",
+            annotation_id=annotation.id,
+            result_annotation_version=int(annotation.version or 1),
+            frame_start=frame_index,
+            frame_end=frame_index,
+            lock=False,
+        ),
+    )
+    return isinstance(rows, list) and bool(rows)
 
 
 async def _issue_versions_current(db: AsyncSession, issue: MaskQCIssue) -> bool:
-    source_versions = {
-        str(key): int(value) for key, value in issue.source_versions.items()
-    }
-    if not source_versions:
-        return False
-    ids = [uuid.UUID(value) for value in source_versions]
-    rows = list(
-        (
-            await db.execute(
-                select(Annotation).where(
-                    Annotation.id.in_(ids),
-                    Annotation.is_active.is_(True),
-                    Annotation.was_cancelled.is_(False),
-                )
-            )
-        ).scalars()
+    current = await quality_data_command(
+        db,
+        CheckMaskQCIssueVersions(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="issue_versions_current",
+            issue_id=issue.id,
+        ),
     )
-    return len(rows) == len(ids) and all(
-        source_versions[str(row.id)] == int(row.version or 1) for row in rows
-    )
+    return current is True
 
 
 async def _resolve_target(
@@ -276,25 +337,24 @@ async def _resolve_target(
     action: MaskRepairAction,
     frame_index: int | None,
 ) -> tuple[Annotation | None, dict[str, Any] | None]:
-    primary = await db.get(Annotation, issue.annotation_id)
-    if action.kind != "resolve_same_class_overlap":
-        return primary, None
-    ids = sorted(set(issue.related_annotation_ids or []), key=str)
-    if issue.annotation_id not in ids:
-        ids.append(issue.annotation_id)
-    rows = list(
-        (
-            await db.execute(
-                select(Annotation).where(
-                    Annotation.id.in_(ids),
-                    Annotation.is_active.is_(True),
-                    Annotation.was_cancelled.is_(False),
-                )
-            )
-        ).scalars()
+    rows = await quality_data_command(
+        db,
+        ReadMaskRepairTargets(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="read_repair_targets",
+            issue_id=issue.id,
+            include_related=action.kind == "resolve_same_class_overlap",
+        ),
     )
+    annotations = (
+        [model_from_quality_row(Annotation, row) for row in rows]
+        if isinstance(rows, list)
+        else []
+    )
+    if action.kind != "resolve_same_class_overlap":
+        return (annotations[0] if annotations else None), None
     candidates: list[tuple[int, str, Annotation, dict[str, Any]]] = []
-    for annotation in rows:
+    for annotation in annotations:
         reference = _mask_reference(annotation, frame_index)
         if reference is None:
             continue
@@ -314,7 +374,7 @@ async def _plan_action(
     action: MaskRepairAction,
     planned_annotations: set[uuid.UUID],
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
-    issue = await db.get(MaskQCIssue, action.issue_id)
+    issue = await load_mask_qc_issue(db, issue_id=action.issue_id)
     if issue is None or issue.project_id != project.id:
         return _skip_item(
             action,
@@ -340,7 +400,7 @@ async def _plan_action(
             detail="issue is resolved, ignored, or stale",
         ), None
     if issue.run_id is not None:
-        run = await db.get(MaskQCRun, issue.run_id)
+        run = await load_mask_qc_run(db, run_id=issue.run_id)
         current_config_digest = mask_qc_config_digest(
             load_mask_qc_config(project.mask_qc_config)
         )
@@ -366,7 +426,7 @@ async def _plan_action(
             detail="issue has no exact repair region",
         ), None
 
-    task = await db.get(Task, issue.task_id)
+    task = await get_core_row(db, task_row, issue.task_id)
     if task is None or task.project_id != project.id:
         return _skip_item(
             action,
@@ -656,7 +716,7 @@ async def create_repair_plan(
         except (KeyError, TypeError, ValueError) as exc:
             public = _skip_item(
                 action,
-                issue=await db.get(MaskQCIssue, action.issue_id),
+                issue=await load_mask_qc_issue(db, issue_id=action.issue_id),
                 code="invalid_region",
                 detail=str(exc),
             )
@@ -691,19 +751,29 @@ async def create_repair_plan(
     digest = canonical_digest(plan)
     receipt = f"mrp_{secrets.token_urlsafe(32)}"
     expires_at = datetime.now(timezone.utc) + PLAN_TTL
-    batch = MaskRepairBatch(
-        project_id=project.id,
-        requested_by_id=actor.id,
-        token_hash=_token_hash(receipt),
-        status="planned",
-        plan_digest=digest,
-        request_json=request.model_dump(mode="json"),
-        plan_json=plan,
-        result_json={},
-        receipt_expires_at=expires_at,
-    )
-    db.add(batch)
     await db.flush()
+    batch_data = await quality_data_command(
+        db,
+        CreateMaskRepairBatch(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="create_batch",
+            batch_id=uuid.uuid4(),
+            project_id=project.id,
+            requested_by_id=actor.id,
+            token_hash=_token_hash(receipt),
+            plan_digest=digest,
+            request_json=request.model_dump(mode="json"),
+            plan_json=plan,
+            result_json={},
+            receipt_expires_at=expires_at,
+        ),
+    )
+    if not isinstance(batch_data, dict) or batch_data.get("id") is None:
+        raise MaskRepairError(
+            status_code=403,
+            reason="repair_actor_inactive",
+            message="repair plan requires an active actor",
+        )
     return MaskRepairDryRunResponse(
         receipt=receipt,
         plan_digest=digest,
@@ -721,13 +791,18 @@ async def execute_repair_plan(
     receipt: str,
     plan_digest: str,
 ) -> tuple[MaskRepairBatch, bool]:
+    row = await quality_data_command(
+        db,
+        ReadMaskRepairBatchByToken(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="read_batch_by_token",
+            token_hash=_token_hash(receipt),
+            lock=True,
+        ),
+    )
     batch = (
-        await db.execute(
-            select(MaskRepairBatch)
-            .where(MaskRepairBatch.token_hash == _token_hash(receipt))
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
+        model_from_quality_row(MaskRepairBatch, row) if isinstance(row, dict) else None
+    )
     if batch is None or batch.project_id != project.id:
         raise MaskRepairError(
             status_code=404,
@@ -777,10 +852,23 @@ async def execute_repair_plan(
         user_id=actor.id,
         payload={"mask_repair_batch_id": str(batch.id)},
     )
-    batch.async_job_id = job.id
-    batch.status = "pending"
     await db.flush()
-    return batch, True
+    updated = await quality_data_command(
+        db,
+        AttachRepairJob(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="attach_job",
+            batch_id=batch.id,
+            async_job_id=job.id,
+        ),
+    )
+    if not isinstance(updated, dict):
+        raise MaskRepairError(
+            status_code=409,
+            reason="repair_plan_not_executable",
+            message="repair plan changed before execution was attached",
+        )
+    return model_from_quality_row(MaskRepairBatch, updated), True
 
 
 async def request_repair_rollback(
@@ -790,13 +878,18 @@ async def request_repair_rollback(
     actor: User | IdentityActorFacts,
     expected_result_digest: str,
 ) -> MaskRepairBatch:
+    row = await quality_data_command(
+        db,
+        ReadMaskRepairBatchById(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="read_batch_by_id",
+            batch_id=batch_id,
+            lock=True,
+        ),
+    )
     batch = (
-        await db.execute(
-            select(MaskRepairBatch)
-            .where(MaskRepairBatch.id == batch_id)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
+        model_from_quality_row(MaskRepairBatch, row) if isinstance(row, dict) else None
+    )
     if batch is None:
         raise MaskRepairError(
             status_code=404,
@@ -830,10 +923,23 @@ async def request_repair_rollback(
         user_id=actor.id,
         payload={"mask_repair_batch_id": str(batch.id)},
     )
-    batch.rollback_async_job_id = job.id
-    batch.status = "rolling_back"
     await db.flush()
-    return batch
+    updated = await quality_data_command(
+        db,
+        AttachRepairRollbackJob(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="attach_rollback_job",
+            batch_id=batch.id,
+            rollback_job_id=job.id,
+        ),
+    )
+    if not isinstance(updated, dict):
+        raise MaskRepairError(
+            status_code=409,
+            reason="repair_batch_not_rollbackable",
+            message="repair batch changed before rollback was attached",
+        )
+    return model_from_quality_row(MaskRepairBatch, updated)
 
 
 async def resume_repair_batch(
@@ -842,13 +948,18 @@ async def resume_repair_batch(
     batch_id: uuid.UUID,
     actor: User | IdentityActorFacts,
 ) -> MaskRepairBatch:
+    row = await quality_data_command(
+        db,
+        ReadMaskRepairBatchById(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="read_batch_by_id",
+            batch_id=batch_id,
+            lock=True,
+        ),
+    )
     batch = (
-        await db.execute(
-            select(MaskRepairBatch)
-            .where(MaskRepairBatch.id == batch_id)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
+        model_from_quality_row(MaskRepairBatch, row) if isinstance(row, dict) else None
+    )
     if batch is None:
         raise MaskRepairError(
             status_code=404,
@@ -869,11 +980,24 @@ async def resume_repair_batch(
         user_id=actor.id,
         payload={"mask_repair_batch_id": str(batch.id), "resumed": True},
     )
-    batch.async_job_id = job.id
-    batch.requested_by_id = actor.id
-    batch.status = "pending"
     await db.flush()
-    return batch
+    updated = await quality_data_command(
+        db,
+        ResumeRepairBatch(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="resume_batch",
+            batch_id=batch.id,
+            async_job_id=job.id,
+            actor_id=actor.id,
+        ),
+    )
+    if not isinstance(updated, dict):
+        raise MaskRepairError(
+            status_code=409,
+            reason="repair_batch_not_resumable",
+            message="repair batch changed before resume was attached",
+        )
+    return model_from_quality_row(MaskRepairBatch, updated)
 
 
 async def dispatch_repair_batch(
@@ -916,53 +1040,59 @@ async def reconcile_job_terminal(db: AsyncSession, terminal: JobTerminal) -> Non
         # Rollback cancellation belongs to the repair lifecycle, not this fallback.
         if terminal.kind != "mask_repair":
             return
-        batch = (
-            await db.execute(
-                select(MaskRepairBatch)
-                .where(MaskRepairBatch.async_job_id == terminal.job_id)
-                .with_for_update()
-            )
-        ).scalar_one_or_none()
+        batch = await load_repair_batch_for_job(db, job_id=terminal.job_id, lock=True)
         if batch is None or batch.status not in {"pending", "running"}:
             return
-        batch.status = "partial" if _completed_repair_shards(batch) else "cancelled"
-        batch.completed_at = datetime.now(timezone.utc)
-        return
-
-    condition = (
-        MaskRepairBatch.rollback_async_job_id == terminal.job_id
-        if terminal.kind == "mask_repair_rollback"
-        else MaskRepairBatch.async_job_id == terminal.job_id
-    )
-    batch = (
-        await db.execute(select(MaskRepairBatch).where(condition).with_for_update())
-    ).scalar_one_or_none()
+        status = "partial" if _completed_repair_shards(batch) else "cancelled"
+    else:
+        batch = await load_repair_batch_for_job(
+            db,
+            job_id=terminal.job_id,
+            rollback=terminal.kind == "mask_repair_rollback",
+            lock=True,
+        )
     if batch is None:
         return
-    batch.status = (
-        "rollback_failed" if terminal.kind == "mask_repair_rollback" else "failed"
+    if not terminal.cancelled:
+        status = (
+            "rollback_failed" if terminal.kind == "mask_repair_rollback" else "failed"
+        )
+    await quality_data_command(
+        db,
+        ReconcileRepairBatch(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="reconcile_terminal",
+            job_id=terminal.job_id,
+            terminal_kind=terminal.kind,
+            terminal_cancelled=terminal.cancelled,
+            status=status,
+            completed_at=datetime.now(timezone.utc),
+        ),
     )
-    batch.completed_at = datetime.now(timezone.utc)
 
 
 async def request_job_cancel(
     db: AsyncSession, job_id: uuid.UUID, *, pending: bool
 ) -> str:
     """Keep immediate pending cancellation distinct from running shard cancellation."""
-    batch = (
-        await db.execute(
-            select(MaskRepairBatch)
-            .where(MaskRepairBatch.async_job_id == job_id)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
+    batch = await load_repair_batch_for_job(db, job_id=job_id, lock=True)
     if pending:
         await async_job_svc.mark_cancelled(
             db, job_id, result={"reason": "cancelled_by_user"}
         )
         if batch is not None and batch.status == "pending":
-            batch.status = "cancelled"
-            batch.completed_at = datetime.now(timezone.utc)
+            await quality_data_command(
+                db,
+                CancelRepairBatch(
+                    schema=QUALITY_DATA_PROTOCOL,
+                    operation="cancel_pending",
+                    batch_id=batch.id,
+                    status=(
+                        "partial" if _completed_repair_shards(batch) else "cancelled"
+                    ),
+                    completed_at=datetime.now(timezone.utc),
+                ),
+            )
         await notify_job_terminal(db, job_id=job_id)
         return "cancelled"
     await async_job_svc.request_cancel(db, job_id)
@@ -1042,16 +1172,10 @@ async def begin_repair_execution(
     batch_id: uuid.UUID,
     celery_task_id: str | None,
 ) -> tuple[uuid.UUID, list[dict[str, Any]], list[dict[str, Any]], bool]:
-    batch = (
-        await db.execute(
-            select(MaskRepairBatch)
-            .where(MaskRepairBatch.id == batch_id)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
+    batch = await load_repair_batch(db, batch_id=batch_id, lock=True)
     if batch is None or batch.async_job_id is None:
         raise RuntimeError("mask repair batch not found")
-    job = await db.get(AsyncJob, batch.async_job_id)
+    job = await async_job_svc.get_job(db, batch.async_job_id)
     if job is None:
         raise RuntimeError("mask repair async job not found")
     if celery_task_id and job.celery_task_id and job.celery_task_id != celery_task_id:
@@ -1064,8 +1188,16 @@ async def begin_repair_execution(
             for value in (_execution_result_copy(batch).get("shards") or {}).values()
             if isinstance(value, dict) and value.get("status") == "completed"
         ]
-        batch.status = "partial" if completed_shards else "cancelled"
-        batch.completed_at = datetime.now(timezone.utc)
+        await quality_data_command(
+            db,
+            CancelRepairBatch(
+                schema=QUALITY_DATA_PROTOCOL,
+                operation="cancel_pending",
+                batch_id=batch.id,
+                status="partial" if completed_shards else "cancelled",
+                completed_at=datetime.now(timezone.utc),
+            ),
+        )
         await async_job_svc.mark_cancelled(
             db, batch.async_job_id, result={"reason": "cancelled_by_user"}
         )
@@ -1073,7 +1205,18 @@ async def begin_repair_execution(
         return batch.async_job_id, [], [], True
     if batch.status not in {"pending", "running"}:
         return batch.async_job_id, [], [], True
-    batch.status = "running"
+    updated = await quality_data_command(
+        db,
+        BeginRepairExecution(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="begin_execution",
+            batch_id=batch.id,
+            async_job_id=batch.async_job_id,
+            at=datetime.now(timezone.utc),
+        ),
+    )
+    if isinstance(updated, dict):
+        batch = model_from_quality_row(MaskRepairBatch, updated)
     await async_job_svc.mark_running(
         db, batch.async_job_id, celery_task_id=celery_task_id
     )
@@ -1089,27 +1232,29 @@ async def begin_repair_execution(
 async def stop_repair_execution_if_cancelled(
     db: AsyncSession, *, batch_id: uuid.UUID, async_job_id: uuid.UUID
 ) -> bool:
-    job = await db.get(AsyncJob, async_job_id)
+    job = await async_job_svc.get_job(db, async_job_id)
     if job is None or (
         job.status != "cancelled"
         and not bool((job.payload or {}).get("cancel_requested"))
     ):
         return False
-    batch = (
-        await db.execute(
-            select(MaskRepairBatch)
-            .where(MaskRepairBatch.id == batch_id)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
+    batch = await load_repair_batch(db, batch_id=batch_id, lock=True)
     if batch is not None and batch.async_job_id == async_job_id:
         completed_shards = [
             value
             for value in (_execution_result_copy(batch).get("shards") or {}).values()
             if isinstance(value, dict) and value.get("status") == "completed"
         ]
-        batch.status = "partial" if completed_shards else "cancelled"
-        batch.completed_at = datetime.now(timezone.utc)
+        await quality_data_command(
+            db,
+            CancelRepairBatch(
+                schema=QUALITY_DATA_PROTOCOL,
+                operation="cancel_pending",
+                batch_id=batch.id,
+                status="partial" if completed_shards else "cancelled",
+                completed_at=datetime.now(timezone.utc),
+            ),
+        )
     await async_job_svc.mark_cancelled(
         db, async_job_id, result={"reason": "cancelled_by_user"}
     )
@@ -1125,13 +1270,7 @@ async def execute_repair_shard(
     actor: User | IdentityActorFacts | IdentityActorStatus,
     async_job_id: uuid.UUID,
 ) -> dict[str, Any] | None:
-    batch = (
-        await db.execute(
-            select(MaskRepairBatch)
-            .where(MaskRepairBatch.id == batch_id)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
+    batch = await load_repair_batch(db, batch_id=batch_id, lock=True)
     if batch is None or batch.async_job_id != async_job_id:
         return None
     shard_id = str(shard["id"])
@@ -1220,10 +1359,18 @@ async def execute_repair_shard(
         "operation_ids": [item["operation_id"] for item in item_results],
         "completed_at": datetime.now(timezone.utc).isoformat(),
     }
-    result = _execution_result_copy(batch)
-    result["shards"][shard_id] = shard_result
-    batch.result_json = result
-    batch.rollback_expires_at = datetime.now(timezone.utc) + ROLLBACK_TTL
+    await quality_data_command(
+        db,
+        RecordRepairShard(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="record_shard",
+            batch_id=batch.id,
+            async_job_id=async_job_id,
+            shard_id=shard_id,
+            result_value=shard_result,
+            rollback_expires_at=datetime.now(timezone.utc) + ROLLBACK_TTL,
+        ),
+    )
     return shard_result
 
 
@@ -1235,22 +1382,23 @@ async def record_repair_shard_failure(
     shard: dict[str, Any],
     error: str,
 ) -> bool:
-    batch = (
-        await db.execute(
-            select(MaskRepairBatch)
-            .where(MaskRepairBatch.id == batch_id)
-            .with_for_update()
-        )
-    ).scalar_one()
+    batch = await load_repair_batch(db, batch_id=batch_id, lock=True)
+    if batch is None:
+        return False
     if batch.async_job_id != async_job_id:
         return False
-    result = _execution_result_copy(batch)
-    result["shards"][str(shard["id"])] = {
-        "status": "failed",
-        "task_id": str(shard["task_id"]),
-        "reason": error[:500],
-    }
-    batch.result_json = result
+    await quality_data_command(
+        db,
+        FailRepairShard(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="record_shard_failure",
+            batch_id=batch.id,
+            async_job_id=async_job_id,
+            shard_id=str(shard["id"]),
+            task_id=uuid.UUID(str(shard["task_id"])),
+            error_message=error[:500],
+        ),
+    )
     return True
 
 
@@ -1262,18 +1410,22 @@ async def record_repair_candidate(
     item_index: int,
     result_value: dict[str, Any],
 ) -> bool:
-    batch = (
-        await db.execute(
-            select(MaskRepairBatch)
-            .where(MaskRepairBatch.id == batch_id)
-            .with_for_update()
-        )
-    ).scalar_one()
+    batch = await load_repair_batch(db, batch_id=batch_id, lock=True)
+    if batch is None:
+        return False
     if batch.async_job_id != async_job_id:
         return False
-    result = _execution_result_copy(batch)
-    result["candidates"][str(item_index)] = result_value
-    batch.result_json = result
+    await quality_data_command(
+        db,
+        RecordRepairCandidate(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="record_candidate",
+            batch_id=batch.id,
+            async_job_id=async_job_id,
+            item_index=item_index,
+            result_value=result_value,
+        ),
+    )
     return True
 
 
@@ -1285,25 +1437,32 @@ async def finish_repair_execution(
     completed: int,
     failed: int,
 ) -> bool:
-    batch = (
-        await db.execute(
-            select(MaskRepairBatch)
-            .where(MaskRepairBatch.id == batch_id)
-            .with_for_update()
-        )
-    ).scalar_one()
+    batch = await load_repair_batch(db, batch_id=batch_id, lock=True)
+    if batch is None:
+        return False
     if batch.async_job_id != async_job_id:
         return False
-    batch.status = (
+    final_status = (
         "completed" if failed == 0 else ("partial" if completed else "failed")
     )
-    batch.completed_at = datetime.now(timezone.utc)
+    completed_at = datetime.now(timezone.utc)
     summary = {
         "batch_id": str(batch.id),
         "success_count": completed,
         "failed_count": failed,
         "result_digest": canonical_digest(batch.result_json or {}),
     }
+    await quality_data_command(
+        db,
+        FinishRepairExecution(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="finish_execution",
+            batch_id=batch.id,
+            async_job_id=async_job_id,
+            status=final_status,
+            completed_at=completed_at,
+        ),
+    )
     if completed:
         await async_job_svc.mark_complete(db, async_job_id, result=summary)
     else:
@@ -1323,21 +1482,26 @@ async def begin_repair_rollback(
     batch_id: uuid.UUID,
     celery_task_id: str | None,
 ) -> tuple[uuid.UUID, list[dict[str, Any]], list[tuple[str, dict[str, Any]]]] | None:
-    batch = (
-        await db.execute(
-            select(MaskRepairBatch)
-            .where(MaskRepairBatch.id == batch_id)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
+    batch = await load_repair_batch(db, batch_id=batch_id, lock=True)
     if batch is None or batch.rollback_async_job_id is None:
         raise RuntimeError("mask repair rollback batch not found")
     job_id = batch.rollback_async_job_id
-    job = await db.get(AsyncJob, job_id)
+    job = await async_job_svc.get_job(db, job_id)
     if job is None:
         raise RuntimeError("mask repair rollback async job not found")
     if celery_task_id and job.celery_task_id and job.celery_task_id != celery_task_id:
         return None
+    if batch.rollback_async_job_id != job_id:
+        return None
+    await quality_data_command(
+        db,
+        BeginRepairRollback(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="begin_rollback",
+            batch_id=batch.id,
+            rollback_job_id=job_id,
+        ),
+    )
     await async_job_svc.mark_running(db, job_id, celery_task_id=celery_task_id)
     plan_items = list((batch.plan_json or {}).get("items") or [])
     shard_results = dict((batch.result_json or {}).get("shards") or {})
@@ -1389,19 +1553,26 @@ async def rollback_repair_shard(
     if (batch_id is None) != (rollback_job_id is None):
         raise ValueError("repair batch and rollback attempt must be supplied together")
     if batch_id is not None and rollback_job_id is not None:
-        batch = (
-            await db.execute(
-                select(MaskRepairBatch)
-                .where(MaskRepairBatch.id == batch_id)
-                .with_for_update()
-            )
-        ).scalar_one_or_none()
+        batch = await load_repair_batch(db, batch_id=batch_id, lock=True)
         if batch is None or batch.rollback_async_job_id != rollback_job_id:
             return None
     entries = list(shard_result.get("items") or [])
     for entry in entries:
         item = plan_items[int(entry["item_index"])]
-        target = await db.get(Annotation, uuid.UUID(str(item["annotation_id"])))
+        annotation_rows = await quality_data_command(
+            db,
+            ReadMaskRepairTargets(
+                schema=QUALITY_DATA_PROTOCOL,
+                operation="read_repair_targets",
+                issue_id=uuid.UUID(str(item["issue_id"])),
+                include_related=False,
+            ),
+        )
+        target = (
+            model_from_quality_row(Annotation, annotation_rows[0])
+            if isinstance(annotation_rows, list) and annotation_rows
+            else None
+        )
         if target is None or int(target.version or 1) != int(entry["after_version"]):
             raise RuntimeError(f"rollback_version_conflict:{item['annotation_id']}")
     for entry in reversed(entries):
@@ -1425,24 +1596,29 @@ async def finish_repair_rollback(
     rollback_job_id: uuid.UUID,
     rolled_back: int,
 ) -> bool:
-    batch = (
-        await db.execute(
-            select(MaskRepairBatch)
-            .where(MaskRepairBatch.id == batch_id)
-            .with_for_update()
-        )
-    ).scalar_one()
+    batch = await load_repair_batch(db, batch_id=batch_id, lock=True)
+    if batch is None:
+        return False
     if batch.rollback_async_job_id != rollback_job_id:
         return False
-    batch.status = "rolled_back"
-    batch.rolled_back_at = datetime.now(timezone.utc)
+    rolled_back_at = datetime.now(timezone.utc)
     result = _execution_result_copy(batch)
     result["rollback"] = {
         "status": "completed",
         "mutation_count": rolled_back,
-        "completed_at": batch.rolled_back_at.isoformat(),
+        "completed_at": rolled_back_at.isoformat(),
     }
-    batch.result_json = result
+    await quality_data_command(
+        db,
+        FinishRepairRollback(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="finish_rollback",
+            batch_id=batch.id,
+            rollback_job_id=rollback_job_id,
+            rolled_back_at=rolled_back_at,
+            result_json=result,
+        ),
+    )
     await async_job_svc.mark_complete(
         db,
         rollback_job_id,
@@ -1461,25 +1637,30 @@ async def fail_repair_rollback(
     failed_shard_id: str | None,
     rolled_back: int,
 ) -> bool:
-    batch = (
-        await db.execute(
-            select(MaskRepairBatch)
-            .where(MaskRepairBatch.id == batch_id)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
+    batch = await load_repair_batch(db, batch_id=batch_id, lock=True)
     if batch is None or batch.rollback_async_job_id != rollback_job_id:
         return False
+    failed_at = datetime.now(timezone.utc)
     result = _execution_result_copy(batch)
     result["rollback"] = {
         "status": "failed",
         "reason": error[:500],
         "failed_shard_id": failed_shard_id,
         "rolled_back_count": rolled_back,
-        "failed_at": datetime.now(timezone.utc).isoformat(),
+        "failed_at": failed_at.isoformat(),
     }
-    batch.result_json = result
-    batch.status = "rollback_failed"
+    await quality_data_command(
+        db,
+        FailRepairRollback(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="fail_rollback",
+            batch_id=batch.id,
+            rollback_job_id=rollback_job_id,
+            error_message=error,
+            result_json=result,
+            failed_at=failed_at,
+        ),
+    )
     await async_job_svc.mark_failed(db, batch.rollback_async_job_id, error=error)
     await notify_job_terminal(db, job_id=batch.rollback_async_job_id)
     return True
@@ -1493,19 +1674,13 @@ async def record_repair_dispatch_task(
     rollback: bool,
     celery_task_id: str,
 ) -> None:
-    batch = (
-        await db.execute(
-            select(MaskRepairBatch)
-            .where(MaskRepairBatch.id == batch_id)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
+    batch = await load_repair_batch(db, batch_id=batch_id, lock=True)
     if batch is None:
         return
     current_job_id = batch.rollback_async_job_id if rollback else batch.async_job_id
     if current_job_id != async_job_id:
         return
-    job = await db.get(AsyncJob, async_job_id)
+    job = await async_job_svc.get_job(db, async_job_id)
     if job is not None:
         async_job_svc.bind_execution_id(job, celery_task_id)
 
@@ -1518,15 +1693,20 @@ async def fail_repair_dispatch(
     rollback: bool,
     error: str,
 ) -> None:
-    batch = (
-        await db.execute(
-            select(MaskRepairBatch)
-            .where(MaskRepairBatch.id == batch_id)
-            .with_for_update()
-        )
-    ).scalar_one()
+    batch = await load_repair_batch(db, batch_id=batch_id, lock=True)
+    if batch is None:
+        return
     current_job_id = batch.rollback_async_job_id if rollback else batch.async_job_id
     if current_job_id != async_job_id:
         return
-    batch.status = "rollback_failed" if rollback else "failed"
+    await quality_data_command(
+        db,
+        FailRepairDispatch(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="fail_rollback_dispatch" if rollback else "fail_dispatch",
+            batch_id=batch.id,
+            async_job_id=async_job_id,
+            error_message=error,
+        ),
+    )
     await async_job_svc.mark_failed(db, async_job_id, error=error)

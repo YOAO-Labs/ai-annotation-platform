@@ -141,7 +141,7 @@ export const METRICS_AVAILABLE = false as const;
 
 export const FRESHNESS_LABELS: Record<SourceFreshness["name"], string> = {
   topology: "拓扑",
-  router_ledger: "路由账本",
+  router_ledger: "路由执行状态",
   health: "健康探活",
   gpu: "GPU 仲裁",
   residency: "模型驻留",
@@ -279,9 +279,8 @@ function toMemberViewModel(
  * Derive the effective routing axis from configured state + runtime evidence.
  *
  * Plan Appendix A.1: configured active/draining/disabled + effective
- * routable/draining/bypassed/blocked/unknown. router_mode != enforce means
- * configured state is shadow — callers SHOULD additionally consult
- * `router_mode` from the parent view model to label shadow vs enforced.
+ * routable/draining/bypassed/blocked/unknown. Off/observe modes may retain
+ * legacy backend selection, but draining still blocks new routed work.
  */
 export function deriveMemberRouting(
   trafficState: TopologyMemberInstance["traffic_state"],
@@ -413,8 +412,8 @@ export function collectDiagnostics(
           severity: "warning",
           subject_type: "service_pool",
           subject_id: "_global",
-          message: `路由账本不可用：${s.error ?? "原因未知"}（inflight/熔断状态可能滞后）`,
-          remediation: "检查 Redis 连接；off 模式下此告警可忽略",
+          message: `路由执行状态不可用：${s.error ?? "原因未知"}（活动执行数或熔断提示可能滞后）`,
+          remediation: "检查运行状态来源；无法确认活动执行数时，卸载请求会被禁用",
           affected_service_pool_ids: (snapshot.pools ?? []).map((p) => p.id),
           affected_instance_ids: [],
           affected_gpu_resource_ids: [],
@@ -499,60 +498,59 @@ function dedup(xs: string[]): string[] {
   return Array.from(new Set(xs));
 }
 
-// ── drain → quiescent → unload safety gate (plan §8.1) ─────────────────────
+// ── drain → observed idle → unload request gate (plan §8.1) ───────────────
 
-export interface UnloadSafetyGate {
+export interface UnloadRequestGate {
   /** True iff the member has not entered the exact draining state. */
   blocked_routable: boolean;
-  /** True iff inflight > 0 (must wait for quiescent). */
+  /** True iff observed open execution scopes remain. */
   blocked_inflight: boolean;
-  /** True iff the inflight reading is stale (cannot conclude quiescent). */
+  /** True iff the execution-state reading is stale (cannot trust the count). */
   blocked_stale: boolean;
-  /** True iff router_mode != enforce (drain is shadow, not real stop). */
-  blocked_shadow_mode: boolean;
-  /** Overall: can the safe unload path proceed? */
+  /** @deprecated Always false; draining is enforced in every router mode. */
+  blocked_shadow_mode: false;
+  /** Whether the UI may offer an unload request based on this observation. */
+  can_request_unload: boolean;
+  /** @deprecated Compatibility alias for can_request_unload; server decides acceptance. */
   can_unload: boolean;
-  /** Human-readable block reasons (empty if can_unload). */
+  /** Human-readable block reasons (empty if an unload request may be offered). */
   reasons: string[];
 }
 
 /**
- * Evaluate the safe unload gate for a member.
+ * Evaluate whether the UI may offer an unload request for a member.
  *
- * Plan §8.1: routable → drain → quiescent (inflight=0 AND fresh) → unload.
- * Any block → reasons populated; caller MUST route through AlertDialog.
+ * A fresh zero count is only an observation. The server independently checks
+ * execution state before accepting an unload request.
  */
 export function evaluateUnloadGate(
   member: MemberViewModel,
-  routerMode: RuntimeSnapshotResponse["router_mode"],
+  /** @deprecated Retained for callers; router mode does not change drain gating. */
+  _routerMode: RuntimeSnapshotResponse["router_mode"],
   ledgerFresh: boolean,
-): UnloadSafetyGate {
+): UnloadRequestGate {
   const reasons: string[] = [];
   const blocked_routable = member.traffic_state !== "draining";
   if (blocked_routable) {
-    reasons.push("实例必须先进入 draining 状态，才能确认已停止接收新请求");
+    reasons.push("实例必须先进入 draining 状态，才能确认已停止接收新路由执行");
   }
   const inflight = member.runtime?.route_inflight;
   const blocked_inflight = inflight != null && inflight > 0;
   if (blocked_inflight) {
-    reasons.push(`仍有 ${inflight} 个活动请求，需等待归零`);
+    reasons.push(`仍有 ${inflight} 个执行操作未结束，需等待归零`);
   }
   const blocked_stale = member.runtime === undefined || inflight == null || !ledgerFresh;
   if (blocked_stale) {
-    reasons.push("路由账本数据陈旧，无法确认 inflight 已归零");
+    reasons.push("路由执行状态不可用或已过期，无法确认活动执行已归零");
   }
-  const blocked_shadow_mode = routerMode !== "enforce";
-  if (blocked_shadow_mode) {
-    reasons.push(`router_mode=${routerMode}，drain 仅预配置未实际停流`);
-  }
-  const can_unload =
-    !blocked_routable && !blocked_inflight && !blocked_stale && !blocked_shadow_mode;
+  const can_request_unload = !blocked_routable && !blocked_inflight && !blocked_stale;
   return {
     blocked_routable,
     blocked_inflight,
     blocked_stale,
-    blocked_shadow_mode,
-    can_unload,
+    blocked_shadow_mode: false,
+    can_request_unload,
+    can_unload: can_request_unload,
     reasons,
   };
 }

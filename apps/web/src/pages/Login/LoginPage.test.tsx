@@ -3,7 +3,7 @@
  * eye toggle / 注册入口可见性；Issue #123 · 登录返回目标过滤错误页与角色默认首页。
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { act, render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
 import { ApiError } from "@/api/client";
@@ -11,6 +11,7 @@ import { ApiError } from "@/api/client";
 const mockLogin: any = { isPending: false, isError: false, error: null, mutate: vi.fn() };
 const mockRegStatus: any = { data: { open_registration_enabled: true } };
 const mockResend: any = { isPending: false, mutate: vi.fn() };
+const mockCaptcha = { proof: "captcha-proof-a" };
 
 vi.mock("@/hooks/useAuth", () => ({
   useLogin: () => mockLogin,
@@ -19,18 +20,38 @@ vi.mock("@/hooks/useInvitation", () => ({
   useRegistrationStatus: () => mockRegStatus,
   useResendVerification: () => mockResend,
 }));
+vi.mock("@/components/Captcha", () => ({
+  Captcha: ({ onChange }: { onChange: (proof: string) => void }) => (
+    <button type="button" onClick={() => onChange(mockCaptcha.proof)}>
+      完成验证码
+    </button>
+  ),
+}));
 
 import { LoginPage } from "./LoginPage";
 
-function renderUI(initial = "/login") {
-  return render(
+function loginUI(initial = "/login") {
+  return (
     <MemoryRouter initialEntries={[initial]}>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/dashboard" element={<div>DASHBOARD</div>} />
       </Routes>
-    </MemoryRouter>,
+    </MemoryRouter>
   );
+}
+
+function renderUI(initial = "/login") {
+  return render(loginUI(initial));
+}
+
+function fillCredentials() {
+  fireEvent.change(screen.getByPlaceholderText("输入账号或邮箱"), {
+    target: { value: "admin" },
+  });
+  fireEvent.change(screen.getByPlaceholderText("••••••••"), {
+    target: { value: "secret" },
+  });
 }
 
 describe("LoginPage", () => {
@@ -41,6 +62,7 @@ describe("LoginPage", () => {
     mockLogin.error = null;
     mockLogin.mutate = vi.fn();
     mockRegStatus.data = { open_registration_enabled: true };
+    mockCaptcha.proof = "captcha-proof-a";
   });
 
   it("已登录 → 跳 /dashboard", () => {
@@ -100,6 +122,85 @@ describe("LoginPage", () => {
     renderUI();
     const btn = screen.getByText("登录中...") as HTMLButtonElement;
     expect(btn.closest("button")?.disabled).toBe(true);
+  });
+
+  it("请求进行中直接提交表单 → 不重复发送", () => {
+    mockLogin.isPending = true;
+    renderUI();
+    fillCredentials();
+    fireEvent.submit(document.querySelector("form")!);
+    expect(mockLogin.mutate).not.toHaveBeenCalled();
+  });
+
+  it("失败次数不触发本地验证码阈值", () => {
+    mockLogin.isError = true;
+    mockLogin.error = new ApiError(401, "账号或密码错误", "invalid_credentials", {
+      "x-login-failed-count": "99",
+    });
+    renderUI();
+    fillCredentials();
+    expect(screen.queryByRole("button", { name: "完成验证码" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "登录" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "登录" }));
+    expect(mockLogin.mutate).toHaveBeenCalledWith(
+      { email: "admin", password: "secret", captcha_token: undefined },
+      expect.any(Object),
+    );
+  });
+
+  it("低于旧阈值的服务端挑战要求验证，成功后清除挑战", () => {
+    mockLogin.isError = true;
+    mockLogin.error = new ApiError(400, "captcha_required", "captcha_required", {
+      "x-login-failed-count": "2",
+    });
+    renderUI();
+    fillCredentials();
+    expect(screen.getByText("请完成验证后重试")).toBeInTheDocument();
+    expect(screen.getByText("连续失败已达 2 次，请完成验证后重试")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "登录" })).toBeDisabled();
+    fireEvent.submit(document.querySelector("form")!);
+    expect(mockLogin.mutate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "完成验证码" }));
+    fireEvent.click(screen.getByRole("button", { name: "登录" }));
+    expect(mockLogin.mutate).toHaveBeenCalledWith(
+      { email: "admin", password: "secret", captcha_token: "captcha-proof-a" },
+      expect.any(Object),
+    );
+    act(() => mockLogin.mutate.mock.calls[0][1].onSuccess());
+    expect(screen.queryByRole("button", { name: "完成验证码" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "登录" })).toBeEnabled();
+  });
+
+  it("验证后的失败会更新组件并丢弃已用证明，保留服务端挑战", () => {
+    const view = renderUI();
+    fillCredentials();
+    mockLogin.isError = true;
+    mockLogin.error = new ApiError(400, "captcha_required", "captcha_required", {
+      "x-login-failed-count": "1",
+    });
+    view.rerender(loginUI());
+    const firstWidget = screen.getByRole("button", { name: "完成验证码" });
+    fireEvent.click(firstWidget);
+    fireEvent.click(screen.getByRole("button", { name: "登录" }));
+    mockLogin.isError = false;
+    mockLogin.error = null;
+    view.rerender(loginUI());
+    mockLogin.isError = true;
+    mockLogin.error = new ApiError(401, "账号或密码错误", "invalid_credentials", {
+      "x-login-failed-count": "2",
+    });
+    view.rerender(loginUI());
+    expect(screen.getByRole("button", { name: "完成验证码" })).not.toBe(firstWidget);
+    expect(screen.getByRole("button", { name: "登录" })).toBeDisabled();
+    fireEvent.submit(document.querySelector("form")!);
+    expect(mockLogin.mutate).toHaveBeenCalledTimes(1);
+    mockCaptcha.proof = "captcha-proof-b";
+    fireEvent.click(screen.getByRole("button", { name: "完成验证码" }));
+    fireEvent.click(screen.getByRole("button", { name: "登录" }));
+    expect(mockLogin.mutate).toHaveBeenLastCalledWith(
+      { email: "admin", password: "secret", captcha_token: "captcha-proof-b" },
+      expect.any(Object),
+    );
   });
 
   it("login.isError 默认文案", () => {

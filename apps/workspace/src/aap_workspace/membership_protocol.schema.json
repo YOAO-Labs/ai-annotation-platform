@@ -1,0 +1,1353 @@
+{
+  "$defs": {
+    "AddMemberPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "project_role": {
+          "title": "Project Role",
+          "type": "string"
+        },
+        "target_user_id": {
+          "format": "uuid",
+          "title": "Target User Id",
+          "type": "string"
+        }
+      },
+      "required": ["target_user_id", "project_role"],
+      "title": "AddMemberPayload",
+      "type": "object"
+    },
+    "ChangeRolePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_version": {
+          "title": "Expected Version",
+          "type": "integer"
+        },
+        "member_id": {
+          "format": "uuid",
+          "title": "Member Id",
+          "type": "string"
+        },
+        "preview_token": {
+          "title": "Preview Token",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "replacement_annotator_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Replacement Annotator Id"
+        },
+        "replacement_reviewer_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Replacement Reviewer Id"
+        },
+        "target_role": {
+          "title": "Target Role",
+          "type": "string"
+        }
+      },
+      "required": [
+        "member_id",
+        "target_role",
+        "replacement_annotator_id",
+        "replacement_reviewer_id",
+        "expected_version",
+        "preview_token",
+        "reason"
+      ],
+      "title": "ChangeRolePayload",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "MembershipAccountFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "is_active": {
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        }
+      },
+      "required": ["id", "role", "is_active"],
+      "title": "MembershipAccountFacts",
+      "type": "object"
+    },
+    "MembershipActorFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "is_active": {
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        }
+      },
+      "required": ["id", "name", "email", "role", "is_active"],
+      "title": "MembershipActorFacts",
+      "type": "object"
+    },
+    "MembershipAuditContext": {
+      "additionalProperties": false,
+      "properties": {
+        "ip": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ip"
+        },
+        "method": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Method"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Path"
+        },
+        "request_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Request Id"
+        }
+      },
+      "required": ["method", "path", "ip", "request_id"],
+      "title": "MembershipAuditContext",
+      "type": "object"
+    },
+    "MembershipBatchFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "admin_locked": {
+          "title": "Admin Locked",
+          "type": "boolean"
+        },
+        "annotator_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Annotator Id"
+        },
+        "assigned_user_ids": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "reviewer_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reviewer Id"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "annotator_id",
+        "reviewer_id",
+        "assigned_user_ids",
+        "admin_locked"
+      ],
+      "title": "MembershipBatchFacts",
+      "type": "object"
+    },
+    "MembershipError": {
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "headers": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Headers"
+        },
+        "rollback": {
+          "title": "Rollback",
+          "type": "boolean"
+        },
+        "status_code": {
+          "maximum": 599,
+          "minimum": 400,
+          "title": "Status Code",
+          "type": "integer"
+        }
+      },
+      "required": ["status_code", "detail", "headers", "rollback"],
+      "title": "MembershipError",
+      "type": "object"
+    },
+    "MembershipFactsData": {
+      "additionalProperties": false,
+      "properties": {
+        "accounts": {
+          "items": {
+            "$ref": "#/$defs/MembershipAccountFacts"
+          },
+          "title": "Accounts",
+          "type": "array"
+        },
+        "actor": {
+          "$ref": "#/$defs/MembershipActorFacts"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "eligible_reviewer_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Eligible Reviewer Ids",
+          "type": "array"
+        },
+        "kind": {
+          "const": "facts",
+          "title": "Kind",
+          "type": "string"
+        },
+        "labeling": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MembershipLabelingFacts"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "member": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MembershipRecord"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "operation": {
+          "enum": ["add_member", "preview_role_change", "change_role", "remove_member"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "project": {
+          "$ref": "#/$defs/MembershipProjectFacts"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "receiver_memberships": {
+          "items": {
+            "$ref": "#/$defs/MembershipReceiverFacts"
+          },
+          "title": "Receiver Memberships",
+          "type": "array"
+        },
+        "transaction_id": {
+          "title": "Transaction Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "operation_id",
+        "operation",
+        "actor_id",
+        "project_id",
+        "transaction_id",
+        "actor",
+        "project",
+        "member",
+        "accounts",
+        "receiver_memberships",
+        "eligible_reviewer_ids",
+        "labeling"
+      ],
+      "title": "MembershipFactsData",
+      "type": "object"
+    },
+    "MembershipFailure": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "error": {
+          "$ref": "#/$defs/MembershipError"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "enum": ["add_member", "preview_role_change", "change_role", "remove_member"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-workspace-membership/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation_id", "operation", "actor_id", "project_id", "error"],
+      "title": "MembershipFailure",
+      "type": "object"
+    },
+    "MembershipLabelingFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_receiver_conflict_task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Annotation Receiver Conflict Task Ids",
+          "type": "array"
+        },
+        "annotation_task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Annotation Task Ids",
+          "type": "array"
+        },
+        "batch_annotator_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Batch Annotator Ids",
+          "type": "array"
+        },
+        "batch_reviewer_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Batch Reviewer Ids",
+          "type": "array"
+        },
+        "batches": {
+          "items": {
+            "$ref": "#/$defs/MembershipBatchFacts"
+          },
+          "title": "Batches",
+          "type": "array"
+        },
+        "lock_task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Lock Task Ids",
+          "type": "array"
+        },
+        "materialization_annotation_task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Materialization Annotation Task Ids",
+          "type": "array"
+        },
+        "materialization_review_task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Materialization Review Task Ids",
+          "type": "array"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "review_claim_task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Review Claim Task Ids",
+          "type": "array"
+        },
+        "review_receiver_annotator_task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Review Receiver Annotator Task Ids",
+          "type": "array"
+        },
+        "review_receiver_contributor_task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Review Receiver Contributor Task Ids",
+          "type": "array"
+        },
+        "review_receiver_unknown_task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Review Receiver Unknown Task Ids",
+          "type": "array"
+        },
+        "review_task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Review Task Ids",
+          "type": "array"
+        },
+        "schema": {
+          "const": "aap-labeling-membership-work/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "tasks": {
+          "items": {
+            "$ref": "#/$defs/MembershipTaskFacts"
+          },
+          "title": "Tasks",
+          "type": "array"
+        },
+        "unassigned_review_task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Unassigned Review Task Ids",
+          "type": "array"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "project_id",
+        "user_id",
+        "annotation_task_ids",
+        "review_task_ids",
+        "unassigned_review_task_ids",
+        "lock_task_ids",
+        "review_claim_task_ids",
+        "materialization_annotation_task_ids",
+        "materialization_review_task_ids",
+        "batch_annotator_ids",
+        "batch_reviewer_ids",
+        "tasks",
+        "batches",
+        "annotation_receiver_conflict_task_ids",
+        "review_receiver_unknown_task_ids",
+        "review_receiver_annotator_task_ids",
+        "review_receiver_contributor_task_ids"
+      ],
+      "title": "MembershipLabelingFacts",
+      "type": "object"
+    },
+    "MembershipMemberData": {
+      "additionalProperties": false,
+      "properties": {
+        "member": {
+          "$ref": "#/$defs/MembershipRecord"
+        }
+      },
+      "required": ["member"],
+      "title": "MembershipMemberData",
+      "type": "object"
+    },
+    "MembershipPolicyReply": {
+      "additionalProperties": false,
+      "properties": {
+        "opaque_text_codec": {
+          "const": "json-string-ascii/v1",
+          "title": "Opaque Text Codec",
+          "type": "string"
+        },
+        "operations": {
+          "items": {
+            "enum": ["add_member", "preview_role_change", "change_role", "remove_member"],
+            "type": "string"
+          },
+          "title": "Operations",
+          "type": "array"
+        },
+        "schema": {
+          "const": "aap-workspace-membership-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "opaque_text_codec", "operations"],
+      "title": "MembershipPolicyReply",
+      "type": "object"
+    },
+    "MembershipPreview": {
+      "additionalProperties": false,
+      "properties": {
+        "blocker_details": {
+          "items": {
+            "additionalProperties": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "type": "object"
+          },
+          "title": "Blocker Details",
+          "type": "array"
+        },
+        "blockers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Blockers",
+          "type": "array"
+        },
+        "current_role": {
+          "title": "Current Role",
+          "type": "string"
+        },
+        "current_version": {
+          "title": "Current Version",
+          "type": "integer"
+        },
+        "member_id": {
+          "format": "uuid",
+          "title": "Member Id",
+          "type": "string"
+        },
+        "preview_token": {
+          "title": "Preview Token",
+          "type": "string"
+        },
+        "requires_handoff": {
+          "title": "Requires Handoff",
+          "type": "boolean"
+        },
+        "resource_snapshot": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Resource Snapshot",
+          "type": "object"
+        },
+        "target_role": {
+          "title": "Target Role",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "member_id",
+        "user_id",
+        "current_role",
+        "current_version",
+        "target_role",
+        "requires_handoff",
+        "blockers",
+        "blocker_details",
+        "resource_snapshot",
+        "preview_token"
+      ],
+      "title": "MembershipPreview",
+      "type": "object"
+    },
+    "MembershipProjectFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "owner_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Owner Id"
+        }
+      },
+      "required": ["id", "owner_id"],
+      "title": "MembershipProjectFacts",
+      "type": "object"
+    },
+    "MembershipReceiverFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": ["id", "project_id", "user_id", "role", "version"],
+      "title": "MembershipReceiverFacts",
+      "type": "object"
+    },
+    "MembershipRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "assigned_at": {
+          "format": "date-time",
+          "title": "Assigned At",
+          "type": "string"
+        },
+        "assigned_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Assigned By"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        },
+        "weekly_target": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Weekly Target"
+        }
+      },
+      "required": [
+        "id",
+        "project_id",
+        "user_id",
+        "role",
+        "assigned_by",
+        "version",
+        "assigned_at",
+        "updated_at",
+        "weekly_target"
+      ],
+      "title": "MembershipRecord",
+      "type": "object"
+    },
+    "MembershipRemovedData": {
+      "additionalProperties": false,
+      "properties": {
+        "member_id": {
+          "format": "uuid",
+          "title": "Member Id",
+          "type": "string"
+        },
+        "removed": {
+          "const": true,
+          "title": "Removed",
+          "type": "boolean"
+        }
+      },
+      "required": ["member_id", "removed"],
+      "title": "MembershipRemovedData",
+      "type": "object"
+    },
+    "MembershipReplayData": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "replay",
+          "title": "Kind",
+          "type": "string"
+        },
+        "operation": {
+          "enum": ["add_member", "preview_role_change", "change_role", "remove_member"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "reply": {
+          "$ref": "#/$defs/MembershipSuccess"
+        }
+      },
+      "required": ["kind", "operation_id", "operation", "actor_id", "project_id", "reply"],
+      "title": "MembershipReplayData",
+      "type": "object"
+    },
+    "MembershipRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/MembershipAuditContext"
+        },
+        "operation": {
+          "enum": ["add_member", "preview_role_change", "change_role", "remove_member"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "payload": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AddMemberPayload"
+            },
+            {
+              "$ref": "#/$defs/PreviewRoleChangePayload"
+            },
+            {
+              "$ref": "#/$defs/ChangeRolePayload"
+            },
+            {
+              "$ref": "#/$defs/RemoveMemberPayload"
+            }
+          ],
+          "title": "Payload"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-workspace-membership/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "operation",
+        "actor_id",
+        "project_id",
+        "payload",
+        "audit_context"
+      ],
+      "title": "MembershipRequest",
+      "type": "object"
+    },
+    "MembershipSuccess": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MembershipMemberData"
+            },
+            {
+              "$ref": "#/$defs/MembershipPreview"
+            },
+            {
+              "$ref": "#/$defs/MembershipRemovedData"
+            }
+          ],
+          "title": "Data"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "enum": ["add_member", "preview_role_change", "change_role", "remove_member"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-workspace-membership/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation_id", "operation", "actor_id", "project_id", "data"],
+      "title": "MembershipSuccess",
+      "type": "object"
+    },
+    "MembershipTaskFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_contributor_ids": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "assignee_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Assignee Id"
+        },
+        "assignee_is_override": {
+          "title": "Assignee Is Override",
+          "type": "boolean"
+        },
+        "batch_annotator_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Annotator Id"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "batch_reviewer_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Reviewer Id"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "review_contributor_ids": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Review Round Id"
+        },
+        "review_submitter_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Review Submitter Id"
+        },
+        "reviewer_claimed": {
+          "title": "Reviewer Claimed",
+          "type": "boolean"
+        },
+        "reviewer_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reviewer Id"
+        },
+        "reviewer_is_override": {
+          "title": "Reviewer Is Override",
+          "type": "boolean"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "version",
+        "batch_id",
+        "assignee_id",
+        "assignee_is_override",
+        "reviewer_id",
+        "reviewer_is_override",
+        "reviewer_claimed",
+        "review_round_id",
+        "review_submitter_id",
+        "annotation_contributor_ids",
+        "review_contributor_ids",
+        "batch_annotator_id",
+        "batch_reviewer_id"
+      ],
+      "title": "MembershipTaskFacts",
+      "type": "object"
+    },
+    "NativeMembershipAppliedData": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "applied",
+          "title": "Kind",
+          "type": "string"
+        },
+        "operation": {
+          "enum": ["add_member", "preview_role_change", "change_role", "remove_member"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "result": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MembershipMemberData"
+            },
+            {
+              "$ref": "#/$defs/MembershipPreview"
+            },
+            {
+              "$ref": "#/$defs/MembershipRemovedData"
+            }
+          ],
+          "title": "Result"
+        }
+      },
+      "required": ["kind", "operation_id", "operation", "actor_id", "project_id", "result"],
+      "title": "NativeMembershipAppliedData",
+      "type": "object"
+    },
+    "NativeMembershipApplyRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "request": {
+          "$ref": "#/$defs/MembershipRequest"
+        },
+        "schema": {
+          "const": "aap-workspace-membership-native/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "transaction_id": {
+          "title": "Transaction Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "request", "transaction_id"],
+      "title": "NativeMembershipApplyRequest",
+      "type": "object"
+    },
+    "NativeMembershipApplySuccess": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/NativeMembershipAppliedData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-workspace-membership-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "data"],
+      "title": "NativeMembershipApplySuccess",
+      "type": "object"
+    },
+    "NativeMembershipFailure": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/MembershipError"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-workspace-membership-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "error"],
+      "title": "NativeMembershipFailure",
+      "type": "object"
+    },
+    "NativeMembershipPrepareSuccess": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MembershipReplayData"
+            },
+            {
+              "$ref": "#/$defs/MembershipFactsData"
+            }
+          ],
+          "title": "Data"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-workspace-membership-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "data"],
+      "title": "NativeMembershipPrepareSuccess",
+      "type": "object"
+    },
+    "PreviewRoleChangePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "member_id": {
+          "format": "uuid",
+          "title": "Member Id",
+          "type": "string"
+        },
+        "replacement_annotator_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Replacement Annotator Id"
+        },
+        "replacement_reviewer_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Replacement Reviewer Id"
+        },
+        "target_role": {
+          "title": "Target Role",
+          "type": "string"
+        }
+      },
+      "required": [
+        "member_id",
+        "target_role",
+        "replacement_annotator_id",
+        "replacement_reviewer_id"
+      ],
+      "title": "PreviewRoleChangePayload",
+      "type": "object"
+    },
+    "RemoveMemberPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "member_id": {
+          "format": "uuid",
+          "title": "Member Id",
+          "type": "string"
+        }
+      },
+      "required": ["member_id"],
+      "title": "RemoveMemberPayload",
+      "type": "object"
+    }
+  },
+  "$id": "aap-workspace-membership/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/MembershipRequest"
+    },
+    {
+      "$ref": "#/$defs/MembershipSuccess"
+    },
+    {
+      "$ref": "#/$defs/MembershipFailure"
+    },
+    {
+      "$ref": "#/$defs/MembershipPolicyReply"
+    },
+    {
+      "$ref": "#/$defs/NativeMembershipApplyRequest"
+    },
+    {
+      "$ref": "#/$defs/NativeMembershipPrepareSuccess"
+    },
+    {
+      "$ref": "#/$defs/NativeMembershipApplySuccess"
+    },
+    {
+      "$ref": "#/$defs/NativeMembershipFailure"
+    }
+  ],
+  "x-postgresql-text-codec": {
+    "http_values": "unchanged logical strings",
+    "name": "json-string-ascii/v1",
+    "operation": "change_role",
+    "payload_fields": ["preview_token", "reason"],
+    "representation": "ASCII JSON string literal"
+  }
+}

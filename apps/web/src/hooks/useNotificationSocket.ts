@@ -25,7 +25,9 @@ const ALERT_DEDUP_LIMIT = 200;
 interface IncomingNotification {
   id?: unknown;
   type?: unknown;
+  reason?: unknown;
   payload?: Record<string, unknown>;
+  [extension: string]: unknown;
 }
 
 interface QueuedAlert {
@@ -207,10 +209,7 @@ export function useNotificationSocket() {
         }
         if (!parsed || typeof parsed.type !== "string") return;
         if (parsed.type === "notifications.sync") {
-          const reason =
-            typeof (parsed as { reason?: unknown }).reason === "string"
-              ? (parsed as { reason?: string }).reason
-              : null;
+          const reason = typeof parsed.reason === "string" ? parsed.reason : null;
           qc.invalidateQueries({ queryKey: ["notifications"] });
           if (reason === "preferences") {
             const owner = userIdRef.current;

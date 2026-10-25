@@ -4,10 +4,8 @@ import re
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.mask_format_import import MaskFormatImport
 from app.db.models.project import Project
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.deps import (
@@ -40,12 +38,13 @@ from app.services.mask_formats.service import (
     execute_import,
     fail_import_dispatch,
     preflight_import,
+    read_import,
     record_import_dispatch_task,
     resume_import,
     staged_prefix,
 )
 from app.services.storage import storage_service
-from app.services.workspace_contract import ProjectAccess, ProjectCapability
+from aap_workspace_contract.access import ProjectAccess, ProjectCapability
 from app.services.identity_contracts import IdentityActorFacts
 
 
@@ -232,7 +231,7 @@ async def preflight_mask_format_import(
 async def _dispatch_or_fail(
     db: AsyncSession,
     *,
-    batch: MaskFormatImport,
+    batch,
     dispatcher: QualityJobDispatcher,
 ) -> None:
     batch_id = batch.id
@@ -298,7 +297,6 @@ async def execute_mask_format_import(
     await db.commit()
     if should_dispatch:
         await _dispatch_or_fail(db, batch=batch, dispatcher=quality_dispatcher)
-    await db.refresh(batch)
     return batch_out(batch)
 
 
@@ -311,7 +309,7 @@ async def get_mask_format_import(
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
 ) -> MaskFormatImportBatchOut:
-    batch = await db.get(MaskFormatImport, import_id)
+    batch = await read_import(db, import_id=import_id, project_id=project.id)
     if batch is None or batch.project_id != project.id:
         raise HTTPException(status_code=404, detail="mask format import not found")
     return batch_out(batch)
@@ -331,20 +329,13 @@ async def resume_mask_format_import(
     db: AsyncSession = Depends(get_db),
     quality_dispatcher: QualityJobDispatcher = Depends(get_quality_job_dispatcher),
 ) -> MaskFormatImportBatchOut:
-    batch = (
-        await db.execute(
-            select(MaskFormatImport)
-            .where(
-                MaskFormatImport.id == import_id,
-                MaskFormatImport.project_id == project.id,
-            )
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
-    if batch is None:
-        raise HTTPException(status_code=404, detail="mask format import not found")
     try:
-        batch = await resume_import(db, batch=batch, user_id=user.id)
+        batch = await resume_import(
+            db,
+            batch_id=import_id,
+            project_id=project.id,
+            user_id=user.id,
+        )
     except MaskFormatError as exc:
         await db.rollback()
         _raise_format_error(exc)
@@ -360,5 +351,4 @@ async def resume_mask_format_import(
     )
     await db.commit()
     await _dispatch_or_fail(db, batch=batch, dispatcher=quality_dispatcher)
-    await db.refresh(batch)
     return batch_out(batch)

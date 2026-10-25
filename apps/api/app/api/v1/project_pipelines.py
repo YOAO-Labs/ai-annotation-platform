@@ -1,64 +1,29 @@
-"""v0.21.0 · 命名项目编排库端点."""
+"""Saved inference-pipeline API routes."""
 
 from __future__ import annotations
 
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, or_, select
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.enums import UserRole
-from app.db.models.project_pipeline import ProjectPipeline
-from app.services.identity_read_relations import (
-    account_profiles,
-    read_account_profile,
-    read_account_profiles,
-)
 from app.deps import get_current_user, get_db
 from app.schemas.project_pipeline import (
     ProjectPipelineCreate,
     ProjectPipelineOut,
     ProjectPipelineUpdate,
 )
-from app.services.pipeline_template import (
-    assert_pipeline_visible,
-    create_pipeline as create_pipeline_command,
-    delete_pipeline as delete_pipeline_command,
-    list_user_org_ids,
-    update_pipeline as update_pipeline_command,
-)
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.inference_pipelines import (
+    commit_pipeline_command,
+    execute_pipeline_command,
+    get_pipeline_projection,
+    get_pipeline_row,
+    list_pipeline_rows,
+)
 
 router = APIRouter()
-
-
-async def _serialize(
-    db: AsyncSession,
-    pipeline: ProjectPipeline,
-    creator_name_map: dict[uuid.UUID, str | None] | None = None,
-) -> dict:
-    creator_name: str | None = None
-    if pipeline.created_by:
-        if creator_name_map is not None:
-            # 批量场景 (list): 名字已一次性查好, 不再逐条往返 (避免 N+1)。
-            creator_name = creator_name_map.get(pipeline.created_by)
-        else:
-            creator = await read_account_profile(db, pipeline.created_by)
-            creator_name = creator.name if creator is not None else None
-    data = {c.name: getattr(pipeline, c.name) for c in pipeline.__table__.columns}
-    data["created_by_name"] = creator_name
-    return data
-
-
-async def _load_pipeline_or_404(
-    db: AsyncSession, pipeline_id: uuid.UUID
-) -> ProjectPipeline:
-    pipeline = await db.get(ProjectPipeline, pipeline_id)
-    if pipeline is None:
-        raise HTTPException(status_code=404, detail="编排不存在")
-    return pipeline
 
 
 @router.get("", response_model=list[ProjectPipelineOut])
@@ -71,41 +36,13 @@ async def list_pipelines(
     db: AsyncSession = Depends(get_db),
     user: IdentityActorFacts = Depends(get_current_user),
 ):
-    q = select(ProjectPipeline)
-    if user.role != UserRole.SUPER_ADMIN:
-        org_ids = await list_user_org_ids(db, user)
-        visibility_clauses = [
-            ProjectPipeline.scope == "public",
-            and_(
-                ProjectPipeline.scope == "private",
-                ProjectPipeline.created_by == user.id,
-            ),
-        ]
-        if org_ids:
-            visibility_clauses.append(
-                and_(
-                    ProjectPipeline.scope == "organization",
-                    ProjectPipeline.organization_id.in_(org_ids),
-                )
-            )
-        q = q.where(or_(*visibility_clauses))
-    if scope:
-        q = q.where(ProjectPipeline.scope == scope)
-    if project_id:
-        q = q.where(ProjectPipeline.project_id == project_id)
-    if organization_id:
-        q = q.where(ProjectPipeline.organization_id == organization_id)
-    rows = await db.execute(q.order_by(ProjectPipeline.created_at.desc()))
-    pipelines = rows.scalars().all()
-    # 一次性取全部创建者名字, 消除 _serialize 里的逐条 SELECT (N+1)。
-    creator_ids = {p.created_by for p in pipelines if p.created_by}
-    creator_name_map: dict[uuid.UUID, str | None] = {}
-    if creator_ids:
-        creators = await read_account_profiles(
-            db, select(account_profiles).where(account_profiles.c.id.in_(creator_ids))
-        )
-        creator_name_map = {creator.id: creator.name for creator in creators}
-    return [await _serialize(db, p, creator_name_map) for p in pipelines]
+    return await list_pipeline_rows(
+        db,
+        actor=user,
+        scope=scope,
+        project_id=project_id,
+        organization_id=organization_id,
+    )
 
 
 @router.post("", response_model=ProjectPipelineOut, status_code=201)
@@ -114,10 +51,14 @@ async def create_pipeline(
     db: AsyncSession = Depends(get_db),
     user: IdentityActorFacts = Depends(get_current_user),
 ):
-    pipeline = await create_pipeline_command(db, data, user)
-    await db.commit()
-    await db.refresh(pipeline)
-    return await _serialize(db, pipeline)
+    mutation = await execute_pipeline_command(
+        db,
+        operation="create_pipeline",
+        actor=user,
+        payload=data,
+    )
+    await commit_pipeline_command(db, mutation)
+    return await get_pipeline_projection(db, mutation, actor=user)
 
 
 @router.get("/{pipeline_id}", response_model=ProjectPipelineOut)
@@ -126,9 +67,7 @@ async def get_pipeline(
     db: AsyncSession = Depends(get_db),
     user: IdentityActorFacts = Depends(get_current_user),
 ):
-    pipeline = await _load_pipeline_or_404(db, pipeline_id)
-    await assert_pipeline_visible(db, pipeline, user)
-    return await _serialize(db, pipeline)
+    return await get_pipeline_row(db, actor=user, pipeline_id=pipeline_id)
 
 
 @router.put("/{pipeline_id}", response_model=ProjectPipelineOut)
@@ -138,10 +77,15 @@ async def update_pipeline(
     db: AsyncSession = Depends(get_db),
     user: IdentityActorFacts = Depends(get_current_user),
 ):
-    pipeline = await update_pipeline_command(db, pipeline_id, data, user)
-    await db.commit()
-    await db.refresh(pipeline)
-    return await _serialize(db, pipeline)
+    mutation = await execute_pipeline_command(
+        db,
+        operation="update_pipeline",
+        actor=user,
+        target_id=pipeline_id,
+        payload=data,
+    )
+    await commit_pipeline_command(db, mutation)
+    return await get_pipeline_projection(db, mutation, actor=user)
 
 
 @router.delete("/{pipeline_id}", status_code=204)
@@ -150,5 +94,11 @@ async def delete_pipeline(
     db: AsyncSession = Depends(get_db),
     user: IdentityActorFacts = Depends(get_current_user),
 ):
-    await delete_pipeline_command(db, pipeline_id, user)
-    await db.commit()
+    mutation = await execute_pipeline_command(
+        db,
+        operation="delete_pipeline",
+        actor=user,
+        target_id=pipeline_id,
+        payload={},
+    )
+    await commit_pipeline_command(db, mutation)

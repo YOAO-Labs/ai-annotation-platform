@@ -1,9 +1,10 @@
 """审计日志过滤 / 分页 / 自动记录测试。"""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from app.db.models.audit_log import AuditLog
+from app.schemas.audit import AuditLogOut
 
 
 class TestAuditLogFilters:
@@ -85,6 +86,133 @@ class TestAuditLogFilters:
         data = r.json()
         assert len(data["items"]) <= 5
 
+    async def test_cursor_uses_keyset_and_keeps_unpaged_total(
+        self, httpx_client, db_session, auth_headers
+    ):
+        target_type = "audit_cursor_page"
+        target_id = str(uuid4())
+        now = datetime.now(timezone.utc)
+        db_session.add_all(
+            [
+                AuditLog(
+                    action=f"audit.cursor.{index}",
+                    target_type=target_type,
+                    target_id=target_id,
+                    created_at=now,
+                )
+                for index in range(3)
+            ]
+        )
+        await db_session.commit()
+        params = {"target_type": target_type, "target_id": target_id, "page_size": 1}
+
+        first = await httpx_client.get(
+            "/api/v1/audit-logs", params={**params, "page": 1}, headers=auth_headers
+        )
+        assert first.status_code == 200, first.text
+        first_data = first.json()
+        assert first_data["total"] == 3
+        assert len(first_data["items"]) == 1
+        assert first_data["next_cursor"]
+
+        second = await httpx_client.get(
+            "/api/v1/audit-logs",
+            params={**params, "page": 9, "cursor": first_data["next_cursor"]},
+            headers=auth_headers,
+        )
+        assert second.status_code == 200, second.text
+        second_data = second.json()
+        assert second_data["total"] == 3
+        assert second_data["page"] == 9
+        assert len(second_data["items"]) == 1
+        assert second_data["items"][0]["id"] < first_data["items"][0]["id"]
+        assert second_data["next_cursor"]
+
+    async def test_detail_filter_matches_json_string_value(
+        self, httpx_client, db_session, auth_headers
+    ):
+        target_type = "audit_detail_query"
+        target_id = str(uuid4())
+        now = datetime.now(timezone.utc)
+        db_session.add_all(
+            [
+                AuditLog(
+                    action="audit.detail.match",
+                    target_type=target_type,
+                    target_id=target_id,
+                    detail_json={"phase": "accepted"},
+                    created_at=now,
+                ),
+                AuditLog(
+                    action="audit.detail.skip",
+                    target_type=target_type,
+                    target_id=target_id,
+                    detail_json={"phase": "rejected"},
+                    created_at=now,
+                ),
+            ]
+        )
+        await db_session.commit()
+
+        result = await httpx_client.get(
+            "/api/v1/audit-logs",
+            params={
+                "target_type": target_type,
+                "target_id": target_id,
+                "detail_key": "phase",
+                "detail_value": "accepted",
+            },
+            headers=auth_headers,
+        )
+        assert result.status_code == 200, result.text
+        data = result.json()
+        assert data["total"] == 1
+        assert [row["action"] for row in data["items"]] == ["audit.detail.match"]
+
+    async def test_time_filters_keep_inclusive_bounds(
+        self, httpx_client, db_session, auth_headers
+    ):
+        target_type = "audit_time_filter"
+        target_id = str(uuid4())
+        lower = datetime(2026, 10, 20, 12, tzinfo=timezone.utc)
+        upper = datetime(2026, 10, 20, 13, tzinfo=timezone.utc)
+        times = [
+            ("audit.time.before", lower - timedelta(microseconds=1)),
+            ("audit.time.at_lower", lower),
+            ("audit.time.at_upper", upper),
+            ("audit.time.after", upper + timedelta(microseconds=1)),
+        ]
+        db_session.add_all(
+            [
+                AuditLog(
+                    action=action,
+                    target_type=target_type,
+                    target_id=target_id,
+                    created_at=created_at,
+                )
+                for action, created_at in times
+            ]
+        )
+        await db_session.commit()
+
+        result = await httpx_client.get(
+            "/api/v1/audit-logs",
+            params={
+                "target_type": target_type,
+                "target_id": target_id,
+                "from": lower.isoformat(),
+                "to": upper.isoformat(),
+            },
+            headers=auth_headers,
+        )
+        assert result.status_code == 200, result.text
+        data = result.json()
+        assert data["total"] == 2
+        assert {row["action"] for row in data["items"]} == {
+            "audit.time.at_lower",
+            "audit.time.at_upper",
+        }
+
 
 class TestAuditAutoRecord:
     async def test_login_creates_audit_log(self, httpx_client, db_session, super_admin):
@@ -112,6 +240,55 @@ class TestAuditAutoRecord:
 
 
 class TestAuditLogProjection:
+    async def test_global_query_preserves_host_and_masked_inet_dto_values(
+        self, httpx_client, db_session, auth_headers
+    ):
+        from sqlalchemy import select
+
+        target_type = "audit_inet_serialization"
+        target_id = str(uuid4())
+        now = datetime.now(timezone.utc)
+        entries = [
+            ("audit.inet.ipv4_host", "127.0.0.1"),
+            ("audit.inet.ipv6_host", "2001:db8::1"),
+            ("audit.inet.ipv4_mapped_host", "::ffff:192.0.2.1"),
+            ("audit.inet.ipv4_masked", "192.0.2.13/24"),
+            ("audit.inet.ipv6_masked", "2001:db8::2/64"),
+            ("audit.inet.ipv4_mapped_masked", "::ffff:192.0.2.1/120"),
+        ]
+        db_session.add_all(
+            [
+                AuditLog(
+                    action=action,
+                    target_type=target_type,
+                    target_id=target_id,
+                    ip=ip,
+                    created_at=now,
+                )
+                for action, ip in entries
+            ]
+        )
+        await db_session.commit()
+
+        old_rows = (
+            await db_session.scalars(
+                select(AuditLog).where(
+                    AuditLog.target_type == target_type,
+                    AuditLog.target_id == target_id,
+                )
+            )
+        ).all()
+        expected = {row.action: AuditLogOut.model_validate(row).ip for row in old_rows}
+
+        response = await httpx_client.get(
+            "/api/v1/audit-logs",
+            params={"target_type": target_type, "target_id": target_id},
+            headers=auth_headers,
+        )
+        assert response.status_code == 200, response.text
+        actual = {row["action"]: row["ip"] for row in response.json()["items"]}
+        assert actual == expected
+
     async def test_export_projects_current_email_without_mutating_history(
         self, httpx_client, db_session, super_admin
     ):

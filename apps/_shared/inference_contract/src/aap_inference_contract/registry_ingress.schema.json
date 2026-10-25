@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-inference-registry-env-sync/v1",
+  "title": "Inference Registry environment synchronization wire",
+  "oneOf": [
+    { "$ref": "#/$defs/RegistryEnvSyncRequest" },
+    { "$ref": "#/$defs/RegistryEnvSyncResult" },
+    { "$ref": "#/$defs/RegistryEnvSyncStatusRequest" }
+  ],
+  "$defs": {
+    "RegistryEnvSyncRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "request_id", "urls", "timeout_seconds", "capability_limits"],
+      "properties": {
+        "schema": { "const": "aap-inference-registry-env-sync/v1" },
+        "request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "urls": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "writeOnly": true,
+          "description": "Trusted operator-supplied URLs; never returned in an acknowledgement."
+        },
+        "timeout_seconds": {
+          "type": "number",
+          "x-finite": true,
+          "description": "Finite legacy timeout; zero and negative values are preserved."
+        },
+        "capability_limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["video_tracker_window_size_frames", "video_tracker_sam3_window_size_frames"],
+          "properties": {
+            "video_tracker_window_size_frames": { "type": "integer", "minimum": 1 },
+            "video_tracker_sam3_window_size_frames": { "type": "integer", "minimum": 1 }
+          }
+        }
+      },
+      "x-request-id-canonical": true,
+      "x-command-fingerprint": "SHA-256 of canonical UTF-8 JSON with request_id removed, ensure_ascii=false, sorted keys, and compact separators."
+    },
+    "RegistryEnvSyncResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "request_id", "command_sha256", "state", "observed_urls"],
+      "properties": {
+        "schema": { "const": "aap-inference-registry-env-sync-result/v1" },
+        "request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "command_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "state": { "enum": ["caller_pending", "committed", "unknown"] },
+        "observed_urls": { "type": ["integer", "null"], "minimum": 0 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "state": { "const": "unknown" } } },
+          "then": { "properties": { "observed_urls": { "type": "null" } } },
+          "else": { "properties": { "observed_urls": { "type": "integer", "minimum": 0 } } }
+        }
+      ]
+    },
+    "RegistryEnvSyncStatusRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "request_id", "command_sha256"],
+      "properties": {
+        "schema": { "const": "aap-inference-registry-env-sync-status/v1" },
+        "request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "command_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      },
+      "x-request-id-canonical": true
+    },
+    "RegistryEnvSyncNativePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "data_protocol", "transaction", "functions", "ready"],
+      "properties": {
+        "schema": { "const": "aap-inference-registry-ingress-native/v1" },
+        "data_protocol": { "const": "aap-inference-registry-ingress/v1" },
+        "transaction": { "const": "caller_owned" },
+        "functions": {
+          "const": [
+            "aap_inference_registry_ingress_v1.registry_ingress_policy()",
+            "aap_inference_registry_ingress_v1.registry_by_url(text)",
+            "aap_inference_registry_ingress_v1.registry_candidates(text)",
+            "aap_inference_registry_ingress_v1.create_registry(uuid,text,text,text,boolean,text)",
+            "aap_inference_registry_ingress_v1.singleton_pool(uuid)",
+            "aap_inference_registry_ingress_v1.create_singleton_pool(uuid,uuid,uuid,text,text,text)",
+            "aap_inference_registry_ingress_v1.apply_observation(uuid,text,text,text,boolean,text,timestamptz,text,boolean,text)",
+            "aap_inference_registry_ingress_v1.disconnect_env_registry(uuid,text)",
+            "aap_inference_registry_ingress_v1.tag_seed_registry(uuid,text)",
+            "aap_inference_registry_ingress_v1.sync_result(uuid,text)",
+            "aap_inference_registry_ingress_v1.record_sync_result(uuid,text,integer)"
+          ]
+        },
+        "ready": { "type": "boolean" }
+      }
+    }
+  },
+  "x-request-max-bytes": 25165824,
+  "x-reply-max-bytes": 25165824
+}

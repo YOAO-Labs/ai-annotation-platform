@@ -985,7 +985,7 @@ function PoolMemberActions({
           <AlertDialogHeader>
             <AlertDialogTitle>移除成员「{member.name}」</AlertDialogTitle>
             <AlertDialogDescription>
-              成员必须已 drain，且路由账本能确认 inflight 为 0。
+              成员须先停流；服务端会确认后台任务已结束，再解除成员关系。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

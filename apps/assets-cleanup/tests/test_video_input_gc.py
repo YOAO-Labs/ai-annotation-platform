@@ -1,11 +1,14 @@
 """The video cleanup lane leases, deletes and acknowledges exact attempt scopes."""
 
 import asyncio
+import threading
 from uuid import UUID, uuid4
 
 import pytest
 
 from aap_assets_video_inputs import execution as video
+from aap_assets_video_inputs_runtime.database import AsyncpgVideoInputDatabase
+from aap_assets_video_inputs_runtime.garbage import VideoGarbageCollector
 from aap_assets_video_inputs_runtime.storage import S3VideoInputStorage
 from aap_assets_inputs.contract import InputFailure
 
@@ -220,6 +223,48 @@ async def test_video_collector_cancels_before_ack_when_shutdown_arrives():
     stop.set()
     assert await work == 0
     assert cancelled.is_set()
+
+
+@pytest.mark.asyncio
+async def test_video_shutdown_waits_for_current_s3_call_and_skips_acknowledgement():
+    started, release = threading.Event(), threading.Event()
+
+    class BlockingVersionedClient:
+        calls = 0
+
+        def list_multipart_uploads(self, **_parameters):
+            self.calls += 1
+            started.set()
+            assert release.wait(2)
+            return {"Uploads": []}
+
+    claim = _claim()
+    events = []
+    connection = _Connection(claim, events)
+    client = BlockingVersionedClient()
+    storage = S3VideoInputStorage(
+        _config().inputs_storage,
+        source_storage=None,
+        client=client,
+        signer=client,
+    )
+    collector = VideoGarbageCollector(
+        AsyncpgVideoInputDatabase(_Pool(connection), allowed_roles={"cleanup"}),
+        storage,
+        worker_id=WORKER_ID,
+    )
+    stop = asyncio.Event()
+    work = asyncio.create_task(collect_video_inputs_before_stop(collector, stop))
+
+    assert await asyncio.to_thread(started.wait, 2)
+    stop.set()
+    await asyncio.sleep(0.05)
+    assert not work.done()
+    release.set()
+
+    assert await asyncio.wait_for(work, 2) == 0
+    assert client.calls == 1
+    assert [event[0] for event in events] == ["claim", "commit"]
 
 
 def test_video_storage_has_a_video_only_prefix_allowlist():

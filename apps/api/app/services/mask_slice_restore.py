@@ -4,18 +4,24 @@ from __future__ import annotations
 
 import uuid
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime
 
-from sqlalchemy import delete, func, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
-from app.db.models.mask_annotation_revision import MaskAnnotationRevision
 from app.db.models.task import Task
 from app.services.annotation_slice_contracts import (
     AnnotationSliceError as _AnnotationSliceError,
     annotation_slice_digest as _annotation_slice_digest,
 )
+from aap_labeling.mask_revision_contract import (
+    ExpireMaskRevisions,
+    MaskRevisionReference,
+    ProtectMaskRevisions,
+    ResolveMaskRevisions,
+    MASK_REVISION_PROTOCOL,
+)
+from app.services.labeling_mask_edit import MaskOwnerCommandError, mask_revision_command
 from app.services.raster_mask_storage import (
     _VerifiedMaskContent,
     RasterMaskContractError,
@@ -28,12 +34,18 @@ async def expire_mask_annotation_revisions(
     db: AsyncSession, *, now: datetime | None = None
 ) -> int:
     """Delete snapshots only after their stored retention deadline has elapsed."""
-    result = await db.execute(
-        delete(MaskAnnotationRevision)
-        .where(MaskAnnotationRevision.expires_at <= (now or datetime.now(timezone.utc)))
-        .returning(MaskAnnotationRevision.id)
-    )
-    return len(result.scalars().all())
+    try:
+        result = await mask_revision_command(
+            db,
+            ExpireMaskRevisions(
+                schema=MASK_REVISION_PROTOCOL, operation="expire", now=now
+            ),
+        )
+    except MaskOwnerCommandError as exc:
+        raise _AnnotationSliceError(
+            exc.status_code, "revision_expiry_failed", str(exc)
+        ) from exc
+    return result.affected
 
 
 def mask_version_snapshot(
@@ -74,7 +86,7 @@ def _references(report: dict) -> dict[tuple[uuid.UUID, int], dict]:
 
 
 async def protect_mask_slice_versions(
-    db: AsyncSession, report: dict, expires_at: datetime
+    db: AsyncSession, task_id: uuid.UUID, report: dict, expires_at: datetime
 ) -> None:
     """Call after annotation flush: triggers have captured every retiring version.
 
@@ -82,67 +94,72 @@ async def protect_mask_slice_versions(
     restore so capture-trigger pruning cannot shorten a referenced old revision.
     """
     references = _references(report)
-    await db.execute(
-        update(MaskAnnotationRevision)
-        .where(
-            tuple_(
-                MaskAnnotationRevision.annotation_id,
-                MaskAnnotationRevision.annotation_version,
-            ).in_(references)
+    try:
+        await mask_revision_command(
+            db,
+            ProtectMaskRevisions(
+                schema=MASK_REVISION_PROTOCOL,
+                operation="protect",
+                task_id=task_id,
+                references=[
+                    MaskRevisionReference(
+                        annotation_id=annotation_id,
+                        annotation_version=version,
+                        geometry_digest=snapshot["geometry_digest"],
+                    )
+                    for (annotation_id, version), snapshot in references.items()
+                ],
+                expires_at=expires_at,
+            ),
         )
-        .values(expires_at=func.greatest(MaskAnnotationRevision.expires_at, expires_at))
-        .execution_options(synchronize_session=False)
-    )
+    except MaskOwnerCommandError as exc:
+        raise _AnnotationSliceError(
+            exc.status_code, "snapshot_unavailable", str(exc)
+        ) from exc
 
 
 async def _resolve_mask_slice_geometries(
     db: AsyncSession, task: Task, report: dict, *, locked: bool
 ) -> dict[tuple[uuid.UUID, int], dict]:
     references = _references(report)
-    annotations = {
-        row.id: row
-        for row in await db.scalars(
-            select(Annotation)
-            .where(
-                Annotation.task_id == task.id,
-                Annotation.id.in_({key[0] for key in references}),
+    request = ResolveMaskRevisions(
+        schema=MASK_REVISION_PROTOCOL,
+        operation="resolve",
+        task_id=task.id,
+        references=[
+            MaskRevisionReference(
+                annotation_id=annotation_id,
+                annotation_version=version,
+                geometry_digest=snapshot["geometry_digest"],
             )
-            .execution_options(populate_existing=True)
-        )
-    }
-
+            for (annotation_id, version), snapshot in sorted(
+                references.items(), key=lambda item: (str(item[0][0]), item[0][1])
+            )
+        ],
+        lock=locked,
+    )
+    try:
+        resolved = await mask_revision_command(db, request)
+    except MaskOwnerCommandError as exc:
+        detail = exc.detail if isinstance(exc.detail, dict) else {}
+        raise _AnnotationSliceError(
+            exc.status_code,
+            str(detail.get("reason", "snapshot_unavailable")),
+            str(detail.get("message", "Mask 恢复版本缺失或已过期")),
+        ) from exc
     result = {}
-    for (annotation_id, version), snapshot in sorted(
-        references.items(), key=lambda item: (str(item[0][0]), item[0][1])
-    ):
-        annotation = annotations.get(annotation_id)
-        if annotation is not None and annotation.version == version:
-            geometry = annotation.geometry
-        else:
-            query = (
-                select(MaskAnnotationRevision)
-                .where(
-                    MaskAnnotationRevision.task_id == task.id,
-                    MaskAnnotationRevision.annotation_id == annotation_id,
-                    MaskAnnotationRevision.annotation_version == version,
-                    MaskAnnotationRevision.expires_at > datetime.now(timezone.utc),
-                )
-                .execution_options(populate_existing=True)
-            )
-            revision = await db.scalar(query.with_for_update() if locked else query)
-            if revision is None:
-                raise _AnnotationSliceError(
-                    409, "snapshot_unavailable", "Mask 恢复版本缺失或已过期"
-                )
-            geometry = revision.geometry
+    for row in resolved.geometries:
+        identity = (row.annotation_id, row.annotation_version)
+        snapshot = references.get(identity)
         if (
-            geometry.get("type") != "raster_mask"
-            or _annotation_slice_digest(geometry) != snapshot["geometry_digest"]
+            snapshot is None
+            or row.geometry.get("type") != "raster_mask"
+            or _annotation_slice_digest(row.geometry) != snapshot["geometry_digest"]
         ):
             raise _AnnotationSliceError(
                 409, "snapshot_unavailable", "Mask 恢复版本内容校验失败"
             )
-        result[(annotation_id, version)] = deepcopy(geometry)
+        result[identity] = deepcopy(row.geometry)
     return result
 
 

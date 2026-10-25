@@ -3,7 +3,6 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import get_db, get_current_user
-from app.db.models.task import Task
 from app.schemas.task import UploadInitRequest, UploadInitResponse, TaskFileUrlResponse
 from app.application.legacy_file_upload import (
     LegacyFileUploadWorkflow,
@@ -19,6 +18,8 @@ from app.services.assets_media import browser_media_url, media_gateway, media_ht
 from aap_assets_media.contract import MediaFailure, ReadSourceRequest
 from app.services.identity_contracts import IdentityActorFacts
 
+from app.services.labeling_core_read_relations import get_core_row, task_row
+
 router = APIRouter()
 
 
@@ -28,15 +29,18 @@ async def upload_init(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    result = await LegacyFileUploadWorkflow(
-        db, storage=storage_service
-    ).initialize_upload(
-        actor_id=current_user.id,
-        project_id=data.project_id,
-        file_name=data.file_name,
-        content_type=data.content_type,
-        file_type=_infer_file_type(data.content_type),
-    )
+    try:
+        result = await LegacyFileUploadWorkflow(
+            db, storage=storage_service
+        ).initialize_upload(
+            actor_id=current_user.id,
+            project_id=data.project_id,
+            file_name=data.file_name,
+            content_type=data.content_type,
+            file_type=_infer_file_type(data.content_type),
+        )
+    except TaskWorkflowError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     return UploadInitResponse(
         task_id=result.scope.task_id,
         upload_url=result.upload_url,
@@ -74,7 +78,7 @@ async def get_file_url(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    task = await db.get(Task, task_id, populate_existing=True)
+    task = await get_core_row(db, task_row, task_id, populate_existing=True)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     await task_access.assert_task_visible(db, task, current_user.id)

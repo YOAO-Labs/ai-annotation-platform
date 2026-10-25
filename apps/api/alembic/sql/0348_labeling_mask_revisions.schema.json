@@ -1,0 +1,212 @@
+{
+  "$defs": {
+    "ExpireMaskRevisions": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-mask-revisions/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "expire",
+          "title": "Operation",
+          "type": "string"
+        },
+        "now": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Now"
+        }
+      },
+      "required": ["schema", "operation", "now"],
+      "title": "ExpireMaskRevisions",
+      "type": "object"
+    },
+    "MaskRevisionData": {
+      "additionalProperties": false,
+      "properties": {
+        "geometries": {
+          "items": {
+            "$ref": "#/$defs/MaskRevisionGeometry"
+          },
+          "title": "Geometries",
+          "type": "array"
+        },
+        "affected": {
+          "minimum": 0,
+          "title": "Affected",
+          "type": "integer"
+        }
+      },
+      "required": ["geometries", "affected"],
+      "title": "MaskRevisionData",
+      "type": "object"
+    },
+    "MaskRevisionGeometry": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "annotation_version": {
+          "minimum": 1,
+          "title": "Annotation Version",
+          "type": "integer"
+        },
+        "geometry": {
+          "additionalProperties": true,
+          "title": "Geometry",
+          "type": "object"
+        }
+      },
+      "required": ["annotation_id", "annotation_version", "geometry"],
+      "title": "MaskRevisionGeometry",
+      "type": "object"
+    },
+    "MaskRevisionReference": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "annotation_version": {
+          "minimum": 1,
+          "title": "Annotation Version",
+          "type": "integer"
+        },
+        "geometry_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Geometry Digest",
+          "type": "string"
+        }
+      },
+      "required": ["annotation_id", "annotation_version", "geometry_digest"],
+      "title": "MaskRevisionReference",
+      "type": "object"
+    },
+    "ProtectMaskRevisions": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-mask-revisions/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "protect",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "references": {
+          "items": {
+            "$ref": "#/$defs/MaskRevisionReference"
+          },
+          "title": "References",
+          "type": "array"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "task_id", "references", "expires_at"],
+      "title": "ProtectMaskRevisions",
+      "type": "object"
+    },
+    "ResolveMaskRevisions": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-mask-revisions/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "resolve",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "references": {
+          "items": {
+            "$ref": "#/$defs/MaskRevisionReference"
+          },
+          "title": "References",
+          "type": "array"
+        },
+        "lock": {
+          "title": "Lock",
+          "type": "boolean"
+        }
+      },
+      "required": ["schema", "operation", "task_id", "references", "lock"],
+      "title": "ResolveMaskRevisions",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "aap-labeling-mask-revisions/v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "request": {
+      "discriminator": {
+        "mapping": {
+          "expire": "#/$defs/ExpireMaskRevisions",
+          "protect": "#/$defs/ProtectMaskRevisions",
+          "resolve": "#/$defs/ResolveMaskRevisions"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ResolveMaskRevisions"
+        },
+        {
+          "$ref": "#/$defs/ProtectMaskRevisions"
+        },
+        {
+          "$ref": "#/$defs/ExpireMaskRevisions"
+        }
+      ],
+      "title": "Request"
+    },
+    "data": {
+      "$ref": "#/$defs/MaskRevisionData"
+    }
+  },
+  "required": ["schema", "ok", "request", "data"],
+  "title": "_Reply",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-labeling-mask-revisions/v1",
+  "x-postgresql-functions": ["aap_labeling_v1.mask_revision_command(jsonb)"]
+}

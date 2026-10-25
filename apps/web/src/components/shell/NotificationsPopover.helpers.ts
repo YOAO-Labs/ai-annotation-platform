@@ -31,6 +31,11 @@ export const GROUP_LABELS: Record<NotificationGroupKey, string> = {
 
 export const GROUP_ORDER: NotificationGroupKey[] = ["today", "week", "earlier"];
 
+export function notificationPayloadRecord(payload: unknown): Record<string, unknown> {
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) return {};
+  return payload as Record<string, unknown>;
+}
+
 function startOfToday(now: Date): Date {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
 }

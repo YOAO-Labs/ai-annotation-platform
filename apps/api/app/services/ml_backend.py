@@ -1,32 +1,24 @@
 from __future__ import annotations
 
-import re
-import secrets
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
 
-from aap_protocol_v2.lifecycle import managed_lifecycle_capability_sha256
 from fastapi import HTTPException
-from sqlalchemy import func, select, text, update
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.async_job import AsyncJob, AsyncJobStatus
 from app.db.models.gpu_backend_fence import GPUBackendFence
-from app.db.models.gpu_backend_membership import GPUBackendMembership
+from app.services.project_access import get_workspace_project
 from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
 from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBackendPool
-from app.db.models.project import Project
 from app.services.gpu_arbitration.contracts import (
     GPUDispatchContextFactory,
     GPUShadowSessionFactory,
 )
 from app.services.gpu_arbitration.policy import validate_gpu_claim
-from app.services.ml_client import (
-    GPU_HEALTH_CHALLENGE_ECHO_MARKER,
-    MLBackendClient,
-)
+from app.services.ml_client import MLBackendClient
+from aap_inference.topology import RegistryDeletion, RegistryTopologySnapshot
 
 
 class MLBackendDeleteBlocked(Exception):
@@ -135,11 +127,12 @@ _REGISTRY_MUTABLE_FIELDS = {
     "eviction_priority",
 }
 
-
-def _proof_timestamp(value: datetime) -> str:
-    if value.tzinfo is None or value.utcoffset() is None:
-        raise ValueError("proof timestamps must be timezone-aware")
-    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+_REGISTRY_EVALUATION_REFERENCE = text(
+    "SELECT aap_learning_v1.registry_evaluation_reference_exists(CAST(:registry_id AS uuid))"
+)
+_RUNNING_REGISTRY_PREDICTIONS = text(
+    "SELECT aap_jobs_v1.count_running_registry_predictions(CAST(:registry_id AS uuid))"
+)
 
 
 class MLBackendService:
@@ -210,7 +203,7 @@ class MLBackendService:
         capability_snapshot = None
         capability_fp = None
         if isinstance(raw_caps, dict):
-            from app.services.ml_routing.capability import (
+            from aap_inference.pool_capability import (
                 canonicalize_capability,
                 capability_fingerprint,
             )
@@ -272,6 +265,7 @@ class MLBackendService:
             select(MLBackendServicePool)
             .where(MLBackendServicePool.id == pool_id)
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
 
     async def list_pools(self) -> list[MLBackendServicePool]:
@@ -338,9 +332,50 @@ class MLBackendService:
             raise ValueError(
                 "remove every service-pool member before deleting the pool"
             )
+        from app.services.workspace_backend_bindings import (
+            clear_primary_backend_binding_for_pool,
+        )
+
+        await clear_primary_backend_binding_for_pool(self.db, pool_id)
         await self.db.delete(pool)
         await self.db.flush()
         return True
+
+    async def _registry_for_pool_change(self, registry_id: uuid.UUID):
+        return await self.db.scalar(
+            select(MLBackendRegistry)
+            .where(MLBackendRegistry.id == registry_id)
+            .with_for_update(read=True)
+            .execution_options(populate_existing=True)
+        )
+
+    async def _lock_registry_reference(self, registry_id: uuid.UUID):
+        return await self.db.scalar(
+            select(MLBackendRegistry.id)
+            .where(MLBackendRegistry.id == registry_id)
+            .with_for_update(read=True, key_share=True)
+        )
+
+    @staticmethod
+    def _check_topology(expected, registry_id, member, pool):
+        if expected is None:
+            return
+        current = RegistryTopologySnapshot(
+            registry_id=registry_id,
+            member_id=member.id if member is not None else None,
+            pool_id=member.pool_id if member is not None else None,
+            routing_generation=pool.routing_generation
+            if member is not None and pool is not None
+            else None,
+            traffic_state=member.traffic_state if member is not None else None,
+        )
+        if current != expected:
+            from app.services.ml_routing.contracts import MLBackendQuiescenceError
+
+            raise MLBackendQuiescenceError(
+                "ml_backend_topology_changed",
+                "service-pool topology changed after quiescence check; drain again and retry",
+            )
 
     async def add_pool_member(
         self,
@@ -355,27 +390,24 @@ class MLBackendService:
 
         Returns (member, pool). Raises CapabilityMismatch on fingerprint divergence.
         """
-        from app.services.ml_routing.capability import (
+        from aap_inference.pool_capability import (
             canonicalize_capability,
             capability_fingerprint,
             diff_capabilities,
         )
         from app.services.ml_routing.contracts import CapabilityMismatchError
 
-        pool = await self.db.scalar(
-            select(MLBackendServicePool)
-            .where(MLBackendServicePool.id == pool_id)
-            .with_for_update()
-        )
+        registry = await self._registry_for_pool_change(registry_id)
+        pool = await self._get_pool_for_update(pool_id)
         if pool is None:
             raise ValueError(f"pool {pool_id} not found")
-        registry = await self.get(registry_id)
         if registry is None:
             raise ValueError(f"registry {registry_id} not found")
         owned_member = await self.db.scalar(
             select(MLBackendPoolMember)
             .where(MLBackendPoolMember.registry_id == registry_id)
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
         if owned_member is not None and owned_member.pool_id != pool_id:
             raise MLBackendPoolMemberConflict(owned_member.pool_id)
@@ -438,49 +470,20 @@ class MLBackendService:
     async def _reconcile_pool_capability(
         self, registry_id: uuid.UUID, capabilities: dict
     ) -> None:
-        """Seed a pool snapshot or disable a member whose stable contract drifted."""
-        from app.services.ml_routing.capability import (
-            canonicalize_capability,
-            capability_fingerprint,
-        )
+        from aap_inference.health import reconcile_pool_capability
+        from app.services.inference_health_data import InferenceHealthData
 
-        member = await self.db.scalar(
-            select(MLBackendPoolMember)
-            .where(MLBackendPoolMember.registry_id == registry_id)
-            .with_for_update()
+        await reconcile_pool_capability(
+            InferenceHealthData(self.db),
+            registry_id,
+            capabilities,
         )
-        if member is None:
-            return
-        pool = await self.db.scalar(
-            select(MLBackendServicePool)
-            .where(MLBackendServicePool.id == member.pool_id)
-            .with_for_update()
-        )
-        if pool is None:
-            return
-        snapshot = canonicalize_capability(capabilities)
-        fingerprint = capability_fingerprint(snapshot)
-        if pool.capability_fingerprint is None:
-            pool.capability_snapshot = snapshot
-            pool.capability_fingerprint = fingerprint
-            pool.routing_generation += 1
-        elif (
-            pool.capability_fingerprint != fingerprint
-            and member.traffic_state != "disabled"
-        ):
-            member.traffic_state = "disabled"
-            if pool.legacy_instance_id == registry_id:
-                # off/observe dispatch always uses the legacy instance.  Once its
-                # contract drifts, disable the pool until an equivalent legacy is
-                # selected explicitly; never bypass the disabled member state.
-                pool.enabled = False
-            pool.routing_generation += 1
 
     @staticmethod
     def _registry_capability_snapshot(
         registry: MLBackendRegistry,
     ) -> tuple[dict | None, str | None]:
-        from app.services.ml_routing.capability import (
+        from aap_inference.pool_capability import (
             canonicalize_capability,
             capability_fingerprint,
         )
@@ -512,7 +515,7 @@ class MLBackendService:
     async def preview_capability_drift(
         self, pool_id: uuid.UUID, registry_id: uuid.UUID
     ) -> CapabilityDriftPreview | None:
-        from app.services.ml_routing.capability import diff_capabilities
+        from aap_inference.pool_capability import diff_capabilities
 
         pool = await self.db.get(MLBackendServicePool, pool_id)
         if pool is None:
@@ -593,14 +596,11 @@ class MLBackendService:
         complete pool topology and verifies the reviewed fingerprint again before
         atomically replacing the baseline and restoring routing.
         """
-        from app.services.ml_routing.capability import diff_capabilities
+        from aap_inference.pool_capability import diff_capabilities
 
-        pool = await self.db.scalar(
-            select(MLBackendServicePool)
-            .where(MLBackendServicePool.id == pool_id)
-            .with_for_update()
-        )
-        if pool is None:
+        target_registry = await self._registry_for_pool_change(registry_id)
+        pool = await self._get_pool_for_update(pool_id)
+        if pool is None or target_registry is None:
             return None
         result = await self.db.execute(
             select(MLBackendPoolMember, MLBackendRegistry)
@@ -609,7 +609,8 @@ class MLBackendService:
                 MLBackendRegistry.id == MLBackendPoolMember.registry_id,
             )
             .where(MLBackendPoolMember.pool_id == pool_id)
-            .with_for_update()
+            .with_for_update(of=MLBackendPoolMember)
+            .execution_options(populate_existing=True)
         )
         rows = list(result.tuples().all())
         target = next(
@@ -696,12 +697,20 @@ class MLBackendService:
         )
 
     async def remove_pool_member(
-        self, pool_id: uuid.UUID, registry_id: uuid.UUID
+        self,
+        pool_id: uuid.UUID,
+        registry_id: uuid.UUID,
+        *,
+        expected_topology: RegistryTopologySnapshot | None = None,
     ) -> bool:
         """Remove a member. If it's the legacy_instance_id, clear that pointer + disable
         pool (D5/D15: non-empty enabled pool must have legacy member)."""
+        if await self._lock_registry_reference(registry_id) is None:
+            self._check_topology(expected_topology, registry_id, None, None)
+            return False
         pool = await self._get_pool_for_update(pool_id)
         if pool is None:
+            self._check_topology(expected_topology, registry_id, None, None)
             return False
         result = await self.db.execute(
             select(MLBackendPoolMember)
@@ -710,10 +719,13 @@ class MLBackendService:
                 MLBackendPoolMember.registry_id == registry_id,
             )
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
         member = result.scalar_one_or_none()
         if member is None:
+            self._check_topology(expected_topology, registry_id, None, None)
             return False
+        self._check_topology(expected_topology, registry_id, member, pool)
         await self.db.delete(member)
         if pool.legacy_instance_id == registry_id:
             pool.legacy_instance_id = None
@@ -726,6 +738,9 @@ class MLBackendService:
         self, pool_id: uuid.UUID, registry_id: uuid.UUID
     ) -> MLBackendPoolMember | None:
         """Set member traffic_state=draining (no new leases; keeps existing)."""
+        pool = await self._get_pool_for_update(pool_id)
+        if pool is None:
+            return None
         result = await self.db.execute(
             select(MLBackendPoolMember)
             .where(
@@ -733,11 +748,11 @@ class MLBackendService:
                 MLBackendPoolMember.registry_id == registry_id,
             )
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
         member = result.scalar_one_or_none()
         if member is None:
             return None
-        pool = await self._get_pool_for_update(pool_id)
         changed = member.traffic_state != "draining"
         if changed:
             member.traffic_state = "draining"
@@ -750,6 +765,9 @@ class MLBackendService:
         self, pool_id: uuid.UUID, registry_id: uuid.UUID
     ) -> MLBackendPoolMember | None:
         """Resume a draining member back to active. Disabled members need re-validation."""
+        pool = await self._get_pool_for_update(pool_id)
+        if pool is None:
+            return None
         result = await self.db.execute(
             select(MLBackendPoolMember)
             .where(
@@ -757,6 +775,7 @@ class MLBackendService:
                 MLBackendPoolMember.registry_id == registry_id,
             )
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
         member = result.scalar_one_or_none()
         if member is None:
@@ -768,7 +787,6 @@ class MLBackendService:
         changed = member.traffic_state != "active"
         if changed:
             member.traffic_state = "active"
-        pool = await self._get_pool_for_update(pool_id)
         if pool is not None and changed:
             pool.routing_generation += 1
         await self.db.flush()
@@ -860,30 +878,19 @@ class MLBackendService:
 
     async def _count_running_predictions(self, registry_id: uuid.UUID) -> int:
         """Legacy deletion guard only; never an allocation or active-lease truth."""
-
-        running = await self.db.execute(
-            select(AsyncJob.id).where(
-                AsyncJob.kind == "batch_predict",
-                AsyncJob.payload["ml_backend_id"].astext == str(registry_id),
-                AsyncJob.status == AsyncJobStatus.RUNNING.value,
-            )
+        if self.db.autoflush:
+            await self.db.flush()
+        running = await self.db.scalar(
+            _RUNNING_REGISTRY_PREDICTIONS, {"registry_id": registry_id}
         )
-        return len(list(running.scalars().all()))
+        return int(running)
 
     async def validate_delete(self, registry_id: uuid.UUID) -> bool:
         """Run non-mutating legacy job and managed-GPU deletion guards."""
         if await self.get(registry_id) is None:
             return False
-        from app.db.models.sample_evaluation import SampleEvaluationRun
-        from app.db.models.trained_model import ModelDeployment
-
         if await self.db.scalar(
-            select(SampleEvaluationRun.id)
-            .join(
-                ModelDeployment, ModelDeployment.id == SampleEvaluationRun.deployment_id
-            )
-            .where(ModelDeployment.registry_id == registry_id)
-            .limit(1)
+            _REGISTRY_EVALUATION_REFERENCE, {"registry_id": registry_id}
         ):
             raise HTTPException(
                 status_code=409, detail="推理实例被冻结样本评估引用，请先结束并删除评估"
@@ -899,48 +906,78 @@ class MLBackendService:
         return True
 
     async def delete(self, registry_id: uuid.UUID) -> bool:
-        row = await self.get(registry_id)
-        if not row:
-            return False
+        return (await self.delete_with_topology(registry_id)).deleted
+
+    async def delete_with_topology(
+        self,
+        registry_id: uuid.UUID,
+        *,
+        expected_topology: RegistryTopologySnapshot | None = None,
+    ) -> RegistryDeletion:
+        row = await self.db.scalar(
+            select(MLBackendRegistry)
+            .where(MLBackendRegistry.id == registry_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if row is None:
+            self._check_topology(expected_topology, registry_id, None, None)
+            return RegistryDeletion(False)
         await self.validate_delete(registry_id)
-        # v0.23.3 ADR-0050 §5.2: 删除 registry 前必须先清理服务池层 ——
-        # pool.legacy_instance_id (FK RESTRICT) 与 pool_member.registry_id (FK RESTRICT)
-        # 都引用此 registry。off mode singleton 下: 删 member → 若该 registry 是某 pool
-        # 的 legacy_instance_id 且 pool 无其它成员, 把 pool 置 disabled + 清 legacy 指针
-        # (空 pool 只能 disabled) → 再删 registry 行。多成员 pool 的 legacy 接替留给
-        # 显式 pool 管理 API (v0.23.4), 本删除路径只处理 singleton / 无 legacy 场景。
-        pool = await self._pool_for_registry(registry_id)
-        if pool is not None:
-            # 删该 registry 在所有 pool 的成员关系 (singleton 下只有一条)。
-            members = await self.db.execute(
-                select(MLBackendPoolMember).where(
-                    MLBackendPoolMember.registry_id == registry_id
-                )
+        pool_id = await self.db.scalar(
+            select(MLBackendPoolMember.pool_id).where(
+                MLBackendPoolMember.registry_id == registry_id
             )
-            for member in members.scalars():
-                await self.db.delete(member)
-            await self.db.flush()
-            # 若该 registry 是某 pool 的 legacy_instance_id: 该 pool 失去 legacy 实例。
-            # 按 ADR-0050 D15 非空 enabled pool 必须有 legacy 成员; 这里 registry 正被删,
-            # pool 必然变为空 (singleton) 或需新 legacy (多成员, 不在本路径处理)。
-            # 把 pool enabled=false 并清 legacy_instance_id 满足 CHECK 约束。
-            legacy_pools = await self.db.execute(
-                select(MLBackendServicePool).where(
-                    MLBackendServicePool.legacy_instance_id == registry_id
+        )
+        pools = list(
+            (
+                await self.db.execute(
+                    select(MLBackendServicePool)
+                    .where(
+                        or_(
+                            MLBackendServicePool.id == pool_id,
+                            MLBackendServicePool.legacy_instance_id == registry_id,
+                        )
+                    )
+                    .order_by(MLBackendServicePool.id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
                 )
+            ).scalars()
+        )
+        member = await self.db.scalar(
+            select(MLBackendPoolMember)
+            .where(MLBackendPoolMember.registry_id == registry_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        owning_pool = next((pool for pool in pools if pool.id == pool_id), None)
+        self._check_topology(expected_topology, registry_id, member, owning_pool)
+        if member is not None and member.pool_id != pool_id:
+            from app.services.ml_routing.contracts import MLBackendQuiescenceError
+
+            raise MLBackendQuiescenceError(
+                "ml_backend_topology_changed",
+                "service-pool membership changed during deletion",
             )
-            for lp in legacy_pools.scalars():
-                lp.enabled = False
-                lp.legacy_instance_id = None
-                lp.routing_generation += 1
+        if member is not None:
+            await self.db.delete(member)
             await self.db.flush()
-        # Historical prediction registry/pool ids retain their FK SET NULL behavior.
+        for pool in pools:
+            if pool.legacy_instance_id == registry_id:
+                pool.enabled = False
+                pool.legacy_instance_id = None
+                pool.routing_generation += 1
+            elif member is not None and pool.id == pool_id:
+                pool.routing_generation += 1
+        if pools:
+            await self.db.flush()
         await self.db.delete(row)
         try:
             await self.db.flush()
         except IntegrityError as exc:
             _raise_managed_mutation_for_integrity(exc)
-        return True
+        return RegistryDeletion(True, pool_id)
 
     # ── 项目启用关联 (v0.23.3 ADR-0050 · 经服务池层) ─────────────────────────
     # 项目绑定改为 pool 维度: project_ml_backend_pool.pool_id → service pool。
@@ -1065,9 +1102,22 @@ class MLBackendService:
 
         与 set_enabled (registry-level) 对称, 但直接操作 pool id。pool 必须存在。
         """
-        pool = await self.db.get(MLBackendServicePool, pool_id)
+        from app.services.workspace_backend_bindings import (
+            lock_backend_project_reference,
+        )
+
+        await lock_backend_project_reference(self.db, project_id)
+        pool = await self._get_pool_for_update(pool_id)
         if pool is None:
             raise ValueError(f"service pool {pool_id} not found")
+        if enabled and (not pool.enabled or pool.legacy_instance_id is None):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error_code": "ml_backend_pool_not_enabled",
+                    "message": "pool is disabled or has no legacy instance; cannot enable for project",
+                },
+            )
         result = await self.db.execute(
             select(ProjectMLBackendPool).where(
                 ProjectMLBackendPool.project_id == project_id,
@@ -1085,12 +1135,6 @@ class MLBackendService:
             self.db.add(assoc)
         else:
             assoc.enabled = enabled
-        if enabled and not pool.enabled:
-            # A freshly registered singleton starts globally disabled. The first
-            # project enablement must make the logical route reachable; otherwise
-            # off/observe dispatch is rejected despite the project association.
-            pool.enabled = True
-            pool.routing_generation += 1
         for key in ("default_variants",):
             if key in overrides:
                 setattr(assoc, key, overrides[key])
@@ -1127,14 +1171,31 @@ class MLBackendService:
 
         v0.23.3: registry_id 经 _pool_for_registry 解析到 singleton pool,
         关联行写 pool_id。registry 必须 singleton-backfill 过 (有 pool)。"""
+        from app.services.workspace_backend_bindings import (
+            lock_backend_project_reference,
+        )
+
+        await lock_backend_project_reference(self.db, project_id)
+        registry = await self._registry_for_pool_change(registry_id)
         pool = await self._pool_for_registry(registry_id)
-        if pool is None:
-            raise ValueError(
-                f"registry {registry_id} has no service pool; "
-                "singleton backfill (alembic 0132) must run first"
+        if registry is None or pool is None:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error_code": "ml_backend_topology_changed",
+                    "message": "backend or service-pool membership is no longer available",
+                },
             )
         pool = await self._get_pool_for_update(pool.id)
-        assert pool is not None
+        current_pool_id = await self.pool_id_for_registry(registry_id)
+        if pool is None or current_pool_id != pool.id:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error_code": "ml_backend_topology_changed",
+                    "message": "service-pool membership changed while enabling the backend",
+                },
+            )
         result = await self.db.execute(
             select(ProjectMLBackendPool).where(
                 ProjectMLBackendPool.project_id == project_id,
@@ -1165,17 +1226,25 @@ class MLBackendService:
         return assoc
 
     # ── client 操作 (按 registry id) ─────────────────────────────────────────
-    async def unload(self, registry_id: uuid.UUID) -> dict | None:
+    async def unload(
+        self, registry_id: uuid.UUID, *, expected_topology=None
+    ) -> dict | None:
         backend = await self.get(registry_id)
         if not backend:
             return None
-        # 远程调用前释放只读事务连接，避免 shadow 短会话与请求会话互相挤占池。
-        await self.db.commit()
-        return await MLBackendClient(
-            backend,
-            shadow_session_factory=self.shadow_session_factory,
-            dispatch_context_factory=self.dispatch_context_factory,
-        ).unload()
+        from app.services.ml_routing.authority import lifecycle_control
+
+        async with lifecycle_control(
+            self.db, registry_id, "unload", expected_topology=expected_topology
+        ) as authority:
+            # Keep the existing pre-I/O release of the caller connection.
+            await self.db.commit()
+            return await MLBackendClient(
+                backend,
+                shadow_session_factory=self.shadow_session_factory,
+                dispatch_context_factory=self.dispatch_context_factory,
+                routing_authority=authority,
+            ).unload()
 
     async def reload(
         self,
@@ -1188,17 +1257,21 @@ class MLBackendService:
         backend = await self.get(registry_id)
         if not backend:
             return None
-        await self.db.commit()
-        return await MLBackendClient(
-            backend,
-            shadow_session_factory=self.shadow_session_factory,
-            dispatch_context_factory=self.dispatch_context_factory,
-        ).reload(
-            sam_variant=sam_variant,
-            dino_variant=dino_variant,
-            modality=modality,
-            task_type=task_type,
-        )
+        from app.services.ml_routing.authority import lifecycle_control
+
+        async with lifecycle_control(self.db, registry_id, "reload") as authority:
+            await self.db.commit()
+            return await MLBackendClient(
+                backend,
+                shadow_session_factory=self.shadow_session_factory,
+                dispatch_context_factory=self.dispatch_context_factory,
+                routing_authority=authority,
+            ).reload(
+                sam_variant=sam_variant,
+                dino_variant=dino_variant,
+                modality=modality,
+                task_type=task_type,
+            )
 
     async def warmup(self, registry_id: uuid.UUID, body: dict) -> dict | None:
         """协议 §4.4 · 转发 /warmup. body 原样上抛 backend, 各 backend schema 不同."""
@@ -1218,210 +1291,20 @@ class MLBackendService:
         *,
         gpu_health_challenge: str | None = None,
     ) -> bool:
-        if gpu_health_challenge is not None and (
-            not isinstance(gpu_health_challenge, str)
-            or re.fullmatch(r"[0-9a-f]{64}", gpu_health_challenge) is None
-        ):
-            raise ValueError(
-                "gpu_health_challenge must be 64 lowercase hexadecimal characters"
-            )
-        backend = await self.get(registry_id)
-        if not backend:
-            return False
-        requested_url = backend.url
-        requested_auth_method = backend.auth_method
-        requested_auth_token = backend.auth_token
-        requested_gpu_resource_id = backend.gpu_resource_id
-        requested_membership_epoch: int | None = None
-        requested_membership_state: str | None = None
-        probe_started_at: datetime | None = None
-        if requested_gpu_resource_id is not None:
-            requested_membership = (
-                await self.db.execute(
-                    select(
-                        GPUBackendMembership.membership_epoch,
-                        GPUBackendMembership.state,
-                    ).where(
-                        GPUBackendMembership.backend_registry_id == registry_id,
-                        GPUBackendMembership.gpu_resource_id
-                        == requested_gpu_resource_id,
-                        GPUBackendMembership.state.in_(("pending", "active")),
-                    )
-                )
-            ).one_or_none()
-            if requested_membership is None:
-                return False
-            requested_membership_epoch = requested_membership.membership_epoch
-            requested_membership_state = requested_membership.state
-            gpu_health_challenge = gpu_health_challenge or secrets.token_hex(32)
-            probe_started_at = await self.db.scalar(select(func.clock_timestamp()))
-            if probe_started_at is None:
-                return False
-        elif gpu_health_challenge is not None:
-            raise ValueError("gpu_health_challenge requires a GPU backend membership")
-        client = MLBackendClient(backend)
-        # v0.9.6 · 用 health_meta 一次性拉 ok + meta, 把深度指标缓存到全局注册行
-        if gpu_health_challenge is None:
-            healthy, meta = await client.health_meta()
-        else:
-            healthy, meta = await client.health_meta(
-                gpu_health_challenge=gpu_health_challenge
-            )
-        echoed_challenge: str | None = None
-        if meta is not None:
-            meta = dict(meta)
-            echoed = meta.pop(GPU_HEALTH_CHALLENGE_ECHO_MARKER, None)
-            if isinstance(echoed, str):
-                echoed_challenge = echoed
-        # A failed or metadata-free probe invalidates the previous device/identity
-        # snapshot.  Keeping it would let stale CPU/UUID evidence pass GPU diagnostics.
-        next_health_meta = None
-        next_is_interactive: bool | None = None
-        caps: dict | None = None
-        if healthy and meta is not None:
-            # v0.10.37 · 顺带探 /setup, 把能力快照落进 health_meta["capabilities"]。
-            from app.services.ml_capabilities import extract_capabilities
-
-            try:
-                caps = extract_capabilities(await client.setup())
-            except Exception:
-                caps = None
-
-        # GPU proof binds the complete /health + /setup observation window.  A
-        # timestamp captured before setup could authorize a capability that was
-        # never observed within the challenge's evidence interval.
-        observed_at = await self.db.scalar(select(func.clock_timestamp()))
-        if observed_at is None:
-            return False
-        if observed_at.tzinfo is None or observed_at.utcoffset() is None:
-            return False
-        if probe_started_at is not None and (
-            probe_started_at.tzinfo is None
-            or probe_started_at.utcoffset() is None
-            or observed_at <= probe_started_at
-        ):
-            return False
-
-        if healthy and meta is not None:
-            managed_lifecycle_sha256: str | None = None
-            if caps is not None:
-                meta = {**meta, "capabilities": caps}
-                # is_interactive 改派生对账: 以 /setup 自报为真值
-                next_is_interactive = caps["is_interactive"]
-                managed_lifecycle = caps.get("managed_lifecycle")
-                if managed_lifecycle is not None:
-                    managed_lifecycle_sha256 = managed_lifecycle_capability_sha256(
-                        managed_lifecycle
-                    )
-            if (
-                gpu_health_challenge is not None
-                and echoed_challenge == gpu_health_challenge
-                and probe_started_at is not None
-                and requested_membership_epoch is not None
-                and requested_membership_state is not None
-            ):
-                meta["gpu_arbiter_probe"] = {
-                    "protocol_version": "1",
-                    "challenge": gpu_health_challenge,
-                    "backend_registry_id": str(registry_id),
-                    "gpu_resource_id": requested_gpu_resource_id,
-                    "membership_epoch": str(requested_membership_epoch),
-                    "membership_state": requested_membership_state,
-                    "managed_lifecycle_sha256": managed_lifecycle_sha256,
-                    "probe_started_at": _proof_timestamp(probe_started_at),
-                    "observed_at": _proof_timestamp(observed_at),
-                }
-            next_health_meta = meta
-
-        values: dict = {
-            "state": "connected" if healthy else "error",
-            "last_checked_at": observed_at,
-            "health_meta": next_health_meta,
-        }
-        if next_is_interactive is not None:
-            values["is_interactive"] = next_is_interactive
-        current_backend = await self.db.scalar(
-            select(MLBackendRegistry)
-            .where(MLBackendRegistry.id == registry_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
+        from aap_inference.health import BackendHealthCoordinator
+        from app.services.inference_health_data import InferenceHealthData
+        from app.services.inference_health_observation import (
+            health_observation_client_factory,
         )
-        if current_backend is None or (
-            current_backend.url != requested_url
-            or current_backend.auth_method != requested_auth_method
-            or current_backend.auth_token != requested_auth_token
-            or current_backend.gpu_resource_id != requested_gpu_resource_id
-        ):
-            return False
-        if requested_membership_epoch is not None:
-            # Keep registry -> resource -> try-global -> membership ordering.
-            # Promotion uses the same resource -> try-global prefix; neither side
-            # waits on the global barrier while holding a card lock.
-            await self.db.execute(
-                text(
-                    "SELECT pg_advisory_xact_lock("
-                    "hashtextextended('aap:gpu-resource:' || :resource_id, 0))"
-                ),
-                {"resource_id": requested_gpu_resource_id},
-            )
-            promotion_barrier_acquired = await self.db.scalar(
-                text(
-                    "SELECT pg_try_advisory_xact_lock("
-                    "hashtextextended('aap:gpu-membership-promotion', 0))"
-                )
-            )
-            if promotion_barrier_acquired is not True:
-                return False
-        # A slow /setup must not let an older /health response borrow a later
-        # completion timestamp and overwrite a concurrently committed snapshot.
-        # For GPU probes, first-committer-wins across overlapping observation
-        # windows; a later periodic probe will refresh any conservatively dropped
-        # evidence.  Non-GPU checks retain monotonic completion ordering.
-        commit_order_floor = probe_started_at or observed_at
-        if current_backend.last_checked_at is not None and (
-            current_backend.last_checked_at.tzinfo is None
-            or current_backend.last_checked_at.utcoffset() is None
-            or current_backend.last_checked_at >= commit_order_floor
-        ):
-            return False
-        if requested_membership_epoch is not None:
-            current_membership = (
-                await self.db.execute(
-                    select(
-                        GPUBackendMembership.membership_epoch,
-                        GPUBackendMembership.state,
-                    )
-                    .where(
-                        GPUBackendMembership.backend_registry_id == registry_id,
-                        GPUBackendMembership.gpu_resource_id
-                        == requested_gpu_resource_id,
-                        GPUBackendMembership.state.in_(("pending", "active")),
-                    )
-                    .with_for_update()
-                )
-            ).one_or_none()
-            if (
-                current_membership is None
-                or current_membership.membership_epoch != requested_membership_epoch
-                or current_membership.state != requested_membership_state
-            ):
-                return False
-        result = await self.db.execute(
-            update(MLBackendRegistry)
-            .where(MLBackendRegistry.id == registry_id)
-            .values(**values)
-            .execution_options(synchronize_session=False)
-        )
-        # The post-probe row lock and membership recheck form the commit-time fence
-        # without holding a DB lock across the backend network call.
-        if result.rowcount != 1:
-            await self.db.refresh(backend)
-            return False
-        await self.db.refresh(backend)
-        if healthy and caps is not None:
-            await self._reconcile_pool_capability(registry_id, caps)
-            await self.db.flush()
-        return healthy
+        from app.services.inference_limits import capability_limits_from_settings
+
+        return await BackendHealthCoordinator(
+            InferenceHealthData(self.db),
+            client_factory=health_observation_client_factory(
+                self.db, client_factory=MLBackendClient
+            ),
+            capability_limits_factory=capability_limits_from_settings,
+        ).check_health(registry_id, gpu_health_challenge=gpu_health_challenge)
 
     async def get_interactive_backend(
         self, project_id: uuid.UUID
@@ -1455,7 +1338,7 @@ class MLBackendService:
 
         v0.23.3: 项目主绑定存 pool id; 经 _pool_for_registry 解析 pool 的 legacy
         instance (off mode singleton, 行为与 v0.23.2 一致)。"""
-        proj = await self.db.get(Project, project_id)
+        proj = await get_workspace_project(self.db, project_id=project_id)
         if proj is not None and proj.ml_backend_pool_id is not None:
             pool = await self.db.get(MLBackendServicePool, proj.ml_backend_pool_id)
             if pool is not None and pool.legacy_instance_id is not None:
@@ -1501,7 +1384,7 @@ class MLBackendService:
         ]
         if not supporting:
             return None
-        proj = await self.db.get(Project, project_id)
+        proj = await get_workspace_project(self.db, project_id=project_id)
         # v0.23.3: 项目主绑定存 pool id; 经 pool 的 legacy instance 解析回 registry。
         bound_id: uuid.UUID | None = None
         if proj is not None and proj.ml_backend_pool_id is not None:

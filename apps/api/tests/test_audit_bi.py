@@ -7,7 +7,13 @@ from sqlalchemy import text
 from app.db.models.audit_log import AuditLog
 
 
-async def test_materialized_view_only_contains_completed_utc_days(db_session):
+async def test_materialized_view_only_contains_completed_utc_days(
+    db_session, monkeypatch
+):
+    from contextlib import asynccontextmanager
+
+    from app.workers import cleanup
+
     now = datetime.now(timezone.utc)
     completed_action = "test.audit_bi.completed_day"
     current_action = "test.audit_bi.current_day"
@@ -18,12 +24,41 @@ async def test_materialized_view_only_contains_completed_utc_days(db_session):
         ]
     )
     await db_session.flush()
-    await db_session.execute(text("REFRESH MATERIALIZED VIEW mv_audit_bi_daily"))
+
+    class RecordingSession:
+        def __init__(self):
+            self.statements = []
+            self.commits = 0
+            self.rollbacks = 0
+
+        async def execute(self, statement, parameters=None):
+            self.statements.append(str(statement))
+            return await db_session.execute(statement, parameters)
+
+        async def commit(self):
+            self.commits += 1
+            await db_session.commit()
+
+        async def rollback(self):
+            self.rollbacks += 1
+            await db_session.rollback()
+
+    recorded = RecordingSession()
+
+    @asynccontextmanager
+    async def task_session():
+        yield recorded
+
+    monkeypatch.setattr(cleanup, "task_session", task_session)
+    assert await cleanup._refresh_audit_bi_mv_async() == {"refreshed": True}
+    assert recorded.statements == ["SELECT aap_audit_v1.refresh_audit_bi_mv()"]
+    assert recorded.commits == 1
+    assert recorded.rollbacks == 0
 
     rows = (
         await db_session.execute(
             text(
-                "SELECT action, event_count FROM mv_audit_bi_daily "
+                "SELECT action, event_count FROM aap_audit_v1.audit_daily_facts "
                 "WHERE action IN (:completed_action, :current_action)"
             ),
             {
@@ -33,6 +68,123 @@ async def test_materialized_view_only_contains_completed_utc_days(db_session):
         )
     ).all()
     assert [(row.action, row.event_count) for row in rows] == [(completed_action, 1)]
+
+
+async def test_daily_projection_preserves_materialized_view_native_types(db_session):
+    rows = (
+        await db_session.execute(
+            text(
+                """
+                SELECT relation.relname AS relation_name,
+                       attribute.attname AS column_name,
+                       pg_catalog.format_type(attribute.atttypid, attribute.atttypmod)
+                           AS column_type
+                FROM pg_catalog.pg_class AS relation
+                JOIN pg_catalog.pg_namespace AS namespace
+                  ON namespace.oid = relation.relnamespace
+                JOIN pg_catalog.pg_attribute AS attribute
+                  ON attribute.attrelid = relation.oid
+                WHERE (
+                    (namespace.nspname = 'public'
+                     AND relation.relname = 'mv_audit_bi_daily')
+                    OR (namespace.nspname = 'aap_audit_v1'
+                        AND relation.relname = 'audit_daily_facts')
+                )
+                  AND attribute.attnum > 0
+                  AND NOT attribute.attisdropped
+                ORDER BY relation_name, attribute.attnum
+                """
+            )
+        )
+    ).all()
+    by_relation = {}
+    for row in rows:
+        by_relation.setdefault(row.relation_name, {})[row.column_name] = row.column_type
+
+    expected = {
+        "day": "date",
+        "action": "character varying(64)",
+        "target_type": "character varying",
+        "actor_role": "character varying",
+        "status_family": "smallint",
+        "event_count": "bigint",
+    }
+    assert by_relation == {
+        "audit_daily_facts": expected,
+        "mv_audit_bi_daily": expected,
+    }
+
+
+async def test_monthly_summary_combines_completed_day_and_raw_tail(db_session):
+    from app.api.v1.audit_logs import _load_monthly_summary_rows
+
+    now = datetime.now(timezone.utc)
+    today = now.date()
+    completed_day = today - timedelta(days=1)
+    completed_action = "test.audit_bi.completed_day"
+    tail_action = "test.audit_bi.raw_tail"
+    db_session.add_all(
+        [
+            AuditLog(
+                action=completed_action,
+                target_type="project",
+                actor_role="reviewer",
+                status_code=201,
+                created_at=datetime.combine(
+                    completed_day, datetime.min.time(), timezone.utc
+                )
+                + timedelta(hours=12),
+            ),
+            AuditLog(
+                action=tail_action,
+                target_type="task",
+                actor_role="reviewer",
+                status_code=500,
+                created_at=now,
+            ),
+        ]
+    )
+    await db_session.flush()
+    await db_session.execute(text("SELECT aap_audit_v1.refresh_audit_bi_mv()"))
+
+    class RecordingSession:
+        def __init__(self, session):
+            self.session = session
+            self.statements = []
+
+        async def execute(self, statement, params=None):
+            self.statements.append(str(statement))
+            return await self.session.execute(statement, params)
+
+    recorded = RecordingSession(db_session)
+    materialized_through, rows = await _load_monthly_summary_rows(
+        recorded,
+        month_start=completed_day,
+        month_end=today + timedelta(days=1),
+        business_only=False,
+    )
+
+    assert materialized_through == completed_day
+    by_action = {row.action: row for row in rows}
+    assert by_action[completed_action].day == completed_day
+    assert by_action[completed_action].event_count == 1
+    assert by_action[tail_action].day == today
+    assert by_action[tail_action].event_count == 1
+    assert any(
+        "from aap_audit_v1.audit_events" in statement.lower()
+        for statement in recorded.statements
+    )
+    assert any(
+        "from aap_audit_v1.audit_daily_facts" in statement.lower()
+        for statement in recorded.statements
+    )
+    assert not any(
+        "from audit_logs" in statement.lower() for statement in recorded.statements
+    )
+    assert not any(
+        "from mv_audit_bi_daily" in statement.lower()
+        for statement in recorded.statements
+    )
 
 
 async def test_monthly_summary_merges_dimensions_and_business_scope(

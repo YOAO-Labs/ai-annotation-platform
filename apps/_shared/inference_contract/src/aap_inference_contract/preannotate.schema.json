@@ -1,0 +1,400 @@
+{
+  "$defs": {
+    "PipelineStage": {
+      "additionalProperties": false,
+      "description": "多阶段预标注的一项声明。\n\nparent_stage=None 标识源阶段；下游阶段消费父阶段几何，可写入属性、\n独立几何或中间结果。阶段序号不必从零开始，任一依赖链最多三层。",
+      "properties": {
+        "stage": {
+          "title": "Stage",
+          "type": "integer"
+        },
+        "ml_backend_id": {
+          "format": "uuid",
+          "title": "Ml Backend Id",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        },
+        "model_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Id"
+        },
+        "task": {
+          "anyOf": [
+            {
+              "enum": [
+                "detect",
+                "segment",
+                "classify",
+                "pose",
+                "obb",
+                "ocr",
+                "doc_layout",
+                "tracker",
+                "interactive_seg"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task"
+        },
+        "prompt_type": {
+          "anyOf": [
+            {
+              "const": "text",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt Type"
+        },
+        "model_variants": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Variants"
+        },
+        "params": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Params"
+        },
+        "class_filter": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Class Filter"
+        },
+        "parent_stage": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Stage"
+        },
+        "parent_class_filter": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Class Filter"
+        },
+        "roi": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Roi"
+        },
+        "write": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Write"
+        },
+        "on_failure": {
+          "default": "keep_parent",
+          "enum": ["keep_parent", "drop_box"],
+          "title": "On Failure",
+          "type": "string"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "input": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input"
+        }
+      },
+      "required": ["stage", "ml_backend_id"],
+      "title": "PipelineStage",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "ml_backend_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ml Backend Id"
+    },
+    "task_ids": {
+      "anyOf": [
+        {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 200,
+          "minItems": 1,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Task Ids"
+    },
+    "prompt": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Prompt"
+    },
+    "output_mode": {
+      "default": "mask",
+      "enum": ["box", "mask", "both"],
+      "title": "Output Mode",
+      "type": "string"
+    },
+    "batch_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Batch Id"
+    },
+    "execution_scope": {
+      "default": "bulk",
+      "enum": ["bulk", "workbench"],
+      "title": "Execution Scope",
+      "type": "string"
+    },
+    "params": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Params"
+    },
+    "predict_mode": {
+      "default": "skip_predicted",
+      "enum": ["skip_predicted", "overwrite", "append"],
+      "title": "Predict Mode",
+      "type": "string"
+    },
+    "model_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model Id"
+    },
+    "task": {
+      "anyOf": [
+        {
+          "enum": [
+            "detect",
+            "segment",
+            "classify",
+            "pose",
+            "obb",
+            "ocr",
+            "doc_layout",
+            "tracker",
+            "interactive_seg"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Task"
+    },
+    "prompt_type": {
+      "anyOf": [
+        {
+          "const": "text",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Prompt Type"
+    },
+    "model_variants": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model Variants"
+    },
+    "class_filter": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Class Filter"
+    },
+    "pipeline_stages": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/PipelineStage"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Pipeline Stages"
+    },
+    "on_key_conflict": {
+      "default": "reject",
+      "enum": ["reject", "last_wins"],
+      "title": "On Key Conflict",
+      "type": "string"
+    }
+  },
+  "title": "PreannotateRequest",
+  "type": "object"
+}

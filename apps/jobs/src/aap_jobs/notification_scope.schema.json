@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-jobs-notification-scope-facts/v1",
+  "title": "AAP Jobs notification scope facts",
+  "$comment": "This relation publishes only job identity, native kind, and retained project scope. Consumers own authorization policy.",
+  "additionalProperties": false,
+  "description": "One authoritative Jobs identity/kind/project-scope fact.",
+  "properties": {
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "kind": {
+      "maxLength": 40,
+      "title": "Kind",
+      "type": "string"
+    },
+    "scope_project_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Scope Project Id"
+    }
+  },
+  "required": ["id", "kind", "scope_project_id"],
+  "type": "object",
+  "x-postgresql-relations": {
+    "aap_jobs_v1.notification_scope_facts": {
+      "columns": ["id", "kind", "scope_project_id"],
+      "column_types": {
+        "id": "uuid",
+        "kind": "character varying(40)",
+        "scope_project_id": "uuid"
+      },
+      "nullable_columns": ["scope_project_id"],
+      "row_schema": "#",
+      "row_key": ["id"],
+      "read_only": true,
+      "security_barrier": true
+    }
+  }
+}

@@ -43,18 +43,18 @@ def allows_bulk_preannotation(batch: TaskBatch) -> bool:
     return False
 
 
-def bulk_preannotation_eligible_condition():
+def bulk_preannotation_eligible_condition(batch_model=TaskBatch):
     """SQL 侧等价于 `allows_bulk_preannotation` 的过滤条件（聚合 / 列表查询复用）。
 
     与纯函数判定必须同源：`active` 或「未分派标注员与质检员」的 `draft`。管理员
     从「先跑 AI 再分派」改为「先分派再跑 AI」时，两处都要同步修改。
     """
     return or_(
-        TaskBatch.status == BatchStatus.ACTIVE,
+        batch_model.status == BatchStatus.ACTIVE,
         and_(
-            TaskBatch.status == BatchStatus.DRAFT,
-            TaskBatch.annotator_id.is_(None),
-            TaskBatch.reviewer_id.is_(None),
+            batch_model.status == BatchStatus.DRAFT,
+            batch_model.annotator_id.is_(None),
+            batch_model.reviewer_id.is_(None),
         ),
     )
 

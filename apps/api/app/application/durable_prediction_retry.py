@@ -37,6 +37,7 @@ from app.services.prediction_retry_data import (
 )
 from app.services.raster_mask_contract import RasterMaskContractError
 from app.services.gpu_arbitration.contracts import GPUArbiterDispatchError
+from app.services.labeling_core_read_relations import get_core_row, task_row
 
 _DEFER_CODES = frozenset(
     {
@@ -101,10 +102,10 @@ async def _terminal_outcome(data, attempt):
 
 
 async def _notify_terminal(db, job_id):
-    from app.db.models.async_job import AsyncJob
+    from app.services import async_job as async_job_svc
     from app.services.async_job_notify import notify_job_terminal
 
-    await db.get(AsyncJob, job_id, populate_existing=True)
+    await async_job_svc.get_job(db, job_id, populate_existing=True)
     await notify_job_terminal(db, job_id=job_id)
 
 
@@ -176,7 +177,6 @@ def _one_result(results, task_id):
 
 
 async def _infer(execution, attempt, prepared, session_factory):
-    from app.db.models.task import Task
     from app.db.models.ml_backend_registry import MLBackendRegistry
     from app.services.gpu_arbitration.dispatch import build_gpu_dispatch_context_factory
     from app.services.ml_routing.client import RoutedMLBackendClient
@@ -190,7 +190,7 @@ async def _infer(execution, attempt, prepared, session_factory):
     context = attempt.source_extra.get("request_context")
     context = context if isinstance(context, dict) else None
     async with session_factory() as db:
-        task = await db.get(Task, attempt.task_id)
+        task = await get_core_row(db, task_row, attempt.task_id)
         backend = await db.get(MLBackendRegistry, attempt.ml_backend_id)
         if task is None or backend is None:
             raise ValueError("missing_task_or_backend")

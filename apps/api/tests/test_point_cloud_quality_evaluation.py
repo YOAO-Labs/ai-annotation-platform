@@ -9,7 +9,7 @@ from sqlalchemy import event
 
 from app.db.models.dataset import Dataset, Scene
 from app.db.models.point_cloud_quality import PointCloudQualityIssue
-from app.schemas.point_cloud_quality import (
+from aap_workspace.point_quality_configuration_values import (
     PointCloudQualityConfig,
     PointCloudQualityGovernanceConfig,
 )

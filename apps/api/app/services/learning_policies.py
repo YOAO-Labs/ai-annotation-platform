@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from sqlalchemy import delete as sql_delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.learning_policy import LearningPolicy, LearningTrigger
+from app.services.project_access import get_workspace_project
 from app.db.models.project import Project
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_run import TrainingAttempt, TrainingRun
@@ -36,6 +37,7 @@ from app.services.training_dataset_insight_adapters import adapter_for
 from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
 from app.services.dataset_task_facts import ProjectTaskSourceReader
 from app.services.training_authority_contract import TrainingAuthorityPort
+from app.services.labeling_core_read_relations import batch_row, get_core_row
 
 ACTIVE_TRIGGERS = {"building", "queued", "running"}
 log = logging.getLogger(__name__)
@@ -114,9 +116,8 @@ async def save(
         parent_id=body.parent_id, batch_id=body.batch_id
     )
     if body.batch_id:
-        from app.db.models.task_batch import TaskBatch
-
-        batch = await db.get(TaskBatch, body.batch_id)
+        with db.no_autoflush:
+            batch = await get_core_row(db, batch_row, body.batch_id)
         if not batch or batch.project_id != project.id:
             raise HTTPException(status_code=404, detail="批次不属于当前项目")
     if policy is None:
@@ -168,7 +169,9 @@ async def eligible(db, policy, *, training_authority: TrainingAuthorityPort):
         api_key_id=policy.authorization.get("api_key_id"),
         required_scopes=runs.SCOPES,
     )
-    project = await db.get(Project, policy.project_id, populate_existing=True)
+    project = await get_workspace_project(
+        db, project_id=policy.project_id, populate_existing=True
+    )
     if project.status != "in_progress":
         raise TrainingDatasetError(
             "project_inactive", "项目已停用，自动训练停止", status_code=403

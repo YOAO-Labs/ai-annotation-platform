@@ -20,13 +20,17 @@ from aap_assets_images.transport import (
     ImageTileRequest,
 )
 
-from app.db.models.annotation import Annotation
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
-from app.db.models.prediction import Prediction
 from app.db.models.project import Project
-from app.db.models.project_member import ProjectMember
+from app.services.workspace_seed_data import seed_members, seed_projects
 from app.db.models.task import Task
-from app.db.models.task_batch import TaskBatch
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    batch_row,
+    execute_core_read,
+    prediction_row,
+    task_row,
+)
 from app.services.identity_commands import IdentityCommandService
 from aap_assets_catalog.spatial_values import SensorCalibration
 from app.services.ml_backend import MLBackendService
@@ -484,11 +488,12 @@ async def _resolve_dataset_and_tasks(
             continue
         task_rows = list(
             (
-                await db.execute(
-                    select(Task).where(
-                        Task.project_id == project.id,
-                        Task.dataset_item_id == item_rows[0].id,
-                    )
+                await execute_core_read(
+                    db,
+                    select(task_row).where(
+                        task_row.project_id == project.id,
+                        task_row.dataset_item_id == item_rows[0].id,
+                    ),
                 )
             ).scalars()
         )
@@ -520,8 +525,8 @@ async def _resolve_dataset_and_tasks(
 
         prediction_rows = list(
             (
-                await db.execute(
-                    select(Prediction).where(Prediction.task_id == task.id)
+                await execute_core_read(
+                    db, select(prediction_row).where(prediction_row.task_id == task.id)
                 )
             ).scalars()
         )
@@ -539,17 +544,17 @@ async def _resolve_dataset_and_tasks(
             issues.append(f"{prefix}: task predicted has a stale seed prediction")
 
         annotation_count = (
-            await db.scalar(
+            await execute_core_read(
+                db,
                 select(func.count())
-                .select_from(Annotation)
+                .select_from(annotation_row)
                 .where(
-                    Annotation.task_id == task.id,
-                    Annotation.is_active.is_(True),
-                    Annotation.was_cancelled.is_(False),
-                )
+                    annotation_row.task_id == task.id,
+                    annotation_row.is_active.is_(True),
+                    annotation_row.was_cancelled.is_(False),
+                ),
             )
-            or 0
-        )
+        ).scalar() or 0
         if annotation_count != int(task_spec.annotation):
             issues.append(
                 f"{prefix}: task {task_spec.key} annotation count must be "
@@ -562,7 +567,9 @@ async def _resolve_dataset_and_tasks(
 
     project_task_ids = set(
         (
-            await db.execute(select(Task.id).where(Task.project_id == project.id))
+            await execute_core_read(
+                db, select(task_row.id).where(task_row.project_id == project.id)
+            )
         ).scalars()
     )
     if project_task_ids != resolved_task_ids:
@@ -581,8 +588,8 @@ async def _resolve_batches(
         return {}
     rows = list(
         (
-            await db.execute(
-                select(TaskBatch).where(TaskBatch.project_id == project.id)
+            await execute_core_read(
+                db, select(batch_row).where(batch_row.project_id == project.id)
             )
         ).scalars()
     )
@@ -612,7 +619,9 @@ async def _resolve_batches(
         }
         actual_task_ids = set(
             (
-                await db.execute(select(Task.id).where(Task.batch_id == batch.id))
+                await execute_core_read(
+                    db, select(task_row.id).where(task_row.batch_id == batch.id)
+                )
             ).scalars()
         )
         if actual_task_ids != expected_task_ids:
@@ -638,7 +647,7 @@ async def _resolve_project(
     projects = list(
         (
             await db.execute(
-                select(Project).where(Project.display_id == spec.display_id)
+                select(seed_projects).where(seed_projects.display_id == spec.display_id)
             )
         ).scalars()
     )
@@ -660,7 +669,7 @@ async def _resolve_project(
         members = list(
             (
                 await db.execute(
-                    select(ProjectMember).where(ProjectMember.project_id == project.id)
+                    select(seed_members).where(seed_members.project_id == project.id)
                 )
             ).scalars()
         )
@@ -708,8 +717,8 @@ async def _resolve_optional_large_image_project(
     projects = list(
         (
             await db.execute(
-                select(Project).where(
-                    Project.display_id == LARGE_IMAGE_PROJECT_DISPLAY_ID
+                select(seed_projects).where(
+                    seed_projects.display_id == LARGE_IMAGE_PROJECT_DISPLAY_ID
                 )
             )
         ).scalars()
@@ -792,11 +801,12 @@ async def _resolve_optional_large_image_project(
             continue
         task_rows = list(
             (
-                await db.execute(
-                    select(Task).where(
-                        Task.project_id == project.id,
-                        Task.dataset_item_id == item.id,
-                    )
+                await execute_core_read(
+                    db,
+                    select(task_row).where(
+                        task_row.project_id == project.id,
+                        task_row.dataset_item_id == item.id,
+                    ),
                 )
             ).scalars()
         )
@@ -819,7 +829,9 @@ async def _resolve_optional_large_image_project(
         issues.append(f"{prefix}: cosmic_cliffs ready fixture is required")
     actual_task_ids = set(
         (
-            await db.execute(select(Task.id).where(Task.project_id == project.id))
+            await execute_core_read(
+                db, select(task_row.id).where(task_row.project_id == project.id)
+            )
         ).scalars()
     )
     if actual_task_ids != resolved_task_ids:

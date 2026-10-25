@@ -16,13 +16,14 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import subprocess
 import sys
 import tempfile
 import time
 from unittest.mock import patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 import shutil
 from urllib.parse import quote, urlsplit
 import xml.etree.ElementTree as ET
@@ -38,8 +39,631 @@ INFERENCE_REGISTRY_INGRESS_ROLE = "inference_registry_ingress_client"
 INFERENCE_ROUTING_ROLE = "inference_routing_client"
 VIDEO_EXECUTION_ROLE = "video_execution_client"
 IDENTITY_API_CONSUMER_ROLE = "identity_api_consumer"
+NOTIFICATION_PREFERENCES_ROLE = "notification_preferences_client"
+NOTIFICATION_APPEND_ROLE = "notification_append_client"
+NOTIFICATION_INBOX_ROLE = "notification_inbox_query_client"
+NOTIFICATION_DELIVERY_READ_ROLE = "notification_delivery_read_client"
+JOBS_LIST_QUERY_ROLE = "jobs_list_query_client"
+JOBS_LIFECYCLE_ROLE = "jobs_lifecycle_client"
+JOBS_DOMAIN_QUERY_FUNCTIONS = (
+    "aap_jobs_v1.lock_cross_frame_singleflight(uuid,text)",
+    "aap_jobs_v1.active_cross_frame_job(uuid,text)",
+    "aap_jobs_v1.cross_frame_job_page(uuid,text,integer)",
+    "aap_jobs_v1.cross_frame_job_count(uuid,text)",
+    "aap_jobs_v1.latest_batch_prediction_times(uuid[])",
+)
+JOBS_ROW_LOCK_FUNCTIONS = (
+    "aap_jobs_v1.read_job_for_update(uuid)",
+    "aap_jobs_v1.read_job_for_share_nowait(uuid)",
+)
+JOBS_LIFECYCLE_FUNCTIONS = (
+    "aap_jobs_v1.read_job(uuid)",
+    "aap_jobs_v1.jobs_by_execution_id(text)",
+    "aap_jobs_v1.insert_video_summary(uuid,text,uuid,uuid,jsonb,text)",
+    "aap_jobs_v1.apply_lifecycle(uuid,jsonb)",
+    "aap_jobs_v1.mark_dispatch_failed(uuid,timestamptz,text)",
+    "aap_jobs_v1.cancel_batch_predict_jobs(uuid,timestamptz)",
+    "aap_jobs_v1.delete_batch_predict_jobs(uuid)",
+    "aap_jobs_v1.delete_terminal_jobs_before(timestamptz,text[])",
+)
+JOBS_LIST_QUERY_FUNCTIONS = (
+    "aap_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer)",
+    "aap_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)",
+)
+NOTIFICATION_DELIVERY_READ_FUNCTIONS = (
+    "aap_notifications_v1.read_notification(uuid)",
+    "aap_notifications_v1.find_terminal_notification(uuid,text,uuid)",
+    "aap_notifications_v1.delivery_job_scopes(uuid[])",
+    "aap_notifications_v1.delivery_member_pairs(jsonb)",
+    "aap_notifications_v1.delivery_reviewer_pairs(jsonb)",
+    "aap_notifications_v1.delivery_owner_pairs(jsonb)",
+    "aap_notifications_v1.delivery_super_pairs(jsonb)",
+)
+NOTIFICATION_INBOX_FUNCTIONS = (
+    "aap_notifications_v1.inbox_page(uuid,text,boolean,integer,integer)",
+    "aap_notifications_v1.inbox_total_count(uuid,text)",
+    "aap_notifications_v1.inbox_unread_count(uuid,text)",
+)
+NOTIFICATION_INBOX_PRIVATE_HELPER = (
+    "aap_notifications_v1._visible_inbox_rows(uuid,text)"
+)
+FUNCTION_BODY_ARTIFACTS = {
+    "aap_labeling_v1.e2e_fixture_command(jsonb)": "0362_labeling_e2e_fixture_writes.sql",
+    "aap_labeling_v1.screenshot_operations_command(jsonb)": "0363_labeling_screenshot_operations.sql",
+    "aap_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[])": "0364_labeling_scale_seed_operations.sql",
+    "aap_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid)": "0364_labeling_scale_seed_operations.sql",
+    "aap_labeling_v1.create_scale_seed_tasks(text,uuid,uuid)": "0364_labeling_scale_seed_operations.sql",
+    "aap_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer)": "0364_labeling_scale_seed_operations.sql",
+    "aap_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[])": "0361_labeling_compatibility_reads.sql",
+    "aap_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[])": "0361_labeling_compatibility_reads.sql",
+    "aap_labeling_v1.next_batch_display_id()": "0361_labeling_compatibility_reads.sql",
+    "aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid)": "0352_labeling_core_read.sql",
+    "aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid)": "0352_labeling_core_read.sql",
+    "aap_inference_v1.ai_mask_pool_reference_row(uuid)": "0356_inference_pool_reference.sql",
+    "aap_labeling_v1.video_control_command(jsonb)": "0350_labeling_video_control.sql",
+    "aap_labeling_v1.video_segment_lifecycle_command(jsonb)": "0360_labeling_video_segment_lifecycle.sql",
+    "aap_labeling_v1.annotation_transfer_command(jsonb)": "0351_labeling_annotation_transfer.sql",
+    "aap_labeling_v1._annotation_transfer_exact_fields(jsonb,text[])": "0351_labeling_annotation_transfer.sql",
+    "aap_labeling_v1._annotation_transfer_without_track_ids(jsonb)": "0351_labeling_annotation_transfer.sql",
+    "aap_labeling_v1._annotation_transfer_without_suffix(text)": "0351_labeling_annotation_transfer.sql",
+    "aap_labeling_v1._annotation_transfer_camera_bbox_valid(jsonb)": "0351_labeling_annotation_transfer.sql",
+    "aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)": "0352_labeling_core_read.sql",
+    "aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)": "0352_labeling_core_read.sql",
+    "aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)": "0352_labeling_core_read.sql",
+    "aap_labeling_v1.mask_qc_command(jsonb)": "0353_labeling_mask_quality.sql",
+    "aap_labeling_v1.mask_repair_command(jsonb)": "0353_labeling_mask_quality.sql",
+    "aap_labeling_v1.raster_mask_retention_query(jsonb)": "0353_labeling_mask_quality.sql",
+    "aap_labeling_v1._quality_exact_keys(jsonb,text[])": "0353_labeling_mask_quality.sql",
+    "aap_labeling_v1._raster_mask_reference_keys()": "0353_labeling_mask_quality.sql",
+    "aap_labeling_v1.spatial_quality_command(jsonb)": "0354_labeling_spatial_quality.sql",
+    "aap_labeling_v1.task_maintenance_command(jsonb)": "0355_labeling_task_maintenance.sql",
+    "aap_labeling_v1.discussion_command(jsonb)": "0347_labeling_discussion.sql",
+    "aap_labeling_v1.task_event_command(jsonb)": "0347_labeling_discussion.sql",
+    "aap_labeling_v1.mask_edit_command(jsonb)": "0348_labeling_mask_edits.sql",
+    "aap_labeling_v1.mask_revision_command(jsonb)": "0348_labeling_mask_edits.sql",
+    "aap_labeling_v1.ai_mask_accept_command(jsonb)": "0348_labeling_mask_edits.sql",
+    "aap_labeling_v1.scene_read_query(jsonb)": "0349_labeling_scene_read.sql",
+    "aap_labeling_v1._scene_read_track_json(uuid,uuid,uuid,text,text,text,jsonb,jsonb,integer,timestamptz)": "0349_labeling_scene_read.sql",
+    "aap_labeling_v1._scene_read_interval_json(uuid,uuid,integer,integer,text,integer)": "0349_labeling_scene_read.sql",
+    "aap_labeling_v1._scene_read_annotation_json(uuid,uuid,uuid,text,text,text,jsonb,text,uuid,text,text,boolean,boolean,boolean,boolean,integer,timestamptz,integer)": "0349_labeling_scene_read.sql",
+    "aap_labeling_v1.prediction_record_command(jsonb)": "0342_labeling_prediction_records.sql",
+    "aap_labeling_v1.prediction_partition_command(jsonb)": "0357_labeling_prediction_partitions.sql",
+    "aap_labeling_v1.create_uploading_task(uuid,uuid,text,text,text)": "0359_labeling_upload_tasks.sql",
+    "aap_labeling_v1.complete_uploading_task(uuid,uuid,uuid,text,text)": "0359_labeling_upload_tasks.sql",
+    "aap_labeling_v1.scene_track_command(jsonb)": "0343_labeling_scene_track_commands.sql",
+    "aap_labeling_v1.cross_frame_write_command(jsonb)": "0344_labeling_cross_frame_writes.sql",
+    "aap_labeling_v1.annotation_prediction_command(jsonb)": "0345_labeling_annotation_prediction.sql",
+    "aap_labeling_v1.annotation_maintenance_command(jsonb)": "0346_labeling_annotation_maintenance.sql",
+    "aap_labeling_v1.annotation_bulk_command(jsonb)": "0339_labeling_annotation_bulk.sql",
+    "aap_labeling_v1.video_bbox_editing_command(jsonb)": "0340_labeling_video_bbox_editing.sql",
+    "aap_labeling_v1.batch_control_command(jsonb)": "0341_labeling_batch_control.sql",
+    "aap_labeling_v1.annotation_statistics_command(jsonb)": "0336_labeling_annotation_statistics.sql",
+    "aap_labeling_v1.scene_track_domain_command(jsonb)": "0337_labeling_scene_track_domain.sql",
+    "aap_labeling_v1.annotation_write_command(jsonb)": "0338_labeling_annotation_writes.sql",
+    "public.capture_mask_annotation_revision()": "0338_labeling_annotation_revision_support.sql",
+    "public.record_mask_annotation_revision(uuid,uuid,uuid,integer,jsonb,text)": "0338_labeling_annotation_revision_support.sql",
+    "aap_labeling_v1.task_edit_lock_command(jsonb)": "0334_labeling_task_locks.sql",
+    "aap_labeling_v1.task_workflow_command(jsonb)": "0335_labeling_task_workflow.sql",
+    "aap_jobs_v1.lock_action_idempotency(text,uuid,uuid,text)": "0332_jobs_action_idempotency.sql",
+    "aap_jobs_v1.find_action_idempotent_jobs(text,uuid,uuid,text)": "0332_jobs_action_idempotency.sql",
+    "aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid)": "0331_jobs_filter_fixtures.sql",
+    "aap_jobs_v1.delete_fixture_project_jobs(uuid[])": "0330_jobs_fixture_cleanup.sql",
+    "aap_labeling_v1.delete_fixture_project_rows(uuid[])": "0358_labeling_fixture_cleanup.sql",
+    **{
+        signature: "0329_jobs_domain_queries.sql"
+        for signature in JOBS_DOMAIN_QUERY_FUNCTIONS
+    },
+    **{signature: "0328_jobs_row_locks.sql" for signature in JOBS_ROW_LOCK_FUNCTIONS},
+    **{
+        signature: "0327_jobs_lifecycle.sql"
+        for signature in (
+            *JOBS_LIFECYCLE_FUNCTIONS,
+            *(
+                "aap_jobs_v1._jobs_lifecycle_has_keys(jsonb,text[])",
+                "aap_jobs_v1._jobs_lifecycle_is_truthy(jsonb)",
+                "aap_jobs_v1._jobs_lifecycle_integer(jsonb)",
+            ),
+        )
+    },
+    **{
+        signature: "0326_jobs_list_query.sql"
+        for signature in (
+            *JOBS_LIST_QUERY_FUNCTIONS,
+            "aap_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)",
+        )
+    },
+    **{
+        signature: "0325_notifications_delivery_read.sql"
+        for signature in NOTIFICATION_DELIVERY_READ_FUNCTIONS
+    },
+    "aap_audit_v1.refresh_audit_bi_mv()": "0322_audit_daily_projection.sql",
+    "aap_audit_v1.maintenance_command(jsonb)": "0366_audit_fixture_cleanup.sql",
+    "aap_notifications_v1.append_job_terminal_notification(jsonb)": "0321_notifications_terminal_append.sql",
+    "aap_audit_v1.query_events(pg_catalog.jsonb)": "0317_audit_query.sql",
+    "aap_notifications_v1.delete_command(pg_catalog.jsonb)": "0318_notifications_delete.sql",
+    **{
+        signature: "0324_notifications_inbox_query.sql"
+        for signature in (
+            *NOTIFICATION_INBOX_FUNCTIONS,
+            NOTIFICATION_INBOX_PRIVATE_HELPER,
+        )
+    },
+}
+AUDIT_APPEND_ROLE = "audit_append_client"
+AUDIT_QUERY_ROLE = "audit_query_client"
+NOTIFICATION_READ_ROLE = "notification_read_client"
+AUDIT_READ_ROLE = "audit_read_client"
+AUDIT_DAILY_REFRESH_ROLE = "audit_daily_refresh_client"
+AUDIT_MAINTENANCE_ROLE = "audit_maintenance_client"
+JOBS_NOTIFICATION_SCOPE_ROLE = "jobs_notification_scope_client"
+READ_RELATION_SPECS = {
+    "aap_labeling_v1.scene_track_rows": {
+        "sql": "0352_labeling_core_read.sql",
+        "owner": "labeling_code",
+        "columns": [
+            ("id", "uuid"),
+            ("project_id", "uuid"),
+            ("scene_id", "uuid"),
+            ("track_id", "character varying(64)"),
+            ("class_name", "character varying(100)"),
+            ("presence_mode", "character varying(16)"),
+            ("attributes", "jsonb"),
+            ("attributes_meta", "jsonb"),
+            ("revision", "integer"),
+            ("created_by", "uuid"),
+            ("retired_at", "timestamp with time zone"),
+            ("created_at", "timestamp with time zone"),
+            ("updated_at", "timestamp with time zone"),
+        ],
+    },
+    "aap_labeling_v1.scene_track_interval_rows": {
+        "sql": "0352_labeling_core_read.sql",
+        "owner": "labeling_code",
+        "columns": [
+            ("id", "uuid"),
+            ("scene_track_id", "uuid"),
+            ("start_frame", "integer"),
+            ("end_frame", "integer"),
+            ("source", "character varying(30)"),
+            ("version", "integer"),
+            ("created_by", "uuid"),
+            ("operation_id", "uuid"),
+            ("created_at", "timestamp with time zone"),
+            ("updated_at", "timestamp with time zone"),
+        ],
+    },
+    "aap_labeling_v1.video_segment_rows": {
+        "sql": "0352_labeling_core_read.sql",
+        "owner": "labeling_code",
+        "columns": [
+            ("id", "uuid"),
+            ("dataset_item_id", "uuid"),
+            ("segment_index", "integer"),
+            ("start_frame", "integer"),
+            ("end_frame", "integer"),
+            ("assignee_id", "uuid"),
+            ("status", "character varying(20)"),
+            ("locked_by", "uuid"),
+            ("locked_at", "timestamp with time zone"),
+            ("lock_expires_at", "timestamp with time zone"),
+            ("created_at", "timestamp with time zone"),
+            ("updated_at", "timestamp with time zone"),
+        ],
+    },
+    "aap_labeling_v1.video_tracker_job_rows": {
+        "sql": "0352_labeling_core_read.sql",
+        "owner": "labeling_code",
+        "columns": [
+            ("id", "uuid"),
+            ("task_id", "uuid"),
+            ("dataset_item_id", "uuid"),
+            ("annotation_id", "uuid"),
+            ("segment_id", "uuid"),
+            ("target_class_name", "character varying(100)"),
+            ("target_tool_unit_id", "character varying(30)"),
+            ("created_by", "uuid"),
+            ("status", "character varying(20)"),
+            ("job_kind", "character varying(20)"),
+            ("track_id_snapshot", "character varying(64)"),
+            ("correction_frame", "integer"),
+            ("model_key", "character varying(80)"),
+            ("direction", "character varying(20)"),
+            ("from_frame", "integer"),
+            ("to_frame", "integer"),
+            ("prompt", "jsonb"),
+            ("staged_result", "jsonb"),
+            ("revision", "integer"),
+            ("event_channel", "character varying(160)"),
+            ("celery_task_id", "character varying(64)"),
+            ("cancel_requested_at", "timestamp with time zone"),
+            ("started_at", "timestamp with time zone"),
+            ("completed_at", "timestamp with time zone"),
+            ("error_message", "text"),
+            ("created_at", "timestamp with time zone"),
+            ("updated_at", "timestamp with time zone"),
+        ],
+    },
+    "aap_labeling_v1.task_rows": {
+        "sql": "0352_labeling_core_read.sql",
+        "owner": "labeling_code",
+        "columns": [
+            ("id", "uuid"),
+            ("project_id", "uuid"),
+            ("dataset_item_id", "uuid"),
+            ("display_id", "character varying(30)"),
+            ("file_name", "character varying(500)"),
+            ("file_path", "character varying(1000)"),
+            ("file_type", "character varying(20)"),
+            ("media_source_generation", "bigint"),
+            ("media_object_identity", "jsonb"),
+            ("media_source_drifted", "boolean"),
+            ("tags", "jsonb"),
+            ("status", "character varying(30)"),
+            ("assignee_id", "uuid"),
+            ("assignee_is_override", "boolean"),
+            ("assigned_at", "timestamp with time zone"),
+            ("is_labeled", "boolean"),
+            ("overlap", "integer"),
+            ("total_annotations", "integer"),
+            ("total_predictions", "integer"),
+            ("precomputed_agreement", "double precision"),
+            ("sequence_order", "integer"),
+            ("thumbnail_path", "character varying(512)"),
+            ("blurhash", "character varying(64)"),
+            ("batch_id", "uuid"),
+            ("version", "integer"),
+            ("submitted_at", "timestamp with time zone"),
+            ("reviewer_id", "uuid"),
+            ("reviewer_is_override", "boolean"),
+            ("reviewer_claimed_at", "timestamp with time zone"),
+            ("review_round_id", "uuid"),
+            ("first_review_eligible", "boolean"),
+            ("first_reviewed_at", "timestamp with time zone"),
+            ("first_review_result", "character varying(16)"),
+            ("first_review_contributor_ids", "jsonb"),
+            ("annotation_contributor_ids", "jsonb"),
+            ("review_contributor_ids", "jsonb"),
+            ("review_submitter_id", "uuid"),
+            ("reviewed_at", "timestamp with time zone"),
+            ("reject_reason", "character varying(2000)"),
+            ("reject_reason_type", "character varying(20)"),
+            ("skip_reason", "character varying(50)"),
+            ("skipped_at", "timestamp with time zone"),
+            ("reopened_count", "integer"),
+            ("last_reopened_at", "timestamp with time zone"),
+            ("created_at", "timestamp with time zone"),
+            ("updated_at", "timestamp with time zone"),
+        ],
+    },
+    "aap_labeling_v1.batch_rows": {
+        "sql": "0352_labeling_core_read.sql",
+        "owner": "labeling_code",
+        "columns": [
+            ("id", "uuid"),
+            ("project_id", "uuid"),
+            ("dataset_id", "uuid"),
+            ("display_id", "character varying(30)"),
+            ("name", "character varying(255)"),
+            ("description", "text"),
+            ("status", "character varying(30)"),
+            ("priority", "integer"),
+            ("deadline", "date"),
+            ("assigned_user_ids", "jsonb"),
+            ("total_tasks", "integer"),
+            ("completed_tasks", "integer"),
+            ("review_tasks", "integer"),
+            ("approved_tasks", "integer"),
+            ("rejected_tasks", "integer"),
+            ("created_by", "uuid"),
+            ("created_at", "timestamp with time zone"),
+            ("updated_at", "timestamp with time zone"),
+            ("review_feedback", "text"),
+            ("reviewed_at", "timestamp with time zone"),
+            ("reviewed_by", "uuid"),
+            ("annotator_id", "uuid"),
+            ("reviewer_id", "uuid"),
+            ("admin_locked", "boolean"),
+            ("admin_lock_reason", "character varying(500)"),
+            ("admin_locked_at", "timestamp with time zone"),
+            ("admin_locked_by", "uuid"),
+        ],
+    },
+    "aap_labeling_v1.annotation_rows": {
+        "sql": "0352_labeling_core_read.sql",
+        "owner": "labeling_code",
+        "columns": [
+            ("id", "uuid"),
+            ("task_id", "uuid"),
+            ("project_id", "uuid"),
+            ("video_segment_id", "uuid"),
+            ("user_id", "uuid"),
+            ("source", "character varying(20)"),
+            ("annotation_type", "character varying(30)"),
+            ("tool_unit_id", "character varying(30)"),
+            ("class_name", "character varying(100)"),
+            ("geometry", "jsonb"),
+            ("confidence", "double precision"),
+            ("parent_prediction_id", "uuid"),
+            ("parent_annotation_id", "uuid"),
+            ("track_id", "character varying(64)"),
+            ("scene_track_id", "uuid"),
+            ("sensor_dataset_item_id", "uuid"),
+            ("sensor_role", "character varying(50)"),
+            ("sensor_visibility", "character varying(16)"),
+            ("calibration_revision", "integer"),
+            ("calibration_digest", "character varying(64)"),
+            ("temporal_role", "character varying(16)"),
+            ("lead_time", "double precision"),
+            ("was_cancelled", "boolean"),
+            ("ground_truth", "boolean"),
+            ("is_active", "boolean"),
+            ("attributes", "jsonb"),
+            ("attributes_meta", "jsonb"),
+            ("z_order", "integer"),
+            ("is_locked", "boolean"),
+            ("is_hidden", "boolean"),
+            ("version", "integer"),
+            ("created_at", "timestamp with time zone"),
+            ("updated_at", "timestamp with time zone"),
+        ],
+    },
+    "aap_labeling_v1.prediction_rows": {
+        "sql": "0352_labeling_core_read.sql",
+        "owner": "labeling_code",
+        "columns": [
+            ("id", "uuid"),
+            ("task_id", "uuid"),
+            ("project_id", "uuid"),
+            ("ml_backend_id", "uuid"),
+            ("ml_backend_pool_id", "uuid"),
+            ("model_version", "character varying(100)"),
+            ("score", "double precision"),
+            ("tool_unit_id", "character varying(30)"),
+            ("result", "jsonb"),
+            ("cluster", "integer"),
+            ("mislabeling", "double precision"),
+            ("source", "character varying(20)"),
+            ("rejected_shape_indexes", "jsonb"),
+            ("created_at", "timestamp with time zone"),
+        ],
+    },
+    "aap_labeling_v1.prediction_meta_rows": {
+        "sql": "0352_labeling_core_read.sql",
+        "owner": "labeling_code",
+        "columns": [
+            ("id", "uuid"),
+            ("prediction_id", "uuid"),
+            ("prediction_created_at", "timestamp with time zone"),
+            ("failed_prediction_id", "uuid"),
+            ("inference_time_ms", "integer"),
+            ("prompt_tokens", "integer"),
+            ("completion_tokens", "integer"),
+            ("total_tokens", "integer"),
+            ("prompt_cost", "double precision"),
+            ("completion_cost", "double precision"),
+            ("total_cost", "double precision"),
+            ("extra", "jsonb"),
+            ("created_at", "timestamp with time zone"),
+        ],
+    },
+    "aap_labeling_v1.failed_prediction_rows": {
+        "sql": "0352_labeling_core_read.sql",
+        "owner": "labeling_code",
+        "columns": [
+            ("id", "uuid"),
+            ("task_id", "uuid"),
+            ("project_id", "uuid"),
+            ("ml_backend_id", "uuid"),
+            ("ml_backend_pool_id", "uuid"),
+            ("model_version", "character varying(100)"),
+            ("error_type", "character varying(100)"),
+            ("message", "text"),
+            ("retry_count", "integer"),
+            ("last_retry_at", "timestamp with time zone"),
+            ("dismissed_at", "timestamp with time zone"),
+            ("extra", "jsonb"),
+            ("created_at", "timestamp with time zone"),
+        ],
+    },
+    "aap_labeling_v1.task_lock_rows": {
+        "sql": "0352_labeling_core_read.sql",
+        "owner": "labeling_code",
+        "columns": [
+            ("id", "uuid"),
+            ("task_id", "uuid"),
+            ("user_id", "uuid"),
+            ("expire_at", "timestamp with time zone"),
+            ("unique_id", "uuid"),
+            ("created_at", "timestamp with time zone"),
+        ],
+    },
+    "aap_labeling_v1.task_dataset_item_link_rows": {
+        "sql": "0352_labeling_core_read.sql",
+        "owner": "labeling_code",
+        "columns": [
+            ("id", "uuid"),
+            ("task_id", "uuid"),
+            ("dataset_item_id", "uuid"),
+            ("role", "character varying(50)"),
+            ("sensor_name", "character varying(100)"),
+            ("created_at", "timestamp with time zone"),
+        ],
+    },
+    "aap_labeling_v1.annotation_draft_rows": {
+        "sql": "0361_labeling_compatibility_reads.sql",
+        "owner": "labeling_code",
+        "columns": [
+            ("id", "uuid"),
+            ("task_id", "uuid"),
+        ],
+    },
+    "aap_assets_v1.labeling_dataset_item_facts": {
+        "sql": "0361_labeling_compatibility_reads.sql",
+        "owner": "assets_code",
+        "columns": [
+            ("id", "uuid"),
+            ("dataset_id", "uuid"),
+            ("file_path", "character varying(1000)"),
+            ("file_type", "character varying(20)"),
+            ("file_size", "bigint"),
+            ("content_hash", "character varying(64)"),
+            ("width", "integer"),
+            ("height", "integer"),
+        ],
+    },
+    "aap_assets_v1.scale_seed_dataset_item_facts": {
+        "sql": "0364_labeling_scale_seed_operations.sql",
+        "owner": "assets_code",
+        "columns": [
+            ("id", "uuid"),
+            ("dataset_id", "uuid"),
+            ("file_name", "character varying(500)"),
+        ],
+    },
+    "aap_assets_v1.video_chapter_facts": {
+        "sql": "0354_labeling_spatial_quality.sql",
+        "owner": "assets_code",
+        "columns": [
+            ("id", "uuid"),
+            ("dataset_item_id", "uuid"),
+            ("title", "character varying(200)"),
+            ("start_frame", "integer"),
+            ("end_frame", "integer"),
+        ],
+    },
+    "aap_notifications_v1.notification_facts": {
+        "sql": "0319_notifications_read_relations.sql",
+        "owner": "notifications_code",
+        "columns": [
+            ("id", "uuid"),
+            ("user_id", "uuid"),
+            ("type", "character varying(60)"),
+            ("target_type", "character varying(30)"),
+            ("target_id", "uuid"),
+            ("payload", "jsonb"),
+            ("read_at", "timestamp with time zone"),
+            ("created_at", "timestamp with time zone"),
+        ],
+    },
+    "aap_audit_v1.audit_events": {
+        "sql": "0320_audit_read_relations.sql",
+        "owner": "audit_code",
+        "columns": [
+            ("id", "bigint"),
+            ("actor_id", "uuid"),
+            ("actor_email", "character varying(255)"),
+            ("actor_role", "character varying(32)"),
+            ("action", "character varying(64)"),
+            ("target_type", "character varying(32)"),
+            ("target_id", "character varying(64)"),
+            ("method", "character varying(8)"),
+            ("path", "character varying(256)"),
+            ("status_code", "smallint"),
+            ("ip", "inet"),
+            ("detail_json", "jsonb"),
+            ("request_id", "character varying(36)"),
+            ("created_at", "timestamp with time zone"),
+        ],
+    },
+    "aap_audit_v1.audit_daily_facts": {
+        "sql": "0322_audit_daily_projection.sql",
+        "owner": "audit_code",
+        "columns": [
+            ("day", "date"),
+            ("action", "character varying(64)"),
+            ("target_type", "character varying"),
+            ("actor_role", "character varying"),
+            ("status_family", "smallint"),
+            ("event_count", "bigint"),
+        ],
+    },
+    "aap_jobs_v1.notification_scope_facts": {
+        "sql": "0323_jobs_notification_scope_facts.sql",
+        "owner": "jobs_code",
+        "columns": [
+            ("id", "uuid"),
+            ("kind", "character varying(40)"),
+            ("scope_project_id", "uuid"),
+        ],
+    },
+    "aap_labeling_v1.annotation_comment_facts": {
+        "sql": "0347_labeling_discussion.sql",
+        "owner": "labeling_code",
+        "columns": [
+            ("id", "uuid"),
+            ("annotation_id", "uuid"),
+            ("project_id", "uuid"),
+            ("author_id", "uuid"),
+            ("body", "text"),
+            ("is_resolved", "boolean"),
+            ("is_active", "boolean"),
+            ("mentions", "jsonb"),
+            ("attachments", "jsonb"),
+            ("canvas_drawing", "jsonb"),
+            ("anchor", "jsonb"),
+            ("created_at", "timestamp with time zone"),
+            ("updated_at", "timestamp with time zone"),
+        ],
+    },
+    "aap_labeling_v1.annotation_feedback_facts": {
+        "sql": "0347_labeling_discussion.sql",
+        "owner": "labeling_code",
+        "columns": [
+            ("id", "uuid"),
+            ("kind", "character varying(16)"),
+            ("anchor_type", "character varying(16)"),
+            ("project_id", "uuid"),
+            ("task_id", "uuid"),
+            ("annotation_id", "uuid"),
+            ("anchor_position", "jsonb"),
+            ("status", "character varying(16)"),
+            ("severity", "character varying(16)"),
+            ("title", "character varying(500)"),
+            ("body", "text"),
+            ("author_id", "uuid"),
+            ("attachments", "jsonb"),
+            ("mentions", "jsonb"),
+            ("canvas_drawing", "jsonb"),
+            ("thread_parent_id", "uuid"),
+            ("is_active", "boolean"),
+            ("resolved_at", "timestamp with time zone"),
+            ("resolved_by_id", "uuid"),
+            ("created_at", "timestamp with time zone"),
+            ("updated_at", "timestamp with time zone"),
+        ],
+    },
+    "aap_labeling_v1.task_event_facts": {
+        "sql": "0347_labeling_discussion.sql",
+        "owner": "labeling_code",
+        "columns": [
+            ("id", "uuid"),
+            ("task_id", "uuid"),
+            ("user_id", "uuid"),
+            ("project_id", "uuid"),
+            ("kind", "character varying(16)"),
+            ("started_at", "timestamp with time zone"),
+            ("ended_at", "timestamp with time zone"),
+            ("duration_ms", "integer"),
+            ("annotation_count", "integer"),
+            ("was_rejected", "boolean"),
+            ("collector_version", "character varying(32)"),
+            ("collection_source", "character varying(32)"),
+            ("collection_coverage", "character varying(32)"),
+            ("created_at", "timestamp with time zone"),
+            ("reject_reason_type", "character varying(20)"),
+        ],
+    },
+}
 IDENTITY_CLIENT_ROLES = {
+    "INFERENCE_POOL_REFERENCE": "inference_pool_reference_client",
+    "LABELING_VIDEO_CONTROL": "labeling_video_control_client",
+    "LABELING_ANNOTATION_TRANSFER": "labeling_annotation_transfer_client",
+    "LABELING_CORE_READ": "labeling_core_read_client",
+    "LABELING_MASK_QUALITY": "labeling_mask_quality_client",
+    "LABELING_SPATIAL_QUALITY": "labeling_spatial_quality_client",
+    "LABELING_TASK_MAINTENANCE": "labeling_task_maintenance_client",
     "AUTH": "identity_auth_client",
+    "ACTOR_STATUS": "identity_actor_status_client",
     "COMMAND": "identity_command_client",
     "FENCE": "identity_fence_client",
     "OPERATOR": "identity_session_operator",
@@ -75,6 +699,17 @@ IDENTITY_CLIENT_ROLES = {
     "WORKSPACE_DIRECTORY_QUERY": "workspace_directory_query_client",
     "LABELING_CLASS_QUERY": "labeling_class_query_client",
     "LABELING_VIDEO_WRITER": "labeling_video_writer_client",
+    "LABELING_TASK_CONTROL": "labeling_task_control_client",
+    "LABELING_ANNOTATION_WRITE": "labeling_annotation_write_client",
+    "LABELING_EDITING": "labeling_editing_client",
+    "LABELING_BATCH_CONTROL": "labeling_batch_control_client",
+    "LABELING_PREDICTION": "labeling_prediction_client",
+    "LABELING_SCENE_TRACK_COMMAND": "labeling_scene_track_command_client",
+    "LABELING_CROSS_FRAME": "labeling_cross_frame_client",
+    "LABELING_ANNOTATION_MAINTENANCE": "labeling_annotation_maintenance_client",
+    "LABELING_DISCUSSION": "labeling_discussion_client",
+    "LABELING_MASK_EDIT": "labeling_mask_edit_client",
+    "LABELING_SCENE_READ": "labeling_scene_read_client",
     "VIDEO_RESTORE": "video_restore_operator_client",
     "INFERENCE_PIPELINES": "inference_pipelines_client",
     "INFERENCE_BACKEND_PROBE": "inference_backend_probe_client",
@@ -110,6 +745,19 @@ MODULE_ROLES = (
     "labeling_mask_gc_client",
     "preannotation_result_client",
     VIDEO_EXECUTION_ROLE,
+    NOTIFICATION_PREFERENCES_ROLE,
+    NOTIFICATION_APPEND_ROLE,
+    NOTIFICATION_INBOX_ROLE,
+    NOTIFICATION_DELIVERY_READ_ROLE,
+    AUDIT_APPEND_ROLE,
+    AUDIT_QUERY_ROLE,
+    NOTIFICATION_READ_ROLE,
+    AUDIT_READ_ROLE,
+    AUDIT_DAILY_REFRESH_ROLE,
+    AUDIT_MAINTENANCE_ROLE,
+    JOBS_NOTIFICATION_SCOPE_ROLE,
+    JOBS_LIST_QUERY_ROLE,
+    JOBS_LIFECYCLE_ROLE,
     *IDENTITY_CLIENT_ROLES.values(),
 )
 SQL_ARTIFACTS = (
@@ -273,8 +921,81 @@ SQL_ARTIFACTS = (
     "0304_identity_fixture_preferences.sql",
     "0305_identity_e2e_fixtures.sql",
     "0306_gpu_registry_delete_noop.sql",
+    "0307_workspace_media_seed_project.sql",
+    "0308_workspace_seed_member_assignment.sql",
+    "0309_workspace_e2e_fixtures.sql",
+    "0310_workspace_scale_seed.sql",
+    "0311_notifications_preferences.sql",
+    "0312_video_tracker_input_retention.sql",
+    "0313_video_tracker_input_garbage_retention.sql",
+    "0314_notifications_append.sql",
+    "0315_audit_append.sql",
+    "0316_notifications_read_state.sql",
+    "0317_audit_query.sql",
+    "0318_notifications_delete.sql",
+    "0319_notifications_read_relations.sql",
+    "0320_audit_read_relations.sql",
+    "0321_notifications_terminal_append.sql",
+    "0322_audit_daily_projection.sql",
+    "0323_jobs_notification_scope_facts.sql",
+    "0324_notifications_inbox_query.sql",
+    "0325_notifications_delivery_read.sql",
+    "0326_jobs_list_query.sql",
+    "0327_jobs_lifecycle.sql",
+    "0328_jobs_row_locks.sql",
+    "0329_jobs_domain_queries.sql",
+    "0330_jobs_fixture_cleanup.sql",
+    "0331_jobs_filter_fixtures.sql",
+    "0332_jobs_action_idempotency.sql",
+    "0333_audit_maintenance.sql",
+    "0334_labeling_task_locks.sql",
+    "0335_labeling_task_workflow.sql",
+    "0336_labeling_annotation_statistics.sql",
+    "0337_labeling_scene_track_domain.sql",
+    "0338_labeling_annotation_revision_support.sql",
+    "0338_labeling_annotation_writes.sql",
+    "0339_labeling_annotation_bulk.sql",
+    "0340_labeling_video_bbox_editing.sql",
+    "0341_labeling_batch_control.sql",
+    "0342_labeling_prediction_records.sql",
+    "0343_labeling_scene_track_commands.sql",
+    "0344_labeling_cross_frame_writes.sql",
+    "0345_labeling_annotation_prediction.sql",
+    "0346_labeling_annotation_maintenance.sql",
+    "0347_labeling_discussion.sql",
+    "0348_labeling_mask_edits.sql",
+    "0349_labeling_scene_read.sql",
+    "0350_labeling_video_control.sql",
+    "0351_labeling_annotation_transfer.sql",
+    "0352_labeling_core_read.sql",
+    "0353_labeling_mask_quality.sql",
+    "0354_labeling_spatial_quality.sql",
+    "0355_labeling_task_maintenance.sql",
+    "0356_inference_pool_reference.sql",
+    "0357_labeling_prediction_partitions.sql",
+    "0358_labeling_fixture_cleanup.sql",
+    "0359_labeling_upload_tasks.sql",
+    "0360_labeling_video_segment_lifecycle.sql",
+    "0361_labeling_compatibility_reads.sql",
+    "0362_labeling_e2e_fixture_writes.sql",
+    "0363_labeling_screenshot_operations.sql",
+    "0364_labeling_scale_seed_operations.sql",
+    "0366_audit_fixture_cleanup.sql",
 )
 SCHEMA_ARTIFACTS = (
+    "0362_labeling_e2e_fixture_writes.schema.json",
+    "0363_labeling_screenshot_operations.schema.json",
+    "0364_labeling_scale_seed_operations.schema.json",
+    "0360_labeling_video_segment_lifecycle.schema.json",
+    "0359_labeling_upload_tasks.schema.json",
+    "0358_labeling_fixture_cleanup.schema.json",
+    "0357_labeling_prediction_partitions.schema.json",
+    "0356_inference_pool_reference.schema.json",
+    "0350_labeling_video_control.schema.json",
+    "0351_labeling_annotation_transfer.schema.json",
+    "0353_labeling_mask_quality.schema.json",
+    "0354_labeling_spatial_quality.schema.json",
+    "0355_labeling_task_maintenance.schema.json",
     "0191_task_append.schema.json",
     "0192_creation_authority.schema.json",
     "0193_task_creation_jobs.schema.json",
@@ -391,8 +1112,73 @@ SCHEMA_ARTIFACTS = (
     "0303_identity_scale_seed_actors.schema.json",
     "0304_identity_fixture_preferences.schema.json",
     "0305_identity_e2e_fixtures.schema.json",
+    "0307_workspace_media_seed_project.schema.json",
+    "0308_workspace_seed_member_assignment.schema.json",
+    "0309_workspace_e2e_fixtures.schema.json",
+    "0310_workspace_scale_seed.schema.json",
+    "0311_notifications_preferences.schema.json",
+    "0312_video_tracker_input_retention.schema.json",
+    "0313_video_tracker_input_garbage_retention.schema.json",
+    "0314_notifications_append.schema.json",
+    "0315_audit_append.schema.json",
+    "0316_notifications_read_state.schema.json",
+    "0317_audit_query.schema.json",
+    "0318_notifications_delete.schema.json",
+    "0319_notifications_read_relations.schema.json",
+    "0320_audit_read_relations.schema.json",
+    "0321_notifications_terminal_append.schema.json",
+    "0322_audit_daily_projection.schema.json",
+    "0323_jobs_notification_scope_facts.schema.json",
+    "0324_notifications_inbox_query.schema.json",
+    "0325_notifications_delivery_read.schema.json",
+    "0326_jobs_list_query.schema.json",
+    "0327_jobs_lifecycle.schema.json",
+    "0328_jobs_row_locks.schema.json",
+    "0329_jobs_domain_queries.schema.json",
+    "0330_jobs_fixture_cleanup.schema.json",
+    "0331_jobs_filter_fixtures.schema.json",
+    "0332_jobs_action_idempotency.schema.json",
+    "0333_audit_maintenance.schema.json",
+    "0334_labeling_task_locks.schema.json",
+    "0335_labeling_task_workflow.schema.json",
+    "0336_labeling_annotation_statistics.schema.json",
+    "0337_labeling_scene_track_domain.schema.json",
+    "0338_labeling_annotation_writes.schema.json",
+    "0339_labeling_annotation_bulk.schema.json",
+    "0340_labeling_video_bbox_editing.schema.json",
+    "0341_labeling_batch_control.schema.json",
+    "0342_labeling_prediction_records.schema.json",
+    "0343_labeling_scene_track_commands.schema.json",
+    "0344_labeling_cross_frame_writes.schema.json",
+    "0345_labeling_annotation_prediction.schema.json",
+    "0346_labeling_annotation_maintenance.schema.json",
+    "0347_labeling_discussion.schema.json",
+    "0347_labeling_task_events.schema.json",
+    "0348_labeling_mask_edits.schema.json",
+    "0348_labeling_mask_revisions.schema.json",
+    "0348_labeling_ai_mask_accept.schema.json",
+    "0349_labeling_scene_read.schema.json",
+    "0366_audit_fixture_cleanup.schema.json",
 )
 TEST_FILES = (
+    "tests/test_video_frame_service.py",
+    "tests/test_video_control_worker_binding.py",
+    "tests/test_jobs_fixture_cleanup_binding.py",
+    "tests/test_legacy_files_upload.py",
+    "tests/test_inference_pool_reference_native.py",
+    "tests/test_labeling_video_control_native.py",
+    "tests/test_labeling_annotation_transfer_native.py",
+    "tests/test_labeling_core_read_native.py",
+    "tests/test_labeling_mask_quality_native.py",
+    "tests/test_labeling_spatial_quality_native.py",
+    "tests/test_labeling_task_maintenance_native.py",
+    "tests/test_audit_maintenance_native.py",
+    "tests/test_audit_fixture_cleanup_native.py",
+    "tests/test_audit_maintenance_module_live.py",
+    "tests/test_audit_metadata_delivery_live.py",
+    "tests/test_labeling_scale_seed_operations.py",
+    "tests/test_scale_seed_workspace_native.py",
+    "tests/test_workspace_e2e_native.py",
     "tests/test_gpu_registry_delete_noop_native.py",
     "tests/test_identity_e2e_replay.py",
     "tests/test_identity_e2e_native.py",
@@ -413,10 +1199,14 @@ TEST_FILES = (
     "tests/test_workspace_capacity_live.py",
     "tests/test_workspace_import_cli_live.py",
     "tests/test_workspace_worker_assembly_live.py",
+    "tests/test_workspace_cross_frame_worker_live.py",
+    "tests/test_workspace_video_tracker_worker_live.py",
+    "tests/test_workspace_export_worker_live.py",
     "tests/test_workspace_module_assembly_live.py",
     "tests/test_workspace_module_healthcheck.py",
     "tests/test_workspace_consumer_profile_native.py",
     "tests/test_video_deletion_retirement_native.py",
+    "tests/test_video_tracker_input_retention_roles.py",
     "tests/test_video_deletion_retirement_bindings.py",
     "tests/test_video_deletion_retirement_http_native.py",
     "tests/test_workspace_dataset_unlink_native.py",
@@ -448,6 +1238,26 @@ TEST_FILES = (
     "tests/test_video_restore_live.py",
     "tests/test_video_restore_worker_live.py",
     "tests/test_labeling_video_writer_native.py",
+    "tests/test_labeling_task_locks_native.py",
+    "tests/test_labeling_task_workflow_native.py",
+    "tests/test_labeling_annotation_statistics_native.py",
+    "tests/test_labeling_scene_track_domain_native.py",
+    "tests/test_labeling_annotation_writes_native.py",
+    "tests/test_labeling_annotation_bulk_native.py",
+    "tests/test_labeling_video_bbox_editing_native.py",
+    "tests/test_labeling_batch_control_native.py",
+    "tests/test_labeling_runtime_acl_native.py",
+    "tests/test_labeling_e2e_fixture_writes_native.py",
+    "tests/test_labeling_prediction_records_native.py",
+    "tests/test_labeling_scene_track_commands_native.py",
+    "tests/test_labeling_cross_frame_writes_native.py",
+    "tests/test_labeling_annotation_prediction_native.py",
+    "tests/test_labeling_annotation_maintenance_native.py",
+    "tests/test_labeling_discussion_native.py",
+    "tests/test_labeling_mask_edits_native.py",
+    "tests/test_labeling_scene_read_native.py",
+    "tests/test_labeling_module_restore.py",
+    "tests/test_labeling_module_api_cold.py",
     "tests/test_labeling_video_writer_live.py",
     "tests/test_labeling_video_writer_containers.py",
     "tests/test_labeling_video_writer_restore.py",
@@ -569,15 +1379,40 @@ TEST_FILES = (
     "tests/test_project_task_datasets.py",
     "tests/test_sample_evaluations.py",
     "tests/test_async_jobs.py",
+    "tests/test_jobs_list_query.py",
+    "tests/test_jobs_list_query_native.py",
     "tests/test_async_job_actor_freshness.py",
     "tests/test_notifications.py",
+    "tests/test_notifications_module_assembly_live.py",
+    "tests/test_notification_terminal_append.py",
+    "tests/test_notification_jobs_scope.py",
+    "tests/test_notification_inbox_query.py",
+    "tests/test_notification_delivery_read.py",
+    "tests/test_notification_delivery_read_native.py",
+    "tests/test_notification_read_relations_baseline.py",
+    "tests/test_notification_delivery_scope.py",
+    "tests/test_notification_read_state_cache.py",
+    "tests/test_notification_delete_cache.py",
+    "tests/test_notifications_delete_baseline.py",
+    "tests/test_notification_read_relations.py",
+    "tests/test_dataset_import_delivery.py::test_notification_delivery_acks_after_publish_by_persisted_id",
+    "tests/test_ws_revalidation.py::test_notification_parser_resolves_stored_row",
+    "tests/test_notifications_socket_lifecycle.py",
+    "tests/test_notifications_socket_live.py",
+    "tests/test_audit_append_adapter.py",
+    "tests/test_audit_append_native.py",
+    "tests/test_audit_logs.py",
+    "tests/test_audit_query_routes.py",
+    "tests/test_audit_read_relations_native.py",
+    "tests/test_audit_project_scope.py::test_project_admin_audit_scope_and_superadmin_global_access",
+    "tests/test_audit_project_scope.py::test_project_admin_audit_relation_preserves_native_inet_dto_values",
+    "tests/test_audit_metadata_append.py",
     "tests/test_notification_delivery_scope.py",
     "tests/test_pointcloud_box3d_annotation.py",
     "tests/test_pointcloud_import.py",
     "tests/test_pointcloud_manifest.py",
     "tests/test_pointcloud_scene_e2e.py",
     "tests/test_module_data_roles.py",
-    "tests/test_identity_primary_compatibility.py",
     "tests/test_datasets_upload_zip.py",
     "tests/test_scene_inference.py",
     "tests/test_mask_formats_m6.py",
@@ -795,6 +1630,42 @@ def _passed_test_count(junit: Path) -> int:
         all(case.find(state) is None for state in ("skipped", "failure", "error"))
         for case in ET.parse(junit).findall(".//testcase")
     )
+
+
+def _node_failure_diagnostic(
+    stage: str, result: subprocess.CompletedProcess
+) -> dict[str, object]:
+    stderr = result.stderr or ""
+    diagnostic: dict[str, object] = {
+        "stage": stage,
+        "returncode": result.returncode,
+        "category": "node_failure",
+    }
+    module_match = re.search(r"Cannot find package '([^']+)'", stderr)
+    if module_match:
+        diagnostic["category"] = "missing_node_module"
+        module_name = module_match.group(1)
+        if re.fullmatch(r"[A-Za-z0-9@._/-]+", module_name):
+            diagnostic["module"] = module_name
+        return diagnostic
+    error_class_match = re.search(
+        r"(?m)^(AssertionError|TypeError|RangeError|ReferenceError|SyntaxError|Error)"
+        r"(?:\s+\[[A-Z0-9_]+\])?:",
+        stderr,
+    )
+    if error_class_match:
+        diagnostic["error_class"] = error_class_match.group(1)
+    sqlstate_match = re.search(r"\bcode:\s*['\"]([0-9A-Z]{5})['\"]", stderr)
+    if sqlstate_match:
+        diagnostic["category"] = "postgresql_error"
+        diagnostic["sqlstate"] = sqlstate_match.group(1)
+    elif "ECONNREFUSED" in stderr or "ETIMEDOUT" in stderr:
+        diagnostic["category"] = "connection_error"
+    elif "AssertionError" in stderr:
+        diagnostic["category"] = "assertion_failure"
+    elif "ERR_ASSERTION" in stderr:
+        diagnostic["category"] = "assertion_failure"
+    return diagnostic
 
 
 def _cleanup_storage_scope(backend) -> dict:
@@ -1532,6 +2403,44 @@ def _create_mask_content_storage_scope(scope: dict, *, cleanup: bool) -> None:
     )
 
 
+def _create_audit_archive_storage_scope(scope: dict, *, read_only: bool) -> None:
+    bucket = f"arn:aws:s3:::{scope['bucket']}"
+    policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {"Effect": "Allow", "Action": ["s3:ListBucket"], "Resource": [bucket]},
+            {
+                "Effect": "Allow",
+                "Action": ["s3:GetObject" if read_only else "s3:PutObject"],
+                "Resource": [f"{bucket}/*"],
+            },
+        ],
+    }
+    _cleanup_mc(
+        scope,
+        ["admin", "user", "add", "scoped", scope["access_key"], scope["secret_key"]],
+    )
+    scope["user_created"] = True
+    _cleanup_mc(
+        scope,
+        ["admin", "policy", "create", "scoped", scope["policy"], "/dev/stdin"],
+        payload=json.dumps(policy),
+    )
+    scope["policy_created"] = True
+    _cleanup_mc(
+        scope,
+        [
+            "admin",
+            "policy",
+            "attach",
+            "scoped",
+            scope["policy"],
+            "--user",
+            scope["access_key"],
+        ],
+    )
+
+
 def _create_media_storage_scope(scope: dict, *, worker: bool) -> None:
     _cleanup_mc(
         scope,
@@ -1829,6 +2738,664 @@ def _psql(
     return result.stdout
 
 
+def _assert_psql_permission_denied(
+    container_id: str,
+    container_name: str,
+    container_identity: str,
+    *,
+    username: str,
+    password: str,
+    database: str,
+    statement: str,
+) -> None:
+    escaped = statement.replace("'", "''")
+    _psql(
+        container_id,
+        container_name,
+        container_identity,
+        username=username,
+        password=password,
+        database=database,
+        sql=(
+            "DO $$ DECLARE denied boolean := false; BEGIN "
+            "BEGIN EXECUTE '"
+            f"{escaped}"
+            "'; EXCEPTION WHEN insufficient_privilege THEN denied := true; "
+            "END; IF NOT denied THEN RAISE EXCEPTION "
+            "'expected SQLSTATE 42501 for a restricted read role'; END IF; END $$;"
+        ),
+    )
+
+
+def _installed_function_body_sha256(
+    container_id: str,
+    container_name: str,
+    container_identity: str,
+    *,
+    database: str,
+    owner_password: str,
+    signature: str,
+    sql_name: str,
+) -> str:
+    source = (ROOT / "apps/api/alembic/sql" / sql_name).read_text(encoding="utf-8")
+    function_name = re.escape(signature.split("(", 1)[0])
+    match = re.search(
+        rf"^\s*CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+{function_name}\s*\("
+        r".*?\bAS\s+\$function\$(.*?)\$function\$;",
+        source,
+        re.MULTILINE | re.DOTALL | re.IGNORECASE,
+    )
+    if match is None:
+        raise RuntimeError(f"frozen SQL has no function body: {sql_name}")
+    expected = match.group(1)
+    encoded = _psql(
+        container_id,
+        container_name,
+        container_identity,
+        username="owner",
+        password=owner_password,
+        database=database,
+        sql=(
+            "SELECT pg_catalog.encode(pg_catalog.convert_to(prosrc, 'UTF8'), 'hex') "
+            "FROM pg_catalog.pg_proc WHERE oid = "
+            f"pg_catalog.to_regprocedure('{signature}')"
+        ),
+    ).strip()
+    try:
+        actual = bytes.fromhex(encoded).decode("utf-8")
+    except (ValueError, UnicodeError):
+        raise RuntimeError(
+            f"installed function body is missing or malformed: {signature}"
+        ) from None
+    if actual != expected:
+        raise RuntimeError(
+            f"installed function body differs from frozen SQL: {signature}"
+        )
+    return hashlib.sha256(actual.encode("utf-8")).hexdigest()
+
+
+def _verify_audit_daily_projection_boundary(
+    container_id: str,
+    container_name: str,
+    container_identity: str,
+    *,
+    database: str,
+    owner_password: str,
+    runtime_password: str,
+    read_password: str,
+    refresh_password: str,
+    refresh_url: str,
+) -> dict:
+    def execute(username: str, password: str, sql: str) -> str:
+        return _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username=username,
+            password=password,
+            database=database,
+            sql=sql,
+        )
+
+    execute(
+        "owner",
+        owner_password,
+        f'GRANT USAGE ON SCHEMA aap_audit_v1 TO "{AUDIT_DAILY_REFRESH_ROLE}"; '
+        f'GRANT EXECUTE ON FUNCTION aap_audit_v1.refresh_audit_bi_mv() TO "{AUDIT_DAILY_REFRESH_ROLE}";',
+    )
+
+    async def verify_refresh_login() -> None:
+        import asyncpg
+
+        from aap_owner_data.postgres import verify_function_only_role
+
+        connection = await asyncpg.connect(refresh_url, timeout=5)
+        try:
+            await verify_function_only_role(
+                connection,
+                schema="aap_audit_v1",
+                functions={("refresh_audit_bi_mv", "")},
+                role=AUDIT_DAILY_REFRESH_ROLE,
+            )
+        finally:
+            await connection.close()
+
+    asyncio.run(verify_refresh_login())
+    ownership = json.loads(
+        execute(
+            "owner",
+            owner_password,
+            "SELECT json_build_object("
+            "'mv_owner',pg_get_userbyid(mv.relowner),"
+            "'view_owner',pg_get_userbyid(facts.relowner),"
+            "'refresh_owner',pg_get_userbyid(refresh.proowner),"
+            "'definer',refresh.prosecdef,"
+            "'owner_temp',has_database_privilege('audit_code',current_database(),'TEMP'),"
+            "'owner_public_create',has_schema_privilege('audit_code','public','CREATE'),"
+            "'owner_audit_create',has_schema_privilege('audit_code','aap_audit_v1','CREATE'),"
+            "'refresh_temp',has_database_privilege("
+            f"'{AUDIT_DAILY_REFRESH_ROLE}',current_database(),'TEMP')) "
+            "FROM pg_class AS mv,pg_class AS facts,pg_proc AS refresh "
+            "WHERE mv.oid='public.mv_audit_bi_daily'::regclass "
+            "AND facts.oid='aap_audit_v1.audit_daily_facts'::regclass "
+            "AND refresh.oid='aap_audit_v1.refresh_audit_bi_mv()'::regprocedure;",
+        )
+    )
+    if ownership != {
+        "mv_owner": "audit_code",
+        "view_owner": "audit_code",
+        "refresh_owner": "audit_code",
+        "definer": True,
+        "owner_temp": True,
+        "owner_public_create": True,
+        "owner_audit_create": False,
+        "refresh_temp": False,
+    }:
+        raise RuntimeError("Audit daily ownership or fixed refresh privileges differ")
+
+    action = f"probe.audit.daily.{uuid4().hex}"
+    execute(
+        "owner",
+        owner_password,
+        "INSERT INTO public.audit_logs(action,target_type,actor_role,status_code,created_at) "
+        f"VALUES ('{action}','verifier','super_admin',200,"
+        "(date_trunc('day',CURRENT_TIMESTAMP AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')"
+        "-interval '1 hour');",
+    )
+    execute(
+        AUDIT_DAILY_REFRESH_ROLE,
+        refresh_password,
+        "BEGIN; SELECT aap_audit_v1.refresh_audit_bi_mv(); COMMIT;",
+    )
+    projected_count = execute(
+        AUDIT_READ_ROLE,
+        read_password,
+        "SELECT event_count::text FROM aap_audit_v1.audit_daily_facts "
+        f"WHERE action='{action}' AND status_family=2;",
+    ).strip()
+    if projected_count != "1":
+        raise RuntimeError(
+            "The function-only refresh did not publish the tagged daily row"
+        )
+
+    for username, password, statements in (
+        (
+            "legacy_runtime",
+            runtime_password,
+            (
+                "SELECT * FROM public.mv_audit_bi_daily LIMIT 1",
+                "SELECT aap_audit_v1.refresh_audit_bi_mv()",
+            ),
+        ),
+        (
+            AUDIT_READ_ROLE,
+            read_password,
+            (
+                "SELECT * FROM public.mv_audit_bi_daily LIMIT 1",
+                "SELECT aap_audit_v1.refresh_audit_bi_mv()",
+            ),
+        ),
+        (
+            AUDIT_DAILY_REFRESH_ROLE,
+            refresh_password,
+            (
+                "SELECT * FROM public.audit_logs LIMIT 1",
+                "SELECT * FROM public.mv_audit_bi_daily LIMIT 1",
+                "SELECT * FROM aap_audit_v1.audit_daily_facts LIMIT 1",
+            ),
+        ),
+    ):
+        for statement in statements:
+            _assert_psql_permission_denied(
+                container_id,
+                container_name,
+                container_identity,
+                username=username,
+                password=password,
+                database=database,
+                statement=statement,
+            )
+    return {
+        "ownership": ownership,
+        "function_only_login": True,
+        "committed_refresh_and_projection": True,
+        "private_mv_and_unauthorized_refresh_denied": True,
+        "probe_action": action,
+        "probe_retention": "Append-only source row remains until exact owned DB destruction",
+    }
+
+
+def _verify_audit_maintenance_boundary(
+    container_id: str,
+    container_name: str,
+    container_identity: str,
+    *,
+    database: str,
+    owner_password: str,
+    runtime_password: str,
+    maintenance_password: str,
+    maintenance_url: str,
+) -> dict:
+    # Exercise the owner function itself so the ACL check also covers a child
+    # partition created after the ordinary runtime and maintenance grants were set.
+    for month in ("1999-03-01", "2098-04-01"):
+        request = json.dumps(
+            {
+                "schema": "aap-audit-maintenance/v1",
+                "operation": "ensure",
+                "month": month,
+            },
+            separators=(",", ":"),
+        )
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql="SELECT aap_audit_v1.maintenance_command('"
+            + request.replace("'", "''")
+            + "'::jsonb);",
+        )
+
+    async def verify_maintenance_login() -> None:
+        import asyncpg
+
+        from aap_owner_data.postgres import verify_function_only_role
+
+        connection = await asyncpg.connect(maintenance_url, timeout=5)
+        try:
+            await verify_function_only_role(
+                connection,
+                schema="aap_audit_v1",
+                functions={("maintenance_command", "jsonb")},
+                role=AUDIT_MAINTENANCE_ROLE,
+            )
+        finally:
+            await connection.close()
+
+    asyncio.run(verify_maintenance_login())
+    ownership = json.loads(
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=(
+                "SELECT json_build_object("
+                "'role_profile', (SELECT rolcanlogin AND NOT rolinherit "
+                "AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication "
+                "OR rolbypassrls) FROM pg_catalog.pg_roles "
+                f"WHERE rolname='{AUDIT_MAINTENANCE_ROLE}'),"
+                "'owner_parent', pg_catalog.pg_get_userbyid(parent.relowner),"
+                "'owner_current_partition', pg_catalog.pg_get_userbyid(current_partition.relowner),"
+                "'owner_future_partition', pg_catalog.pg_get_userbyid(future_partition.relowner),"
+                "'owner_sequence', pg_catalog.pg_get_userbyid(sequence.relowner),"
+                "'owner_temp', pg_catalog.has_database_privilege('audit_code',current_database(),'TEMP'),"
+                "'owner_public_create', pg_catalog.has_schema_privilege('audit_code','public','CREATE'),"
+                "'maintenance_connect', pg_catalog.has_database_privilege("
+                f"'{AUDIT_MAINTENANCE_ROLE}',current_database(),'CONNECT'),"
+                "'maintenance_no_create_or_temp', NOT pg_catalog.has_database_privilege("
+                f"'{AUDIT_MAINTENANCE_ROLE}',current_database(),'CREATE,TEMP'),"
+                "'maintenance_schema_usage_only', pg_catalog.has_schema_privilege("
+                f"'{AUDIT_MAINTENANCE_ROLE}','aap_audit_v1','USAGE') AND NOT "
+                "pg_catalog.has_schema_privilege("
+                f"'{AUDIT_MAINTENANCE_ROLE}','aap_audit_v1','CREATE'),"
+                "'maintenance_owns_no_objects', NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class "
+                f"WHERE relowner='{AUDIT_MAINTENANCE_ROLE}'::pg_catalog.regrole) "
+                "AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_namespace "
+                f"WHERE nspowner='{AUDIT_MAINTENANCE_ROLE}'::pg_catalog.regrole),"
+                "'default_audit_storage_private', NOT EXISTS ("
+                "SELECT 1 FROM pg_catalog.pg_default_acl AS defaults "
+                "CROSS JOIN LATERAL pg_catalog.aclexplode(defaults.defaclacl) AS acl "
+                "WHERE defaults.defaclrole='audit_code'::pg_catalog.regrole "
+                "AND defaults.defaclnamespace IN (0,'public'::pg_catalog.regnamespace) "
+                "AND defaults.defaclobjtype IN ('r','S') "
+                "AND acl.grantee<>'audit_code'::pg_catalog.regrole),"
+                "'runtime_audit_parent_select', pg_catalog.has_table_privilege("
+                "'legacy_runtime','public.audit_logs','SELECT')) "
+                "FROM pg_catalog.pg_class AS parent, pg_catalog.pg_class AS current_partition, "
+                "pg_catalog.pg_class AS future_partition, pg_catalog.pg_class AS sequence "
+                "WHERE parent.oid='public.audit_logs'::pg_catalog.regclass "
+                "AND current_partition.oid='public.audit_logs_y1999m03'::pg_catalog.regclass "
+                "AND future_partition.oid='public.audit_logs_y2098m04'::pg_catalog.regclass "
+                "AND sequence.oid=pg_catalog.pg_get_serial_sequence("
+                "'public.audit_logs','id')::pg_catalog.regclass;"
+            ),
+        )
+    )
+    expected_ownership = {
+        "role_profile": True,
+        "owner_parent": "audit_code",
+        "owner_current_partition": "audit_code",
+        "owner_future_partition": "audit_code",
+        "owner_sequence": "audit_code",
+        "owner_temp": True,
+        "owner_public_create": True,
+        "maintenance_connect": True,
+        "maintenance_no_create_or_temp": True,
+        "maintenance_schema_usage_only": True,
+        "maintenance_owns_no_objects": True,
+        "default_audit_storage_private": True,
+        "runtime_audit_parent_select": True,
+    }
+    if ownership != expected_ownership:
+        raise RuntimeError("Audit maintenance role, owner, or future ACL differs")
+
+    direct_statements = (
+        "INSERT INTO {relation} (id, action, created_at) "
+        "SELECT 9223372036854775806, 'probe.audit.denied', "
+        "TIMESTAMPTZ '1999-03-03 00:00:00+00' WHERE false",
+        "UPDATE {relation} SET action=action WHERE false",
+        "DELETE FROM {relation} WHERE false",
+    )
+    for username, password in (
+        ("legacy_runtime", runtime_password),
+        (AUDIT_MAINTENANCE_ROLE, maintenance_password),
+    ):
+        for relation in (
+            "public.audit_logs",
+            "public.audit_logs_y1999m03",
+            "public.audit_logs_y2098m04",
+        ):
+            for statement in direct_statements:
+                _assert_psql_permission_denied(
+                    container_id,
+                    container_name,
+                    container_identity,
+                    username=username,
+                    password=password,
+                    database=database,
+                    statement=statement.format(relation=relation),
+                )
+        ddl_statements = (
+            "SELECT pg_catalog.nextval(pg_catalog.pg_get_serial_sequence("
+            "'public.audit_logs','id')::pg_catalog.regclass)",
+            "CREATE TABLE public.audit_maintenance_denied_probe(id integer)",
+            "CREATE TABLE aap_audit_v1.audit_maintenance_denied_probe(id integer)",
+            "ALTER TABLE public.audit_logs ADD COLUMN audit_maintenance_denied_probe integer",
+        )
+        if username == AUDIT_MAINTENANCE_ROLE:
+            ddl_statements += (
+                "CREATE TEMP TABLE audit_maintenance_denied_probe(id integer)",
+            )
+        for statement in ddl_statements:
+            _assert_psql_permission_denied(
+                container_id,
+                container_name,
+                container_identity,
+                username=username,
+                password=password,
+                database=database,
+                statement=statement,
+            )
+
+    return {
+        "function_only_login": True,
+        "direct_partition_writes_denied": True,
+        "sequence_and_ddl_denied": True,
+        "owner_and_future_acl_verified": True,
+        "runtime_audit_parent_select_preserved": True,
+        "probe_partitions": ["audit_logs_y1999m03", "audit_logs_y2098m04"],
+        "ownership": ownership,
+    }
+
+
+async def _verify_inbox_grant_guards(owner_url: str, profile_sql: str) -> dict:
+    import asyncpg
+
+    blocks = {}
+    for name in ("guard", "verify"):
+        match = re.search(rf"DO \${name}\$.*?\${name}\$;", profile_sql, re.DOTALL)
+        if match is None:
+            raise RuntimeError("Inbox grant profile is missing an acceptance guard")
+        blocks[name] = match.group()
+    connection = await asyncpg.connect(owner_url, timeout=5)
+    probe_role = "inbox_owner_probe_" + uuid4().hex
+    try:
+        database = await connection.fetchval("SELECT current_database()")
+        signatures = [*NOTIFICATION_INBOX_FUNCTIONS, NOTIFICATION_INBOX_PRIVATE_HELPER]
+        oids = [
+            await connection.fetchval(
+                "SELECT pg_catalog.to_regprocedure($1)::oid", value
+            )
+            for value in signatures
+        ]
+        if any(value is None for value in oids):
+            raise RuntimeError(
+                "Inbox grant probe requires all four installed functions"
+            )
+        for label, mutation, block, expected_error in (
+            (
+                "owner_membership_rejected",
+                f'CREATE ROLE "{probe_role}" NOLOGIN; '
+                f'GRANT notifications_code TO "{probe_role}";',
+                blocks["guard"],
+                "Unsafe inbox owner, API or query LOGIN",
+            ),
+            (
+                "public_functions_execute_rejected",
+                "GRANT EXECUTE ON FUNCTION "
+                + ",".join(NOTIFICATION_INBOX_FUNCTIONS)
+                + " TO PUBLIC;",
+                blocks["verify"],
+                "PUBLIC retains inbox EXECUTE",
+            ),
+            (
+                "public_helper_execute_rejected",
+                f"GRANT EXECUTE ON FUNCTION {NOTIFICATION_INBOX_PRIVATE_HELPER} TO PUBLIC;",
+                blocks["verify"],
+                "PUBLIC retains inbox EXECUTE",
+            ),
+        ):
+            transaction = connection.transaction()
+            await transaction.start()
+            try:
+                for key, value in {
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "notifications_owner": "notifications_code",
+                    "api_role": "legacy_runtime",
+                    "query_client": NOTIFICATION_INBOX_ROLE,
+                }.items():
+                    await connection.execute(
+                        "SELECT pg_catalog.set_config($1,$2,true)", f"aap.{key}", value
+                    )
+                await connection.execute(mutation)
+                try:
+                    async with connection.transaction():
+                        await connection.execute(block)
+                except asyncpg.RaiseError as error:
+                    if str(error) != expected_error:
+                        raise RuntimeError(
+                            "Inbox ACL guard rejected an unrelated condition"
+                        ) from None
+                else:
+                    raise RuntimeError(f"Inbox ACL guard failed: {label}")
+            finally:
+                await transaction.rollback()
+        if await connection.fetchval(
+            "SELECT EXISTS(SELECT FROM pg_catalog.pg_roles WHERE rolname=$1)",
+            probe_role,
+        ):
+            raise RuntimeError("Inbox owner membership probe did not roll back")
+        if await connection.fetchval(
+            "SELECT EXISTS(SELECT FROM pg_catalog.pg_proc AS function "
+            "CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(function.proacl,"
+            "pg_catalog.acldefault('f',function.proowner))) AS acl "
+            "WHERE function.oid=ANY($1::oid[]) AND acl.grantee=0 "
+            "AND acl.privilege_type='EXECUTE')",
+            oids,
+        ):
+            raise RuntimeError("PUBLIC retained inbox EXECUTE after probe rollback")
+    finally:
+        await connection.close()
+    return {
+        "owner_membership_rejected": True,
+        "public_functions_execute_rejected": True,
+        "public_helper_execute_rejected": True,
+        "probe_role_and_acl_rolled_back": True,
+    }
+
+
+def _read_relation_evidence_expression() -> str:
+    targets = ", ".join(f"('{relation_name}')" for relation_name in READ_RELATION_SPECS)
+    return f"""COALESCE((
+        SELECT pg_catalog.jsonb_agg(
+            pg_catalog.jsonb_build_object(
+                'relation', target.relation,
+                'deparser_hex', pg_catalog.encode(
+                    pg_catalog.convert_to(
+                        pg_catalog.pg_get_viewdef(relation.oid, true), 'UTF8'
+                    ),
+                    'hex'
+                ),
+                'relkind', relation.relkind::text,
+                'owner', pg_catalog.pg_get_userbyid(relation.relowner),
+                'reloptions', COALESCE(
+                    pg_catalog.to_jsonb(relation.reloptions), '[]'::pg_catalog.jsonb
+                ),
+                'columns', COALESCE((
+                    SELECT pg_catalog.jsonb_agg(
+                        pg_catalog.jsonb_build_object(
+                            'name', attribute.attname,
+                            'type', pg_catalog.format_type(
+                                attribute.atttypid, attribute.atttypmod
+                            )
+                        ) ORDER BY attribute.attnum
+                    )
+                    FROM pg_catalog.pg_attribute AS attribute
+                    WHERE attribute.attrelid = relation.oid
+                      AND attribute.attnum > 0
+                      AND NOT attribute.attisdropped
+                ), '[]'::pg_catalog.jsonb)
+            ) ORDER BY target.relation
+        )
+        FROM (VALUES {targets}) AS target(relation)
+        LEFT JOIN pg_catalog.pg_class AS relation
+          ON relation.oid = pg_catalog.to_regclass(target.relation)::oid
+    ), '[]'::pg_catalog.jsonb)"""
+
+
+def _normalize_read_relation_observations(
+    value: str, *, expected_owner: str | dict[str, str] | None = None
+) -> dict[str, dict]:
+    try:
+        observations = json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        raise RuntimeError("read relation catalog evidence is malformed") from None
+    if not isinstance(observations, list):
+        raise RuntimeError("read relation catalog evidence is not an array")
+
+    normalized: dict[str, dict] = {}
+    for observation in observations:
+        if not isinstance(observation, dict):
+            raise RuntimeError("read relation catalog entry is malformed")
+        relation_name = observation.get("relation")
+        if relation_name not in READ_RELATION_SPECS or relation_name in normalized:
+            raise RuntimeError("read relation catalog returned an unknown relation")
+        definition_hex = observation.get("deparser_hex")
+        try:
+            definition = bytes.fromhex(definition_hex).decode("utf-8")
+        except (TypeError, ValueError, UnicodeError):
+            raise RuntimeError(
+                f"read relation deparser output is missing: {relation_name}"
+            ) from None
+
+        spec = READ_RELATION_SPECS[relation_name]
+        owner_expected = (
+            expected_owner.get(relation_name)
+            if isinstance(expected_owner, dict)
+            else expected_owner
+        )
+        columns = observation.get("columns")
+        expected_columns = [
+            {"name": name, "type": type_name} for name, type_name in spec["columns"]
+        ]
+        owner = observation.get("owner")
+        if (
+            observation.get("relkind") != "v"
+            or observation.get("reloptions") != ["security_barrier=true"]
+            or columns != expected_columns
+            or not isinstance(owner, str)
+            or (owner_expected is not None and owner != owner_expected)
+        ):
+            raise RuntimeError(
+                f"read relation metadata differs from its fixed contract: {relation_name}"
+            )
+        normalized[relation_name] = {
+            "pg_get_viewdef_sha256": hashlib.sha256(
+                definition.encode("utf-8")
+            ).hexdigest(),
+            "definition_source": "pg_catalog.pg_get_viewdef(oid, true)",
+            "metadata": {
+                "relkind": observation["relkind"],
+                "owner": owner,
+                "reloptions": observation["reloptions"],
+                "columns": columns,
+            },
+        }
+
+    if set(normalized) != set(READ_RELATION_SPECS):
+        raise RuntimeError("read relation catalog evidence is incomplete")
+    return normalized
+
+
+def _read_relation_structure(snapshot: dict[str, dict]) -> dict[str, dict]:
+    return {
+        relation_name: {
+            "pg_get_viewdef_sha256": evidence["pg_get_viewdef_sha256"],
+            "relkind": evidence["metadata"]["relkind"],
+            "reloptions": evidence["metadata"]["reloptions"],
+            "columns": evidence["metadata"]["columns"],
+        }
+        for relation_name, evidence in snapshot.items()
+    }
+
+
+def _assert_read_relation_structure_matches(
+    reference: dict[str, dict], observed: dict[str, dict], *, phase: str
+) -> None:
+    if _read_relation_structure(reference) != _read_relation_structure(observed):
+        raise RuntimeError(f"read relation deparser/metadata changed during {phase}")
+
+
+def _read_relation_sql_input_sha256() -> dict[str, dict[str, str]]:
+    return {
+        relation_name: {
+            "source": spec["sql"],
+            "sha256": hashlib.sha256(
+                (ROOT / "apps/api/alembic/sql" / spec["sql"]).read_bytes()
+            ).hexdigest(),
+        }
+        for relation_name, spec in READ_RELATION_SPECS.items()
+    }
+
+
+def _installed_read_relation_evidence(
+    container_id: str,
+    container_name: str,
+    container_identity: str,
+    *,
+    database: str,
+    owner_password: str,
+    expected_owner: str | dict[str, str],
+) -> dict[str, dict]:
+    raw = _psql(
+        container_id,
+        container_name,
+        container_identity,
+        username="owner",
+        password=owner_password,
+        database=database,
+        sql=f"SELECT {_read_relation_evidence_expression()}::text",
+    ).strip()
+    return _normalize_read_relation_observations(raw, expected_owner=expected_owner)
+
+
 def _wait_for_postgres(container_id: str, name: str, identity: str) -> None:
     _container_details(container_id, name, identity, require_running=True)
     deadline = time.monotonic() + 30
@@ -1903,6 +3470,19 @@ def _create_module_roles(
     image_worker_password: str,
     mask_gc_password: str,
     result_password: str,
+    preference_password: str,
+    notification_append_password: str,
+    notification_inbox_password: str,
+    notification_delivery_read_password: str,
+    audit_append_password: str,
+    audit_query_password: str,
+    notification_read_password: str,
+    audit_read_password: str,
+    audit_daily_refresh_password: str,
+    audit_maintenance_password: str,
+    jobs_notification_scope_password: str,
+    jobs_list_query_password: str,
+    jobs_lifecycle_password: str,
 ) -> None:
     _psql(
         container_id,
@@ -1971,7 +3551,50 @@ def _create_module_roles(
             "CREATE ROLE preannotation_result_client LOGIN "
             f"PASSWORD '{result_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            "CREATE ROLE notification_preferences_client LOGIN "
+            f"PASSWORD '{preference_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            "CREATE ROLE notification_append_client LOGIN "
+            f"PASSWORD '{notification_append_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            f"CREATE ROLE {NOTIFICATION_INBOX_ROLE} LOGIN "
+            f"PASSWORD '{notification_inbox_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            f"CREATE ROLE {NOTIFICATION_DELIVERY_READ_ROLE} LOGIN "
+            f"PASSWORD '{notification_delivery_read_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            "CREATE ROLE audit_append_client LOGIN "
+            f"PASSWORD '{audit_append_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            "CREATE ROLE audit_query_client LOGIN "
+            f"PASSWORD '{audit_query_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            "CREATE ROLE notification_read_client LOGIN "
+            f"PASSWORD '{notification_read_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            "CREATE ROLE audit_read_client LOGIN "
+            f"PASSWORD '{audit_read_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            f"CREATE ROLE {AUDIT_DAILY_REFRESH_ROLE} LOGIN "
+            f"PASSWORD '{audit_daily_refresh_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            f"CREATE ROLE {AUDIT_MAINTENANCE_ROLE} LOGIN "
+            f"PASSWORD '{audit_maintenance_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            f"CREATE ROLE {JOBS_NOTIFICATION_SCOPE_ROLE} LOGIN "
+            f"PASSWORD '{jobs_notification_scope_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            f"CREATE ROLE {JOBS_LIST_QUERY_ROLE} LOGIN "
+            f"PASSWORD '{jobs_list_query_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            f"CREATE ROLE {JOBS_LIFECYCLE_ROLE} LOGIN "
+            f"PASSWORD '{jobs_lifecycle_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
             'REVOKE TEMPORARY ON DATABASE :"expected_database" FROM PUBLIC;\n'
+            'GRANT CONNECT ON DATABASE :"expected_database" TO '
+            f'"{NOTIFICATION_READ_ROLE}", "{AUDIT_READ_ROLE}", '
+            f'"{AUDIT_DAILY_REFRESH_ROLE}", "{AUDIT_MAINTENANCE_ROLE}", '
+            f'"{JOBS_NOTIFICATION_SCOPE_ROLE}";\n'
             'GRANT TEMPORARY ON DATABASE :"expected_database" TO '
             + ", ".join(
                 ("legacy_runtime",)
@@ -1980,12 +3603,26 @@ def _create_module_roles(
                     for role in MODULE_ROLES
                     if role
                     not in {
+                        "audit_code",
                         "asset_operator_client",
                         "asset_media_control_client",
                         "asset_media_worker_client",
                         "asset_image_worker_client",
                         "labeling_mask_gc_client",
                         "preannotation_result_client",
+                        NOTIFICATION_PREFERENCES_ROLE,
+                        NOTIFICATION_APPEND_ROLE,
+                        NOTIFICATION_INBOX_ROLE,
+                        NOTIFICATION_DELIVERY_READ_ROLE,
+                        AUDIT_APPEND_ROLE,
+                        AUDIT_QUERY_ROLE,
+                        NOTIFICATION_READ_ROLE,
+                        AUDIT_READ_ROLE,
+                        AUDIT_DAILY_REFRESH_ROLE,
+                        AUDIT_MAINTENANCE_ROLE,
+                        JOBS_NOTIFICATION_SCOPE_ROLE,
+                        JOBS_LIST_QUERY_ROLE,
+                        JOBS_LIFECYCLE_ROLE,
                         VIDEO_EXECUTION_ROLE,
                         INFERENCE_REGISTRY_INGRESS_ROLE,
                         INFERENCE_ROUTING_ROLE,
@@ -2022,7 +3659,9 @@ def _install_and_rollback_frozen_sql(
     database: str,
     owner_password: str,
     artifacts: tuple[Path, ...],
-) -> None:
+    *,
+    migration_role: str,
+) -> dict[str, dict]:
     provisioning_id = str(uuid4())
     provisioning_email = f"module-data-{uuid4().hex}@example.invalid"
     provisioning_request = str(uuid4())
@@ -2073,6 +3712,7 @@ def _install_and_rollback_frozen_sql(
         "SELECT aap_identity_deactivation_v1.due_policy();\n"
         "SELECT aap_identity_deactivation_v1.process_due_deactivations(NULL::jsonb);\n"
         "SELECT aap_notifications_v1.identity_delivery_policy();\n"
+        "SELECT aap_notifications_v1.delete_command(NULL::pg_catalog.jsonb);\n"
         "SELECT aap_identity_groups_v1.group_policy();\n"
         "SELECT aap_identity_groups_v1.execute_group_command(NULL::jsonb);\n"
         "SELECT aap_identity_v1.lock_active_actor(NULL::uuid);\n"
@@ -2146,6 +3786,9 @@ def _install_and_rollback_frozen_sql(
         "SELECT aap_labeling_v1.delete_project_owned_records(:'project_id'::uuid);\n"
         "SELECT aap_labeling_v1.append_dataset_items("
         ":'dataset_id'::uuid, ARRAY[]::uuid[], :'operation_id'::uuid);\n"
+        "SELECT 'AAP_READ_RELATIONS_FROZEN=' || ("
+        f"{_read_relation_evidence_expression()}"
+        ")::text;\n"
         "ROLLBACK;\n"
     )
     output = _psql(
@@ -2165,6 +3808,15 @@ def _install_and_rollback_frozen_sql(
             "provisioning_email": provisioning_email,
             "provisioning_request": provisioning_request,
         },
+    )
+    marker = "AAP_READ_RELATIONS_FROZEN="
+    relation_rows = [
+        line[len(marker) :] for line in output.splitlines() if line.startswith(marker)
+    ]
+    if len(relation_rows) != 1:
+        raise RuntimeError("frozen SQL read relation evidence is missing")
+    frozen_relations = _normalize_read_relation_observations(
+        relation_rows[0], expected_owner=migration_role
     )
     responses: dict[str, list[dict]] = {}
     for line in output.splitlines():
@@ -2217,6 +3869,7 @@ def _install_and_rollback_frozen_sql(
         "aap-identity-offboarding-native/v1": "invalid_request",
         "aap-identity-briefs-native/v1": "invalid_request",
         "aap-identity-actor/v1": "invalid_request",
+        "aap-notification-delete/v1": "invalid_request",
     }
     if any(
         not any(
@@ -2327,6 +3980,20 @@ def _install_and_rollback_frozen_sql(
             "AND to_regnamespace('aap_identity_deletions_v1') IS NULL "
             "AND to_regnamespace('aap_identity_offboarding_v1') IS NULL "
             "AND to_regnamespace('aap_identity_briefs_v1') IS NULL "
+            "AND to_regprocedure('aap_notifications_v1.delete_command(pg_catalog.jsonb)') IS NULL "
+            "AND to_regprocedure('aap_notifications_v1.append_job_terminal_notification(jsonb)') IS NULL "
+            "AND to_regprocedure('aap_notifications_v1.read_notification(uuid)') IS NULL "
+            "AND to_regprocedure('aap_notifications_v1.find_terminal_notification(uuid,text,uuid)') IS NULL "
+            "AND to_regprocedure('aap_notifications_v1.delivery_job_scopes(uuid[])') IS NULL "
+            "AND to_regprocedure('aap_notifications_v1.delivery_member_pairs(jsonb)') IS NULL "
+            "AND to_regprocedure('aap_notifications_v1.delivery_reviewer_pairs(jsonb)') IS NULL "
+            "AND to_regprocedure('aap_notifications_v1.delivery_owner_pairs(jsonb)') IS NULL "
+            "AND to_regprocedure('aap_notifications_v1.delivery_super_pairs(jsonb)') IS NULL "
+            "AND to_regprocedure('aap_notifications_v1.inbox_page(uuid,text,boolean,integer,integer)') IS NULL "
+            "AND to_regprocedure('aap_notifications_v1.inbox_total_count(uuid,text)') IS NULL "
+            "AND to_regprocedure('aap_notifications_v1.inbox_unread_count(uuid,text)') IS NULL "
+            "AND to_regprocedure('aap_notifications_v1._visible_inbox_rows(uuid,text)') IS NULL "
+            "AND to_regprocedure('aap_audit_v1.refresh_audit_bi_mv()') IS NULL "
             "AND to_regprocedure('aap_identity_v1.read_provisioning_account(text)') IS NULL "
             "AND to_regprocedure('aap_identity_v1.create_provisioning_account(jsonb)') IS NULL "
             "AND to_regprocedure('aap_audit_v1.record_identity_bootstrap_admin(uuid,text,text)') IS NULL "
@@ -2384,9 +4051,18 @@ def _install_and_rollback_frozen_sql(
             "AND to_regprocedure('aap_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb)') IS NULL "
             "AND to_regprocedure('aap_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb)') IS NULL "
             "AND to_regprocedure('aap_workspace_v1.write_seed_members(jsonb)') IS NULL "
+            "AND to_regprocedure('aap_workspace_v1.create_media_seed_project(uuid,text,text,uuid,text,jsonb)') IS NULL "
+            "AND to_regprocedure('aap_workspace_v1.write_seed_project_projection(uuid,jsonb)') IS NULL "
+            "AND to_regprocedure('aap_workspace_v1.pin_seed_member_assignment(uuid,timestamptz)') IS NULL "
             "AND to_regprocedure('aap_identity_v1.create_seed_persona_account(jsonb)') IS NULL "
             "AND to_regprocedure('aap_identity_v1.replace_fixture_preferences(uuid,jsonb)') IS NULL "
             "AND to_regnamespace('aap_identity_fixture_v1') IS NULL "
+            "AND to_regnamespace('aap_workspace_fixture_v1') IS NULL "
+            "AND to_regprocedure('aap_workspace_v1.create_scale_seed_project(uuid,text)') IS NULL "
+            "AND to_regprocedure('aap_workspace_v1.ensure_scale_seed_member(uuid,uuid,uuid)') IS NULL "
+            "AND to_regprocedure('aap_workspace_v1.guard_scale_seed_cleanup(text)') IS NULL "
+            "AND to_regprocedure('aap_workspace_v1.delete_scale_seed_projects(text,uuid[])') IS NULL "
+            "AND to_regprocedure('aap_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean)') IS NULL "
             "AND to_regprocedure('aap_identity_v1.read_scale_seed_super_admin()') IS NULL "
             "AND to_regprocedure('aap_identity_v1.read_scale_seed_annotator(uuid[])') IS NULL "
             "AND to_regprocedure('aap_workspace_v1.write_point_cloud_quality_config(uuid,jsonb)') IS NULL "
@@ -2481,6 +4157,7 @@ def _install_and_rollback_frozen_sql(
     )
     if rollback_state.strip() != "t":
         raise RuntimeError("native frozen-SQL transaction did not roll back cleanly")
+    return frozen_relations
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -2514,11 +4191,127 @@ def main(argv: list[str] | None = None) -> int:
         "database": None,
         "roles": list(MODULE_ROLES),
         "identity_api_consumer": None,
+        "notification_preferences": {
+            "node_prerequisites": "not_checked",
+            "api_function_grant": False,
+            "api_function_call": False,
+            "function_only_role_grant": False,
+            "node_contract_check": False,
+        },
+        "notification_append": {
+            "node_prerequisites": "not_checked",
+            "api_function_grant": False,
+            "api_insert_revoked": False,
+            "api_function_call": False,
+            "function_only_role_grant": False,
+            "node_contract_check": False,
+        },
+        "notification_delivery_read": {
+            "node_prerequisites": "not_checked",
+            "api_function_grant": False,
+            "function_only_login": False,
+            "api_fact_select_denied": False,
+            "node_contract_check": False,
+            "lan_function_call": False,
+        },
+        "notification_inbox": {
+            "node_prerequisites": "not_checked",
+            "api_function_grant": False,
+            "api_function_call": False,
+            "function_only_role_grant": False,
+            "function_only_login": False,
+            "private_helper_denied": False,
+            "acl_guard_probes": None,
+            "lan_function_calls": False,
+            "node_contract_check": False,
+        },
+        "notification_terminal_append": {
+            "node_prerequisites": "not_checked",
+            "api_function_grant": False,
+            "api_function_call": False,
+            "function_only_role_grant": False,
+            "node_contract_check": False,
+        },
+        "notification_read_state": {
+            "node_prerequisites": "not_checked",
+            "api_function_grant": False,
+            "api_update_revoked": False,
+            "api_function_call": False,
+            "function_only_role_grant": False,
+            "node_contract_check": False,
+        },
+        "notification_delete": {
+            "node_prerequisites": "not_checked",
+            "api_function_grant": False,
+            "api_delete_revoked": False,
+            "api_function_call": False,
+            "function_only_role_grant": False,
+            "node_contract_check": False,
+        },
+        "notification_read_relations": {
+            "node_prerequisites": "not_checked",
+            "api_owner_function_grant": False,
+            "api_private_reads_revoked": False,
+            "api_relation_select_denied": False,
+            "api_owner_function_call": False,
+            "read_client_grant": False,
+            "read_client_function_denied": False,
+            "publisher_functions_remain_callable": False,
+            "node_relation_check": False,
+        },
+        "audit_append": {
+            "node_prerequisites": "not_checked",
+            "api_function_grant": False,
+            "api_insert_revoked": False,
+            "api_function_call": False,
+            "function_only_role_grant": False,
+            "node_contract_check": False,
+        },
+        "audit_query": {
+            "node_prerequisites": "not_checked",
+            "api_function_grant": False,
+            "api_function_call": False,
+            "function_only_role_grant": False,
+            "node_contract_check": False,
+        },
+        "audit_read_relations": {
+            "node_prerequisites": "not_checked",
+            "api_relation_grant": False,
+            "api_fact_call": False,
+            "read_client_grant": False,
+            "node_relation_check": False,
+        },
+        "audit_daily_projection": {"status": "not_checked"},
+        "audit_maintenance": {
+            "function_only_role_grant": False,
+            "direct_partition_writes_denied": False,
+            "sequence_and_ddl_denied": False,
+            "owner_and_future_acl_verified": False,
+            "runtime_audit_parent_select_preserved": False,
+        },
+        "jobs_notification_scope": {
+            "node_prerequisites": "not_checked",
+            "api_relation_grant": False,
+            "api_fact_call": False,
+            "read_client_grant": False,
+            "node_relation_check": False,
+        },
+        "jobs_list_query": {"function_only_grants": False},
         "test_files": list(test_files),
         "junit_xml": str(junit),
         "test_exit_code": None,
         "migrations": {
             "head_before_downgrade": None,
+            "installed_function_body_sha256": {},
+            "read_relation_hash_method": {
+                "view_definition": "SHA-256 of UTF-8 pg_catalog.pg_get_viewdef(oid, true) output",
+                "migration_sql": "SHA-256 of exact migration SQL file bytes; not compared to the deparser digest",
+            },
+            "read_relation_sql_input_sha256": {},
+            "read_relations_before_downgrade": None,
+            "read_relations_frozen_sql_transaction": None,
+            "read_relations_after_upgrade": None,
+            "read_relations_after_owner_grants": None,
             "downgraded_to_0189": False,
             "frozen_sql_installed_and_rolled_back": False,
             "upgraded_to_head": False,
@@ -2535,6 +4328,8 @@ def main(argv: list[str] | None = None) -> int:
             "media_worker_storage_identity_removed": False,
             "image_worker_storage_identity_removed": False,
             "api_bootstrap_storage_identity_removed": None,
+            "audit_archive_writer_storage_identity_removed": None,
+            "audit_archive_reader_storage_identity_removed": None,
             "mask_content_storage_identity_removed": None,
             "mask_cleanup_storage_identity_removed": None,
             "local_resources_destroyed": False,
@@ -2544,6 +4339,7 @@ def main(argv: list[str] | None = None) -> int:
         },
     }
     phase = "preflight"
+    node_diagnostic = None
     exit_code = 1
     container_id = None
     container_name = f"aap-module-data-{secrets.token_hex(6)}"
@@ -2558,6 +4354,8 @@ def main(argv: list[str] | None = None) -> int:
     media_worker_storage = None
     image_worker_storage = None
     api_bootstrap_storage = None
+    audit_archive_writer_storage = None
+    audit_archive_reader_storage = None
     mask_content_storage = None
     mask_cleanup_storage = None
     resource_root = Path(
@@ -2573,6 +4371,270 @@ def main(argv: list[str] | None = None) -> int:
         ]
         if missing_tests:
             raise RuntimeError(f"Missing module-data acceptance cases: {missing_tests}")
+        node_bin = shutil.which("node")
+        node_provider = ROOT / "apps/notifications/conformance/node/provider.mjs"
+        append_node_provider = (
+            ROOT / "apps/notifications/conformance/node/append_provider.mjs"
+        )
+        terminal_append_node_provider = (
+            ROOT / "apps/notifications/conformance/node/terminal_append_provider.mjs"
+        )
+        inbox_node_provider = (
+            ROOT / "apps/notifications/conformance/node/inbox_query_provider.mjs"
+        )
+        delivery_read_node_provider = (
+            ROOT / "apps/notifications/conformance/node/delivery_read_provider.mjs"
+        )
+        read_state_node_provider = (
+            ROOT / "apps/notifications/conformance/node/read_state_provider.mjs"
+        )
+        delete_node_provider = (
+            ROOT / "apps/notifications/conformance/node/delete_provider.mjs"
+        )
+        notification_read_node_provider = (
+            ROOT / "apps/notifications/conformance/node/read_relations_provider.mjs"
+        )
+        jobs_scope_node_provider = (
+            ROOT
+            / "apps/notifications/conformance/node/jobs_notification_scope_provider.mjs"
+        )
+        audit_append_node_provider = ROOT / "apps/audit/conformance/node/provider.mjs"
+        audit_query_node_provider = (
+            ROOT / "apps/audit/conformance/node/query_provider.mjs"
+        )
+        audit_read_node_provider = (
+            ROOT / "apps/audit/conformance/node/read_provider.mjs"
+        )
+        if (
+            node_bin is None
+            or not node_provider.is_file()
+            or not append_node_provider.is_file()
+            or not terminal_append_node_provider.is_file()
+            or not inbox_node_provider.is_file()
+            or not delivery_read_node_provider.is_file()
+            or not read_state_node_provider.is_file()
+            or not delete_node_provider.is_file()
+            or not notification_read_node_provider.is_file()
+            or not jobs_scope_node_provider.is_file()
+            or not audit_append_node_provider.is_file()
+            or not audit_query_node_provider.is_file()
+            or not audit_read_node_provider.is_file()
+        ):
+            evidence["notification_preferences"]["node_prerequisites"] = "unavailable"
+            evidence["notification_inbox"]["node_prerequisites"] = "unavailable"
+            evidence["notification_delivery_read"]["node_prerequisites"] = "unavailable"
+            evidence["notification_append"]["node_prerequisites"] = "unavailable"
+            evidence["notification_terminal_append"]["node_prerequisites"] = (
+                "unavailable"
+            )
+            evidence["notification_read_state"]["node_prerequisites"] = "unavailable"
+            evidence["notification_delete"]["node_prerequisites"] = "unavailable"
+            evidence["notification_read_relations"]["node_prerequisites"] = (
+                "unavailable"
+            )
+            evidence["audit_append"]["node_prerequisites"] = "unavailable"
+            evidence["audit_query"]["node_prerequisites"] = "unavailable"
+            evidence["audit_read_relations"]["node_prerequisites"] = "unavailable"
+            evidence["jobs_notification_scope"]["node_prerequisites"] = "unavailable"
+            raise RuntimeError("Node Notifications contract peer is unavailable")
+        phase = "preflight-node-notification-preferences"
+        node_check = subprocess.run(
+            [node_bin, str(node_provider), "--self-check"],
+            cwd=node_provider.parent,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if node_check.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, node_check)
+            evidence["notification_preferences"]["node_prerequisites"] = (
+                "self_check_failed"
+            )
+            raise RuntimeError(
+                "Notifications peer prerequisites failed; install its locked "
+                "dependencies using apps/notifications/conformance/node/README.md"
+            )
+        phase = "preflight-node-notification-append"
+        append_node_check = subprocess.run(
+            [node_bin, str(append_node_provider), "--self-check"],
+            cwd=append_node_provider.parent,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if append_node_check.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, append_node_check)
+            evidence["notification_append"]["node_prerequisites"] = "self_check_failed"
+            raise RuntimeError(
+                "Notifications append peer prerequisites failed; install its locked "
+                "dependencies using apps/notifications/conformance/node/README.md"
+            )
+        phase = "preflight-node-notification-terminal-append"
+        terminal_append_node_check = subprocess.run(
+            [node_bin, str(terminal_append_node_provider), "--self-check"],
+            cwd=terminal_append_node_provider.parent,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if terminal_append_node_check.returncode:
+            node_diagnostic = _node_failure_diagnostic(
+                phase, terminal_append_node_check
+            )
+            evidence["notification_terminal_append"]["node_prerequisites"] = (
+                "self_check_failed"
+            )
+            raise RuntimeError(
+                "Notifications terminal append peer prerequisites failed"
+            )
+        phase = "preflight-node-notification-read-state"
+        read_state_node_check = subprocess.run(
+            [node_bin, str(read_state_node_provider), "--self-check"],
+            cwd=read_state_node_provider.parent,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if read_state_node_check.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, read_state_node_check)
+            evidence["notification_read_state"]["node_prerequisites"] = (
+                "self_check_failed"
+            )
+            raise RuntimeError(
+                "Notifications read-state peer prerequisites failed; install its locked "
+                "dependencies using apps/notifications/conformance/node/README.md"
+            )
+        phase = "preflight-node-notification-delete"
+        delete_node_check = subprocess.run(
+            [node_bin, str(delete_node_provider), "--self-check"],
+            cwd=delete_node_provider.parent,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if delete_node_check.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, delete_node_check)
+            evidence["notification_delete"]["node_prerequisites"] = "self_check_failed"
+            raise RuntimeError(
+                "Notifications deletion peer prerequisites failed; install its locked "
+                "dependencies using apps/notifications/conformance/node/README.md"
+            )
+        phase = "preflight-node-notification-read-relations"
+        notification_read_node_check = subprocess.run(
+            [node_bin, str(notification_read_node_provider), "--self-check"],
+            cwd=notification_read_node_provider.parent,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if notification_read_node_check.returncode:
+            node_diagnostic = _node_failure_diagnostic(
+                phase, notification_read_node_check
+            )
+            evidence["notification_read_relations"]["node_prerequisites"] = (
+                "self_check_failed"
+            )
+            raise RuntimeError(
+                "Notifications read-relation peer prerequisites failed; install its locked "
+                "dependencies using apps/notifications/conformance/node/README.md"
+            )
+        phase = "preflight-node-audit-append"
+        audit_append_node_check = subprocess.run(
+            [node_bin, str(audit_append_node_provider), "--self-check"],
+            cwd=audit_append_node_provider.parent,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if audit_append_node_check.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, audit_append_node_check)
+            evidence["audit_append"]["node_prerequisites"] = "self_check_failed"
+            raise RuntimeError(
+                "Audit append peer prerequisites failed; install its locked "
+                "dependencies using apps/audit/conformance/node/README.md"
+            )
+        phase = "preflight-node-audit-query"
+        audit_query_node_check = subprocess.run(
+            [node_bin, str(audit_query_node_provider), "--self-check"],
+            cwd=audit_query_node_provider.parent,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if audit_query_node_check.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, audit_query_node_check)
+            evidence["audit_query"]["node_prerequisites"] = "self_check_failed"
+            raise RuntimeError(
+                "Audit query peer prerequisites failed; install its locked "
+                "dependencies using apps/audit/conformance/node/README.md"
+            )
+        phase = "preflight-node-jobs-notification-scope"
+        jobs_scope_node_check = subprocess.run(
+            [node_bin, str(jobs_scope_node_provider), "--self-check"],
+            cwd=jobs_scope_node_provider.parent,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if jobs_scope_node_check.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, jobs_scope_node_check)
+            evidence["jobs_notification_scope"]["node_prerequisites"] = (
+                "self_check_failed"
+            )
+            raise RuntimeError("Jobs notification-scope peer prerequisites failed")
+        phase = "preflight-node-notification-inbox"
+        inbox_node_check = subprocess.run(
+            [node_bin, str(inbox_node_provider), "--self-check"],
+            cwd=inbox_node_provider.parent,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if inbox_node_check.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, inbox_node_check)
+            evidence["notification_inbox"]["node_prerequisites"] = "self_check_failed"
+            raise RuntimeError("Notifications inbox peer prerequisites failed")
+        evidence["notification_inbox"]["node_prerequisites"] = "passed"
+        phase = "preflight-node-notification-delivery-read"
+        delivery_read_node_check = subprocess.run(
+            [node_bin, str(delivery_read_node_provider), "--self-check"],
+            cwd=delivery_read_node_provider.parent,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if delivery_read_node_check.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, delivery_read_node_check)
+            evidence["notification_delivery_read"]["node_prerequisites"] = (
+                "self_check_failed"
+            )
+            raise RuntimeError("Notifications delivery-read peer prerequisites failed")
+        evidence["notification_delivery_read"]["node_prerequisites"] = "passed"
+        phase = "preflight-node-audit-read-relations"
+        audit_read_node_check = subprocess.run(
+            [node_bin, str(audit_read_node_provider), "--self-check"],
+            cwd=audit_read_node_provider.parent,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if audit_read_node_check.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, audit_read_node_check)
+            evidence["audit_read_relations"]["node_prerequisites"] = "self_check_failed"
+            raise RuntimeError(
+                "Audit read-relation peer prerequisites failed; install its locked "
+                "dependencies using apps/audit/conformance/node/README.md"
+            )
+        evidence["notification_preferences"]["node_prerequisites"] = "passed"
+        evidence["notification_append"]["node_prerequisites"] = "passed"
+        evidence["notification_terminal_append"]["node_prerequisites"] = "passed"
+        evidence["notification_read_state"]["node_prerequisites"] = "passed"
+        evidence["notification_delete"]["node_prerequisites"] = "passed"
+        evidence["notification_read_relations"]["node_prerequisites"] = "passed"
+        evidence["audit_append"]["node_prerequisites"] = "passed"
+        evidence["audit_query"]["node_prerequisites"] = "passed"
+        evidence["audit_read_relations"]["node_prerequisites"] = "passed"
+        evidence["jobs_notification_scope"]["node_prerequisites"] = "passed"
         grants_path = ROOT / "infra/docker/module-data-grants.sql"
         catalog_grants_path = ROOT / "infra/docker/assets-catalog-grants.sql"
         source_grants_path = ROOT / "infra/docker/assets-source-grants.sql"
@@ -2583,6 +4645,9 @@ def main(argv: list[str] | None = None) -> int:
         mask_gc_grants_path = ROOT / "infra/docker/labeling-mask-gc-data-grants.sql"
         result_grants_path = ROOT / "infra/docker/preannotation-result-data-grants.sql"
         identity_grants_path = ROOT / "infra/docker/identity-auth-grants.sql"
+        identity_actor_status_grants_path = (
+            ROOT / "infra/docker/identity-actor-status-grants.sql"
+        )
         identity_key_grants_path = ROOT / "infra/docker/identity-keys-grants.sql"
         identity_session_grants_path = (
             ROOT / "infra/docker/identity-sessions-grants.sql"
@@ -2649,6 +4714,58 @@ def main(argv: list[str] | None = None) -> int:
         labeling_video_writer_grants_path = (
             ROOT / "infra/docker/labeling-video-writer-grants.sql"
         )
+        labeling_task_control_grants_path = (
+            ROOT / "infra/docker/labeling-task-control-grants.sql"
+        )
+        labeling_annotation_writes_grants_path = (
+            ROOT / "infra/docker/labeling-annotation-writes-grants.sql"
+        )
+        labeling_editing_grants_path = ROOT / "infra/docker/labeling-editing-grants.sql"
+        labeling_batch_control_grants_path = (
+            ROOT / "infra/docker/labeling-batch-control-grants.sql"
+        )
+        labeling_prediction_grants_path = (
+            ROOT / "infra/docker/labeling-prediction-grants.sql"
+        )
+        labeling_scene_track_commands_grants_path = (
+            ROOT / "infra/docker/labeling-scene-track-commands-grants.sql"
+        )
+        labeling_cross_frame_grants_path = (
+            ROOT / "infra/docker/labeling-cross-frame-grants.sql"
+        )
+        labeling_annotation_maintenance_grants_path = (
+            ROOT / "infra/docker/labeling-annotation-maintenance-grants.sql"
+        )
+        labeling_discussion_grants_path = (
+            ROOT / "infra/docker/labeling-discussion-grants.sql"
+        )
+        labeling_mask_edit_grants_path = (
+            ROOT / "infra/docker/labeling-mask-edit-grants.sql"
+        )
+        labeling_scene_read_grants_path = (
+            ROOT / "infra/docker/labeling-scene-read-grants.sql"
+        )
+        labeling_video_control_grants_path = (
+            ROOT / "infra/docker/labeling-video-control-grants.sql"
+        )
+        labeling_annotation_transfer_grants_path = (
+            ROOT / "infra/docker/labeling-annotation-transfer-grants.sql"
+        )
+        labeling_core_read_grants_path = (
+            ROOT / "infra/docker/labeling-core-read-grants.sql"
+        )
+        labeling_mask_quality_grants_path = (
+            ROOT / "infra/docker/labeling-mask-quality-grants.sql"
+        )
+        labeling_spatial_quality_grants_path = (
+            ROOT / "infra/docker/labeling-spatial-quality-grants.sql"
+        )
+        labeling_task_maintenance_grants_path = (
+            ROOT / "infra/docker/labeling-task-maintenance-grants.sql"
+        )
+        inference_pool_reference_grants_path = (
+            ROOT / "infra/docker/inference-pool-reference-grants.sql"
+        )
         video_restore_grants_path = ROOT / "infra/docker/video-restore-grants.sql"
         inference_pipelines_grants_path = (
             ROOT / "infra/docker/inference-pipelines-grants.sql"
@@ -2675,6 +4792,32 @@ def main(argv: list[str] | None = None) -> int:
         identity_deactivation_grants_path = (
             ROOT / "infra/docker/identity-deactivation-grants.sql"
         )
+        notification_preferences_grants_path = (
+            ROOT / "infra/docker/notification-preferences-grants.sql"
+        )
+        notification_append_grants_path = (
+            ROOT / "infra/docker/notification-append-grants.sql"
+        )
+        notification_inbox_grants_path = (
+            ROOT / "infra/docker/notification-inbox-grants.sql"
+        )
+        notification_delivery_read_grants_path = (
+            ROOT / "infra/docker/notification-delivery-read-grants.sql"
+        )
+        notification_read_grants_path = (
+            ROOT / "infra/docker/notifications-read-grants.sql"
+        )
+        audit_append_grants_path = ROOT / "infra/docker/audit-append-grants.sql"
+        audit_query_grants_path = ROOT / "infra/docker/audit-query-grants.sql"
+        audit_read_grants_path = ROOT / "infra/docker/audit-read-grants.sql"
+        audit_maintenance_grants_path = (
+            ROOT / "infra/docker/audit-maintenance-grants.sql"
+        )
+        jobs_scope_grants_path = (
+            ROOT / "infra/docker/jobs-notification-scope-grants.sql"
+        )
+        jobs_list_query_grants_path = ROOT / "infra/docker/jobs-list-query-grants.sql"
+        jobs_lifecycle_grants_path = ROOT / "infra/docker/jobs-lifecycle-grants.sql"
         identity_recovery_grants_path = (
             ROOT / "infra/docker/identity-recovery-grants.sql"
         )
@@ -2699,9 +4842,22 @@ def main(argv: list[str] | None = None) -> int:
             or not mask_gc_grants_path.is_file()
             or not result_grants_path.is_file()
             or not identity_grants_path.is_file()
+            or not identity_actor_status_grants_path.is_file()
             or not identity_key_grants_path.is_file()
             or not identity_session_grants_path.is_file()
             or not identity_deactivation_grants_path.is_file()
+            or not notification_preferences_grants_path.is_file()
+            or not notification_append_grants_path.is_file()
+            or not notification_inbox_grants_path.is_file()
+            or not notification_delivery_read_grants_path.is_file()
+            or not notification_read_grants_path.is_file()
+            or not audit_append_grants_path.is_file()
+            or not audit_query_grants_path.is_file()
+            or not audit_read_grants_path.is_file()
+            or not audit_maintenance_grants_path.is_file()
+            or not jobs_scope_grants_path.is_file()
+            or not jobs_list_query_grants_path.is_file()
+            or not jobs_lifecycle_grants_path.is_file()
             or not identity_group_grants_path.is_file()
             or not identity_invitation_grants_path.is_file()
             or not identity_directory_grants_path.is_file()
@@ -2723,12 +4879,30 @@ def main(argv: list[str] | None = None) -> int:
             or not workspace_directory_query_grants_path.is_file()
             or not labeling_class_query_grants_path.is_file()
             or not labeling_video_writer_grants_path.is_file()
+            or not labeling_task_control_grants_path.is_file()
+            or not labeling_annotation_writes_grants_path.is_file()
+            or not labeling_editing_grants_path.is_file()
+            or not labeling_batch_control_grants_path.is_file()
+            or not labeling_prediction_grants_path.is_file()
+            or not labeling_scene_track_commands_grants_path.is_file()
+            or not labeling_cross_frame_grants_path.is_file()
+            or not labeling_annotation_maintenance_grants_path.is_file()
+            or not labeling_discussion_grants_path.is_file()
+            or not labeling_mask_edit_grants_path.is_file()
+            or not labeling_scene_read_grants_path.is_file()
+            or not labeling_video_control_grants_path.is_file()
+            or not labeling_annotation_transfer_grants_path.is_file()
+            or not labeling_core_read_grants_path.is_file()
+            or not labeling_mask_quality_grants_path.is_file()
+            or not labeling_spatial_quality_grants_path.is_file()
+            or not labeling_task_maintenance_grants_path.is_file()
             or not video_restore_grants_path.is_file()
             or not inference_pipelines_grants_path.is_file()
             or not inference_backend_probe_grants_path.is_file()
             or not inference_health_observation_grants_path.is_file()
             or not inference_health_origin_grants_path.is_file()
             or not inference_health_data_grants_path.is_file()
+            or not inference_pool_reference_grants_path.is_file()
             or not inference_registry_ingress_grants_path.is_file()
             or not inference_routing_grants_path.is_file()
             or not video_execution_grants_path.is_file()
@@ -2748,7 +4922,7 @@ def main(argv: list[str] | None = None) -> int:
                 contract.get("$schema")
                 != "https://json-schema.org/draft/2020-12/schema"
                 or not isinstance(contract.get("$id"), str)
-                or not isinstance(contract.get("$defs"), dict)
+                or not isinstance(contract.get("$defs", {}), dict)
             ):
                 raise RuntimeError(f"invalid frozen module-data schema: {path.name}")
         grant_sql = grants_path.read_text(encoding="utf-8")
@@ -2761,6 +4935,9 @@ def main(argv: list[str] | None = None) -> int:
         mask_gc_grant_sql = mask_gc_grants_path.read_text(encoding="utf-8")
         result_grant_sql = result_grants_path.read_text(encoding="utf-8")
         identity_grant_sql = identity_grants_path.read_text(encoding="utf-8")
+        identity_actor_status_grant_sql = identity_actor_status_grants_path.read_text(
+            encoding="utf-8"
+        )
         identity_key_grant_sql = identity_key_grants_path.read_text(encoding="utf-8")
         identity_session_grant_sql = identity_session_grants_path.read_text(
             encoding="utf-8"
@@ -2822,6 +4999,60 @@ def main(argv: list[str] | None = None) -> int:
         labeling_video_writer_grant_sql = labeling_video_writer_grants_path.read_text(
             encoding="utf-8"
         )
+        labeling_task_control_grant_sql = labeling_task_control_grants_path.read_text(
+            encoding="utf-8"
+        )
+        labeling_annotation_writes_grant_sql = (
+            labeling_annotation_writes_grants_path.read_text(encoding="utf-8")
+        )
+        labeling_editing_grant_sql = labeling_editing_grants_path.read_text(
+            encoding="utf-8"
+        )
+        labeling_batch_control_grant_sql = labeling_batch_control_grants_path.read_text(
+            encoding="utf-8"
+        )
+        labeling_prediction_grant_sql = labeling_prediction_grants_path.read_text(
+            encoding="utf-8"
+        )
+        labeling_scene_track_commands_grant_sql = (
+            labeling_scene_track_commands_grants_path.read_text(encoding="utf-8")
+        )
+        labeling_cross_frame_grant_sql = labeling_cross_frame_grants_path.read_text(
+            encoding="utf-8"
+        )
+        labeling_annotation_maintenance_grant_sql = (
+            labeling_annotation_maintenance_grants_path.read_text(encoding="utf-8")
+        )
+        labeling_discussion_grant_sql = labeling_discussion_grants_path.read_text(
+            encoding="utf-8"
+        )
+        labeling_mask_edit_grant_sql = labeling_mask_edit_grants_path.read_text(
+            encoding="utf-8"
+        )
+        labeling_scene_read_grant_sql = labeling_scene_read_grants_path.read_text(
+            encoding="utf-8"
+        )
+        labeling_video_control_grant_sql = labeling_video_control_grants_path.read_text(
+            encoding="utf-8"
+        )
+        labeling_annotation_transfer_grant_sql = (
+            labeling_annotation_transfer_grants_path.read_text(encoding="utf-8")
+        )
+        labeling_core_read_grant_sql = labeling_core_read_grants_path.read_text(
+            encoding="utf-8"
+        )
+        labeling_mask_quality_grant_sql = labeling_mask_quality_grants_path.read_text(
+            encoding="utf-8"
+        )
+        labeling_spatial_quality_grant_sql = (
+            labeling_spatial_quality_grants_path.read_text(encoding="utf-8")
+        )
+        labeling_task_maintenance_grant_sql = (
+            labeling_task_maintenance_grants_path.read_text(encoding="utf-8")
+        )
+        inference_pool_reference_grant_sql = (
+            inference_pool_reference_grants_path.read_text(encoding="utf-8")
+        )
         video_restore_grant_sql = video_restore_grants_path.read_text(encoding="utf-8")
         inference_pipelines_grant_sql = inference_pipelines_grants_path.read_text(
             encoding="utf-8"
@@ -2856,6 +5087,28 @@ def main(argv: list[str] | None = None) -> int:
         identity_deactivation_grant_sql = identity_deactivation_grants_path.read_text(
             encoding="utf-8"
         )
+        notification_preferences_grant_sql = (
+            notification_preferences_grants_path.read_text(encoding="utf-8")
+        )
+        notification_append_grant_sql = notification_append_grants_path.read_text(
+            encoding="utf-8"
+        )
+        notification_inbox_grant_sql = notification_inbox_grants_path.read_text(
+            encoding="utf-8"
+        )
+        notification_delivery_read_grant_sql = (
+            notification_delivery_read_grants_path.read_text(encoding="utf-8")
+        )
+        notification_read_grant_sql = notification_read_grants_path.read_text(
+            encoding="utf-8"
+        )
+        audit_append_grant_sql = audit_append_grants_path.read_text(encoding="utf-8")
+        audit_query_grant_sql = audit_query_grants_path.read_text(encoding="utf-8")
+        audit_read_grant_sql = audit_read_grants_path.read_text(encoding="utf-8")
+        audit_maintenance_grant_sql = audit_maintenance_grants_path.read_text(
+            encoding="utf-8"
+        )
+        jobs_scope_grant_sql = jobs_scope_grants_path.read_text(encoding="utf-8")
         identity_account_grant_sql = identity_account_grants_path.read_text(
             encoding="utf-8"
         )
@@ -2869,7 +5122,7 @@ def main(argv: list[str] | None = None) -> int:
             encoding="utf-8"
         )
 
-        from sqlalchemy.engine import URL
+        from sqlalchemy.engine import URL, make_url
 
         from app.config import settings
         from worktree_env import load_identity, topology
@@ -2892,6 +5145,21 @@ def main(argv: list[str] | None = None) -> int:
         image_worker_password = f"image-worker-{secrets.token_hex(16)}"
         mask_gc_password = f"mask-gc-{secrets.token_hex(16)}"
         result_password = f"batch-result-{secrets.token_hex(16)}"
+        preference_password = f"notification-preference-{secrets.token_hex(16)}"
+        notification_append_password = f"notification-append-{secrets.token_hex(16)}"
+        notification_inbox_password = f"notification-inbox-{secrets.token_hex(16)}"
+        notification_delivery_read_password = (
+            f"notification-delivery-read-{secrets.token_hex(16)}"
+        )
+        audit_append_password = f"audit-append-{secrets.token_hex(16)}"
+        audit_query_password = f"audit-query-{secrets.token_hex(16)}"
+        notification_read_password = f"notification-read-{secrets.token_hex(16)}"
+        audit_read_password = f"audit-read-{secrets.token_hex(16)}"
+        audit_daily_refresh_password = f"audit-daily-refresh-{secrets.token_hex(16)}"
+        audit_maintenance_password = f"audit-maintenance-{secrets.token_hex(16)}"
+        jobs_notification_scope_password = f"jobs-scope-{secrets.token_hex(16)}"
+        jobs_list_query_password = f"jobs-list-{secrets.token_hex(16)}"
+        jobs_lifecycle_password = f"jobs-lifecycle-{secrets.token_hex(16)}"
         inference_registry_ingress_password = secrets.token_hex(24)
         inference_routing_password = secrets.token_hex(24)
         video_execution_password = secrets.token_hex(24)
@@ -2975,9 +5243,37 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0306"]:
-            raise RuntimeError("module-data acceptance requires migration head 0306")
+        if heads != ["0366"]:
+            raise RuntimeError("module-data acceptance requires migration head 0366")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
+        relation_sql_hashes = _read_relation_sql_input_sha256()
+        evidence["migrations"]["read_relation_sql_input_sha256"] = relation_sql_hashes
+        read_relations_before = _installed_read_relation_evidence(
+            container_id,
+            container_name,
+            container_identity,
+            database=database,
+            owner_password=owner_password,
+            expected_owner="owner",
+        )
+        evidence["migrations"]["read_relations_before_downgrade"] = (
+            read_relations_before
+        )
+        installed_function_bodies = {
+            signature: _installed_function_body_sha256(
+                container_id,
+                container_name,
+                container_identity,
+                database=database,
+                owner_password=owner_password,
+                signature=signature,
+                sql_name=sql_name,
+            )
+            for signature, sql_name in FUNCTION_BODY_ARTIFACTS.items()
+        }
+        evidence["migrations"]["installed_function_body_sha256"] = (
+            installed_function_bodies
+        )
         phase = "downgrade-to-0189"
         _container_details(
             container_id, container_name, container_identity, require_running=True
@@ -2990,13 +5286,22 @@ def main(argv: list[str] | None = None) -> int:
         _container_details(
             container_id, container_name, container_identity, require_running=True
         )
-        _install_and_rollback_frozen_sql(
+        read_relations_frozen = _install_and_rollback_frozen_sql(
             container_id,
             container_name,
             container_identity,
             database,
             owner_password,
             artifacts,
+            migration_role="owner",
+        )
+        _assert_read_relation_structure_matches(
+            read_relations_before,
+            read_relations_frozen,
+            phase="frozen SQL reinstall/rollback",
+        )
+        evidence["migrations"]["read_relations_frozen_sql_transaction"] = (
+            read_relations_frozen
         )
         evidence["migrations"]["frozen_sql_installed_and_rolled_back"] = True
         phase = "upgrade-to-head"
@@ -3008,6 +5313,35 @@ def main(argv: list[str] | None = None) -> int:
             raise RuntimeError("disposable database did not return to migration head")
         evidence["migrations"]["upgraded_to_head"] = True
         evidence["migrations"]["head_after_upgrade"] = heads[0]
+        read_relations_after = _installed_read_relation_evidence(
+            container_id,
+            container_name,
+            container_identity,
+            database=database,
+            owner_password=owner_password,
+            expected_owner="owner",
+        )
+        _assert_read_relation_structure_matches(
+            read_relations_before,
+            read_relations_after,
+            phase="migration upgrade",
+        )
+        evidence["migrations"]["read_relations_after_upgrade"] = read_relations_after
+        if {
+            signature: _installed_function_body_sha256(
+                container_id,
+                container_name,
+                container_identity,
+                database=database,
+                owner_password=owner_password,
+                signature=signature,
+                sql_name=sql_name,
+            )
+            for signature, sql_name in FUNCTION_BODY_ARTIFACTS.items()
+        } != installed_function_bodies:
+            raise RuntimeError(
+                "installed SQL function bodies changed after migration roundtrip"
+            )
         _container_details(
             container_id, container_name, container_identity, require_running=True
         )
@@ -3085,6 +5419,110 @@ def main(argv: list[str] | None = None) -> int:
             port=port,
             database=database,
         ).render_as_string(hide_password=False)
+        notification_preferences_url = URL.create(
+            "postgresql",
+            username=NOTIFICATION_PREFERENCES_ROLE,
+            password=preference_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
+        notification_append_url = URL.create(
+            "postgresql",
+            username=NOTIFICATION_APPEND_ROLE,
+            password=notification_append_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
+        notification_inbox_url = URL.create(
+            "postgresql",
+            username=NOTIFICATION_INBOX_ROLE,
+            password=notification_inbox_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
+        notification_delivery_read_url = URL.create(
+            "postgresql",
+            username=NOTIFICATION_DELIVERY_READ_ROLE,
+            password=notification_delivery_read_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
+        jobs_list_query_url = URL.create(
+            "postgresql",
+            username=JOBS_LIST_QUERY_ROLE,
+            password=jobs_list_query_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
+        jobs_lifecycle_url = URL.create(
+            "postgresql",
+            username=JOBS_LIFECYCLE_ROLE,
+            password=jobs_lifecycle_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
+        audit_append_url = URL.create(
+            "postgresql",
+            username=AUDIT_APPEND_ROLE,
+            password=audit_append_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
+        audit_query_url = URL.create(
+            "postgresql",
+            username=AUDIT_QUERY_ROLE,
+            password=audit_query_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
+        notification_read_url = URL.create(
+            "postgresql",
+            username=NOTIFICATION_READ_ROLE,
+            password=notification_read_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
+        audit_read_url = URL.create(
+            "postgresql",
+            username=AUDIT_READ_ROLE,
+            password=audit_read_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
+        audit_maintenance_url = URL.create(
+            "postgresql",
+            username=AUDIT_MAINTENANCE_ROLE,
+            password=audit_maintenance_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
+        audit_daily_refresh_url = URL.create(
+            "postgresql",
+            username=AUDIT_DAILY_REFRESH_ROLE,
+            password=audit_daily_refresh_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
+        jobs_notification_scope_url = URL.create(
+            "postgresql",
+            username=JOBS_NOTIFICATION_SCOPE_ROLE,
+            password=jobs_notification_scope_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
         role_create_password = append_password.replace("'", "''")
         phase = "create-scoped-roles"
         _create_module_roles(
@@ -3104,6 +5542,19 @@ def main(argv: list[str] | None = None) -> int:
             image_worker_password,
             mask_gc_password,
             result_password,
+            preference_password,
+            notification_append_password,
+            notification_inbox_password,
+            notification_delivery_read_password,
+            audit_append_password,
+            audit_query_password,
+            notification_read_password,
+            audit_read_password,
+            audit_daily_refresh_password,
+            audit_maintenance_password,
+            jobs_notification_scope_password,
+            jobs_list_query_password,
+            jobs_lifecycle_password,
         )
         phase = "create-video-execution-client-role"
         _psql(
@@ -3196,6 +5647,1319 @@ def main(argv: list[str] | None = None) -> int:
                 "inference_routing_role": INFERENCE_ROUTING_ROLE,
             },
         )
+        read_relations_after_owner_grants = _installed_read_relation_evidence(
+            container_id,
+            container_name,
+            container_identity,
+            database=database,
+            owner_password=owner_password,
+            expected_owner={
+                relation_name: spec["owner"]
+                for relation_name, spec in READ_RELATION_SPECS.items()
+            },
+        )
+        _assert_read_relation_structure_matches(
+            read_relations_after,
+            read_relations_after_owner_grants,
+            phase="module owner transfer",
+        )
+        evidence["migrations"]["read_relations_after_owner_grants"] = (
+            read_relations_after_owner_grants
+        )
+
+        def apply_notification_preferences_grants() -> None:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=notification_preferences_grant_sql,
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "notifications_owner": "notifications_code",
+                    "api_role": "legacy_runtime",
+                    "preference_role": NOTIFICATION_PREFERENCES_ROLE,
+                },
+            )
+
+        def apply_notification_append_grants() -> None:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=notification_append_grant_sql,
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "notifications_owner": "notifications_code",
+                    "api_role": "legacy_runtime",
+                    "append_role": NOTIFICATION_APPEND_ROLE,
+                },
+            )
+
+        def apply_notification_inbox_grants() -> None:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=notification_inbox_grant_sql,
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "notifications_owner": "notifications_code",
+                    "api_role": "legacy_runtime",
+                    "query_client": NOTIFICATION_INBOX_ROLE,
+                },
+            )
+
+        def apply_notification_delivery_read_grants() -> None:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=notification_delivery_read_grant_sql,
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "notifications_owner": "notifications_code",
+                    "api_role": "legacy_runtime",
+                    "query_client": NOTIFICATION_DELIVERY_READ_ROLE,
+                },
+            )
+
+        def apply_jobs_list_query_grants() -> None:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=jobs_list_query_grants_path.read_text(encoding="utf-8"),
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "jobs_owner": "jobs_code",
+                    "api_role": "legacy_runtime",
+                    "list_client": JOBS_LIST_QUERY_ROLE,
+                },
+            )
+
+        def apply_jobs_lifecycle_grants() -> None:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=jobs_lifecycle_grants_path.read_text(encoding="utf-8"),
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "jobs_owner": "jobs_code",
+                    "api_role": "legacy_runtime",
+                    "lifecycle_client": JOBS_LIFECYCLE_ROLE,
+                },
+            )
+
+        def apply_identity_actor_status_grants() -> None:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=identity_actor_status_grant_sql,
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "identity_owner": "identity_code",
+                    "status_role": IDENTITY_CLIENT_ROLES["ACTOR_STATUS"],
+                },
+            )
+
+        def apply_notification_read_grants(api_role: str) -> None:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=notification_read_grant_sql,
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "notifications_owner": "notifications_code",
+                    "api_role": api_role,
+                },
+            )
+
+        def apply_audit_append_grants() -> None:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=audit_append_grant_sql,
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "audit_owner": "audit_code",
+                    "api_role": "legacy_runtime",
+                    "append_client": AUDIT_APPEND_ROLE,
+                },
+            )
+
+        def apply_audit_query_grants() -> None:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=audit_query_grant_sql,
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "audit_owner": "audit_code",
+                    "identity_owner": "identity_code",
+                    "api_role": "legacy_runtime",
+                    "query_client": AUDIT_QUERY_ROLE,
+                },
+            )
+
+        def apply_audit_read_grants() -> None:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=audit_read_grant_sql,
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "audit_owner": "audit_code",
+                    "api_role": "legacy_runtime",
+                    "read_client": AUDIT_READ_ROLE,
+                },
+            )
+
+        def apply_audit_maintenance_grants() -> None:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=audit_maintenance_grant_sql,
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "audit_owner": "audit_code",
+                    "maintenance_role": AUDIT_MAINTENANCE_ROLE,
+                },
+            )
+
+        def apply_jobs_scope_grants() -> None:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=jobs_scope_grant_sql,
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "jobs_owner": "jobs_code",
+                    "api_role": "legacy_runtime",
+                    "read_client": JOBS_NOTIFICATION_SCOPE_ROLE,
+                },
+            )
+
+        phase = "install-notification-preferences-grants"
+        apply_notification_preferences_grants()
+        evidence["notification_preferences"]["api_function_grant"] = True
+        evidence["notification_preferences"]["function_only_role_grant"] = True
+        phase = "install-notification-append-grants"
+        apply_notification_append_grants()
+        evidence["notification_append"]["api_function_grant"] = True
+        evidence["notification_append"]["api_insert_revoked"] = True
+        evidence["notification_append"]["function_only_role_grant"] = True
+        evidence["notification_terminal_append"]["api_function_grant"] = True
+        evidence["notification_terminal_append"]["function_only_role_grant"] = True
+        evidence["notification_read_state"]["api_function_grant"] = True
+        evidence["notification_read_state"]["api_update_revoked"] = True
+        evidence["notification_read_state"]["function_only_role_grant"] = True
+        evidence["notification_delete"]["api_function_grant"] = True
+        evidence["notification_delete"]["api_delete_revoked"] = True
+        evidence["notification_delete"]["function_only_role_grant"] = True
+        phase = "install-jobs-list-query-grants"
+        apply_jobs_list_query_grants()
+        apply_jobs_lifecycle_grants()
+        evidence["jobs_list_query"]["function_only_grants"] = True
+        phase = "install-notification-delivery-read-grants"
+        apply_notification_delivery_read_grants()
+        evidence["notification_delivery_read"]["api_function_grant"] = True
+        evidence["notification_read_relations"]["api_owner_function_grant"] = True
+
+        async def verify_delivery_read_login() -> None:
+            import asyncpg
+
+            from aap_owner_data.postgres import verify_function_only_role
+
+            connection = await asyncpg.connect(
+                notification_delivery_read_url, timeout=5
+            )
+            try:
+                await verify_function_only_role(
+                    connection,
+                    schema="aap_notifications_v1",
+                    functions={
+                        (
+                            signature.split(".", 1)[1].split("(", 1)[0],
+                            signature.split("(", 1)[1][:-1].replace(",", ", "),
+                        )
+                        for signature in NOTIFICATION_DELIVERY_READ_FUNCTIONS
+                    },
+                    role=NOTIFICATION_DELIVERY_READ_ROLE,
+                )
+            finally:
+                await connection.close()
+
+        asyncio.run(verify_delivery_read_login())
+        evidence["notification_delivery_read"]["function_only_login"] = True
+        phase = "install-notification-inbox-grants"
+        apply_notification_inbox_grants()
+        evidence["notification_inbox"]["api_function_grant"] = True
+        evidence["notification_inbox"]["function_only_role_grant"] = True
+
+        async def verify_inbox_login() -> None:
+            import asyncpg
+
+            from aap_owner_data.postgres import verify_function_only_role
+
+            connection = await asyncpg.connect(notification_inbox_url, timeout=5)
+            try:
+                await verify_function_only_role(
+                    connection,
+                    schema="aap_notifications_v1",
+                    functions={
+                        ("inbox_page", "uuid, text, boolean, integer, integer"),
+                        ("inbox_total_count", "uuid, text"),
+                        ("inbox_unread_count", "uuid, text"),
+                    },
+                    role=NOTIFICATION_INBOX_ROLE,
+                )
+            finally:
+                await connection.close()
+
+        asyncio.run(verify_inbox_login())
+        evidence["notification_inbox"]["function_only_login"] = True
+        phase = "verify-notification-inbox-acl-guards"
+        evidence["notification_inbox"]["acl_guard_probes"] = asyncio.run(
+            _verify_inbox_grant_guards(
+                URL.create(
+                    "postgresql",
+                    username="owner",
+                    password=owner_password,
+                    host="127.0.0.1",
+                    port=port,
+                    database=database,
+                ).render_as_string(hide_password=False),
+                notification_inbox_grant_sql,
+            )
+        )
+        phase = "install-audit-append-grants"
+        apply_audit_append_grants()
+        evidence["audit_append"]["api_function_grant"] = True
+        evidence["audit_append"]["api_insert_revoked"] = True
+        evidence["audit_append"]["function_only_role_grant"] = True
+        phase = "install-audit-query-grants"
+        apply_audit_query_grants()
+        evidence["audit_query"]["api_function_grant"] = True
+        evidence["audit_query"]["function_only_role_grant"] = True
+        phase = "install-notification-read-relation-client-grants"
+        apply_notification_read_grants(NOTIFICATION_READ_ROLE)
+        evidence["notification_read_relations"]["read_client_grant"] = True
+        phase = "install-audit-read-relation-grants"
+        apply_audit_read_grants()
+        evidence["audit_read_relations"]["api_relation_grant"] = True
+        evidence["audit_read_relations"]["read_client_grant"] = True
+        phase = "install-audit-maintenance-grants"
+        apply_audit_maintenance_grants()
+        evidence["audit_maintenance"]["function_only_role_grant"] = True
+        phase = "verify-audit-maintenance-boundary"
+        evidence["audit_maintenance"].update(
+            _verify_audit_maintenance_boundary(
+                container_id,
+                container_name,
+                container_identity,
+                database=database,
+                owner_password=owner_password,
+                runtime_password=runtime_password,
+                maintenance_password=audit_maintenance_password,
+                maintenance_url=audit_maintenance_url,
+            )
+        )
+        phase = "install-jobs-notification-scope-grants"
+        apply_jobs_scope_grants()
+        evidence["jobs_notification_scope"]["api_relation_grant"] = True
+        evidence["jobs_notification_scope"]["read_client_grant"] = True
+        phase = "verify-audit-daily-projection-native"
+        evidence["audit_daily_projection"] = {
+            "status": "passed",
+            **_verify_audit_daily_projection_boundary(
+                container_id,
+                container_name,
+                container_identity,
+                database=database,
+                owner_password=owner_password,
+                runtime_password=runtime_password,
+                read_password=audit_read_password,
+                refresh_password=audit_daily_refresh_password,
+                refresh_url=audit_daily_refresh_url,
+            ),
+        }
+        read_role_contract = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=(
+                "SELECT pg_catalog.count(*)=6 AND pg_catalog.bool_and("
+                "role.rolcanlogin AND NOT role.rolinherit "
+                "AND NOT (role.rolsuper OR role.rolcreatedb OR role.rolcreaterole "
+                "OR role.rolreplication OR role.rolbypassrls) "
+                "AND pg_catalog.has_database_privilege("
+                "role.oid, pg_catalog.current_database(), 'CONNECT') "
+                "AND NOT pg_catalog.has_database_privilege("
+                "role.oid, pg_catalog.current_database(), 'CREATE') "
+                "AND NOT pg_catalog.has_database_privilege("
+                "role.oid, pg_catalog.current_database(), 'TEMP') "
+                "AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members AS membership "
+                "WHERE membership.member=role.oid OR membership.roleid=role.oid)) "
+                "FROM pg_catalog.pg_roles AS role "
+                f"WHERE role.rolname IN ('{NOTIFICATION_READ_ROLE}','{AUDIT_READ_ROLE}',"
+                f"'{AUDIT_DAILY_REFRESH_ROLE}','{JOBS_NOTIFICATION_SCOPE_ROLE}',"
+                f"'{NOTIFICATION_INBOX_ROLE}','{NOTIFICATION_DELIVERY_READ_ROLE}');"
+            ),
+        )
+        if read_role_contract.strip() != "t":
+            raise RuntimeError(
+                "Read relation clients are not isolated NOINHERIT LOGINS"
+            )
+        notification_preference_user_id = str(uuid4())
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=(
+                "INSERT INTO public.users "
+                "(id, email, name, password_hash, role, is_active, status) VALUES ("
+                f"'{notification_preference_user_id}'::uuid, "
+                f"'notification-preference-{notification_preference_user_id}@test.invalid', "
+                "'Preference owner fixture', 'module-data-fixture', 'employee', true, 'offline');"
+            ),
+        )
+        api_get_request = json.dumps(
+            {
+                "schema": "aap-notification-preferences/v1",
+                "operation": "get",
+                "user_id": notification_preference_user_id,
+            },
+            separators=(",", ":"),
+        )
+        api_function_result = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="legacy_runtime",
+            password=runtime_password,
+            database=database,
+            sql=(
+                "SELECT aap_notifications_v1.preference_command("
+                f"'{api_get_request}'::jsonb) ->> 'ok';"
+            ),
+        )
+        if api_function_result.strip() != "true":
+            raise RuntimeError(
+                "API LOGIN could not call Notifications preference owner"
+            )
+        try:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="legacy_runtime",
+                password=runtime_password,
+                database=database,
+                sql="SELECT channels FROM public.notification_preferences LIMIT 1;",
+            )
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError("API LOGIN retained direct preference table access")
+        evidence["notification_preferences"]["api_function_call"] = True
+        notification_private_statements = (
+            "SELECT * FROM public.notifications LIMIT 0",
+            "SELECT * FROM public.notification_preferences LIMIT 0",
+            "SELECT * FROM public.notification_delivery_outbox LIMIT 0",
+            "INSERT INTO public.notifications "
+            "(id,user_id,type,target_type,target_id,payload) "
+            "SELECT pg_catalog.gen_random_uuid(), pg_catalog.gen_random_uuid(), "
+            "'task.approved', 'task', pg_catalog.gen_random_uuid(), '{}'::jsonb "
+            "WHERE false",
+            "UPDATE public.notifications SET read_at=pg_catalog.now() WHERE false",
+            "DELETE FROM public.notifications WHERE false",
+            "INSERT INTO public.notification_preferences (user_id,type,channels) "
+            "SELECT pg_catalog.gen_random_uuid(), 'task.approved', '{}'::jsonb WHERE false",
+            "UPDATE public.notification_preferences SET channels='{}'::jsonb WHERE false",
+            "DELETE FROM public.notification_preferences WHERE false",
+            "INSERT INTO public.notification_delivery_outbox "
+            "(notification_id,operation_id,recipient_id,notification_type) "
+            "SELECT pg_catalog.gen_random_uuid(), pg_catalog.gen_random_uuid(), "
+            "pg_catalog.gen_random_uuid(), 'user.deactivation_requested' WHERE false",
+            "UPDATE public.notification_delivery_outbox SET attempt=attempt WHERE false",
+            "DELETE FROM public.notification_delivery_outbox WHERE false",
+        )
+        notification_fact_read_statement = (
+            "SELECT id FROM aap_notifications_v1.notification_facts LIMIT 1"
+        )
+        notification_fact_write_statements = (
+            "INSERT INTO aap_notifications_v1.notification_facts "
+            "(id,user_id,type,target_type,target_id,payload) "
+            "SELECT pg_catalog.gen_random_uuid(),pg_catalog.gen_random_uuid(),"
+            "'task.approved','task',pg_catalog.gen_random_uuid(),'{}'::jsonb WHERE false",
+            "UPDATE aap_notifications_v1.notification_facts "
+            "SET read_at=pg_catalog.now() WHERE false",
+            "DELETE FROM aap_notifications_v1.notification_facts WHERE false",
+        )
+        for statement in notification_private_statements:
+            _assert_psql_permission_denied(
+                container_id,
+                container_name,
+                container_identity,
+                username="legacy_runtime",
+                password=runtime_password,
+                database=database,
+                statement=statement,
+            )
+        preference_after_private_denials = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="legacy_runtime",
+            password=runtime_password,
+            database=database,
+            sql=(
+                "SELECT aap_notifications_v1.preference_command("
+                f"'{api_get_request}'::jsonb) ->> 'ok';"
+            ),
+        )
+        if preference_after_private_denials.strip() != "true":
+            raise RuntimeError(
+                "Notifications preference owner failed without API table reads"
+            )
+        evidence["notification_read_relations"]["api_private_reads_revoked"] = True
+        notification_append_id = str(uuid4())
+        notification_append_request = json.dumps(
+            {
+                "schema": "aap-notification-append/v1",
+                "operation": "append",
+                "id": notification_append_id,
+                "user_id": notification_preference_user_id,
+                "type": "task.approved",
+                "target_type": "task",
+                "target_id": str(uuid4()),
+                "payload": {"source": "module-data-verifier"},
+            },
+            separators=(",", ":"),
+        )
+        api_append_result = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="legacy_runtime",
+            password=runtime_password,
+            database=database,
+            sql=(
+                "SELECT aap_notifications_v1.append_notification("
+                f"'{notification_append_request}'::jsonb) ->> 'ok';"
+            ),
+        )
+        if api_append_result.strip() != "true":
+            raise RuntimeError("API LOGIN could not call Notifications append owner")
+        phase = "verify-notification-terminal-append-api"
+        terminal_append_request = json.dumps(
+            {
+                "schema": "aap-notification-terminal-append/v1",
+                "operation": "append_job_terminal",
+                "id": str(uuid4()),
+                "user_id": notification_preference_user_id,
+                "type": "job.completed",
+                "target_id": str(uuid4()),
+                "payload": {"kind": "batch_predict", "status": "completed"},
+            },
+            separators=(",", ":"),
+        )
+        api_terminal_append_result = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="legacy_runtime",
+            password=runtime_password,
+            database=database,
+            sql=(
+                "SELECT aap_notifications_v1.append_job_terminal_notification("
+                f"'{terminal_append_request}'::jsonb) -> 'data' ->> 'created';"
+            ),
+        )
+        if api_terminal_append_result.strip() != "true":
+            raise RuntimeError("API LOGIN could not call terminal Notifications owner")
+        evidence["notification_terminal_append"]["api_function_call"] = True
+        phase = "verify-notification-append-api"
+        api_direct_insert_id = str(uuid4())
+        try:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="legacy_runtime",
+                password=runtime_password,
+                database=database,
+                sql=(
+                    "INSERT INTO public.notifications "
+                    "(id,user_id,type,target_type,target_id,payload) VALUES ("
+                    f"'{api_direct_insert_id}'::uuid, "
+                    f"'{notification_preference_user_id}'::uuid, "
+                    "'task.approved', 'task', "
+                    f"'{uuid4()}'::uuid, '{{}}'::jsonb);"
+                ),
+            )
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError("API LOGIN retained direct notification INSERT access")
+        evidence["notification_append"]["api_function_call"] = True
+        notification_read_at = (
+            datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        )
+        notification_read_state_request = json.dumps(
+            {
+                "schema": "aap-notification-read-state/v1",
+                "operation": "mark_read",
+                "user_id": notification_preference_user_id,
+                "notification_id": notification_append_id,
+                "read_at": notification_read_at,
+            },
+            separators=(",", ":"),
+        )
+        api_read_state_result = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="legacy_runtime",
+            password=runtime_password,
+            database=database,
+            sql=(
+                "SELECT aap_notifications_v1.read_state_command("
+                f"'{notification_read_state_request}'::jsonb) -> 'data' ->> 'updated';"
+            ),
+        )
+        if api_read_state_result.strip() != "true":
+            raise RuntimeError(
+                "API LOGIN could not call Notifications read-state owner"
+            )
+        try:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="legacy_runtime",
+                password=runtime_password,
+                database=database,
+                sql="UPDATE public.notifications SET read_at=now() WHERE false;",
+            )
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError("API LOGIN retained direct notification UPDATE access")
+        evidence["notification_read_state"]["api_function_call"] = True
+        notification_delete_request = json.dumps(
+            {
+                "schema": "aap-notification-delete/v1",
+                "operation": "delete_one",
+                "user_id": notification_preference_user_id,
+                "notification_id": notification_append_id,
+            },
+            separators=(",", ":"),
+        )
+        api_delete_result = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="legacy_runtime",
+            password=runtime_password,
+            database=database,
+            sql=(
+                "SELECT aap_notifications_v1.delete_command("
+                f"CAST('{notification_delete_request}' AS pg_catalog.jsonb)) "
+                "-> 'data' ->> 'deleted';"
+            ),
+        )
+        if api_delete_result.strip() != "true":
+            raise RuntimeError("API LOGIN could not call Notifications delete owner")
+        try:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="legacy_runtime",
+                password=runtime_password,
+                database=database,
+                sql=(
+                    "DELETE FROM public.notifications "
+                    f"WHERE id='{notification_append_id}'::uuid;"
+                ),
+            )
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError("API LOGIN retained direct notification DELETE access")
+        evidence["notification_delete"]["api_function_call"] = True
+        read_relation_notification_id = str(uuid4())
+        read_relation_append_request = json.dumps(
+            {
+                "schema": "aap-notification-append/v1",
+                "operation": "append",
+                "id": read_relation_notification_id,
+                "user_id": notification_preference_user_id,
+                "type": "task.approved",
+                "target_type": "task",
+                "target_id": str(uuid4()),
+                "payload": {"read_relation": True},
+            },
+            separators=(",", ":"),
+        )
+        read_relation_seed_result = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="legacy_runtime",
+            password=runtime_password,
+            database=database,
+            sql=(
+                "SELECT aap_notifications_v1.append_notification("
+                f"'{read_relation_append_request}'::jsonb) "
+                "-> 'data' -> 'notification' ->> 'id';"
+            ),
+        )
+        if read_relation_seed_result.strip() != read_relation_notification_id:
+            raise RuntimeError("Notifications read-relation seed was not committed")
+        api_notification_fact = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="legacy_runtime",
+            password=runtime_password,
+            database=database,
+            sql=(
+                "SELECT count(*) FROM aap_notifications_v1.read_notification("
+                f"'{read_relation_notification_id}'::uuid) "
+                f"WHERE user_id='{notification_preference_user_id}'::uuid "
+                f"AND id='{read_relation_notification_id}'::uuid "
+                "AND payload = '{\"read_relation\": true}'::jsonb;"
+            ),
+        )
+        if api_notification_fact.strip() != "1":
+            raise RuntimeError("API LOGIN could not read Notifications facts")
+        for statement in (
+            notification_fact_read_statement,
+            *notification_fact_write_statements,
+        ):
+            _assert_psql_permission_denied(
+                container_id,
+                container_name,
+                container_identity,
+                username="legacy_runtime",
+                password=runtime_password,
+                database=database,
+                statement=statement,
+            )
+        evidence["notification_read_relations"]["api_owner_function_call"] = True
+        evidence["notification_read_relations"]["api_relation_select_denied"] = True
+        evidence["notification_delivery_read"]["api_fact_select_denied"] = True
+        for statement in (
+            "SELECT aap_notifications_v1.preference_command('{}'::jsonb)",
+            "SELECT aap_notifications_v1.append_notification('{}'::jsonb)",
+            "SELECT aap_notifications_v1.append_job_terminal_notification('{}'::jsonb)",
+            "SELECT aap_notifications_v1.read_state_command('{}'::jsonb)",
+            "SELECT aap_notifications_v1.delete_command('{}'::jsonb)",
+            "SELECT aap_notifications_v1.identity_delivery_policy()",
+            "SELECT aap_notifications_v1.claim_identity_deliveries('{}'::jsonb)",
+            "SELECT aap_notifications_v1.finish_identity_delivery('{}'::jsonb)",
+            "SELECT aap_notifications_v1.create_identity_deactivation_notifications("
+            "NULL::uuid,NULL::text,NULL::jsonb,NULL::uuid[])",
+        ):
+            _assert_psql_permission_denied(
+                container_id,
+                container_name,
+                container_identity,
+                username=NOTIFICATION_READ_ROLE,
+                password=notification_read_password,
+                database=database,
+                statement=statement,
+            )
+        for statement in notification_private_statements:
+            _assert_psql_permission_denied(
+                container_id,
+                container_name,
+                container_identity,
+                username=NOTIFICATION_READ_ROLE,
+                password=notification_read_password,
+                database=database,
+                statement=statement,
+            )
+        notification_read_function_count = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=(
+                "SELECT count(*) FROM pg_catalog.pg_proc AS function "
+                "JOIN pg_catalog.pg_namespace AS namespace "
+                "ON namespace.oid=function.pronamespace "
+                "WHERE namespace.nspname='aap_notifications_v1' "
+                "AND pg_catalog.has_function_privilege("
+                f"'{NOTIFICATION_READ_ROLE}', function.oid, 'EXECUTE');"
+            ),
+        )
+        if notification_read_function_count.strip() != "0":
+            raise RuntimeError(
+                "Notifications read LOGIN has an owner function capability"
+            )
+        evidence["notification_read_relations"]["read_client_function_denied"] = True
+        audit_append_request = json.dumps(
+            {
+                "schema": "aap-audit-append/v1",
+                "events": [
+                    {
+                        "actor_id": None,
+                        "actor_email": None,
+                        "actor_role": None,
+                        "action": "audit.append.module-data-verifier",
+                        "target_type": None,
+                        "target_id": None,
+                        "method": "POST",
+                        "path": "/audit-module-data-verifier",
+                        "status_code": 200,
+                        "ip": None,
+                        "detail_json": None,
+                        "request_id": None,
+                    }
+                ],
+            },
+            separators=(",", ":"),
+        )
+        api_audit_result = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="legacy_runtime",
+            password=runtime_password,
+            database=database,
+            sql=(
+                "SELECT aap_audit_v1.append_events("
+                f"'{audit_append_request}'::jsonb) -> 'data' -> 'events' -> 0 ->> 'id';"
+            ),
+        )
+        if not api_audit_result.strip().isdigit():
+            raise RuntimeError("API LOGIN could not call Audit append owner")
+        audit_append_id = api_audit_result.strip()
+        try:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="legacy_runtime",
+                password=runtime_password,
+                database=database,
+                sql="INSERT INTO public.audit_logs (action) VALUES ('audit.direct.denied');",
+            )
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError("API LOGIN retained direct Audit INSERT access")
+        try:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="legacy_runtime",
+                password=runtime_password,
+                database=database,
+                sql=(
+                    "SELECT nextval(pg_catalog.pg_get_serial_sequence("
+                    "'public.audit_logs', 'id'));"
+                ),
+            )
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError("API LOGIN retained direct Audit sequence writes")
+        evidence["audit_append"]["api_function_call"] = True
+        audit_query_request = json.dumps(
+            {
+                "schema": "aap-audit-query/v1",
+                "operation": "list",
+                "filters": {
+                    "action": None,
+                    "target_type": None,
+                    "target_id": None,
+                    "actor_id": None,
+                    "from": None,
+                    "to": None,
+                    "business_only": False,
+                    "detail_key": None,
+                    "detail_value": None,
+                },
+                "page": 1,
+                "page_size": 1,
+                "after": None,
+            },
+            separators=(",", ":"),
+        )
+        api_audit_query_result = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="legacy_runtime",
+            password=runtime_password,
+            database=database,
+            sql=(
+                "SELECT aap_audit_v1.query_events("
+                f"CAST('{audit_query_request}' AS pg_catalog.jsonb)) "
+                "-> 'data' ->> 'operation';"
+            ),
+        )
+        if api_audit_query_result.strip() != "list":
+            raise RuntimeError("API LOGIN could not call Audit query owner")
+        evidence["audit_query"]["api_function_call"] = True
+        api_audit_fact = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="legacy_runtime",
+            password=runtime_password,
+            database=database,
+            sql=(
+                "SELECT count(*) FROM aap_audit_v1.audit_events "
+                f"WHERE id='{audit_append_id}'::bigint;"
+            ),
+        )
+        if api_audit_fact.strip() != "1":
+            raise RuntimeError("API LOGIN could not read Audit event facts")
+        audit_fact_write_statements = (
+            "INSERT INTO aap_audit_v1.audit_events (action) "
+            "SELECT 'audit.read_relation.denied' WHERE false",
+            "UPDATE aap_audit_v1.audit_events SET action='audit.denied' WHERE false",
+            "DELETE FROM aap_audit_v1.audit_events WHERE false",
+        )
+        for statement in audit_fact_write_statements:
+            _assert_psql_permission_denied(
+                container_id,
+                container_name,
+                container_identity,
+                username="legacy_runtime",
+                password=runtime_password,
+                database=database,
+                statement=statement,
+            )
+        evidence["audit_read_relations"]["api_fact_call"] = True
+        audit_node_environment = os.environ.copy()
+        audit_node_environment["AUDIT_APPEND_DATABASE_URL"] = audit_append_url
+        phase = "verify-audit-append-node"
+        audit_node_result = subprocess.run(
+            [node_bin, str(audit_append_node_provider), "--live"],
+            cwd=audit_append_node_provider.parent,
+            env=audit_node_environment,
+            capture_output=True,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+        if audit_node_result.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, audit_node_result)
+            raise RuntimeError("Node Audit append check failed")
+        evidence["audit_append"]["node_contract_check"] = True
+        audit_query_node_environment = os.environ.copy()
+        audit_query_node_environment["AUDIT_QUERY_DATABASE_URL"] = audit_query_url
+        phase = "verify-audit-query-node"
+        audit_query_node_result = subprocess.run(
+            [node_bin, str(audit_query_node_provider), "--live"],
+            cwd=audit_query_node_provider.parent,
+            env=audit_query_node_environment,
+            capture_output=True,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+        if audit_query_node_result.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, audit_query_node_result)
+            raise RuntimeError("Node Audit query check failed")
+        evidence["audit_query"]["node_contract_check"] = True
+        audit_read_node_environment = os.environ.copy()
+        audit_read_node_environment["AUDIT_READ_DATABASE_URL"] = audit_read_url
+        audit_read_node_environment["TZ"] = "Asia/Shanghai"
+        phase = "verify-audit-read-relation-node"
+        audit_read_node_result = subprocess.run(
+            [node_bin, str(audit_read_node_provider), "--live"],
+            cwd=audit_read_node_provider.parent,
+            env=audit_read_node_environment,
+            capture_output=True,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+        if audit_read_node_result.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, audit_read_node_result)
+            raise RuntimeError("Node Audit read-relation check failed")
+        evidence["audit_read_relations"]["node_relation_check"] = True
+        node_environment = os.environ.copy()
+        node_environment["NOTIFICATION_PREFERENCES_DATABASE_URL"] = (
+            notification_preferences_url
+        )
+        node_environment["NOTIFICATION_PREFERENCE_USER_ID"] = (
+            notification_preference_user_id
+        )
+        phase = "verify-notification-preferences-node"
+        node_result = subprocess.run(
+            [node_bin, str(node_provider)],
+            cwd=node_provider.parent,
+            env=node_environment,
+            capture_output=True,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+        if node_result.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, node_result)
+            raise RuntimeError("Node Notifications preference check failed")
+        evidence["notification_preferences"]["node_contract_check"] = True
+        node_environment["NOTIFICATION_APPEND_DATABASE_URL"] = notification_append_url
+        node_environment["NOTIFICATION_APPEND_USER_ID"] = (
+            notification_preference_user_id
+        )
+        phase = "verify-notification-append-node"
+        append_node_result = subprocess.run(
+            [node_bin, str(append_node_provider)],
+            cwd=append_node_provider.parent,
+            env=node_environment,
+            capture_output=True,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+        if append_node_result.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, append_node_result)
+            raise RuntimeError("Node Notifications append check failed")
+        evidence["notification_append"]["node_contract_check"] = True
+        phase = "verify-notification-terminal-append-node"
+        terminal_append_node_result = subprocess.run(
+            [node_bin, str(terminal_append_node_provider)],
+            cwd=terminal_append_node_provider.parent,
+            env=node_environment,
+            capture_output=True,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+        if terminal_append_node_result.returncode:
+            node_diagnostic = _node_failure_diagnostic(
+                phase, terminal_append_node_result
+            )
+            raise RuntimeError("Node Notifications terminal append check failed")
+        evidence["notification_terminal_append"]["node_contract_check"] = True
+        node_environment["NOTIFICATION_READ_STATE_DATABASE_URL"] = (
+            notification_append_url
+        )
+        node_environment["NOTIFICATION_READ_STATE_USER_ID"] = (
+            notification_preference_user_id
+        )
+        phase = "verify-notification-read-state-node"
+        read_state_node_result = subprocess.run(
+            [node_bin, str(read_state_node_provider)],
+            cwd=read_state_node_provider.parent,
+            env=node_environment,
+            capture_output=True,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+        if read_state_node_result.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, read_state_node_result)
+            raise RuntimeError("Node Notifications read-state check failed")
+        evidence["notification_read_state"]["node_contract_check"] = True
+        node_environment["NOTIFICATION_DELETE_DATABASE_URL"] = notification_append_url
+        node_environment["NOTIFICATION_DELETE_USER_ID"] = (
+            notification_preference_user_id
+        )
+        phase = "verify-notification-delete-node"
+        delete_node_result = subprocess.run(
+            [node_bin, str(delete_node_provider)],
+            cwd=delete_node_provider.parent,
+            env=node_environment,
+            capture_output=True,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+        if delete_node_result.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, delete_node_result)
+            raise RuntimeError("Node Notifications deletion check failed")
+        evidence["notification_delete"]["node_contract_check"] = True
+        notification_read_node_environment = os.environ.copy()
+        notification_read_node_environment[
+            "NOTIFICATION_READ_RELATIONS_DATABASE_URL"
+        ] = notification_read_url
+        notification_read_node_environment["NOTIFICATION_READ_RELATIONS_USER_ID"] = (
+            notification_preference_user_id
+        )
+        notification_read_node_environment[
+            "NOTIFICATION_READ_RELATIONS_NOTIFICATION_ID"
+        ] = read_relation_notification_id
+        notification_read_node_environment[
+            "NOTIFICATION_READ_RELATIONS_EXPECTED_ROLE"
+        ] = NOTIFICATION_READ_ROLE
+        phase = "verify-notification-read-relation-node"
+        notification_read_node_result = subprocess.run(
+            [node_bin, str(notification_read_node_provider)],
+            cwd=notification_read_node_provider.parent,
+            env=notification_read_node_environment,
+            capture_output=True,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+        if notification_read_node_result.returncode:
+            node_diagnostic = _node_failure_diagnostic(
+                phase, notification_read_node_result
+            )
+            raise RuntimeError("Node Notifications read-relation check failed")
+        evidence["notification_read_relations"]["node_relation_check"] = True
+
+        phase = "verify-notification-inbox-api"
+        inbox_api_probe = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="legacy_runtime",
+            password=runtime_password,
+            database=database,
+            sql=(
+                "SELECT count(*)=1 FROM aap_notifications_v1.inbox_page("
+                f"'{notification_preference_user_id}'::uuid,'employee',false,100,0) "
+                f"WHERE id='{read_relation_notification_id}'::uuid;"
+            ),
+        )
+        if inbox_api_probe.strip() != "t":
+            raise RuntimeError("API LOGIN could not read the inbox owner page")
+        evidence["notification_inbox"]["api_function_call"] = True
+        for username, password in (
+            ("legacy_runtime", runtime_password),
+            (NOTIFICATION_INBOX_ROLE, notification_inbox_password),
+        ):
+            _assert_psql_permission_denied(
+                container_id,
+                container_name,
+                container_identity,
+                username=username,
+                password=password,
+                database=database,
+                statement=(
+                    "SELECT * FROM aap_notifications_v1._visible_inbox_rows("
+                    f"'{notification_preference_user_id}'::uuid,'employee')"
+                ),
+            )
+        evidence["notification_inbox"]["private_helper_denied"] = True
+        phase = "verify-notification-inbox-node"
+        inbox_node_environment = os.environ.copy()
+        inbox_node_environment.update(
+            {
+                "NOTIFICATION_INBOX_DATABASE_URL": notification_inbox_url,
+                "NOTIFICATION_INBOX_USER_ID": notification_preference_user_id,
+                "NOTIFICATION_INBOX_NOTIFICATION_ID": read_relation_notification_id,
+                "NOTIFICATION_INBOX_PLATFORM_ROLE": "employee",
+                "NOTIFICATION_INBOX_EXPECTED_ROLE": NOTIFICATION_INBOX_ROLE,
+            }
+        )
+        inbox_node_result = subprocess.run(
+            [node_bin, str(inbox_node_provider), "--live"],
+            cwd=inbox_node_provider.parent,
+            env=inbox_node_environment,
+            capture_output=True,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+        if inbox_node_result.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, inbox_node_result)
+            raise RuntimeError("Node Notifications inbox read check failed")
+        evidence["notification_inbox"]["node_contract_check"] = True
+
+        phase = "verify-jobs-notification-scope-node"
+        jobs_scope_id = str(uuid4())
+        jobs_scope_kind = "🧪" * 40
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=(
+                "INSERT INTO public.async_jobs(id,kind,status,payload,result) VALUES ("
+                f"'{jobs_scope_id}'::uuid,'{jobs_scope_kind}','completed','{{}}'::jsonb,'{{}}'::jsonb);"
+            ),
+        )
+        api_jobs_fact = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="legacy_runtime",
+            password=runtime_password,
+            database=database,
+            sql=(
+                "SELECT row_to_json(fact) FROM aap_jobs_v1.notification_scope_facts AS fact "
+                f"WHERE id='{jobs_scope_id}'::uuid;"
+            ),
+        )
+        if json.loads(api_jobs_fact) != {
+            "id": jobs_scope_id,
+            "kind": jobs_scope_kind,
+            "scope_project_id": None,
+        }:
+            raise RuntimeError("API LOGIN could not read exact Jobs notification facts")
+        evidence["jobs_notification_scope"]["api_fact_call"] = True
+        jobs_scope_node_environment = os.environ.copy()
+        jobs_scope_node_environment.pop("JOBS_NOTIFICATION_SCOPE_SET_ROLE", None)
+        jobs_scope_node_environment.update(
+            {
+                "JOBS_NOTIFICATION_SCOPE_DATABASE_URL": jobs_notification_scope_url,
+                "JOBS_NOTIFICATION_SCOPE_JOB_ID": jobs_scope_id,
+                "JOBS_NOTIFICATION_SCOPE_EXPECTED_KIND": jobs_scope_kind,
+                "JOBS_NOTIFICATION_SCOPE_EXPECTED_PROJECT_ID": "null",
+                "JOBS_NOTIFICATION_SCOPE_EXPECTED_ROLE": JOBS_NOTIFICATION_SCOPE_ROLE,
+            }
+        )
+        jobs_scope_node_result = subprocess.run(
+            [node_bin, str(jobs_scope_node_provider), "--live"],
+            cwd=jobs_scope_node_provider.parent,
+            env=jobs_scope_node_environment,
+            capture_output=True,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+        if jobs_scope_node_result.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, jobs_scope_node_result)
+            raise RuntimeError("Node Jobs notification-scope read check failed")
+        evidence["jobs_notification_scope"]["node_relation_check"] = True
+        evidence["jobs_notification_scope"]["real_login_without_set_role"] = True
+        evidence["jobs_notification_scope"]["probe_job_id"] = jobs_scope_id
+        evidence["jobs_notification_scope"]["unicode_kind_codepoints"] = 40
+
+        phase = "verify-notification-delivery-read-node"
+
+        async def seed_delivery_project() -> str:
+            from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+
+            from tests.factory import create_membership, create_project
+
+            engine = create_async_engine(
+                URL.create(
+                    "postgresql+asyncpg",
+                    username="owner",
+                    password=owner_password,
+                    host="127.0.0.1",
+                    port=port,
+                    database=database,
+                )
+            )
+            try:
+                async with AsyncSession(engine) as session:
+                    actor_id = UUID(notification_preference_user_id)
+                    project = await create_project(
+                        session, owner_id=actor_id, name="Delivery read Node fixture"
+                    )
+                    project_id = project.id
+                    await create_membership(
+                        session,
+                        project_id=project_id,
+                        user_id=actor_id,
+                        role="reviewer",
+                        assigned_by=actor_id,
+                    )
+                    await session.commit()
+                    return str(project_id)
+            finally:
+                await engine.dispose()
+
+        delivery_project_id = asyncio.run(seed_delivery_project())
+        delivery_node_environment = os.environ.copy()
+        delivery_node_environment.update(
+            {
+                "NOTIFICATION_DELIVERY_DATABASE_URL": notification_delivery_read_url,
+                "NOTIFICATION_DELIVERY_USER_ID": notification_preference_user_id,
+                "NOTIFICATION_DELIVERY_NOTIFICATION_ID": read_relation_notification_id,
+                "NOTIFICATION_DELIVERY_EXPECTED_ROLE": NOTIFICATION_DELIVERY_READ_ROLE,
+                "NOTIFICATION_DELIVERY_PROJECT_ID": delivery_project_id,
+                "NOTIFICATION_DELIVERY_JOB_ID": jobs_scope_id,
+            }
+        )
+        delivery_node_result = subprocess.run(
+            [node_bin, str(delivery_read_node_provider), "--live"],
+            cwd=delivery_read_node_provider.parent,
+            env=delivery_node_environment,
+            capture_output=True,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+        if delivery_node_result.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, delivery_node_result)
+            raise RuntimeError("Node Notifications delivery-read check failed")
+        evidence["notification_delivery_read"]["node_contract_check"] = True
 
         phase = "install-mask-gc-grants"
         _psql(
@@ -3264,6 +7028,294 @@ def main(argv: list[str] | None = None) -> int:
                 "labeling_video_writer_role": "labeling_video_writer_client",
             },
         )
+        phase = "install-labeling-task-control-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_task_control_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "task_control_role": "labeling_task_control_client",
+            },
+        )
+        phase = "install-labeling-annotation-writes-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_annotation_writes_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "annotation_write_role": "labeling_annotation_write_client",
+            },
+        )
+        phase = "install-labeling-editing-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_editing_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "editing_role": "labeling_editing_client",
+            },
+        )
+        phase = "install-labeling-batch-control-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_batch_control_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "batch_control_role": "labeling_batch_control_client",
+            },
+        )
+        phase = "install-labeling-prediction-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_prediction_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "prediction_role": "labeling_prediction_client",
+            },
+        )
+        phase = "install-labeling-scene-track-commands-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_scene_track_commands_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "scene_track_command_role": "labeling_scene_track_command_client",
+            },
+        )
+        phase = "install-labeling-cross-frame-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_cross_frame_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "cross_frame_role": "labeling_cross_frame_client",
+            },
+        )
+        phase = "install-labeling-annotation-maintenance-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_annotation_maintenance_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "annotation_maintenance_role": "labeling_annotation_maintenance_client",
+            },
+        )
+        phase = "install-labeling-discussion-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_discussion_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "discussion_role": "labeling_discussion_client",
+            },
+        )
+        phase = "install-labeling-mask-edit-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_mask_edit_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "mask_edit_role": "labeling_mask_edit_client",
+            },
+        )
+        phase = "install-labeling-scene-read-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_scene_read_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "scene_read_role": "labeling_scene_read_client",
+            },
+        )
+        phase = "install-labeling-video-control-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_video_control_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "video_control_role": "labeling_video_control_client",
+            },
+        )
+        phase = "install-labeling-annotation-transfer-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_annotation_transfer_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "annotation_transfer_role": "labeling_annotation_transfer_client",
+            },
+        )
+        phase = "install-labeling-core-read-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_core_read_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "core_read_role": "labeling_core_read_client",
+            },
+        )
+        phase = "install-labeling-mask-quality-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_mask_quality_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "quality_role": "labeling_mask_quality_client",
+            },
+        )
+        phase = "install-labeling-spatial-quality-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_spatial_quality_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "spatial_quality_role": "labeling_spatial_quality_client",
+            },
+        )
+        phase = "install-labeling-task-maintenance-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_task_maintenance_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "task_maintenance_role": "labeling_task_maintenance_client",
+            },
+        )
+        phase = "install-inference-pool-reference-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=inference_pool_reference_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "inference_owner": "inference_code",
+                "pool_reference_role": "inference_pool_reference_client",
+            },
+        )
         phase = "install-video-restore-grants"
         _psql(
             container_id,
@@ -3299,6 +7351,8 @@ def main(argv: list[str] | None = None) -> int:
                 },
             },
         )
+        phase = "install-identity-actor-status-grants"
+        apply_identity_actor_status_grants()
         phase = "install-identity-key-grants"
         _psql(
             container_id,
@@ -3386,6 +7440,78 @@ def main(argv: list[str] | None = None) -> int:
                 "notification_publish_role": "notification_publish_client",
             },
         )
+        publisher_role = IDENTITY_CLIENT_ROLES["NOTIFICATION_PUBLISH"]
+        publisher_worker_id = str(uuid4())
+        publisher_finish_request = json.dumps(
+            {
+                "schema": "aap-notifications-delivery/v1",
+                "notification_id": str(uuid4()),
+                "worker_id": publisher_worker_id,
+                "lease_id": str(uuid4()),
+                "outcome": "delivered",
+                "reason": "published",
+            },
+            separators=(",", ":"),
+        )
+        publisher_policy = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username=publisher_role,
+            password=identity_passwords[publisher_role],
+            database=database,
+            sql=(
+                "SELECT aap_notifications_v1.identity_delivery_policy() ->> 'policy';"
+            ),
+        )
+        if publisher_policy.strip() != "aap-notifications-delivery/v1":
+            raise RuntimeError("Notifications publisher policy is unavailable")
+        publisher_claim = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username=publisher_role,
+            password=identity_passwords[publisher_role],
+            database=database,
+            sql=(
+                "BEGIN; SELECT aap_notifications_v1.claim_identity_deliveries("
+                "pg_catalog.jsonb_build_object("
+                "'schema','aap-notifications-delivery/v1',"
+                f"'worker_id','{publisher_worker_id}'::uuid,"
+                "'limit',1,'lease_seconds',60)) -> 'data' -> 'items'; ROLLBACK;"
+            ),
+        )
+        if publisher_claim.strip() != "[]":
+            raise RuntimeError(
+                "Notifications publisher claim probe changed outbox state"
+            )
+        publisher_finish = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username=publisher_role,
+            password=identity_passwords[publisher_role],
+            database=database,
+            sql=(
+                "SELECT aap_notifications_v1.finish_identity_delivery("
+                f"'{publisher_finish_request}'::jsonb) -> 'data' ->> 'accepted';"
+            ),
+        )
+        if publisher_finish.strip() != "false":
+            raise RuntimeError("Notifications publisher finish probe was not a no-op")
+        for statement in notification_private_statements:
+            _assert_psql_permission_denied(
+                container_id,
+                container_name,
+                container_identity,
+                username=publisher_role,
+                password=identity_passwords[publisher_role],
+                database=database,
+                statement=statement,
+            )
+        evidence["notification_read_relations"][
+            "publisher_functions_remain_callable"
+        ] = True
         phase = "install-identity-recovery-grants"
         _psql(
             container_id,
@@ -3992,8 +8118,95 @@ def main(argv: list[str] | None = None) -> int:
                 "consumer_role": IDENTITY_API_CONSUMER_ROLE,
             },
         )
+        identity_consumer_notification_fact = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username=IDENTITY_API_CONSUMER_ROLE,
+            password=identity_api_consumer_password,
+            database=database,
+            sql=(
+                "SELECT count(*) FROM aap_notifications_v1.read_notification("
+                f"'{read_relation_notification_id}'::uuid) "
+                f"WHERE user_id='{notification_preference_user_id}'::uuid "
+                f"AND id='{read_relation_notification_id}'::uuid "
+                "AND payload = '{\"read_relation\": true}'::jsonb;"
+            ),
+        )
+        if identity_consumer_notification_fact.strip() != "1":
+            raise RuntimeError(
+                "LAN application role could not read Notifications facts"
+            )
+        lan_inbox_probe = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username=IDENTITY_API_CONSUMER_ROLE,
+            password=identity_api_consumer_password,
+            database=database,
+            sql=(
+                "SELECT EXISTS(SELECT FROM aap_notifications_v1.inbox_page("
+                f"'{notification_preference_user_id}'::uuid,'employee',false,100,0) "
+                f"WHERE id='{read_relation_notification_id}'::uuid) "
+                "AND aap_notifications_v1.inbox_total_count("
+                f"'{notification_preference_user_id}'::uuid,'employee')>=1 "
+                "AND aap_notifications_v1.inbox_unread_count("
+                f"'{notification_preference_user_id}'::uuid,'employee')>=0;"
+            ),
+        )
+        if lan_inbox_probe.strip() != "t":
+            raise RuntimeError(
+                "LAN application role could not call the three inbox reads"
+            )
+        evidence["notification_inbox"]["lan_function_calls"] = True
+        evidence["notification_delivery_read"]["lan_function_call"] = True
+        identity_consumer_audit_fact = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username=IDENTITY_API_CONSUMER_ROLE,
+            password=identity_api_consumer_password,
+            database=database,
+            sql=(
+                "SELECT count(*) FROM aap_audit_v1.audit_events "
+                f"WHERE id='{audit_append_id}'::bigint;"
+            ),
+        )
+        if identity_consumer_audit_fact.strip() != "1":
+            raise RuntimeError("LAN application role could not read Audit facts")
+        for statement in notification_private_statements:
+            _assert_psql_permission_denied(
+                container_id,
+                container_name,
+                container_identity,
+                username=IDENTITY_API_CONSUMER_ROLE,
+                password=identity_api_consumer_password,
+                database=database,
+                statement=statement,
+            )
+        for statement in (
+            notification_fact_read_statement,
+            *notification_fact_write_statements,
+            *audit_fact_write_statements,
+        ):
+            _assert_psql_permission_denied(
+                container_id,
+                container_name,
+                container_identity,
+                username=IDENTITY_API_CONSUMER_ROLE,
+                password=identity_api_consumer_password,
+                database=database,
+                statement=statement,
+            )
         if (
             "tests/test_seed_parent_operator_native.py" in selected_test_paths
+            or "tests/test_workspace_e2e_native.py" in selected_test_paths
+            or "tests/test_identity_e2e_live.py" in selected_test_paths
+            or "tests/test_scale_seed_workspace_native.py" in selected_test_paths
+            or "tests/test_identity_seed_selection_live.py" in selected_test_paths
+            or "tests/test_identity_recording_live.py" in selected_test_paths
+            or "tests/test_media_seed_workspace_native.py" in selected_test_paths
+            or "tests/test_media_seed_workspace_live.py" in selected_test_paths
             or "tests/test_seed_parent_operator_live.py" in selected_test_paths
             or "tests/test_workspace_seed_operator_native.py" in selected_test_paths
             or "tests/test_workspace_seed_operator_live.py" in selected_test_paths
@@ -4004,6 +8217,27 @@ def main(argv: list[str] | None = None) -> int:
             or (
                 "tests/test_workspace_worker_assembly_live.py" in selected_test_paths
                 and os.environ.get("AAP_WORKSPACE_WORKER_ASSEMBLY_LIVE") == "1"
+            )
+            or (
+                "tests/test_workspace_cross_frame_worker_live.py" in selected_test_paths
+                and os.environ.get("AAP_WORKSPACE_CROSS_FRAME_WORKER_LIVE") == "1"
+            )
+            or (
+                "tests/test_jobs_module_assembly_live.py" in selected_test_paths
+                and os.environ.get("AAP_JOBS_QUEUE_MODULE_LIVE") == "1"
+            )
+            or (
+                "tests/test_workspace_video_tracker_worker_live.py"
+                in selected_test_paths
+                and os.environ.get("AAP_WORKSPACE_VIDEO_TRACKER_WORKER_LIVE") == "1"
+            )
+            or (
+                "tests/test_legacy_video_fence_live.py" in selected_test_paths
+                and os.environ.get("AAP_LEGACY_VIDEO_FENCE_LIVE") == "1"
+            )
+            or (
+                "tests/test_workspace_export_worker_live.py" in selected_test_paths
+                and os.environ.get("AAP_WORKSPACE_EXPORT_WORKER_LIVE") == "1"
             )
             or (
                 "tests/test_workspace_capacity_live.py" in selected_test_paths
@@ -4041,9 +8275,17 @@ def main(argv: list[str] | None = None) -> int:
             "tests/test_seed_parent_operator_live.py" in selected_test_paths
             and os.environ.get("AAP_SEED_PARENT_OPERATOR_LIVE") == "1"
         )
-        seed_operator_live = seed_parent_live or (
-            "tests/test_workspace_seed_operator_live.py" in selected_test_paths
-            and os.environ.get("AAP_WORKSPACE_SEED_OPERATOR_LIVE") == "1"
+        workspace_media_seed_live = (
+            "tests/test_media_seed_workspace_live.py" in selected_test_paths
+            and os.environ.get("AAP_WORKSPACE_MEDIA_SEED_LIVE") == "1"
+        )
+        seed_operator_live = (
+            seed_parent_live
+            or workspace_media_seed_live
+            or (
+                "tests/test_workspace_seed_operator_live.py" in selected_test_paths
+                and os.environ.get("AAP_WORKSPACE_SEED_OPERATOR_LIVE") == "1"
+            )
         )
         media_seed_identity_live = (
             "tests/test_media_seed_identity_live.py" in selected_test_paths
@@ -4100,6 +8342,68 @@ def main(argv: list[str] | None = None) -> int:
                             "consumer_role": "legacy_runtime",
                         },
                     )
+                if identity_e2e_live:
+                    for grant_name in (
+                        "workspace-consumer-grants.sql",
+                        "workspace-seed-operator-grants.sql",
+                        "workspace-e2e-fixture-grants.sql",
+                    ):
+                        _psql(
+                            container_id,
+                            container_name,
+                            container_identity,
+                            username="owner",
+                            password=owner_password,
+                            database=database,
+                            sql=(ROOT / "infra/docker" / grant_name).read_text(),
+                            variables={
+                                "expected_database": database,
+                                "migration_role": "owner",
+                                "workspace_owner": "workspace_code",
+                                "consumer_role": "legacy_runtime",
+                            },
+                        )
+                    evidence["workspace_e2e_fixture_operator"] = {
+                        "role": "legacy_runtime",
+                        "workspace_private_tables_denied": True,
+                        "ordinary_api_fixture_capabilities_denied": True,
+                        "profiles": [
+                            "workspace-consumer-grants.sql",
+                            "workspace-seed-operator-grants.sql",
+                            "workspace-e2e-fixture-grants.sql",
+                        ],
+                    }
+                if identity_seed_selection_live or identity_recording_live:
+                    profiles = ["workspace-consumer-grants.sql"]
+                    if identity_seed_selection_live:
+                        profiles.append("workspace-scale-seed-grants.sql")
+                    for profile in profiles:
+                        _psql(
+                            container_id,
+                            container_name,
+                            container_identity,
+                            username="owner",
+                            password=owner_password,
+                            database=database,
+                            sql=(ROOT / "infra/docker" / profile).read_text(),
+                            variables={
+                                "expected_database": database,
+                                "migration_role": "owner",
+                                "workspace_owner": "workspace_code",
+                                "assets_owner": "assets_code",
+                                "labeling_owner": "labeling_code",
+                                "consumer_role": "legacy_runtime",
+                            },
+                        )
+                    evidence[
+                        "workspace_scale_seed_operator"
+                        if identity_seed_selection_live
+                        else "workspace_recording_consumer"
+                    ] = {
+                        "role": "legacy_runtime",
+                        "workspace_private_tables_denied": True,
+                        "profiles": profiles,
+                    }
                 evidence[
                     "identity_e2e_fixture_operator"
                     if identity_e2e_live
@@ -4229,7 +8533,7 @@ def main(argv: list[str] | None = None) -> int:
                         "project_private_tables_denied": True,
                         "other_domains": "existing trusted operator runtime grants retained",
                     }
-                if seed_parent_live:
+                if seed_parent_live or workspace_media_seed_live:
                     phase = "install-identity-seed-operator-capabilities"
                     persona_grants = (
                         ROOT / "infra/docker/identity-seed-operator-grants.sql"
@@ -4291,10 +8595,7 @@ SELECT pg_catalog.jsonb_build_object(
             'aap_identity_v1.lock_accounts_key_share(uuid[],boolean)', 'EXECUTE'),
         'check_accepted_api_key', pg_catalog.has_function_privilege(
             '{IDENTITY_API_CONSUMER_ROLE}',
-            'aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])', 'EXECUTE'),
-        'workspace_template_query_org_ids', pg_catalog.has_function_privilege(
-            '{IDENTITY_API_CONSUMER_ROLE}',
-            'aap_identity_v1.workspace_template_query_org_ids(uuid)', 'EXECUTE'))
+            'aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])', 'EXECUTE'))
 )::text;
 """,
             ).strip()
@@ -4308,7 +8609,6 @@ SELECT pg_catalog.jsonb_build_object(
             "lock_accounts_update": True,
             "lock_accounts_key_share": True,
             "check_accepted_api_key": True,
-            "workspace_template_query_org_ids": True,
         }:
             raise RuntimeError(
                 "Identity API consumer is missing an approved read capability"
@@ -4409,6 +8709,36 @@ SELECT pg_catalog.jsonb_build_object(
         ]
         image_worker_storage["policy"] = "aap-images-worker-" + secrets.token_hex(8)
         _create_image_storage_scope(image_worker_storage)
+        if (
+            "tests/test_audit_maintenance_module_live.py" in selected_test_paths
+            and os.environ.get("AAP_AUDIT_MAINTENANCE_MODULE_ACCEPTANCE") == "1"
+        ):
+            bucket = resources["buckets"]["MINIO_AUDIT_ARCHIVE_BUCKET"]
+            tags = backend.s3.get_bucket_tagging(Bucket=bucket)["TagSet"]
+            if not any(
+                tag["Key"] == "aap-worktree-owner"
+                and tag["Value"] == resources["owner"]
+                for tag in tags
+            ):
+                raise RuntimeError("Audit archive bucket ownership differs")
+            audit_archive_writer_storage = _cleanup_storage_scope(backend)
+            audit_archive_writer_storage.update(
+                bucket=bucket, policy="aap-audit-archive-writer-" + secrets.token_hex(8)
+            )
+            _create_audit_archive_storage_scope(
+                audit_archive_writer_storage, read_only=False
+            )
+            audit_archive_reader_storage = _cleanup_storage_scope(backend)
+            audit_archive_reader_storage.update(
+                bucket=bucket, policy="aap-audit-archive-reader-" + secrets.token_hex(8)
+            )
+            _create_audit_archive_storage_scope(
+                audit_archive_reader_storage, read_only=True
+            )
+            evidence["audit_archive_storage"] = {
+                "bucket": bucket,
+                "separate_writer_and_reader_provisioned": True,
+            }
         if selected_test_paths & {
             "tests/test_labeling_video_writer_live.py",
             "tests/test_labeling_video_writer_containers.py",
@@ -4435,11 +8765,15 @@ SELECT pg_catalog.jsonb_build_object(
         if selected_test_paths & {
             "tests/test_video_consumers_containers.py",
             "tests/test_identity_module_assembly_live.py",
+            "tests/test_notifications_socket_runtime_live.py",
+            "tests/test_notifications_module_assembly_live.py",
+            "tests/test_jobs_module_assembly_live.py",
             "tests/test_workspace_module_assembly_live.py",
             "tests/test_workspace_capacity_live.py",
             "tests/test_identity_e2e_live.py",
             "tests/test_identity_embedded_acl_live.py",
             "tests/test_worktree_identity_runtime_role_live.py",
+            "tests/test_labeling_module_api_cold.py",
         }:
             api_bootstrap_storage = _cleanup_storage_scope(backend)
             api_bootstrap_storage["buckets"] = resources["buckets"]
@@ -4499,6 +8833,13 @@ SELECT pg_catalog.jsonb_build_object(
                 "AAP_IDENTITY_BRIEFS_LIVE_ACCEPTANCE": "1",
                 "RUN_NATIVE_IMPORT_DELIVERY_LEASE_TEST": "1",
                 "AAP_MODULE_DATA_APPEND_URL": append_url,
+                "AAP_MODULE_DATA_AUDIT_MAINTENANCE_URL": audit_maintenance_url,
+                "AAP_MODULE_DATA_AUDIT_APPEND_URL": make_url(audit_append_url)
+                .set(drivername="postgresql+asyncpg")
+                .render_as_string(hide_password=False),
+                "AAP_MODULE_DATA_NOTIFICATION_DELIVERY_READ_URL": notification_delivery_read_url,
+                "AAP_MODULE_DATA_JOBS_LIST_QUERY_URL": jobs_list_query_url,
+                "AAP_MODULE_DATA_JOBS_LIFECYCLE_URL": jobs_lifecycle_url,
                 "AAP_MODULE_DATA_ASSET_CLEANUP_URL": cleanup_url,
                 "AAP_MODULE_DATA_ASSET_CATALOG_URL": catalog_url,
                 "AAP_MODULE_DATA_ASSET_SOURCE_URL": source_url,
@@ -4618,6 +8959,21 @@ SELECT pg_catalog.jsonb_build_object(
                 }
             )
         for label, scope in (
+            ("WRITE", audit_archive_writer_storage),
+            ("READ", audit_archive_reader_storage),
+        ):
+            if scope is not None:
+                resource_environment.update(
+                    {
+                        f"AAP_MODULE_DATA_AUDIT_ARCHIVE_{label}_ACCESS_KEY": scope[
+                            "access_key"
+                        ],
+                        f"AAP_MODULE_DATA_AUDIT_ARCHIVE_{label}_SECRET_KEY": scope[
+                            "secret_key"
+                        ],
+                    }
+                )
+        for label, scope in (
             ("CONTENT", mask_content_storage),
             ("CLEANUP", mask_cleanup_storage),
         ):
@@ -4642,7 +8998,6 @@ SELECT pg_catalog.jsonb_build_object(
             str(ROOT / "apps/api"),
             "-q",
             "--tb=short",
-            "--maxfail=3",
             f"--junitxml={junit}",
             *test_files,
         ]
@@ -4652,19 +9007,86 @@ SELECT pg_catalog.jsonb_build_object(
             container_id, container_name, container_identity, require_running=True
         )
         with patch.dict(os.environ, resource_environment, clear=False):
-            if workspace_import_cli_fence is None:
-                exit_code = run_processes(backend, options)
-            else:
-                prepare_owned_resources = backend.prepare
+            prepare_owned_resources = backend.prepare
 
-                def prepare_fenced_import_resources(*, skip_migrations=False):
-                    prepare_owned_resources(skip_migrations=skip_migrations)
+            def prepare_fenced_resources(*, skip_migrations=False):
+                prepare_owned_resources(skip_migrations=skip_migrations)
+                if workspace_import_cli_fence is not None:
                     workspace_import_cli_fence()
+                # The launcher reapplies legacy table grants while preparing.
+                # Reapply owner-bound reads and writes after broad test grants.
+                apply_notification_preferences_grants()
+                apply_notification_append_grants()
+                apply_notification_delivery_read_grants()
+                apply_notification_inbox_grants()
+                apply_jobs_list_query_grants()
+                apply_jobs_lifecycle_grants()
+                apply_identity_actor_status_grants()
+                apply_audit_append_grants()
+                apply_notification_read_grants(NOTIFICATION_READ_ROLE)
+                apply_audit_read_grants()
+                apply_audit_maintenance_grants()
+                apply_jobs_scope_grants()
+                for statement in (
+                    *notification_private_statements,
+                    notification_fact_read_statement,
+                ):
+                    _assert_psql_permission_denied(
+                        container_id,
+                        container_name,
+                        container_identity,
+                        username="legacy_runtime",
+                        password=runtime_password,
+                        database=database,
+                        statement=statement,
+                    )
+                notification_fact = _psql(
+                    container_id,
+                    container_name,
+                    container_identity,
+                    username="legacy_runtime",
+                    password=runtime_password,
+                    database=database,
+                    sql=(
+                        "SELECT count(*) FROM "
+                        "aap_notifications_v1.read_notification("
+                        f"'{read_relation_notification_id}'::uuid) "
+                        f"WHERE id='{read_relation_notification_id}'::uuid "
+                        "AND payload = '{\"read_relation\": true}'::jsonb;"
+                    ),
+                )
+                audit_fact = _psql(
+                    container_id,
+                    container_name,
+                    container_identity,
+                    username="legacy_runtime",
+                    password=runtime_password,
+                    database=database,
+                    sql=(
+                        "SELECT count(*) FROM aap_audit_v1.audit_events "
+                        f"WHERE id='{audit_append_id}'::bigint;"
+                    ),
+                )
+                if notification_fact.strip() != "1" or audit_fact.strip() != "1":
+                    raise RuntimeError(
+                        "module test preparation lost an owner read relation grant"
+                    )
+                evidence["audit_maintenance"].update(
+                    _verify_audit_maintenance_boundary(
+                        container_id,
+                        container_name,
+                        container_identity,
+                        database=database,
+                        owner_password=owner_password,
+                        runtime_password=runtime_password,
+                        maintenance_password=audit_maintenance_password,
+                        maintenance_url=audit_maintenance_url,
+                    )
+                )
+                evidence["audit_maintenance"]["after_launcher_prepare"] = True
 
-                # The launcher reapplies compatibility grants while preparing.
-                # Fence its actual final credentials before it starts pytest.
-                with patch.object(backend, "prepare", prepare_fenced_import_resources):
-                    exit_code = run_processes(backend, options)
+            with patch.object(backend, "prepare", prepare_fenced_resources):
+                exit_code = run_processes(backend, options)
         evidence["test_exit_code"] = exit_code
         evidence["passed_test_count"] = _passed_test_count(junit)
         if exit_code == 0 and evidence["passed_test_count"] == 0:
@@ -4673,9 +9095,13 @@ SELECT pg_catalog.jsonb_build_object(
     except Exception as error:
         evidence["status"] = "failed"
         evidence["failure"] = {"phase": phase, "error_type": type(error).__name__}
+        if node_diagnostic is not None:
+            evidence["failure"]["node_diagnostic"] = node_diagnostic
         exit_code = 1
     finally:
         for label, scope in (
+            ("audit_archive_writer", audit_archive_writer_storage),
+            ("audit_archive_reader", audit_archive_reader_storage),
             ("mask_content", mask_content_storage),
             ("mask_cleanup", mask_cleanup_storage),
             ("api_bootstrap", api_bootstrap_storage),
@@ -4731,7 +9157,25 @@ SELECT pg_catalog.jsonb_build_object(
                         container_identity,
                         require_running=True,
                     )
-                backend.destroy(backend.resources["confirmation"])
+                cleanup_backend = backend
+                if (
+                    container_id
+                    and "tests/test_legacy_video_fence_live.py" in selected_test_paths
+                    and os.environ.get("AAP_LEGACY_VIDEO_FENCE_LIVE") == "1"
+                ):
+                    # This fixture deliberately disables every ordinary LOGIN.
+                    cleanup_backend = LocalResources(
+                        backend.resources,
+                        backend.settings.model_copy(
+                            update={
+                                "database_url": backend.url.render_as_string(
+                                    hide_password=False
+                                )
+                            }
+                        ),
+                        code_root=ROOT,
+                    )
+                cleanup_backend.destroy(backend.resources["confirmation"])
                 evidence["cleanup"]["local_resources_destroyed"] = True
                 local_resources_destroyed = True
             except Exception as error:

@@ -201,7 +201,9 @@ async def test_unload_allowed_for_super_admin(
     backend = await _seed_backend(db_session, proj.id)
     await db_session.commit()
 
-    async def _fake_unload(self, registry_id):
+    async def _fake_unload(self, registry_id, *, expected_topology):
+        assert registry_id == backend.id
+        assert expected_topology is None
         return {"ok": True, "unloaded": True, "loaded": False}
 
     async def _allow_quiescent(*_args, **_kwargs):

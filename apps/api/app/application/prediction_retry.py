@@ -10,17 +10,21 @@ from app.application.async_job_contracts import (
     AsyncJobOperationFailure,
     PredictionRetryPort,
 )
+from app.services.project_access import get_workspace_project
 from app.config import settings
 from app.db.enums import PlatformRole
 from app.db.models.async_job import AsyncJob
 from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
-from app.db.models.prediction import FailedPrediction
-from app.db.models.project import Project
 from app.schemas.async_job import AsyncJobRetryFailedResponse
-from app.services import prediction as prediction_service
+from app.services import async_job as jobs, prediction as prediction_service
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.pipeline_validation import resolve_preannotate_queue
 from app.services.prediction_retry import MAX_RETRY_COUNT, PredictionRetryDispatcher
+from app.services.labeling_core_read_relations import (
+    failed_prediction_row,
+    get_core_row,
+    task_row,
+)
 
 _RETRY_FAILED_KINDS = {"batch_predict"}
 
@@ -40,8 +44,6 @@ class SqlPredictionRetry(PredictionRetryPort):
             PredictionRetryFailure,
         )
         from app.services.prediction_retry_data import SqlAlchemyPredictionRetryData
-        from app.services import async_job as jobs
-        from app.db.models.task import Task
 
         try:
             result = await SqlAlchemyPredictionRetryData(self._db, writer=True).call(
@@ -59,8 +61,12 @@ class SqlPredictionRetry(PredictionRetryPort):
         # were already accepted by the native owners in this same transaction.
         metadata = {}
         attempt = result.attempt
-        task = await self._db.get(Task, attempt.task_id) if attempt.task_id else None
-        project = await self._db.get(Project, attempt.project_id)
+        task = (
+            await get_core_row(self._db, task_row, attempt.task_id)
+            if attempt.task_id
+            else None
+        )
+        project = await get_workspace_project(self._db, project_id=attempt.project_id)
         backend = (
             await self._db.get(MLBackend, attempt.ml_backend_id)
             if attempt.ml_backend_id
@@ -83,7 +89,7 @@ class SqlPredictionRetry(PredictionRetryPort):
     ) -> None:
         try:
             db = self._db
-            fp = await db.get(FailedPrediction, failed_id)
+            fp = await get_core_row(db, failed_prediction_row, failed_id)
             if not fp:
                 raise HTTPException(
                     status_code=404, detail="Failed prediction not found"
@@ -144,11 +150,11 @@ class SqlPredictionRetry(PredictionRetryPort):
     ) -> AsyncJobRetryFailedResponse:
         try:
             db = self._db
-            job = await db.get(AsyncJob, job_id)
+            job = await jobs.get_job(db, job_id)
             if job is None:
                 raise HTTPException(status_code=404, detail="async_job not found")
             if job.project_id is not None:
-                project = await db.get(Project, job.project_id)
+                project = await get_workspace_project(db, project_id=job.project_id)
                 if project is None:
                     raise HTTPException(status_code=404, detail="async_job not found")
                 actor = await IdentityAccountLockData(db).read_actor_status(actor_id)

@@ -21,7 +21,7 @@ from app.services.annotation_slice_contracts import AnnotationSlicePort
 from app.services.audit_origin_contract import AuditOriginContext
 from app.services.mask_mutation import MaskMutationService
 from app.services.mask_mutation_contract import MaskMutationPort
-from app.services.workspace_contract import ProjectAccess
+from aap_workspace_contract.access import ProjectAccess
 from app.services.identity_contracts import IdentityActorFacts
 
 

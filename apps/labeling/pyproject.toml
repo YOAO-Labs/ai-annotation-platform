@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aap-labeling"
+version = "0.1.0"
+description = "Portable Labeling task, annotation, query and video contracts"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.10",
+    "aap-preannotation-results",
+    "aap-assets-media",
+    "aap-assets-mask-content",
+]
+
+[tool.uv]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "README.md" },
+    { file = "src/**/*.py" },
+    { file = "src/**/*.json" },
+    { file = "src/**/*.sql" },
+]
+
+[project.optional-dependencies]
+client = ["httpx>=0.28"]
+postgres = ["aap-owner-data", "asyncpg>=0.29"]
+runtime = [
+    "aap-owner-data",
+    "asyncpg>=0.29",
+    "fastapi>=0.115",
+    "pydantic-settings>=2.6",
+    "uvicorn>=0.30",
+    "aap-assets-mask-content[client]",
+]
+test = ["pytest>=8.3", "pytest-asyncio>=0.24", "httpx>=0.28"]
+
+[tool.uv.sources]
+aap-owner-data = { path = "../_shared/owner_data", editable = true }
+aap-preannotation-results = { path = "../preannotation-results", editable = true }
+aap-assets-media = { path = "../assets-media", editable = true }
+aap-assets-mask-content = { path = "../assets-mask-content", editable = true }
+
+[project.scripts]
+aap-labeling-video-writer = "aap_labeling.video_writer_main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aap_labeling"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

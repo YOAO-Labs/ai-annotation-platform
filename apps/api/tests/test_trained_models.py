@@ -18,7 +18,8 @@ from app.services import trained_models as service
 from app.services import trained_model_backend as backend_io
 from app.services import training_artifacts as artifacts
 from app.services.labeling_prediction_contract import ApplyPredictionResultRequest
-from app.services.ml_client import MLBackendClient, PredictionResult
+from aap_inference.backend_transport import PredictionResult
+from app.services.ml_client import MLBackendClient
 from app.services.prediction import PredictionService, to_internal_shape
 from app.services.labeling_write_scope import capture_labeling_write_scope
 from app.services.trained_model_reference_contract import (

@@ -125,12 +125,14 @@ class RouteLease:
     """A granted route lease. Caller must finish() or cancel() exactly once."""
 
     lease_id: str
-    pool_id: uuid.UUID
+    pool_id: uuid.UUID | None
     instance_id: uuid.UUID
     owner: str  # caller identity (e.g. "api:request_id" / "celery:task_id")
     operation: str  # e.g. "predict" / "interactive" / "batch" / "tracker"
     generation: int
     expires_at_ms: int
+    scope: Any = field(default=None, repr=False, compare=False)
+    authority: Any = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -199,3 +201,30 @@ class RoutingError(Exception):
         if self.retry_after is not None:
             detail["retry_after"] = self.retry_after
         return detail
+
+
+class MLBackendQuiescenceError(Exception):
+    def __init__(
+        self, error_code: str, message: str, *, unavailable: bool = False
+    ) -> None:
+        super().__init__(message)
+        self.error_code = error_code
+        self.unavailable = unavailable
+
+    def as_detail(self) -> dict[str, str]:
+        return {"error_code": self.error_code, "message": str(self)}
+
+
+def quiescence_error(reason):
+    return MLBackendQuiescenceError(
+        "ml_backend_member_draining"
+        if reason == "member_not_draining"
+        else "ml_backend_" + reason,
+        {
+            "member_not_draining": "service-pool member must be draining before unload",
+            "member_not_quiescent": "backend still has unresolved execution scopes",
+            "continuity_unverified": "authenticated backend drain and bind is required before management",
+            "management_busy": "backend management is already in progress",
+            "generation_mismatch": "service-pool topology changed; drain again and retry",
+        }.get(reason, "backend management precondition rejected"),
+    )

@@ -16,6 +16,15 @@ from app.db.models.task_event import TaskEvent
 from tests.factory import create_membership
 
 
+def _assert_public_audit_reads(statements: list[str]) -> None:
+    lowered = [statement.lower() for statement in statements]
+    assert any("aap_audit_v1.audit_events" in statement for statement in lowered)
+    assert not any(
+        "from audit_logs" in statement or "from public.audit_logs" in statement
+        for statement in lowered
+    )
+
+
 @pytest.fixture(autouse=True)
 async def historical_audit_partition(db_session):
     """Prepare the fixed event month independently of the migration date."""
@@ -769,6 +778,7 @@ async def test_members_http_volume_uses_bounded_grouped_queries(
     assert len(aggregate_row_counts) == 1
     assert aggregate_row_counts[0] <= 12
     assert loaded_audits == []
+    _assert_public_audit_reads(statements)
     assert elapsed < 5.0
     task_selects = [
         statement.lower()
@@ -823,6 +833,7 @@ async def test_members_http_volume_uses_bounded_grouped_queries(
         "limit" in statement.lower() and "offset" in statement.lower()
         for statement in evidence_statements
     )
+    _assert_public_audit_reads(evidence_statements)
     print(
         f"project performance evidence page: {len(evidence_statements)} SQL statements, "
         "5 rows returned from 20,000 intervals"
@@ -1146,7 +1157,7 @@ async def test_legacy_video_submission_gap_is_partial_not_fabricated(
 
 @pytest.mark.asyncio
 async def test_historical_contributor_detail_reuses_snapshot_roster(
-    httpx_client, db_session, project_admin, annotator, reviewer
+    httpx_client, db_session, test_engine, project_admin, annotator, reviewer
 ):
     owner, token = project_admin
     historical, _ = annotator
@@ -1179,11 +1190,28 @@ async def test_historical_contributor_detail_reuses_snapshot_roster(
         "account_status": "all",
         "include_historical": "true",
     }
-    listing = await httpx_client.get(
-        f"/api/v1/projects/{project.id}/performance/members",
-        params=params,
-        headers={"Authorization": f"Bearer {token}"},
-    )
+    statements = []
+
+    def capture_statement(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    event.listen(test_engine.sync_engine, "before_cursor_execute", capture_statement)
+    try:
+        listing = await httpx_client.get(
+            f"/api/v1/projects/{project.id}/performance/members",
+            params=params,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        detail = await httpx_client.get(
+            f"/api/v1/projects/{project.id}/performance/members/{historical.id}",
+            params=params,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    finally:
+        event.remove(
+            test_engine.sync_engine, "before_cursor_execute", capture_statement
+        )
+    _assert_public_audit_reads(statements)
     assert listing.status_code == 200, listing.text
     listed = next(
         item
@@ -1192,11 +1220,6 @@ async def test_historical_contributor_detail_reuses_snapshot_roster(
     )
     assert listed["is_current_member"] is False
 
-    detail = await httpx_client.get(
-        f"/api/v1/projects/{project.id}/performance/members/{historical.id}",
-        params=params,
-        headers={"Authorization": f"Bearer {token}"},
-    )
     assert detail.status_code == 200, detail.text
     detail_body = detail.json()
     assert detail_body["member"]["user_id"] == str(historical.id)
@@ -1488,7 +1511,7 @@ async def test_missing_later_round_snapshot_marks_annotation_but_not_review_cove
 
 @pytest.mark.asyncio
 async def test_decision_aggregation_matches_project_task_and_submission_round(
-    httpx_client, db_session, project_admin, annotator, reviewer
+    httpx_client, db_session, test_engine, project_admin, annotator, reviewer
 ):
     owner, token = project_admin
     worker, _ = annotator
@@ -1557,15 +1580,27 @@ async def test_decision_aggregation_matches_project_task_and_submission_round(
         ]
     )
     await db_session.commit()
-    response = await httpx_client.get(
-        f"/api/v1/projects/{project.id}/performance/members",
-        params={
-            "from": start.isoformat(),
-            "to": (start + timedelta(days=1)).isoformat(),
-            "timezone": "UTC",
-        },
-        headers={"Authorization": f"Bearer {token}"},
-    )
+    statements = []
+
+    def capture_statement(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    event.listen(test_engine.sync_engine, "before_cursor_execute", capture_statement)
+    try:
+        response = await httpx_client.get(
+            f"/api/v1/projects/{project.id}/performance/members",
+            params={
+                "from": start.isoformat(),
+                "to": (start + timedelta(days=1)).isoformat(),
+                "timezone": "UTC",
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    finally:
+        event.remove(
+            test_engine.sync_engine, "before_cursor_execute", capture_statement
+        )
+    _assert_public_audit_reads(statements)
     assert response.status_code == 200, response.text
     metrics = {row["user_id"]: row["metrics"] for row in response.json()["items"]}
     assert metrics[str(worker.id)]["approved_task_outcomes"]["value"] == 1

@@ -19,7 +19,9 @@ from app.config import settings
 
 @asynccontextmanager
 async def task_session_factory() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
-    engine = create_async_engine(settings.database_url, echo=False)
+    engine = create_async_engine(
+        settings.database_url, echo=False, hide_parameters=True
+    )
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     try:
         yield factory

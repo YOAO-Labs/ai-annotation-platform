@@ -1,0 +1,31 @@
+services:
+  inference-registry:
+    image: aap-inference:local
+    build:
+      context: .
+      dockerfile: apps/inference/Dockerfile
+    environment:
+      INFERENCE_HOST: 0.0.0.0
+      INFERENCE_PORT: 8768
+      INFERENCE_MAX_CONCURRENCY: ${INFERENCE_MAX_CONCURRENCY:-8}
+      INFERENCE_REGISTRY_INGRESS_DATABASE_URL_FILE: /run/secrets/inference_registry_ingress_database_url
+      INFERENCE_REGISTRY_INGRESS_TOKEN_FILE: /run/secrets/inference_registry_ingress_token
+    secrets:
+      - inference_registry_ingress_database_url
+      - inference_registry_ingress_token
+    ports:
+      - "127.0.0.1:8768:8768"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 1
+
+secrets:
+  inference_registry_ingress_database_url:
+    file: ${INFERENCE_RUNTIME_REGISTRY_INGRESS_DATABASE_URL_FILE:?Set function-only Registry ingress DSN file}
+  inference_registry_ingress_token:
+    file: ${INFERENCE_RUNTIME_REGISTRY_INGRESS_TOKEN_FILE:?Set dedicated Registry ingress bearer file}

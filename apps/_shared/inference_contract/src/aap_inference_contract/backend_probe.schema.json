@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-inference-backend-probe/v1",
+  "title": "Inference backend probe request and reply",
+  "description": "Private metadata probe. The subject is opaque encrypted state and contains no public URL or credentials.",
+  "oneOf": [
+    { "$ref": "#/$defs/BackendProbeRequest" },
+    { "$ref": "#/$defs/BackendProbeSuccess" },
+    { "$ref": "#/$defs/BackendProbeFailure" }
+  ],
+  "$defs": {
+    "CapabilityLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "video_tracker_window_size_frames",
+        "video_tracker_sam3_window_size_frames"
+      ],
+      "properties": {
+        "video_tracker_window_size_frames": { "type": "integer", "minimum": 1 },
+        "video_tracker_sam3_window_size_frames": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "BackendProbeRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "request_id", "registry_id", "probe_subject", "timeout_seconds", "limits"],
+      "properties": {
+        "schema": { "const": "aap-inference-backend-probe/v1" },
+        "request_id": { "type": "string", "format": "uuid" },
+        "registry_id": { "type": "string", "format": "uuid" },
+        "probe_subject": {
+          "type": "string",
+          "minLength": 7,
+          "pattern": "^v1\\.(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+          "description": "Opaque encrypted snapshot subject; never a URL or credential."
+        },
+        "timeout_seconds": { "type": "number", "exclusiveMinimum": 0 },
+        "limits": { "$ref": "#/$defs/CapabilityLimits" }
+      },
+      "x-max-bytes": 16777216
+    },
+    "BackendProbeSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "request_id", "registry_id", "subject_sha256", "modalities"],
+      "properties": {
+        "schema": { "const": "aap-inference-backend-probe/v1" },
+        "ok": { "const": true },
+        "request_id": { "type": "string", "format": "uuid" },
+        "registry_id": { "type": "string", "format": "uuid" },
+        "subject_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "modalities": {
+          "description": "Null preserves legacy probe fail-open behavior; arrays are unique in image, video, lidar order.",
+          "oneOf": [
+            { "type": "null" },
+            { "type": "array", "items": { "enum": ["image", "video", "lidar"] }, "uniqueItems": true }
+          ]
+        }
+      }
+    },
+    "BackendProbeFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "request_id", "registry_id", "subject_sha256", "error"],
+      "properties": {
+        "schema": { "const": "aap-inference-backend-probe/v1" },
+        "ok": { "const": false },
+        "request_id": { "type": "string", "format": "uuid" },
+        "registry_id": { "type": "string", "format": "uuid" },
+        "subject_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "error": { "const": "legacy_materialization_failure" }
+      }
+    },
+    "BackendProbeNativePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "probe_protocol", "subject_protocol", "origin_transaction", "functions", "ready"],
+      "properties": {
+        "schema": { "const": "aap-inference-backend-probe-native/v1" },
+        "probe_protocol": { "const": "aap-inference-backend-probe/v1" },
+        "subject_protocol": { "const": "aap-inference-backend-probe-subject/v1" },
+        "origin_transaction": { "const": "in_progress" },
+        "functions": {
+          "const": [
+            "aap_inference_backend_probe_v1.backend_probe_policy()",
+            "aap_inference_backend_probe_v1.open_backend_probe_subject(text,uuid)"
+          ]
+        },
+        "ready": { "type": "boolean" }
+      }
+    }
+  },
+  "x-reply-max-bytes": 4096
+}

@@ -36,6 +36,15 @@ config/
 data/
 docs/
 docs-site/
+!docs-site/
+docs-site/*
+!docs-site/public/
+docs-site/public/*
+!docs-site/public/home/
+docs-site/public/home/*
+!docs-site/public/home/sam-tools/
+docs-site/public/home/sam-tools/*
+!docs-site/public/home/sam-tools/smart-point.webm
 output/
 outputs/
 **/test-results/

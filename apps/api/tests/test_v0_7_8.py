@@ -80,7 +80,7 @@ async def test_logout_all_invalidates_sessions(
         email="session_test@local",
         name="SessionTest",
         password_hash="$2b$12$dummy",
-        role="annotator",
+        role="employee",
         is_active=True,
     )
     db_session.add(user)
@@ -242,7 +242,7 @@ async def test_last_login_updated_on_login(
         email="login_track@local",
         name="LoginTrack",
         password_hash=hash_password("Test1234"),
-        role="annotator",
+        role="employee",
         is_active=True,
     )
     db_session.add(user)

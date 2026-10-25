@@ -1,0 +1,485 @@
+{
+  "$defs": {
+    "EnsureSceneTrack": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-scene-track-domain/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "action": {
+          "const": "ensure",
+          "title": "Action",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "track_id": {
+          "title": "Track Id",
+          "type": "string"
+        },
+        "class_name": {
+          "title": "Class Name",
+          "type": "string"
+        },
+        "frames": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Frames",
+          "type": "array"
+        },
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        },
+        "interval_source": {
+          "title": "Interval Source",
+          "type": "string"
+        },
+        "member_change": {
+          "title": "Member Change",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schema",
+        "action",
+        "project_id",
+        "scene_id",
+        "track_id",
+        "class_name",
+        "frames",
+        "actor_id",
+        "interval_source",
+        "member_change"
+      ],
+      "title": "EnsureSceneTrack",
+      "type": "object"
+    },
+    "ReclassifySceneTrack": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-scene-track-domain/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "action": {
+          "const": "reclassify",
+          "title": "Action",
+          "type": "string"
+        },
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "scene_track_id": {
+          "format": "uuid",
+          "title": "Scene Track Id",
+          "type": "string"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Track Id"
+        },
+        "expected_class_name": {
+          "title": "Expected Class Name",
+          "type": "string"
+        },
+        "class_name": {
+          "title": "Class Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "action",
+        "annotation_id",
+        "scene_track_id",
+        "track_id",
+        "expected_class_name",
+        "class_name"
+      ],
+      "title": "ReclassifySceneTrack",
+      "type": "object"
+    },
+    "SceneTrackCameraMember": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "class_name": {
+          "title": "Class Name",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": ["id", "class_name", "version", "updated_at"],
+      "title": "SceneTrackCameraMember",
+      "type": "object"
+    },
+    "SceneTrackDomainData": {
+      "additionalProperties": false,
+      "properties": {
+        "track": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SceneTrackRecord"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "touched": {
+          "title": "Touched",
+          "type": "boolean"
+        },
+        "changed": {
+          "title": "Changed",
+          "type": "boolean"
+        },
+        "camera_members": {
+          "items": {
+            "$ref": "#/$defs/SceneTrackCameraMember"
+          },
+          "title": "Camera Members",
+          "type": "array"
+        }
+      },
+      "required": ["track", "touched", "changed", "camera_members"],
+      "title": "SceneTrackDomainData",
+      "type": "object"
+    },
+    "SceneTrackDomainError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": ["code", "message"],
+      "title": "SceneTrackDomainError",
+      "type": "object"
+    },
+    "SceneTrackDomainReply": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-scene-track-domain/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "action": {
+          "title": "Action",
+          "type": "string"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SceneTrackDomainData"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SceneTrackDomainError"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["schema", "action", "ok", "data", "error"],
+      "title": "SceneTrackDomainReply",
+      "type": "object"
+    },
+    "SceneTrackRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "track_id": {
+          "title": "Track Id",
+          "type": "string"
+        },
+        "class_name": {
+          "title": "Class Name",
+          "type": "string"
+        },
+        "presence_mode": {
+          "title": "Presence Mode",
+          "type": "string"
+        },
+        "attributes": {
+          "title": "Attributes"
+        },
+        "attributes_meta": {
+          "title": "Attributes Meta"
+        },
+        "revision": {
+          "title": "Revision",
+          "type": "integer"
+        },
+        "created_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Created By"
+        },
+        "retired_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Retired At"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "project_id",
+        "scene_id",
+        "track_id",
+        "class_name",
+        "presence_mode",
+        "attributes",
+        "attributes_meta",
+        "revision",
+        "created_by",
+        "retired_at",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "SceneTrackRecord",
+      "type": "object"
+    },
+    "TouchSceneTrack": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-scene-track-domain/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "action": {
+          "const": "touch",
+          "title": "Action",
+          "type": "string"
+        },
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "scene_track_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scene Track Id"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Track Id"
+        },
+        "class_name": {
+          "title": "Class Name",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "action", "annotation_id", "scene_track_id", "track_id", "class_name"],
+      "title": "TouchSceneTrack",
+      "type": "object"
+    }
+  },
+  "anyOf": [
+    {
+      "discriminator": {
+        "mapping": {
+          "ensure": "#/$defs/EnsureSceneTrack",
+          "reclassify": "#/$defs/ReclassifySceneTrack",
+          "touch": "#/$defs/TouchSceneTrack"
+        },
+        "propertyName": "action"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/EnsureSceneTrack"
+        },
+        {
+          "$ref": "#/$defs/TouchSceneTrack"
+        },
+        {
+          "$ref": "#/$defs/ReclassifySceneTrack"
+        }
+      ]
+    },
+    {
+      "$ref": "#/$defs/SceneTrackDomainReply"
+    }
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-labeling-scene-track-domain/v1",
+  "x-postgresql-functions": {
+    "aap_labeling_v1.scene_track_domain_command(jsonb)": {
+      "argument_types": ["jsonb"],
+      "returns": "jsonb",
+      "owner": "labeling",
+      "security_definer": true,
+      "caller_transaction_required": true,
+      "fixed_targets": [
+        "public.scene_tracks",
+        "public.scene_track_intervals",
+        "public.annotations"
+      ],
+      "actions": ["ensure", "reclassify", "touch"],
+      "interval_sources": ["derived", "imported", "legacy_envelope", "manual"],
+      "table_access": {
+        "public.scene_tracks": {
+          "select": [
+            "id",
+            "project_id",
+            "scene_id",
+            "track_id",
+            "class_name",
+            "presence_mode",
+            "attributes",
+            "attributes_meta",
+            "revision",
+            "created_by",
+            "retired_at",
+            "created_at",
+            "updated_at"
+          ],
+          "insert": ["id", "project_id", "scene_id", "track_id", "class_name", "created_by"],
+          "update": ["class_name", "revision", "updated_at"]
+        },
+        "public.scene_track_intervals": {
+          "select": [
+            "id",
+            "scene_track_id",
+            "start_frame",
+            "end_frame",
+            "source",
+            "version",
+            "created_by"
+          ],
+          "insert": ["id", "scene_track_id", "start_frame", "end_frame", "source", "created_by"],
+          "update": ["start_frame", "end_frame", "version", "updated_at"],
+          "delete": true
+        },
+        "public.annotations": {
+          "select": [
+            "id",
+            "scene_track_id",
+            "track_id",
+            "class_name",
+            "is_active",
+            "was_cancelled",
+            "sensor_role",
+            "version",
+            "updated_at"
+          ],
+          "update": ["class_name", "version", "updated_at"]
+        }
+      }
+    }
+  }
+}

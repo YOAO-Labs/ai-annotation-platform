@@ -1,0 +1,158 @@
+{
+  "preview": {
+    "user": {
+      "id": "76a0f523-7244-4ec3-bae2-1326b45d4761",
+      "email": "leaving-73921890c61b4c549c0f9bbff8588a59@baseline.test",
+      "name": "离职 😀",
+      "role": "employee",
+      "group_name": null,
+      "group_id": null,
+      "status": "offline",
+      "is_active": true,
+      "disabled_kind": null,
+      "disabled_at": null,
+      "disabled_by": null,
+      "disabled_reason": null,
+      "email_verified_at": null,
+      "last_login_at": null,
+      "last_seen_at": null,
+      "password_admin_reset_at": null,
+      "deactivation_requested_at": null,
+      "deactivation_scheduled_at": null,
+      "preferences": {},
+      "avatar_ref": null,
+      "created_at": "2026-10-20T11:29:42.510773Z"
+    },
+    "preview_version": "22377e1b9f071a85ada1364c91aaf3d2e70ff94de723d93574a6c29754f47d28",
+    "generated_at": "2026-10-20T11:29:42.963975Z",
+    "projects": [
+      {
+        "project_id": "a28afbc7-fc9b-4979-90f6-7b0b6ef31340",
+        "project_name": "交接项目 0",
+        "roles": {
+          "owner": {
+            "present": true,
+            "batches": [],
+            "receiver_options": [
+              {
+                "id": "1bd7e8cb-1ad5-4006-940d-ab5d6d8356c8",
+                "name": "负责人",
+                "email": "owner-73921890c61b4c549c0f9bbff8588a59@baseline.test",
+                "role": "project_admin",
+                "project_member_role": null
+              }
+            ]
+          },
+          "annotator": {
+            "present": true,
+            "batches": [
+              {
+                "batch_id": "8f06b404-16f2-4dd6-bfa2-1f5dfb5b8b7a",
+                "batch_name": "批次 0"
+              }
+            ],
+            "receiver_options": [
+              {
+                "id": "bf931609-dd07-48d2-bb51-02b6f073d1ce",
+                "name": "标注\n接收者",
+                "email": "ann-73921890c61b4c549c0f9bbff8588a59@baseline.test",
+                "role": "employee",
+                "project_member_role": "annotator"
+              }
+            ]
+          },
+          "reviewer": {
+            "present": false,
+            "batches": [],
+            "receiver_options": [
+              {
+                "id": "82651db2-95e6-4077-a75a-b2071c7171e7",
+                "name": "审核接收者",
+                "email": "rev-73921890c61b4c549c0f9bbff8588a59@baseline.test",
+                "role": "employee",
+                "project_member_role": "reviewer"
+              }
+            ]
+          }
+        },
+        "tasks": {
+          "annotator": {
+            "pending": 0,
+            "in_progress": 1,
+            "review": 0,
+            "rejected": 1,
+            "locked": 1
+          },
+          "reviewer": {
+            "pending": 0,
+            "in_progress": 0,
+            "review": 0,
+            "rejected": 0,
+            "locked": 0
+          }
+        },
+        "locked_task_count": 2,
+        "blockers": []
+      }
+    ],
+    "api_keys": [
+      {
+        "id": "1e4e1a1d-c7c4-4b9f-a043-74fb50d6b8f2",
+        "name": "测试 Key 😀",
+        "key_prefix": "ak_9QJNmfxm2",
+        "last_used_at": null,
+        "revoked_at": null
+      }
+    ],
+    "blockers": [],
+    "can_commit": true
+  },
+  "result": {
+    "user": {
+      "id": "76a0f523-7244-4ec3-bae2-1326b45d4761",
+      "email": "leaving-73921890c61b4c549c0f9bbff8588a59@baseline.test",
+      "name": "离职 😀",
+      "role": "employee",
+      "group_name": null,
+      "group_id": null,
+      "status": "offline",
+      "is_active": false,
+      "disabled_kind": "suspended",
+      "disabled_at": "2026-10-20T11:29:42.994965Z",
+      "disabled_by": "a2327c43-07af-49e1-8e6e-897dba25fc77",
+      "disabled_reason": "交接 😀",
+      "email_verified_at": null,
+      "last_login_at": null,
+      "last_seen_at": null,
+      "password_admin_reset_at": null,
+      "deactivation_requested_at": null,
+      "deactivation_scheduled_at": null,
+      "preferences": {},
+      "avatar_ref": null,
+      "created_at": "2026-10-20T11:29:42.510773Z"
+    },
+    "status": "suspended",
+    "mode": "handoff",
+    "transfers": [
+      {
+        "project_id": "a28afbc7-fc9b-4979-90f6-7b0b6ef31340",
+        "role": "owner",
+        "receiver_id": "1bd7e8cb-1ad5-4006-940d-ab5d6d8356c8",
+        "batch_ids": [],
+        "task_count": 0,
+        "lock_count": 0
+      },
+      {
+        "project_id": "a28afbc7-fc9b-4979-90f6-7b0b6ef31340",
+        "role": "annotator",
+        "receiver_id": "bf931609-dd07-48d2-bb51-02b6f073d1ce",
+        "batch_ids": ["8f06b404-16f2-4dd6-bfa2-1f5dfb5b8b7a"],
+        "task_count": 2,
+        "lock_count": 1
+      }
+    ],
+    "unresolved": [],
+    "revoked_api_key_ids": ["1e4e1a1d-c7c4-4b9f-a043-74fb50d6b8f2"],
+    "audit_id": 1
+  }
+}

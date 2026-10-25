@@ -5,27 +5,25 @@ committed so the audit can run in the PostgreSQL-enforced ``REPEATABLE READ,
 READ ONLY`` transaction used by the CLI; every test cleans up in ``finally``.
 Assertions are ID-scoped so pre-existing committed rows do not matter.
 
-Alembic migration steps are synchronous (``asyncio.run`` per isolated step),
-matching ``test_migration_0173_project_role_preparation.py``; calling Alembic
-from inside a running event loop would nest ``asyncio.run``.
+Historical compatibility uses a fresh database migrated to 0171, without later
+Identity objects. Alembic executes in a separate process for that owned target.
 """
 
 from __future__ import annotations
 
-import asyncio
-import importlib.util
 import json
 import os
 import subprocess
 import sys
 import uuid
+
+import pytest
+from tests.identity_role_audit_helpers import audit_reader, historical_audit_database
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.project_member import ProjectMember
 from app.db.models.task_batch import TaskBatch
@@ -37,13 +35,9 @@ from scripts.audit_project_roles import (
     collect_report,
     read_only_audit_session,
 )
-from tests.factory import create_membership, create_project, create_task, create_user
+from tests.factory import create_project, create_task, create_user
 
 _API_ROOT = Path(__file__).resolve().parents[1]
-_MIGRATION_0173_PATH = (
-    _API_ROOT / "alembic" / "versions" / "0173_project_role_preparation.py"
-)
-
 _SENSITIVE_KEYS = {"password_hash", "token", "email", "invite_url", "signed_url"}
 # Unique text embedded in seeded emails/tokens/names: none of it may appear in
 # the serialized report, unlike the report's own run id.
@@ -52,37 +46,10 @@ _TOKEN_SENTINEL = "token-sentinel-probe"
 _NAME_SENTINEL = "NameSentinelProbe"
 
 
-def _load_migration_0173():
-    spec = importlib.util.spec_from_file_location(
-        "migration_0173", _MIGRATION_0173_PATH
-    )
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-    return module
-
-
-def _replay_migration(sync_conn, migration, direction: str) -> None:
-    context = MigrationContext.configure(sync_conn)
-    with Operations.context(context):
-        getattr(migration, direction)()
-
-
-def _set_alembic_version(sync_conn, version: str) -> None:
-    sync_conn.execute(
-        text("UPDATE alembic_version SET version_num = :v"), {"v": version}
-    )
-
-
-def _has_preparation_column(sync_conn) -> bool:
-    return bool(
-        sync_conn.execute(
-            text(
-                "SELECT 1 FROM information_schema.columns "
-                "WHERE table_name = 'project_members' AND column_name = 'version'"
-            )
-        ).scalar()
-    )
+@pytest.fixture(autouse=True)
+async def installed_identity_audit_relations(test_engine):
+    async with audit_reader(test_engine):
+        yield
 
 
 def _item_ids(section: dict) -> set[str]:
@@ -895,127 +862,19 @@ async def test_active_manager_predicate_fails_closed(test_engine) -> None:
         assert bool(row["is_gap"]) is bool(row["expected"]), row["name"]
 
 
-def test_audit_runs_before_0173_migration(test_db_url, apply_migrations) -> None:
-    """Synchronous migration test: Alembic must run outside the event loop."""
-    migration = _load_migration_0173()
-    state: dict = {"users": []}
-
-    async def step(action: str) -> None:
-        engine = create_async_engine(test_db_url)
-        try:
-            if action == "seed":
-                async with async_sessionmaker(engine, expire_on_commit=False)() as db:
-                    state["revision"] = await db.scalar(
-                        text("SELECT version_num FROM alembic_version")
-                    )
-                    owner = await create_user(
-                        db,
-                        "project_admin",
-                        f"{_EMAIL_SENTINEL}-pre-{uuid.uuid4()}@test.local",
-                        f"{_NAME_SENTINEL}-pre",
-                    )
-                    state["users"].append(owner.id)
-                    project = await create_project(db, owner_id=owner.id)
-                    state["project"] = project.id
-                    await create_membership(
-                        db,
-                        project_id=project.id,
-                        user_id=owner.id,
-                        role="viewer",
-                        assigned_by=owner.id,
-                    )
-                    task = await create_task(db, project_id=project.id, status="review")
-                    task.review_round_id = uuid.uuid4()
-                    # An active administrative owner manages the project without
-                    # a membership row on every schema revision.
-                    task.assignee_id = owner.id
-                    state["manager_task"] = task.id
-                    future = datetime.now(timezone.utc) + timedelta(days=3)
-                    legacy_invitation = UserInvitation(
-                        email=f"{_EMAIL_SENTINEL}-pre-inv-{uuid.uuid4()}@test.local",
-                        role="annotator",
-                        project_id=project.id,
-                        project_role=None,
-                        token=f"{_TOKEN_SENTINEL}-{uuid.uuid4().hex}",
-                        expires_at=future,
-                        invited_by=owner.id,
-                    )
-                    account_invitation = UserInvitation(
-                        email=f"{_EMAIL_SENTINEL}-pre-account-{uuid.uuid4()}@test.local",
-                        role="viewer",
-                        project_id=None,
-                        project_role="annotator",
-                        token=f"{_TOKEN_SENTINEL}-{uuid.uuid4().hex}",
-                        expires_at=future,
-                        invited_by=owner.id,
-                    )
-                    db.add_all([legacy_invitation, account_invitation])
-                    await db.flush()
-                    state["legacy_project_invitation"] = legacy_invitation.id
-                    await db.commit()
-            elif action == "simulate_pre_0173":
-                # Replay only the 0173 schema Operations and align the version
-                # pointer; never invoke the production 0174 downgrade.
-                async with engine.begin() as conn:
-                    if await conn.run_sync(_has_preparation_column):
-                        await conn.run_sync(_replay_migration, migration, "downgrade")
-                    await conn.run_sync(_set_alembic_version, "0172")
-            elif action == "restore_head":
-                async with engine.begin() as conn:
-                    if not await conn.run_sync(_has_preparation_column):
-                        await conn.run_sync(_replay_migration, migration, "upgrade")
-                    await conn.run_sync(_set_alembic_version, state["revision"])
-            elif action == "audit":
-                async with read_only_audit_session(engine) as db:
-                    state["report"] = await collect_report(db, run_id="pre-0173")
-            else:  # cleanup exact seeded records
-                async with async_sessionmaker(engine, expire_on_commit=False)() as db:
-                    if "project" in state:
-                        await db.execute(
-                            text("DELETE FROM tasks WHERE project_id = :p"),
-                            {"p": state["project"]},
-                        )
-                        await db.execute(
-                            text("DELETE FROM project_members WHERE project_id = :p"),
-                            {"p": state["project"]},
-                        )
-                        await db.execute(
-                            text("DELETE FROM projects WHERE id = :p"),
-                            {"p": state["project"]},
-                        )
-                    if state["users"]:
-                        await db.execute(
-                            text(
-                                "DELETE FROM user_invitations "
-                                "WHERE invited_by = ANY(:u)"
-                            ),
-                            {"u": state["users"]},
-                        )
-                        await db.execute(
-                            text("DELETE FROM users WHERE id = ANY(:u)"),
-                            {"u": state["users"]},
-                        )
-                    await db.commit()
-        finally:
-            await engine.dispose()
-
-    try:
-        asyncio.run(step("seed"))
-        asyncio.run(step("simulate_pre_0173"))
-        asyncio.run(step("audit"))
-    finally:
-        asyncio.run(step("restore_head"))
-        asyncio.run(step("cleanup"))
-
-    report = state["report"]
+async def test_audit_runs_before_0173_migration(test_engine) -> None:
+    """Exercise actual 0171, with no later Identity schema or avatar column."""
+    async with historical_audit_database(test_engine) as (historical, _evidence):
+        async with audit_reader(historical):
+            report = await _readonly_report(historical, run_id="pre-0173")
+    assert report["baseline"]["database_revisions"] == ["0171"]
     assert report["baseline"]["schema_in_sync"] is False
     assert not any(report["baseline"]["schema_capabilities"].values())
     assert report["findings"]["review_evidence"]["complete"]["total"] == 0
-    assert report["findings"]["review_evidence"]["incomplete"]["total"] >= 1
-    assert report["summary"]["review_evidence_incomplete"] >= 1
+    assert report["findings"]["review_evidence"]["incomplete"]["total"] == 1
     assert (
         report["findings"]["invitations"]["pending_project_role_to_backfill"]["total"]
-        >= 1
+        == 1
     )
     assert (
         report["findings"]["invitations"]["account_invitation_with_project_role"][
@@ -1023,24 +882,15 @@ def test_audit_runs_before_0173_migration(test_db_url, apply_migrations) -> None
         ]
         == 0
     )
-    # Manager authority does not depend on the 0173 preparation columns: the
-    # active administrative owner stays a valid assignee pre-migration even
-    # though its only member row is a non-annotator role.
     gaps = report["findings"]["assignment_membership_gaps"]
-    assert str(state["manager_task"]) not in _item_ids(
-        gaps["annotator_missing_membership"]
-    )
-    assert str(state["manager_task"]) not in _item_ids(
-        gaps["annotator_wrong_membership_role"]
-    )
-    pending = {
-        str(item["id"]): item
-        for item in report["findings"]["invitations"]["pending"]["items"]
-    }
-    assert pending[str(state["legacy_project_invitation"])]["project_role"] is None
+    manager_task = "40000000-0000-0000-0000-000000000001"
+    assert manager_task not in _item_ids(gaps["annotator_missing_membership"])
+    assert manager_task not in _item_ids(gaps["annotator_wrong_membership_role"])
+    pending = report["findings"]["invitations"]["pending"]["items"]
+    assert len(pending) == 1 and pending[0]["project_role"] is None
     rendered = json.dumps(report, default=_json_default)
-    assert _EMAIL_SENTINEL not in rendered
-    assert _TOKEN_SENTINEL not in rendered
+    assert "private-hash-sentinel" not in rendered
+    assert "private-token-sentinel" not in rendered
     _assert_no_sensitive_keys(report)
 
 

@@ -12,12 +12,14 @@ from uuid import UUID
 from datetime import datetime
 from typing import Literal
 
+from aap_workspace.configuration_values import (
+    RETIRED_AI_INTERACTIVE as _RETIRED_AI_INTERACTIVE,
+    ToolUnitId as _ToolUnitId,
+    map_retired_tool_unit as _map_retired_tool_unit,
+)
 from app.schemas._jsonb_types import (
     AnnotationAttributes,
     Geometry,
-    RETIRED_AI_INTERACTIVE,
-    ToolUnitId,
-    map_retired_tool_unit,
     normalize_legacy_geometry,
 )
 
@@ -29,7 +31,7 @@ class AnnotationCreate(BaseModel):
     annotation_type: str = "bbox"
     # v0.10.17 · 工具单位; service 层据此校验 class_name ∈ project.tool_bindings[unit].
     # 旧调用方不传时默认 "bbox" 兼容向后.
-    tool_unit_id: ToolUnitId = "bbox"
+    tool_unit_id: _ToolUnitId = "bbox"
     class_name: str
     geometry: Geometry
     confidence: float | None = None
@@ -47,11 +49,11 @@ class AnnotationCreate(BaseModel):
         既不让老调用方 400, 又不让退役值再污染库。"""
         if (
             isinstance(data, dict)
-            and data.get("tool_unit_id") == RETIRED_AI_INTERACTIVE
+            and data.get("tool_unit_id") == _RETIRED_AI_INTERACTIVE
         ):
             geom = data.get("geometry")
             gtype = geom.get("type") if isinstance(geom, dict) else None
-            mapped = map_retired_tool_unit(gtype)
+            mapped = _map_retired_tool_unit(gtype)
             logger.warning(
                 "annotation create carries retired tool_unit_id 'ai_interactive'; "
                 "remapping to %r by geometry type %r",
@@ -258,7 +260,7 @@ class AnnotationOut(BaseModel):
     source: str
     annotation_type: str
     # v0.10.17 · 旧记录回落默认值 "bbox" (migration 已 backfill).
-    tool_unit_id: ToolUnitId = "bbox"
+    tool_unit_id: _ToolUnitId = "bbox"
     class_name: str
     geometry: Geometry
     confidence: float | None = None

@@ -24,24 +24,31 @@ from __future__ import annotations
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
 from app.services.project_access import (
     bind_project_write_policy_resolver,
+    get_workspace_project,
     restore_project_write_policy_failure,
 )
-from app.services.workspace_contract import (
+from app.services.workspace_member_locks import lock_project_member_reference
+from aap_workspace_contract.access import (
     ProjectWritePolicyFailure,
     ProjectWritePolicyRequest,
 )
 
 _BUSY_SQLSTATES = {"55P03", "40001", "40P01"}
+_LOCK_PROJECT_REFERENCE = text(
+    "SELECT aap_workspace_v1.lock_project_reference(CAST(:project_id AS uuid))"
+)
+_LOCK_PROJECT_REFERENCE_NOWAIT = text(
+    "SELECT aap_workspace_v1.lock_project_reference_nowait(CAST(:project_id AS uuid))"
+)
 
 
 def _busy_lock_error(exc: BaseException) -> bool:
@@ -87,14 +94,7 @@ async def lock_actor_scope(
 
     await lock_actor_project_authority(db, actor_id, project_id, nowait=nowait)
     try:
-        await db.execute(
-            select(ProjectMember.id)
-            .where(
-                ProjectMember.project_id == project_id,
-                ProjectMember.user_id == actor_id,
-            )
-            .with_for_update(read=True, nowait=nowait)
-        )
+        await lock_project_member_reference(db, project_id, actor_id, nowait=nowait)
     except DBAPIError as exc:
         if _busy_lock_error(exc):
             raise HTTPException(
@@ -116,17 +116,23 @@ async def lock_actor_project_authority(
 
     from sqlalchemy.exc import DBAPIError
 
-    from app.db.models.project import Project
-
     try:
         accounts = await IdentityAccountLockData(db).lock_accounts(
             [actor_id] if actor_id is not None else [], mode="share", nowait=nowait
         )
-        await db.execute(
-            select(Project.id)
-            .where(Project.id == project_id)
-            .with_for_update(read=True, key_share=True, nowait=nowait)
+        if db.autoflush:
+            await db.flush()
+        reference = await db.scalar(
+            _LOCK_PROJECT_REFERENCE_NOWAIT if nowait else _LOCK_PROJECT_REFERENCE,
+            {"project_id": project_id},
         )
+        if reference is not None and (
+            not isinstance(reference, uuid.UUID) or reference != project_id
+        ):
+            raise HTTPException(
+                status_code=503,
+                detail="Workspace Project reference lock unavailable",
+            )
     except DBAPIError as exc:
         if _busy_lock_error(exc):
             raise HTTPException(
@@ -170,11 +176,12 @@ async def assert_phase_write_allowed(
     """
 
     from app.services import task_access
-    from app.db.models.project import Project
     from app.services.annotation_evidence import assert_review_evidence_current
     from app.services.project_access import resolve_project_access
 
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(
+        db, actor_id=actor.id, project_id=task.project_id
+    )
     if project is None:
         raise HTTPException(status_code=404, detail="task_missing")
     try:

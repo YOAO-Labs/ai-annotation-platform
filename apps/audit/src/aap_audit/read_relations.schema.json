@@ -1,0 +1,267 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-audit-read-relations/v1",
+  "title": "Audit read-only event relations",
+  "$comment": "Read-only owner relation, not an authorization decision. Trusted consumers retain their existing filters, project scope, ordering, pagination and caller-owned transaction. PostgreSQL bigint IDs use canonical signed decimal strings in JSON; INET remains native in PostgreSQL and is rendered by each client boundary.",
+  "$defs": {
+    "JSONValue": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/JSONValue"
+          },
+          "type": "object"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/JSONValue"
+          },
+          "type": "array"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "AuditReadEvent": {
+      "additionalProperties": false,
+      "description": "Lossless JSON row representation of one `audit_events` relation row.",
+      "properties": {
+        "id": {
+          "format": "int64-decimal",
+          "maxLength": 20,
+          "pattern": "^(?:0|-?[1-9][0-9]*)$",
+          "title": "Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "format": "uuid",
+          "title": "Actor Id"
+        },
+        "actor_email": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Email"
+        },
+        "actor_role": {
+          "anyOf": [
+            {
+              "maxLength": 32,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Role"
+        },
+        "action": {
+          "maxLength": 64,
+          "title": "Action",
+          "type": "string"
+        },
+        "target_type": {
+          "anyOf": [
+            {
+              "maxLength": 32,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Type"
+        },
+        "target_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Id"
+        },
+        "method": {
+          "anyOf": [
+            {
+              "maxLength": 8,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Method"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Path"
+        },
+        "status_code": {
+          "anyOf": [
+            {
+              "maximum": 32767,
+              "minimum": -32768,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Status Code"
+        },
+        "ip": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "format": "postgres-inet-text",
+          "title": "Ip"
+        },
+        "detail_json": {
+          "$ref": "#/$defs/JSONValue"
+        },
+        "request_id": {
+          "anyOf": [
+            {
+              "maxLength": 36,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Request Id"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "actor_id",
+        "actor_email",
+        "actor_role",
+        "action",
+        "target_type",
+        "target_id",
+        "method",
+        "path",
+        "status_code",
+        "ip",
+        "detail_json",
+        "request_id",
+        "created_at"
+      ],
+      "title": "AuditReadEvent",
+      "type": "object"
+    }
+  },
+  "anyOf": [
+    {
+      "$ref": "#/$defs/AuditReadEvent"
+    }
+  ],
+  "x-postgresql-relations": {
+    "aap_audit_v1.audit_events": {
+      "columns": [
+        "id",
+        "actor_id",
+        "actor_email",
+        "actor_role",
+        "action",
+        "target_type",
+        "target_id",
+        "method",
+        "path",
+        "status_code",
+        "ip",
+        "detail_json",
+        "request_id",
+        "created_at"
+      ],
+      "column_types": {
+        "id": "bigint",
+        "actor_id": "uuid",
+        "actor_email": "character varying(255)",
+        "actor_role": "character varying(32)",
+        "action": "character varying(64)",
+        "target_type": "character varying(32)",
+        "target_id": "character varying(64)",
+        "method": "character varying(8)",
+        "path": "character varying(256)",
+        "status_code": "smallint",
+        "ip": "inet",
+        "detail_json": "jsonb",
+        "request_id": "character varying(36)",
+        "created_at": "timestamp with time zone"
+      },
+      "nullable_columns": [
+        "actor_id",
+        "actor_email",
+        "actor_role",
+        "target_type",
+        "target_id",
+        "method",
+        "path",
+        "status_code",
+        "ip",
+        "detail_json",
+        "request_id"
+      ],
+      "row": {
+        "$ref": "#/$defs/AuditReadEvent"
+      },
+      "row_key": ["id", "created_at"],
+      "owner": "audit",
+      "read_only": true,
+      "security_barrier": true
+    }
+  }
+}

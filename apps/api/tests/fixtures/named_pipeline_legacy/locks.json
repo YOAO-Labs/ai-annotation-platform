@@ -1,0 +1,117 @@
+{
+  "schema": 1,
+  "capture_kind": "actual-pre-extraction-named-pipeline-locks",
+  "source_commit": "252ba82140f943c7b7dc8ab97d61be6ce0708eaa",
+  "source_sha256": {
+    "apps/api/app/api/v1/project_pipelines.py": "fff8484720b1aae0e30bd2abdc950ff0a267cc488c67aaf3b6999d8c296aa482",
+    "apps/api/app/api/v1/projects.py": "9e3ca0b5f58189c3018d210b2f4e0e0367e7e0dd808d2e923c953eea430aa84a",
+    "apps/api/app/application/project_pipeline.py": "309dc9fc849e1122c9f5419ea3a3d523e1ad900b76d84f8b338576d54e675dcc",
+    "apps/api/app/services/pipeline_template.py": "39ec5c5206a715e249128f065c4c5a7fed35082d540bec2a37bf56bd8ee847ba",
+    "apps/api/app/services/project_access.py": "dc81de059c46473283e3aa48a35344d4acf57db8532136805149e06d7bb3ce4a",
+    "apps/inference/src/aap_inference/pipeline.py": "403a8853caea1e64e58dfd7f07a8f09029f14cf888b7bbed85dbb5598991b2c7"
+  },
+  "samples": [
+    {
+      "label": "key_share_and_deleted_source_snapshot",
+      "before": {
+        "pipelines": [
+          {
+            "id": "$source",
+            "name": "Frozen source",
+            "is_default": false,
+            "usage_count": 0
+          },
+          {
+            "id": "$prior_default",
+            "name": "Prior default",
+            "is_default": true,
+            "usage_count": 0
+          }
+        ],
+        "counter": 0
+      },
+      "observations": {
+        "project_update_lock_sqlstate": "55P03",
+        "source_deleted_while_fenced": 1
+      },
+      "response": {
+        "status": 201,
+        "content_type": "application/json",
+        "body": {
+          "id": "$copy",
+          "scope": "private",
+          "project_id": "$project",
+          "organization_id": null,
+          "name": "Frozen source",
+          "stages": [],
+          "is_default": true,
+          "created_by": "$actor",
+          "created_by_name": null,
+          "usage_count": 0,
+          "created_at": "$timestamp",
+          "updated_at": "$timestamp"
+        }
+      },
+      "after": {
+        "pipelines": [
+          {
+            "id": "$copy",
+            "name": "Frozen source",
+            "is_default": true,
+            "usage_count": 0
+          },
+          {
+            "id": "$prior_default",
+            "name": "Prior default",
+            "is_default": false,
+            "usage_count": 0
+          }
+        ],
+        "counter": 1
+      }
+    },
+    {
+      "label": "atomic_insert_failure",
+      "before": {
+        "pipelines": [
+          {
+            "id": "$source",
+            "name": "Frozen source",
+            "is_default": false,
+            "usage_count": 0
+          },
+          {
+            "id": "$prior_default",
+            "name": "Prior default",
+            "is_default": true,
+            "usage_count": 0
+          }
+        ],
+        "counter": 0
+      },
+      "observations": {},
+      "response": {
+        "status": 500,
+        "content_type": "text/plain; charset=utf-8",
+        "body": "Internal Server Error"
+      },
+      "after": {
+        "pipelines": [
+          {
+            "id": "$source",
+            "name": "Frozen source",
+            "is_default": false,
+            "usage_count": 0
+          },
+          {
+            "id": "$prior_default",
+            "name": "Prior default",
+            "is_default": true,
+            "usage_count": 0
+          }
+        ],
+        "counter": 0
+      }
+    }
+  ]
+}

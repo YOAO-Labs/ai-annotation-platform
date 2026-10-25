@@ -1,267 +1,102 @@
-"""v0.8.1 · audit_logs 分区维护 + 冷数据归档
-
-- ensure_future_audit_partitions(months_ahead=3): 检查 [今月, 今月+months_ahead]
-  缺失分区时 CREATE TABLE ... PARTITION OF audit_logs ...
-- archive_old_audit_partitions(retain_months): 把 > retain_months 的子分区
-  COPY TO STDOUT → gzip → MinIO `audit-archive/{YYYY}/{MM}.jsonl.gz`，成功后 DROP PARTITION。
-
-策略：
-  - 归档失败时不删除分区，下次 cron 重试
-  - DROP PARTITION 是元操作，秒级，无 IO；优于 DELETE WHERE
-  - jsonl.gz 行格式：每行一条 audit_log JSON；UTF-8；最末行含 `_partition_meta`
-"""
+"""Compatibility adapter for Audit maintenance and archive API callers."""
 
 from __future__ import annotations
 
-import gzip
-import json
-import logging
-from datetime import date, datetime, timezone
+from contextlib import contextmanager
+from collections.abc import Iterator
 
-from botocore.exceptions import ClientError
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aap_audit.maintenance_config import load_archive_s3_config
+from aap_audit.maintenance_postgres import AuditMaintenancePostgresData
+from aap_audit.maintenance_contract import AuditPartition
+from aap_audit.partitions import AuditPartitionManager
+
+from app.config import settings
 from app.services.audit import AuditAction, AuditService
 from app.services.storage import storage_service
 
 
-logger = logging.getLogger(__name__)
-
-
-def _next_month(d: date) -> date:
-    if d.month == 12:
-        return d.replace(year=d.year + 1, month=1, day=1)
-    return d.replace(month=d.month + 1, day=1)
-
-
-def _month_floor(d: date) -> date:
-    return d.replace(day=1)
-
-
-def _partition_name(d: date) -> str:
-    return f"audit_logs_y{d.year}m{d.month:02d}"
-
-
-async def _list_partition_children(db: AsyncSession) -> list[tuple[str, date, date]]:
-    """返回 [(child_name, range_from, range_to), ...]，按时间升序。"""
-    rows = (
-        await db.execute(
-            text(
-                """
-                SELECT
-                    child.relname AS child_name,
-                    pg_get_expr(child.relpartbound, child.oid) AS bound
-                FROM pg_inherits i
-                JOIN pg_class parent ON i.inhparent = parent.oid
-                JOIN pg_class child ON i.inhrelid = child.oid
-                WHERE parent.relname = 'audit_logs'
-                """
-            )
-        )
-    ).all()
-    out: list[tuple[str, date, date]] = []
-    for r in rows:
-        bound = r.bound or ""
-        # 形式: "FOR VALUES FROM ('2026-04-01 00:00:00+00') TO ('2026-05-01 00:00:00+00')"
-        try:
-            from_part = bound.split("FROM (")[1].split(")")[0].strip().strip("'")
-            to_part = bound.split("TO (")[1].split(")")[0].strip().strip("'")
-            from_dt = datetime.fromisoformat(from_part.replace(" ", "T")).date()
-            to_dt = datetime.fromisoformat(to_part.replace(" ", "T")).date()
-            out.append((r.child_name, from_dt, to_dt))
-        except (IndexError, ValueError) as e:
-            logger.warning("partition bound parse failed %s: %s", r.child_name, e)
-    out.sort(key=lambda x: x[1])
-    return out
-
-
 class AuditPartitionService:
     @staticmethod
-    async def ensure_future_partitions(
-        db: AsyncSession, *, months_ahead: int = 3
-    ) -> list[str]:
-        """补建未来 N 个月分区。返回新创建的分区名列表。"""
-        existing = {name for name, _, _ in await _list_partition_children(db)}
-        today = datetime.now(timezone.utc).date()
-        cur = _month_floor(today)
-        target = cur
-        for _ in range(months_ahead):
-            target = _next_month(target)
-        # 含当前月、含 target+1（即 +months_ahead 个月）
-        end = _next_month(target)
+    @contextmanager
+    def _archive_read_manager() -> Iterator[AuditPartitionManager]:
+        prefix = "AUDIT_ARCHIVE_READ_S3"
+        config = load_archive_s3_config(
+            {
+                f"{prefix}_ENDPOINT_URL": settings.audit_archive_read_s3_endpoint_url,
+                f"{prefix}_REGION": settings.audit_archive_read_s3_region,
+                f"{prefix}_BUCKET": settings.audit_archive_read_s3_bucket,
+                f"{prefix}_ACCESS_KEY_ID": settings.audit_archive_read_s3_access_key_id,
+                f"{prefix}_ACCESS_KEY_ID_FILE": settings.audit_archive_read_s3_access_key_id_file,
+                f"{prefix}_SECRET_ACCESS_KEY": settings.audit_archive_read_s3_secret_access_key,
+                f"{prefix}_SECRET_ACCESS_KEY_FILE": settings.audit_archive_read_s3_secret_access_key_file,
+            },
+            prefix=prefix,
+        )
+        if config is None:
+            yield AuditPartitionManager(None, storage_service)
+            return
 
-        created: list[str] = []
-        m = cur
-        while m < end:
-            name = _partition_name(m)
-            if name not in existing:
-                start_iso = m.isoformat()
-                end_iso = _next_month(m).isoformat()
-                await db.execute(
-                    text(
-                        f"CREATE TABLE IF NOT EXISTS {name} PARTITION OF audit_logs "
-                        f"FOR VALUES FROM ('{start_iso}') TO ('{end_iso}')"
-                    )
-                )
-                created.append(name)
-            m = _next_month(m)
-        return created
+        storage = config.archive_storage()
+        try:
+            yield AuditPartitionManager(None, storage)
+        finally:
+            storage.close()
 
     @staticmethod
-    async def archive_old_partitions(
-        db: AsyncSession, *, retain_months: int = 12
-    ) -> dict:
-        """归档保留期外的分区到 MinIO 后 DROP。返回 {archived_partitions, total_rows, archive_keys}。"""
-        children = await _list_partition_children(db)
-        today = datetime.now(timezone.utc).date()
-        cutoff = _month_floor(today)
-        for _ in range(retain_months):
-            # 往前推 retain_months 个月
-            if cutoff.month == 1:
-                cutoff = cutoff.replace(year=cutoff.year - 1, month=12)
-            else:
-                cutoff = cutoff.replace(month=cutoff.month - 1)
-
-        archived: list[str] = []
-        archive_keys: list[str] = []
-        total_rows = 0
-
-        for name, from_dt, _to_dt in children:
-            if from_dt >= cutoff:
-                continue  # 还在保留期内，不归档
-
-            # 1. 数据 dump 为 jsonl.gz
-            rows = (
-                (await db.execute(text(f"SELECT * FROM {name} ORDER BY id")))
-                .mappings()
-                .all()
-            )
-            row_count = len(rows)
-
-            buf = gzip.compress(
-                ("\n".join(_serialize_row(dict(r)) for r in rows) + "\n").encode(
-                    "utf-8"
-                )
-            )
-
-            # v0.10.17 · 归档迁到独立桶 audit-archive,object 内 key 不再带 prefix
-            object_key = f"{from_dt.year}/{from_dt.month:02d}.jsonl.gz"
-            try:
-                storage_service.ensure_bucket(storage_service.audit_archive_bucket)
-                storage_service.client.put_object(
-                    Bucket=storage_service.audit_archive_bucket,
-                    Key=object_key,
-                    Body=buf,
-                    ContentType="application/gzip",
-                    Metadata={
-                        "partition": name,
-                        "row_count": str(row_count),
-                        "archived_at": datetime.now(timezone.utc).isoformat(),
-                    },
-                )
-            except Exception as e:
-                logger.error("archive %s failed: %s", name, e)
-                continue  # 留待下次重试
-
-            # 2. DROP 分区（元操作，秒级）
-            await db.execute(text(f"DROP TABLE {name}"))
-
-            archived.append(name)
-            archive_keys.append(object_key)
-            total_rows += row_count
-
+    def _manager(db: AsyncSession) -> AuditPartitionManager:
+        async def record_archive(
+            partition: AuditPartition, row_count: int, object_key: str
+        ) -> None:
             await AuditService.log(
                 db,
                 actor=None,
                 action=AuditAction.AUDIT_ARCHIVE,
                 target_type="audit_partition",
-                target_id=name,
+                target_id=partition.name,
                 request=None,
                 status_code=200,
                 detail={
-                    "partition": name,
+                    "partition": partition.name,
                     "row_count": row_count,
                     "archive_key": object_key,
-                    "from": from_dt.isoformat(),
+                    "from": partition.range_from.isoformat(),
                 },
             )
 
-        return {
-            "archived_partitions": archived,
-            "archive_keys": archive_keys,
-            "total_rows": total_rows,
-        }
+        return AuditPartitionManager(
+            AuditMaintenancePostgresData(db),
+            storage_service,
+            record_archive=record_archive,
+        )
+
+    @staticmethod
+    async def ensure_future_partitions(
+        db: AsyncSession, *, months_ahead: int = 3
+    ) -> list[str]:
+        return await AuditPartitionService._manager(db).ensure_future_partitions(
+            months_ahead=months_ahead
+        )
+
+    @staticmethod
+    async def archive_old_partitions(
+        db: AsyncSession, *, retain_months: int = 12
+    ) -> dict:
+        return await AuditPartitionService._manager(db).archive_old_partitions(
+            retain_months=retain_months
+        )
+
+    @staticmethod
+    async def refresh_daily(db: AsyncSession) -> None:
+        await AuditMaintenancePostgresData(db).refresh_daily()
 
     @staticmethod
     def list_archives() -> list[dict]:
-        """列出 audit-archive 桶内已归档的月份。
-
-        object key 形如 ``{YYYY}/{MM}.jsonl.gz``，返回按时间倒序的
-        [{year, month, object_key, size_bytes, archived_at}]。
-        """
-        bucket = storage_service.audit_archive_bucket
-        out: list[dict] = []
-        for obj in storage_service.list_objects("", bucket=bucket):
-            key = obj["key"]
-            if key.endswith("/") or not key.endswith(".jsonl.gz"):
-                continue
-            try:
-                year_str, fname = key.split("/", 1)
-                month_str = fname.removesuffix(".jsonl.gz")
-                year, month = int(year_str), int(month_str)
-            except (ValueError, IndexError):
-                logger.warning("skip non-archive key: %s", key)
-                continue
-            lm = obj.get("last_modified")
-            out.append(
-                {
-                    "year": year,
-                    "month": month,
-                    "object_key": key,
-                    "size_bytes": int(obj["size"]),
-                    "archived_at": lm.isoformat() if lm else None,
-                }
-            )
-        out.sort(key=lambda x: (x["year"], x["month"]), reverse=True)
-        return out
+        with AuditPartitionService._archive_read_manager() as manager:
+            return manager.list_archives()
 
     @staticmethod
     def read_archive_rows(year: int, month: int) -> list[dict] | None:
-        """回源读取并解压指定月份的 jsonl.gz，逐行解析成 dict 列表。
-
-        对象不存在返回 None。最末行的 ``_partition_meta`` 行也作为普通行返回。
-        """
-        bucket = storage_service.audit_archive_bucket
-        object_key = f"{year}/{month:02d}.jsonl.gz"
-        try:
-            resp = storage_service.client.get_object(Bucket=bucket, Key=object_key)
-            raw = resp["Body"].read()
-        except storage_service.client.exceptions.NoSuchKey:
-            return None
-        except ClientError as e:
-            if e.response.get("Error", {}).get("Code") in ("NoSuchKey", "404"):
-                return None
-            raise
-
-        text_data = gzip.decompress(raw).decode("utf-8")
-        rows: list[dict] = []
-        for line in text_data.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            rows.append(json.loads(line))
-        return rows
-
-
-def _serialize_row(row: dict) -> str:
-    """把一行（含 datetime / UUID / dict）序列化为 JSON 字符串。"""
-
-    def default(o):
-        if isinstance(o, datetime):
-            return o.isoformat()
-        if hasattr(o, "hex"):  # UUID
-            return str(o)
-        return str(o)
-
-    return json.dumps(row, default=default, ensure_ascii=False)
+        with AuditPartitionService._archive_read_manager() as manager:
+            return manager.read_archive_rows(year, month)

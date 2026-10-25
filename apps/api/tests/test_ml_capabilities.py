@@ -8,12 +8,10 @@ from aap_protocol_v2.lifecycle import ManagedLifecycleCapabilities
 from pydantic import ValidationError
 import pytest
 
+from aap_inference_contract.capabilities import CapabilityLimits
+from aap_inference import INPUT_VALUES, derive_modalities, extract_capabilities
 from app.schemas.ml_backend import BackendCapabilities
-from app.services.ml_capabilities import (
-    INPUT_VALUES,
-    derive_modalities,
-    extract_capabilities,
-)
+from app.services.inference_limits import capability_limits_from_settings
 
 
 def test_extract_none_returns_none():
@@ -561,11 +559,7 @@ def test_modality_video_from_tracker_task():
     assert caps["modalities"] == ["video"]
 
 
-def test_tracker_max_window_is_clamped_to_platform_limit(monkeypatch):
-    monkeypatch.setattr(
-        "app.services.ml_capabilities.settings.video_tracker_sam3_window_size_frames",
-        16,
-    )
+def test_tracker_max_window_is_clamped_to_platform_limit():
     caps = extract_capabilities(
         {
             "name": "sam3",
@@ -577,10 +571,23 @@ def test_tracker_max_window_is_clamped_to_platform_limit(monkeypatch):
                     "max_window_frames": 64,
                 }
             ],
-        }
+        },
+        limits=CapabilityLimits(video_tracker_sam3_window_size_frames=16),
     )
 
     assert caps["models"][0]["max_window_frames"] == 16
+
+
+def test_api_limit_adapter_passes_current_tracker_settings(monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "video_tracker_window_size_frames", 38)
+    monkeypatch.setattr(settings, "video_tracker_sam3_window_size_frames", 7)
+
+    assert capability_limits_from_settings() == CapabilityLimits(
+        video_tracker_window_size_frames=38,
+        video_tracker_sam3_window_size_frames=7,
+    )
 
 
 def test_tracker_non_positive_max_window_is_not_advertised():

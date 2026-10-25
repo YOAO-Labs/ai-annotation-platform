@@ -14,19 +14,23 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import ProjectRole
-from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.services.annotation_evidence import assert_review_evidence_current
-from app.services.workspace_contract import (
+from aap_workspace_contract.access import (
     ProjectAccess,
     ProjectCapability,
 )
-from app.services.project_access import resolve_project_access
+from app.services.project_access import get_workspace_project, resolve_project_access
 from app.services.scheduler import (
     annotator_can_rework_task,
     effective_task_assignee_id,
     visible_batch_statuses_for_project_role,
+)
+from app.services.labeling_core_read_relations import (
+    batch_row,
+    get_core_row,
+    task_row,
 )
 
 _LOCKED_STATUSES = {"review", "completed"}
@@ -90,7 +94,7 @@ def assert_task_editable(
 async def resolve_effective_task_assignee_id(
     db: AsyncSession, task: Task
 ) -> uuid.UUID | None:
-    batch = await db.get(TaskBatch, task.batch_id) if task.batch_id else None
+    batch = await get_core_row(db, batch_row, task.batch_id) if task.batch_id else None
     return effective_task_assignee_id(task, batch)
 
 
@@ -154,7 +158,9 @@ async def resolve_task_access(
 ) -> ProjectAccess:
     """Resolve the current project access for the task's actual project."""
 
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(
+        db, actor_id=actor_id, project_id=task.project_id
+    )
     if project is None:
         raise HTTPException(status_code=404, detail="Task not found")
     return await resolve_project_access(
@@ -208,7 +214,9 @@ async def assert_task_visible(
 ) -> None:
     """Enforce project-bound batch/status and effective-assignment visibility."""
 
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(
+        db, actor_id=actor_id, project_id=task.project_id
+    )
     if project is None:
         raise HTTPException(status_code=404, detail="Task not found")
     if access is None:
@@ -229,7 +237,7 @@ async def assert_task_visible(
         ):
             return
         raise HTTPException(status_code=404, detail="Task not found")
-    batch = await db.get(TaskBatch, task.batch_id)
+    batch = await get_core_row(db, batch_row, task.batch_id)
     if batch is None:
         raise HTTPException(status_code=404, detail="Task not found")
 
@@ -275,9 +283,9 @@ async def visible_task_ids(
     assert_access_binding(access, actor_id=actor_id, project_id=project.id)
     if access.is_manager:
         result = await db.execute(
-            select(Task.id).where(
-                Task.project_id == project.id,
-                Task.id.in_(task_ids),
+            select(task_row.id).where(
+                task_row.project_id == project.id,
+                task_row.id.in_(task_ids),
             )
         )
         return set(result.scalars().all())
@@ -286,18 +294,18 @@ async def visible_task_ids(
     rows = (
         await db.execute(
             select(
-                Task.id,
-                Task.batch_id,
-                Task.status,
-                Task.assignee_id,
-                Task.reviewer_id,
-            ).where(Task.project_id == project.id, Task.id.in_(task_ids))
+                task_row.id,
+                task_row.batch_id,
+                task_row.status,
+                task_row.assignee_id,
+                task_row.reviewer_id,
+            ).where(task_row.project_id == project.id, task_row.id.in_(task_ids))
         )
     ).all()
     batch_ids = {bid for _, bid, _, _, _ in rows if bid is not None}
     batches: dict[uuid.UUID, TaskBatch] = {}
     if batch_ids:
-        result = await db.execute(select(TaskBatch).where(TaskBatch.id.in_(batch_ids)))
+        result = await db.execute(select(batch_row).where(batch_row.id.in_(batch_ids)))
         batches = {b.id: b for b in result.scalars()}
 
     visible_statuses = visible_batch_statuses_for_project_role(project_role)

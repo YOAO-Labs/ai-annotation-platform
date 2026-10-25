@@ -12,7 +12,13 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.services import task_access
-from app.services.workspace_contract import ProjectAccess
+from app.services.labeling_core_read_relations import (
+    execute_core_read,
+    lock_batch_rows_for_core_read,
+    lock_task_for_core_read,
+    task_row,
+)
+from aap_workspace_contract.access import ProjectAccess
 from app.services.project_access import lock_current_project_access
 from app.services.identity_contracts import IdentityActorFacts
 
@@ -52,6 +58,19 @@ async def lock_rows_nowait(db: AsyncSession, statement: Any, *, reason: str):
     return result.scalars().all()
 
 
+async def lock_core_nowait(db: AsyncSession, operation, *, reason: str):
+    """Run a fixed Labeling lock capability without flushing pending writes."""
+    try:
+        with db.no_autoflush:
+            return await operation()
+    except DBAPIError as exc:
+        orig = exc.orig
+        sqlstate = getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
+        if sqlstate in _LOCK_FAILURE_SQLSTATES:
+            raise TaskWorkflowError(409, {"reason": reason}) from exc
+        raise
+
+
 async def lock_current_batch_target(
     db: AsyncSession,
     *,
@@ -67,14 +86,19 @@ async def lock_current_batch_target(
     task_access.assert_access_binding(
         expected_access, actor_id=actor.id, project_id=project_id
     )
-    batch = await lock_row_nowait(
+    batches = await lock_core_nowait(
         db,
-        select(TaskBatch)
-        .where(TaskBatch.id == batch_id, TaskBatch.project_id == project_id)
-        .with_for_update(nowait=True)
-        .execution_options(populate_existing=True),
+        lambda: lock_batch_rows_for_core_read(
+            db,
+            [batch_id],
+            project_id=project_id,
+            lock_mode="update",
+            nowait=True,
+            populate_existing=True,
+        ),
         reason="batch_busy",
     )
+    batch = batches[0] if batches else None
     if batch is None:
         raise TaskWorkflowError(404, "Batch not found")
     return _identity_actor_facts(actor), project, current_access, batch
@@ -90,8 +114,11 @@ async def lock_current_task_target(
     """Revalidate authority, then lock a task's captured batch and fresh row."""
     with db.no_autoflush:
         target = (
-            await db.execute(
-                select(Task.project_id, Task.batch_id).where(Task.id == task_id)
+            await execute_core_read(
+                db,
+                select(task_row.project_id, task_row.batch_id).where(
+                    task_row.id == task_id
+                ),
             )
         ).one_or_none()
     if target is None:
@@ -105,26 +132,32 @@ async def lock_current_task_target(
         expected_access, actor_id=actor.id, project_id=project_id
     )
     if target_batch_id is not None:
-        batch = await lock_row_nowait(
+        batches = await lock_core_nowait(
             db,
-            select(TaskBatch)
-            .where(
-                TaskBatch.id == target_batch_id,
-                TaskBatch.project_id == project_id,
-            )
-            .with_for_update(nowait=True)
-            .execution_options(populate_existing=True),
+            lambda: lock_batch_rows_for_core_read(
+                db,
+                [target_batch_id],
+                project_id=project_id,
+                lock_mode="update",
+                nowait=True,
+                populate_existing=True,
+            ),
             reason="batch_busy",
         )
+        batch = batches[0] if batches else None
         if batch is None:
             raise TaskWorkflowError(409, {"reason": "task_target_changed"})
 
-    task = await lock_row_nowait(
+    task = await lock_core_nowait(
         db,
-        select(Task)
-        .where(Task.id == task_id, Task.project_id == project_id)
-        .with_for_update(nowait=True)
-        .execution_options(populate_existing=True),
+        lambda: lock_task_for_core_read(
+            db,
+            task_id,
+            project_id=project_id,
+            lock_mode="update",
+            nowait=True,
+            populate_existing=True,
+        ),
         reason="task_busy",
     )
     if task is None:

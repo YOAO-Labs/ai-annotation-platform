@@ -24,6 +24,7 @@ from app.services.ml_backend import MLBackendService
 from app.services.secondary_inference_result import SecondaryInferenceResult
 from app.services.video_collaboration import heartbeat_task_lock_for_legacy_video
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.labeling_core_read_relations import annotation_row, refresh_core_row
 
 
 class _AnnotationSecondaryInferenceSqlAdapter(SecondaryInferenceWritePort):
@@ -99,9 +100,9 @@ class _AnnotationSecondaryInferenceSqlAdapter(SecondaryInferenceWritePort):
                 },
             )
             await self._db.commit()
-            await self._db.refresh(updated)
+            await refresh_core_row(self._db, annotation_row, updated)
             for child in children:
-                await self._db.refresh(child)
+                await refresh_core_row(self._db, annotation_row, child)
             return SecondaryInferenceResponse(
                 annotation=AnnotationOut.model_validate(updated),
                 created_children=[

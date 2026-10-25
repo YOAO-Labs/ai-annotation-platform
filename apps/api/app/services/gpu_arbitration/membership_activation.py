@@ -216,10 +216,16 @@ async def promote_gpu_backend_membership(
             reason="mode_token_signing_failed",
         )
 
-    client_builder = client_factory or MLBackendClient
     try:
         async with asyncio.timeout(mode_timeout_seconds):
-            response = await client_builder(preparation.backend).lifecycle_mode(
+            client = (
+                client_factory(preparation.backend)
+                if client_factory is not None
+                else MLBackendClient(
+                    preparation.backend, shadow_session_factory=session_factory
+                )
+            )
+            response = await client.lifecycle_mode(
                 LifecycleModeRequest(
                     gate="legacy",
                     control_epoch=preparation.control_epoch,

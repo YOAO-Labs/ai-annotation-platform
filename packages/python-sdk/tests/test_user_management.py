@@ -1,6 +1,7 @@
 """Typed user and group resource contracts plus sensitive CLI workflows."""
 
 import json
+from pathlib import Path
 from uuid import uuid4
 
 import httpx
@@ -241,6 +242,46 @@ def test_offboarding_commit_sends_the_supplied_preview_version_once(client, resp
     assert route.call_count == 1
 
 
+def test_offboarding_parses_the_captured_public_api_responses(client, respx_mock):
+    captured = json.loads(
+        (Path(__file__).parent / "fixtures/offboarding_api_response.json").read_text()
+    )
+    expected_preview, expected_result = captured["preview"], captured["result"]
+    user_id = expected_preview["user"]["id"]
+    preview_route = respx_mock.get(f"{API}/users/{user_id}/offboarding-preview").mock(
+        return_value=httpx.Response(200, json=expected_preview)
+    )
+    commit_route = respx_mock.post(f"{API}/users/{user_id}/offboarding").mock(
+        return_value=httpx.Response(200, json=expected_result)
+    )
+    users = Users(client._http)
+    preview = users.offboarding_preview(user_id)
+    assert preview.preview_version == expected_preview["preview_version"]
+    assert preview.can_commit and len(preview.projects) == 1
+    assert preview.projects[0].tasks["annotator"]["rejected"] == 1
+    assert (
+        preview.projects[0].roles["owner"].receiver_options[0].role == "project_admin"
+    )
+    assert (
+        preview.api_keys[0].key_prefix == expected_preview["api_keys"][0]["key_prefix"]
+    )
+    result = users.offboard(
+        user_id,
+        OffboardingCommitRequest(
+            preview_version=preview.preview_version, reason="交接 😀", projects=[]
+        ),
+    )
+    assert result.status == "suspended" and result.mode == "handoff"
+    assert not result.user.is_active and result.user.disabled_reason == "交接 😀"
+    assert [item.role for item in result.transfers] == ["owner", "annotator"]
+    assert result.transfers[1].task_count == 2
+    assert (
+        len(result.revoked_api_key_ids) == 1
+        and result.audit_id == expected_result["audit_id"]
+    )
+    assert preview_route.call_count == commit_route.call_count == 1
+
+
 def test_user_export_streams_wrapped_json_to_an_existing_directory(
     client, respx_mock, tmp_path
 ):
@@ -291,6 +332,38 @@ class _ClientContext:
 
     def __exit__(self, *_exc):
         return False
+
+
+def test_offboarding_cli_confirms_and_does_not_retry_a_stale_preview(
+    client, respx_mock, monkeypatch, tmp_path
+):
+    user_id = str(uuid4())
+    request_file = tmp_path / "offboarding.json"
+    request_file.write_text(json.dumps({"preview_version": "supplied-preview"}))
+    route = respx_mock.post(f"{API}/users/{user_id}/offboarding").mock(
+        return_value=httpx.Response(
+            409,
+            json={
+                "detail": {
+                    "code": "offboarding_preview_stale",
+                    "expected_preview_version": "supplied-preview",
+                    "current_preview_version": "a" * 64,
+                    "blockers": [],
+                }
+            },
+        )
+    )
+    monkeypatch.setattr(users_cli, "get_client", lambda _json: _ClientContext(client))
+    args = ["offboard", user_id, str(request_file), "--json"]
+    refused = runner.invoke(users_cli.app, args)
+    assert refused.exit_code == 2 and not route.called
+    assert "--yes" in refused.output
+    stale = runner.invoke(users_cli.app, [*args, "--yes"])
+    assert stale.exit_code != 0 and route.call_count == 1
+    assert (
+        json.loads(route.calls.last.request.content)["preview_version"]
+        == "supplied-preview"
+    )
 
 
 class _PasswordOps:

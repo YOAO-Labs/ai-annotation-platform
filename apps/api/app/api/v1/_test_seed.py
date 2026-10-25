@@ -23,12 +23,18 @@ import struct
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from aap_labeling.e2e_fixture_contract import TaskFixturePatch
+from aap_workspace.e2e_fixture_contract import (
+    WorkspaceE2EFixtureUnavailable,
+    decode_fixture_count,
+)
+from aap_audit.maintenance_postgres import AuditMaintenancePostgresData
 
 from app.config import settings
 from app.core.security import create_access_token
@@ -36,6 +42,18 @@ from app.deps import get_db
 from app.schemas.user import UserOut
 from app.api.v1._test_seed_filters import FilteringSeedManifest, build_filtering_seed
 from app.services.test_seed_access import assert_isolated_test_seed_database
+from app.services.project_access import get_workspace_project
+from app.services.seed_membership_data import SeedMembershipWrites
+from app.services.labeling_core_read_relations import batch_row, get_core_row, task_row
+from app.services.labeling_e2e_fixture_writes import LabelingE2EFixtureWrites
+from app.services.workspace_e2e_fixtures import (
+    create_fixture_project,
+    guard_fixture_project_cleanup,
+)
+from app.services.workspace_seed_data import (
+    register_seed_project_projection,
+    seed_projects,
+)
 
 
 async def _require_e2e_seed_database(db: AsyncSession = Depends(get_db)) -> None:
@@ -44,6 +62,10 @@ async def _require_e2e_seed_database(db: AsyncSession = Depends(get_db)) -> None
 
 
 router = APIRouter(dependencies=[Depends(_require_e2e_seed_database)])
+_LABELING_FIXTURE_DELETE_SQL = (
+    "SELECT aap_labeling_v1.delete_fixture_project_rows(CAST(:pids AS uuid[]))"
+)
+_AUDIT_FILTERING_FIXTURE_CLEANUP = "audit_filtering_fixture_cleanup"
 
 
 # ---------------------------------------------------------------------------
@@ -370,6 +392,68 @@ def _is_transaction_abort(exc: BaseException) -> bool:
     return False
 
 
+async def _try_fixture_delete(db, operation: str, params: dict | None = None) -> None:
+    import logging
+
+    log = logging.getLogger("anno-api.seed_cleanup")
+    jobs_fixture_delete = (
+        operation
+        == "SELECT aap_jobs_v1.delete_fixture_project_jobs(CAST(:pids AS uuid[]))"
+    )
+    labeling_fixture_delete = operation == _LABELING_FIXTURE_DELETE_SQL
+    audit_fixture_delete = operation == _AUDIT_FILTERING_FIXTURE_CLEANUP
+    owner_fixture_delete = (
+        jobs_fixture_delete or labeling_fixture_delete or audit_fixture_delete
+    )
+    try:
+        async with db.begin_nested():
+            if audit_fixture_delete:
+                deleted_rows = await AuditMaintenancePostgresData(
+                    db
+                ).cleanup_filtering_fixture_events((params or {}).get("namespace"))
+                decode_fixture_count(deleted_rows)
+            else:
+                result = await db.execute(text(operation), params or {})
+            if not audit_fixture_delete and (
+                operation.startswith("SELECT aap_workspace_fixture_v1.")
+                or owner_fixture_delete
+            ):
+                decode_fixture_count(result.scalar_one())
+    except WorkspaceE2EFixtureUnavailable:
+        raise HTTPException(
+            status_code=503, detail="项目测试清理服务暂不可用"
+        ) from None
+    except Exception as exc:
+        if (
+            operation.startswith("SELECT aap_workspace_fixture_v1.")
+            or owner_fixture_delete
+        ):
+            original = getattr(exc, "orig", exc)
+            state = getattr(original, "sqlstate", None) or getattr(
+                original, "pgcode", None
+            )
+            if state == "23514" and "video_execution_not_retired" in str(original):
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "video_execution_not_retired",
+                        "message": "存在尚未退役的视频执行，请先取消并完成退役后重试",
+                    },
+                ) from exc
+            if state == "55P03":
+                raise HTTPException(
+                    status_code=409, detail={"reason": "project_busy"}
+                ) from exc
+        if _is_transaction_abort(exc):
+            log.warning("seed_cleanup abort · %s · %s", operation, exc)
+            raise
+        if owner_fixture_delete:
+            raise HTTPException(
+                status_code=503, detail="项目测试清理服务暂不可用"
+            ) from exc
+        log.warning("seed_cleanup skip · %s · %s", operation, exc)
+
+
 async def _cleanup_e2e_fixtures(
     db: AsyncSession, owned: _OwnedFixtureScope | None = None
 ) -> None:
@@ -407,11 +491,15 @@ async def _cleanup_e2e_fixtures(
 
     fixture_proj_rows = (
         await db.execute(
-            text(f"SELECT id FROM projects WHERE {project_selector}"), project_params
+            text(
+                f"SELECT id FROM aap_workspace_v1.project_facts WHERE {project_selector}"
+            ),
+            project_params,
         )
     ).fetchall()
     fixture_project_ids = [r[0] for r in fixture_proj_rows]
     log.info("seed_cleanup · fixture project ids: %s", fixture_project_ids)
+    await guard_fixture_project_cleanup(db, fixture_project_ids)
 
     fixture_user_rows = (
         await db.execute(
@@ -430,19 +518,8 @@ async def _cleanup_e2e_fixtures(
     #    SAVEPOINT 回滚，try/except 单纯吞异常不够。让异常穿过 begin_nested 的
     #    `async with` 自动 ROLLBACK TO SAVEPOINT,外层再 catch——双 rollback 会让
     #    SA 在 __aexit__ 试图 RELEASE 已经手动 rollback 的 SP,事务进入怪状态致 500。
-    async def _try_delete(sql: str, params: dict | None = None) -> None:
-        try:
-            async with db.begin_nested():
-                await db.execute(text(sql), params or {})
-        except Exception as exc:
-            parts = sql.split()
-            label = parts[2] if len(parts) > 2 else sql
-            if _is_transaction_abort(exc):
-                # Fail fast: in the P9 repro an absorbed deadlock left the later
-                # cleanup statements skipped and surfaced as a misleading residual.
-                log.warning("seed_cleanup abort · %s · %s", label, exc)
-                raise
-            log.warning("seed_cleanup skip · %s · %s", label, exc)
+    async def _try_delete(operation: str, params: dict | None = None) -> None:
+        await _try_fixture_delete(db, operation, params)
 
     fixture_annotation_ids: list = []
     if fixture_project_ids:
@@ -454,7 +531,10 @@ async def _cleanup_e2e_fixtures(
                     r[0]
                     for r in (
                         await db.execute(
-                            text("SELECT id FROM tasks WHERE project_id = ANY(:pids)"),
+                            text(
+                                "SELECT id FROM aap_labeling_v1.task_rows "
+                                "WHERE project_id = ANY(:pids)"
+                            ),
                             {"pids": fixture_project_ids},
                         )
                     ).fetchall()
@@ -464,7 +544,8 @@ async def _cleanup_e2e_fixtures(
                     for r in (
                         await db.execute(
                             text(
-                                "SELECT id FROM annotations WHERE project_id = ANY(:pids)"
+                                "SELECT id FROM aap_labeling_v1.annotation_rows "
+                                "WHERE project_id = ANY(:pids)"
                             ),
                             {"pids": fixture_project_ids},
                         )
@@ -501,7 +582,7 @@ async def _cleanup_e2e_fixtures(
             },
         )
         await _try_delete(
-            "DELETE FROM async_jobs WHERE project_id = ANY(:pids)",
+            "SELECT aap_jobs_v1.delete_fixture_project_jobs(CAST(:pids AS uuid[]))",
             {"pids": fixture_project_ids},
         )
         await _try_delete(
@@ -509,51 +590,10 @@ async def _cleanup_e2e_fixtures(
             {"pids": fixture_project_ids},
         )
 
-        # 2b) 删 annotation_feedbacks (FK → tasks/annotations/projects 均无 ondelete,
-        #     必须早于 annotations/tasks/project 删除; review-feedback-loop spec 会造此行,
-        #     漏删会让后续 seed/reset 删 task 撞 FK → 级联到 project/user 删不掉 → 重建
-        #     时 admin@e2e.test 撞唯一约束 → 500)。按 project_id 一刀清。
+        # One Labeling-owned command preserves the old feedback/comment/annotation,
+        # prediction and task lock/draft deletion order inside this caller transaction.
         await _try_delete(
-            "DELETE FROM annotation_feedbacks WHERE project_id = ANY(:pids)",
-            {"pids": fixture_project_ids},
-        )
-
-        # 删 annotation_comments → annotations → predictions / failed_predictions
-        if fixture_annotation_ids:
-            await _try_delete(
-                "DELETE FROM annotation_comments WHERE annotation_id = ANY(:aids)",
-                {"aids": fixture_annotation_ids},
-            )
-        await _try_delete(
-            "DELETE FROM annotations WHERE project_id = ANY(:pids)",
-            {"pids": fixture_project_ids},
-        )
-        await _try_delete(
-            "DELETE FROM prediction_metas WHERE prediction_id IN "
-            "(SELECT id FROM predictions WHERE project_id = ANY(:pids))",
-            {"pids": fixture_project_ids},
-        )
-        await _try_delete(
-            "DELETE FROM predictions WHERE project_id = ANY(:pids)",
-            {"pids": fixture_project_ids},
-        )
-        await _try_delete(
-            "DELETE FROM failed_predictions WHERE project_id = ANY(:pids)",
-            {"pids": fixture_project_ids},
-        )
-
-        # 2c) 删 task_locks / annotation_drafts → tasks
-        if fixture_task_ids:
-            await _try_delete(
-                "DELETE FROM task_locks WHERE task_id = ANY(:tids)",
-                {"tids": fixture_task_ids},
-            )
-            await _try_delete(
-                "DELETE FROM annotation_drafts WHERE task_id = ANY(:tids)",
-                {"tids": fixture_task_ids},
-            )
-        await _try_delete(
-            "DELETE FROM tasks WHERE project_id = ANY(:pids)",
+            _LABELING_FIXTURE_DELETE_SQL,
             {"pids": fixture_project_ids},
         )
 
@@ -568,7 +608,7 @@ async def _cleanup_e2e_fixtures(
         # 2e) 删 project（CASCADE 带走 task_batches / project_members /
         #     task_events / datasets）
         await _try_delete(
-            "DELETE FROM projects WHERE id = ANY(:pids)",
+            "SELECT aap_workspace_fixture_v1.delete_projects(CAST(:pids AS uuid[]))",
             {"pids": fixture_project_ids},
         )
 
@@ -586,46 +626,39 @@ async def _cleanup_e2e_fixtures(
     if owned is None:
         # Project templates are user-owned assets and do not cascade from projects.
         await _try_delete(
-            "DELETE FROM project_templates WHERE display_id LIKE 'TPL-E2E-FILTER-%'",
+            "SELECT aap_workspace_fixture_v1.delete_templates(true, ARRAY[]::text[])",
         )
 
-        # Direct fixture audit rows must disappear before the actor users.  The
-        # production audit trigger still protects ordinary writes; this is only a
-        # fixture-scoped cleanup predicate.
+        # The Audit owner accepts this fixed marker only in isolated test databases.
         await _try_delete(
-            "DELETE FROM audit_logs WHERE detail_json ->> 'fixture' = 'filtering' "
-            "AND path = '/api/v1/__test/seed/filtering'",
+            _AUDIT_FILTERING_FIXTURE_CLEANUP,
+            {"namespace": None},
         )
     else:
         await _try_delete(
-            "DELETE FROM project_templates WHERE display_id = ANY(:owned_template_display_ids)",
+            "SELECT aap_workspace_fixture_v1.delete_templates(false, CAST(:owned_template_display_ids AS text[]))",
             {"owned_template_display_ids": owned.filter_template_display_ids},
         )
 
-        # Owned filtering audit rows carry their namespace in detail_json, so
-        # this predicate never touches another namespace's audit trail.
+        # The Audit owner scopes deletion to this exact namespace and seed path.
         await _try_delete(
-            "DELETE FROM audit_logs WHERE detail_json ->> 'namespace' = :owned_ns "
-            "AND path = '/api/v1/__test/seed/filtering'",
-            {"owned_ns": owned.namespace},
+            _AUDIT_FILTERING_FIXTURE_CLEANUP,
+            {"namespace": owned.namespace},
         )
 
     if fixture_user_ids:
         # 删用户的反向引用，再删用户。表名 / 列名见 v0.8.7+ DB schema：
-        # bug_reports.reporter_id（不是 submitter_id）；annotation_comments.author_id；
-        # bug_comments.author_id；annotation_drafts.user_id；task_locks.user_id；
+        # bug_reports.reporter_id（不是 submitter_id）；bug_comments.author_id；
         # password_reset_tokens.user_id；user_invitations.invited_by；
         # organization_members.user_id（CASCADE 不在，需手删）；
         # notification_preferences / notifications 是 CASCADE，自动跟着删。
+        # Labeling-owned references were already cleared by the project-scoped
+        # delete_fixture_project_rows capability above.
         for tbl, col in [
             ("password_reset_tokens", "user_id"),
             ("bug_comments", "author_id"),
             ("bug_reports", "reporter_id"),
             ("bug_reports", "assigned_to_id"),
-            ("task_locks", "user_id"),
-            ("annotation_drafts", "user_id"),
-            ("annotation_comments", "author_id"),
-            ("annotations", "user_id"),
             ("user_invitations", "invited_by"),
             ("organization_members", "user_id"),
         ]:
@@ -709,9 +742,14 @@ async def _cleanup_e2e_fixtures(
             "SELECT "
             "(SELECT count(*) FROM aap_identity_fixture_v1.account_profiles "
             " WHERE email LIKE '%@e2e.test') AS users, "
-            "(SELECT count(*) FROM projects "
+            "(SELECT count(*) FROM aap_workspace_v1.project_facts "
             " WHERE name = 'E2E Demo Project' "
             "    OR display_id LIKE 'P-E2E-%') AS projects, "
+            "(SELECT count(*) FROM aap_workspace_fixture_v1.templates "
+            " WHERE display_id LIKE 'TPL-E2E-FILTER-%') AS templates, "
+            "(SELECT count(*) FROM aap_audit_v1.audit_events "
+            " WHERE detail_json ->> 'fixture' = 'filtering' "
+            "   AND path = '/api/v1/__test/seed/filtering') AS audit_rows, "
             "(SELECT count(*) FROM ml_backend_registry "
             " WHERE url IN ('http://mock-sam.e2e:9999', 'http://second-toolbar.e2e:9999')) AS ml_backends"
         )
@@ -721,20 +759,31 @@ async def _cleanup_e2e_fixtures(
             "SELECT "
             "(SELECT count(*) FROM aap_identity_fixture_v1.account_profiles "
             " WHERE email = ANY(:owned_emails)) AS users, "
-            "(SELECT count(*) FROM projects WHERE name = ANY(:owned_project_names)) AS projects, "
+            "(SELECT count(*) FROM aap_workspace_v1.project_facts "
+            " WHERE name = ANY(:owned_project_names) "
+            " OR display_id = ANY(:owned_project_display_ids)) AS projects, "
+            "(SELECT count(*) FROM aap_workspace_fixture_v1.templates "
+            " WHERE display_id = ANY(:owned_template_display_ids)) AS templates, "
+            "(SELECT count(*) FROM aap_audit_v1.audit_events "
+            " WHERE detail_json ->> 'namespace' = :owned_ns "
+            "   AND path = '/api/v1/__test/seed/filtering') AS audit_rows, "
             "(SELECT count(*) FROM ml_backend_registry "
             " WHERE url = :owned_registry_url) AS ml_backends"
         )
         residual_params = {
             "owned_emails": owned.all_user_emails,
             "owned_project_names": owned.all_project_names,
+            "owned_project_display_ids": owned.all_project_display_ids,
+            "owned_template_display_ids": owned.filter_template_display_ids,
+            "owned_ns": owned.namespace,
             "owned_registry_url": owned.registry_url,
         }
     residual_row = (
         (await db.execute(text(residual_query), residual_params)).mappings().one()
     )
     residuals = {
-        key: int(residual_row[key]) for key in ("users", "projects", "ml_backends")
+        key: int(residual_row[key])
+        for key in ("users", "projects", "templates", "audit_rows", "ml_backends")
     }
     if any(residuals.values()):
         raise HTTPException(
@@ -817,7 +866,7 @@ async def _build_image_workbench_fixture(
     route; both differ only in the identifiers below.
     """
     from app.services.identity_e2e_fixtures import IdentityE2EFixtures
-    from tests.factory import create_project, create_task
+    from app.db.models.task import Task
 
     identity = IdentityE2EFixtures(db)
     admin = await identity.create_user("super_admin", ids.admin_email, "E2E Admin")
@@ -827,9 +876,10 @@ async def _build_image_workbench_fixture(
     reviewer = await identity.create_user(
         "employee", ids.reviewer_email, "E2E Reviewer"
     )
-    project = await create_project(db, owner_id=admin.id, name=ids.project_name)
+    project = await create_fixture_project(db, owner_id=admin.id, name=ids.project_name)
     # Mask E2E 走兼容 polygon 提交；能力握手要求项目显式开启
     # region 工具。保留 bbox 绑定，避免改变其他工作台 E2E 的基础数据。
+    register_seed_project_projection(db, project.id)
     bbox_binding = project.tool_bindings.get("bbox", {})
     project.tool_bindings = {
         **project.tool_bindings,
@@ -842,25 +892,14 @@ async def _build_image_workbench_fixture(
 
     # v0.8.5 · 把 annotator / reviewer 加为项目成员，否则 RequireProjectMember 会
     # 在进入 /projects/:id/annotate 时 403 弹回，annotation/batch-flow spec 走不通。
-    from app.db.models.project_member import ProjectMember
     from app.db.models.task_batch import TaskBatch
 
-    db.add_all(
-        [
-            ProjectMember(
-                project_id=project.id,
-                user_id=annotator.id,
-                role="annotator",
-                assigned_by=admin.id,
-            ),
-            ProjectMember(
-                project_id=project.id,
-                user_id=reviewer.id,
-                role="reviewer",
-                assigned_by=admin.id,
-            ),
-        ],
-    )
+    membership_writes = SeedMembershipWrites(db)
+    fixture_writes = LabelingE2EFixtureWrites(db)
+    for user, role in ((annotator, "annotator"), (reviewer, "reviewer")):
+        membership_writes.add(
+            project_id=project.id, user_id=user.id, role=role, assigned_by=admin.id
+        )
     # v0.8.5 · 创建一个 annotating 状态的 batch + 单值分派 annotator/reviewer，
     # 否则非特权用户在 list_tasks 中被 batch_visibility_clause 过滤为空（孤儿
     # 任务不可见），工作台显示「该项目暂无任务」。
@@ -874,8 +913,8 @@ async def _build_image_workbench_fixture(
         assigned_user_ids=[str(annotator.id)],
         created_by=admin.id,
     )
-    db.add(batch)
-    await db.flush()
+    await membership_writes.flush()
+    batch = (await fixture_writes.insert_batches([batch]))[0]
 
     # 原生图片 raster_mask 校验必须有真实 DatasetItem 及宽高。
     # 用固定 MinIO key 覆写一组小 SVG，避免每次 reset 制造孤儿对象。
@@ -925,25 +964,21 @@ async def _build_image_workbench_fixture(
         )
         db.add(item)
         await db.flush()
-        t = await create_task(
-            db,
+        t = Task(
             project_id=project.id,
             display_id=f"{ids.task_display_prefix}{index + 1:06d}",
+            status="pending",
+            file_name=item.file_name,
+            file_path=item.file_path,
+            file_type="image",
+            batch_id=batch.id,
+            dataset_item_id=item.id,
+            created_at=task_created_at + timedelta(microseconds=index),
+            annotation_contributor_ids=[],
         )
-        # PostgreSQL now() is shared by this transaction. Distinct timestamps
-        # keep the normal image-task ordering independent of random UUIDs.
-        t.created_at = task_created_at + timedelta(microseconds=index)
-        t.batch_id = batch.id
-        t.dataset_item_id = item.id
-        t.file_name = item.file_name
-        t.file_path = item.file_path
-        # Known-empty accumulator: the base fixture is created by the recording
-        # binary, so review specs can create+submit through the real APIs and
-        # freeze complete evidence instead of leaving every round unknown.
-        t.annotation_contributor_ids = []
         tasks.append(t)
-    await db.flush()
-    batch.total_tasks = len(tasks)
+    tasks = await fixture_writes.insert_tasks(tasks)
+    await fixture_writes.patch_batch(batch, total_tasks=len(tasks))
 
     # v0.9.4 phase 3: SAM E2E 用 mock ml_backend (url 不会被真请求, page.route 拦截)
     # v0.19.0 ADR-0044 · 建全局注册项 + 为本项目启用关联。
@@ -994,6 +1029,7 @@ async def _build_image_workbench_fixture(
         )
     )
     await db.flush()
+    register_seed_project_projection(db, project.id)
     project.ai_enabled = True
     project.ml_backend_pool_id = mock_pool.id
     await db.commit()
@@ -1017,8 +1053,8 @@ async def _build_image_workbench_fixture(
 async def seed_reset(db: AsyncSession = Depends(get_db)) -> SeedReset:
     """先清理旧 fixture，再重建固定 E2E 数据（幂等）。
 
-    共享固定命名空间的破坏性重建：这是已记录的串行例外路径，会收敛所有
-    E2E fixture（含 owned 命名空间）。每个测试私有的数据请改用 `/seed/owned`。
+    共享固定命名空间的破坏性重建，仅供串行使用。请先逐个清理 owned
+    命名空间，再调用此端点；每个测试私有的数据请改用 `/seed/owned`。
     """
     await _cleanup_e2e_fixtures(db)
     return await _build_image_workbench_fixture(db, _BASE_IMAGE_WORKBENCH)
@@ -1123,24 +1159,21 @@ async def _build_project_roles_image_project(
     ``seed.advance_task`` bypass is deliberately not used here.
     """
     from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
-    from app.db.models.project import Project
     from app.db.models.task import Task
-    from app.services.project_workspace import coalesce_legacy_into_tool_bindings
+    from aap_workspace.configuration_policy import coalesce_legacy_into_tool_bindings
     from app.services.storage import storage_service
 
     kw: dict = {"classes": ["car", "person"]}
     coalesce_legacy_into_tool_bindings(kw, None, "image-det")
-    project = Project(
+    project = await create_fixture_project(
+        db,
         display_id=project_display_id,
         name=project_name,
         type_label="图像目标检测",
         type_key="image-det",
         owner_id=owner.id,
         tool_bindings=kw["tool_bindings"],
-        ai_enabled=False,
     )
-    db.add(project)
-    await db.flush()
 
     dataset = Dataset(
         display_id=dataset_display_id,
@@ -1184,9 +1217,8 @@ async def _build_project_roles_image_project(
             dataset_item_id=item.id,
             annotation_contributor_ids=[],
         )
-        db.add(task)
         tasks.append(task)
-    await db.flush()
+    tasks = await LabelingE2EFixtureWrites(db).insert_tasks(tasks)
     return project, tasks
 
 
@@ -1253,7 +1285,6 @@ async def seed_project_roles(
     is intentionally left for the spec to submit through the real API so
     contributor evidence is complete.
     """
-    from app.db.models.project_member import ProjectMember
     from app.db.models.task_batch import TaskBatch
     from app.services.identity_e2e_fixtures import IdentityE2EFixtures
 
@@ -1422,31 +1453,51 @@ async def seed_project_roles(
         created_by=owner_a.id,
         total_tasks=1,
     )
-    db.add_all([batch_a, batch_b, batch_c, batch_d])
-    await db.flush()
+    fixture_writes = LabelingE2EFixtureWrites(db)
+    batch_a = (await fixture_writes.insert_batches([batch_a]))[0]
+    batch_b = (await fixture_writes.insert_batches([batch_b]))[0]
+    batch_c = (await fixture_writes.insert_batches([batch_c]))[0]
+    batch_d = (await fixture_writes.insert_batches([batch_d]))[0]
 
     task_a_add = tasks_a[0]
     task_b_review = tasks_b[0]
     task_c_assigned = tasks_c[0]
     task_d_open = tasks_d[0]
-    task_a_add.batch_id = batch_a.id
-    task_a_add.assignee_id = employee.id
-    task_b_review.batch_id = batch_b.id
-    task_b_review.assignee_id = peer.id
     # Assignment alone must not grant authority: employee is not a member of C.
-    task_c_assigned.batch_id = batch_c.id
-    task_c_assigned.assignee_id = employee.id
-    task_d_open.batch_id = batch_d.id
+    for task, project, batch, assignee in (
+        (task_a_add, project_a, batch_a, employee),
+        (task_b_review, project_b, batch_b, peer),
+        (task_c_assigned, project_c, batch_c, employee),
+    ):
+        await fixture_writes.patch_tasks(
+            [
+                TaskFixturePatch(
+                    id=task.id,
+                    project_id=project.id,
+                    batch_id=batch.id,
+                    assignee_id=assignee.id,
+                )
+            ]
+        )
+    await fixture_writes.patch_tasks(
+        [
+            TaskFixturePatch(
+                id=task_d_open.id,
+                project_id=project_d.id,
+                batch_id=batch_d.id,
+            )
+        ]
+    )
 
-    def add_member(project: Any, user: Any, role: str) -> ProjectMember:
-        member = ProjectMember(
+    membership_writes = SeedMembershipWrites(db)
+
+    def add_member(project: Any, user: Any, role: str):
+        return membership_writes.add(
             project_id=project.id,
             user_id=user.id,
             role=role,
             assigned_by=project.owner_id,
         )
-        db.add(member)
-        return member
 
     memberships = {
         "employee_a": add_member(project_a, employee, "annotator"),
@@ -1459,7 +1510,7 @@ async def seed_project_roles(
         "employee_d": add_member(project_d, employee, "annotator"),
         "peer_d": add_member(project_d, peer, "reviewer"),
     }
-    await db.flush()
+    await membership_writes.flush()
     await db.commit()
 
     def project_payload(
@@ -1467,7 +1518,7 @@ async def seed_project_roles(
         owner: Any,
         batch: Any,
         tasks: list[Any],
-        membership: ProjectMember | None,
+        membership: Any | None,
         project_role: str | None,
     ) -> ProjectRolesSeedProject:
         return ProjectRolesSeedProject(
@@ -1690,8 +1741,6 @@ async def seed_lidar(
     scope = _parse_owned_namespace(payload.namespace)
     from app.db.models.annotation import Annotation
     from app.db.models.dataset import Dataset, DatasetItem, Scene
-    from app.db.models.project import Project
-    from app.db.models.project_member import ProjectMember
     from app.db.models.task import Task
     from app.db.models.task_batch import TaskBatch
     from app.services.storage import storage_service
@@ -1701,11 +1750,7 @@ async def seed_lidar(
     await db.execute(text("SET LOCAL \"app.allow_audit_update\" = 'true'"))
 
     async def _try_delete(sql: str, params: dict | None = None) -> None:
-        async with db.begin_nested() as sp:
-            try:
-                await db.execute(text(sql), params or {})
-            except Exception:
-                await sp.rollback()
+        await _try_fixture_delete(db, sql, params)
 
     # 复用本命名空间 owned fixture 的 admin/annotator 用户;缺则补建。
     identity = IdentityE2EFixtures(db)
@@ -1722,44 +1767,39 @@ async def seed_lidar(
         r[0]
         for r in (
             await db.execute(
-                text("SELECT id FROM projects WHERE name = :lidar_project_name"),
+                text(
+                    "SELECT id FROM aap_workspace_v1.project_facts WHERE name = :lidar_project_name"
+                ),
                 {"lidar_project_name": scope.lidar_project_name},
             )
         ).fetchall()
     ]
+    await guard_fixture_project_cleanup(db, old_pids)
     if old_pids:
-        old_tids = [
-            r[0]
-            for r in (
-                await db.execute(
-                    text("SELECT id FROM tasks WHERE project_id = ANY(:pids)"),
-                    {"pids": old_pids},
-                )
-            ).fetchall()
-        ]
-        await _try_delete(
-            "DELETE FROM annotations WHERE project_id = ANY(:pids)", {"pids": old_pids}
-        )
-        if old_tids:
-            await _try_delete(
-                "DELETE FROM task_locks WHERE task_id = ANY(:tids)", {"tids": old_tids}
-            )
-            await _try_delete(
-                "DELETE FROM annotation_drafts WHERE task_id = ANY(:tids)",
-                {"tids": old_tids},
-            )
-        await _try_delete(
-            "DELETE FROM tasks WHERE project_id = ANY(:pids)", {"pids": old_pids}
-        )
+        await _try_fixture_delete(db, _LABELING_FIXTURE_DELETE_SQL, {"pids": old_pids})
         # 删 project 级联带走 task_batches / project_members。
         await _try_delete(
-            "DELETE FROM projects WHERE id = ANY(:pids)", {"pids": old_pids}
+            "SELECT aap_workspace_fixture_v1.delete_projects(CAST(:pids AS uuid[]))",
+            {"pids": old_pids},
         )
     # Dataset 不归属于 Project，不能依赖删项目级联；清掉上次 seed 遗留的 items/scene。
     await _try_delete(
         "DELETE FROM datasets WHERE display_id = :lidar_dataset_display_id",
         {"lidar_dataset_display_id": scope.lidar_dataset_display_id},
     )
+    if old_pids and await db.scalar(
+        text(
+            "SELECT count(*) FROM aap_workspace_v1.project_facts WHERE id=ANY(CAST(:ids AS uuid[]))"
+        ),
+        {"ids": old_pids},
+    ):
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "e2e_seed_cleanup_incomplete",
+                "residuals": {"projects": len(old_pids)},
+            },
+        )
     await db.flush()
     # 本命名空间旧点云/相机对象按前缀清空(对象存储不随 DB 级联)。
     _delete_seed_object_prefix(
@@ -1816,7 +1856,8 @@ async def seed_lidar(
             "attribute_schema": {"fields": []},
         },
     }
-    project = Project(
+    project = await create_fixture_project(
+        db,
         display_id=f"P-E2E-LIDAR-{suffix}",
         name=scope.lidar_project_name,
         type_label="点云标注",
@@ -1824,18 +1865,14 @@ async def seed_lidar(
         data_type="lidar",
         owner_id=admin.id,
         tool_bindings=tool_bindings,
-        ai_enabled=False,
     )
-    db.add(project)
-    await db.flush()
 
-    db.add(
-        ProjectMember(
-            project_id=project.id,
-            user_id=annotator.id,
-            role="annotator",
-            assigned_by=admin.id,
-        )
+    membership_writes = SeedMembershipWrites(db)
+    membership_writes.add(
+        project_id=project.id,
+        user_id=annotator.id,
+        role="annotator",
+        assigned_by=admin.id,
     )
     batch = TaskBatch(
         project_id=project.id,
@@ -1846,8 +1883,9 @@ async def seed_lidar(
         assigned_user_ids=[str(annotator.id)],
         created_by=admin.id,
     )
-    db.add(batch)
-    await db.flush()
+    await membership_writes.flush()
+    fixture_writes = LabelingE2EFixtureWrites(db)
+    batch = (await fixture_writes.insert_batches([batch]))[0]
 
     dataset = Dataset(
         display_id=scope.lidar_dataset_display_id,
@@ -1921,9 +1959,8 @@ async def seed_lidar(
             file_type="point_cloud",
             batch_id=batch.id,
         )
-        db.add(t)
+        t = (await fixture_writes.insert_tasks([t]))[0]
         tasks.append(t)
-        await db.flush()
         await link_items(
             db,
             t.id,
@@ -1933,7 +1970,7 @@ async def seed_lidar(
                 (camera_side_item.id, "camera_side", "side"),
             ],
         )
-    batch.total_tasks = len(tasks)
+    await fixture_writes.patch_batch(batch, total_tasks=len(tasks))
 
     # 每帧注入 1 个 box_3d 标注(落在点阵范围内),供 P2 选中 / 改 PSR / gizmo 断言。
     # 几何 = ISO 8855 系;center/size 单位 m,rotation 单位 rad(roll,pitch,yaw)。
@@ -1949,29 +1986,29 @@ async def seed_lidar(
         actor_id=annotator.id,
         interval_source="imported",
     )
-    for t in tasks:
-        db.add(
-            Annotation(
-                task_id=t.id,
-                project_id=project.id,
-                user_id=annotator.id,
-                source="manual",
-                annotation_type="box_3d",
-                tool_unit_id="lidar_box_3d",
-                class_name="car",
-                track_id="trk_e2e_lidar_car",
-                scene_track_id=scene_track.id,
-                temporal_role="sample",
-                geometry={
-                    "type": "box_3d",
-                    "center": [1.0, 0.0, 1.0],
-                    "size": [4.0, 2.0, 1.5],
-                    "rotation": [0.0, 0.0, 0.0],
-                    "convention_at_create": "iso_8855",
-                },
-            )
+    annotations = [
+        Annotation(
+            task_id=t.id,
+            project_id=project.id,
+            user_id=annotator.id,
+            source="manual",
+            annotation_type="box_3d",
+            tool_unit_id="lidar_box_3d",
+            class_name="car",
+            track_id="trk_e2e_lidar_car",
+            scene_track_id=scene_track.id,
+            temporal_role="sample",
+            geometry={
+                "type": "box_3d",
+                "center": [1.0, 0.0, 1.0],
+                "size": [4.0, 2.0, 1.5],
+                "rotation": [0.0, 0.0, 0.0],
+                "convention_at_create": "iso_8855",
+            },
         )
-    await db.flush()
+        for t in tasks
+    ]
+    await fixture_writes.insert_annotations(annotations)
     await db.commit()
 
     return SeedLidar(
@@ -2067,8 +2104,6 @@ async def seed_catalog(
 async def seed_peek(db: AsyncSession = Depends(get_db)) -> SeedPeekResponse:
     """只读窥探现有数据，给截图自动化用（不破坏开发数据）。"""
     from sqlalchemy import select
-    from app.db.models.project import Project
-    from app.db.models.task import Task
     from app.services.identity_e2e_fixtures import IdentityE2EFixtures
 
     # 优先选「不像 E2E fixture」的 admin（@e2e.test 邮箱排到末尾），让截图脚本
@@ -2076,10 +2111,12 @@ async def seed_peek(db: AsyncSession = Depends(get_db)) -> SeedPeekResponse:
     admin = await IdentityE2EFixtures(db).peek_admin()
     # 项目 / 任务同样按 created_at desc，优先最新（开发者刚操作过的）。
     project = (
-        await db.execute(select(Project).order_by(Project.created_at.desc()).limit(1))
+        await db.execute(
+            select(seed_projects).order_by(seed_projects.created_at.desc()).limit(1)
+        )
     ).scalar_one_or_none()
     task = (
-        await db.execute(select(Task).order_by(Task.created_at.desc()).limit(1))
+        await db.execute(select(task_row).order_by(task_row.created_at.desc()).limit(1))
     ).scalar_one_or_none()
 
     return SeedPeekResponse(
@@ -2114,13 +2151,12 @@ async def seed_inject_prediction(
     db: AsyncSession = Depends(get_db),
 ) -> InjectPredictionResponse:
     """Create one polygon-label candidate through the labeling owner."""
-    from app.db.models.task import Task
     from app.services.labeling_write_scope import capture_labeling_write_scope
     from app.services.prediction import PredictionService
 
     task_id = UUID(payload.task_id)
     project_id = UUID(payload.project_id)
-    task = await db.get(Task, task_id)
+    task = await get_core_row(db, task_row, task_id)
     if task is None or task.project_id != project_id:
         raise HTTPException(status_code=404, detail="task not found")
 
@@ -2183,11 +2219,10 @@ async def seed_configure_raster_mask(
     """
     from uuid import UUID
 
-    from app.db.models.project import Project
-
-    project = await db.get(Project, UUID(payload.project_id))
+    project = await get_workspace_project(db, project_id=UUID(payload.project_id))
     if project is None:
         raise HTTPException(status_code=404, detail="project not found")
+    register_seed_project_projection(db, project.id)
     project.raster_mask_native_editing_enabled = payload.enabled
     await db.commit()
     return ConfigureRasterMaskResponse(
@@ -2221,16 +2256,18 @@ async def seed_video_task(
 
     from app.db.models.dataset import DatasetItem
     from app.db.models.task import Task
-    from app.db.models.task_batch import TaskBatch
     from app.services.storage import storage_service
 
     project_id = UUID(payload.project_id)
     image_task = (
         (
             await db.execute(
-                select(Task)
-                .where(Task.project_id == project_id, Task.dataset_item_id.is_not(None))
-                .order_by(Task.created_at)
+                select(task_row)
+                .where(
+                    task_row.project_id == project_id,
+                    task_row.dataset_item_id.is_not(None),
+                )
+                .order_by(task_row.created_at)
             )
         )
         .scalars()
@@ -2239,9 +2276,9 @@ async def seed_video_task(
     batch = (
         (
             await db.execute(
-                select(TaskBatch)
-                .where(TaskBatch.project_id == project_id)
-                .order_by(TaskBatch.created_at)
+                select(batch_row)
+                .where(batch_row.project_id == project_id)
+                .order_by(batch_row.created_at)
             )
         )
         .scalars()
@@ -2296,9 +2333,9 @@ async def seed_video_task(
         file_type="video",
         status="pending",
     )
-    db.add(task)
-    batch.total_tasks = int(batch.total_tasks or 0) + 1
-    await db.flush()
+    fixture_writes = LabelingE2EFixtureWrites(db)
+    task = (await fixture_writes.insert_tasks([task]))[0]
+    await fixture_writes.patch_batch(batch, total_tasks=int(batch.total_tasks or 0) + 1)
     task_id = str(task.id)
     await db.commit()
     return SeedVideoTaskResponse(task_id=task_id)
@@ -2354,7 +2391,6 @@ async def seed_video_webcodecs(
     )
     from app.db.models.dataset import DatasetItem
     from app.db.models.task import Task
-    from app.db.models.task_batch import TaskBatch
     from app.services.assets_media_fixtures import seed_video_fixture_media
     from app.services.storage import storage_service
 
@@ -2367,18 +2403,21 @@ async def seed_video_webcodecs(
         raise HTTPException(status_code=422, detail="unknown_fixture")
 
     project_id = UUID(payload.project_id)
-    batch_query = select(TaskBatch).where(TaskBatch.project_id == project_id)
+    batch_query = select(batch_row).where(batch_row.project_id == project_id)
     if payload.batch_id is not None:
-        batch_query = batch_query.where(TaskBatch.id == payload.batch_id)
+        batch_query = batch_query.where(batch_row.id == payload.batch_id)
     batch = (
-        (await db.execute(batch_query.order_by(TaskBatch.created_at))).scalars().first()
+        (await db.execute(batch_query.order_by(batch_row.created_at))).scalars().first()
     )
     ref_task = (
         (
             await db.execute(
-                select(Task)
-                .where(Task.project_id == project_id, Task.dataset_item_id.is_not(None))
-                .order_by(Task.created_at)
+                select(task_row)
+                .where(
+                    task_row.project_id == project_id,
+                    task_row.dataset_item_id.is_not(None),
+                )
+                .order_by(task_row.created_at)
             )
         )
         .scalars()
@@ -2449,8 +2488,8 @@ async def seed_video_webcodecs(
         file_type="video",
         status="pending",
     )
-    db.add(task)
-    await db.flush()
+    fixture_writes = LabelingE2EFixtureWrites(db)
+    task = (await fixture_writes.insert_tasks([task]))[0]
     chunk_size_frames = (
         QUALIFICATION_CHUNK_SIZE_FRAMES
         if qualification
@@ -2463,8 +2502,7 @@ async def seed_video_webcodecs(
         chunk_size_frames=chunk_size_frames,
         ready=qualification or payload.chunk_status == "ready",
     )
-    batch.total_tasks = int(batch.total_tasks or 0) + 1
-    await db.flush()
+    await fixture_writes.patch_batch(batch, total_tasks=int(batch.total_tasks or 0) + 1)
     await db.commit()
     return SeedVideoWebCodecsResponse(
         task_id=str(task.id),
@@ -2499,15 +2537,24 @@ async def seed_video_issue_context_history(
     payload: SeedVideoIssueContextHistoryRequest,
     db: AsyncSession = Depends(get_db),
 ) -> SeedVideoIssueContextHistoryResponse:
-    from app.db.models.annotation_feedback import AnnotationFeedback
-    from app.db.models.project import Project
-    from app.db.models.task import Task
+    from sqlalchemy import select
 
-    feedback = await db.get(AnnotationFeedback, payload.feedback_id)
+    from app.services.labeling_core_read_relations import execute_core_read
+    from app.services.labeling_discussion_relations import annotation_feedback_facts
+
+    feedback_result = await execute_core_read(
+        db,
+        select(annotation_feedback_facts)
+        .where(annotation_feedback_facts.id == payload.feedback_id)
+        .execution_options(populate_existing=True),
+    )
+    feedback = feedback_result.scalar_one_or_none()
     if feedback is None:
         raise HTTPException(status_code=404, detail="feedback fixture not found")
-    task = await db.get(Task, feedback.task_id) if feedback.task_id else None
-    project = await db.get(Project, feedback.project_id)
+    task = (
+        await get_core_row(db, task_row, feedback.task_id) if feedback.task_id else None
+    )
+    project = await get_workspace_project(db, project_id=feedback.project_id)
     anchor = feedback.anchor_position
     if (
         project is None
@@ -2527,7 +2574,7 @@ async def seed_video_issue_context_history(
         raise HTTPException(status_code=422, detail="expected E2E video pixel Issue")
     # Preserve the old anchor and every other feedback field. The public write schema
     # remains strict; a reader must ignore this unsupported nested version wholesale.
-    feedback.anchor_position = {
+    anchor_position = {
         **anchor,
         "video_context": {
             "schema_version": 999,
@@ -2535,9 +2582,15 @@ async def seed_video_issue_context_history(
             "frame_range": {"from_frame": 900, "to_frame": 901},
         },
     }
+    anchor_position = await LabelingE2EFixtureWrites(db).patch_feedback_anchor(
+        project_id=feedback.project_id,
+        task_id=feedback.task_id,
+        feedback_id=feedback.id,
+        anchor_position=anchor_position,
+    )
     await db.commit()
     return SeedVideoIssueContextHistoryResponse(
-        feedback_id=feedback.id, anchor_position=feedback.anchor_position
+        feedback_id=feedback.id, anchor_position=anchor_position
     )
 
 
@@ -2648,11 +2701,10 @@ async def seed_tracker_review(
     from uuid import UUID
 
     from app.db.models.annotation import Annotation
-    from app.db.models.task import Task
     from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
     from app.services.identity_e2e_fixtures import IdentityE2EFixtures
 
-    task = await db.get(Task, UUID(payload.task_id))
+    task = await get_core_row(db, task_row, UUID(payload.task_id))
     user = await IdentityE2EFixtures(db).find(payload.user_email)
     if task is None or task.file_type != "video" or user is None:
         raise HTTPException(status_code=404, detail="video task or user not found")
@@ -2682,10 +2734,9 @@ async def seed_tracker_review(
             },
         )
 
-    source_a = source("e2e-track-a", 0.16, 16)
-    source_b = source("e2e-track-b", 0.62, 9)
-    db.add_all([source_a, source_b])
-    await db.flush()
+    source_a, source_b = await LabelingE2EFixtureWrites(db).insert_annotations(
+        [source("e2e-track-a", 0.16, 16), source("e2e-track-b", 0.62, 9)]
+    )
     results = []
     for instance_id, x in (("A", 0.16), ("B", 0.62)):
         for frame_index in range(10, 20):
@@ -2706,6 +2757,7 @@ async def seed_tracker_review(
                 }
             )
     job = VideoTrackerJob(
+        id=uuid4(),
         task_id=task.id,
         dataset_item_id=task.dataset_item_id,
         annotation_id=None,
@@ -2730,11 +2782,10 @@ async def seed_tracker_review(
             "grid_step": 1,
             "output_geometry": "bbox",
         },
-        event_channel="pending",
+        event_channel="video-tracker-job:pending",
     )
-    db.add(job)
-    await db.flush()
     job.event_channel = f"video-tracker-job:{job.id}"
+    job = (await LabelingE2EFixtureWrites(db).insert_video_tracker_jobs([job]))[0]
     response = SeedTrackerReviewResponse(
         job_id=str(job.id),
         source_annotation_ids=[str(source_a.id), str(source_b.id)],
@@ -2789,16 +2840,14 @@ async def seed_native_mask_candidate(
 
     from app.db.models.dataset import DatasetItem
     from app.db.models.ml_backend_pool import MLBackendServicePool
-    from app.db.models.project import Project
-    from app.db.models.task import Task
     from app.services.ai_mask_receipt import issue_ai_mask_receipt
     from app.utils.raster_mask_rle import coco_rle_bbox_norm, encode_coco_rle
 
-    task = await db.get(Task, UUID(payload.task_id))
+    task = await get_core_row(db, task_row, UUID(payload.task_id))
     if task is None or task.dataset_item_id is None:
         raise HTTPException(status_code=404, detail="task fixture not found")
     item = await db.get(DatasetItem, task.dataset_item_id)
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, project_id=task.project_id)
     if item is None or project is None or item.width is None or item.height is None:
         raise HTTPException(status_code=404, detail="media fixture not found")
     if project.ml_backend_pool_id is None:
@@ -3149,7 +3198,6 @@ async def seed_inject_raster_mask(
 
     from app.db.models.annotation import Annotation
     from app.db.models.dataset import DatasetItem
-    from app.db.models.task import Task
     from app.services.identity_e2e_fixtures import IdentityE2EFixtures
     from app.services.raster_mask_storage import (
         build_rle_reference,
@@ -3158,7 +3206,7 @@ async def seed_inject_raster_mask(
     )
     from app.utils.raster_mask_rle import encode_coco_rle
 
-    task = await db.get(Task, UUID(payload.task_id))
+    task = await get_core_row(db, task_row, UUID(payload.task_id))
     user = await IdentityE2EFixtures(db).find(payload.user_email)
     if task is None or user is None:
         raise HTTPException(status_code=404, detail="task or user not found")
@@ -3216,9 +3264,12 @@ async def seed_inject_raster_mask(
         confidence=1,
         is_locked=payload.locked,
     )
-    db.add(annotation)
-    task.total_annotations = int(task.total_annotations or 0) + 1
-    await db.flush()
+    annotation = (await LabelingE2EFixtureWrites(db).insert_annotations([annotation]))[
+        0
+    ]
+    await LabelingE2EFixtureWrites(db).patch_task(
+        task, total_annotations=int(task.total_annotations or 0) + 1
+    )
     annotation_id = str(annotation.id)
     await db.commit()
     return InjectRasterMaskResponse(
@@ -3238,13 +3289,12 @@ async def seed_inject_raster_prediction(
     db: AsyncSession = Depends(get_db),
 ) -> InjectRasterPredictionResponse:
     """Create a raw raster candidate fixture for the accept write-gate E2E."""
-    from app.db.models.task import Task
     from app.services.labeling_write_scope import capture_labeling_write_scope
     from app.services.prediction import PredictionService
     from app.services.raster_mask_storage import store_coco_rle
     from app.utils.raster_mask_rle import encode_coco_rle
 
-    task = await db.get(Task, UUID(payload.task_id))
+    task = await get_core_row(db, task_row, UUID(payload.task_id))
     if task is None:
         raise HTTPException(status_code=404, detail="task not found")
     rle = encode_coco_rle(_make_test_raster_mask("single"), 64, 48)
@@ -3313,34 +3363,34 @@ async def seed_advance_task(
     from datetime import datetime, timezone
     from uuid import UUID
     from sqlalchemy import select
-    from app.db.models.task import Task
     from app.services.identity_e2e_fixtures import IdentityE2EFixtures
 
-    res = await db.execute(select(Task).where(Task.id == UUID(payload.task_id)))
+    res = await db.execute(select(task_row).where(task_row.id == UUID(payload.task_id)))
     task = res.scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404, detail=f"task {payload.task_id} not found")
 
     now = datetime.now(timezone.utc)
-    task.status = payload.to_status
+    changes: dict[str, Any] = {"status": payload.to_status}
     identity = IdentityE2EFixtures(db)
 
     if payload.annotator_email:
         anno = await identity.find(payload.annotator_email)
         if anno:
-            task.assignee_id = anno.id
-            task.assigned_at = task.assigned_at or now
+            changes["assignee_id"] = anno.id
+            changes["assigned_at"] = task.assigned_at or now
     if payload.reviewer_email:
         rev = await identity.find(payload.reviewer_email)
         if rev:
-            task.reviewer_id = rev.id
-            task.reviewer_claimed_at = task.reviewer_claimed_at or now
+            changes["reviewer_id"] = rev.id
+            changes["reviewer_claimed_at"] = task.reviewer_claimed_at or now
 
     if payload.to_status == "submitted":
-        task.submitted_at = task.submitted_at or now
-        task.is_labeled = True
+        changes["submitted_at"] = task.submitted_at or now
+        changes["is_labeled"] = True
     elif payload.to_status in ("completed", "rejected"):
-        task.reviewed_at = now
+        changes["reviewed_at"] = now
 
+    task = await LabelingE2EFixtureWrites(db).patch_task(task, **changes)
     await db.commit()
     return AdvanceTaskResponse(task_id=str(task.id), status=task.status)

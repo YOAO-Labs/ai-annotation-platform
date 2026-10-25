@@ -64,6 +64,7 @@ from app.deps import (
     require_scopes,
 )
 from app.db.enums import UserRole
+from app.api.v1.recovery_commands import get_registration_default
 from app.db.models.project import Project
 from app.services.project_access import resolve_project_access_by_id
 from app.schemas.dataset import (
@@ -516,6 +517,7 @@ async def import_from_connection(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(require_roles(*_MANAGERS)),
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
+    registration_default: bool = Depends(get_registration_default),
 ):
     from app.services import connector_guard
 
@@ -546,7 +548,9 @@ async def import_from_connection(
     # Capture both import budgets in the same committed request snapshot.  The
     # worker must never re-read global settings while enumerating files: queued
     # jobs retain the limits accepted here even after an admin changes them.
-    import_limits = await SystemSettingsService.get_import_limits_snapshot(db)
+    import_limits = await SystemSettingsService.get_import_limits_snapshot(
+        db, registration_default=registration_default
+    )
     limits = ImportLimits.model_validate(import_limits, strict=True)
     operation_id = idempotency_key or uuid.uuid4()
     accepted = await capabilities.accept(

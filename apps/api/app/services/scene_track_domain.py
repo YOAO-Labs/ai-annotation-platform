@@ -6,21 +6,34 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 import uuid
 
-from sqlalchemy import func, select
-from sqlalchemy.dialects.postgresql import insert
+from fastapi import HTTPException
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import attributes, make_transient_to_detached
+from sqlalchemy.orm.util import identity_key
+
+from aap_labeling.scene_track_domain_contract import (
+    SCENE_TRACK_DOMAIN_FUNCTION,
+    SceneTrackDomainFailure,
+    SceneTrackDomainUnavailable,
+    SceneTrackRecord,
+    scene_track_command,
+)
+from aap_labeling.scene_track_domain_data import SceneTrackDomainDataClient
 
 from app.db.models.annotation import Annotation
 from app.db.models.scene_track import SceneTrack, SceneTrackInterval
 from app.db.models.task import Task
 from app.services.labeling_scene import (
-    get_scene_frame_task_map,
     resolve_task_scene_frames,
 )
+from app.services.labeling_scene_read import read_scene_data
 
 
 TEMPORAL_ROLES = frozenset({"keyframe", "derived", "sample"})
-INTERVAL_SOURCES = frozenset({"legacy_envelope", "manual", "imported", "derived"})
+_SCENE_TRACK_STEP = text(
+    f"SELECT {SCENE_TRACK_DOMAIN_FUNCTION.partition('(')[0]}(CAST(:request AS jsonb))"
+)
 
 
 class SceneTrackIntegrityError(ValueError):
@@ -62,124 +75,58 @@ def temporal_role_for_write(*, source: str, user_confirmed: bool) -> str:
     return "sample"
 
 
-async def _load_or_create_track(
-    db: AsyncSession,
-    *,
-    project_id: uuid.UUID,
-    scene_id: uuid.UUID,
-    track_id: str,
-    class_name: str,
-    actor_id: uuid.UUID | None,
-) -> tuple[SceneTrack, bool]:
-    created_id = uuid.uuid4()
-    result = await db.execute(
-        insert(SceneTrack)
-        .values(
-            id=created_id,
-            project_id=project_id,
-            scene_id=scene_id,
-            track_id=track_id,
-            class_name=class_name,
-            attributes={},
-            attributes_meta={},
-            revision=1,
-            created_by=actor_id,
-        )
-        .on_conflict_do_nothing(index_elements=["project_id", "scene_id", "track_id"])
-        .returning(SceneTrack.id)
-    )
-    inserted_id = result.scalar_one_or_none()
-    track = (
-        await db.execute(
-            select(SceneTrack)
-            .where(SceneTrack.project_id == project_id)
-            .where(SceneTrack.scene_id == scene_id)
-            .where(SceneTrack.track_id == track_id)
-            .with_for_update()
-        )
-    ).scalar_one()
-    if track.class_name != class_name:
-        raise SceneTrackIntegrityError(
-            "track_class_conflict",
-            "Scene Track class does not match the annotation class",
-        )
-    if track.retired_at is not None:
-        raise SceneTrackIntegrityError(
-            "track_retired",
-            "retired Scene Track cannot accept active members",
-        )
-    return track, inserted_id == created_id
-
-
-async def _load_intervals_for_update(
-    db: AsyncSession, scene_track_id: uuid.UUID
-) -> list[SceneTrackInterval]:
-    return list(
-        (
-            await db.execute(
-                select(SceneTrackInterval)
-                .where(SceneTrackInterval.scene_track_id == scene_track_id)
-                .order_by(SceneTrackInterval.start_frame, SceneTrackInterval.id)
-                .with_for_update()
-            )
-        ).scalars()
-    )
-
-
 def _contains(interval: SceneTrackInterval, frame_index: int) -> bool:
     return interval.start_frame <= frame_index and (
         interval.end_frame is None or frame_index <= interval.end_frame
     )
 
 
-async def _expand_inferred_envelope(
+async def _scene_track_command(db: AsyncSession, action: str, **values):
+    command = scene_track_command(action, **values)
+
+    async def execute(request_json: str):
+        return await db.scalar(_SCENE_TRACK_STEP, {"request": request_json})
+
+    if db.autoflush:
+        await db.flush()
+    try:
+        return await SceneTrackDomainDataClient(execute).command(command)
+    except SceneTrackDomainFailure as exc:
+        raise SceneTrackIntegrityError(exc.code, exc.message) from exc
+    except SceneTrackDomainUnavailable:
+        raise HTTPException(status_code=503, detail="场景轨迹服务暂不可用") from None
+
+
+async def _attach_scene_track(
     db: AsyncSession,
+    record: SceneTrackRecord,
     *,
-    track: SceneTrack,
-    intervals: list[SceneTrackInterval],
-    frames: set[int],
-    source: str,
-    actor_id: uuid.UUID | None,
-) -> bool:
-    """Keep inferred presence as one conservative member envelope."""
-    starts = [row.start_frame for row in intervals]
-    starts.extend(frames)
-    finite_ends = [row.end_frame for row in intervals if row.end_frame is not None]
-    finite_ends.extend(frames)
-    next_start = min(starts)
-    next_end = (
-        None if any(row.end_frame is None for row in intervals) else max(finite_ends)
-    )
+    changed_fields: tuple[str, ...] = (),
+) -> SceneTrack:
+    key = identity_key(SceneTrack, ident=record.id)
+    instance = db.sync_session.identity_map.get(key)
+    values = record.model_dump(mode="python")
+    if instance is not None:
+        expired = attributes.instance_state(instance).expired_attributes
+        for name, value in values.items():
+            if name in expired or name in changed_fields:
+                attributes.set_committed_value(instance, name, value)
+        return instance
 
-    if not intervals:
-        db.add(
-            SceneTrackInterval(
-                id=uuid.uuid4(),
-                scene_track_id=track.id,
-                start_frame=next_start,
-                end_frame=next_end,
-                source=source,
-                version=1,
-                created_by=actor_id,
-            )
+    detached = SceneTrack(**values)
+    make_transient_to_detached(detached)
+    return await db.merge(detached, load=False)
+
+
+def _sync_camera_member_cache(db: AsyncSession, members) -> None:
+    for member in members:
+        instance = db.sync_session.identity_map.get(
+            identity_key(Annotation, ident=member.id)
         )
-        return True
-
-    keeper = intervals[0]
-    changed = (
-        len(intervals) != 1
-        or keeper.start_frame != next_start
-        or keeper.end_frame != next_end
-    )
-    if not changed:
-        return False
-    for row in intervals[1:]:
-        await db.delete(row)
-    await db.flush()
-    keeper.start_frame = next_start
-    keeper.end_frame = next_end
-    keeper.version = int(keeper.version or 1) + 1
-    return True
+        if instance is not None:
+            attributes.set_committed_value(instance, "class_name", member.class_name)
+            attributes.set_committed_value(instance, "version", member.version)
+            attributes.set_committed_value(instance, "updated_at", member.updated_at)
 
 
 async def ensure_scene_track(
@@ -194,51 +141,25 @@ async def ensure_scene_track(
     interval_source: str,
     member_change: bool = True,
 ) -> SceneTrack:
-    if not track_id or len(track_id) > 64:
-        raise SceneTrackIntegrityError(
-            "track_id_invalid", "Scene Track requires a non-empty track_id"
-        )
-    if not frames or min(frames) < 0:
-        raise SceneTrackIntegrityError(
-            "track_frames_invalid", "Scene Track requires non-negative member frames"
-        )
-    if interval_source not in INTERVAL_SOURCES:
-        raise SceneTrackIntegrityError(
-            "interval_source_invalid", "unsupported Scene Track interval source"
-        )
-
-    track, created = await _load_or_create_track(
+    result = await _scene_track_command(
         db,
+        "ensure",
         project_id=project_id,
         scene_id=scene_id,
         track_id=track_id,
         class_name=class_name,
+        frames=sorted(frames),
         actor_id=actor_id,
+        interval_source=interval_source,
+        member_change=member_change,
     )
-    intervals = await _load_intervals_for_update(db, track.id)
-    if track.presence_mode == "explicit":
-        outside = [
-            frame_index
-            for frame_index in sorted(frames)
-            if not any(_contains(interval, frame_index) for interval in intervals)
-        ]
-        if outside:
-            raise SceneTrackIntegrityError(
-                "track_frame_absent",
-                "explicit Scene Track presence must be resumed before writing an absent frame",
-            )
-        interval_changed = False
-    else:
-        interval_changed = await _expand_inferred_envelope(
-            db,
-            track=track,
-            intervals=intervals,
-            frames=frames,
-            source=interval_source,
-            actor_id=actor_id,
-        )
-    if not created and (member_change or interval_changed):
-        track.revision = int(track.revision or 1) + 1
+    if result.track is None:
+        raise SceneTrackDomainUnavailable()
+    track = await _attach_scene_track(
+        db,
+        result.track,
+        changed_fields=("revision", "updated_at") if result.changed else (),
+    )
     await db.flush()
     return track
 
@@ -290,26 +211,18 @@ async def touch_annotation_scene_track(
 ) -> None:
     if annotation.scene_track_id is None:
         return
-    track = (
-        await db.execute(
-            select(SceneTrack)
-            .where(SceneTrack.id == annotation.scene_track_id)
-            .with_for_update()
+    result = await _scene_track_command(
+        db,
+        "touch",
+        annotation_id=annotation.id,
+        scene_track_id=annotation.scene_track_id,
+        track_id=annotation.track_id,
+        class_name=annotation.class_name,
+    )
+    if result.track is not None:
+        await _attach_scene_track(
+            db, result.track, changed_fields=("revision", "updated_at")
         )
-    ).scalar_one_or_none()
-    if track is None:
-        raise SceneTrackIntegrityError(
-            "track_missing", "Annotation references a missing Scene Track"
-        )
-    if (
-        track.track_id != annotation.track_id
-        or track.class_name != annotation.class_name
-    ):
-        raise SceneTrackIntegrityError(
-            "member_identity_mismatch",
-            "Annotation identity does not match its Scene Track",
-        )
-    track.revision = int(track.revision or 1) + 1
     if make_keyframe:
         annotation.temporal_role = "keyframe"
 
@@ -323,47 +236,25 @@ async def reclassify_single_member_scene_track(
     """Change Track class only when the selected member is its sole active member."""
     if annotation.scene_track_id is None or annotation.class_name == class_name:
         return False
-    track = (
-        await db.execute(
-            select(SceneTrack)
-            .where(SceneTrack.id == annotation.scene_track_id)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
-    if track is None:
-        raise SceneTrackIntegrityError(
-            "track_missing", "Annotation references a missing Scene Track"
-        )
-    member_count = await db.scalar(
-        select(func.count())
-        .select_from(Annotation)
-        .where(Annotation.scene_track_id == track.id)
-        .where(Annotation.is_active.is_(True))
-        .where(Annotation.was_cancelled.is_(False))
-        .where(Annotation.sensor_role.is_(None))
+    result = await _scene_track_command(
+        db,
+        "reclassify",
+        annotation_id=annotation.id,
+        scene_track_id=annotation.scene_track_id,
+        track_id=annotation.track_id,
+        expected_class_name=annotation.class_name,
+        class_name=class_name,
     )
-    if int(member_count or 0) != 1:
-        raise SceneTrackIntegrityError(
-            "track_class_change_requires_scope",
-            "change the class through a whole-track operation",
+    if result.track is not None:
+        await _attach_scene_track(
+            db,
+            result.track,
+            changed_fields=("class_name", "revision", "updated_at")
+            if result.changed
+            else (),
         )
-    track.class_name = class_name
-    camera_members = list(
-        (
-            await db.execute(
-                select(Annotation)
-                .where(Annotation.scene_track_id == track.id)
-                .where(Annotation.sensor_role.is_not(None))
-                .where(Annotation.was_cancelled.is_(False))
-                .with_for_update()
-            )
-        ).scalars()
-    )
-    for member in camera_members:
-        member.class_name = class_name
-        member.version = int(member.version or 1) + 1
-    track.revision = int(track.revision or 1) + 1
-    return True
+    _sync_camera_member_cache(db, result.camera_members)
+    return result.changed
 
 
 async def diagnose_scene_tracks(
@@ -373,48 +264,15 @@ async def diagnose_scene_tracks(
     scene_id: uuid.UUID,
     limit: int = 200,
 ) -> SceneTrackDiagnosticReport:
-    tracks = list(
-        (
-            await db.execute(
-                select(SceneTrack)
-                .where(SceneTrack.project_id == project_id)
-                .where(SceneTrack.scene_id == scene_id)
-                .where(SceneTrack.retired_at.is_(None))
-                .order_by(SceneTrack.track_id)
-            )
-        ).scalars()
+    result = await read_scene_data(
+        db,
+        "load_scene_diagnostics",
+        project_id=project_id,
+        scene_id=scene_id,
     )
-    intervals = list(
-        (
-            await db.execute(
-                select(SceneTrackInterval)
-                .join(SceneTrack, SceneTrack.id == SceneTrackInterval.scene_track_id)
-                .where(SceneTrack.project_id == project_id)
-                .where(SceneTrack.scene_id == scene_id)
-                .order_by(
-                    SceneTrackInterval.scene_track_id,
-                    SceneTrackInterval.start_frame,
-                )
-            )
-        ).scalars()
-    )
-    frame_tasks = await get_scene_frame_task_map(db, scene_id)
-    task_frames = {task_id: frame for frame, task_id in frame_tasks.items()}
-    members = list(
-        (
-            await db.execute(
-                select(Annotation)
-                .where(Annotation.project_id == project_id)
-                .where(Annotation.task_id.in_(task_frames))
-                .where(Annotation.annotation_type == "box_3d")
-                .where(Annotation.track_id.is_not(None))
-                .where(Annotation.is_active.is_(True))
-                .where(Annotation.was_cancelled.is_(False))
-                .order_by(Annotation.track_id, Annotation.task_id, Annotation.id)
-            )
-        ).scalars()
-    )
-
+    tracks = result.tracks
+    intervals = result.intervals
+    members = result.members
     tracks_by_id = {track.id: track for track in tracks}
     intervals_by_track: dict[uuid.UUID, list[SceneTrackInterval]] = defaultdict(list)
     for interval in intervals:
@@ -455,7 +313,9 @@ async def diagnose_scene_tracks(
 
     frame_identity_counts: Counter[tuple[uuid.UUID, int]] = Counter()
     for member in members:
-        frame_index = task_frames[member.task_id]
+        frame_index = member.frame_index
+        if frame_index is None:
+            raise RuntimeError("Scene read omitted a diagnostic member frame")
         if member.scene_track_id is None:
             add(
                 "member_unlinked",

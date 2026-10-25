@@ -2,7 +2,7 @@
 audience: [dev, ops]
 type: how-to
 status: stable
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-20
 ---
 
 # 开发部署（本地）
@@ -141,6 +141,16 @@ docker compose down -v       # 连数据卷一起删（清空 PG / MinIO，慎�
 ```
 
 宿主机的 `pnpm dev:api` / `pnpm dev:web` 直接 Ctrl-C。
+
+## 可选 Identity owner 进程
+
+默认开发栈仍由宿主机 API 内嵌装配 Identity owner；分组操作不需要单独数据库，也不能改成和 Workspace 分开的数据库，因为 assignment scope 投影和分组写入要在共享 PostgreSQL 事务中持锁。
+
+需要检查独立私有运行时配置时，可参考仓库根 `DEV.md` 中的 Identity grant 与 `docker-compose.identity.yml` 说明。该 Compose 文件不是默认开发栈；使用时需给已启用 capability 提供 secret 文件。Admission、Recovery credential-mail 和 notification-publisher 是常规运行服务，邀请邮件 sender `identity-mail-v2` 则只在显式启用 `mail-v2` profile 后启动；这些容器均使用非 root、只读运行约束。不同 owner 使用独立函数能力与 DSN：邀请 producer 使用 Identity invitation DSN，V1 Recovery mail、Notifications publisher、deactivation 和 group 继续使用各自已有凭据。
+
+API 可用 `IDENTITY_GROUP_DATABASE_URL(_FILE)` 选择 GROUP DSN；自助注销使用 `IDENTITY_DEACTIVATION_DATABASE_URL(_FILE)` 与 `IDENTITY_DEACTIVATION_OPERATOR_DATABASE_URL(_FILE)`，邀请 producer 使用 `IDENTITY_INVITATION_DATABASE_URL(_FILE)`。这些显式连接故障都不回退。Identity 命令、最后超管 fence、到期页、邀请生命周期与 Notifications publisher 的合同见[Identity 私有运行协议](/api/guides/identity-runtime)。Admission 只取得自己的 Identity capability DSN；它不接收 MailV2 DSN 或 SMTP 凭据。notification-publisher 只取得 `NOTIFICATION_PUBLISH_DATABASE_URL_FILE` 与 `NOTIFICATION_PUBLISH_REDIS_URL_FILE`，没有 control bearer、Identity DSN、JWT signing secret、SMTP 或 HTTP health endpoint。邀请 producer 和 MailV2 sender 各有独立 DSN；Compose host selector 为 `IDENTITY_RUNTIME_INVITATION_DATABASE_URL_FILE` 与 `IDENTITY_RUNTIME_MAIL_V2_DATABASE_URL_FILE`。Publisher 使用与 Identity、Audit 和 Notifications outbox 相同的 PostgreSQL 数据库；不能拆成异库提交。
+
+注销 due worker 仍由原 API/Celery task 名按每日 04:00 UTC 启动；任务每页提交固定操作回执并继续排空，页大小不是总体 cap。独立 publisher 运行 `python -m aap_identity_runtime.notification_worker`，没有 HTTP health endpoint；它先 commit claim，再连接 Redis，送达后提交 finish。同一 Notification ID 重试时保持稳定，at-least-once 可能导致重复 broker 消息。邀请 MailV2 sender 运行 `python -m aap_identity_runtime.mail_worker_v2`，默认不在 profile 外启动；`--profile mail-v2` 时必须提供 `IDENTITY_RUNTIME_MAIL_V2_DATABASE_URL_FILE`。它复用 `IDENTITY_RUNTIME_MAIL_SETTINGS_DATABASE_URL_FILE` 和 `IDENTITY_RUNTIME_RECOVERY_MAIL_KEY_FILE` 文件，并把主机 `IDENTITY_MAIL_SMTP_*` fallback 映射至 `IDENTITY_MAIL_V2_SMTP_*`；容器仅有 MailV2、MAIL_SETTINGS、Fernet 与 SMTP 能力，在独立 8171 端口提供 `/health`、`/ready`。邮件 producer 不持有 SMTP 凭据，且发送过程不跨 SQL 锁执行网络 I/O。邀请 intent 与 V1 Recovery worker 相互隔离，发送结果不确定时稳定 Message-ID 的 at-least-once 语义可能造成重复邮件。该 Compose 配置用于可选本地进程；邀请／MailV2 已通过独立进程、真实 API／SMTP 和恢复验收，证据见[模块台账](/dev/concepts/module-deployment#identity-邀请与-mailv2-独立投递)。Identity 全模块切换和生产容量仍待验证。
 
 ---
 

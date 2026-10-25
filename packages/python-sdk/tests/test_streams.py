@@ -135,6 +135,54 @@ async def test_named_streams_use_exact_paths_typed_events_and_close(
     )
 
 
+@pytest.mark.asyncio
+async def test_notification_stream_preserves_native_payloads_and_continues_after_sync(
+    client, monkeypatch
+):
+    first_payload = ["legacy", None, 2**100, {"label": "雪"}]
+    third_payload = None
+    socket = Socket(
+        [
+            json.dumps(
+                {
+                    "id": ID,
+                    "type": "legacy.notification",
+                    "target_type": "task",
+                    "target_id": ID,
+                    "payload": first_payload,
+                    "created_at": NOW,
+                }
+            ),
+            json.dumps({"type": "notifications.sync", "reason": "read"}),
+            json.dumps(
+                {
+                    "id": ID,
+                    "type": "legacy.notification",
+                    "target_type": "task",
+                    "target_id": ID,
+                    "payload": third_payload,
+                    "created_at": NOW,
+                }
+            ),
+        ]
+    )
+
+    async def connect(*_args, **_kwargs):
+        return socket
+
+    monkeypatch.setitem(sys.modules, "websockets", SimpleNamespace(connect=connect))
+    client._http._client.headers["Authorization"] = "Bearer valid-jwt"
+
+    async with client.streams.notifications() as events:
+        received = [event async for event in events]
+
+    assert len(received) == 3
+    assert received[0].payload == first_payload
+    assert received[1].type == "notifications.sync"
+    assert received[2].payload is None
+    assert socket.closed
+
+
 def test_offline_channels_and_method_descriptions_are_separate_from_rest():
     rows = list_stream_channels()
     assert len(rows) == 6

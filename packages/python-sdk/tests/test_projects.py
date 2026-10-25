@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from uuid import uuid4
 
 import httpx
@@ -60,6 +61,37 @@ def test_list_projects(client, respx_mock):
     assert req.headers["Authorization"] == "Bearer ak_test"
     assert isinstance(projects[0], Project)
     assert projects[0].display_id == "P-1"
+
+
+@pytest.mark.parametrize("scope", ["list", "detail"])
+def test_project_owner_fields_preserve_actual_legacy_serialization(
+    client, respx_mock, scope
+):
+    captured = json.loads(
+        (
+            Path(__file__).parent / "fixtures/project_owner_profiles_legacy.json"
+        ).read_text()
+    )
+    payload = next(
+        item["response"] for item in captured["records"] if item["phase"] == scope
+    )
+    if scope == "list":
+        respx_mock.get(f"{API}/projects").mock(
+            return_value=httpx.Response(200, json=payload)
+        )
+        actual = client.projects.list()
+        expected = payload
+    else:
+        respx_mock.get(f"{API}/projects/{payload['id']}").mock(
+            return_value=httpx.Response(200, json=payload)
+        )
+        actual = [client.projects.get(payload["id"])]
+        expected = [payload]
+    assert [str(project.id) for project in actual] == [item["id"] for item in expected]
+    for project, item in zip(actual, expected, strict=True):
+        assert str(project.owner_id) == item["owner_id"]
+        assert project.owner_name == item["owner_name"]
+        assert project.owner_avatar_ref == item["owner_avatar_ref"]
 
 
 def test_create_project_fills_type_label(client, respx_mock):

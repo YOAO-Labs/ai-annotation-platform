@@ -1,9 +1,4 @@
-"""v0.10.25 · predictions 月分区维护（ADR-0006 Stage 2）
-
-ensure_future_partitions(months_ahead=3): 检查 [今月, 今月+months_ahead] 缺失分区时
-CREATE TABLE ... PARTITION OF predictions ...。与 audit_partition_service 同构，但
-predictions 无冷数据归档需求（ADR-0006 仅要求自动建分区，不归档预测结果）。
-"""
+"""Bind monthly prediction partition maintenance to the Labeling owner."""
 
 from __future__ import annotations
 
@@ -12,6 +7,9 @@ from datetime import date, datetime, timezone
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from aap_labeling.prediction_partition_contract import EnsurePredictionPartition
+from aap_labeling.prediction_partition_data import PredictionPartitionDataClient
 
 
 logger = logging.getLogger(__name__)
@@ -27,34 +25,12 @@ def _month_floor(d: date) -> date:
     return d.replace(day=1)
 
 
-def _partition_name(d: date) -> str:
-    return f"predictions_y{d.year}m{d.month:02d}"
-
-
-async def _existing_partition_names(db: AsyncSession) -> set[str]:
-    rows = (
-        await db.execute(
-            text(
-                """
-                SELECT child.relname AS child_name
-                FROM pg_inherits i
-                JOIN pg_class parent ON i.inhparent = parent.oid
-                JOIN pg_class child ON i.inhrelid = child.oid
-                WHERE parent.relname = 'predictions'
-                """
-            )
-        )
-    ).all()
-    return {r.child_name for r in rows}
-
-
 class PredictionPartitionService:
     @staticmethod
     async def ensure_future_partitions(
         db: AsyncSession, *, months_ahead: int = 3
     ) -> list[str]:
         """补建未来 N 个月分区。返回新创建的分区名列表。"""
-        existing = await _existing_partition_names(db)
         today = datetime.now(timezone.utc).date()
         cur = _month_floor(today)
         target = cur
@@ -64,17 +40,26 @@ class PredictionPartitionService:
 
         created: list[str] = []
         m = cur
+
+        async def execute(request_json: str):
+            return await db.scalar(
+                text(
+                    "SELECT aap_labeling_v1.prediction_partition_command("
+                    "CAST(:request AS jsonb))"
+                ),
+                {"request": request_json},
+            )
+
+        client = PredictionPartitionDataClient(execute)
         while m < end:
-            name = _partition_name(m)
-            if name not in existing:
-                start_iso = m.isoformat()
-                end_iso = _next_month(m).isoformat()
-                await db.execute(
-                    text(
-                        f"CREATE TABLE IF NOT EXISTS {name} PARTITION OF predictions "
-                        f"FOR VALUES FROM ('{start_iso}') TO ('{end_iso}')"
-                    )
+            data = await client.ensure(
+                EnsurePredictionPartition(
+                    schema="aap-labeling-prediction-partitions/v1",
+                    operation="ensure",
+                    month=m,
                 )
-                created.append(name)
+            )
+            if data.created is not None:
+                created.append(data.created)
             m = _next_month(m)
         return created

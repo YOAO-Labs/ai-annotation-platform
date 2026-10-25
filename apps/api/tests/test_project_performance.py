@@ -140,6 +140,8 @@ async def test_first_review_contributors_survive_missing_online_submit_audit():
     capture_first_review_contributor_snapshot(task, contributors)
 
     class MissingAudit:
+        autoflush = False
+
         async def execute(self, _statement):
             return SimpleNamespace(scalar_one_or_none=lambda: None)
 

@@ -32,7 +32,7 @@ async def test_topology_super_admin_sees_full_detail(
         health_meta={"capabilities": caps},
         last_checked_at=datetime.now(UTC),
     )
-    from app.services.ml_routing.capability import (
+    from aap_inference.pool_capability import (
         canonicalize_capability,
         capability_fingerprint,
     )
@@ -140,7 +140,7 @@ async def test_topology_status_derivation(
         health_meta={"capabilities": caps},
         last_checked_at=datetime.now(UTC),
     )
-    from app.services.ml_routing.capability import (
+    from aap_inference.pool_capability import (
         canonicalize_capability,
         capability_fingerprint,
     )
@@ -255,10 +255,15 @@ async def test_runtime_snapshot_super_admin_only(
 
 
 @pytest.mark.asyncio
-async def test_runtime_snapshot_keeps_unknown_inflight_when_ledger_unavailable(
+async def test_runtime_snapshot_keeps_unknown_inflight_when_owner_unavailable(
     httpx_client, db_session, super_admin, monkeypatch
 ) -> None:
     from app.services.ml_routing import router
+    from app.services.ml_routing.authority import RoutingAuthority
+    from aap_inference_contract.routing import RoutingUnavailable
+
+    async def unavailable(_self, _registry_ids):
+        raise RoutingUnavailable()
 
     class FailingLedger:
         async def healthcheck(self) -> None:
@@ -278,6 +283,7 @@ async def test_runtime_snapshot_keeps_unknown_inflight_when_ledger_unavailable(
     await db_session.flush()
     monkeypatch.setattr(settings, "ml_backend_router_mode", "enforce")
     monkeypatch.setattr(router, "make_ledger_from_settings", FailingLedger)
+    monkeypatch.setattr(RoutingAuthority, "runtime_snapshot", unavailable)
 
     response = await httpx_client.get(
         "/api/v1/admin/ml-integrations/runtime-snapshot",
@@ -289,6 +295,7 @@ async def test_runtime_snapshot_keeps_unknown_inflight_when_ledger_unavailable(
         source for source in body["sources"] if source["name"] == "router_ledger"
     )
     assert ledger_source["stale"] is True
+    assert ledger_source["error"] == "routing_owner_unavailable"
     member = next(
         pool["members"][0]
         for pool in body["pools"]

@@ -85,7 +85,7 @@ async def _update_calibration(
     return result.state
 
 
-async def _seed(db, owner_id: uuid.UUID):
+async def _seed(db, owner_id: uuid.UUID, *, camera_size: int | None = None):
     project = await create_project(db, owner_id=owner_id, type_key="lidar")
     project.data_type = "lidar"
     dataset = Dataset(
@@ -117,6 +117,7 @@ async def _seed(db, owner_id: uuid.UUID):
         file_name="front.jpg",
         file_path="mm/front.jpg",
         file_type="image",
+        file_size=camera_size,
         width=200,
         height=120,
         scene_id=scene.id,
@@ -287,10 +288,9 @@ async def test_multicamera_coco_preflight_allows_stale_manual_relation(
     db_session, super_admin, monkeypatch
 ):
     user, _ = super_admin
-    task, camera, source, track = await _seed(db_session, user.id)
+    task, camera, source, track = await _seed(db_session, user.id, camera_size=14)
     baseline = _calibration()
     baseline_digest = calibration_digest(baseline)
-    camera.file_size = 14
     await create_camera_member(
         db_session,
         task=task,
@@ -334,8 +334,7 @@ async def test_multicamera_coco_preflight_rejects_unsafe_role_path(
     db_session, super_admin, monkeypatch
 ):
     user, _ = super_admin
-    task, camera, _source, _track = await _seed(db_session, user.id)
-    camera.file_size = 14
+    task, camera, _source, _track = await _seed(db_session, user.id, camera_size=14)
     link = await db_session.scalar(
         select(TaskDatasetItemLink).where(
             TaskDatasetItemLink.task_id == task.id,
@@ -367,9 +366,10 @@ async def test_multicamera_coco_package_contains_trusted_media_contract(
     db_session, super_admin, monkeypatch
 ):
     user, _ = super_admin
-    task, camera, source, track = await _seed(db_session, user.id)
     payload = b"trusted-image"
-    camera.file_size = len(payload)
+    task, camera, source, track = await _seed(
+        db_session, user.id, camera_size=len(payload)
+    )
     primary_item = await db_session.get(DatasetItem, task.dataset_item_id)
     assert primary_item is not None
     primary_item.file_path = ""

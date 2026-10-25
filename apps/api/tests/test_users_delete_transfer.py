@@ -47,8 +47,13 @@ class TestUserDelete:
             f"/api/v1/users/{user_data['id']}",
             headers={"Authorization": f"Bearer {sa_token}"},
         )
-        # 预期 200（软删除成功），或 409（如果该用户有其他依赖）
-        assert r.status_code in (200, 409)
+        assert r.status_code == 200, r.text
+        assert r.json()["is_active"] is False
+        assert r.json()["disabled_kind"] == "deleted"
+        await db_session.refresh(temp)
+        assert temp.is_active is False
+        assert temp.disabled_reason == "管理员删除账号"
+        assert temp.credential_generation == 0
 
     async def test_delete_creates_audit_log(
         self, httpx_client, super_admin, db_session
@@ -63,7 +68,7 @@ class TestUserDelete:
             email="todel@test.local",
             name="ToDelete",
             password_hash="$2b$12$" + "0" * 53,
-            role="annotator",
+            role="employee",
             is_active=True,
         )
         db_session.add(temp)
@@ -73,17 +78,24 @@ class TestUserDelete:
             f"/api/v1/users/{uid}",
             headers={"Authorization": f"Bearer {sa_token}"},
         )
-        assert r.status_code in (200, 409)
+        assert r.status_code == 200, r.text
 
-        if r.status_code == 200:
-            from app.db.models.audit_log import AuditLog
-            from sqlalchemy import select
+        from app.db.models.audit_log import AuditLog
+        from sqlalchemy import select
 
-            result = await db_session.execute(
-                select(AuditLog).where(AuditLog.action == "user.delete")
+        log = await db_session.scalar(
+            select(AuditLog).where(
+                AuditLog.action == "user.delete", AuditLog.target_id == str(uid)
             )
-            logs = result.scalars().all()
-            assert len(logs) >= 1
+        )
+        assert log is not None
+        assert log.detail_json == {
+            "email": "todel@test.local",
+            "role": "employee",
+            "transferred_to": None,
+            "transferred_count": 0,
+            "released_locks": 0,
+        }
 
     async def test_cannot_delete_last_super_admin(self, httpx_client, super_admin):
         """不能删除最后一名 super_admin。"""

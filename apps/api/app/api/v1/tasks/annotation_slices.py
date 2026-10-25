@@ -13,7 +13,7 @@ from app.schemas.annotation_slice import (
 )
 from app.services.audit import audit_origin_from_request
 from app.services.annotation_slice_contracts import AnnotationSliceError
-from app.services.workspace_contract import ProjectAccess
+from aap_workspace_contract.access import ProjectAccess
 from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()

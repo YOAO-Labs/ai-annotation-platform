@@ -25,8 +25,7 @@ async def _mark_job_failed(celery_task_id: str, error_message: str) -> bool:
 
     from app.services import async_job as async_job_svc
     from app.services.async_job_notify import notify_job_terminal
-    from app.db.models.async_job import AsyncJob
-    from sqlalchemy import select
+    from app.services.jobs_lifecycle_data import job_lock_statement
 
     engine = create_async_engine(settings.database_url, echo=False)
     SessionLocal = async_sessionmaker(
@@ -41,10 +40,7 @@ async def _mark_job_failed(celery_task_id: str, error_message: str) -> bool:
                 return False
             job = (
                 await db.execute(
-                    select(AsyncJob)
-                    .where(AsyncJob.id == job.id)
-                    .with_for_update()
-                    .execution_options(populate_existing=True)
+                    job_lock_statement(job.id, mode="update", populate_existing=True)
                 )
             ).scalar_one()
             if job.status not in {"pending", "running"}:

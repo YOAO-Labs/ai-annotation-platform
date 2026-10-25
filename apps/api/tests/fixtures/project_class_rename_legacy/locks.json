@@ -1,0 +1,784 @@
+{
+  "capture_kind": "actual-pre-extraction-project-class-rename-locks",
+  "limit": "actual lock holders and NOWAIT behavior; no latency or capacity claim",
+  "lock_driver_sha256": "b47acb0c30300806634a29fbe46a2c1562cce177dc1ac19a0cdcf6aef76195d9",
+  "samples": [
+    {
+      "held_row": {
+        "mode": "UPDATE",
+        "table": "users"
+      },
+      "label": "account_update_blocks_changed",
+      "observation": {
+        "commit_count": 0,
+        "db_errors": [
+          {
+            "exception_type": "Error",
+            "sqlstate": "55P03",
+            "statement": "SELECT aap_identity_v1.lock_accounts_share(CAST($1 AS uuid[]), CAST($2 AS boolean))",
+            "statement_sha256": "4251cfb9416635d3af4655e3ec3a36997705b50d93dc2234be1ce992f52340bd"
+          }
+        ],
+        "dml_statements": [],
+        "rollback_count": 0,
+        "sql": [
+          {
+            "phase": "identity_authority",
+            "sequence": 1,
+            "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+            "statement": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)"
+          },
+          {
+            "phase": "identity_authority",
+            "sequence": 2,
+            "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+            "statement": "SELECT aap_identity_v1.read_actor_context($1, $2)"
+          },
+          {
+            "phase": "project_read_or_projection",
+            "sequence": 3,
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "identity_authority",
+            "sequence": 4,
+            "sha256": "7ace85e5b02cdb2a5e38c7fa6cad1739bc7841381316ae8a03f3a9b095924151",
+            "statement": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))"
+          },
+          {
+            "phase": "project_read_or_projection",
+            "sequence": 5,
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "identity_authority",
+            "sequence": 6,
+            "sha256": "4251cfb9416635d3af4655e3ec3a36997705b50d93dc2234be1ce992f52340bd",
+            "statement": "SELECT aap_identity_v1.lock_accounts_share(CAST($1 AS uuid[]), CAST($2 AS boolean))"
+          }
+        ],
+        "sql_by_kind": {
+          "select": 6
+        },
+        "transaction_events": []
+      },
+      "post_response_state": {
+        "annotations": [
+          {
+            "active": true,
+            "cancelled": false,
+            "class_name": "Car",
+            "id": "$annotation_target",
+            "source": "manual",
+            "tool_unit_id": "bbox",
+            "updated_at": "<timestamp>",
+            "version": 1
+          }
+        ],
+        "project_updated_at": "<timestamp>",
+        "tool_bindings": {
+          "bbox": {
+            "attribute_schema": {
+              "fields": []
+            },
+            "classes": [
+              {
+                "color": "#6699cc",
+                "name": "Car"
+              }
+            ],
+            "enabled": true
+          }
+        }
+      },
+      "request": {
+        "new_name": "Truck",
+        "old_name": "Car",
+        "tool_unit_id": "bbox"
+      },
+      "response": {
+        "body": {
+          "detail": {
+            "reason": "account_busy"
+          }
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 409
+      }
+    },
+    {
+      "held_row": {
+        "mode": "UPDATE",
+        "table": "users"
+      },
+      "label": "account_update_blocks_noop",
+      "observation": {
+        "commit_count": 0,
+        "db_errors": [
+          {
+            "exception_type": "Error",
+            "sqlstate": "55P03",
+            "statement": "SELECT aap_identity_v1.lock_accounts_share(CAST($1 AS uuid[]), CAST($2 AS boolean))",
+            "statement_sha256": "4251cfb9416635d3af4655e3ec3a36997705b50d93dc2234be1ce992f52340bd"
+          }
+        ],
+        "dml_statements": [],
+        "rollback_count": 0,
+        "sql": [
+          {
+            "phase": "identity_authority",
+            "sequence": 1,
+            "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+            "statement": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)"
+          },
+          {
+            "phase": "identity_authority",
+            "sequence": 2,
+            "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+            "statement": "SELECT aap_identity_v1.read_actor_context($1, $2)"
+          },
+          {
+            "phase": "project_read_or_projection",
+            "sequence": 3,
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "identity_authority",
+            "sequence": 4,
+            "sha256": "7ace85e5b02cdb2a5e38c7fa6cad1739bc7841381316ae8a03f3a9b095924151",
+            "statement": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))"
+          },
+          {
+            "phase": "project_read_or_projection",
+            "sequence": 5,
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "identity_authority",
+            "sequence": 6,
+            "sha256": "4251cfb9416635d3af4655e3ec3a36997705b50d93dc2234be1ce992f52340bd",
+            "statement": "SELECT aap_identity_v1.lock_accounts_share(CAST($1 AS uuid[]), CAST($2 AS boolean))"
+          }
+        ],
+        "sql_by_kind": {
+          "select": 6
+        },
+        "transaction_events": []
+      },
+      "post_response_state": {
+        "annotations": [
+          {
+            "active": true,
+            "cancelled": false,
+            "class_name": "Car",
+            "id": "$annotation_target",
+            "source": "manual",
+            "tool_unit_id": "bbox",
+            "updated_at": "<timestamp>",
+            "version": 1
+          }
+        ],
+        "project_updated_at": "<timestamp>",
+        "tool_bindings": {
+          "bbox": {
+            "attribute_schema": {
+              "fields": []
+            },
+            "classes": [
+              {
+                "color": "#6699cc",
+                "name": "Car"
+              }
+            ],
+            "enabled": true
+          }
+        }
+      },
+      "request": {
+        "new_name": "Car",
+        "old_name": "Car",
+        "tool_unit_id": "bbox"
+      },
+      "response": {
+        "body": {
+          "detail": {
+            "reason": "account_busy"
+          }
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 409
+      }
+    },
+    {
+      "held_row": {
+        "mode": "UPDATE",
+        "table": "projects"
+      },
+      "label": "project_update_blocks_changed",
+      "observation": {
+        "commit_count": 0,
+        "db_errors": [
+          {
+            "exception_type": "Error",
+            "sqlstate": "55P03",
+            "statement": "SELECT projects.id, projects.organization_id, projects.display_id, projects.name, projects.type_label, projects.type_key, projects.data_type, projects.owner_id, projects.status, projects.ai_enabled, projects.ml_backend_pool_id, projects.default_variants, projects.preannotate_pipeline, projects.label_config, projects.tool_bindings, projects.sampling, projects.maximum_annotations, projects.show_overlap_first, projects.iou_dedup_threshold, projects.box_threshold, projects.text_threshold, projects.ai_interactive_enabled, projects.raster_mask_native_editing_enabled, projects.mask_qc_config, projects.point_cloud_quality_config, projects.rendering_config, projects.annotation_guide, projects.guide_assets, projects.model_version, projects.task_lock_ttl_seconds, projects.total_tasks, projects.completed_tasks, projects.review_tasks, projects.in_progress_tasks, projects.batch_summary, projects.video_sampling, projects.video_collaboration, projects.scene_mode, projects.prefer_same_scene_continuation, projects.scene_continuation_window_min, projects.due_date, projects.created_at, projects.updated_at FROM projects WHERE projects.id = $1::UUID FOR KEY SHARE NOWAIT",
+            "statement_sha256": "99fd0d920817f958aa76279a9f13903b7d43141045db8a7821213acd2430b15a"
+          }
+        ],
+        "dml_statements": [],
+        "rollback_count": 0,
+        "sql": [
+          {
+            "phase": "identity_authority",
+            "sequence": 1,
+            "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+            "statement": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)"
+          },
+          {
+            "phase": "identity_authority",
+            "sequence": 2,
+            "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+            "statement": "SELECT aap_identity_v1.read_actor_context($1, $2)"
+          },
+          {
+            "phase": "project_read_or_projection",
+            "sequence": 3,
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "identity_authority",
+            "sequence": 4,
+            "sha256": "7ace85e5b02cdb2a5e38c7fa6cad1739bc7841381316ae8a03f3a9b095924151",
+            "statement": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))"
+          },
+          {
+            "phase": "project_read_or_projection",
+            "sequence": 5,
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "identity_authority",
+            "sequence": 6,
+            "sha256": "4251cfb9416635d3af4655e3ec3a36997705b50d93dc2234be1ce992f52340bd",
+            "statement": "SELECT aap_identity_v1.lock_accounts_share(CAST($1 AS uuid[]), CAST($2 AS boolean))"
+          },
+          {
+            "phase": "project_read_or_projection",
+            "sequence": 7,
+            "sha256": "99fd0d920817f958aa76279a9f13903b7d43141045db8a7821213acd2430b15a",
+            "statement": "SELECT projects.id, projects.organization_id, projects.display_id, projects.name, projects.type_label, projects.type_key, projects.data_type, projects.owner_id, projects.status, projects.ai_enabled, projects.ml_backend_pool_id, projects.default_variants, projects.preannotate_pipeline, projects.label_config, projects.tool_bindings, projects.sampling, projects.maximum_annotations, projects.show_overlap_first, projects.iou_dedup_threshold, projects.box_threshold, projects.text_threshold, projects.ai_interactive_enabled, projects.raster_mask_native_editing_enabled, projects.mask_qc_config, projects.point_cloud_quality_config, projects.rendering_config, projects.annotation_guide, projects.guide_assets, projects.model_version, projects.task_lock_ttl_seconds, projects.total_tasks, projects.completed_tasks, projects.review_tasks, projects.in_progress_tasks, projects.batch_summary, projects.video_sampling, projects.video_collaboration, projects.scene_mode, projects.prefer_same_scene_continuation, projects.scene_continuation_window_min, projects.due_date, projects.created_at, projects.updated_at FROM projects WHERE projects.id = $1::UUID FOR KEY SHARE NOWAIT"
+          }
+        ],
+        "sql_by_kind": {
+          "select": 7
+        },
+        "transaction_events": []
+      },
+      "post_response_state": {
+        "annotations": [
+          {
+            "active": true,
+            "cancelled": false,
+            "class_name": "Car",
+            "id": "$annotation_target",
+            "source": "manual",
+            "tool_unit_id": "bbox",
+            "updated_at": "<timestamp>",
+            "version": 1
+          }
+        ],
+        "project_updated_at": "<timestamp>",
+        "tool_bindings": {
+          "bbox": {
+            "attribute_schema": {
+              "fields": []
+            },
+            "classes": [
+              {
+                "color": "#6699cc",
+                "name": "Car"
+              }
+            ],
+            "enabled": true
+          }
+        }
+      },
+      "request": {
+        "new_name": "Truck",
+        "old_name": "Car",
+        "tool_unit_id": "bbox"
+      },
+      "response": {
+        "body": {
+          "detail": {
+            "reason": "project_busy"
+          }
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 409
+      }
+    },
+    {
+      "held_row": {
+        "mode": "KEY SHARE",
+        "table": "projects"
+      },
+      "label": "project_key_share_allows_noop",
+      "observation": {
+        "commit_count": 0,
+        "db_errors": [],
+        "dml_statements": [],
+        "rollback_count": 0,
+        "sql": [
+          {
+            "phase": "identity_authority",
+            "sequence": 1,
+            "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+            "statement": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)"
+          },
+          {
+            "phase": "identity_authority",
+            "sequence": 2,
+            "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+            "statement": "SELECT aap_identity_v1.read_actor_context($1, $2)"
+          },
+          {
+            "phase": "project_read_or_projection",
+            "sequence": 3,
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "identity_authority",
+            "sequence": 4,
+            "sha256": "7ace85e5b02cdb2a5e38c7fa6cad1739bc7841381316ae8a03f3a9b095924151",
+            "statement": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))"
+          },
+          {
+            "phase": "project_read_or_projection",
+            "sequence": 5,
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "identity_authority",
+            "sequence": 6,
+            "sha256": "4251cfb9416635d3af4655e3ec3a36997705b50d93dc2234be1ce992f52340bd",
+            "statement": "SELECT aap_identity_v1.lock_accounts_share(CAST($1 AS uuid[]), CAST($2 AS boolean))"
+          },
+          {
+            "phase": "project_read_or_projection",
+            "sequence": 7,
+            "sha256": "99fd0d920817f958aa76279a9f13903b7d43141045db8a7821213acd2430b15a",
+            "statement": "SELECT projects.id, projects.organization_id, projects.display_id, projects.name, projects.type_label, projects.type_key, projects.data_type, projects.owner_id, projects.status, projects.ai_enabled, projects.ml_backend_pool_id, projects.default_variants, projects.preannotate_pipeline, projects.label_config, projects.tool_bindings, projects.sampling, projects.maximum_annotations, projects.show_overlap_first, projects.iou_dedup_threshold, projects.box_threshold, projects.text_threshold, projects.ai_interactive_enabled, projects.raster_mask_native_editing_enabled, projects.mask_qc_config, projects.point_cloud_quality_config, projects.rendering_config, projects.annotation_guide, projects.guide_assets, projects.model_version, projects.task_lock_ttl_seconds, projects.total_tasks, projects.completed_tasks, projects.review_tasks, projects.in_progress_tasks, projects.batch_summary, projects.video_sampling, projects.video_collaboration, projects.scene_mode, projects.prefer_same_scene_continuation, projects.scene_continuation_window_min, projects.due_date, projects.created_at, projects.updated_at FROM projects WHERE projects.id = $1::UUID FOR KEY SHARE NOWAIT"
+          },
+          {
+            "phase": "other_read",
+            "sequence": 8,
+            "sha256": "a1ffc7d3d8a59fd1b6005b2b786091924300928d6dcf22c598d4a2692def1d0f",
+            "statement": "SELECT aap_workspace_project_query_v1.project_query_policy()"
+          },
+          {
+            "phase": "other_read",
+            "sequence": 9,
+            "sha256": "d840c4711a423e5f993cc9b62d438b21d2ba678872c9835d306d8611f6b6748b",
+            "statement": "SELECT aap_workspace_project_query_v1.project_query_step(CAST($1 AS jsonb),CAST($2 AS text),CAST($3 AS jsonb),CAST($4 AS text),CAST($5 AS text),CAST($6 AS text[]),CAST($7 AS text[]),CAST($8 AS uuid),CAST($9 AS text),CAST($10 AS timestamptz),CAST($11 AS timestamptz),CAST($12 AS bigint),CAST($13 AS integer))"
+          },
+          {
+            "phase": "other_read",
+            "sequence": 10,
+            "sha256": "2c5c939b9551d328804d711edd4c0399cc1047b131a515a960839924210fcc04",
+            "statement": "SELECT aap_identity_briefs_v1.execute_briefs_command(CAST($1 AS jsonb))"
+          },
+          {
+            "phase": "other_read",
+            "sequence": 11,
+            "sha256": "d840c4711a423e5f993cc9b62d438b21d2ba678872c9835d306d8611f6b6748b",
+            "statement": "SELECT aap_workspace_project_query_v1.project_query_step(CAST($1 AS jsonb),CAST($2 AS text),CAST($3 AS jsonb),CAST($4 AS text),CAST($5 AS text),CAST($6 AS text[]),CAST($7 AS text[]),CAST($8 AS uuid),CAST($9 AS text),CAST($10 AS timestamptz),CAST($11 AS timestamptz),CAST($12 AS bigint),CAST($13 AS integer))"
+          },
+          {
+            "phase": "other_read",
+            "sequence": 12,
+            "sha256": "d840c4711a423e5f993cc9b62d438b21d2ba678872c9835d306d8611f6b6748b",
+            "statement": "SELECT aap_workspace_project_query_v1.project_query_step(CAST($1 AS jsonb),CAST($2 AS text),CAST($3 AS jsonb),CAST($4 AS text),CAST($5 AS text),CAST($6 AS text[]),CAST($7 AS text[]),CAST($8 AS uuid),CAST($9 AS text),CAST($10 AS timestamptz),CAST($11 AS timestamptz),CAST($12 AS bigint),CAST($13 AS integer))"
+          }
+        ],
+        "sql_by_kind": {
+          "select": 12
+        },
+        "transaction_events": []
+      },
+      "post_response_state": {
+        "annotations": [
+          {
+            "active": true,
+            "cancelled": false,
+            "class_name": "Car",
+            "id": "$annotation_target",
+            "source": "manual",
+            "tool_unit_id": "bbox",
+            "updated_at": "<timestamp>",
+            "version": 1
+          }
+        ],
+        "project_updated_at": "<timestamp>",
+        "tool_bindings": {
+          "bbox": {
+            "attribute_schema": {
+              "fields": []
+            },
+            "classes": [
+              {
+                "color": "#6699cc",
+                "name": "Car"
+              }
+            ],
+            "enabled": true
+          }
+        }
+      },
+      "request": {
+        "new_name": "Car",
+        "old_name": "Car",
+        "tool_unit_id": "bbox"
+      },
+      "response": {
+        "body": {
+          "ai_completed_tasks": 0,
+          "ai_enabled": false,
+          "ai_interactive_enabled": true,
+          "annotation_guide": null,
+          "attribute_schema": {
+            "fields": []
+          },
+          "batch_summary": {
+            "assigned": 0,
+            "in_review": 0,
+            "total": 0
+          },
+          "box_threshold": 0.3499999940395355,
+          "capability_warnings": [],
+          "classes": [
+            "Car"
+          ],
+          "classes_config": {
+            "Car": {
+              "alias": null,
+              "color": "#6699cc",
+              "order": null
+            }
+          },
+          "completed_tasks": 0,
+          "created_at": "<timestamp>",
+          "data_type": "image",
+          "default_variants": {},
+          "display_id": "$display_target",
+          "due_date": null,
+          "guide_assets": [],
+          "id": "$project_target",
+          "in_progress_tasks": 0,
+          "iou_dedup_threshold": 0.7,
+          "label_config": {},
+          "mask_qc_config": {
+            "auto_run": "on_review_submit",
+            "blocking": false,
+            "config_revision": 1,
+            "enabled": true,
+            "schema_version": 1,
+            "severity_overrides": {},
+            "single_frame": {
+              "bbox_iou_min": 0.98,
+              "boundary_noise_ratio": 0.15,
+              "narrow_bridge_width": 2,
+              "near_empty_pixels": 16,
+              "overlap_pixels": 1,
+              "small_component_pixels": 32,
+              "small_component_ratio": 0.005,
+              "small_hole_pixels": 32
+            },
+            "temporal": {
+              "area_change_ratio": 0.5,
+              "centroid_shift_diagonal": 0.15,
+              "component_delta": 2,
+              "drift_min_consecutive": 3,
+              "flicker_max_frames": 2,
+              "iou_drop": 0.35,
+              "sample_step": 1
+            }
+          },
+          "maximum_annotations": 1,
+          "member_count": 0,
+          "ml_backend_id": null,
+          "model_version": null,
+          "my_project_role": null,
+          "name": "Rename lock capture",
+          "organization_id": null,
+          "owner_avatar_ref": null,
+          "owner_id": "$actor_owner",
+          "owner_name": "Rename lock capture",
+          "point_cloud_quality_config": {
+            "class_thresholds": {},
+            "config_revision": 1,
+            "enabled": true,
+            "enabled_rules": [
+              "duplicate_track_member",
+              "ground_clearance",
+              "low_point_count",
+              "projection_residual",
+              "size_outlier",
+              "temporal_jump",
+              "track_gap",
+              "track_identity_drift"
+            ],
+            "governance": {
+              "maximum_false_positive_rate": 0.1,
+              "minimum_confirmed_retention": 0.9,
+              "minimum_reviewed_per_rule": 20
+            },
+            "schema_version": 2,
+            "severity_overrides": {},
+            "thresholds": {
+              "ground_float_m": 0.45,
+              "ground_margin_m": 0.75,
+              "ground_penetration_m": 0.2,
+              "ground_sample_min": 24,
+              "minimum_points": 5,
+              "projection_max_edge_residual_ratio": 0.025,
+              "projection_min_iou": 0.5,
+              "size_mad_z": 4.5,
+              "size_min_samples": 8,
+              "temporal_center_jump_m": 4.0,
+              "temporal_size_change_ratio": 0.6,
+              "temporal_yaw_jump_rad": 0.8
+            }
+          },
+          "preannotate_pipeline": null,
+          "prefer_same_scene_continuation": false,
+          "raster_mask_native_editing_enabled": true,
+          "rendering_config": {
+            "box3dDefaultSize": null,
+            "controlPointsSize": null,
+            "cssImageFilter": null,
+            "propagateOverwrite": null,
+            "smoothImage": null,
+            "snapToGrid": null,
+            "trackerDefaultModel": null
+          },
+          "review_tasks": 0,
+          "sampling": "sequence",
+          "scene_continuation_window_min": 30,
+          "scene_mode": false,
+          "show_overlap_first": false,
+          "status": "in_progress",
+          "task_lock_ttl_seconds": 300,
+          "text_threshold": 0.25,
+          "tool_bindings": {
+            "bbox": {
+              "attribute_schema": {
+                "fields": []
+              },
+              "classes": [
+                {
+                  "alias": null,
+                  "alias_to": null,
+                  "color": "#6699cc",
+                  "name": "Car",
+                  "order": null
+                }
+              ],
+              "enabled": true,
+              "keypoint_schema": null,
+              "video_modes": null
+            }
+          },
+          "total_tasks": 0,
+          "type_key": "image-det",
+          "type_label": "图像目标检测",
+          "updated_at": "<timestamp>",
+          "video_collaboration": {
+            "enabled": false,
+            "overlap_frames": 0
+          },
+          "video_sampling": {
+            "frame_step": null,
+            "mode": "none",
+            "target_fps": null
+          }
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 200
+      }
+    },
+    {
+      "held_row": {
+        "mode": "KEY SHARE",
+        "table": "projects"
+      },
+      "label": "project_key_share_blocks_upgrade",
+      "observation": {
+        "commit_count": 0,
+        "db_errors": [
+          {
+            "exception_type": "Error",
+            "sqlstate": "55P03",
+            "statement": "SELECT projects.id, projects.organization_id, projects.display_id, projects.name, projects.type_label, projects.type_key, projects.data_type, projects.owner_id, projects.status, projects.ai_enabled, projects.ml_backend_pool_id, projects.default_variants, projects.preannotate_pipeline, projects.label_config, projects.tool_bindings, projects.sampling, projects.maximum_annotations, projects.show_overlap_first, projects.iou_dedup_threshold, projects.box_threshold, projects.text_threshold, projects.ai_interactive_enabled, projects.raster_mask_native_editing_enabled, projects.mask_qc_config, projects.point_cloud_quality_config, projects.rendering_config, projects.annotation_guide, projects.guide_assets, projects.model_version, projects.task_lock_ttl_seconds, projects.total_tasks, projects.completed_tasks, projects.review_tasks, projects.in_progress_tasks, projects.batch_summary, projects.video_sampling, projects.video_collaboration, projects.scene_mode, projects.prefer_same_scene_continuation, projects.scene_continuation_window_min, projects.due_date, projects.created_at, projects.updated_at FROM projects WHERE projects.id = $1::UUID FOR UPDATE NOWAIT",
+            "statement_sha256": "5463acd165e9d905d52a2d804ce3112b5bdaccd96a5de5e67c1f40fc20c84699"
+          }
+        ],
+        "dml_statements": [],
+        "rollback_count": 0,
+        "sql": [
+          {
+            "phase": "identity_authority",
+            "sequence": 1,
+            "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+            "statement": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)"
+          },
+          {
+            "phase": "identity_authority",
+            "sequence": 2,
+            "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+            "statement": "SELECT aap_identity_v1.read_actor_context($1, $2)"
+          },
+          {
+            "phase": "project_read_or_projection",
+            "sequence": 3,
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "identity_authority",
+            "sequence": 4,
+            "sha256": "7ace85e5b02cdb2a5e38c7fa6cad1739bc7841381316ae8a03f3a9b095924151",
+            "statement": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))"
+          },
+          {
+            "phase": "project_read_or_projection",
+            "sequence": 5,
+            "sha256": "b5ba873cad74160e703f6387d4afec571f6156ddc6f41d53652b29b37b8a7c0c",
+            "statement": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+          },
+          {
+            "phase": "identity_authority",
+            "sequence": 6,
+            "sha256": "4251cfb9416635d3af4655e3ec3a36997705b50d93dc2234be1ce992f52340bd",
+            "statement": "SELECT aap_identity_v1.lock_accounts_share(CAST($1 AS uuid[]), CAST($2 AS boolean))"
+          },
+          {
+            "phase": "project_read_or_projection",
+            "sequence": 7,
+            "sha256": "99fd0d920817f958aa76279a9f13903b7d43141045db8a7821213acd2430b15a",
+            "statement": "SELECT projects.id, projects.organization_id, projects.display_id, projects.name, projects.type_label, projects.type_key, projects.data_type, projects.owner_id, projects.status, projects.ai_enabled, projects.ml_backend_pool_id, projects.default_variants, projects.preannotate_pipeline, projects.label_config, projects.tool_bindings, projects.sampling, projects.maximum_annotations, projects.show_overlap_first, projects.iou_dedup_threshold, projects.box_threshold, projects.text_threshold, projects.ai_interactive_enabled, projects.raster_mask_native_editing_enabled, projects.mask_qc_config, projects.point_cloud_quality_config, projects.rendering_config, projects.annotation_guide, projects.guide_assets, projects.model_version, projects.task_lock_ttl_seconds, projects.total_tasks, projects.completed_tasks, projects.review_tasks, projects.in_progress_tasks, projects.batch_summary, projects.video_sampling, projects.video_collaboration, projects.scene_mode, projects.prefer_same_scene_continuation, projects.scene_continuation_window_min, projects.due_date, projects.created_at, projects.updated_at FROM projects WHERE projects.id = $1::UUID FOR KEY SHARE NOWAIT"
+          },
+          {
+            "phase": "project_exclusive_lock",
+            "sequence": 8,
+            "sha256": "5463acd165e9d905d52a2d804ce3112b5bdaccd96a5de5e67c1f40fc20c84699",
+            "statement": "SELECT projects.id, projects.organization_id, projects.display_id, projects.name, projects.type_label, projects.type_key, projects.data_type, projects.owner_id, projects.status, projects.ai_enabled, projects.ml_backend_pool_id, projects.default_variants, projects.preannotate_pipeline, projects.label_config, projects.tool_bindings, projects.sampling, projects.maximum_annotations, projects.show_overlap_first, projects.iou_dedup_threshold, projects.box_threshold, projects.text_threshold, projects.ai_interactive_enabled, projects.raster_mask_native_editing_enabled, projects.mask_qc_config, projects.point_cloud_quality_config, projects.rendering_config, projects.annotation_guide, projects.guide_assets, projects.model_version, projects.task_lock_ttl_seconds, projects.total_tasks, projects.completed_tasks, projects.review_tasks, projects.in_progress_tasks, projects.batch_summary, projects.video_sampling, projects.video_collaboration, projects.scene_mode, projects.prefer_same_scene_continuation, projects.scene_continuation_window_min, projects.due_date, projects.created_at, projects.updated_at FROM projects WHERE projects.id = $1::UUID FOR UPDATE NOWAIT"
+          }
+        ],
+        "sql_by_kind": {
+          "select": 8
+        },
+        "transaction_events": []
+      },
+      "post_response_state": {
+        "annotations": [
+          {
+            "active": true,
+            "cancelled": false,
+            "class_name": "Car",
+            "id": "$annotation_target",
+            "source": "manual",
+            "tool_unit_id": "bbox",
+            "updated_at": "<timestamp>",
+            "version": 1
+          }
+        ],
+        "project_updated_at": "<timestamp>",
+        "tool_bindings": {
+          "bbox": {
+            "attribute_schema": {
+              "fields": []
+            },
+            "classes": [
+              {
+                "color": "#6699cc",
+                "name": "Car"
+              }
+            ],
+            "enabled": true
+          }
+        }
+      },
+      "request": {
+        "new_name": "Truck",
+        "old_name": "Car",
+        "tool_unit_id": "bbox"
+      },
+      "response": {
+        "body": {
+          "detail": {
+            "reason": "project_busy"
+          }
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 409
+      }
+    }
+  ],
+  "source": {
+    "capture_driver_sha256": "3c620a2c4192760d51041c97d5569a6b5bc5ec426c03dd5298c07837a04d7241",
+    "captured_head": "392f4e61e002477a6acf758e4fa824e791cebbc7",
+    "pre_extraction_base": "e2019de02d821b2f202ab4bc1770b004af159084",
+    "runtime_source_sha256": {
+      "apps/api/alembic/versions/0174_project_role_conversion.py": "e4dbc5c531fd3be8d914856ddd73855e1e06eb6d929f1067b293a769674e2ca7",
+      "apps/api/app/api/v1/projects.py": "e0fde9b0cfb1144fd2a567661dd5acc3872624e1fc8ecc164f1732824f044aa6",
+      "apps/api/app/application/project_class_rename.py": "ae99770f5bfc03e84a51e420aa33acf68bec1e1747b7ff169b3f6704d98013af",
+      "apps/api/app/application/project_workspace.py": "48f6a52b6c5d17004675a0ec4f9186cbacfdcf89e6bc37fb11dcf4ce661dac00",
+      "apps/api/app/config.py": "528e3000704f635479d5ed851fd774b98d6d498ae238c11c784d0e3b57a740ef",
+      "apps/api/app/core/security.py": "70ca9d3325406f3128bcac0dc5048f6b1387cb1a795dfb1b76d6df29a2ac0b9b",
+      "apps/api/app/db/base.py": "597f7afaae28022c5bcdeca0be33dbe11d8c24bb662677979240d2b2d0da3f47",
+      "apps/api/app/db/enums.py": "5341c4e4dafc0147bfc5d24a3dd44d128b875f004daa3493cc0e6dee091d424c",
+      "apps/api/app/db/models/annotation.py": "6d885eb2c0882192216e8cff7af77b7d72a77c4d2f320d862b261e9d77f256a9",
+      "apps/api/app/db/models/project.py": "b274f2a7765a14e1ec62b3f9e1253e09046f592edd94c0a769fedd6be7e31da4",
+      "apps/api/app/db/models/project_member.py": "55857f5fe62a1c591eae8357029e497a02ac3a04ac0bff1cd6d4b00feb96d107",
+      "apps/api/app/db/models/task.py": "c0b4fb92b0b7fc17d2ea8640de8b054d525a7826a7e5fd95ae3b4291a7615189",
+      "apps/api/app/db/models/user.py": "ab646405f6960cee9dce564ca6caff5ea9a9676c4551f9af1b2a738251ded687",
+      "apps/api/app/deps.py": "fbb9af9ab07e6ca3adce3b8b170c2e5cc37fc8c17afea8a10fe341896a932168",
+      "apps/api/app/main.py": "5cf730f8e5584c15a56dc19cc02d4ab10808cc30e714b3c7a9b17b2dfb3e5d0c",
+      "apps/api/app/schemas/project.py": "f74d44920b7e8d632c02cae64ba92849272e36a06386acafb4d87e12e75a4cb8",
+      "apps/api/app/services/annotation.py": "3369216e922fd22fb2f447da3fd058f8c2f29b7c0765a7c80d0107602ff78168",
+      "apps/api/app/services/identity_account_lock_data.py": "4bea102159fb190d140767211734a9e9426e9b3c98006e98364204d68390bfe1",
+      "apps/api/app/services/identity_contracts.py": "39fc901226518dcfa6adb840992b70c2131b361beeb5ed7aadd915f06d595b3e",
+      "apps/api/app/services/identity_gateway.py": "a81f0b92875ff28e1248d3e26e573ca3a20ba172a911264ca100d12723f8b914",
+      "apps/api/app/services/project_access.py": "dc81de059c46473283e3aa48a35344d4acf57db8532136805149e06d7bb3ce4a",
+      "apps/api/app/services/project_workspace.py": "f61976e839f90826689f750b8c00b786dcc4b59f23477852cd692e6e74f84002",
+      "apps/api/app/services/project_write_guard.py": "bb6a471cd42c022e2482435b44538e3a7480d844e0c39dceaf27013fab78fdd6",
+      "apps/api/app/services/workspace_project_query.py": "77dddd53010b4601209b9b8081b685115dd3b775384ea3dbca03f7355219627c",
+      "apps/api/app/services/workspace_project_query_data.py": "084a6621c5b3764a2fe2b9df301be11288a4b6571cbc38106c10737de0157c5e",
+      "apps/api/tests/factory.py": "145647dab2e72e09bf8516b935e497b99f67f59ef7bf07d5d19afce81d3a1c40",
+      "apps/workspace/src/aap_workspace/access_contract.py": "1807f98dea15c7e9a98181ebd216d05861de2e820097dbab017bda445ea2ec8c",
+      "apps/workspace/src/aap_workspace/project_queries.py": "a1db3da190de0f8b98f754d322b64f74cdfc5794ee60833a58acc10dee1fa59e",
+      "apps/workspace/src/aap_workspace/project_query_contract.py": "85eb2401ad7760b7740de1a0e8de01b0fdfb65ba14b4bc5b2219191dfd2571dc",
+      "apps/workspace/src/aap_workspace/project_query_postgres.py": "9877b84eb37aa7b711f015422641f90bfea1deb29968ee62ac71a324fb470292",
+      "apps/workspace/src/aap_workspace/project_query_values.py": "2772761de5ec0d800620ea772bd5ada313826dc88ca8424a901f76dfad799e90"
+    }
+  }
+}

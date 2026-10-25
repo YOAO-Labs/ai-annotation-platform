@@ -19,6 +19,7 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.schemas.mask_format import MaskFormatPlan, MaskFormatPlanItem
 from app.services.annotations_import import import_aap_json_annotations
+from app.services.labeling_core_read_relations import annotation_row
 from app.services.mask_formats.contracts import (
     MaskFormatDescriptor,
     StagedObject,
@@ -30,9 +31,13 @@ from app.services.mask_formats.image_codecs import (
     rasterize_coco_polygons,
 )
 from aap_assets_source.archive import ArchiveLimits, SafeZipArchive
-from app.services.project_workspace import lookup_classes_for_tool_unit
+from aap_workspace.configuration_policy import lookup_classes_for_tool_unit
 from app.services.raster_mask_storage import build_rle_reference, load_coco_rle
-from app.services.task_matcher import resolve_task, resolve_task_by_file_stem
+from app.services.task_matcher import (
+    resolve_task,
+    resolve_task_by_file_stem,
+    resolve_task_by_video_sequence,
+)
 from app.services.video_tracks import resolve_track_at_frame
 from app.services.exporting.video_scope import (
     VideoExportScope,
@@ -128,27 +133,7 @@ async def _resolve_video_task(
     task, _reason = await resolve_task_by_file_stem(db, project_id, sequence)
     if task is not None:
         return task
-    target = sequence.strip("/")
-    rows = (
-        (
-            await db.execute(
-                select(Task).where(Task.project_id == project_id).order_by(Task.id)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    for row in rows:
-        source = (row.file_path or "").lstrip("/")
-        rel = source.split("/", 1)[1] if "/" in source else source
-        candidates = {
-            str(PurePosixPath(source).with_suffix("")),
-            str(PurePosixPath(rel).with_suffix("")),
-            PurePosixPath(source).stem,
-        }
-        if target in candidates:
-            return row
-    return None
+    return await resolve_task_by_video_sequence(db, project_id, sequence)
 
 
 async def _video_dimensions(
@@ -1108,14 +1093,14 @@ class VideoMaskFormatAdapter:
         rows = (
             (
                 await db.execute(
-                    select(Annotation)
+                    select(annotation_row)
                     .where(
-                        Annotation.task_id.in_(task_ids),
-                        Annotation.is_active.is_(True),
-                        Annotation.was_cancelled.is_(False),
-                        Annotation.geometry["type"].astext == "video_track_mask",
+                        annotation_row.task_id.in_(task_ids),
+                        annotation_row.is_active.is_(True),
+                        annotation_row.was_cancelled.is_(False),
+                        annotation_row.geometry["type"].astext == "video_track_mask",
                     )
-                    .order_by(Annotation.task_id, Annotation.id)
+                    .order_by(annotation_row.task_id, annotation_row.id)
                 )
             )
             .scalars()

@@ -12,7 +12,6 @@ from fastapi import HTTPException
 from sqlalchemy import and_, case, func, or_, select, tuple_
 
 from app.db.models.model_decision import ModelDecision
-from app.db.models.prediction import Prediction, PredictionMeta
 from app.db.models.sample_evaluation import SampleEvaluationRun as Evaluation
 from app.db.models.trained_model import (
     ModelDeployment as Deployment,
@@ -28,6 +27,11 @@ from app.db.models.training_recipe import (
 from app.db.models.training_run import TrainingAttempt as Attempt, TrainingRun as Run
 from app.schemas.model_lineage import LineageNode
 from app.services.training_dataset_bridge import content_digest
+from app.services.labeling_core_read_relations import (
+    alias_core_row,
+    prediction_meta_row,
+    prediction_row,
+)
 
 
 MODELS = {
@@ -522,18 +526,20 @@ async def prediction_usage(db, project_id, row):
             Model.id == row["id"], Model.project_id == project_id
         )
     )
-    ref = PredictionMeta.extra.op("->")("trained_model")
+    metadata = alias_core_row(prediction_meta_row, name="lineage_prediction_meta")
+    prediction = alias_core_row(prediction_row, name="lineage_prediction")
+    ref = metadata.extra.op("->")("trained_model")
 
     def field(key):
         return ref.op("->>")(key)
 
     q = (
-        select(PredictionMeta.id)
+        select(metadata.id)
         .join(
-            Prediction,
+            prediction,
             and_(
-                Prediction.id == PredictionMeta.prediction_id,
-                Prediction.created_at == PredictionMeta.prediction_created_at,
+                prediction.id == metadata.prediction_id,
+                prediction.created_at == metadata.prediction_created_at,
             ),
         )
         .where(
@@ -543,7 +549,7 @@ async def prediction_usage(db, project_id, row):
             field("binding_digest") == row["binding_digest"],
             field("classes_digest") == content_digest(classes),
             func.length(field("reference_digest")) == 64,
-            Prediction.project_id == project_id,
+            prediction.project_id == project_id,
         )
         .limit(1001)
     )

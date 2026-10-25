@@ -146,7 +146,7 @@ async def test_identity_command_bulk_offline_is_set_based_and_transactional(
     from sqlalchemy import select
 
     from app.core.security import hash_password
-    from app.services.identity_commands import IdentityCommandService
+    from app.services.identity_account_data import IdentityPresenceCommandData
 
     fixture_tag = uuid4().hex
     password_hash = hash_password("Test1234")
@@ -191,7 +191,9 @@ async def test_identity_command_bulk_offline_is_set_based_and_transactional(
     }
     savepoint = await db_session.begin_nested()
     try:
-        await IdentityCommandService(db_session).mark_inactive_accounts_offline(cutoff)
+        await IdentityPresenceCommandData(db_session).mark_inactive_accounts_offline(
+            cutoff
+        )
         assert await read_statuses() == {
             user_ids["stale"]: "offline",
             user_ids["null"]: "offline",

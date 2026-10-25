@@ -15,7 +15,10 @@
           "title": "Group Name"
         },
         "group_id": {
-          "anyOf": [{ "format": "uuid", "type": "string" }, { "type": "null" }],
+          "anyOf": [
+            { "format": "uuid", "type": "string" },
+            { "type": "null" }
+          ],
           "title": "Group Id"
         },
         "status": { "title": "Status", "type": "string" },
@@ -25,11 +28,17 @@
           "title": "Disabled Kind"
         },
         "disabled_at": {
-          "anyOf": [{ "format": "date-time", "type": "string" }, { "type": "null" }],
+          "anyOf": [
+            { "format": "date-time", "type": "string" },
+            { "type": "null" }
+          ],
           "title": "Disabled At"
         },
         "disabled_by": {
-          "anyOf": [{ "format": "uuid", "type": "string" }, { "type": "null" }],
+          "anyOf": [
+            { "format": "uuid", "type": "string" },
+            { "type": "null" }
+          ],
           "title": "Disabled By"
         },
         "disabled_reason": {
@@ -37,27 +46,45 @@
           "title": "Disabled Reason"
         },
         "email_verified_at": {
-          "anyOf": [{ "format": "date-time", "type": "string" }, { "type": "null" }],
+          "anyOf": [
+            { "format": "date-time", "type": "string" },
+            { "type": "null" }
+          ],
           "title": "Email Verified At"
         },
         "last_login_at": {
-          "anyOf": [{ "format": "date-time", "type": "string" }, { "type": "null" }],
+          "anyOf": [
+            { "format": "date-time", "type": "string" },
+            { "type": "null" }
+          ],
           "title": "Last Login At"
         },
         "last_seen_at": {
-          "anyOf": [{ "format": "date-time", "type": "string" }, { "type": "null" }],
+          "anyOf": [
+            { "format": "date-time", "type": "string" },
+            { "type": "null" }
+          ],
           "title": "Last Seen At"
         },
         "password_admin_reset_at": {
-          "anyOf": [{ "format": "date-time", "type": "string" }, { "type": "null" }],
+          "anyOf": [
+            { "format": "date-time", "type": "string" },
+            { "type": "null" }
+          ],
           "title": "Password Admin Reset At"
         },
         "deactivation_requested_at": {
-          "anyOf": [{ "format": "date-time", "type": "string" }, { "type": "null" }],
+          "anyOf": [
+            { "format": "date-time", "type": "string" },
+            { "type": "null" }
+          ],
           "title": "Deactivation Requested At"
         },
         "deactivation_scheduled_at": {
-          "anyOf": [{ "format": "date-time", "type": "string" }, { "type": "null" }],
+          "anyOf": [
+            { "format": "date-time", "type": "string" },
+            { "type": "null" }
+          ],
           "title": "Deactivation Scheduled At"
         },
         "preferences": {
@@ -118,7 +145,10 @@
           "title": "Group Name"
         },
         "project_id": {
-          "anyOf": [{ "format": "uuid", "type": "string" }, { "type": "null" }],
+          "anyOf": [
+            { "format": "uuid", "type": "string" },
+            { "type": "null" }
+          ],
           "default": null,
           "title": "Project Id"
         },
@@ -134,17 +164,26 @@
           "type": "string"
         },
         "accepted_at": {
-          "anyOf": [{ "format": "date-time", "type": "string" }, { "type": "null" }],
+          "anyOf": [
+            { "format": "date-time", "type": "string" },
+            { "type": "null" }
+          ],
           "default": null,
           "title": "Accepted At"
         },
         "accepted_user_id": {
-          "anyOf": [{ "format": "uuid", "type": "string" }, { "type": "null" }],
+          "anyOf": [
+            { "format": "uuid", "type": "string" },
+            { "type": "null" }
+          ],
           "default": null,
           "title": "Accepted User Id"
         },
         "revoked_at": {
-          "anyOf": [{ "format": "date-time", "type": "string" }, { "type": "null" }],
+          "anyOf": [
+            { "format": "date-time", "type": "string" },
+            { "type": "null" }
+          ],
           "default": null,
           "title": "Revoked At"
         }
@@ -154,7 +193,10 @@
       "type": "object"
     }
   },
-  "anyOf": [{ "$ref": "#/$defs/FixtureAccountProfile" }, { "$ref": "#/$defs/FixtureInvitation" }],
+  "anyOf": [
+    { "$ref": "#/$defs/FixtureAccountProfile" },
+    { "$ref": "#/$defs/FixtureInvitation" }
+  ],
   "x-native-capabilities": {
     "protocol": "aap-identity-e2e-fixtures/v1",
     "postgres_schema": "aap_identity_fixture_v1",

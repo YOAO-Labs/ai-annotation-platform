@@ -1,0 +1,448 @@
+{
+  "cases": {
+    "date:assigned_at:delivery": {
+      "error": null,
+      "result": [0]
+    },
+    "date:assigned_at:member_ids": {
+      "error": null,
+      "result": true
+    },
+    "date:assigned_at:mentions": {
+      "error": null,
+      "result": null
+    },
+    "date:assigned_at:roster": {
+      "error": "OverflowError",
+      "result": null
+    },
+    "date:updated_at:delivery": {
+      "error": null,
+      "result": [0]
+    },
+    "date:updated_at:member_ids": {
+      "error": null,
+      "result": true
+    },
+    "date:updated_at:mentions": {
+      "error": null,
+      "result": null
+    },
+    "date:updated_at:roster": {
+      "error": "OverflowError",
+      "result": null
+    },
+    "delivery:snapshots": {
+      "allowed": [0, 1, 3, 4],
+      "statements": ["member", "member", "project", "project"]
+    },
+    "member_ids:False": {
+      "pending_task": true,
+      "result_is_member": true
+    },
+    "member_ids:True": {
+      "pending_task": false,
+      "result_is_member": true
+    },
+    "mentions:any_role_order": {
+      "error": "mentions_invalid",
+      "order": [1, 0, 1],
+      "status": 422
+    },
+    "roster:clean:False": {
+      "cached": {
+        "dirty_role": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "role": "annotator",
+          "version": 1,
+          "weekly_target": null
+        }
+      },
+      "loaded": [],
+      "members": [
+        ["member", "annotator", false, true, true],
+        ["owner", "owner", true, true, true]
+      ],
+      "pending_task": true,
+      "same_identity": true,
+      "trace": ["member_read"]
+    },
+    "roster:clean:True": {
+      "cached": {
+        "dirty_role": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "role": "annotator",
+          "version": 1,
+          "weekly_target": null
+        }
+      },
+      "loaded": [],
+      "members": [
+        ["member", "annotator", false, true, true],
+        ["owner", "owner", true, true, true]
+      ],
+      "pending_task": false,
+      "same_identity": true,
+      "trace": ["task_insert", "member_read"]
+    },
+    "roster:deleted_database:False": {
+      "cached": {
+        "dirty_role": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "role": "annotator",
+          "version": 1,
+          "weekly_target": null
+        }
+      },
+      "loaded": [],
+      "members": [["owner", "owner", true, true, true]],
+      "pending_task": true,
+      "same_identity": true,
+      "trace": ["member_read"]
+    },
+    "roster:deleted_database:True": {
+      "cached": {
+        "dirty_role": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "role": "annotator",
+          "version": 1,
+          "weekly_target": null
+        }
+      },
+      "loaded": [],
+      "members": [["owner", "owner", true, true, true]],
+      "pending_task": false,
+      "same_identity": true,
+      "trace": ["task_insert", "member_read"]
+    },
+    "roster:dirty_role:False": {
+      "cached": {
+        "dirty_role": true,
+        "expired": false,
+        "modified": true,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "role": "viewer",
+          "version": 1,
+          "weekly_target": null
+        }
+      },
+      "loaded": [],
+      "members": [
+        ["member", "viewer", false, true, true],
+        ["owner", "owner", true, true, true]
+      ],
+      "pending_task": true,
+      "same_identity": true,
+      "trace": ["member_read"]
+    },
+    "roster:dirty_role:True": {
+      "cached": {
+        "dirty_role": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "role": "viewer",
+          "version": 1,
+          "weekly_target": null
+        }
+      },
+      "loaded": [],
+      "members": [
+        ["member", "viewer", false, true, true],
+        ["owner", "owner", true, true, true]
+      ],
+      "pending_task": false,
+      "same_identity": true,
+      "trace": ["member_update", "task_insert", "member_read"]
+    },
+    "roster:dirty_target:False": {
+      "cached": {
+        "dirty_role": false,
+        "expired": false,
+        "modified": true,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "role": "annotator",
+          "version": 1,
+          "weekly_target": 23
+        }
+      },
+      "loaded": [],
+      "members": [
+        ["member", "annotator", false, true, true],
+        ["owner", "owner", true, true, true]
+      ],
+      "pending_task": true,
+      "same_identity": true,
+      "trace": ["member_read"]
+    },
+    "roster:dirty_target:True": {
+      "cached": {
+        "dirty_role": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "role": "annotator",
+          "version": 1,
+          "weekly_target": 23
+        }
+      },
+      "loaded": [],
+      "members": [
+        ["member", "annotator", false, true, true],
+        ["owner", "owner", true, true, true]
+      ],
+      "pending_task": false,
+      "same_identity": true,
+      "trace": ["member_update", "task_insert", "member_read"]
+    },
+    "roster:expired:False": {
+      "cached": {
+        "dirty_role": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "role": "annotator",
+          "version": 1,
+          "weekly_target": null
+        }
+      },
+      "loaded": [],
+      "members": [
+        ["member", "annotator", false, true, true],
+        ["owner", "owner", true, true, true]
+      ],
+      "pending_task": true,
+      "same_identity": true,
+      "trace": ["member_read"]
+    },
+    "roster:expired:True": {
+      "cached": {
+        "dirty_role": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "role": "annotator",
+          "version": 1,
+          "weekly_target": null
+        }
+      },
+      "loaded": [],
+      "members": [
+        ["member", "annotator", false, true, true],
+        ["owner", "owner", true, true, true]
+      ],
+      "pending_task": false,
+      "same_identity": true,
+      "trace": ["task_insert", "member_read"]
+    },
+    "roster:expired_dirty:False": {
+      "cached": {
+        "dirty_role": true,
+        "expired": false,
+        "modified": true,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "role": "viewer",
+          "version": 1,
+          "weekly_target": null
+        }
+      },
+      "loaded": [],
+      "members": [
+        ["member", "viewer", false, true, true],
+        ["owner", "owner", true, true, true]
+      ],
+      "pending_task": true,
+      "same_identity": true,
+      "trace": ["member_read"]
+    },
+    "roster:expired_dirty:True": {
+      "cached": {
+        "dirty_role": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "role": "viewer",
+          "version": 1,
+          "weekly_target": null
+        }
+      },
+      "loaded": [],
+      "members": [
+        ["member", "viewer", false, true, true],
+        ["owner", "owner", true, true, true]
+      ],
+      "pending_task": false,
+      "same_identity": true,
+      "trace": ["member_read", "member_update", "task_insert", "member_read"]
+    },
+    "roster:miss:False": {
+      "cached": null,
+      "loaded": [
+        {
+          "dirty_role": false,
+          "expired": false,
+          "modified": false,
+          "persistent": true,
+          "unloaded": [],
+          "values": {
+            "role": "annotator",
+            "version": 1,
+            "weekly_target": null
+          }
+        }
+      ],
+      "members": [
+        ["member", "annotator", false, true, true],
+        ["owner", "owner", true, true, true]
+      ],
+      "pending_task": true,
+      "same_identity": false,
+      "trace": ["member_read"]
+    },
+    "roster:miss:True": {
+      "cached": null,
+      "loaded": [
+        {
+          "dirty_role": false,
+          "expired": false,
+          "modified": false,
+          "persistent": true,
+          "unloaded": [],
+          "values": {
+            "role": "annotator",
+            "version": 1,
+            "weekly_target": null
+          }
+        }
+      ],
+      "members": [
+        ["member", "annotator", false, true, true],
+        ["owner", "owner", true, true, true]
+      ],
+      "pending_task": false,
+      "same_identity": false,
+      "trace": ["task_insert", "member_read"]
+    },
+    "roster:stale:False": {
+      "cached": {
+        "dirty_role": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "role": "annotator",
+          "version": 1,
+          "weekly_target": null
+        }
+      },
+      "loaded": [],
+      "members": [
+        ["member", "annotator", false, true, true],
+        ["owner", "owner", true, true, true]
+      ],
+      "pending_task": true,
+      "same_identity": true,
+      "trace": ["member_read"]
+    },
+    "roster:stale:True": {
+      "cached": {
+        "dirty_role": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "role": "annotator",
+          "version": 1,
+          "weekly_target": null
+        }
+      },
+      "loaded": [],
+      "members": [
+        ["member", "annotator", false, true, true],
+        ["owner", "owner", true, true, true]
+      ],
+      "pending_task": false,
+      "same_identity": true,
+      "trace": ["task_insert", "member_read"]
+    },
+    "roster:stale_partial:False": {
+      "cached": {
+        "dirty_role": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "role": "reviewer",
+          "version": 1,
+          "weekly_target": 31
+        }
+      },
+      "loaded": [],
+      "members": [
+        ["member", "reviewer", false, true, true],
+        ["owner", "owner", true, true, true]
+      ],
+      "pending_task": true,
+      "same_identity": true,
+      "trace": ["member_read"]
+    },
+    "roster:stale_partial:True": {
+      "cached": {
+        "dirty_role": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "role": "reviewer",
+          "version": 1,
+          "weekly_target": 31
+        }
+      },
+      "loaded": [],
+      "members": [
+        ["member", "reviewer", false, true, true],
+        ["owner", "owner", true, true, true]
+      ],
+      "pending_task": false,
+      "same_identity": true,
+      "trace": ["task_insert", "member_read"]
+    }
+  },
+  "source_commit": "f109006597df34af5af632439d91698e76e6b5f0"
+}

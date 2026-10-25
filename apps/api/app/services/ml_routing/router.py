@@ -1,26 +1,8 @@
-"""v0.23.3 ADR-0050 §8 · MLBackendRouter — orchestrates DB topology + routing ledger.
+"""API route adapter over the durable Inference execution owner.
 
-The router sits between the project/pipeline (which requests a logical pool) and
-``MLBackendClient`` (which transports to one physical instance). It:
-
-1. validates the project has the pool enabled and the pool is enabled
-2. reads DB topology under a single ``routing_generation`` (active members whose
-   registry is connected, health-fresh, capability-fingerprint-matched)
-3. queries the Redis ledger for currently-circuit-open instances
-4. acquires a route lease atomically (SWRR + concurrency + circuit exclusion)
-5. returns the selected ``MLBackendRegistry`` + ``RouteLease``
-
-It does NOT issue HTTP. The caller builds ``MLBackendClient(selected_instance)``,
-runs the request, then ``router.finish(lease, outcome)`` or ``router.cancel(lease)``
-exactly once in a try/finally (ADR-0050 §13).
-
-Rollout (D17): in ``off`` / ``observe`` the router returns the pool's
-``legacy_instance_id`` without acquiring a lease (legacy dispatch); observe additionally
-computes a shadow would-select for diagnostics. ``enforce`` fails closed on any
-Redis/topology uncertainty.
-
-Boundary: may import registry/pool models, the ledger, capability; must NOT import
-API routers or workers (ADR-0050 §8).
+The owner rechecks committed admission, reserves scopes, and settles actual HTTP
+attempts. Redis is used only for optional circuit/observe diagnostics. Lease-shaped
+values preserve existing caller interfaces while carrying opaque owner scopes.
 """
 
 from __future__ import annotations
@@ -38,7 +20,7 @@ from app.config import settings
 from app.db.models.gpu_backend_membership import GPUBackendMembership
 from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
 from app.db.models.ml_backend_registry import MLBackendRegistry
-from app.services.ml_routing.capability import capability_fingerprint
+from aap_inference.pool_capability import capability_fingerprint
 from app.services.ml_routing.contracts import (
     RejectionReason,
     RouteLease,
@@ -78,130 +60,87 @@ class MLBackendRouter:
         ledger: RoutingLedger | None = None,
         *,
         mode: RouterMode | None = None,
+        authority=None,
     ) -> None:
         self.db = db
         self.ledger = ledger
         self.mode = mode or _router_mode()
+        from .authority import RoutingAuthority
+
+        self.authority = authority or RoutingAuthority(db.bind)
 
     # ── acquire ───────────────────────────────────────────────────────────────
     async def acquire(
         self,
-        pool_id: uuid.UUID,
+        pool_id: uuid.UUID | None,
         *,
         owner: str,
         operation: str,
         project_id: uuid.UUID | None = None,
         required_instance_id: uuid.UUID | None = None,
+        registry_id: uuid.UUID | None = None,
+        execution: dict | None = None,
     ) -> RouteSelection:
-        """Acquire a route lease for ``pool_id``. Returns RouteSelection.
+        """Reserve durable execution ownership using current committed topology."""
+        from aap_inference_contract.routing import RoutingUnavailable
+        from .authority import RoutingRejected
 
-        In off/observe: returns the pool's legacy_instance_id without acquiring a lease
-        (legacy dispatch; behavior = v0.23.2). In enforce: acquires via the ledger and
-        fails closed on Redis/topology uncertainty.
-        """
-        pool = await self.db.get(MLBackendServicePool, pool_id)
-        if pool is None:
-            return RouteSelection(
-                lease=None, instance_id=None, rejection=RejectionReason.POOL_UNAVAILABLE
+        try:
+            scope = await self.authority.acquire(
+                pool_id=pool_id,
+                registry_id=registry_id,
+                project_id=project_id,
+                mode=self.mode.value if pool_id is not None else "direct",
+                owner=owner,
+                operation=operation,
+                required_instance_id=required_instance_id,
+                **({"execution": execution} if execution is not None else {}),
             )
-
-        # Project enablement check (D4): if project_id given, pool must be enabled for it.
-        if project_id is not None:
-            from app.db.models.ml_backend_registry import ProjectMLBackendPool
-
-            assoc = await self.db.execute(
-                select(ProjectMLBackendPool).where(
-                    ProjectMLBackendPool.project_id == project_id,
-                    ProjectMLBackendPool.pool_id == pool_id,
-                    ProjectMLBackendPool.enabled.is_(True),
-                )
-            )
-            if assoc.scalar_one_or_none() is None:
+        except RoutingRejected as exc:
+            if execution is not None and exc.reason == "management_busy":
                 return RouteSelection(
                     lease=None,
                     instance_id=None,
-                    rejection=RejectionReason.POOL_NOT_ENABLED,
+                    rejection=RejectionReason.ROUTER_UNAVAILABLE,
                 )
-
-        if not pool.enabled or pool.legacy_instance_id is None:
-            return RouteSelection(
-                lease=None, instance_id=None, rejection=RejectionReason.POOL_NOT_ENABLED
-            )
-
-        # off / observe: legacy dispatch — return legacy_instance_id, no lease.
-        if self.mode in (RouterMode.OFF, RouterMode.OBSERVE):
-            if required_instance_id is not None:
-                candidates = await self._build_candidates(
-                    pool, required_instance_id=required_instance_id
-                )
-                if pool.legacy_instance_id != required_instance_id or not any(
-                    c.instance_id == required_instance_id
-                    and c.health_fresh
-                    and c.fingerprint_ok
-                    for c in candidates
-                ):
-                    return RouteSelection(
-                        lease=None,
-                        instance_id=None,
-                        rejection=RejectionReason.POOL_UNAVAILABLE,
-                    )
-            selection = RouteSelection(
-                lease=None,
-                instance_id=pool.legacy_instance_id,
-                rejection=None,
-            )
-            # observe: also compute would-select for diagnostics (shadow, non-gating).
-            if self.mode == RouterMode.OBSERVE and self.ledger is not None:
-                selection = await self._shadow_would_select(
-                    pool,
-                    selection,
-                    **(
-                        {"required_instance_id": required_instance_id}
-                        if required_instance_id is not None
-                        else {}
-                    ),
-                )
-            return selection
-
-        # enforce: acquire via ledger.
-        if self.ledger is None:
+            reason = {
+                "pool_not_enabled": RejectionReason.POOL_NOT_ENABLED,
+                "pool_saturated": RejectionReason.POOL_SATURATED,
+                "generation_mismatch": RejectionReason.GENERATION_MISMATCH,
+            }.get(exc.reason, RejectionReason.POOL_UNAVAILABLE)
+            return RouteSelection(lease=None, instance_id=None, rejection=reason)
+        except RoutingUnavailable:
             return RouteSelection(
                 lease=None,
                 instance_id=None,
                 rejection=RejectionReason.ROUTER_UNAVAILABLE,
             )
-
-        candidates = await self._build_candidates(
-            pool,
-            **(
-                {"required_instance_id": required_instance_id}
-                if required_instance_id is not None
-                else {}
-            ),
+        lease = RouteLease(
+            lease_id=str(scope.id),
+            pool_id=scope.pool_id,
+            instance_id=scope.registry_id,
+            owner=scope.owner,
+            operation=scope.operation,
+            generation=scope.generation or 0,
+            expires_at_ms=scope.heartbeat_deadline_ms,
+            scope=scope,
+            authority=self.authority,
         )
-        if not candidates:
-            return RouteSelection(
-                lease=None, instance_id=None, rejection=RejectionReason.POOL_UNAVAILABLE
-            )
-
-        circuit_open = await self.ledger.circuit_open_instances(str(pool_id))
-        lease, reason = await self.ledger.acquire(
-            str(pool_id),
-            pool.routing_generation,
-            candidates,
-            owner=owner,
-            operation=operation,
-            circuit_open_instances=circuit_open,
+        selection = RouteSelection(
+            lease=lease, instance_id=scope.registry_id, rejection=None
         )
-        if lease is None:
-            return RouteSelection(
-                lease=None,
-                instance_id=None,
-                rejection=reason or RejectionReason.POOL_UNAVAILABLE,
-            )
-        return RouteSelection(
-            lease=lease, instance_id=uuid.UUID(lease.instance_id), rejection=None
-        )
+        if (
+            self.mode == RouterMode.OBSERVE
+            and self.ledger is not None
+            and pool_id is not None
+        ):
+            with self.db.no_autoflush:
+                pool = await self.db.get(MLBackendServicePool, pool_id)
+                if pool is not None:
+                    selection = await self._shadow_would_select(
+                        pool, selection, required_instance_id=required_instance_id
+                    )
+        return selection
 
     async def _build_candidates(
         self,
@@ -328,7 +267,7 @@ class MLBackendRouter:
                 key=lambda c: (-c.weight, str(c.instance_id)),
             )
             return RouteSelection(
-                lease=None,
+                lease=legacy_selection.lease,
                 instance_id=legacy_selection.instance_id,
                 rejection=None,
                 would_select=winner.instance_id,
@@ -344,23 +283,30 @@ class MLBackendRouter:
             logger.debug("observe would-select skipped: %s", exc)
             return legacy_selection
 
-    # ── finish / cancel (enforce only; off/observe have no lease) ─────────────
     async def finish(
         self, lease: RouteLease, outcome: RouteOutcome, duration_ms: int
     ) -> bool:
-        if self.ledger is None or lease is None:
+        if lease is None or lease.scope is None:
             return False
-        return await self.ledger.finish(lease, outcome, duration_ms)
+        await lease.authority.close(
+            lease.scope, "success" if outcome == RouteOutcome.SUCCESS else "error"
+        )
+        return True
 
     async def cancel(self, lease: RouteLease) -> bool:
-        if self.ledger is None or lease is None:
+        if lease is None or lease.scope is None:
             return False
-        return await self.ledger.cancel(lease)
+        await lease.authority.close(lease.scope, "cancel")
+        return True
 
     async def heartbeat(self, lease: RouteLease) -> bool:
-        if self.ledger is None or lease is None:
+        if lease is None or lease.scope is None:
             return False
-        return await self.ledger.heartbeat(lease)
+        await lease.authority.execute(
+            "heartbeat",
+            {"scope_id": lease.lease_id, "capability": lease.scope.capability},
+        )
+        return True
 
     # ── legacy resolver (off/observe: registry id → its singleton pool) ───────
     async def pool_for_registry(
@@ -416,16 +362,24 @@ async def route_context(
         )
     lease = selection.lease
     instance_id = selection.instance_id
+    from .authority import scope_binding
+
     try:
-        yield instance_id, lease, selection
-    except Exception:
+        async with scope_binding(router.authority, lease.scope):
+            yield instance_id, lease, selection
+    except BaseException:
         if lease is not None:
-            await router.cancel(lease)
+            try:
+                await router.cancel(lease)
+            except Exception:
+                logger.warning("route scope close unacknowledged")
         raise
     else:
         if lease is not None:
-            # default success unless caller already finished/cancelled (idempotent).
-            await router.finish(lease, RouteOutcome.SUCCESS, duration_ms=0)
+            try:
+                await router.finish(lease, RouteOutcome.SUCCESS, duration_ms=0)
+            except Exception:
+                logger.warning("route scope close unacknowledged")
 
 
 def make_ledger_from_settings() -> RoutingLedger:

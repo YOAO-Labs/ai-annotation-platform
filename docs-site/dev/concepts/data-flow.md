@@ -61,19 +61,30 @@ API 先提交 pending `AsyncJob(kind=batch_predict)`，再以该 UUID 派发 Cel
 
 ## 数据导出
 
-<ExcalidrawDiagram
-  src="/diagrams/shared/workflow/async-export-delivery.svg"
-  alt="项目和批次导出从可选 Mask 预检、持久化派发、Worker 缓存与 Redis single-flight，到临时 ZIP、MinIO 工件、预签名下载和失败补偿的完整边界"
-  caption="异步导出交付链：先提交作业与审计，再派发；缓存未命中时单飞构建可下载工件"
-/>
+```mermaid
+flowchart LR
+  Request[导出请求与可选预检] --> Commit[提交作业与审计]
+  Commit --> Queue[派发到 export 队列]
+  Queue --> JobLock[取得作业会话锁]
+  JobLock --> Authority[复核当前权限与范围]
+  Authority --> Cache{缓存有效}
+  Cache -->|是| Final[最终权限复核]
+  Cache -->|否| BuildLock[取得缓存键会话锁并重查缓存]
+  BuildLock --> ZIP[临时 ZIP 与独立执行对象键]
+  ZIP --> Artifact[上传并提交工件缓存]
+  Artifact --> Final
+  Final --> Result[签名下载链接与完成通知]
+```
 
 Mask export preflight 是项目范围的可选、只读计划步骤：adapter 统计对象和文件，返回 loss class、losses / warnings、容量估算与 plan digest。当前导出端点不接收该 digest，因此它帮助用户决策，但不锁定后续执行快照。
 
 项目与批次导出先校验 targets / options。VOC 仅允许单选，在记录审计后同步返回 ZIP；其他目标创建 `AsyncJob(kind=export)` 并写导出审计，两者成功 `commit` 后才调用 `run_export.delay()`，然后返回 HTTP 202 与 `job_id`。因此 broker 不会拿到尚未提交的作业 ID。
 
-Worker 将 active annotation 的 `max(updated_at) + count` 与 scope、targets、options、adapter contract 版本合成 cache key。未过期且 MinIO 对象仍存在时，缓存命中路径会生成新的 7 天预签名 URL，直接完成作业并发 `export.ready`。未命中时，Worker 用 Redis `SET NX EX 6h` 对 cache key 做 single-flight；竞争失败会每 5 秒重试，最多 120 次，持锁后还会重查一次缓存。
+Worker 将 active annotation 的 `max(updated_at) + count` 与 scope、targets、options、adapter contract 版本合成 cache key。未过期且 MinIO 对象仍存在时，缓存命中路径会生成新的 7 天预签名 URL，直接完成作业并发 `export.ready`。Worker 先取得作业的 PostgreSQL 会话锁，未命中缓存时再取得 cache key 的会话锁并重查缓存；竞争失败会每 5 秒重试，最多 120 次。两把锁与业务写入使用同一个连接，该连接以 `NullPool` 独占到执行结束，跨事务提交仍持锁，数据库会话关闭后释放。数据库尚未察觉客户端断开时，锁可能继续存在。
 
-真正构建时按块读取任务与标注，ZIP 写磁盘 tempfile，再流式多段上传到 export bucket。`ExportArtifact` 记录提交后，Worker 才生成友好文件名与预签名 URL、写入 `AsyncJob.result` 并发送完成通知；客户端也可轮询 `/async-jobs/{job_id}` 读终态。异常路径会回滚、删除已上传但未记录的孤儿对象、写 `failed` 与 `export.failed`；tempfile 和已获取的 Redis 锁在 `finally` 中清理。
+真正构建时按块读取任务与标注，ZIP 写磁盘 tempfile，再流式多段上传到 export bucket。每次执行使用 `媒体类型/项目 UUID/作业 UUID/随机执行标识.zip`，旧执行无法覆盖恢复执行的对象。`ExportArtifact` 记录提交后，Worker 才生成友好文件名与预签名 URL、写入 `AsyncJob.result` 并发送完成通知；客户端也可轮询 `/async-jobs/{job_id}` 读终态。
+
+进度、工件记录和终态写入前核对最初的 PostgreSQL backend PID。连接失效或被替换后，执行永久失去写入权并进入重试，不能重新连接后写失败状态；其他异常沿用回滚、孤儿对象清理及失败通知。连接丢失时可能无法确认工件记录是否已提交，因此保留本次对象，避免删除已被恢复执行引用的产物；未发布或清理失败的对象由 export 桶生命周期回收。新投递只有取得作业锁后才可更新执行 task ID；已完成、失败或取消的作业保持终态。任务使用 late acknowledgement 和 worker-loss requeue；整个 Celery 主进程丢失后，Redis 原消息的自动恢复仍受 broker visibility timeout 约束。切换锁机制前须排空旧 export worker，避免混用两种锁。
 
 代码索引：
 
@@ -105,13 +116,15 @@ consumer 闭环验证前保持关闭；capability 响应不会把未验证 adapt
 
 <ExcalidrawDiagram
   src="/diagrams/shared/realtime/durable-notification-delivery.svg"
-  alt="用户通知在业务事务中先 flush Postgres 行、再尝试发布 Redis PubSub，调用方之后才 commit 或 rollback；浏览器将 WebSocket 推送当作刷新提示并用 REST 读已提交真值"
-  caption="通知的在线快路径、事务时序与两个失败窗口"
+  alt="普通通知默认由调用方提交后再尝试发布；终态 job 保留提交前兼容路径，WebSocket 先核验已提交行和权限再转发"
+  caption="普通通知提交后发布、终态 job 提交前兼容路径及 WebSocket 可见性门禁"
 />
 
-通知的持久化真值是 Postgres，Redis Pub/Sub 只是在线刷新提示。`NotificationService.notify()` 在调用方事务中先 `db.add + flush`，随后 best-effort publish，最终由调用方 `commit` 或 `rollback`：发布失败但提交成功时，前端靠 30s REST 轮询补齐；发布成功但事务回滚时，客户端可能收到一次“幽灵提示”，重新读取 REST 后不会看到记录。当前链路没有 outbox，也不提供至少一次投递保证。
+通知的持久化真值是 Postgres，Redis Pub/Sub 只是在线刷新提示。`NotificationService.notify()` 先通过偏好 owner 检查静音，再调用 `aap_notifications_v1.append_notification(jsonb)`，把返回行快照合并进原 Session identity map，最后执行调用方原有的完整 flush；事务仍由调用方提交或回滚。默认 `defer_publish=True`，普通调用方在 commit 成功后再 best-effort 发布。选定的通知工作流使用 owner durable outbox / lease，但不覆盖所有通知。
 
-`useNotificationSocket` 为通知频道维护独立的 1s → 30s 无限重连循环，并在 `1008 / 4001` 鉴权关闭码下刷新 token。收到业务消息后它只让查询缓存失效，展示数据仍以 REST 已提交结果为准；连接打开本身不会触发一次补拉。
+白名单后台 job 终态仍由 `notify_job_terminal` 在外层事务提交前写入并尝试发布，以保留既有 worker 调用顺序。通知 WS 对真实业务消息逐帧重新验证 JWT，确认通知行属于当前接收者并重验项目权限；row 尚不可见时最多查询 4 次，3 次未命中后分别等待 150ms（累计 sleep 450ms，另加查询耗时）。第四次仍未见行或事务回滚时，gate 丢弃消息，不会转发幽灵提示。若发布失败、或 gate 检查结束后事务才提交，Postgres 记录仍可由 REST 读取。
+
+`useNotificationSocket` 为通知频道维护独立的 1s → 30s 无限重连循环，并在 `1008 / 4001` 鉴权关闭码下刷新 token。收到业务消息后它只让查询缓存失效，展示数据仍以 REST 已提交结果为准；连接打开或重开时也会失效通知查询，默认 30s REST 轮询、回到前台和网络重连继续补齐状态。
 
 服务端 push 主要事件：
 

@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from aap_labeling.mask_edit_contract import (
+    ClaimRasterMaskUploads,
+    ClaimRasterMaskUploadsData,
+)
 
 from app.config import settings
 from app.services import raster_mask_storage as storage
@@ -24,6 +29,11 @@ def content_epochs(monkeypatch):
 
     monkeypatch.setattr(storage, "read_mask_write_epochs", read_epochs)
 
+    async def get_project(_db, **_kwargs):
+        return _db.project
+
+    monkeypatch.setattr(storage, "get_workspace_project", get_project)
+
 
 class _Result:
     def __init__(self, value):
@@ -36,6 +46,8 @@ class _Result:
 class _Database:
     def __init__(self, task, project=None):
         self.task = task
+        self.autoflush = False
+        self.identity_map = {}
         self.project = project or SimpleNamespace(
             raster_mask_native_editing_enabled=True,
             tool_bindings={"region": {"enabled": True}},
@@ -43,7 +55,7 @@ class _Database:
         self.events: list[str] = []
 
     async def execute(self, statement, *_args, **_kwargs):
-        if "FOR UPDATE" in str(statement).upper():
+        if "aap_labeling_v1.lock_task_for_core_read" in str(statement):
             self.events.append("task_lock")
         return _Result(self.task)
 
@@ -58,7 +70,7 @@ class _Database:
 async def test_rle_read_precedes_task_lock_and_final_registration_is_sql_only(
     monkeypatch,
 ):
-    task = SimpleNamespace(id="task", project_id="project")
+    task = SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
     db = _Database(task)
 
     async def load(reference):
@@ -79,8 +91,16 @@ async def test_rle_read_precedes_task_lock_and_final_registration_is_sql_only(
         db.events.append("sql_reference_lock")
         return [REFERENCE["object_key"]]
 
+    async def claim_uploads(_db, request):
+        assert isinstance(request, ClaimRasterMaskUploads)
+        assert request.task_id == task.id
+        assert request.object_keys == [REFERENCE["object_key"]]
+        db.events.append("upload_claim")
+        return ClaimRasterMaskUploadsData(uploads=[])
+
     monkeypatch.setattr(storage, "validate_mask_geometry_for_task", validate)
     monkeypatch.setattr(storage, "lock_raster_mask_references", lock_references)
+    monkeypatch.setattr(storage, "mask_edit_command", claim_uploads)
 
     verified = await storage.verify_mask_payload_content(GEOMETRY, db=db)
     await storage.prepare_mask_payload_for_write(
@@ -92,13 +112,14 @@ async def test_rle_read_precedes_task_lock_and_final_registration_is_sql_only(
         "storage_get",
         "task_lock",
         "sql_reference_lock",
+        "upload_claim",
     ]
     assert dict(verified.rle_cache)[REFERENCE["object_key"]] == RLE
 
 
 @pytest.mark.asyncio
 async def test_slow_or_failed_rle_read_never_holds_a_task_lock(monkeypatch):
-    task = SimpleNamespace(id="task", project_id="project")
+    task = SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
     db = _Database(task)
     started = asyncio.Event()
     release = asyncio.Event()
@@ -159,7 +180,7 @@ async def test_verified_membership_compares_full_canonical_reference_pairs(
     alias = {**reference, "storage_encoding": "identity"}
     storage.validate_reference_for_rle(alias, RLE)
     geometry = {"type": "raster_mask", "mask": reference}
-    task = SimpleNamespace(id="task", project_id="project")
+    task = SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
     db = _Database(task)
     accepted: list[object] = []
 
@@ -174,10 +195,15 @@ async def test_verified_membership_compares_full_canonical_reference_pairs(
         accepted.append(value)
         return [reference["object_key"]]
 
+    async def claim_uploads(_db, request):
+        assert isinstance(request, ClaimRasterMaskUploads)
+        return ClaimRasterMaskUploadsData(uploads=[])
+
     monkeypatch.setattr(storage, "load_coco_rle", load)
     monkeypatch.setattr(storage, "assert_raster_mask_write_enabled", lambda _p: None)
     monkeypatch.setattr(storage, "validate_mask_geometry_for_task", validate)
     monkeypatch.setattr(storage, "lock_raster_mask_references", lock_references)
+    monkeypatch.setattr(storage, "mask_edit_command", claim_uploads)
     verified = await storage.verify_mask_payload_content(
         geometry, db=db, reference_value=[reference, alias]
     )
@@ -199,7 +225,7 @@ async def test_verified_membership_compares_full_canonical_reference_pairs(
 async def test_active_collection_fence_rejects_preflight_before_reading_bytes(
     monkeypatch,
 ):
-    db = _Database(SimpleNamespace(id="task", project_id="project"))
+    db = _Database(SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4()))
     load = AsyncMock(return_value=RLE)
 
     async def fenced(_db, _keys):
@@ -222,7 +248,7 @@ async def test_active_collection_fence_rejects_preflight_before_reading_bytes(
 
 @pytest.mark.asyncio
 async def test_final_reference_gate_cannot_recapture_missing_epoch(monkeypatch):
-    db = _Database(SimpleNamespace(id="task", project_id="project"))
+    db = _Database(SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4()))
     begin = AsyncMock()
     load = AsyncMock(return_value=RLE)
     monkeypatch.setattr(storage, "begin_mask_content_write", begin)

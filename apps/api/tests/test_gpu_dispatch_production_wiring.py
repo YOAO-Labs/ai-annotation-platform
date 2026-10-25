@@ -8,11 +8,10 @@ import uuid
 import pytest
 from fastapi.params import Depends as DependsParam
 
+from aap_inference.backend_transport import PredictionResult
 from app import deps
 from app.api.v1 import admin_ml_integrations, ml_backends
 from app.api.v1.tasks import annotations
-from app.db.models.ml_backend_registry import MLBackendRegistry
-from app.db.models.task import Task
 from app.services import ml_backend as ml_backend_module
 from app.services.ml_backend import MLBackendService
 from app.services.gpu_arbitration.contracts import (
@@ -26,6 +25,11 @@ from app.services.video_tracking.adapters import (
     TrackerSession,
 )
 from app.workers import frame_preannotate
+from tests.test_frame_preannotate_persistence import (
+    _install_video_gateway,
+    _run_video_segment,
+    frame_world as frame_world,
+)
 
 
 def test_gpu_dispatch_dependency_uses_the_global_short_session_factory(
@@ -209,83 +213,38 @@ async def test_video_tracker_adapter_updates_opaque_session_token(monkeypatch) -
 
 @pytest.mark.asyncio
 async def test_frame_segment_builds_authority_from_its_own_session_factory(
+    frame_world,
     monkeypatch,
 ) -> None:
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
     authority_marker = object()
-    backend = MLBackendRegistry(id=uuid.uuid4())
-    task = Task(
-        id=uuid.uuid4(),
-        project_id=uuid.uuid4(),
-        dataset_item_id=uuid.uuid4(),
-        file_type="video",
-        version=1,
-        status="pending",
-    )
     client_kwargs: list[dict] = []
     built_from: list[object] = []
+    session_factories: list[object] = []
 
-    class FakeEngine:
-        async def dispose(self) -> None:
-            pass
-
-    class FakeDB:
-        async def get(self, model, _row_id):
-            if model.__name__ == "MLBackendRegistry":
-                return backend
-            if model.__name__ == "Task":
-                return task
-            if model.__name__ == "AsyncJob":
-                return SimpleNamespace(
-                    user_id=uuid.uuid4(),
-                    payload={"execution_scope": "bulk"},
-                    status="running",
-                )
-            raise AssertionError(f"unexpected model: {model}")
-
-        async def rollback(self):
-            pass
-
-    class FakeSessionFactory:
-        def __call__(self):
-            class SessionContext:
-                async def __aenter__(self):
-                    return FakeDB()
-
-                async def __aexit__(self, *args):
-                    return False
-
-            return SessionContext()
-
-    session_factory = FakeSessionFactory()
+    def tracked_session_factory(*args, **kwargs):
+        factory = async_sessionmaker(*args, **kwargs)
+        session_factories.append(factory)
+        return factory
 
     def build_authority(received_factory):
         built_from.append(received_factory)
         return authority_marker
 
     class FakeClient:
-        def __init__(self, _db, received_backend, **kwargs) -> None:
-            assert received_backend is backend
+        def __init__(self, _db, backend, **kwargs):
+            assert backend.id == frame_world.backend_id
             client_kwargs.append(kwargs)
+            self.last_instance_id = backend.id
+            self.pool_id = None
 
         async def predict(self, *_args, **_kwargs):
-            raise RuntimeError("stop after dispatch wiring is observed")
+            return [PredictionResult(task_id=str(frame_world.task_id), result=[])]
 
-    async def build_frame_context(
-        _reader, *, actor_id=None, task_id, project_id, file_type, dataset_item_id
-    ):
-        assert task_id == task.id
-        assert project_id == task.project_id
-        assert file_type == task.file_type
-        assert dataset_item_id == task.dataset_item_id
-        return object()
-
+    _install_video_gateway(monkeypatch, frame_world)
     monkeypatch.setattr(
-        "sqlalchemy.ext.asyncio.create_async_engine",
-        lambda *args, **kwargs: FakeEngine(),
-    )
-    monkeypatch.setattr(
-        "sqlalchemy.ext.asyncio.async_sessionmaker",
-        lambda *args, **kwargs: session_factory,
+        "sqlalchemy.ext.asyncio.async_sessionmaker", tracked_session_factory
     )
     monkeypatch.setattr(
         "app.services.gpu_arbitration.dispatch.build_gpu_dispatch_context_factory",
@@ -294,87 +253,33 @@ async def test_frame_segment_builds_authority_from_its_own_session_factory(
     monkeypatch.setattr(
         "app.services.ml_routing.client.RoutedMLBackendClient", FakeClient
     )
+    monkeypatch.setattr(frame_preannotate, "_bump_progress", lambda *_args: (1, 1))
     monkeypatch.setattr(
-        "app.services.video_frame_service.AssetsVideoContextReader.from_task_summary",
-        build_frame_context,
-    )
-    monkeypatch.setattr(
-        frame_preannotate, "_job_cancelled", AsyncMock(return_value=False)
-    )
-    monkeypatch.setattr(
-        frame_preannotate, "_existing_frame_indices", AsyncMock(return_value=set())
-    )
-    monkeypatch.setattr(
-        frame_preannotate,
-        "_read_frame_urls",
-        AsyncMock(return_value={0: "http://frame/0"}),
+        frame_preannotate, "_publish_frame_progress", lambda *_args, **_kwargs: None
     )
     monkeypatch.setattr(frame_preannotate, "_write_job_progress", AsyncMock())
 
-    stats = await frame_preannotate._run_segment(
-        segment={"task_id": str(task.id), "frame_indices": [0]},
-        project_id=str(task.project_id),
-        ml_backend_id=str(uuid.uuid4()),
-        stage0={},
-        job_id=str(uuid.uuid4()),
-        celery_root_task_id=None,
-    )
+    stats = await _run_video_segment(frame_world, [1])
 
-    assert stats["frames_done"] == 0
-    assert built_from == [session_factory]
+    assert stats["frames_done"] == 1
+    assert stats["failed"] == 0
+    assert len(session_factories) == 1
+    assert built_from
+    assert all(factory is session_factories[0] for factory in built_from)
     assert len(client_kwargs) == 1
-    assert client_kwargs[0]["shadow_session_factory"] is session_factory
+    assert client_kwargs[0]["shadow_session_factory"] is session_factories[0]
     assert client_kwargs[0]["dispatch_context_factory"] is authority_marker
     assert client_kwargs[0]["operation"] == "frame_predict"
 
 
 @pytest.mark.asyncio
-async def test_frame_segment_aggregates_gpu_arbiter_failures(monkeypatch) -> None:
-    backend = MLBackendRegistry(id=uuid.uuid4())
-    task = Task(
-        id=uuid.uuid4(),
-        project_id=uuid.uuid4(),
-        dataset_item_id=uuid.uuid4(),
-        file_type="video",
-        version=1,
-        status="pending",
-    )
-
-    class FakeEngine:
-        async def dispose(self) -> None:
-            pass
-
-    class FakeDB:
-        async def get(self, model, _row_id):
-            if model.__name__ == "MLBackendRegistry":
-                return backend
-            if model.__name__ == "Task":
-                return task
-            if model.__name__ == "AsyncJob":
-                return SimpleNamespace(
-                    user_id=uuid.uuid4(),
-                    payload={"execution_scope": "bulk"},
-                    status="running",
-                )
-            raise AssertionError(f"unexpected model: {model}")
-
-        async def rollback(self) -> None:
-            pass
-
-    class FakeSessionFactory:
-        def __call__(self):
-            class SessionContext:
-                async def __aenter__(self):
-                    return FakeDB()
-
-                async def __aexit__(self, *args):
-                    return False
-
-            return SessionContext()
-
+async def test_frame_segment_aggregates_gpu_arbiter_failures(
+    frame_world, monkeypatch
+) -> None:
     class RejectedClient:
-        def __init__(self, _db, _backend, **_kwargs) -> None:
-            pass
+        def __init__(self, _db, backend, **_kwargs):
+            self.last_instance_id = backend.id
+            self.pool_id = None
 
         async def predict(self, inputs, context=None):
             raise GPUArbiterDispatchError(
@@ -383,37 +288,7 @@ async def test_frame_segment_aggregates_gpu_arbiter_failures(monkeypatch) -> Non
                 retry_after_s=2,
             )
 
-    async def not_cancelled(_db, _job_id):
-        return False
-
-    async def no_existing(_db, _task_id):
-        return set()
-
-    async def frame_urls(_db, _ctx, frame_indices, *, job_id=None):
-        assert job_id is not None
-        return {
-            frame_index: f"http://x/{frame_index}.jpg" for frame_index in frame_indices
-        }
-
-    async def build_frame_context(
-        _reader, *, actor_id=None, task_id, project_id, file_type, dataset_item_id
-    ):
-        assert task_id == task.id and project_id == task.project_id
-        assert file_type == task.file_type and dataset_item_id == task.dataset_item_id
-        return object()
-
-    async def no_progress_write(*_args):
-        return None
-
-    session_factory = FakeSessionFactory()
-    monkeypatch.setattr(
-        "sqlalchemy.ext.asyncio.create_async_engine",
-        lambda *args, **kwargs: FakeEngine(),
-    )
-    monkeypatch.setattr(
-        "sqlalchemy.ext.asyncio.async_sessionmaker",
-        lambda *args, **kwargs: session_factory,
-    )
+    _install_video_gateway(monkeypatch, frame_world)
     monkeypatch.setattr(
         "app.services.gpu_arbitration.dispatch.build_gpu_dispatch_context_factory",
         lambda factory: object(),
@@ -421,27 +296,14 @@ async def test_frame_segment_aggregates_gpu_arbiter_failures(monkeypatch) -> Non
     monkeypatch.setattr(
         "app.services.ml_routing.client.RoutedMLBackendClient", RejectedClient
     )
-    monkeypatch.setattr(
-        "app.services.video_frame_service.AssetsVideoContextReader.from_task_summary",
-        build_frame_context,
-    )
-    monkeypatch.setattr(frame_preannotate, "_job_cancelled", not_cancelled)
-    monkeypatch.setattr(frame_preannotate, "_existing_frame_indices", no_existing)
-    monkeypatch.setattr(frame_preannotate, "_read_frame_urls", frame_urls)
     monkeypatch.setattr(frame_preannotate, "_bump_progress", lambda *_args: (2, 2))
     monkeypatch.setattr(
-        frame_preannotate, "_publish_frame_progress", lambda *_a, **_k: None
+        frame_preannotate, "_publish_frame_progress", lambda *_args, **_kwargs: None
     )
-    monkeypatch.setattr(frame_preannotate, "_write_job_progress", no_progress_write)
+    monkeypatch.setattr(frame_preannotate, "_write_job_progress", AsyncMock())
 
-    stats = await frame_preannotate._run_segment(
-        segment={"task_id": str(task.id), "frame_indices": [0, 1]},
-        project_id=str(task.project_id),
-        ml_backend_id=str(uuid.uuid4()),
-        stage0={},
-        job_id=str(uuid.uuid4()),
-        celery_root_task_id=None,
-    )
+    stats = await _run_video_segment(frame_world, [1, 2])
+
     assert stats["failed"] == 2
     assert stats["gpu_arbiter_failures"] == [
         {

@@ -1,3 +1,10 @@
+---
+audience: [dev]
+type: reference
+status: stable
+last_reviewed: 2026-10-20
+---
+
 # 场景、位姿与标定
 
 场景、素材帧序号、位姿与标定由 Assets 持有，使用既有独立素材目录服务。公开 API 保留认证、scope、权限政策和原有响应；任务、相机链接、标注与轨迹的组合查询仍由 Labeling 持有。配置入口见[独立素材目录](./assets-catalog)，事务说明见[同库数据接口](./module-data)。

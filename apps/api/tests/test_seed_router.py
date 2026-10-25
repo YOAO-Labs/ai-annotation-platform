@@ -676,7 +676,7 @@ async def test_seed_video_webcodecs_rejects_unknown_fixture():
     assert exc_info.value.detail == "unknown_fixture"
 
 
-async def test_video_issue_context_history_preserves_the_original_feedback():
+async def test_video_issue_context_history_preserves_the_original_feedback(monkeypatch):
     from copy import deepcopy
     from types import SimpleNamespace
     from uuid import uuid4
@@ -714,6 +714,12 @@ async def test_video_issue_context_history_preserves_the_original_feedback():
             self.commits += 1
 
     db = Session()
+
+    async def workspace_project(db, *, project_id):
+        assert project_id == feedback.project_id
+        return records[Project]
+
+    monkeypatch.setattr(_test_seed, "get_workspace_project", workspace_project)
     response = await _test_seed.seed_video_issue_context_history(
         _test_seed.SeedVideoIssueContextHistoryRequest(feedback_id=feedback.id), db
     )
@@ -734,7 +740,7 @@ async def test_video_issue_context_history_preserves_the_original_feedback():
     "invalid",
     ["non_e2e", "image", "cross_project", "task_anchor", "no_frame", "inactive"],
 )
-async def test_video_issue_context_history_rejects_other_records(invalid):
+async def test_video_issue_context_history_rejects_other_records(invalid, monkeypatch):
     from types import SimpleNamespace
     from uuid import uuid4
 
@@ -777,6 +783,12 @@ async def test_video_issue_context_history_rejects_other_records(invalid):
 
         async def commit(self):
             pytest.fail("An invalid historical fixture must not be committed")
+
+    async def workspace_project(db, *, project_id):
+        assert project_id == feedback.project_id
+        return records[Project]
+
+    monkeypatch.setattr(_test_seed, "get_workspace_project", workspace_project)
 
     with pytest.raises(HTTPException) as error:
         await _test_seed.seed_video_issue_context_history(

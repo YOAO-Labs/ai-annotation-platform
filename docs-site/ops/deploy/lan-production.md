@@ -120,6 +120,11 @@ docker compose --env-file .env.production -f docker-compose.lan-prod.yml run --r
 
 每次迁移后都重新执行该授权脚本。它检查当前数据库和角色方向，授予业务 DML，禁止运行角色修改迁移版本或删除 GPU membership/fence 真值；同时把审计、预测父表及全部子分区、两个统计物化视图交给运行角色维护。
 
+Identity 私表及列权限在同一授权事务中撤销，内嵌 API 保留固定公开关系与 Native 命令能力。
+应用角色必须没有角色成员资格；`NOINHERIT` 不能阻止 `SET ROLE`。PUBLIC 或所有权仍提供
+私表访问时，脚本会拒绝并回滚授权；先解除冲突再重试，勿给应用进程迁移 owner 凭据。
+这不代表日常或生产环境已经切换，详见 [Identity 内嵌权限](../../api/guides/identity-runtime.md#内嵌运行角色的私表权限)。
+
 应用角色保留本地 API/Celery 适配所需的图片媒体 22 项能力，以及已受理图片输入、清单和 Labeling 引用的 16 项能力。受理图片的后台 sweep、垃圾回收和私有回执/Pin helper 不会授给应用角色。这里的 `asset_cleanup_client` 仅有旧存储删除 outbox 的领取/确认能力；LAN Compose 没有启动独立 `assets-cleanup`。若另行部署清理 overlay，按其 [清理工件说明](../../dev/concepts/module-deployment.md) 单独安装完整角色授权，不要把 overlay 的权限叠加到这个 LAN 配置中。
 
 `celery-worker-maintenance` 专门消费 `maintenance` 队列，沿用下面限定维护对象的运行角色权限，不挂载迁移账号 secret。

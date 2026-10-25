@@ -14,7 +14,7 @@ from app.db.models.dataset import DatasetItem
 from app.db.models.video_chapter import VideoChapter
 from app.schemas.video_chapter import VideoChapterCreate, VideoChapterUpdate
 from app.services import task_access
-from app.services.workspace_contract import ProjectAccess
+from aap_workspace_contract.access import ProjectAccess
 from app.services.video_chapter_service import (
     create_chapter,
     delete_chapter,

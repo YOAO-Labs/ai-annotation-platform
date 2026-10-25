@@ -1,0 +1,12 @@
+services:
+  workspace-configuration:
+    environment:
+      WORKSPACE_INFERENCE_PROBE_URL: ${WORKSPACE_INFERENCE_PROBE_URL:?Set credential-owning Inference probe URL}
+      WORKSPACE_INFERENCE_PROBE_TOKEN_FILE: /run/secrets/workspace_inference_probe_token
+      WORKSPACE_INFERENCE_PROBE_TIMEOUT_SECONDS: ${WORKSPACE_INFERENCE_PROBE_TIMEOUT_SECONDS:-30}
+    secrets:
+      - workspace_inference_probe_token
+
+secrets:
+  workspace_inference_probe_token:
+    file: ${WORKSPACE_RUNTIME_INFERENCE_PROBE_TOKEN_FILE:?Set dedicated Inference probe bearer file}

@@ -40,6 +40,15 @@ from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.identity_contracts import IdentityActorStatus
 from app.services.identity_read_relations import account_profiles
 from app.services.user_brief import resolve_briefs
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    get_core_row,
+    task_row,
+)
+from app.services.labeling_discussion_relations import (
+    annotation_comment_facts,
+    annotation_feedback_facts,
+)
 
 
 DiscussionScope = Literal["all", "task", "annotation"]
@@ -196,7 +205,7 @@ async def require_visible_task(
 ) -> Task:
     """Resolve a task and apply the repository's batch/project visibility rules."""
 
-    task = await db.get(Task, task_id)
+    task = await get_core_row(db, task_row, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     user = await _read_request_actor(db, actor_id)
@@ -223,7 +232,7 @@ async def require_visible_annotation(
     callers can opt into the existing active-annotation requirement.
     """
 
-    annotation = await db.get(Annotation, annotation_id)
+    annotation = await get_core_row(db, annotation_row, annotation_id)
     if annotation is None:
         raise HTTPException(status_code=404, detail="Annotation not found")
     if task_id is not None and annotation.task_id != task_id:
@@ -324,18 +333,23 @@ def _identifier_selects(
     if scope in {"all", "annotation"}:
         annotation_query = (
             select(
-                AnnotationComment.id.label("item_id"),
-                AnnotationComment.created_at.label("created_at"),
+                annotation_comment_facts.id.label("item_id"),
+                annotation_comment_facts.created_at.label("created_at"),
                 literal("annotation_comment").label("source"),
             )
-            .join(Annotation, Annotation.id == AnnotationComment.annotation_id)
+            .join(
+                annotation_row,
+                annotation_row.id == annotation_comment_facts.annotation_id,
+            )
             .where(
-                Annotation.task_id == task_id,
-                AnnotationComment.is_active.is_(True),
+                annotation_row.task_id == task_id,
+                annotation_comment_facts.is_active.is_(True),
             )
         )
         if annotation_id is not None:
-            annotation_query = annotation_query.where(Annotation.id == annotation_id)
+            annotation_query = annotation_query.where(
+                annotation_row.id == annotation_id
+            )
         selects.append(annotation_query)
 
     if scope in {"all", "task"}:
@@ -344,16 +358,16 @@ def _identifier_selects(
         # denormalized project_id no longer agrees with the actual task.
         selects.append(
             select(
-                AnnotationFeedback.id.label("item_id"),
-                AnnotationFeedback.created_at.label("created_at"),
+                annotation_feedback_facts.id.label("item_id"),
+                annotation_feedback_facts.created_at.label("created_at"),
                 literal("feedback").label("source"),
             ).where(
-                AnnotationFeedback.project_id == project_id,
-                AnnotationFeedback.task_id == task_id,
-                AnnotationFeedback.kind == "comment",
-                AnnotationFeedback.anchor_type == "task",
-                AnnotationFeedback.thread_parent_id.is_(None),
-                AnnotationFeedback.is_active.is_(True),
+                annotation_feedback_facts.project_id == project_id,
+                annotation_feedback_facts.task_id == task_id,
+                annotation_feedback_facts.kind == "comment",
+                annotation_feedback_facts.anchor_type == "task",
+                annotation_feedback_facts.thread_parent_id.is_(None),
+                annotation_feedback_facts.is_active.is_(True),
             )
         )
     return selects
@@ -372,13 +386,13 @@ def task_comment_count_sq() -> ColumnElement[int]:
     # each source select explicitly to keep the count attached to the outer
     # task row instead of counting the whole table.
     source_selects = _identifier_selects(
-        task_id=Task.id,
+        task_id=task_row.id,
         scope="all",
         annotation_id=None,
-        project_id=Task.project_id,
+        project_id=task_row.project_id,
     )
     identifiers = union_all(
-        *(item.correlate(Task) for item in source_selects)
+        *(item.correlate(task_row) for item in source_selects)
     ).subquery()
     return select(func.count()).select_from(identifiers).scalar_subquery()
 
@@ -394,6 +408,8 @@ async def list_task_discussion(
     cursor: str | None = None,
 ) -> TaskDiscussionPage:
     """Read one correctly ordered page from both authoritative comment sources."""
+    from app.services.project_access import get_workspace_project
+
     user = await _read_request_actor(db, actor_id)
 
     source_selects = _identifier_selects(
@@ -469,9 +485,9 @@ async def list_task_discussion(
         author = account_profiles.alias("annotation_comment_author")
         annotation_rows = (
             await db.execute(
-                select(AnnotationComment, author.c.name)
-                .join(author, author.c.id == AnnotationComment.author_id)
-                .where(AnnotationComment.id.in_(annotation_ids))
+                select(annotation_comment_facts, author.c.name)
+                .join(author, author.c.id == annotation_comment_facts.author_id)
+                .where(annotation_comment_facts.id.in_(annotation_ids))
             )
         ).all()
         annotation_by_id = {
@@ -483,8 +499,8 @@ async def list_task_discussion(
         feedback_rows = (
             (
                 await db.execute(
-                    select(AnnotationFeedback).where(
-                        AnnotationFeedback.id.in_(feedback_ids)
+                    select(annotation_feedback_facts).where(
+                        annotation_feedback_facts.id.in_(feedback_ids)
                     )
                 )
             )
@@ -500,10 +516,9 @@ async def list_task_discussion(
 
     # Resolve the current project access once so comment actions use the
     # project role rather than the account's legacy global role.
-    from app.db.models.project import Project
     from app.services.project_access import resolve_project_access
 
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, project_id=task.project_id)
     access = await resolve_project_access(db, actor_id=user.id, project=project)
 
     items: list[TaskDiscussionItem] = []

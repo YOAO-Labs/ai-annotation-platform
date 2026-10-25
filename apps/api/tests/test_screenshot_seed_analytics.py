@@ -4,7 +4,9 @@ from collections import namedtuple
 from datetime import datetime, timezone
 from types import SimpleNamespace
 import uuid
+from zoneinfo import ZoneInfo
 
+import duckdb
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 import pytest
@@ -59,13 +61,32 @@ class SourceSession:
             "geometry",
             now,
         )
+        audit_columns = (
+            "id actor_id actor_role action target_type target_id status_code created_at"
+        )
+        audit_event = namedtuple("AuditEvent", audit_columns)(
+            42,
+            uuid.uuid4(),
+            "admin",
+            "project.create",
+            "project",
+            "P-ANALYTICS-42",
+            201,
+            now,
+        )
         self.events = [event] if populated else []
+        self.audit_events = [audit_event] if populated else []
         self.queries = []
 
     async def execute(self, statement):
         query = str(statement)
         self.queries.append(query)
-        rows = self.events if "FROM task_events" in query else []
+        if "FROM task_events" in query:
+            rows = self.events
+        elif "aap_audit_v1.audit_events" in query:
+            rows = self.audit_events
+        else:
+            rows = []
         return SimpleNamespace(all=lambda: rows)
 
 
@@ -87,10 +108,10 @@ async def test_fresh_seed_initializes_all_real_panels(analytics_target, populate
 
         report = await prepare_screenshot_analytics(source)
         assert report["task_events"]["rows"] == int(populated)
-        assert report["audit_logs"]["rows"] == 0
+        assert report["audit_logs"]["rows"] == int(populated)
         assert len(source.queries) == 2
         assert "FROM task_events" in source.queries[0]
-        assert "FROM audit_logs" in source.queries[1]
+        assert "aap_audit_v1.audit_events" in source.queries[1]
         panels = {}
         for panel in PANELS:
             response = await client.get(f"/analytics/{panel}")
@@ -104,6 +125,21 @@ async def test_fresh_seed_initializes_all_real_panels(analytics_target, populate
         if populated:
             assert panels["duration_dist"]["mean"] == 1234
             assert panels["reject_rate_by_type"][0]["reason_type"] == "geometry"
+            with duckdb.connect(str(analytics_target), read_only=True) as con:
+                synced_audit = con.execute(
+                    "SELECT id, actor_id, actor_role, action, target_type, target_id, "
+                    "status_code, created_at FROM audit_logs"
+                ).fetchone()
+                timezone_name = con.execute(
+                    "SELECT current_setting('TimeZone')"
+                ).fetchone()[0]
+            assert synced_audit[:7] == tuple(source.audit_events[0][:7])
+            # The DuckDB target is a naive TIMESTAMP, so keep its current session-
+            # timezone conversion behavior while checking the source instant.
+            expected_at = source.audit_events[0].created_at.astimezone(
+                ZoneInfo(timezone_name)
+            )
+            assert synced_audit[7] == expected_at.replace(tzinfo=None)
 
 
 def test_shared_development_file_is_rejected(analytics_target, monkeypatch):

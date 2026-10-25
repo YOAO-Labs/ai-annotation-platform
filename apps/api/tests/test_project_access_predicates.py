@@ -13,7 +13,7 @@ import uuid
 from types import SimpleNamespace
 
 from app.services.project_access import is_privileged_for_project
-from app.services.workspace_contract import platform_role_is_manager
+from aap_workspace_contract.access import platform_role_is_manager
 
 
 def _user(role: str, *, active: bool = True) -> SimpleNamespace:

@@ -1,0 +1,298 @@
+{
+  "$defs": {
+    "ScaleSeedCleanup": {
+      "additionalProperties": false,
+      "description": "Captured Project IDs and the result of project/source retention checks.",
+      "properties": {
+        "schema": {
+          "const": "aap-workspace-scale-seed/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "marker": {
+          "minLength": 1,
+          "title": "Marker",
+          "type": "string"
+        },
+        "project_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Project Ids",
+          "type": "array"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScaleSeedError"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["schema", "marker", "project_ids", "ok", "error"],
+      "title": "ScaleSeedCleanup",
+      "type": "object"
+    },
+    "ScaleSeedError": {
+      "additionalProperties": false,
+      "description": "Closed code returned by a retention guard.",
+      "properties": {
+        "code": {
+          "minLength": 1,
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": ["code"],
+      "title": "ScaleSeedError",
+      "type": "object"
+    },
+    "ScaleSeedSourceGuard": {
+      "additionalProperties": false,
+      "description": "Closed Dataset source-retention guard result.",
+      "properties": {
+        "schema": {
+          "const": "aap-workspace-scale-source-guard/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "after_task_cleanup": {
+          "title": "After Task Cleanup",
+          "type": "boolean"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScaleSeedError"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["schema", "dataset_id", "after_task_cleanup", "ok", "error"],
+      "title": "ScaleSeedSourceGuard",
+      "type": "object"
+    }
+  },
+  "anyOf": [
+    {
+      "$ref": "#/$defs/ScaleSeedCleanup"
+    },
+    {
+      "$ref": "#/$defs/ScaleSeedSourceGuard"
+    }
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-workspace-scale-seed/v1",
+  "$comment": "Fixed trusted local scale-seed capabilities. Functions accept no arbitrary SQL, table, or predicate selectors.",
+  "x-native-capabilities": {
+    "protocol": "aap-workspace-scale-seed/v1",
+    "postgres_schema": "aap_workspace_v1",
+    "owner_domains": {
+      "Workspace": "aap_workspace_v1",
+      "Assets": "aap_assets_v1",
+      "Jobs": "aap_jobs_v1",
+      "Learning": "aap_learning_v1",
+      "Labeling": "aap_labeling_v1"
+    },
+    "functions": [
+      {
+        "name": "create_scale_seed_project",
+        "signature": "aap_workspace_v1.create_scale_seed_project(uuid, text)",
+        "owner_domain": "Workspace",
+        "arguments": [
+          {
+            "name": "p_owner_id",
+            "postgres_type": "uuid",
+            "json_schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "p_marker",
+            "postgres_type": "text",
+            "json_schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "result_postgres_type": "uuid",
+        "result_json_schema": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "transaction_semantics": "Insert the original scale-seed Project fields while preserving all other PostgreSQL defaults. The caller owns the transaction and writes the Labeling total_tasks projection before commit."
+      },
+      {
+        "name": "ensure_scale_seed_member",
+        "signature": "aap_workspace_v1.ensure_scale_seed_member(uuid, uuid, uuid)",
+        "owner_domain": "Workspace",
+        "arguments": [
+          {
+            "name": "p_project_id",
+            "postgres_type": "uuid",
+            "json_schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "p_annotator_id",
+            "postgres_type": "uuid",
+            "json_schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "p_owner_id",
+            "postgres_type": "uuid",
+            "json_schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "result_postgres_type": "integer",
+        "result_json_schema": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "transaction_semantics": "Insert the original annotator membership with ON CONFLICT DO NOTHING and return the inserted row count. No account or role normalization is performed; the caller owns the transaction."
+      },
+      {
+        "name": "guard_scale_seed_cleanup",
+        "signature": "aap_workspace_v1.guard_scale_seed_cleanup(text)",
+        "owner_domain": "Workspace",
+        "arguments": [
+          {
+            "name": "p_marker",
+            "postgres_type": "text",
+            "json_schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "result_postgres_type": "jsonb",
+        "result_model": "ScaleSeedCleanup",
+        "result_schema_ref": "#/$defs/ScaleSeedCleanup",
+        "transaction_semantics": "Capture Projects matching the marker, acquire sorted Learning project advisory locks before sorted Workspace row locks with NOWAIT, and run Learning and video-retirement guards before child DML. The caller owns the transaction and rollback. No retirement proof is fabricated."
+      },
+      {
+        "name": "delete_scale_seed_projects",
+        "signature": "aap_workspace_v1.delete_scale_seed_projects(text, uuid[])",
+        "owner_domain": "Workspace",
+        "arguments": [
+          {
+            "name": "p_marker",
+            "postgres_type": "text",
+            "json_schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "p_project_ids",
+            "postgres_type": "uuid[]",
+            "json_schema": {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "type": "array"
+            }
+          }
+        ],
+        "result_postgres_type": "integer",
+        "result_json_schema": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "transaction_semantics": "Delete only the supplied captured IDs whose current name still matches the marker. Recheck Learning and video-retirement guards before DML; raise SQLSTATE 23514 with a code detail when retained. The caller owns the transaction."
+      },
+      {
+        "name": "guard_scale_seed_dataset_cleanup",
+        "signature": "aap_assets_v1.guard_scale_seed_dataset_cleanup(uuid, boolean)",
+        "owner_domain": "Assets",
+        "arguments": [
+          {
+            "name": "p_dataset_id",
+            "postgres_type": "uuid",
+            "json_schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "p_after_task_cleanup",
+            "postgres_type": "boolean",
+            "json_schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "result_postgres_type": "jsonb",
+        "result_model": "ScaleSeedSourceGuard",
+        "result_schema_ref": "#/$defs/ScaleSeedSourceGuard",
+        "transaction_semantics": "Hold the private Assets Dataset-to-Scene-to-Item NOWAIT locks while checking Jobs, Learning, and Assets retention. When after_task_cleanup is true, also check Labeling retention. This guard performs no source DML; the caller owns the transaction and lock lifetime."
+      }
+    ],
+    "delegated_guards": [
+      {
+        "owner_domain": "Learning",
+        "signature": "aap_learning_v1.lock_project_deletion(uuid)"
+      },
+      {
+        "owner_domain": "Learning",
+        "signature": "aap_learning_v1.guard_project_deletion(uuid)"
+      },
+      {
+        "owner_domain": "Labeling",
+        "signature": "aap_labeling_v1.guard_project_video_deletion(uuid)"
+      },
+      {
+        "owner_domain": "Assets",
+        "signature": "aap_assets_v1._lock_dataset_source_deletion(uuid,uuid)",
+        "private": true
+      },
+      {
+        "owner_domain": "Jobs",
+        "signature": "aap_jobs_v1.guard_dataset_source_deletion(uuid)"
+      },
+      {
+        "owner_domain": "Learning",
+        "signature": "aap_learning_v1.guard_dataset_source_deletion(uuid,uuid)"
+      },
+      {
+        "owner_domain": "Assets",
+        "signature": "aap_assets_v1.guard_dataset_source_auxiliary_retention(uuid,uuid)"
+      },
+      {
+        "owner_domain": "Labeling",
+        "signature": "aap_labeling_v1.guard_dataset_source_deletion(uuid,uuid)"
+      }
+    ],
+    "authorization_boundary": "Available only through a separately granted trusted operator. The CLI retains its production guard before engine creation; these fixed functions add no application actor policy.",
+    "transaction_boundary": "The caller owns the encompassing transaction, all commits and rollbacks, and the lifetime of locks. No function commits or retries."
+  }
+}

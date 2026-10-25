@@ -1,11 +1,9 @@
 import base64
 import logging
 import uuid
-from collections.abc import Iterable
 from datetime import datetime, timezone
 from typing import Any
 from fastapi import Depends, HTTPException
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from aap_assets_media.contract import MediaFailure, ReadSourceRequest
 from aap_assets_images.contract import ReadImageSourceRequest
@@ -25,18 +23,18 @@ from app.services.image_pyramid_contract import (
 )
 from app.deps import get_current_user, get_db
 from app.services import task_access
-from app.services.workspace_contract import (
+from aap_workspace_contract.access import (
     ProjectAccess,
     ProjectCapability,
 )
 from app.services.project_access import resolve_project_access
 from app.services.storage import storage_service
-from app.db.models.project_member import ProjectMember
 from app.services.assets_media_summary import AssetsTaskMediaSummaryReader
 from app.services.assets_media_summary_contract import TaskMediaSummary
 from app.services.assets_media import browser_media_url, media_gateway
 from app.services.image_source_references import image_source_references
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.labeling_core_read_relations import get_core_row, task_row
 
 logger = logging.getLogger(__name__)
 
@@ -96,76 +94,10 @@ _REVIEWERS = (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN, UserRole.REVIEWER)
 
 
 async def _load_task_or_404(db: AsyncSession, task_id: uuid.UUID) -> Task:
-    task = await db.get(Task, task_id)
+    task = await get_core_row(db, task_row, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
-
-
-async def _has_current_project_membership(
-    db: AsyncSession,
-    project_id: uuid.UUID,
-    user_id: uuid.UUID,
-    *,
-    lock: bool = False,
-) -> bool:
-    stmt = (
-        select(ProjectMember.id)
-        .where(
-            ProjectMember.project_id == project_id,
-            ProjectMember.user_id == user_id,
-        )
-        .limit(1)
-    )
-    if lock:
-        stmt = stmt.with_for_update(read=True)
-    return (await db.scalar(stmt)) is not None
-
-
-async def _project_role_for_user(
-    db: AsyncSession,
-    project_id: uuid.UUID,
-    user_id: uuid.UUID,
-    *,
-    lock: bool = False,
-) -> str | None:
-    """Resolved project role for one account in one project.
-
-    Project-scoped callers must use this instead of the account's global role.
-    ``lock=True`` acquires the membership with ``FOR SHARE`` (conflicts with the
-    role-changing ``FOR UPDATE``).  Returns ``None`` when there is no
-    membership.
-    """
-
-    stmt = (
-        select(ProjectMember.role)
-        .where(
-            ProjectMember.project_id == project_id,
-            ProjectMember.user_id == user_id,
-        )
-        .limit(1)
-    )
-    if lock:
-        stmt = stmt.with_for_update(read=True)
-    return await db.scalar(stmt)
-
-
-async def _has_current_project_membership_role(
-    db: AsyncSession,
-    project_id: uuid.UUID,
-    user_id: uuid.UUID,
-    *,
-    roles: Iterable[str] | None = None,
-    lock: bool = False,
-) -> bool:
-    """True when the current membership exists and its role is in ``roles``."""
-
-    role = await _project_role_for_user(db, project_id, user_id, lock=lock)
-    if role is None:
-        return False
-    if roles is None:
-        return True
-    return role in set(roles)
 
 
 async def _assert_current_project_member(db: AsyncSession, project, user: User) -> None:

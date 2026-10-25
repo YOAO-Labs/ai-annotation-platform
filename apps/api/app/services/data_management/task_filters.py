@@ -28,16 +28,9 @@ from sqlalchemy import (
     or_,
     select,
 )
-from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
 
-from app.db.models.annotation import Annotation
-from app.db.models.annotation_feedback import AnnotationFeedback
-from app.db.models.prediction import Prediction
 from app.db.models.project import Project
-from app.db.models.task import Task
-from app.db.models.task_batch import TaskBatch
-from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.db.models.user import User
 from app.services.data_management.filter_tree import (
     _MAX_IN_VALUES,
@@ -50,13 +43,22 @@ from app.services.data_management.task_metrics import (  # noqa: F401
     pending_prediction_shapes_expr,
     pending_tracker_jobs_expr,
 )
-from app.services.project_kind import project_kind
+from aap_workspace.configuration_policy import project_kind
 from app.services.project_access import is_privileged_for_project
 from app.services.scheduler import task_visibility_clause
 from app.services.feedback import unresolved_issue_count_sq
+from app.services.labeling_discussion_relations import annotation_feedback_facts
 from app.services.task_discussion import task_comment_count_sq
 from app.services.assets_spatial_views import spatial_item_references
 from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
+from app.services.labeling_core_read_relations import (
+    alias_core_row,
+    annotation_row,
+    batch_row,
+    prediction_row,
+    task_dataset_item_link_row,
+    task_row,
+)
 
 _STRING_OPS = {"eq", "ne", "in"}
 
@@ -71,25 +73,25 @@ _EXISTS_OPS = {"exists", "eq", "in"}
 
 
 _TASK_FIELD_MAP = {
-    "task.status": Task.status,
+    "task.status": task_row.status,
     # Filters also run in privileged queries without a TaskBatch join.
     "task.assignee": func.coalesce(
-        Task.assignee_id,
-        select(TaskBatch.annotator_id)
-        .where(TaskBatch.id == Task.batch_id)
-        .correlate(Task)
+        task_row.assignee_id,
+        select(batch_row.annotator_id)
+        .where(batch_row.id == task_row.batch_id)
+        .correlate(task_row)
         .scalar_subquery(),
     ),
     "task.reviewer": func.coalesce(
-        Task.reviewer_id,
-        select(TaskBatch.reviewer_id)
-        .where(TaskBatch.id == Task.batch_id)
-        .correlate(Task)
+        task_row.reviewer_id,
+        select(batch_row.reviewer_id)
+        .where(batch_row.id == task_row.batch_id)
+        .correlate(task_row)
         .scalar_subquery(),
     ),
-    "task.batch_id": Task.batch_id,
-    "task.created_at": Task.created_at,
-    "task.updated_at": Task.updated_at,
+    "task.batch_id": task_row.batch_id,
+    "task.created_at": task_row.created_at,
+    "task.updated_at": task_row.updated_at,
 }
 
 
@@ -151,10 +153,10 @@ def _compile_node(
             _compile_node(rule, project=project, user=user) for rule in other_rules
         ]
         if annotation_rules:
-            annotation = aliased(Annotation)
+            annotation = alias_core_row(annotation_row)
             clauses.append(
                 exists().where(
-                    annotation.task_id == Task.id,
+                    annotation.task_id == task_row.id,
                     annotation.is_active.is_(True),
                     annotation.was_cancelled.is_(False),
                     *[
@@ -212,15 +214,15 @@ def _compile_rule(
     if field == "dataset.file_type":
         return _compare_dataset_file_type(op, value)
     if field == "annotation.annotation_count":
-        return _compare_column(Task.total_annotations, op, value, _NUMERIC_OPS)
+        return _compare_column(task_row.total_annotations, op, value, _NUMERIC_OPS)
     if field == "annotation.class_name":
         return _compare_annotation_class(op, value)
     if field == "annotation.source":
-        return _compare_annotation_column(Annotation.source, op, value)
+        return _compare_annotation_column(annotation_row.source, op, value)
     if field == "annotation.annotation_type":
-        return _compare_annotation_column(Annotation.annotation_type, op, value)
+        return _compare_annotation_column(annotation_row.annotation_type, op, value)
     if field == "annotation.tool_unit_id":
-        return _compare_annotation_column(Annotation.tool_unit_id, op, value)
+        return _compare_annotation_column(annotation_row.tool_unit_id, op, value)
     if field == "annotation.imported":
         return _compare_annotation_imported(op, value)
     if field == "annotation.has_track":
@@ -234,11 +236,11 @@ def _compile_rule(
     if field == "keyframe.source":
         return _compare_keyframe_source(op, value)
     if field == "prediction.prediction_count":
-        return _compare_column(Task.total_predictions, op, value, _NUMERIC_OPS)
+        return _compare_column(task_row.total_predictions, op, value, _NUMERIC_OPS)
     if field == "prediction.model_version":
-        return _compare_prediction_field(Prediction.model_version, op, value)
+        return _compare_prediction_field(prediction_row.model_version, op, value)
     if field == "prediction.source":
-        return _compare_prediction_field(Prediction.source, op, value)
+        return _compare_prediction_field(prediction_row.source, op, value)
     if field == "prediction.avg_confidence":
         return _compare_scalar(_avg_prediction_confidence_sq(), op, value, _NUMERIC_OPS)
     if field == "feedback.unresolved_count":
@@ -249,9 +251,9 @@ def _compile_rule(
     if field == "discussion.comment_count":
         return _compare_scalar(_comment_count_sq(), op, value, _NUMERIC_OPS)
     if field == "feedback.kind":
-        return _compare_feedback_field(AnnotationFeedback.kind, op, value)
+        return _compare_feedback_field(annotation_feedback_facts.kind, op, value)
     if field == "feedback.severity":
-        return _compare_feedback_field(AnnotationFeedback.severity, op, value)
+        return _compare_feedback_field(annotation_feedback_facts.severity, op, value)
     if field == "feedback.status":
         return _compare_feedback_status(op, value)
     if field == "scene.scene_name":
@@ -289,7 +291,7 @@ def _is_annotation_object_rule(node: dict[str, Any]) -> bool:
 
 
 def _is_project_filter_field_supported(field: str, project: Project) -> bool:
-    kind = project_kind(project)
+    kind = project_kind(project.data_type, project.scene_mode)
     if field.startswith("scene.") and not kind.scene_mode:
         return False
     if field == "ai.pending_tracker_job_count" and kind.data_type != "video":
@@ -657,9 +659,9 @@ def _compile_annotation_object_condition(
 
 def _active_annotation_clause() -> ColumnElement[bool]:
     return and_(
-        Annotation.task_id == Task.id,
-        Annotation.is_active.is_(True),
-        Annotation.was_cancelled.is_(False),
+        annotation_row.task_id == task_row.id,
+        annotation_row.is_active.is_(True),
+        annotation_row.was_cancelled.is_(False),
     )
 
 
@@ -678,8 +680,8 @@ def _compare_task_keyword(
     escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     pattern = f"%{escaped}%"
     clauses = [
-        Task.display_id.ilike(pattern, escape="\\"),
-        Task.file_name.ilike(pattern, escape="\\"),
+        task_row.display_id.ilike(pattern, escape="\\"),
+        task_row.file_name.ilike(pattern, escape="\\"),
     ]
     if project is not None and project.scene_mode:
         clauses.append(_scene_name_sq().ilike(pattern, escape="\\"))
@@ -704,7 +706,9 @@ def _compare_annotation_column(
 
 
 def _track_id_expr() -> ColumnElement[str | None]:
-    return func.coalesce(Annotation.track_id, Annotation.geometry["track_id"].astext)
+    return func.coalesce(
+        annotation_row.track_id, annotation_row.geometry["track_id"].astext
+    )
 
 
 def _compare_annotation_imported(op: str, value: Any) -> ColumnElement[bool]:
@@ -713,7 +717,7 @@ def _compare_annotation_imported(op: str, value: Any) -> ColumnElement[bool]:
             status_code=422, detail="annotation.imported only supports boolean eq"
         )
     imported = (
-        func.coalesce(Annotation.attributes["_imported"].astext, "false") == "true"
+        func.coalesce(annotation_row.attributes["_imported"].astext, "false") == "true"
     )
     return exists().where(
         _active_annotation_clause(), imported if value else not_(imported)
@@ -788,13 +792,13 @@ def _compare_annotation_attribute(
         field, "annotation.attribute.", project
     )
     attr_type = schema_field.get("type", "text")
-    present = Annotation.attributes.has_key(key)  # noqa: W601
-    base = and_(_active_annotation_clause(), Annotation.tool_unit_id == unit)
+    present = annotation_row.attributes.has_key(key)  # noqa: W601
+    base = and_(_active_annotation_clause(), annotation_row.tool_unit_id == unit)
     if op == "exists":
         return exists().where(base, present)
     if op == "missing":
         return exists().where(base, not_(present))
-    text_value = Annotation.attributes[key].astext
+    text_value = annotation_row.attributes[key].astext
     if attr_type in {"number", "range"}:
         number = cast(text_value, Float)
         if op == "between":
@@ -817,8 +821,8 @@ def _compare_annotation_attribute(
                 status_code=422, detail="Invalid multiselect attribute op"
             )
         contains = [
-            Annotation.attributes[key].op("@>")(
-                literal([item], type_=Annotation.attributes.type)
+            annotation_row.attributes[key].op("@>")(
+                literal([item], type_=annotation_row.attributes.type)
             )
             for item in value
         ]
@@ -844,11 +848,13 @@ def _compare_annotation_attribute_origin(
     )
     if op not in {"eq", "in"}:
         raise HTTPException(status_code=422, detail="Unsupported attribute origin op")
-    origin = func.coalesce(Annotation.attributes_meta[key]["origin"].astext, "human")
+    origin = func.coalesce(
+        annotation_row.attributes_meta[key]["origin"].astext, "human"
+    )
     base = and_(
         _active_annotation_clause(),
-        Annotation.tool_unit_id == unit,
-        Annotation.attributes.has_key(key),  # noqa: W601
+        annotation_row.tool_unit_id == unit,
+        annotation_row.attributes.has_key(key),  # noqa: W601
     )
     if op == "eq":
         return exists().where(base, origin == value)
@@ -866,10 +872,10 @@ def _compare_annotation_class(op: str, value: Any) -> ColumnElement[bool]:
     if op == "exists":
         return exists().where(clause)
     if op == "eq":
-        return exists().where(clause, Annotation.class_name == value)
+        return exists().where(clause, annotation_row.class_name == value)
     if not isinstance(value, list):
         raise HTTPException(status_code=422, detail="in value must be a list")
-    return exists().where(clause, Annotation.class_name.in_(value))
+    return exists().where(clause, annotation_row.class_name.in_(value))
 
 
 def _compare_column(
@@ -915,8 +921,10 @@ def _compare_keyframe_source(op: str, value: Any) -> ColumnElement[bool]:
     if not isinstance(values, list):
         raise HTTPException(status_code=422, detail="in value must be a list")
     conditions = [
-        Annotation.geometry.op("@>")(
-            literal({"keyframes": [{"source": source}]}, type_=Annotation.geometry.type)
+        annotation_row.geometry.op("@>")(
+            literal(
+                {"keyframes": [{"source": source}]}, type_=annotation_row.geometry.type
+            )
         )
         for source in values
     ]
@@ -927,14 +935,14 @@ def _compare_feedback_status(op: str, value: Any) -> ColumnElement[bool]:
     if op not in {"eq", "in"}:
         raise HTTPException(status_code=422, detail="Unsupported feedback.status op")
     clause = and_(
-        AnnotationFeedback.task_id == Task.id,
-        AnnotationFeedback.is_active.is_(True),
+        annotation_feedback_facts.task_id == task_row.id,
+        annotation_feedback_facts.is_active.is_(True),
     )
     if op == "eq":
-        return exists().where(clause, AnnotationFeedback.status == value)
+        return exists().where(clause, annotation_feedback_facts.status == value)
     if not isinstance(value, list):
         raise HTTPException(status_code=422, detail="in value must be a list")
-    return exists().where(clause, AnnotationFeedback.status.in_(value))
+    return exists().where(clause, annotation_feedback_facts.status.in_(value))
 
 
 def _compare_feedback_field(
@@ -943,9 +951,9 @@ def _compare_feedback_field(
     if op not in {"exists", "eq", "in"}:
         raise HTTPException(status_code=422, detail="Unsupported feedback field op")
     clause = and_(
-        AnnotationFeedback.task_id == Task.id,
-        AnnotationFeedback.is_active.is_(True),
-        AnnotationFeedback.status == "open",
+        annotation_feedback_facts.task_id == task_row.id,
+        annotation_feedback_facts.is_active.is_(True),
+        annotation_feedback_facts.status == "open",
     )
     if op == "exists":
         return exists().where(clause, column.is_not(None))
@@ -961,7 +969,7 @@ def _compare_prediction_field(
 ) -> ColumnElement[bool]:
     if op not in {"exists", "eq", "ne", "in"}:
         raise HTTPException(status_code=422, detail="Unsupported prediction field op")
-    clause = Prediction.task_id == Task.id
+    clause = prediction_row.task_id == task_row.id
     if op == "exists":
         return exists().where(clause, column.is_not(None))
     if op == "eq":
@@ -995,13 +1003,13 @@ def _compare_dataset_file_type(op: str, value: Any) -> ColumnElement[bool]:
 
 def _primary_item_id_sq() -> ColumnElement[uuid.UUID | None]:
     return (
-        select(TaskDatasetItemLink.dataset_item_id)
+        select(task_dataset_item_link_row.dataset_item_id)
         .where(
-            TaskDatasetItemLink.task_id == Task.id,
-            TaskDatasetItemLink.role == "primary_lidar",
+            task_dataset_item_link_row.task_id == task_row.id,
+            task_dataset_item_link_row.role == "primary_lidar",
         )
         .limit(1)
-        .correlate(Task)
+        .correlate(task_row)
         .scalar_subquery()
     )
 
@@ -1011,10 +1019,11 @@ def _scene_id_sq() -> ColumnElement[uuid.UUID | None]:
     return (
         select(item.c.scene_id)
         .where(
-            item.c.item_id == func.coalesce(Task.dataset_item_id, _primary_item_id_sq())
+            item.c.item_id
+            == func.coalesce(task_row.dataset_item_id, _primary_item_id_sq())
         )
         .limit(1)
-        .correlate(Task)
+        .correlate(task_row)
         .scalar_subquery()
     )
 
@@ -1024,10 +1033,11 @@ def _scene_frame_sq() -> ColumnElement[int | None]:
     return (
         select(item.c.frame_index)
         .where(
-            item.c.item_id == func.coalesce(Task.dataset_item_id, _primary_item_id_sq())
+            item.c.item_id
+            == func.coalesce(task_row.dataset_item_id, _primary_item_id_sq())
         )
         .limit(1)
-        .correlate(Task)
+        .correlate(task_row)
         .scalar_subquery()
     )
 
@@ -1037,10 +1047,11 @@ def _scene_name_sq() -> ColumnElement[str | None]:
     return (
         select(item.c.scene_name)
         .where(
-            item.c.item_id == func.coalesce(Task.dataset_item_id, _primary_item_id_sq())
+            item.c.item_id
+            == func.coalesce(task_row.dataset_item_id, _primary_item_id_sq())
         )
         .limit(1)
-        .correlate(Task)
+        .correlate(task_row)
         .scalar_subquery()
     )
 
@@ -1050,10 +1061,11 @@ def _dataset_id_sq() -> ColumnElement[uuid.UUID | None]:
     return (
         select(item.c.dataset_id)
         .where(
-            item.c.item_id == func.coalesce(Task.dataset_item_id, _primary_item_id_sq())
+            item.c.item_id
+            == func.coalesce(task_row.dataset_item_id, _primary_item_id_sq())
         )
         .limit(1)
-        .correlate(Task)
+        .correlate(task_row)
         .scalar_subquery()
     )
 
@@ -1063,18 +1075,19 @@ def _dataset_file_type_sq() -> ColumnElement[str | None]:
     return (
         select(item.c.file_type)
         .where(
-            item.c.item_id == func.coalesce(Task.dataset_item_id, _primary_item_id_sq())
+            item.c.item_id
+            == func.coalesce(task_row.dataset_item_id, _primary_item_id_sq())
         )
         .limit(1)
-        .correlate(Task)
+        .correlate(task_row)
         .scalar_subquery()
     )
 
 
 def _avg_prediction_confidence_sq() -> ColumnElement[float | None]:
     return (
-        select(func.avg(Prediction.score))
-        .where(Prediction.task_id == Task.id)
+        select(func.avg(prediction_row.score))
+        .where(prediction_row.task_id == task_row.id)
         .scalar_subquery()
     )
 
@@ -1112,8 +1125,13 @@ def apply_task_visibility(
     that enqueued the job.
     """
     if not is_privileged_for_project(user, project):
-        stmt = stmt.outerjoin(TaskBatch, Task.batch_id == TaskBatch.id).where(
-            task_visibility_clause(user.id, project_role=project_role)
+        stmt = stmt.outerjoin(batch_row, task_row.batch_id == batch_row.id).where(
+            task_visibility_clause(
+                user.id,
+                project_role=project_role,
+                task_model=task_row,
+                batch_model=batch_row,
+            )
         )
     return stmt
 
@@ -1132,7 +1150,7 @@ def visible_tasks_stmt(
     worker applies the same predicate as the API request.
     """
     return apply_task_visibility(
-        select(Task.id).where(Task.project_id == project_id),
+        select(task_row.id).where(task_row.project_id == project_id),
         user,
         project,
         project_role=project_role,

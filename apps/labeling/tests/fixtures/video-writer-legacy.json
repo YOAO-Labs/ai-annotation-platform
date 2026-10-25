@@ -1,0 +1,2816 @@
+{
+  "schema": "aap-video-writer-legacy-corpus/v1",
+  "base_commit": "e08a1ff0987ffdfd045764b3f9ccaedc7d2bea2e",
+  "scope": "pure legacy candidate transformation only; synthetic immutable facts, no authority or database qualification",
+  "helper_sha256": {
+    "_stage_tracker_results": "5f918d2f5477b6f05670d29d78b46182990d99ad5b82317fe21d4d2fde18986e",
+    "_serialize_results": "f7f7aa1bb60456de5108266ca6b1228d462bf7975005fafb0181b4dd211707b5",
+    "_source_map_from_tracker_input": "8ba0b60415ea89deddb4212479784893ffe44a5a262b2fc69370e35b0ca6f8be",
+    "_seed_source_map": "d8d18754dec5c9cd35cdd0427f7556e6f09d9307f84f89cee922c08a43fbc7fb",
+    "_primary_instance_id": "f62633c8219928011c866006e5c362c38c33f2b6787b5af5206b456f9cb90daa",
+    "_partition_results_by_instance": "4ce2ff27a9467353364a39b3ae504c1a378a12dadc83552fdec84204e6936af0"
+  },
+  "cases": [
+    {
+      "name": "single-source",
+      "job_annotation_id": "00000000-0000-0000-0000-0000000003ef",
+      "execution": {
+        "job_kind": "tracking",
+        "model_key": "mock_bbox",
+        "direction": "forward",
+        "from_frame": 0,
+        "to_frame": 20,
+        "grid_step": 1,
+        "correction_frame": null,
+        "segment_id": null,
+        "track_id_snapshot": null,
+        "target_class_name": null,
+        "target_tool_unit_id": null,
+        "prompt_snapshot": {},
+        "source_annotations": [
+          {
+            "annotation_id": "00000000-0000-0000-0000-0000000003ef",
+            "version": 1,
+            "frame_index": 0,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "geometry_digest": "0a966a75b93928676f7d999dc826a7bb8f4b2ad4b8e9b1e24af7b08934caa1c4"
+          }
+        ],
+        "correction_mask": null
+      },
+      "evidence": {
+        "schema": "aap-assets-video-tracker-input-evidence/v1",
+        "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+        "input_id": "00000000-0000-0000-0000-0000000003ee",
+        "task_id": "00000000-0000-0000-0000-0000000003ea",
+        "project_id": "00000000-0000-0000-0000-0000000003ec",
+        "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "source_version_id": "fixture-version-1",
+        "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "from_frame": 0,
+        "to_frame": 20,
+        "direction": "forward",
+        "grid_step": 1
+      },
+      "output_geometry": "bbox",
+      "frame_results": [
+        {
+          "frame_index": 2,
+          "geometry": {
+            "type": "bbox",
+            "x": 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": null,
+          "primary": false,
+          "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+          "candidate_key": "1:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+        }
+      ],
+      "staged_byte_limit": 67108864,
+      "expected_staged_result": {
+        "results": [
+          {
+            "frame_index": 2,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": null,
+            "primary": false,
+            "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+            "candidate_key": "1:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+          }
+        ],
+        "grid_step": 1,
+        "output_geometry": "bbox",
+        "source_instance_map": {
+          "1": "00000000-0000-0000-0000-0000000003ef"
+        },
+        "tracker_input_evidence": {
+          "schema": "aap-assets-video-tracker-input-evidence/v1",
+          "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+          "input_id": "00000000-0000-0000-0000-0000000003ee",
+          "task_id": "00000000-0000-0000-0000-0000000003ea",
+          "project_id": "00000000-0000-0000-0000-0000000003ec",
+          "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "source_version_id": "fixture-version-1",
+          "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "from_frame": 0,
+          "to_frame": 20,
+          "direction": "forward",
+          "grid_step": 1
+        }
+      }
+    },
+    {
+      "name": "primary-mark-wins",
+      "job_annotation_id": "00000000-0000-0000-0000-0000000003ef",
+      "execution": {
+        "job_kind": "tracking",
+        "model_key": "mock_bbox",
+        "direction": "forward",
+        "from_frame": 0,
+        "to_frame": 20,
+        "grid_step": 1,
+        "correction_frame": null,
+        "segment_id": null,
+        "track_id_snapshot": null,
+        "target_class_name": null,
+        "target_tool_unit_id": null,
+        "prompt_snapshot": {},
+        "source_annotations": [
+          {
+            "annotation_id": "00000000-0000-0000-0000-0000000003ef",
+            "version": 1,
+            "frame_index": 0,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "geometry_digest": "0a966a75b93928676f7d999dc826a7bb8f4b2ad4b8e9b1e24af7b08934caa1c4"
+          }
+        ],
+        "correction_mask": null
+      },
+      "evidence": {
+        "schema": "aap-assets-video-tracker-input-evidence/v1",
+        "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+        "input_id": "00000000-0000-0000-0000-0000000003ee",
+        "task_id": "00000000-0000-0000-0000-0000000003ea",
+        "project_id": "00000000-0000-0000-0000-0000000003ec",
+        "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "source_version_id": "fixture-version-1",
+        "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "from_frame": 0,
+        "to_frame": 20,
+        "direction": "forward",
+        "grid_step": 1
+      },
+      "output_geometry": "bbox",
+      "frame_results": [
+        {
+          "frame_index": 2,
+          "geometry": {
+            "type": "bbox",
+            "x": 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": "10",
+          "primary": false,
+          "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+          "candidate_key": "10:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+        },
+        {
+          "frame_index": 2,
+          "geometry": {
+            "type": "bbox",
+            "x": 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": "2",
+          "primary": true,
+          "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+          "candidate_key": "2:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+        }
+      ],
+      "staged_byte_limit": 67108864,
+      "expected_staged_result": {
+        "results": [
+          {
+            "frame_index": 2,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": "10",
+            "primary": false,
+            "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+            "candidate_key": "10:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+          },
+          {
+            "frame_index": 2,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": "2",
+            "primary": true,
+            "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+            "candidate_key": "2:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+          }
+        ],
+        "grid_step": 1,
+        "output_geometry": "bbox",
+        "source_instance_map": {
+          "2": "00000000-0000-0000-0000-0000000003ef"
+        },
+        "tracker_input_evidence": {
+          "schema": "aap-assets-video-tracker-input-evidence/v1",
+          "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+          "input_id": "00000000-0000-0000-0000-0000000003ee",
+          "task_id": "00000000-0000-0000-0000-0000000003ea",
+          "project_id": "00000000-0000-0000-0000-0000000003ec",
+          "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "source_version_id": "fixture-version-1",
+          "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "from_frame": 0,
+          "to_frame": 20,
+          "direction": "forward",
+          "grid_step": 1
+        }
+      }
+    },
+    {
+      "name": "numeric-primary-fallback",
+      "job_annotation_id": "00000000-0000-0000-0000-0000000003ef",
+      "execution": {
+        "job_kind": "tracking",
+        "model_key": "mock_bbox",
+        "direction": "forward",
+        "from_frame": 0,
+        "to_frame": 20,
+        "grid_step": 1,
+        "correction_frame": null,
+        "segment_id": null,
+        "track_id_snapshot": null,
+        "target_class_name": null,
+        "target_tool_unit_id": null,
+        "prompt_snapshot": {},
+        "source_annotations": [
+          {
+            "annotation_id": "00000000-0000-0000-0000-0000000003ef",
+            "version": 1,
+            "frame_index": 0,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "geometry_digest": "0a966a75b93928676f7d999dc826a7bb8f4b2ad4b8e9b1e24af7b08934caa1c4"
+          }
+        ],
+        "correction_mask": null
+      },
+      "evidence": {
+        "schema": "aap-assets-video-tracker-input-evidence/v1",
+        "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+        "input_id": "00000000-0000-0000-0000-0000000003ee",
+        "task_id": "00000000-0000-0000-0000-0000000003ea",
+        "project_id": "00000000-0000-0000-0000-0000000003ec",
+        "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "source_version_id": "fixture-version-1",
+        "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "from_frame": 0,
+        "to_frame": 20,
+        "direction": "forward",
+        "grid_step": 1
+      },
+      "output_geometry": "bbox",
+      "frame_results": [
+        {
+          "frame_index": 2,
+          "geometry": {
+            "type": "bbox",
+            "x": 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": "10",
+          "primary": false,
+          "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+          "candidate_key": "10:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+        },
+        {
+          "frame_index": 2,
+          "geometry": {
+            "type": "bbox",
+            "x": 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": "2",
+          "primary": false,
+          "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+          "candidate_key": "2:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+        }
+      ],
+      "staged_byte_limit": 67108864,
+      "expected_staged_result": {
+        "results": [
+          {
+            "frame_index": 2,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": "10",
+            "primary": false,
+            "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+            "candidate_key": "10:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+          },
+          {
+            "frame_index": 2,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": "2",
+            "primary": false,
+            "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+            "candidate_key": "2:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+          }
+        ],
+        "grid_step": 1,
+        "output_geometry": "bbox",
+        "source_instance_map": {
+          "2": "00000000-0000-0000-0000-0000000003ef"
+        },
+        "tracker_input_evidence": {
+          "schema": "aap-assets-video-tracker-input-evidence/v1",
+          "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+          "input_id": "00000000-0000-0000-0000-0000000003ee",
+          "task_id": "00000000-0000-0000-0000-0000000003ea",
+          "project_id": "00000000-0000-0000-0000-0000000003ec",
+          "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "source_version_id": "fixture-version-1",
+          "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "from_frame": 0,
+          "to_frame": 20,
+          "direction": "forward",
+          "grid_step": 1
+        }
+      }
+    },
+    {
+      "name": "lexical-primary-fallback",
+      "job_annotation_id": "00000000-0000-0000-0000-0000000003ef",
+      "execution": {
+        "job_kind": "tracking",
+        "model_key": "mock_bbox",
+        "direction": "forward",
+        "from_frame": 0,
+        "to_frame": 20,
+        "grid_step": 1,
+        "correction_frame": null,
+        "segment_id": null,
+        "track_id_snapshot": null,
+        "target_class_name": null,
+        "target_tool_unit_id": null,
+        "prompt_snapshot": {},
+        "source_annotations": [
+          {
+            "annotation_id": "00000000-0000-0000-0000-0000000003ef",
+            "version": 1,
+            "frame_index": 0,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "geometry_digest": "0a966a75b93928676f7d999dc826a7bb8f4b2ad4b8e9b1e24af7b08934caa1c4"
+          }
+        ],
+        "correction_mask": null
+      },
+      "evidence": {
+        "schema": "aap-assets-video-tracker-input-evidence/v1",
+        "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+        "input_id": "00000000-0000-0000-0000-0000000003ee",
+        "task_id": "00000000-0000-0000-0000-0000000003ea",
+        "project_id": "00000000-0000-0000-0000-0000000003ec",
+        "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "source_version_id": "fixture-version-1",
+        "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "from_frame": 0,
+        "to_frame": 20,
+        "direction": "forward",
+        "grid_step": 1
+      },
+      "output_geometry": "bbox",
+      "frame_results": [
+        {
+          "frame_index": 2,
+          "geometry": {
+            "type": "bbox",
+            "x": 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": "z",
+          "primary": false,
+          "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+          "candidate_key": "z:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+        },
+        {
+          "frame_index": 2,
+          "geometry": {
+            "type": "bbox",
+            "x": 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": "a",
+          "primary": false,
+          "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+          "candidate_key": "a:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+        }
+      ],
+      "staged_byte_limit": 67108864,
+      "expected_staged_result": {
+        "results": [
+          {
+            "frame_index": 2,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": "z",
+            "primary": false,
+            "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+            "candidate_key": "z:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+          },
+          {
+            "frame_index": 2,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": "a",
+            "primary": false,
+            "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+            "candidate_key": "a:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+          }
+        ],
+        "grid_step": 1,
+        "output_geometry": "bbox",
+        "source_instance_map": {
+          "a": "00000000-0000-0000-0000-0000000003ef"
+        },
+        "tracker_input_evidence": {
+          "schema": "aap-assets-video-tracker-input-evidence/v1",
+          "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+          "input_id": "00000000-0000-0000-0000-0000000003ee",
+          "task_id": "00000000-0000-0000-0000-0000000003ea",
+          "project_id": "00000000-0000-0000-0000-0000000003ec",
+          "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "source_version_id": "fixture-version-1",
+          "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "from_frame": 0,
+          "to_frame": 20,
+          "direction": "forward",
+          "grid_step": 1
+        }
+      }
+    },
+    {
+      "name": "unlabelled-rows-keep-single-source",
+      "job_annotation_id": "00000000-0000-0000-0000-0000000003ef",
+      "execution": {
+        "job_kind": "tracking",
+        "model_key": "mock_bbox",
+        "direction": "forward",
+        "from_frame": 0,
+        "to_frame": 20,
+        "grid_step": 1,
+        "correction_frame": null,
+        "segment_id": null,
+        "track_id_snapshot": null,
+        "target_class_name": null,
+        "target_tool_unit_id": null,
+        "prompt_snapshot": {},
+        "source_annotations": [
+          {
+            "annotation_id": "00000000-0000-0000-0000-0000000003ef",
+            "version": 1,
+            "frame_index": 0,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "geometry_digest": "0a966a75b93928676f7d999dc826a7bb8f4b2ad4b8e9b1e24af7b08934caa1c4"
+          }
+        ],
+        "correction_mask": null
+      },
+      "evidence": {
+        "schema": "aap-assets-video-tracker-input-evidence/v1",
+        "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+        "input_id": "00000000-0000-0000-0000-0000000003ee",
+        "task_id": "00000000-0000-0000-0000-0000000003ea",
+        "project_id": "00000000-0000-0000-0000-0000000003ec",
+        "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "source_version_id": "fixture-version-1",
+        "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "from_frame": 0,
+        "to_frame": 20,
+        "direction": "forward",
+        "grid_step": 1
+      },
+      "output_geometry": "bbox",
+      "frame_results": [
+        {
+          "frame_index": 2,
+          "geometry": {
+            "type": "bbox",
+            "x": 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": null,
+          "primary": false,
+          "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+          "candidate_key": "1:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+        },
+        {
+          "frame_index": 3,
+          "geometry": {
+            "type": "bbox",
+            "x": 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": "2",
+          "primary": false,
+          "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+          "candidate_key": "2:3:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+        }
+      ],
+      "staged_byte_limit": 67108864,
+      "expected_staged_result": {
+        "results": [
+          {
+            "frame_index": 2,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": null,
+            "primary": false,
+            "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+            "candidate_key": "1:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+          },
+          {
+            "frame_index": 3,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": "2",
+            "primary": false,
+            "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+            "candidate_key": "2:3:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+          }
+        ],
+        "grid_step": 1,
+        "output_geometry": "bbox",
+        "source_instance_map": {
+          "1": "00000000-0000-0000-0000-0000000003ef"
+        },
+        "tracker_input_evidence": {
+          "schema": "aap-assets-video-tracker-input-evidence/v1",
+          "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+          "input_id": "00000000-0000-0000-0000-0000000003ee",
+          "task_id": "00000000-0000-0000-0000-0000000003ea",
+          "project_id": "00000000-0000-0000-0000-0000000003ec",
+          "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "source_version_id": "fixture-version-1",
+          "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "from_frame": 0,
+          "to_frame": 20,
+          "direction": "forward",
+          "grid_step": 1
+        }
+      }
+    },
+    {
+      "name": "source-free-multiple",
+      "job_annotation_id": null,
+      "execution": {
+        "job_kind": "tracking",
+        "model_key": "mock_bbox",
+        "direction": "forward",
+        "from_frame": 0,
+        "to_frame": 20,
+        "grid_step": 1,
+        "correction_frame": null,
+        "segment_id": null,
+        "track_id_snapshot": null,
+        "target_class_name": null,
+        "target_tool_unit_id": null,
+        "prompt_snapshot": {},
+        "source_annotations": [],
+        "correction_mask": null
+      },
+      "evidence": {
+        "schema": "aap-assets-video-tracker-input-evidence/v1",
+        "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+        "input_id": "00000000-0000-0000-0000-0000000003ee",
+        "task_id": "00000000-0000-0000-0000-0000000003ea",
+        "project_id": "00000000-0000-0000-0000-0000000003ec",
+        "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "source_version_id": "fixture-version-1",
+        "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "from_frame": 0,
+        "to_frame": 20,
+        "direction": "forward",
+        "grid_step": 1
+      },
+      "output_geometry": "bbox",
+      "frame_results": [
+        {
+          "frame_index": 2,
+          "geometry": {
+            "type": "bbox",
+            "x": 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": "1",
+          "primary": false,
+          "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+          "candidate_key": "1:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+        },
+        {
+          "frame_index": 2,
+          "geometry": {
+            "type": "bbox",
+            "x": 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": "2",
+          "primary": false,
+          "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+          "candidate_key": "2:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+        }
+      ],
+      "staged_byte_limit": 67108864,
+      "expected_staged_result": {
+        "results": [
+          {
+            "frame_index": 2,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": "1",
+            "primary": false,
+            "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+            "candidate_key": "1:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+          },
+          {
+            "frame_index": 2,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": "2",
+            "primary": false,
+            "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+            "candidate_key": "2:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+          }
+        ],
+        "grid_step": 1,
+        "output_geometry": "bbox",
+        "source_instance_map": {},
+        "tracker_input_evidence": {
+          "schema": "aap-assets-video-tracker-input-evidence/v1",
+          "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+          "input_id": "00000000-0000-0000-0000-0000000003ee",
+          "task_id": "00000000-0000-0000-0000-0000000003ea",
+          "project_id": "00000000-0000-0000-0000-0000000003ec",
+          "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "source_version_id": "fixture-version-1",
+          "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "from_frame": 0,
+          "to_frame": 20,
+          "direction": "forward",
+          "grid_step": 1
+        }
+      }
+    },
+    {
+      "name": "off-grid-kept-for-review",
+      "job_annotation_id": "00000000-0000-0000-0000-0000000003ef",
+      "execution": {
+        "job_kind": "tracking",
+        "model_key": "mock_bbox",
+        "direction": "forward",
+        "from_frame": 0,
+        "to_frame": 20,
+        "grid_step": 3,
+        "correction_frame": null,
+        "segment_id": null,
+        "track_id_snapshot": null,
+        "target_class_name": null,
+        "target_tool_unit_id": null,
+        "prompt_snapshot": {},
+        "source_annotations": [
+          {
+            "annotation_id": "00000000-0000-0000-0000-0000000003ef",
+            "version": 1,
+            "frame_index": 0,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "geometry_digest": "0a966a75b93928676f7d999dc826a7bb8f4b2ad4b8e9b1e24af7b08934caa1c4"
+          }
+        ],
+        "correction_mask": null
+      },
+      "evidence": {
+        "schema": "aap-assets-video-tracker-input-evidence/v1",
+        "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+        "input_id": "00000000-0000-0000-0000-0000000003ee",
+        "task_id": "00000000-0000-0000-0000-0000000003ea",
+        "project_id": "00000000-0000-0000-0000-0000000003ec",
+        "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "source_version_id": "fixture-version-1",
+        "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "from_frame": 0,
+        "to_frame": 20,
+        "direction": "forward",
+        "grid_step": 3
+      },
+      "output_geometry": "bbox",
+      "frame_results": [
+        {
+          "frame_index": 0,
+          "geometry": {
+            "type": "bbox",
+            "x": 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": null,
+          "primary": false,
+          "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+          "candidate_key": "1:0:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+        },
+        {
+          "frame_index": 1,
+          "geometry": {
+            "type": "bbox",
+            "x": 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": null,
+          "primary": false,
+          "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+          "candidate_key": "1:1:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+        },
+        {
+          "frame_index": 2,
+          "geometry": {
+            "type": "bbox",
+            "x": 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": null,
+          "primary": false,
+          "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+          "candidate_key": "1:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+        },
+        {
+          "frame_index": 3,
+          "geometry": {
+            "type": "bbox",
+            "x": 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": null,
+          "primary": false,
+          "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+          "candidate_key": "1:3:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+        }
+      ],
+      "staged_byte_limit": 67108864,
+      "expected_staged_result": {
+        "results": [
+          {
+            "frame_index": 0,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": null,
+            "primary": false,
+            "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+            "candidate_key": "1:0:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+          },
+          {
+            "frame_index": 1,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": null,
+            "primary": false,
+            "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+            "candidate_key": "1:1:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+          },
+          {
+            "frame_index": 2,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": null,
+            "primary": false,
+            "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+            "candidate_key": "1:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+          },
+          {
+            "frame_index": 3,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": null,
+            "primary": false,
+            "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+            "candidate_key": "1:3:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+          }
+        ],
+        "grid_step": 3,
+        "output_geometry": "bbox",
+        "source_instance_map": {
+          "1": "00000000-0000-0000-0000-0000000003ef"
+        },
+        "tracker_input_evidence": {
+          "schema": "aap-assets-video-tracker-input-evidence/v1",
+          "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+          "input_id": "00000000-0000-0000-0000-0000000003ee",
+          "task_id": "00000000-0000-0000-0000-0000000003ea",
+          "project_id": "00000000-0000-0000-0000-0000000003ec",
+          "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "source_version_id": "fixture-version-1",
+          "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "from_frame": 0,
+          "to_frame": 20,
+          "direction": "forward",
+          "grid_step": 3
+        }
+      }
+    },
+    {
+      "name": "backward-order",
+      "job_annotation_id": "00000000-0000-0000-0000-0000000003ef",
+      "execution": {
+        "job_kind": "tracking",
+        "model_key": "mock_bbox",
+        "direction": "backward",
+        "from_frame": 0,
+        "to_frame": 20,
+        "grid_step": 1,
+        "correction_frame": null,
+        "segment_id": null,
+        "track_id_snapshot": null,
+        "target_class_name": null,
+        "target_tool_unit_id": null,
+        "prompt_snapshot": {},
+        "source_annotations": [
+          {
+            "annotation_id": "00000000-0000-0000-0000-0000000003ef",
+            "version": 1,
+            "frame_index": 0,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "geometry_digest": "0a966a75b93928676f7d999dc826a7bb8f4b2ad4b8e9b1e24af7b08934caa1c4"
+          }
+        ],
+        "correction_mask": null
+      },
+      "evidence": {
+        "schema": "aap-assets-video-tracker-input-evidence/v1",
+        "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+        "input_id": "00000000-0000-0000-0000-0000000003ee",
+        "task_id": "00000000-0000-0000-0000-0000000003ea",
+        "project_id": "00000000-0000-0000-0000-0000000003ec",
+        "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "source_version_id": "fixture-version-1",
+        "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "from_frame": 0,
+        "to_frame": 20,
+        "direction": "backward",
+        "grid_step": 1
+      },
+      "output_geometry": "bbox",
+      "frame_results": [
+        {
+          "frame_index": 4,
+          "geometry": {
+            "type": "bbox",
+            "x": 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": null,
+          "primary": false,
+          "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+          "candidate_key": "1:4:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+        },
+        {
+          "frame_index": 3,
+          "geometry": {
+            "type": "bbox",
+            "x": 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": null,
+          "primary": false,
+          "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+          "candidate_key": "1:3:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+        },
+        {
+          "frame_index": 2,
+          "geometry": {
+            "type": "bbox",
+            "x": 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": null,
+          "primary": false,
+          "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+          "candidate_key": "1:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+        }
+      ],
+      "staged_byte_limit": 67108864,
+      "expected_staged_result": {
+        "results": [
+          {
+            "frame_index": 4,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": null,
+            "primary": false,
+            "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+            "candidate_key": "1:4:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+          },
+          {
+            "frame_index": 3,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": null,
+            "primary": false,
+            "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+            "candidate_key": "1:3:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+          },
+          {
+            "frame_index": 2,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": null,
+            "primary": false,
+            "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+            "candidate_key": "1:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+          }
+        ],
+        "grid_step": 1,
+        "output_geometry": "bbox",
+        "source_instance_map": {
+          "1": "00000000-0000-0000-0000-0000000003ef"
+        },
+        "tracker_input_evidence": {
+          "schema": "aap-assets-video-tracker-input-evidence/v1",
+          "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+          "input_id": "00000000-0000-0000-0000-0000000003ee",
+          "task_id": "00000000-0000-0000-0000-0000000003ea",
+          "project_id": "00000000-0000-0000-0000-0000000003ec",
+          "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "source_version_id": "fixture-version-1",
+          "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "from_frame": 0,
+          "to_frame": 20,
+          "direction": "backward",
+          "grid_step": 1
+        }
+      }
+    },
+    {
+      "name": "both-correction-order",
+      "job_annotation_id": "00000000-0000-0000-0000-0000000003ef",
+      "execution": {
+        "job_kind": "correction",
+        "model_key": "mock_bbox",
+        "direction": "bidirectional",
+        "from_frame": 0,
+        "to_frame": 20,
+        "grid_step": 1,
+        "correction_frame": 4,
+        "segment_id": null,
+        "track_id_snapshot": "track-a",
+        "target_class_name": null,
+        "target_tool_unit_id": null,
+        "prompt_snapshot": {},
+        "source_annotations": [
+          {
+            "annotation_id": "00000000-0000-0000-0000-0000000003ef",
+            "version": 1,
+            "frame_index": 0,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "geometry_digest": "0a966a75b93928676f7d999dc826a7bb8f4b2ad4b8e9b1e24af7b08934caa1c4"
+          }
+        ],
+        "correction_mask": {
+          "annotation_id": "00000000-0000-0000-0000-0000000003ef",
+          "annotation_version": 1,
+          "frame_index": 4,
+          "mask": {
+            "encoding": "coco_rle_ref",
+            "size": [2, 2],
+            "object_key": "raster-masks/sha256/65/33/6533cda72e36d657c93de74e24c1e7e8e3c0498910feef206fe96ccea37613f5.json",
+            "sha256": "6533cda72e36d657c93de74e24c1e7e8e3c0498910feef206fe96ccea37613f5",
+            "runs": 2,
+            "bytes": 51
+          },
+          "mask_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      },
+      "evidence": {
+        "schema": "aap-assets-video-tracker-input-evidence/v1",
+        "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+        "input_id": "00000000-0000-0000-0000-0000000003ee",
+        "task_id": "00000000-0000-0000-0000-0000000003ea",
+        "project_id": "00000000-0000-0000-0000-0000000003ec",
+        "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "source_version_id": "fixture-version-1",
+        "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "from_frame": 0,
+        "to_frame": 20,
+        "direction": "bidirectional",
+        "grid_step": 1
+      },
+      "output_geometry": "mask",
+      "frame_results": [
+        {
+          "frame_index": 3,
+          "geometry": {
+            "type": "mask",
+            "mask": {
+              "encoding": "coco_rle_ref",
+              "size": [2, 2],
+              "object_key": "raster-masks/sha256/65/33/6533cda72e36d657c93de74e24c1e7e8e3c0498910feef206fe96ccea37613f5.json",
+              "sha256": "6533cda72e36d657c93de74e24c1e7e8e3c0498910feef206fe96ccea37613f5",
+              "runs": 2,
+              "bytes": 51
+            },
+            "bbox": {
+              "x": 0.0,
+              "y": 0.0,
+              "w": 1.0,
+              "h": 1.0
+            }
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": null,
+          "primary": false,
+          "geometry_digest": "sha256:8a4aeb82f99416d2145146dbf9be6e45b407a5cefa0739290627555d9245c257",
+          "candidate_key": "1:3:sha256:8a4aeb82f99416d2145146dbf9be6e45b407a5cefa0739290627555d9245c257"
+        },
+        {
+          "frame_index": 2,
+          "geometry": {
+            "type": "mask",
+            "mask": {
+              "encoding": "coco_rle_ref",
+              "size": [2, 2],
+              "object_key": "raster-masks/sha256/65/33/6533cda72e36d657c93de74e24c1e7e8e3c0498910feef206fe96ccea37613f5.json",
+              "sha256": "6533cda72e36d657c93de74e24c1e7e8e3c0498910feef206fe96ccea37613f5",
+              "runs": 2,
+              "bytes": 51
+            },
+            "bbox": {
+              "x": 0.0,
+              "y": 0.0,
+              "w": 1.0,
+              "h": 1.0
+            }
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": null,
+          "primary": false,
+          "geometry_digest": "sha256:8a4aeb82f99416d2145146dbf9be6e45b407a5cefa0739290627555d9245c257",
+          "candidate_key": "1:2:sha256:8a4aeb82f99416d2145146dbf9be6e45b407a5cefa0739290627555d9245c257"
+        },
+        {
+          "frame_index": 5,
+          "geometry": {
+            "type": "mask",
+            "mask": {
+              "encoding": "coco_rle_ref",
+              "size": [2, 2],
+              "object_key": "raster-masks/sha256/65/33/6533cda72e36d657c93de74e24c1e7e8e3c0498910feef206fe96ccea37613f5.json",
+              "sha256": "6533cda72e36d657c93de74e24c1e7e8e3c0498910feef206fe96ccea37613f5",
+              "runs": 2,
+              "bytes": 51
+            },
+            "bbox": {
+              "x": 0.0,
+              "y": 0.0,
+              "w": 1.0,
+              "h": 1.0
+            }
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": null,
+          "primary": false,
+          "geometry_digest": "sha256:8a4aeb82f99416d2145146dbf9be6e45b407a5cefa0739290627555d9245c257",
+          "candidate_key": "1:5:sha256:8a4aeb82f99416d2145146dbf9be6e45b407a5cefa0739290627555d9245c257"
+        },
+        {
+          "frame_index": 6,
+          "geometry": {
+            "type": "mask",
+            "mask": {
+              "encoding": "coco_rle_ref",
+              "size": [2, 2],
+              "object_key": "raster-masks/sha256/65/33/6533cda72e36d657c93de74e24c1e7e8e3c0498910feef206fe96ccea37613f5.json",
+              "sha256": "6533cda72e36d657c93de74e24c1e7e8e3c0498910feef206fe96ccea37613f5",
+              "runs": 2,
+              "bytes": 51
+            },
+            "bbox": {
+              "x": 0.0,
+              "y": 0.0,
+              "w": 1.0,
+              "h": 1.0
+            }
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": null,
+          "primary": false,
+          "geometry_digest": "sha256:8a4aeb82f99416d2145146dbf9be6e45b407a5cefa0739290627555d9245c257",
+          "candidate_key": "1:6:sha256:8a4aeb82f99416d2145146dbf9be6e45b407a5cefa0739290627555d9245c257"
+        }
+      ],
+      "staged_byte_limit": 67108864,
+      "expected_staged_result": {
+        "results": [
+          {
+            "frame_index": 3,
+            "geometry": {
+              "type": "mask",
+              "mask": {
+                "encoding": "coco_rle_ref",
+                "size": [2, 2],
+                "object_key": "raster-masks/sha256/65/33/6533cda72e36d657c93de74e24c1e7e8e3c0498910feef206fe96ccea37613f5.json",
+                "sha256": "6533cda72e36d657c93de74e24c1e7e8e3c0498910feef206fe96ccea37613f5",
+                "runs": 2,
+                "bytes": 51
+              },
+              "bbox": {
+                "x": 0.0,
+                "y": 0.0,
+                "w": 1.0,
+                "h": 1.0
+              }
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": null,
+            "primary": false,
+            "geometry_digest": "sha256:8a4aeb82f99416d2145146dbf9be6e45b407a5cefa0739290627555d9245c257",
+            "candidate_key": "1:3:sha256:8a4aeb82f99416d2145146dbf9be6e45b407a5cefa0739290627555d9245c257"
+          },
+          {
+            "frame_index": 2,
+            "geometry": {
+              "type": "mask",
+              "mask": {
+                "encoding": "coco_rle_ref",
+                "size": [2, 2],
+                "object_key": "raster-masks/sha256/65/33/6533cda72e36d657c93de74e24c1e7e8e3c0498910feef206fe96ccea37613f5.json",
+                "sha256": "6533cda72e36d657c93de74e24c1e7e8e3c0498910feef206fe96ccea37613f5",
+                "runs": 2,
+                "bytes": 51
+              },
+              "bbox": {
+                "x": 0.0,
+                "y": 0.0,
+                "w": 1.0,
+                "h": 1.0
+              }
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": null,
+            "primary": false,
+            "geometry_digest": "sha256:8a4aeb82f99416d2145146dbf9be6e45b407a5cefa0739290627555d9245c257",
+            "candidate_key": "1:2:sha256:8a4aeb82f99416d2145146dbf9be6e45b407a5cefa0739290627555d9245c257"
+          },
+          {
+            "frame_index": 5,
+            "geometry": {
+              "type": "mask",
+              "mask": {
+                "encoding": "coco_rle_ref",
+                "size": [2, 2],
+                "object_key": "raster-masks/sha256/65/33/6533cda72e36d657c93de74e24c1e7e8e3c0498910feef206fe96ccea37613f5.json",
+                "sha256": "6533cda72e36d657c93de74e24c1e7e8e3c0498910feef206fe96ccea37613f5",
+                "runs": 2,
+                "bytes": 51
+              },
+              "bbox": {
+                "x": 0.0,
+                "y": 0.0,
+                "w": 1.0,
+                "h": 1.0
+              }
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": null,
+            "primary": false,
+            "geometry_digest": "sha256:8a4aeb82f99416d2145146dbf9be6e45b407a5cefa0739290627555d9245c257",
+            "candidate_key": "1:5:sha256:8a4aeb82f99416d2145146dbf9be6e45b407a5cefa0739290627555d9245c257"
+          },
+          {
+            "frame_index": 6,
+            "geometry": {
+              "type": "mask",
+              "mask": {
+                "encoding": "coco_rle_ref",
+                "size": [2, 2],
+                "object_key": "raster-masks/sha256/65/33/6533cda72e36d657c93de74e24c1e7e8e3c0498910feef206fe96ccea37613f5.json",
+                "sha256": "6533cda72e36d657c93de74e24c1e7e8e3c0498910feef206fe96ccea37613f5",
+                "runs": 2,
+                "bytes": 51
+              },
+              "bbox": {
+                "x": 0.0,
+                "y": 0.0,
+                "w": 1.0,
+                "h": 1.0
+              }
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": null,
+            "primary": false,
+            "geometry_digest": "sha256:8a4aeb82f99416d2145146dbf9be6e45b407a5cefa0739290627555d9245c257",
+            "candidate_key": "1:6:sha256:8a4aeb82f99416d2145146dbf9be6e45b407a5cefa0739290627555d9245c257"
+          }
+        ],
+        "grid_step": 1,
+        "output_geometry": "mask",
+        "source_instance_map": {
+          "1": "00000000-0000-0000-0000-0000000003ef"
+        },
+        "tracker_input_evidence": {
+          "schema": "aap-assets-video-tracker-input-evidence/v1",
+          "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+          "input_id": "00000000-0000-0000-0000-0000000003ee",
+          "task_id": "00000000-0000-0000-0000-0000000003ea",
+          "project_id": "00000000-0000-0000-0000-0000000003ec",
+          "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "source_version_id": "fixture-version-1",
+          "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "from_frame": 0,
+          "to_frame": 20,
+          "direction": "bidirectional",
+          "grid_step": 1
+        }
+      }
+    },
+    {
+      "name": "empty-complete",
+      "job_annotation_id": "00000000-0000-0000-0000-0000000003ef",
+      "execution": {
+        "job_kind": "tracking",
+        "model_key": "mock_bbox",
+        "direction": "forward",
+        "from_frame": 0,
+        "to_frame": 20,
+        "grid_step": 1,
+        "correction_frame": null,
+        "segment_id": null,
+        "track_id_snapshot": null,
+        "target_class_name": null,
+        "target_tool_unit_id": null,
+        "prompt_snapshot": {},
+        "source_annotations": [
+          {
+            "annotation_id": "00000000-0000-0000-0000-0000000003ef",
+            "version": 1,
+            "frame_index": 0,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "geometry_digest": "0a966a75b93928676f7d999dc826a7bb8f4b2ad4b8e9b1e24af7b08934caa1c4"
+          }
+        ],
+        "correction_mask": null
+      },
+      "evidence": {
+        "schema": "aap-assets-video-tracker-input-evidence/v1",
+        "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+        "input_id": "00000000-0000-0000-0000-0000000003ee",
+        "task_id": "00000000-0000-0000-0000-0000000003ea",
+        "project_id": "00000000-0000-0000-0000-0000000003ec",
+        "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "source_version_id": "fixture-version-1",
+        "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "from_frame": 0,
+        "to_frame": 20,
+        "direction": "forward",
+        "grid_step": 1
+      },
+      "output_geometry": "bbox",
+      "frame_results": [],
+      "staged_byte_limit": 67108864,
+      "expected_staged_result": {
+        "results": [],
+        "grid_step": 1,
+        "output_geometry": "bbox",
+        "source_instance_map": {
+          "1": "00000000-0000-0000-0000-0000000003ef"
+        },
+        "tracker_input_evidence": {
+          "schema": "aap-assets-video-tracker-input-evidence/v1",
+          "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+          "input_id": "00000000-0000-0000-0000-0000000003ee",
+          "task_id": "00000000-0000-0000-0000-0000000003ea",
+          "project_id": "00000000-0000-0000-0000-0000000003ec",
+          "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "source_version_id": "fixture-version-1",
+          "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "from_frame": 0,
+          "to_frame": 20,
+          "direction": "forward",
+          "grid_step": 1
+        }
+      }
+    },
+    {
+      "name": "outside-empty-geometry",
+      "job_annotation_id": "00000000-0000-0000-0000-0000000003ef",
+      "execution": {
+        "job_kind": "tracking",
+        "model_key": "mock_bbox",
+        "direction": "forward",
+        "from_frame": 0,
+        "to_frame": 20,
+        "grid_step": 1,
+        "correction_frame": null,
+        "segment_id": null,
+        "track_id_snapshot": null,
+        "target_class_name": null,
+        "target_tool_unit_id": null,
+        "prompt_snapshot": {},
+        "source_annotations": [
+          {
+            "annotation_id": "00000000-0000-0000-0000-0000000003ef",
+            "version": 1,
+            "frame_index": 0,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "geometry_digest": "0a966a75b93928676f7d999dc826a7bb8f4b2ad4b8e9b1e24af7b08934caa1c4"
+          }
+        ],
+        "correction_mask": null
+      },
+      "evidence": {
+        "schema": "aap-assets-video-tracker-input-evidence/v1",
+        "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+        "input_id": "00000000-0000-0000-0000-0000000003ee",
+        "task_id": "00000000-0000-0000-0000-0000000003ea",
+        "project_id": "00000000-0000-0000-0000-0000000003ec",
+        "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "source_version_id": "fixture-version-1",
+        "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "from_frame": 0,
+        "to_frame": 20,
+        "direction": "forward",
+        "grid_step": 1
+      },
+      "output_geometry": "bbox",
+      "frame_results": [
+        {
+          "frame_index": 2,
+          "geometry": {},
+          "confidence": null,
+          "outside": true,
+          "instance_id": null,
+          "primary": false,
+          "geometry_digest": "sha256:4e8e07c5b3c76b29f0f85317762a3f4b0cbc5cf6cabb8ebba7d7158a6412d8a2",
+          "candidate_key": "1:2:sha256:4e8e07c5b3c76b29f0f85317762a3f4b0cbc5cf6cabb8ebba7d7158a6412d8a2"
+        }
+      ],
+      "staged_byte_limit": 67108864,
+      "expected_staged_result": {
+        "results": [
+          {
+            "frame_index": 2,
+            "geometry": {},
+            "confidence": null,
+            "outside": true,
+            "instance_id": null,
+            "primary": false,
+            "geometry_digest": "sha256:4e8e07c5b3c76b29f0f85317762a3f4b0cbc5cf6cabb8ebba7d7158a6412d8a2",
+            "candidate_key": "1:2:sha256:4e8e07c5b3c76b29f0f85317762a3f4b0cbc5cf6cabb8ebba7d7158a6412d8a2"
+          }
+        ],
+        "grid_step": 1,
+        "output_geometry": "bbox",
+        "source_instance_map": {
+          "1": "00000000-0000-0000-0000-0000000003ef"
+        },
+        "tracker_input_evidence": {
+          "schema": "aap-assets-video-tracker-input-evidence/v1",
+          "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+          "input_id": "00000000-0000-0000-0000-0000000003ee",
+          "task_id": "00000000-0000-0000-0000-0000000003ea",
+          "project_id": "00000000-0000-0000-0000-0000000003ec",
+          "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "source_version_id": "fixture-version-1",
+          "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "from_frame": 0,
+          "to_frame": 20,
+          "direction": "forward",
+          "grid_step": 1
+        }
+      }
+    },
+    {
+      "name": "unicode-instance",
+      "job_annotation_id": "00000000-0000-0000-0000-0000000003ef",
+      "execution": {
+        "job_kind": "tracking",
+        "model_key": "mock_bbox",
+        "direction": "forward",
+        "from_frame": 0,
+        "to_frame": 20,
+        "grid_step": 1,
+        "correction_frame": null,
+        "segment_id": null,
+        "track_id_snapshot": null,
+        "target_class_name": null,
+        "target_tool_unit_id": null,
+        "prompt_snapshot": {},
+        "source_annotations": [
+          {
+            "annotation_id": "00000000-0000-0000-0000-0000000003ef",
+            "version": 1,
+            "frame_index": 0,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "geometry_digest": "0a966a75b93928676f7d999dc826a7bb8f4b2ad4b8e9b1e24af7b08934caa1c4"
+          }
+        ],
+        "correction_mask": null
+      },
+      "evidence": {
+        "schema": "aap-assets-video-tracker-input-evidence/v1",
+        "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+        "input_id": "00000000-0000-0000-0000-0000000003ee",
+        "task_id": "00000000-0000-0000-0000-0000000003ea",
+        "project_id": "00000000-0000-0000-0000-0000000003ec",
+        "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "source_version_id": "fixture-version-1",
+        "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "from_frame": 0,
+        "to_frame": 20,
+        "direction": "forward",
+        "grid_step": 1
+      },
+      "output_geometry": "bbox",
+      "frame_results": [
+        {
+          "frame_index": 2,
+          "geometry": {
+            "type": "bbox",
+            "x": 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": "目标甲",
+          "primary": false,
+          "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+          "candidate_key": "目标甲:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+        },
+        {
+          "frame_index": 3,
+          "geometry": {
+            "type": "bbox",
+            "x": 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": "目标甲",
+          "primary": false,
+          "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+          "candidate_key": "目标甲:3:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+        }
+      ],
+      "staged_byte_limit": 67108864,
+      "expected_staged_result": {
+        "results": [
+          {
+            "frame_index": 2,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": "目标甲",
+            "primary": false,
+            "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+            "candidate_key": "目标甲:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+          },
+          {
+            "frame_index": 3,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": "目标甲",
+            "primary": false,
+            "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+            "candidate_key": "目标甲:3:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+          }
+        ],
+        "grid_step": 1,
+        "output_geometry": "bbox",
+        "source_instance_map": {
+          "目标甲": "00000000-0000-0000-0000-0000000003ef"
+        },
+        "tracker_input_evidence": {
+          "schema": "aap-assets-video-tracker-input-evidence/v1",
+          "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+          "input_id": "00000000-0000-0000-0000-0000000003ee",
+          "task_id": "00000000-0000-0000-0000-0000000003ea",
+          "project_id": "00000000-0000-0000-0000-0000000003ec",
+          "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "source_version_id": "fixture-version-1",
+          "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "from_frame": 0,
+          "to_frame": 20,
+          "direction": "forward",
+          "grid_step": 1
+        }
+      }
+    },
+    {
+      "name": "unicode-numeric-instance",
+      "job_annotation_id": "00000000-0000-0000-0000-0000000003ef",
+      "execution": {
+        "job_kind": "tracking",
+        "model_key": "mock_bbox",
+        "direction": "forward",
+        "from_frame": 0,
+        "to_frame": 20,
+        "grid_step": 1,
+        "correction_frame": null,
+        "segment_id": null,
+        "track_id_snapshot": null,
+        "target_class_name": null,
+        "target_tool_unit_id": null,
+        "prompt_snapshot": {},
+        "source_annotations": [
+          {
+            "annotation_id": "00000000-0000-0000-0000-0000000003ef",
+            "version": 1,
+            "frame_index": 0,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "geometry_digest": "0a966a75b93928676f7d999dc826a7bb8f4b2ad4b8e9b1e24af7b08934caa1c4"
+          }
+        ],
+        "correction_mask": null
+      },
+      "evidence": {
+        "schema": "aap-assets-video-tracker-input-evidence/v1",
+        "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+        "input_id": "00000000-0000-0000-0000-0000000003ee",
+        "task_id": "00000000-0000-0000-0000-0000000003ea",
+        "project_id": "00000000-0000-0000-0000-0000000003ec",
+        "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "source_version_id": "fixture-version-1",
+        "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "from_frame": 0,
+        "to_frame": 20,
+        "direction": "forward",
+        "grid_step": 1
+      },
+      "output_geometry": "bbox",
+      "frame_results": [
+        {
+          "frame_index": 2,
+          "geometry": {
+            "type": "bbox",
+            "x": 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": "٢",
+          "primary": false,
+          "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+          "candidate_key": "٢:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+        },
+        {
+          "frame_index": 2,
+          "geometry": {
+            "type": "bbox",
+            "x": 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": "10",
+          "primary": false,
+          "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+          "candidate_key": "10:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+        }
+      ],
+      "staged_byte_limit": 67108864,
+      "expected_staged_result": {
+        "results": [
+          {
+            "frame_index": 2,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": "٢",
+            "primary": false,
+            "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+            "candidate_key": "٢:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+          },
+          {
+            "frame_index": 2,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": "10",
+            "primary": false,
+            "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+            "candidate_key": "10:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+          }
+        ],
+        "grid_step": 1,
+        "output_geometry": "bbox",
+        "source_instance_map": {
+          "٢": "00000000-0000-0000-0000-0000000003ef"
+        },
+        "tracker_input_evidence": {
+          "schema": "aap-assets-video-tracker-input-evidence/v1",
+          "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+          "input_id": "00000000-0000-0000-0000-0000000003ee",
+          "task_id": "00000000-0000-0000-0000-0000000003ea",
+          "project_id": "00000000-0000-0000-0000-0000000003ec",
+          "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "source_version_id": "fixture-version-1",
+          "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "from_frame": 0,
+          "to_frame": 20,
+          "direction": "forward",
+          "grid_step": 1
+        }
+      }
+    },
+    {
+      "name": "polygon",
+      "job_annotation_id": "00000000-0000-0000-0000-0000000003ef",
+      "execution": {
+        "job_kind": "tracking",
+        "model_key": "mock_bbox",
+        "direction": "forward",
+        "from_frame": 0,
+        "to_frame": 20,
+        "grid_step": 1,
+        "correction_frame": null,
+        "segment_id": null,
+        "track_id_snapshot": null,
+        "target_class_name": null,
+        "target_tool_unit_id": null,
+        "prompt_snapshot": {},
+        "source_annotations": [
+          {
+            "annotation_id": "00000000-0000-0000-0000-0000000003ef",
+            "version": 1,
+            "frame_index": 0,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "geometry_digest": "0a966a75b93928676f7d999dc826a7bb8f4b2ad4b8e9b1e24af7b08934caa1c4"
+          }
+        ],
+        "correction_mask": null
+      },
+      "evidence": {
+        "schema": "aap-assets-video-tracker-input-evidence/v1",
+        "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+        "input_id": "00000000-0000-0000-0000-0000000003ee",
+        "task_id": "00000000-0000-0000-0000-0000000003ea",
+        "project_id": "00000000-0000-0000-0000-0000000003ec",
+        "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "source_version_id": "fixture-version-1",
+        "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "from_frame": 0,
+        "to_frame": 20,
+        "direction": "forward",
+        "grid_step": 1
+      },
+      "output_geometry": "polygon",
+      "frame_results": [
+        {
+          "frame_index": 2,
+          "geometry": {
+            "type": "polygon",
+            "points": [
+              [0.1, 0.2],
+              [0.5, 0.2],
+              [0.3, 0.5]
+            ]
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": null,
+          "primary": false,
+          "geometry_digest": "sha256:c1853f6980be94423722f9a2cfc2d49f1015c917a64207b95ec2e3b8065e9e3f",
+          "candidate_key": "1:2:sha256:c1853f6980be94423722f9a2cfc2d49f1015c917a64207b95ec2e3b8065e9e3f"
+        }
+      ],
+      "staged_byte_limit": 67108864,
+      "expected_staged_result": {
+        "results": [
+          {
+            "frame_index": 2,
+            "geometry": {
+              "type": "polygon",
+              "points": [
+                [0.1, 0.2],
+                [0.5, 0.2],
+                [0.3, 0.5]
+              ]
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": null,
+            "primary": false,
+            "geometry_digest": "sha256:c1853f6980be94423722f9a2cfc2d49f1015c917a64207b95ec2e3b8065e9e3f",
+            "candidate_key": "1:2:sha256:c1853f6980be94423722f9a2cfc2d49f1015c917a64207b95ec2e3b8065e9e3f"
+          }
+        ],
+        "grid_step": 1,
+        "output_geometry": "polygon",
+        "source_instance_map": {
+          "1": "00000000-0000-0000-0000-0000000003ef"
+        },
+        "tracker_input_evidence": {
+          "schema": "aap-assets-video-tracker-input-evidence/v1",
+          "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+          "input_id": "00000000-0000-0000-0000-0000000003ee",
+          "task_id": "00000000-0000-0000-0000-0000000003ea",
+          "project_id": "00000000-0000-0000-0000-0000000003ec",
+          "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "source_version_id": "fixture-version-1",
+          "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "from_frame": 0,
+          "to_frame": 20,
+          "direction": "forward",
+          "grid_step": 1
+        }
+      }
+    },
+    {
+      "name": "mask",
+      "job_annotation_id": "00000000-0000-0000-0000-0000000003ef",
+      "execution": {
+        "job_kind": "tracking",
+        "model_key": "mock_bbox",
+        "direction": "forward",
+        "from_frame": 0,
+        "to_frame": 20,
+        "grid_step": 1,
+        "correction_frame": null,
+        "segment_id": null,
+        "track_id_snapshot": null,
+        "target_class_name": null,
+        "target_tool_unit_id": null,
+        "prompt_snapshot": {},
+        "source_annotations": [
+          {
+            "annotation_id": "00000000-0000-0000-0000-0000000003ef",
+            "version": 1,
+            "frame_index": 0,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "geometry_digest": "0a966a75b93928676f7d999dc826a7bb8f4b2ad4b8e9b1e24af7b08934caa1c4"
+          }
+        ],
+        "correction_mask": null
+      },
+      "evidence": {
+        "schema": "aap-assets-video-tracker-input-evidence/v1",
+        "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+        "input_id": "00000000-0000-0000-0000-0000000003ee",
+        "task_id": "00000000-0000-0000-0000-0000000003ea",
+        "project_id": "00000000-0000-0000-0000-0000000003ec",
+        "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "source_version_id": "fixture-version-1",
+        "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "from_frame": 0,
+        "to_frame": 20,
+        "direction": "forward",
+        "grid_step": 1
+      },
+      "output_geometry": "mask",
+      "frame_results": [
+        {
+          "frame_index": 2,
+          "geometry": {
+            "type": "mask",
+            "mask": {
+              "encoding": "coco_rle_ref",
+              "size": [2, 2],
+              "object_key": "raster-masks/sha256/65/33/6533cda72e36d657c93de74e24c1e7e8e3c0498910feef206fe96ccea37613f5.json",
+              "sha256": "6533cda72e36d657c93de74e24c1e7e8e3c0498910feef206fe96ccea37613f5",
+              "runs": 2,
+              "bytes": 51
+            },
+            "bbox": {
+              "x": 0.0,
+              "y": 0.0,
+              "w": 1.0,
+              "h": 1.0
+            }
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": null,
+          "primary": false,
+          "geometry_digest": "sha256:8a4aeb82f99416d2145146dbf9be6e45b407a5cefa0739290627555d9245c257",
+          "candidate_key": "1:2:sha256:8a4aeb82f99416d2145146dbf9be6e45b407a5cefa0739290627555d9245c257"
+        }
+      ],
+      "staged_byte_limit": 67108864,
+      "expected_staged_result": {
+        "results": [
+          {
+            "frame_index": 2,
+            "geometry": {
+              "type": "mask",
+              "mask": {
+                "encoding": "coco_rle_ref",
+                "size": [2, 2],
+                "object_key": "raster-masks/sha256/65/33/6533cda72e36d657c93de74e24c1e7e8e3c0498910feef206fe96ccea37613f5.json",
+                "sha256": "6533cda72e36d657c93de74e24c1e7e8e3c0498910feef206fe96ccea37613f5",
+                "runs": 2,
+                "bytes": 51
+              },
+              "bbox": {
+                "x": 0.0,
+                "y": 0.0,
+                "w": 1.0,
+                "h": 1.0
+              }
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": null,
+            "primary": false,
+            "geometry_digest": "sha256:8a4aeb82f99416d2145146dbf9be6e45b407a5cefa0739290627555d9245c257",
+            "candidate_key": "1:2:sha256:8a4aeb82f99416d2145146dbf9be6e45b407a5cefa0739290627555d9245c257"
+          }
+        ],
+        "grid_step": 1,
+        "output_geometry": "mask",
+        "source_instance_map": {
+          "1": "00000000-0000-0000-0000-0000000003ef"
+        },
+        "tracker_input_evidence": {
+          "schema": "aap-assets-video-tracker-input-evidence/v1",
+          "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+          "input_id": "00000000-0000-0000-0000-0000000003ee",
+          "task_id": "00000000-0000-0000-0000-0000000003ea",
+          "project_id": "00000000-0000-0000-0000-0000000003ec",
+          "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "source_version_id": "fixture-version-1",
+          "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "from_frame": 0,
+          "to_frame": 20,
+          "direction": "forward",
+          "grid_step": 1
+        }
+      }
+    },
+    {
+      "name": "two-accepted-sources",
+      "job_annotation_id": null,
+      "execution": {
+        "job_kind": "tracking",
+        "model_key": "mock_bbox",
+        "direction": "forward",
+        "from_frame": 0,
+        "to_frame": 20,
+        "grid_step": 1,
+        "correction_frame": null,
+        "segment_id": null,
+        "track_id_snapshot": null,
+        "target_class_name": null,
+        "target_tool_unit_id": null,
+        "prompt_snapshot": {
+          "seeds": [
+            {
+              "obj_id": 1,
+              "source_annotation_id": "00000000-0000-0000-0000-0000000003ef"
+            },
+            {
+              "obj_id": 2,
+              "source_annotation_id": "00000000-0000-0000-0000-0000000003f0"
+            }
+          ]
+        },
+        "source_annotations": [
+          {
+            "annotation_id": "00000000-0000-0000-0000-0000000003ef",
+            "version": 1,
+            "frame_index": 0,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "geometry_digest": "0a966a75b93928676f7d999dc826a7bb8f4b2ad4b8e9b1e24af7b08934caa1c4"
+          },
+          {
+            "annotation_id": "00000000-0000-0000-0000-0000000003f0",
+            "version": 1,
+            "frame_index": 0,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "geometry_digest": "0a966a75b93928676f7d999dc826a7bb8f4b2ad4b8e9b1e24af7b08934caa1c4"
+          }
+        ],
+        "correction_mask": null
+      },
+      "evidence": {
+        "schema": "aap-assets-video-tracker-input-evidence/v1",
+        "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+        "input_id": "00000000-0000-0000-0000-0000000003ee",
+        "task_id": "00000000-0000-0000-0000-0000000003ea",
+        "project_id": "00000000-0000-0000-0000-0000000003ec",
+        "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "source_version_id": "fixture-version-1",
+        "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "from_frame": 0,
+        "to_frame": 20,
+        "direction": "forward",
+        "grid_step": 1
+      },
+      "output_geometry": "bbox",
+      "frame_results": [
+        {
+          "frame_index": 2,
+          "geometry": {
+            "type": "bbox",
+            "x": 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": "1",
+          "primary": false,
+          "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+          "candidate_key": "1:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+        },
+        {
+          "frame_index": 2,
+          "geometry": {
+            "type": "bbox",
+            "x": 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": "2",
+          "primary": false,
+          "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+          "candidate_key": "2:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+        }
+      ],
+      "staged_byte_limit": 67108864,
+      "expected_staged_result": {
+        "results": [
+          {
+            "frame_index": 2,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": "1",
+            "primary": false,
+            "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+            "candidate_key": "1:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+          },
+          {
+            "frame_index": 2,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": "2",
+            "primary": false,
+            "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+            "candidate_key": "2:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+          }
+        ],
+        "grid_step": 1,
+        "output_geometry": "bbox",
+        "source_instance_map": {
+          "1": "00000000-0000-0000-0000-0000000003ef",
+          "2": "00000000-0000-0000-0000-0000000003f0"
+        },
+        "tracker_input_evidence": {
+          "schema": "aap-assets-video-tracker-input-evidence/v1",
+          "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+          "input_id": "00000000-0000-0000-0000-0000000003ee",
+          "task_id": "00000000-0000-0000-0000-0000000003ea",
+          "project_id": "00000000-0000-0000-0000-0000000003ec",
+          "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "source_version_id": "fixture-version-1",
+          "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "from_frame": 0,
+          "to_frame": 20,
+          "direction": "forward",
+          "grid_step": 1
+        }
+      }
+    },
+    {
+      "name": "seed-map-plus-single-source",
+      "job_annotation_id": "00000000-0000-0000-0000-0000000003ef",
+      "execution": {
+        "job_kind": "tracking",
+        "model_key": "mock_bbox",
+        "direction": "forward",
+        "from_frame": 0,
+        "to_frame": 20,
+        "grid_step": 1,
+        "correction_frame": null,
+        "segment_id": null,
+        "track_id_snapshot": null,
+        "target_class_name": null,
+        "target_tool_unit_id": null,
+        "prompt_snapshot": {
+          "seeds": [
+            {
+              "obj_id": 2,
+              "source_annotation_id": "00000000-0000-0000-0000-0000000003f0"
+            }
+          ]
+        },
+        "source_annotations": [
+          {
+            "annotation_id": "00000000-0000-0000-0000-0000000003ef",
+            "version": 1,
+            "frame_index": 0,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "geometry_digest": "0a966a75b93928676f7d999dc826a7bb8f4b2ad4b8e9b1e24af7b08934caa1c4"
+          },
+          {
+            "annotation_id": "00000000-0000-0000-0000-0000000003f0",
+            "version": 1,
+            "frame_index": 0,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "geometry_digest": "0a966a75b93928676f7d999dc826a7bb8f4b2ad4b8e9b1e24af7b08934caa1c4"
+          }
+        ],
+        "correction_mask": null
+      },
+      "evidence": {
+        "schema": "aap-assets-video-tracker-input-evidence/v1",
+        "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+        "input_id": "00000000-0000-0000-0000-0000000003ee",
+        "task_id": "00000000-0000-0000-0000-0000000003ea",
+        "project_id": "00000000-0000-0000-0000-0000000003ec",
+        "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "source_version_id": "fixture-version-1",
+        "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "from_frame": 0,
+        "to_frame": 20,
+        "direction": "forward",
+        "grid_step": 1
+      },
+      "output_geometry": "bbox",
+      "frame_results": [
+        {
+          "frame_index": 2,
+          "geometry": {
+            "type": "bbox",
+            "x": 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": "1",
+          "primary": true,
+          "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+          "candidate_key": "1:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+        },
+        {
+          "frame_index": 2,
+          "geometry": {
+            "type": "bbox",
+            "x": 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": "2",
+          "primary": false,
+          "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+          "candidate_key": "2:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+        }
+      ],
+      "staged_byte_limit": 67108864,
+      "expected_staged_result": {
+        "results": [
+          {
+            "frame_index": 2,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": "1",
+            "primary": true,
+            "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+            "candidate_key": "1:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+          },
+          {
+            "frame_index": 2,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "confidence": 0.9,
+            "outside": false,
+            "instance_id": "2",
+            "primary": false,
+            "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+            "candidate_key": "2:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+          }
+        ],
+        "grid_step": 1,
+        "output_geometry": "bbox",
+        "source_instance_map": {
+          "2": "00000000-0000-0000-0000-0000000003f0",
+          "1": "00000000-0000-0000-0000-0000000003ef"
+        },
+        "tracker_input_evidence": {
+          "schema": "aap-assets-video-tracker-input-evidence/v1",
+          "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+          "input_id": "00000000-0000-0000-0000-0000000003ee",
+          "task_id": "00000000-0000-0000-0000-0000000003ea",
+          "project_id": "00000000-0000-0000-0000-0000000003ec",
+          "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "source_version_id": "fixture-version-1",
+          "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "from_frame": 0,
+          "to_frame": 20,
+          "direction": "forward",
+          "grid_step": 1
+        }
+      }
+    },
+    {
+      "name": "source-map-missing-primary",
+      "job_annotation_id": "00000000-0000-0000-0000-0000000003ef",
+      "execution": {
+        "job_kind": "tracking",
+        "model_key": "mock_bbox",
+        "direction": "forward",
+        "from_frame": 0,
+        "to_frame": 20,
+        "grid_step": 1,
+        "correction_frame": null,
+        "segment_id": null,
+        "track_id_snapshot": null,
+        "target_class_name": null,
+        "target_tool_unit_id": null,
+        "prompt_snapshot": {
+          "seeds": [
+            {
+              "obj_id": 1,
+              "source_annotation_id": "00000000-0000-0000-0000-0000000003f0"
+            }
+          ]
+        },
+        "source_annotations": [
+          {
+            "annotation_id": "00000000-0000-0000-0000-0000000003ef",
+            "version": 1,
+            "frame_index": 0,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "geometry_digest": "0a966a75b93928676f7d999dc826a7bb8f4b2ad4b8e9b1e24af7b08934caa1c4"
+          },
+          {
+            "annotation_id": "00000000-0000-0000-0000-0000000003f0",
+            "version": 1,
+            "frame_index": 0,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "geometry_digest": "0a966a75b93928676f7d999dc826a7bb8f4b2ad4b8e9b1e24af7b08934caa1c4"
+          }
+        ],
+        "correction_mask": null
+      },
+      "evidence": {
+        "schema": "aap-assets-video-tracker-input-evidence/v1",
+        "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+        "input_id": "00000000-0000-0000-0000-0000000003ee",
+        "task_id": "00000000-0000-0000-0000-0000000003ea",
+        "project_id": "00000000-0000-0000-0000-0000000003ec",
+        "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "source_version_id": "fixture-version-1",
+        "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "from_frame": 0,
+        "to_frame": 20,
+        "direction": "forward",
+        "grid_step": 1
+      },
+      "output_geometry": "bbox",
+      "frame_results": [
+        {
+          "frame_index": 2,
+          "geometry": {
+            "type": "bbox",
+            "x": 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": "1",
+          "primary": true,
+          "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+          "candidate_key": "1:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+        }
+      ],
+      "staged_byte_limit": 67108864,
+      "expected_error": {
+        "reason": "input_scope_mismatch",
+        "message": "accepted prompt maps the primary instance to another source"
+      }
+    },
+    {
+      "name": "source-map-escapes-snapshot",
+      "job_annotation_id": null,
+      "execution": {
+        "job_kind": "tracking",
+        "model_key": "mock_bbox",
+        "direction": "forward",
+        "from_frame": 0,
+        "to_frame": 20,
+        "grid_step": 1,
+        "correction_frame": null,
+        "segment_id": null,
+        "track_id_snapshot": null,
+        "target_class_name": null,
+        "target_tool_unit_id": null,
+        "prompt_snapshot": {
+          "seeds": [
+            {
+              "obj_id": 2,
+              "source_annotation_id": "00000000-0000-0000-0000-0000000003f0"
+            }
+          ]
+        },
+        "source_annotations": [],
+        "correction_mask": null
+      },
+      "evidence": {
+        "schema": "aap-assets-video-tracker-input-evidence/v1",
+        "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+        "input_id": "00000000-0000-0000-0000-0000000003ee",
+        "task_id": "00000000-0000-0000-0000-0000000003ea",
+        "project_id": "00000000-0000-0000-0000-0000000003ec",
+        "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "source_version_id": "fixture-version-1",
+        "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "from_frame": 0,
+        "to_frame": 20,
+        "direction": "forward",
+        "grid_step": 1
+      },
+      "output_geometry": "bbox",
+      "frame_results": [
+        {
+          "frame_index": 2,
+          "geometry": {
+            "type": "bbox",
+            "x": 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": "2",
+          "primary": false,
+          "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+          "candidate_key": "2:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+        }
+      ],
+      "staged_byte_limit": 67108864,
+      "expected_error": {
+        "reason": "input_scope_mismatch",
+        "message": "accepted prompt sources are not covered by the input snapshot"
+      }
+    },
+    {
+      "name": "candidate-size-refusal",
+      "job_annotation_id": "00000000-0000-0000-0000-0000000003ef",
+      "execution": {
+        "job_kind": "tracking",
+        "model_key": "mock_bbox",
+        "direction": "forward",
+        "from_frame": 0,
+        "to_frame": 20,
+        "grid_step": 1,
+        "correction_frame": null,
+        "segment_id": null,
+        "track_id_snapshot": null,
+        "target_class_name": null,
+        "target_tool_unit_id": null,
+        "prompt_snapshot": {},
+        "source_annotations": [
+          {
+            "annotation_id": "00000000-0000-0000-0000-0000000003ef",
+            "version": 1,
+            "frame_index": 0,
+            "geometry": {
+              "type": "bbox",
+              "x": 0.1,
+              "y": 0.2,
+              "w": 0.3,
+              "h": 0.4
+            },
+            "geometry_digest": "0a966a75b93928676f7d999dc826a7bb8f4b2ad4b8e9b1e24af7b08934caa1c4"
+          }
+        ],
+        "correction_mask": null
+      },
+      "evidence": {
+        "schema": "aap-assets-video-tracker-input-evidence/v1",
+        "tracker_job_id": "00000000-0000-0000-0000-0000000003e9",
+        "input_id": "00000000-0000-0000-0000-0000000003ee",
+        "task_id": "00000000-0000-0000-0000-0000000003ea",
+        "project_id": "00000000-0000-0000-0000-0000000003ec",
+        "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "prompt_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "plan_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "timebase_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "source_version_id": "fixture-version-1",
+        "source_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "from_frame": 0,
+        "to_frame": 20,
+        "direction": "forward",
+        "grid_step": 1
+      },
+      "output_geometry": "bbox",
+      "frame_results": [
+        {
+          "frame_index": 2,
+          "geometry": {
+            "type": "bbox",
+            "x": 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4
+          },
+          "confidence": 0.9,
+          "outside": false,
+          "instance_id": null,
+          "primary": false,
+          "geometry_digest": "sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d",
+          "candidate_key": "1:2:sha256:1a9905062ed28142f8db8388508a4bc4fef7f9b49ae5aa0d8d219f1ad188765d"
+        }
+      ],
+      "staged_byte_limit": 256,
+      "expected_error": {
+        "message": "tracker_candidate_too_large: staged payload exceeds 64 MiB"
+      }
+    }
+  ]
+}

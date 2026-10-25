@@ -1,0 +1,2091 @@
+{
+  "base": "6590de1b273dac2c6fa048968b472fc4e6b7189f",
+  "source_sha256": {
+    "apps/api/app/services/ml_backend.py": "b720656edad2a0d570d333dc5e1eedddf593abd0dda1d06d69b45b3831145979",
+    "apps/inference/src/aap_inference/backend_transport.py": "4e0048e610867535f25ab37b62f602d0764cdc4c4a295fe30de4e31e78df5809"
+  },
+  "cases": [
+    {
+      "case": "cpu_healthy",
+      "autoflush": false,
+      "result": true,
+      "error": null,
+      "trace": [
+        "backend_read",
+        "http:health",
+        "http:setup",
+        "clock",
+        "backend_lock",
+        "backend_write",
+        "backend_read",
+        "member_lock",
+        "pool_lock",
+        "pool_write",
+        "unrelated_flush"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "observer_sees_backend": false,
+      "state": "connected",
+      "is_interactive": false,
+      "checked": true,
+      "health_meta": {
+        "compute": {
+          "configured_device": "cpu"
+        },
+        "residency": {
+          "state": "unloaded",
+          "gpu_loaded": false,
+          "active_requests": 0
+        },
+        "capabilities": {
+          "name": "controlled",
+          "infra": "unknown",
+          "models": [
+            {
+              "id": "controlled",
+              "task": "tracker",
+              "infra": "unknown",
+              "params": {},
+              "modality": "video",
+              "composition": "atom",
+              "display_name": "controlled",
+              "model_family": null,
+              "is_interactive": false,
+              "resource_profile": {},
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_prompts": [
+                "bbox"
+              ],
+              "default_input_type": "bbox_prompt",
+              "default_thresholds": {},
+              "supported_trackers": [
+                "sam2_video"
+              ],
+              "supported_variants": [],
+              "text_driven_trackers": [],
+              "exemplar_capabilities": null,
+              "output_attribute_types": [],
+              "supported_text_outputs": [],
+              "supported_geometric_outputs": []
+            }
+          ],
+          "version": null,
+          "warnings": [],
+          "modalities": [
+            "image",
+            "video"
+          ],
+          "model_version": "one",
+          "is_interactive": false,
+          "warmup_endpoint": false,
+          "weights_version": null,
+          "protocol_version": "1",
+          "supported_inputs": [
+            "bbox_prompt",
+            "full_image"
+          ],
+          "managed_lifecycle": null,
+          "supported_prompts": [
+            "bbox"
+          ],
+          "supported_trackers": [
+            "sam2_video"
+          ],
+          "text_driven_trackers": [],
+          "supported_text_outputs": [],
+          "task_contract_revision": 0,
+          "compat_protocol_versions": [],
+          "supported_geometric_outputs": []
+        }
+      },
+      "proof_time_matches_row": false,
+      "pool": {
+        "enabled": false,
+        "generation": 2,
+        "fingerprint": "f1a295aa8997f587fa7e0ebe7747d096d7db4e73aca2b0438d42e7ae7795d162",
+        "snapshot": {
+          "task": null,
+          "infra": "unknown",
+          "models": [
+            {
+              "id": "controlled",
+              "task": "tracker",
+              "infra": "unknown",
+              "params": {},
+              "modality": "video",
+              "batchable": false,
+              "composition": "atom",
+              "model_family": null,
+              "is_interactive": false,
+              "default_variants": {},
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_prompts": [
+                "bbox"
+              ],
+              "default_input_type": "bbox_prompt",
+              "default_thresholds": {},
+              "supported_trackers": [
+                "sam2_video"
+              ],
+              "supported_variants": [],
+              "text_driven_trackers": [],
+              "variant_combinations": [],
+              "exemplar_capabilities": {},
+              "output_attribute_types": [],
+              "supported_text_outputs": [],
+              "output_attribute_schema": [],
+              "supported_geometric_outputs": [],
+              "variants_shared_across_tasks": null
+            }
+          ],
+          "warmup": false,
+          "version": null,
+          "modality": null,
+          "stateful": false,
+          "batchable": false,
+          "model_ids": [],
+          "variant_axes": [],
+          "model_version": "one",
+          "weights_version": null,
+          "parameter_schema": {},
+          "protocol_version": "1",
+          "supported_inputs": [
+            "bbox_prompt",
+            "full_image"
+          ],
+          "supported_outputs": [],
+          "supported_prompts": [
+            "bbox"
+          ],
+          "supported_trackers": [
+            "sam2_video"
+          ],
+          "compat_protocol_versions": []
+        },
+        "member_state": "active"
+      }
+    },
+    {
+      "case": "cpu_healthy",
+      "autoflush": true,
+      "result": true,
+      "error": null,
+      "trace": [
+        "unrelated_flush",
+        "backend_read",
+        "http:health",
+        "http:setup",
+        "clock",
+        "backend_lock",
+        "backend_write",
+        "backend_read",
+        "member_lock",
+        "pool_lock",
+        "pool_write"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "observer_sees_backend": false,
+      "state": "connected",
+      "is_interactive": false,
+      "checked": true,
+      "health_meta": {
+        "compute": {
+          "configured_device": "cpu"
+        },
+        "residency": {
+          "state": "unloaded",
+          "gpu_loaded": false,
+          "active_requests": 0
+        },
+        "capabilities": {
+          "name": "controlled",
+          "infra": "unknown",
+          "models": [
+            {
+              "id": "controlled",
+              "task": "tracker",
+              "infra": "unknown",
+              "params": {},
+              "modality": "video",
+              "composition": "atom",
+              "display_name": "controlled",
+              "model_family": null,
+              "is_interactive": false,
+              "resource_profile": {},
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_prompts": [
+                "bbox"
+              ],
+              "default_input_type": "bbox_prompt",
+              "default_thresholds": {},
+              "supported_trackers": [
+                "sam2_video"
+              ],
+              "supported_variants": [],
+              "text_driven_trackers": [],
+              "exemplar_capabilities": null,
+              "output_attribute_types": [],
+              "supported_text_outputs": [],
+              "supported_geometric_outputs": []
+            }
+          ],
+          "version": null,
+          "warnings": [],
+          "modalities": [
+            "image",
+            "video"
+          ],
+          "model_version": "one",
+          "is_interactive": false,
+          "warmup_endpoint": false,
+          "weights_version": null,
+          "protocol_version": "1",
+          "supported_inputs": [
+            "bbox_prompt",
+            "full_image"
+          ],
+          "managed_lifecycle": null,
+          "supported_prompts": [
+            "bbox"
+          ],
+          "supported_trackers": [
+            "sam2_video"
+          ],
+          "text_driven_trackers": [],
+          "supported_text_outputs": [],
+          "task_contract_revision": 0,
+          "compat_protocol_versions": [],
+          "supported_geometric_outputs": []
+        }
+      },
+      "proof_time_matches_row": false,
+      "pool": {
+        "enabled": false,
+        "generation": 2,
+        "fingerprint": "f1a295aa8997f587fa7e0ebe7747d096d7db4e73aca2b0438d42e7ae7795d162",
+        "snapshot": {
+          "task": null,
+          "infra": "unknown",
+          "models": [
+            {
+              "id": "controlled",
+              "task": "tracker",
+              "infra": "unknown",
+              "params": {},
+              "modality": "video",
+              "batchable": false,
+              "composition": "atom",
+              "model_family": null,
+              "is_interactive": false,
+              "default_variants": {},
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_prompts": [
+                "bbox"
+              ],
+              "default_input_type": "bbox_prompt",
+              "default_thresholds": {},
+              "supported_trackers": [
+                "sam2_video"
+              ],
+              "supported_variants": [],
+              "text_driven_trackers": [],
+              "variant_combinations": [],
+              "exemplar_capabilities": {},
+              "output_attribute_types": [],
+              "supported_text_outputs": [],
+              "output_attribute_schema": [],
+              "supported_geometric_outputs": [],
+              "variants_shared_across_tasks": null
+            }
+          ],
+          "warmup": false,
+          "version": null,
+          "modality": null,
+          "stateful": false,
+          "batchable": false,
+          "model_ids": [],
+          "variant_axes": [],
+          "model_version": "one",
+          "weights_version": null,
+          "parameter_schema": {},
+          "protocol_version": "1",
+          "supported_inputs": [
+            "bbox_prompt",
+            "full_image"
+          ],
+          "supported_outputs": [],
+          "supported_prompts": [
+            "bbox"
+          ],
+          "supported_trackers": [
+            "sam2_video"
+          ],
+          "compat_protocol_versions": []
+        },
+        "member_state": "active"
+      }
+    },
+    {
+      "case": "cpu_plain",
+      "autoflush": false,
+      "result": true,
+      "error": null,
+      "trace": [
+        "backend_read",
+        "http:health",
+        "clock",
+        "backend_lock",
+        "backend_write",
+        "backend_read"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": true,
+      "observer_sees_backend": false,
+      "state": "connected",
+      "is_interactive": false,
+      "checked": true,
+      "health_meta": null,
+      "proof_time_matches_row": false,
+      "pool": {
+        "enabled": false,
+        "generation": 1,
+        "fingerprint": null,
+        "snapshot": null,
+        "member_state": "active"
+      }
+    },
+    {
+      "case": "cpu_plain",
+      "autoflush": true,
+      "result": true,
+      "error": null,
+      "trace": [
+        "unrelated_flush",
+        "backend_read",
+        "http:health",
+        "clock",
+        "backend_lock",
+        "backend_write",
+        "backend_read"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "observer_sees_backend": false,
+      "state": "connected",
+      "is_interactive": false,
+      "checked": true,
+      "health_meta": null,
+      "proof_time_matches_row": false,
+      "pool": {
+        "enabled": false,
+        "generation": 1,
+        "fingerprint": null,
+        "snapshot": null,
+        "member_state": "active"
+      }
+    },
+    {
+      "case": "cpu_failed",
+      "autoflush": false,
+      "result": false,
+      "error": null,
+      "trace": [
+        "backend_read",
+        "http:health",
+        "clock",
+        "backend_lock",
+        "backend_write",
+        "backend_read"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": true,
+      "observer_sees_backend": false,
+      "state": "error",
+      "is_interactive": false,
+      "checked": true,
+      "health_meta": null,
+      "proof_time_matches_row": false,
+      "pool": {
+        "enabled": false,
+        "generation": 1,
+        "fingerprint": null,
+        "snapshot": null,
+        "member_state": "active"
+      }
+    },
+    {
+      "case": "cpu_failed",
+      "autoflush": true,
+      "result": false,
+      "error": null,
+      "trace": [
+        "unrelated_flush",
+        "backend_read",
+        "http:health",
+        "clock",
+        "backend_lock",
+        "backend_write",
+        "backend_read"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "observer_sees_backend": false,
+      "state": "error",
+      "is_interactive": false,
+      "checked": true,
+      "health_meta": null,
+      "proof_time_matches_row": false,
+      "pool": {
+        "enabled": false,
+        "generation": 1,
+        "fingerprint": null,
+        "snapshot": null,
+        "member_state": "active"
+      }
+    },
+    {
+      "case": "cpu_setup_failed",
+      "autoflush": false,
+      "result": true,
+      "error": null,
+      "trace": [
+        "backend_read",
+        "http:health",
+        "http:setup",
+        "clock",
+        "backend_lock",
+        "backend_write",
+        "backend_read"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": true,
+      "observer_sees_backend": false,
+      "state": "connected",
+      "is_interactive": false,
+      "checked": true,
+      "health_meta": {
+        "compute": {
+          "configured_device": "cpu"
+        },
+        "residency": {
+          "state": "unloaded",
+          "gpu_loaded": false,
+          "active_requests": 0
+        }
+      },
+      "proof_time_matches_row": false,
+      "pool": {
+        "enabled": false,
+        "generation": 1,
+        "fingerprint": null,
+        "snapshot": null,
+        "member_state": "active"
+      }
+    },
+    {
+      "case": "cpu_setup_failed",
+      "autoflush": true,
+      "result": true,
+      "error": null,
+      "trace": [
+        "unrelated_flush",
+        "backend_read",
+        "http:health",
+        "http:setup",
+        "clock",
+        "backend_lock",
+        "backend_write",
+        "backend_read"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "observer_sees_backend": false,
+      "state": "connected",
+      "is_interactive": false,
+      "checked": true,
+      "health_meta": {
+        "compute": {
+          "configured_device": "cpu"
+        },
+        "residency": {
+          "state": "unloaded",
+          "gpu_loaded": false,
+          "active_requests": 0
+        }
+      },
+      "proof_time_matches_row": false,
+      "pool": {
+        "enabled": false,
+        "generation": 1,
+        "fingerprint": null,
+        "snapshot": null,
+        "member_state": "active"
+      }
+    },
+    {
+      "case": "cpu_drift",
+      "autoflush": false,
+      "result": true,
+      "error": null,
+      "trace": [
+        "backend_read",
+        "http:health",
+        "http:setup",
+        "clock",
+        "backend_lock",
+        "backend_write",
+        "backend_read",
+        "member_lock",
+        "pool_lock",
+        "member_write",
+        "pool_write",
+        "unrelated_flush"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "observer_sees_backend": false,
+      "state": "connected",
+      "is_interactive": false,
+      "checked": true,
+      "health_meta": {
+        "compute": {
+          "configured_device": "cpu"
+        },
+        "residency": {
+          "state": "unloaded",
+          "gpu_loaded": false,
+          "active_requests": 0
+        },
+        "capabilities": {
+          "name": "controlled",
+          "infra": "unknown",
+          "models": [
+            {
+              "id": "controlled",
+              "task": "tracker",
+              "infra": "unknown",
+              "params": {},
+              "modality": "video",
+              "composition": "atom",
+              "display_name": "controlled",
+              "model_family": null,
+              "is_interactive": false,
+              "resource_profile": {},
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_prompts": [
+                "bbox"
+              ],
+              "default_input_type": "bbox_prompt",
+              "default_thresholds": {},
+              "supported_trackers": [
+                "sam2_video"
+              ],
+              "supported_variants": [],
+              "text_driven_trackers": [],
+              "exemplar_capabilities": null,
+              "output_attribute_types": [],
+              "supported_text_outputs": [],
+              "supported_geometric_outputs": []
+            }
+          ],
+          "version": null,
+          "warnings": [],
+          "modalities": [
+            "image",
+            "video"
+          ],
+          "model_version": "next",
+          "is_interactive": false,
+          "warmup_endpoint": false,
+          "weights_version": null,
+          "protocol_version": "1",
+          "supported_inputs": [
+            "bbox_prompt",
+            "full_image"
+          ],
+          "managed_lifecycle": null,
+          "supported_prompts": [
+            "bbox"
+          ],
+          "supported_trackers": [
+            "sam2_video"
+          ],
+          "text_driven_trackers": [],
+          "supported_text_outputs": [],
+          "task_contract_revision": 0,
+          "compat_protocol_versions": [],
+          "supported_geometric_outputs": []
+        }
+      },
+      "proof_time_matches_row": false,
+      "pool": {
+        "enabled": false,
+        "generation": 3,
+        "fingerprint": "b7034eca8b6ad7f7426afda0c95fa3d2d4537ffb2ccd6c9dcfd2f11c28ab2a9d",
+        "snapshot": {
+          "task": null,
+          "infra": null,
+          "models": [],
+          "warmup": false,
+          "version": null,
+          "modality": null,
+          "stateful": false,
+          "batchable": false,
+          "model_ids": [],
+          "variant_axes": [],
+          "model_version": "old",
+          "weights_version": null,
+          "parameter_schema": {},
+          "protocol_version": "1",
+          "supported_inputs": [],
+          "supported_outputs": [],
+          "supported_prompts": [
+            "bbox"
+          ],
+          "supported_trackers": [],
+          "compat_protocol_versions": []
+        },
+        "member_state": "disabled"
+      }
+    },
+    {
+      "case": "cpu_drift",
+      "autoflush": true,
+      "result": true,
+      "error": null,
+      "trace": [
+        "unrelated_flush",
+        "backend_read",
+        "http:health",
+        "http:setup",
+        "clock",
+        "backend_lock",
+        "backend_write",
+        "backend_read",
+        "member_lock",
+        "pool_lock",
+        "member_write",
+        "pool_write"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "observer_sees_backend": false,
+      "state": "connected",
+      "is_interactive": false,
+      "checked": true,
+      "health_meta": {
+        "compute": {
+          "configured_device": "cpu"
+        },
+        "residency": {
+          "state": "unloaded",
+          "gpu_loaded": false,
+          "active_requests": 0
+        },
+        "capabilities": {
+          "name": "controlled",
+          "infra": "unknown",
+          "models": [
+            {
+              "id": "controlled",
+              "task": "tracker",
+              "infra": "unknown",
+              "params": {},
+              "modality": "video",
+              "composition": "atom",
+              "display_name": "controlled",
+              "model_family": null,
+              "is_interactive": false,
+              "resource_profile": {},
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_prompts": [
+                "bbox"
+              ],
+              "default_input_type": "bbox_prompt",
+              "default_thresholds": {},
+              "supported_trackers": [
+                "sam2_video"
+              ],
+              "supported_variants": [],
+              "text_driven_trackers": [],
+              "exemplar_capabilities": null,
+              "output_attribute_types": [],
+              "supported_text_outputs": [],
+              "supported_geometric_outputs": []
+            }
+          ],
+          "version": null,
+          "warnings": [],
+          "modalities": [
+            "image",
+            "video"
+          ],
+          "model_version": "next",
+          "is_interactive": false,
+          "warmup_endpoint": false,
+          "weights_version": null,
+          "protocol_version": "1",
+          "supported_inputs": [
+            "bbox_prompt",
+            "full_image"
+          ],
+          "managed_lifecycle": null,
+          "supported_prompts": [
+            "bbox"
+          ],
+          "supported_trackers": [
+            "sam2_video"
+          ],
+          "text_driven_trackers": [],
+          "supported_text_outputs": [],
+          "task_contract_revision": 0,
+          "compat_protocol_versions": [],
+          "supported_geometric_outputs": []
+        }
+      },
+      "proof_time_matches_row": false,
+      "pool": {
+        "enabled": false,
+        "generation": 3,
+        "fingerprint": "b7034eca8b6ad7f7426afda0c95fa3d2d4537ffb2ccd6c9dcfd2f11c28ab2a9d",
+        "snapshot": {
+          "task": null,
+          "infra": null,
+          "models": [],
+          "warmup": false,
+          "version": null,
+          "modality": null,
+          "stateful": false,
+          "batchable": false,
+          "model_ids": [],
+          "variant_axes": [],
+          "model_version": "old",
+          "weights_version": null,
+          "parameter_schema": {},
+          "protocol_version": "1",
+          "supported_inputs": [],
+          "supported_outputs": [],
+          "supported_prompts": [
+            "bbox"
+          ],
+          "supported_trackers": [],
+          "compat_protocol_versions": []
+        },
+        "member_state": "disabled"
+      }
+    },
+    {
+      "case": "gpu_echo",
+      "autoflush": false,
+      "result": true,
+      "error": null,
+      "trace": [
+        "backend_read",
+        "membership_read",
+        "clock",
+        "http:health",
+        "http:setup",
+        "clock",
+        "backend_lock",
+        "resource_lock",
+        "promotion_try",
+        "membership_lock",
+        "backend_write",
+        "backend_read",
+        "member_lock",
+        "pool_lock",
+        "pool_write",
+        "unrelated_flush"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "observer_sees_backend": false,
+      "state": "connected",
+      "is_interactive": false,
+      "checked": true,
+      "health_meta": {
+        "compute": {
+          "configured_device": "cpu"
+        },
+        "residency": {
+          "state": "unloaded",
+          "gpu_loaded": false,
+          "active_requests": 0
+        },
+        "capabilities": {
+          "name": "controlled",
+          "infra": "unknown",
+          "models": [
+            {
+              "id": "controlled",
+              "task": "tracker",
+              "infra": "unknown",
+              "params": {},
+              "modality": "video",
+              "composition": "atom",
+              "display_name": "controlled",
+              "model_family": null,
+              "is_interactive": false,
+              "resource_profile": {},
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_prompts": [
+                "bbox"
+              ],
+              "default_input_type": "bbox_prompt",
+              "default_thresholds": {},
+              "supported_trackers": [
+                "sam2_video"
+              ],
+              "supported_variants": [],
+              "text_driven_trackers": [],
+              "exemplar_capabilities": null,
+              "output_attribute_types": [],
+              "supported_text_outputs": [],
+              "supported_geometric_outputs": []
+            }
+          ],
+          "version": null,
+          "warnings": [],
+          "modalities": [
+            "image",
+            "video"
+          ],
+          "model_version": "one",
+          "is_interactive": false,
+          "warmup_endpoint": false,
+          "weights_version": null,
+          "protocol_version": "1",
+          "supported_inputs": [
+            "bbox_prompt",
+            "full_image"
+          ],
+          "managed_lifecycle": null,
+          "supported_prompts": [
+            "bbox"
+          ],
+          "supported_trackers": [
+            "sam2_video"
+          ],
+          "text_driven_trackers": [],
+          "supported_text_outputs": [],
+          "task_contract_revision": 0,
+          "compat_protocol_versions": [],
+          "supported_geometric_outputs": []
+        },
+        "gpu_arbiter_probe": {
+          "challenge": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "observed_at": "<time>",
+          "gpu_resource_id": "$resource",
+          "membership_epoch": "1",
+          "membership_state": "pending",
+          "probe_started_at": "<time>",
+          "protocol_version": "1",
+          "backend_registry_id": "$backend",
+          "managed_lifecycle_sha256": null
+        }
+      },
+      "proof_time_matches_row": true,
+      "pool": {
+        "enabled": false,
+        "generation": 2,
+        "fingerprint": "f1a295aa8997f587fa7e0ebe7747d096d7db4e73aca2b0438d42e7ae7795d162",
+        "snapshot": {
+          "task": null,
+          "infra": "unknown",
+          "models": [
+            {
+              "id": "controlled",
+              "task": "tracker",
+              "infra": "unknown",
+              "params": {},
+              "modality": "video",
+              "batchable": false,
+              "composition": "atom",
+              "model_family": null,
+              "is_interactive": false,
+              "default_variants": {},
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_prompts": [
+                "bbox"
+              ],
+              "default_input_type": "bbox_prompt",
+              "default_thresholds": {},
+              "supported_trackers": [
+                "sam2_video"
+              ],
+              "supported_variants": [],
+              "text_driven_trackers": [],
+              "variant_combinations": [],
+              "exemplar_capabilities": {},
+              "output_attribute_types": [],
+              "supported_text_outputs": [],
+              "output_attribute_schema": [],
+              "supported_geometric_outputs": [],
+              "variants_shared_across_tasks": null
+            }
+          ],
+          "warmup": false,
+          "version": null,
+          "modality": null,
+          "stateful": false,
+          "batchable": false,
+          "model_ids": [],
+          "variant_axes": [],
+          "model_version": "one",
+          "weights_version": null,
+          "parameter_schema": {},
+          "protocol_version": "1",
+          "supported_inputs": [
+            "bbox_prompt",
+            "full_image"
+          ],
+          "supported_outputs": [],
+          "supported_prompts": [
+            "bbox"
+          ],
+          "supported_trackers": [
+            "sam2_video"
+          ],
+          "compat_protocol_versions": []
+        },
+        "member_state": "active"
+      }
+    },
+    {
+      "case": "gpu_echo",
+      "autoflush": true,
+      "result": true,
+      "error": null,
+      "trace": [
+        "unrelated_flush",
+        "backend_read",
+        "membership_read",
+        "clock",
+        "http:health",
+        "http:setup",
+        "clock",
+        "backend_lock",
+        "resource_lock",
+        "promotion_try",
+        "membership_lock",
+        "backend_write",
+        "backend_read",
+        "member_lock",
+        "pool_lock",
+        "pool_write"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "observer_sees_backend": false,
+      "state": "connected",
+      "is_interactive": false,
+      "checked": true,
+      "health_meta": {
+        "compute": {
+          "configured_device": "cpu"
+        },
+        "residency": {
+          "state": "unloaded",
+          "gpu_loaded": false,
+          "active_requests": 0
+        },
+        "capabilities": {
+          "name": "controlled",
+          "infra": "unknown",
+          "models": [
+            {
+              "id": "controlled",
+              "task": "tracker",
+              "infra": "unknown",
+              "params": {},
+              "modality": "video",
+              "composition": "atom",
+              "display_name": "controlled",
+              "model_family": null,
+              "is_interactive": false,
+              "resource_profile": {},
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_prompts": [
+                "bbox"
+              ],
+              "default_input_type": "bbox_prompt",
+              "default_thresholds": {},
+              "supported_trackers": [
+                "sam2_video"
+              ],
+              "supported_variants": [],
+              "text_driven_trackers": [],
+              "exemplar_capabilities": null,
+              "output_attribute_types": [],
+              "supported_text_outputs": [],
+              "supported_geometric_outputs": []
+            }
+          ],
+          "version": null,
+          "warnings": [],
+          "modalities": [
+            "image",
+            "video"
+          ],
+          "model_version": "one",
+          "is_interactive": false,
+          "warmup_endpoint": false,
+          "weights_version": null,
+          "protocol_version": "1",
+          "supported_inputs": [
+            "bbox_prompt",
+            "full_image"
+          ],
+          "managed_lifecycle": null,
+          "supported_prompts": [
+            "bbox"
+          ],
+          "supported_trackers": [
+            "sam2_video"
+          ],
+          "text_driven_trackers": [],
+          "supported_text_outputs": [],
+          "task_contract_revision": 0,
+          "compat_protocol_versions": [],
+          "supported_geometric_outputs": []
+        },
+        "gpu_arbiter_probe": {
+          "challenge": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "observed_at": "<time>",
+          "gpu_resource_id": "$resource",
+          "membership_epoch": "1",
+          "membership_state": "pending",
+          "probe_started_at": "<time>",
+          "protocol_version": "1",
+          "backend_registry_id": "$backend",
+          "managed_lifecycle_sha256": null
+        }
+      },
+      "proof_time_matches_row": true,
+      "pool": {
+        "enabled": false,
+        "generation": 2,
+        "fingerprint": "f1a295aa8997f587fa7e0ebe7747d096d7db4e73aca2b0438d42e7ae7795d162",
+        "snapshot": {
+          "task": null,
+          "infra": "unknown",
+          "models": [
+            {
+              "id": "controlled",
+              "task": "tracker",
+              "infra": "unknown",
+              "params": {},
+              "modality": "video",
+              "batchable": false,
+              "composition": "atom",
+              "model_family": null,
+              "is_interactive": false,
+              "default_variants": {},
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_prompts": [
+                "bbox"
+              ],
+              "default_input_type": "bbox_prompt",
+              "default_thresholds": {},
+              "supported_trackers": [
+                "sam2_video"
+              ],
+              "supported_variants": [],
+              "text_driven_trackers": [],
+              "variant_combinations": [],
+              "exemplar_capabilities": {},
+              "output_attribute_types": [],
+              "supported_text_outputs": [],
+              "output_attribute_schema": [],
+              "supported_geometric_outputs": [],
+              "variants_shared_across_tasks": null
+            }
+          ],
+          "warmup": false,
+          "version": null,
+          "modality": null,
+          "stateful": false,
+          "batchable": false,
+          "model_ids": [],
+          "variant_axes": [],
+          "model_version": "one",
+          "weights_version": null,
+          "parameter_schema": {},
+          "protocol_version": "1",
+          "supported_inputs": [
+            "bbox_prompt",
+            "full_image"
+          ],
+          "supported_outputs": [],
+          "supported_prompts": [
+            "bbox"
+          ],
+          "supported_trackers": [
+            "sam2_video"
+          ],
+          "compat_protocol_versions": []
+        },
+        "member_state": "active"
+      }
+    },
+    {
+      "case": "gpu_no_echo",
+      "autoflush": false,
+      "result": true,
+      "error": null,
+      "trace": [
+        "backend_read",
+        "membership_read",
+        "clock",
+        "http:health",
+        "http:setup",
+        "clock",
+        "backend_lock",
+        "resource_lock",
+        "promotion_try",
+        "membership_lock",
+        "backend_write",
+        "backend_read",
+        "member_lock",
+        "pool_lock",
+        "pool_write",
+        "unrelated_flush"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "observer_sees_backend": false,
+      "state": "connected",
+      "is_interactive": false,
+      "checked": true,
+      "health_meta": {
+        "compute": {
+          "configured_device": "cpu"
+        },
+        "residency": {
+          "state": "unloaded",
+          "gpu_loaded": false,
+          "active_requests": 0
+        },
+        "capabilities": {
+          "name": "controlled",
+          "infra": "unknown",
+          "models": [
+            {
+              "id": "controlled",
+              "task": "tracker",
+              "infra": "unknown",
+              "params": {},
+              "modality": "video",
+              "composition": "atom",
+              "display_name": "controlled",
+              "model_family": null,
+              "is_interactive": false,
+              "resource_profile": {},
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_prompts": [
+                "bbox"
+              ],
+              "default_input_type": "bbox_prompt",
+              "default_thresholds": {},
+              "supported_trackers": [
+                "sam2_video"
+              ],
+              "supported_variants": [],
+              "text_driven_trackers": [],
+              "exemplar_capabilities": null,
+              "output_attribute_types": [],
+              "supported_text_outputs": [],
+              "supported_geometric_outputs": []
+            }
+          ],
+          "version": null,
+          "warnings": [],
+          "modalities": [
+            "image",
+            "video"
+          ],
+          "model_version": "one",
+          "is_interactive": false,
+          "warmup_endpoint": false,
+          "weights_version": null,
+          "protocol_version": "1",
+          "supported_inputs": [
+            "bbox_prompt",
+            "full_image"
+          ],
+          "managed_lifecycle": null,
+          "supported_prompts": [
+            "bbox"
+          ],
+          "supported_trackers": [
+            "sam2_video"
+          ],
+          "text_driven_trackers": [],
+          "supported_text_outputs": [],
+          "task_contract_revision": 0,
+          "compat_protocol_versions": [],
+          "supported_geometric_outputs": []
+        }
+      },
+      "proof_time_matches_row": false,
+      "pool": {
+        "enabled": false,
+        "generation": 2,
+        "fingerprint": "f1a295aa8997f587fa7e0ebe7747d096d7db4e73aca2b0438d42e7ae7795d162",
+        "snapshot": {
+          "task": null,
+          "infra": "unknown",
+          "models": [
+            {
+              "id": "controlled",
+              "task": "tracker",
+              "infra": "unknown",
+              "params": {},
+              "modality": "video",
+              "batchable": false,
+              "composition": "atom",
+              "model_family": null,
+              "is_interactive": false,
+              "default_variants": {},
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_prompts": [
+                "bbox"
+              ],
+              "default_input_type": "bbox_prompt",
+              "default_thresholds": {},
+              "supported_trackers": [
+                "sam2_video"
+              ],
+              "supported_variants": [],
+              "text_driven_trackers": [],
+              "variant_combinations": [],
+              "exemplar_capabilities": {},
+              "output_attribute_types": [],
+              "supported_text_outputs": [],
+              "output_attribute_schema": [],
+              "supported_geometric_outputs": [],
+              "variants_shared_across_tasks": null
+            }
+          ],
+          "warmup": false,
+          "version": null,
+          "modality": null,
+          "stateful": false,
+          "batchable": false,
+          "model_ids": [],
+          "variant_axes": [],
+          "model_version": "one",
+          "weights_version": null,
+          "parameter_schema": {},
+          "protocol_version": "1",
+          "supported_inputs": [
+            "bbox_prompt",
+            "full_image"
+          ],
+          "supported_outputs": [],
+          "supported_prompts": [
+            "bbox"
+          ],
+          "supported_trackers": [
+            "sam2_video"
+          ],
+          "compat_protocol_versions": []
+        },
+        "member_state": "active"
+      }
+    },
+    {
+      "case": "gpu_no_echo",
+      "autoflush": true,
+      "result": true,
+      "error": null,
+      "trace": [
+        "unrelated_flush",
+        "backend_read",
+        "membership_read",
+        "clock",
+        "http:health",
+        "http:setup",
+        "clock",
+        "backend_lock",
+        "resource_lock",
+        "promotion_try",
+        "membership_lock",
+        "backend_write",
+        "backend_read",
+        "member_lock",
+        "pool_lock",
+        "pool_write"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "observer_sees_backend": false,
+      "state": "connected",
+      "is_interactive": false,
+      "checked": true,
+      "health_meta": {
+        "compute": {
+          "configured_device": "cpu"
+        },
+        "residency": {
+          "state": "unloaded",
+          "gpu_loaded": false,
+          "active_requests": 0
+        },
+        "capabilities": {
+          "name": "controlled",
+          "infra": "unknown",
+          "models": [
+            {
+              "id": "controlled",
+              "task": "tracker",
+              "infra": "unknown",
+              "params": {},
+              "modality": "video",
+              "composition": "atom",
+              "display_name": "controlled",
+              "model_family": null,
+              "is_interactive": false,
+              "resource_profile": {},
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_prompts": [
+                "bbox"
+              ],
+              "default_input_type": "bbox_prompt",
+              "default_thresholds": {},
+              "supported_trackers": [
+                "sam2_video"
+              ],
+              "supported_variants": [],
+              "text_driven_trackers": [],
+              "exemplar_capabilities": null,
+              "output_attribute_types": [],
+              "supported_text_outputs": [],
+              "supported_geometric_outputs": []
+            }
+          ],
+          "version": null,
+          "warnings": [],
+          "modalities": [
+            "image",
+            "video"
+          ],
+          "model_version": "one",
+          "is_interactive": false,
+          "warmup_endpoint": false,
+          "weights_version": null,
+          "protocol_version": "1",
+          "supported_inputs": [
+            "bbox_prompt",
+            "full_image"
+          ],
+          "managed_lifecycle": null,
+          "supported_prompts": [
+            "bbox"
+          ],
+          "supported_trackers": [
+            "sam2_video"
+          ],
+          "text_driven_trackers": [],
+          "supported_text_outputs": [],
+          "task_contract_revision": 0,
+          "compat_protocol_versions": [],
+          "supported_geometric_outputs": []
+        }
+      },
+      "proof_time_matches_row": false,
+      "pool": {
+        "enabled": false,
+        "generation": 2,
+        "fingerprint": "f1a295aa8997f587fa7e0ebe7747d096d7db4e73aca2b0438d42e7ae7795d162",
+        "snapshot": {
+          "task": null,
+          "infra": "unknown",
+          "models": [
+            {
+              "id": "controlled",
+              "task": "tracker",
+              "infra": "unknown",
+              "params": {},
+              "modality": "video",
+              "batchable": false,
+              "composition": "atom",
+              "model_family": null,
+              "is_interactive": false,
+              "default_variants": {},
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_prompts": [
+                "bbox"
+              ],
+              "default_input_type": "bbox_prompt",
+              "default_thresholds": {},
+              "supported_trackers": [
+                "sam2_video"
+              ],
+              "supported_variants": [],
+              "text_driven_trackers": [],
+              "variant_combinations": [],
+              "exemplar_capabilities": {},
+              "output_attribute_types": [],
+              "supported_text_outputs": [],
+              "output_attribute_schema": [],
+              "supported_geometric_outputs": [],
+              "variants_shared_across_tasks": null
+            }
+          ],
+          "warmup": false,
+          "version": null,
+          "modality": null,
+          "stateful": false,
+          "batchable": false,
+          "model_ids": [],
+          "variant_axes": [],
+          "model_version": "one",
+          "weights_version": null,
+          "parameter_schema": {},
+          "protocol_version": "1",
+          "supported_inputs": [
+            "bbox_prompt",
+            "full_image"
+          ],
+          "supported_outputs": [],
+          "supported_prompts": [
+            "bbox"
+          ],
+          "supported_trackers": [
+            "sam2_video"
+          ],
+          "compat_protocol_versions": []
+        },
+        "member_state": "active"
+      }
+    },
+    {
+      "case": "gpu_legacy_fallback",
+      "autoflush": false,
+      "result": true,
+      "error": null,
+      "trace": [
+        "backend_read",
+        "membership_read",
+        "clock",
+        "http:health",
+        "http:health",
+        "http:setup",
+        "clock",
+        "backend_lock",
+        "resource_lock",
+        "promotion_try",
+        "membership_lock",
+        "backend_write",
+        "backend_read",
+        "member_lock",
+        "pool_lock",
+        "pool_write",
+        "unrelated_flush"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "observer_sees_backend": false,
+      "state": "connected",
+      "is_interactive": false,
+      "checked": true,
+      "health_meta": {
+        "compute": {
+          "configured_device": "cpu"
+        },
+        "residency": {
+          "state": "unloaded",
+          "gpu_loaded": false,
+          "active_requests": 0
+        },
+        "capabilities": {
+          "name": "controlled",
+          "infra": "unknown",
+          "models": [
+            {
+              "id": "controlled",
+              "task": "tracker",
+              "infra": "unknown",
+              "params": {},
+              "modality": "video",
+              "composition": "atom",
+              "display_name": "controlled",
+              "model_family": null,
+              "is_interactive": false,
+              "resource_profile": {},
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_prompts": [
+                "bbox"
+              ],
+              "default_input_type": "bbox_prompt",
+              "default_thresholds": {},
+              "supported_trackers": [
+                "sam2_video"
+              ],
+              "supported_variants": [],
+              "text_driven_trackers": [],
+              "exemplar_capabilities": null,
+              "output_attribute_types": [],
+              "supported_text_outputs": [],
+              "supported_geometric_outputs": []
+            }
+          ],
+          "version": null,
+          "warnings": [],
+          "modalities": [
+            "image",
+            "video"
+          ],
+          "model_version": "one",
+          "is_interactive": false,
+          "warmup_endpoint": false,
+          "weights_version": null,
+          "protocol_version": "1",
+          "supported_inputs": [
+            "bbox_prompt",
+            "full_image"
+          ],
+          "managed_lifecycle": null,
+          "supported_prompts": [
+            "bbox"
+          ],
+          "supported_trackers": [
+            "sam2_video"
+          ],
+          "text_driven_trackers": [],
+          "supported_text_outputs": [],
+          "task_contract_revision": 0,
+          "compat_protocol_versions": [],
+          "supported_geometric_outputs": []
+        }
+      },
+      "proof_time_matches_row": false,
+      "pool": {
+        "enabled": false,
+        "generation": 2,
+        "fingerprint": "f1a295aa8997f587fa7e0ebe7747d096d7db4e73aca2b0438d42e7ae7795d162",
+        "snapshot": {
+          "task": null,
+          "infra": "unknown",
+          "models": [
+            {
+              "id": "controlled",
+              "task": "tracker",
+              "infra": "unknown",
+              "params": {},
+              "modality": "video",
+              "batchable": false,
+              "composition": "atom",
+              "model_family": null,
+              "is_interactive": false,
+              "default_variants": {},
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_prompts": [
+                "bbox"
+              ],
+              "default_input_type": "bbox_prompt",
+              "default_thresholds": {},
+              "supported_trackers": [
+                "sam2_video"
+              ],
+              "supported_variants": [],
+              "text_driven_trackers": [],
+              "variant_combinations": [],
+              "exemplar_capabilities": {},
+              "output_attribute_types": [],
+              "supported_text_outputs": [],
+              "output_attribute_schema": [],
+              "supported_geometric_outputs": [],
+              "variants_shared_across_tasks": null
+            }
+          ],
+          "warmup": false,
+          "version": null,
+          "modality": null,
+          "stateful": false,
+          "batchable": false,
+          "model_ids": [],
+          "variant_axes": [],
+          "model_version": "one",
+          "weights_version": null,
+          "parameter_schema": {},
+          "protocol_version": "1",
+          "supported_inputs": [
+            "bbox_prompt",
+            "full_image"
+          ],
+          "supported_outputs": [],
+          "supported_prompts": [
+            "bbox"
+          ],
+          "supported_trackers": [
+            "sam2_video"
+          ],
+          "compat_protocol_versions": []
+        },
+        "member_state": "active"
+      }
+    },
+    {
+      "case": "gpu_legacy_fallback",
+      "autoflush": true,
+      "result": true,
+      "error": null,
+      "trace": [
+        "unrelated_flush",
+        "backend_read",
+        "membership_read",
+        "clock",
+        "http:health",
+        "http:health",
+        "http:setup",
+        "clock",
+        "backend_lock",
+        "resource_lock",
+        "promotion_try",
+        "membership_lock",
+        "backend_write",
+        "backend_read",
+        "member_lock",
+        "pool_lock",
+        "pool_write"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "observer_sees_backend": false,
+      "state": "connected",
+      "is_interactive": false,
+      "checked": true,
+      "health_meta": {
+        "compute": {
+          "configured_device": "cpu"
+        },
+        "residency": {
+          "state": "unloaded",
+          "gpu_loaded": false,
+          "active_requests": 0
+        },
+        "capabilities": {
+          "name": "controlled",
+          "infra": "unknown",
+          "models": [
+            {
+              "id": "controlled",
+              "task": "tracker",
+              "infra": "unknown",
+              "params": {},
+              "modality": "video",
+              "composition": "atom",
+              "display_name": "controlled",
+              "model_family": null,
+              "is_interactive": false,
+              "resource_profile": {},
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_prompts": [
+                "bbox"
+              ],
+              "default_input_type": "bbox_prompt",
+              "default_thresholds": {},
+              "supported_trackers": [
+                "sam2_video"
+              ],
+              "supported_variants": [],
+              "text_driven_trackers": [],
+              "exemplar_capabilities": null,
+              "output_attribute_types": [],
+              "supported_text_outputs": [],
+              "supported_geometric_outputs": []
+            }
+          ],
+          "version": null,
+          "warnings": [],
+          "modalities": [
+            "image",
+            "video"
+          ],
+          "model_version": "one",
+          "is_interactive": false,
+          "warmup_endpoint": false,
+          "weights_version": null,
+          "protocol_version": "1",
+          "supported_inputs": [
+            "bbox_prompt",
+            "full_image"
+          ],
+          "managed_lifecycle": null,
+          "supported_prompts": [
+            "bbox"
+          ],
+          "supported_trackers": [
+            "sam2_video"
+          ],
+          "text_driven_trackers": [],
+          "supported_text_outputs": [],
+          "task_contract_revision": 0,
+          "compat_protocol_versions": [],
+          "supported_geometric_outputs": []
+        }
+      },
+      "proof_time_matches_row": false,
+      "pool": {
+        "enabled": false,
+        "generation": 2,
+        "fingerprint": "f1a295aa8997f587fa7e0ebe7747d096d7db4e73aca2b0438d42e7ae7795d162",
+        "snapshot": {
+          "task": null,
+          "infra": "unknown",
+          "models": [
+            {
+              "id": "controlled",
+              "task": "tracker",
+              "infra": "unknown",
+              "params": {},
+              "modality": "video",
+              "batchable": false,
+              "composition": "atom",
+              "model_family": null,
+              "is_interactive": false,
+              "default_variants": {},
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_prompts": [
+                "bbox"
+              ],
+              "default_input_type": "bbox_prompt",
+              "default_thresholds": {},
+              "supported_trackers": [
+                "sam2_video"
+              ],
+              "supported_variants": [],
+              "text_driven_trackers": [],
+              "variant_combinations": [],
+              "exemplar_capabilities": {},
+              "output_attribute_types": [],
+              "supported_text_outputs": [],
+              "output_attribute_schema": [],
+              "supported_geometric_outputs": [],
+              "variants_shared_across_tasks": null
+            }
+          ],
+          "warmup": false,
+          "version": null,
+          "modality": null,
+          "stateful": false,
+          "batchable": false,
+          "model_ids": [],
+          "variant_axes": [],
+          "model_version": "one",
+          "weights_version": null,
+          "parameter_schema": {},
+          "protocol_version": "1",
+          "supported_inputs": [
+            "bbox_prompt",
+            "full_image"
+          ],
+          "supported_outputs": [],
+          "supported_prompts": [
+            "bbox"
+          ],
+          "supported_trackers": [
+            "sam2_video"
+          ],
+          "compat_protocol_versions": []
+        },
+        "member_state": "active"
+      }
+    },
+    {
+      "case": "gpu_failed",
+      "autoflush": false,
+      "result": false,
+      "error": null,
+      "trace": [
+        "backend_read",
+        "membership_read",
+        "clock",
+        "http:health",
+        "clock",
+        "backend_lock",
+        "resource_lock",
+        "promotion_try",
+        "membership_lock",
+        "backend_write",
+        "backend_read"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": true,
+      "observer_sees_backend": false,
+      "state": "error",
+      "is_interactive": false,
+      "checked": true,
+      "health_meta": null,
+      "proof_time_matches_row": false,
+      "pool": {
+        "enabled": false,
+        "generation": 1,
+        "fingerprint": null,
+        "snapshot": null,
+        "member_state": "active"
+      }
+    },
+    {
+      "case": "gpu_failed",
+      "autoflush": true,
+      "result": false,
+      "error": null,
+      "trace": [
+        "unrelated_flush",
+        "backend_read",
+        "membership_read",
+        "clock",
+        "http:health",
+        "clock",
+        "backend_lock",
+        "resource_lock",
+        "promotion_try",
+        "membership_lock",
+        "backend_write",
+        "backend_read"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "observer_sees_backend": false,
+      "state": "error",
+      "is_interactive": false,
+      "checked": true,
+      "health_meta": null,
+      "proof_time_matches_row": false,
+      "pool": {
+        "enabled": false,
+        "generation": 1,
+        "fingerprint": null,
+        "snapshot": null,
+        "member_state": "active"
+      }
+    },
+    {
+      "case": "cpu_challenge",
+      "autoflush": false,
+      "result": null,
+      "error": {
+        "type": "ValueError",
+        "message": "gpu_health_challenge requires a GPU backend membership"
+      },
+      "trace": [
+        "backend_read"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": true,
+      "observer_sees_backend": false,
+      "state": "disconnected",
+      "is_interactive": false,
+      "checked": false,
+      "health_meta": {
+        "old": "snapshot"
+      },
+      "proof_time_matches_row": false,
+      "pool": {
+        "enabled": false,
+        "generation": 1,
+        "fingerprint": null,
+        "snapshot": null,
+        "member_state": "active"
+      }
+    },
+    {
+      "case": "cpu_challenge",
+      "autoflush": true,
+      "result": null,
+      "error": {
+        "type": "ValueError",
+        "message": "gpu_health_challenge requires a GPU backend membership"
+      },
+      "trace": [
+        "unrelated_flush",
+        "backend_read"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "observer_sees_backend": false,
+      "state": "disconnected",
+      "is_interactive": false,
+      "checked": false,
+      "health_meta": {
+        "old": "snapshot"
+      },
+      "proof_time_matches_row": false,
+      "pool": {
+        "enabled": false,
+        "generation": 1,
+        "fingerprint": null,
+        "snapshot": null,
+        "member_state": "active"
+      }
+    },
+    {
+      "case": "bad_challenge",
+      "autoflush": false,
+      "result": null,
+      "error": {
+        "type": "ValueError",
+        "message": "gpu_health_challenge must be 64 lowercase hexadecimal characters"
+      },
+      "trace": [],
+      "caller_pending": true,
+      "unrelated_pending": true,
+      "observer_sees_backend": false,
+      "state": "disconnected",
+      "is_interactive": false,
+      "checked": false,
+      "health_meta": {
+        "old": "snapshot"
+      },
+      "proof_time_matches_row": false,
+      "pool": {
+        "enabled": false,
+        "generation": 1,
+        "fingerprint": null,
+        "snapshot": null,
+        "member_state": "active"
+      }
+    },
+    {
+      "case": "bad_challenge",
+      "autoflush": true,
+      "result": null,
+      "error": {
+        "type": "ValueError",
+        "message": "gpu_health_challenge must be 64 lowercase hexadecimal characters"
+      },
+      "trace": [],
+      "caller_pending": true,
+      "unrelated_pending": true,
+      "observer_sees_backend": false,
+      "state": "disconnected",
+      "is_interactive": false,
+      "checked": false,
+      "health_meta": {
+        "old": "snapshot"
+      },
+      "proof_time_matches_row": false,
+      "pool": {
+        "enabled": false,
+        "generation": 1,
+        "fingerprint": null,
+        "snapshot": null,
+        "member_state": "active"
+      }
+    },
+    {
+      "case": "huge_health_json",
+      "autoflush": false,
+      "result": null,
+      "error": {
+        "type": "ValueError",
+        "message": "Exceeds the limit (4300 digits) for integer string conversion: value has 5000 digits; use sys.set_int_max_str_digits() to increase the limit"
+      },
+      "trace": [
+        "backend_read"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": true,
+      "observer_sees_backend": false,
+      "state": "disconnected",
+      "is_interactive": false,
+      "checked": false,
+      "health_meta": "<oversized-json>",
+      "proof_time_matches_row": false,
+      "pool": {
+        "enabled": false,
+        "generation": 1,
+        "fingerprint": null,
+        "snapshot": null,
+        "member_state": "active"
+      }
+    },
+    {
+      "case": "huge_health_json",
+      "autoflush": true,
+      "result": null,
+      "error": {
+        "type": "ValueError",
+        "message": "Exceeds the limit (4300 digits) for integer string conversion: value has 5000 digits; use sys.set_int_max_str_digits() to increase the limit"
+      },
+      "trace": [
+        "unrelated_flush",
+        "backend_read"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "observer_sees_backend": false,
+      "state": "disconnected",
+      "is_interactive": false,
+      "checked": false,
+      "health_meta": "<oversized-json>",
+      "proof_time_matches_row": false,
+      "pool": {
+        "enabled": false,
+        "generation": 1,
+        "fingerprint": null,
+        "snapshot": null,
+        "member_state": "active"
+      }
+    }
+  ]
+}

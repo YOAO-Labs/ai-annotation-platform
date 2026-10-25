@@ -16,7 +16,7 @@ class Notification(_AAPModel):
     type: str
     target_type: str
     target_id: UUID
-    payload: dict[str, Any] = Field(default_factory=dict)
+    payload: Any = Field(default_factory=dict)
     read_at: datetime | None = None
     created_at: datetime
 

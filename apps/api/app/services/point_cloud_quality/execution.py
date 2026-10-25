@@ -9,16 +9,16 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import numpy as np
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.async_job import AsyncJob, AsyncJobStatus
+from app.services.project_access import get_workspace_project
 from app.db.models.point_cloud_quality import (
     PointCloudQualityIssue,
     PointCloudQualityRun,
 )
-from app.db.models.project import Project
-from app.schemas.point_cloud_quality import PointCloudQualityConfig
+from aap_workspace.point_quality_configuration_values import PointCloudQualityConfig
 from aap_assets_catalog.spatial_values import SensorCalibration
 from aap_assets_catalog.axis_convention import R_NORM
 from app.services.point_cloud_quality.config import severity_for_rule
@@ -39,6 +39,7 @@ from app.services.point_cloud_quality.service import (
     thresholds_from_config,
 )
 from app.services.quality_job_lifecycle import QualityJobLifecycle
+from app.services.labeling_spatial_quality import quality_row, spatial_quality_data
 from app.services.storage import storage_service
 
 
@@ -51,6 +52,30 @@ class _ProjectionCamera:
     calibration: SensorCalibration
     width: int
     height: int
+
+
+async def _update_run(
+    db, run: PointCloudQualityRun, status: str, **values
+) -> PointCloudQualityRun:
+    result = await spatial_quality_data(
+        db, "update_point_run", run_id=run.id, status=status, **values
+    )
+    if not result.get("row"):
+        raise RuntimeError("point cloud quality run disappeared during update")
+    run.status = (
+        "running"
+        if status == "start"
+        else status
+        if status not in {"progress", "summary"}
+        else run.status
+    )
+    if status == "start":
+        run.progress_pct = 1
+    for name, value in values.items():
+        if name.endswith("_at") and isinstance(value, str):
+            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        setattr(run, name, value)
+    return run
 
 
 def _box(value: dict) -> Box3D:
@@ -95,9 +120,13 @@ async def _cancel_requested(db, run: PointCloudQualityRun) -> bool:
         return False
     job = (
         await db.execute(
-            select(AsyncJob.status, AsyncJob.payload).where(
-                AsyncJob.id == run.async_job_id
-            )
+            select(AsyncJob.status, AsyncJob.payload).from_statement(
+                text(
+                    "SELECT status, payload FROM aap_jobs_v1.read_job("
+                    "CAST(:job_id AS pg_catalog.uuid))"
+                )
+            ),
+            {"job_id": run.async_job_id},
         )
     ).one_or_none()
     return bool(
@@ -170,14 +199,6 @@ async def _upsert_finding(
         frame_end=frame_end,
         related_annotation_ids=related_ids,
     )
-    issue = (
-        await db.execute(
-            select(PointCloudQualityIssue).where(
-                PointCloudQualityIssue.project_id == run.project_id,
-                PointCloudQualityIssue.dedupe_key == key,
-            )
-        )
-    ).scalar_one_or_none()
     locator = _locator(
         scene_id=scene_id,
         task_id=task_id,
@@ -189,63 +210,36 @@ async def _upsert_finding(
     locator["camera"] = finding.evidence.get("camera_role")
     if locator["camera"]:
         locator["auxiliary_layers"].append("camera_projection")
-    if issue is None:
-        issue = PointCloudQualityIssue(
-            run_id=run.id,
-            last_seen_run_id=run.id,
-            project_id=run.project_id,
-            scene_id=scene_id,
-            task_id=task_id,
-            annotation_id=annotation_id,
-            annotation_version=annotation_version,
-            scene_track_id=scene_track_id,
-            track_revision=track_revision,
-            related_annotation_ids=related_ids,
-            source_versions=source_versions,
-            class_name=class_name,
-            code=finding.code,
-            rule_version=1,
-            severity=severity,
-            severity_rank=SEVERITY_RANK[severity],
-            frame_start=frame_start,
-            frame_end=frame_end,
-            metric=finding.metric,
-            threshold=finding.threshold,
-            evidence={**finding.evidence, **(source_evidence or {})},
-            locator=locator,
-            suggested_command=finding.suggestion,
-            dedupe_key=key,
-        )
-        db.add(issue)
-    else:
-        issue.run_id = run.id
-        issue.last_seen_run_id = run.id
-        issue.task_id = task_id
-        issue.annotation_id = annotation_id
-        issue.annotation_version = annotation_version
-        issue.scene_track_id = scene_track_id
-        issue.track_revision = track_revision
-        issue.related_annotation_ids = related_ids
-        issue.source_versions = source_versions
-        issue.class_name = class_name
-        issue.severity = severity
-        issue.severity_rank = SEVERITY_RANK[severity]
-        issue.metric = finding.metric
-        issue.threshold = finding.threshold
-        issue.evidence = {**finding.evidence, **(source_evidence or {})}
-        issue.locator = locator
-        issue.suggested_command = finding.suggestion
-        if issue.status == "stale":
-            issue.status = "open"
-            issue.resolution_reason = None
-            issue.resolved_by_id = None
-            issue.resolved_at = None
-            issue.review_verdict = None
-            issue.review_note = None
-            issue.reviewed_by_id = None
-            issue.reviewed_at = None
+    result = await spatial_quality_data(
+        db,
+        "upsert_point_issue",
+        new_issue_id=uuid.uuid4(),
+        run_id=run.id,
+        project_id=run.project_id,
+        scene_id=scene_id,
+        task_id=task_id,
+        annotation_id=annotation_id,
+        annotation_version=annotation_version,
+        scene_track_id=scene_track_id,
+        track_revision=track_revision,
+        related_annotation_ids=related_ids,
+        source_versions=source_versions,
+        class_name=class_name,
+        code=finding.code,
+        rule_version=1,
+        severity=severity,
+        severity_rank=SEVERITY_RANK[severity],
+        frame_start=frame_start,
+        frame_end=frame_end,
+        metric=finding.metric,
+        threshold=finding.threshold,
+        evidence={**finding.evidence, **(source_evidence or {})},
+        locator=locator,
+        suggested_command=finding.suggestion,
+        dedupe_key=key,
+    )
     await db.flush()
-    return issue
+    return quality_row(PointCloudQualityIssue, result["row"])
 
 
 async def execute_scan(
@@ -451,7 +445,9 @@ async def execute_scan(
             if issue is not None:
                 issue_counts[finding.code] += 1
         processed += 1
-        run.progress_pct = min(95, int(processed * 95 / total_units))
+        await _update_run(
+            db, run, "progress", progress_pct=min(95, int(processed * 95 / total_units))
+        )
         if run.async_job_id:
             await job_lifecycle.update_progress(run.async_job_id, run.progress_pct)
         await db.commit()
@@ -535,7 +531,9 @@ async def execute_scan(
             if issue is not None:
                 issue_counts[finding.code] += 1
         processed += 1
-        run.progress_pct = min(95, int(processed * 95 / total_units))
+        await _update_run(
+            db, run, "progress", progress_pct=min(95, int(processed * 95 / total_units))
+        )
         if run.async_job_id:
             await job_lifecycle.update_progress(run.async_job_id, run.progress_pct)
         await db.commit()
@@ -546,7 +544,7 @@ async def execute_scan(
         "issues_by_code": dict(sorted(issue_counts.items())),
         "skips": dict(sorted(skip_counts.items())),
     }
-    run.summary = summary
+    await _update_run(db, run, "summary", summary=summary)
     return summary
 
 
@@ -557,26 +555,31 @@ async def execute_run(
     celery_task_id: str | None,
     job_lifecycle: QualityJobLifecycle,
 ) -> None:
-    run = await db.get(PointCloudQualityRun, run_id)
+    result = await spatial_quality_data(db, "get_point_run", run_id=run_id)
+    run = quality_row(PointCloudQualityRun, result["row"]) if result["row"] else None
     if run is None or run.status != "pending":
         return
 
-    run.status = "running"
-    run.progress_pct = 1
-    run.started_at = datetime.now(timezone.utc)
+    run = await _update_run(
+        db, run, "start", started_at=datetime.now(timezone.utc).isoformat()
+    )
     if run.async_job_id:
         await job_lifecycle.mark_running(
             run.async_job_id, celery_task_id=celery_task_id
         )
     await db.commit()
     try:
-        project = await db.get(Project, run.project_id)
+        project = await get_workspace_project(db, project_id=run.project_id)
         if project is None:
             raise RuntimeError("point cloud quality project disappeared")
         if await current_source_digest(db, run, project) != run.source_snapshot_digest:
-            run.status = "stale"
-            run.error_message = "source snapshot changed before execution"
-            run.completed_at = datetime.now(timezone.utc)
+            run = await _update_run(
+                db,
+                run,
+                "stale",
+                error_message="source snapshot changed before execution",
+                completed_at=datetime.now(timezone.utc).isoformat(),
+            )
             if run.async_job_id:
                 await job_lifecycle.mark_complete(
                     run.async_job_id,
@@ -584,9 +587,14 @@ async def execute_run(
                 )
         else:
             summary = await execute_scan(db, run, job_lifecycle=job_lifecycle)
-            run.status = "completed"
-            run.progress_pct = 100
-            run.completed_at = datetime.now(timezone.utc)
+            run = await _update_run(
+                db,
+                run,
+                "completed",
+                progress_pct=100,
+                summary=summary,
+                completed_at=datetime.now(timezone.utc).isoformat(),
+            )
             if run.async_job_id:
                 await job_lifecycle.mark_complete(
                     run.async_job_id,
@@ -597,16 +605,24 @@ async def execute_run(
                     },
                 )
     except asyncio.CancelledError:
-        run.status = "cancelled"
-        run.completed_at = datetime.now(timezone.utc)
+        run = await _update_run(
+            db,
+            run,
+            "cancelled",
+            completed_at=datetime.now(timezone.utc).isoformat(),
+        )
         if run.async_job_id:
             await job_lifecycle.mark_cancelled(
                 run.async_job_id, result={"reason": "cancelled_by_user"}
             )
     except Exception as exc:
-        run.status = "failed"
-        run.error_message = f"{type(exc).__name__}: {exc}"[:4000]
-        run.completed_at = datetime.now(timezone.utc)
+        run = await _update_run(
+            db,
+            run,
+            "failed",
+            error_message=f"{type(exc).__name__}: {exc}"[:4000],
+            completed_at=datetime.now(timezone.utc).isoformat(),
+        )
         if run.async_job_id:
             await job_lifecycle.mark_failed(run.async_job_id, error=run.error_message)
     if run.async_job_id:

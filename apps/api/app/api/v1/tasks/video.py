@@ -16,6 +16,10 @@ from app.deps import (
 )
 from app.db.models.user import User
 from app.db.models.task import Task
+from app.db.models.video_track_quality import (
+    VideoTrackQualityIssue,
+    VideoTrackQualityRun,
+)
 from app.schemas.annotation import AnnotationOut
 from app.schemas.task import (
     TaskPointCloudManifestResponse,
@@ -47,7 +51,10 @@ from app.schemas.video_tracker_job import (
     VideoTrackerPropagateRequest,
 )
 from app.services.audit import AuditAction, AuditService
-from app.services.project_access import is_privileged_for_project
+from app.services.project_access import (
+    get_workspace_project,
+    is_privileged_for_project,
+)
 from app.services.storage import storage_service
 from app.application.point_cloud_manifest import (
     PointCloudManifestFileUnavailable,
@@ -85,6 +92,11 @@ from app.services.video_track_quality import (
     mark_boundary_runs_stale,
     refresh_staleness,
 )
+from app.services.labeling_spatial_quality import (
+    quality_row,
+    quality_rows,
+    spatial_quality_data,
+)
 from app.services.video_tracking.jobs import (
     create_video_mask_correction_job,
     create_tracker_job,
@@ -95,8 +107,8 @@ from app.services.video_tracking.jobs import (
     save_video_mask_keyframe,
 )
 from app.services.video_collaboration import heartbeat_task_lock_for_legacy_video
+from app.application.task_workflow_errors import TaskWorkflowError
 from app.services.annotation_evidence import (
-    capture_first_review_contributor_snapshot,
     task_contributor_snapshot,
 )
 from app.services.assets_media import media_gateway, media_http_error
@@ -111,8 +123,12 @@ from app.api.v1.tasks._shared import (
     require_task_review_write,
     VIDEO_MANIFEST_URL_EXPIRES_IN,
 )
-from app.services.workspace_contract import ProjectAccess
+from aap_workspace_contract.access import ProjectAccess
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.labeling_core_read_relations import (
+    lock_task_for_core_read,
+    video_segment_row,
+)
 
 router = APIRouter()
 
@@ -197,12 +213,10 @@ async def get_point_cloud_manifest(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    from app.db.models.project import Project
-
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
 
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, actor_id=None, project_id=task.project_id)
     if project is None or project.data_type != "lidar":
         raise HTTPException(status_code=409, detail="Task is not a point-cloud task")
 
@@ -313,7 +327,7 @@ async def get_video_manifest_v2(
         file_type=task.file_type,
         dataset_item_id=task.dataset_item_id,
     )
-    return await build_video_manifest_v2(db, ctx, str(request.base_url))
+    return await build_video_manifest_v2(db, ctx, str(request.base_url), task=task)
 
 
 @router.get("/{task_id}/video/segments", response_model=VideoSegmentsResponse)
@@ -331,7 +345,7 @@ async def get_video_segments(
         file_type=task.file_type,
         dataset_item_id=task.dataset_item_id,
     )
-    return await list_video_segments(db, ctx)
+    return await list_video_segments(db, ctx, task=task)
 
 
 @router.post(
@@ -355,11 +369,11 @@ async def claim_video_segment(
         file_type=task.file_type,
         dataset_item_id=task.dataset_item_id,
     )
-    from app.db.models.project import Project
-
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, actor_id=None, project_id=task.project_id)
     privileged = bool(project and is_privileged_for_project(current_user, project))
-    body = await claim_segment(db, ctx, segment_id, current_user, privileged=privileged)
+    body = await claim_segment(
+        db, ctx, segment_id, current_user, privileged=privileged, task=task
+    )
     await AuditService.log(
         db,
         actor=current_user,
@@ -395,12 +409,10 @@ async def heartbeat_video_segment(
         file_type=task.file_type,
         dataset_item_id=task.dataset_item_id,
     )
-    from app.db.models.project import Project
-
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, actor_id=None, project_id=task.project_id)
     privileged = bool(project and is_privileged_for_project(current_user, project))
     body = await heartbeat_segment(
-        db, ctx, segment_id, current_user, privileged=privileged
+        db, ctx, segment_id, current_user, privileged=privileged, task=task
     )
     await AuditService.log(
         db,
@@ -437,12 +449,10 @@ async def release_video_segment(
         file_type=task.file_type,
         dataset_item_id=task.dataset_item_id,
     )
-    from app.db.models.project import Project
-
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, actor_id=None, project_id=task.project_id)
     privileged = bool(project and is_privileged_for_project(current_user, project))
     body = await release_segment(
-        db, ctx, segment_id, current_user, privileged=privileged
+        db, ctx, segment_id, current_user, privileged=privileged, task=task
     )
     await AuditService.log(
         db,
@@ -461,9 +471,7 @@ async def release_video_segment(
 async def _segment_privileged(
     db: AsyncSession, task: Task, user: User | IdentityActorFacts
 ) -> bool:
-    from app.db.models.project import Project
-
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, actor_id=None, project_id=task.project_id)
     return bool(
         project
         and (is_privileged_for_project(user, project) or task.reviewer_id == user.id)
@@ -471,6 +479,10 @@ async def _segment_privileged(
 
 
 def _raise_quality_error(exc: VideoTrackQualityError) -> None:
+    raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+def _raise_task_workflow_error(exc: TaskWorkflowError) -> None:
     raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
@@ -497,25 +509,26 @@ async def submit_video_segment(
         dataset_item_id=task.dataset_item_id,
     )
     was_in_review = task.status == "review"
-    body = await submit_segment(
-        db,
-        ctx,
-        segment_id,
-        current_user,
-        privileged=await _segment_privileged(db, task, current_user),
-        task=task,
-    )
-    from app.db.models.dataset import VideoSegment
-
+    try:
+        body = await submit_segment(
+            db,
+            ctx,
+            segment_id,
+            current_user,
+            privileged=await _segment_privileged(db, task, current_user),
+            task=task,
+        )
+    except TaskWorkflowError as exc:
+        _raise_task_workflow_error(exc)
     neighbors = list(
         (
             await db.execute(
-                select(VideoSegment).where(
-                    VideoSegment.dataset_item_id == ctx.dataset_item_id,
-                    VideoSegment.segment_index.in_(
+                select(video_segment_row).where(
+                    video_segment_row.dataset_item_id == ctx.dataset_item_id,
+                    video_segment_row.segment_index.in_(
                         [body.segment_index - 1, body.segment_index + 1]
                     ),
-                    VideoSegment.status == "completed",
+                    video_segment_row.status == "completed",
                 )
             )
         )
@@ -552,7 +565,14 @@ async def submit_video_segment(
                 task,
                 extra_user_ids=(current_user.id,),
             )
-            capture_first_review_contributor_snapshot(task, contributor_ids)
+            from app.services.labeling_tasks import LabelingTaskService
+
+            try:
+                await LabelingTaskService(db).capture_first_review_contributor_snapshot(
+                    task, actor_id=current_user.id, contributor_ids=contributor_ids
+                )
+            except TaskWorkflowError as exc:
+                _raise_task_workflow_error(exc)
             await AuditService.log(
                 db,
                 actor=current_user,
@@ -612,7 +632,12 @@ async def reopen_video_segment(
         file_type=task.file_type,
         dataset_item_id=task.dataset_item_id,
     )
-    body = await reopen_segment(db, ctx, segment_id, task=task)
+    try:
+        body = await reopen_segment(
+            db, ctx, segment_id, task=task, actor_id=current_user.id
+        )
+    except TaskWorkflowError as exc:
+        _raise_task_workflow_error(exc)
     await mark_boundary_runs_stale(db, segment_id)
     await db.commit()
     return body
@@ -640,7 +665,9 @@ async def unassign_video_segment(
         file_type=task.file_type,
         dataset_item_id=task.dataset_item_id,
     )
-    body = await unassign_segment(db, ctx, segment_id)
+    body = await unassign_segment(
+        db, ctx, segment_id, task=task, actor_id=current_user.id
+    )
     await mark_boundary_runs_stale(db, segment_id)
     await db.commit()
     return body
@@ -655,21 +682,10 @@ async def list_video_track_quality(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    from app.db.models.video_track_quality import VideoTrackQualityRun
-
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
-    runs = list(
-        (
-            await db.execute(
-                select(VideoTrackQualityRun)
-                .where(VideoTrackQualityRun.task_id == task.id)
-                .order_by(VideoTrackQualityRun.created_at.desc())
-            )
-        )
-        .scalars()
-        .all()
-    )
+    data = await spatial_quality_data(db, "list_video_runs", task_id=task.id)
+    runs = quality_rows(VideoTrackQualityRun, data.get("rows"))
     for run in runs:
         await refresh_staleness(db, run)
     await db.commit()
@@ -723,31 +739,15 @@ async def get_video_track_quality(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    from app.db.models.video_track_quality import (
-        VideoTrackQualityIssue,
-        VideoTrackQualityRun,
-    )
-
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
-    run = await db.get(VideoTrackQualityRun, run_id)
+    data = await spatial_quality_data(db, "get_video_run", run_id=run_id)
+    run = quality_row(VideoTrackQualityRun, data["row"]) if data["row"] else None
     if run is None or run.task_id != task.id:
         raise HTTPException(status_code=404, detail="Track quality run not found")
     await refresh_staleness(db, run)
-    issues = list(
-        (
-            await db.execute(
-                select(VideoTrackQualityIssue)
-                .where(VideoTrackQualityIssue.run_id == run.id)
-                .order_by(
-                    VideoTrackQualityIssue.frame_start,
-                    VideoTrackQualityIssue.id,
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
+    data = await spatial_quality_data(db, "list_video_issues", run_id=run.id)
+    issues = quality_rows(VideoTrackQualityIssue, data.get("rows"))
     from app.services.video_track_quality import metrics_with_current_chapters
 
     metrics = await metrics_with_current_chapters(db, task=task, run=run, issues=issues)
@@ -769,19 +769,12 @@ async def accept_video_track_quality(
     current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_review_write),
 ):
-    from app.db.models.video_track_quality import VideoTrackQualityRun
-
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
     if not await _segment_privileged(db, task, current_user):
         raise HTTPException(status_code=403, detail="reviewer privilege required")
-    run = (
-        await db.execute(
-            select(VideoTrackQualityRun)
-            .where(VideoTrackQualityRun.id == run_id)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
+    data = await spatial_quality_data(db, "lock_video_run", run_id=run_id)
+    run = quality_row(VideoTrackQualityRun, data["row"]) if data["row"] else None
     if run is None or run.task_id != task.id:
         raise HTTPException(status_code=404, detail="Track quality run not found")
     try:
@@ -966,14 +959,7 @@ async def save_video_mask_correction_keyframe(
     current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
-    task = (
-        await db.execute(
-            select(Task)
-            .where(Task.id == task_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
+    task = await lock_task_for_core_read(db, task_id, populate_existing=True)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     await task_access.assert_task_visible(db, task, current_user.id, access=access)
@@ -1014,7 +1000,6 @@ async def save_video_mask_correction_keyframe(
         detail=audit_detail,
     )
     await db.commit()
-    await db.refresh(annotation)
     response.headers["ETag"] = f'W/"{annotation.version}"'
     return AnnotationOut.model_validate(annotation)
 
@@ -1035,14 +1020,7 @@ async def operate_video_mask_correction_keyframe(
     current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
-    task = (
-        await db.execute(
-            select(Task)
-            .where(Task.id == task_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
+    task = await lock_task_for_core_read(db, task_id, populate_existing=True)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     await task_access.assert_task_visible(db, task, current_user.id, access=access)
@@ -1083,7 +1061,6 @@ async def operate_video_mask_correction_keyframe(
         detail=audit_detail,
     )
     await db.commit()
-    await db.refresh(annotation)
     response.headers["ETag"] = f'W/"{annotation.version}"'
     if audit_detail["resolved_keyframe_frame"] is not None:
         response.headers["X-Resolved-Keyframe-Frame"] = str(
@@ -1283,7 +1260,7 @@ async def propagate_video_track(
         request=request,
         status_code=202,
         detail={
-            "task_id": str(task.id),
+            "task_id": str(task_id),
             "annotation_id": str(annotation_id),
             "dataset_item_id": str(ctx.dataset_item_id),
             "segment_id": str(body.segment_id) if body.segment_id else None,
@@ -1344,7 +1321,7 @@ async def track_video(
         request=request,
         status_code=202,
         detail={
-            "task_id": str(task.id),
+            "task_id": str(task_id),
             "annotation_id": str(payload.source_annotation_id)
             if payload.source_annotation_id
             else None,

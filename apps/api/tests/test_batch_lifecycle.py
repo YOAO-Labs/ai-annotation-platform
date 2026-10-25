@@ -92,8 +92,13 @@ async def _seed(
             batch_id=batch.id,
             display_id=f"T-{i}",
             file_name=f"f{i}.jpg",
-            file_path=f"/tmp/f{i}.jpg",
+            file_path=f"test-fixtures/batch-lifecycle/{pid}/f{i}.jpg",
             file_type="image",
+            media_object_identity={
+                "etag": "batch-lifecycle-fixture",
+                "byte_size": 1,
+                "version_id": None,
+            },
             status=task_status,
             is_labeled=is_labeled,
             **evidence,
@@ -243,7 +248,7 @@ class TestTransitionAuth:
             json={"target_status": "archived"},
             headers=_bearer(owner_token),
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 200, resp.text
         assert resp.json()["status"] == "archived"
 
     @pytest.mark.asyncio
@@ -369,7 +374,7 @@ class TestRejectBatchSoftReset:
             json={"feedback": "需要重做"},
             headers=_bearer(owner_token),
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 200, resp.text
 
         # annotator 应有 batch.rejected 通知
         notif_rows = (
@@ -583,7 +588,7 @@ class TestReviewerVisibility:
             f"/api/v1/tasks?project_id={p.id}&status=review&limit=200",
             headers=_bearer(rev_token),
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 200, resp.text
         ids = {item["id"] for item in resp.json()["items"]}
         assert str(tasks[0].id) in ids
 
@@ -612,7 +617,7 @@ class TestReviewerVisibility:
             f"/api/v1/tasks?project_id={p.id}&limit=200",
             headers=_bearer(token),
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 200, resp.text
         ids = {item["id"] for item in resp.json()["items"]}
         assert str(tasks[0].id) in ids
 
@@ -642,7 +647,7 @@ class TestReviewerVisibility:
             f"/api/v1/tasks?project_id={p.id}&limit=200",
             headers=_bearer(token),
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 200, resp.text
         ids = {item["id"] for item in resp.json()["items"]}
         assert str(tasks[0].id) not in ids
 
@@ -868,8 +873,13 @@ async def _seed_multi(
                     batch_id=b.id,
                     display_id=f"T-{idx}-{j}",
                     file_name="f.jpg",
-                    file_path="/tmp/f.jpg",
+                    file_path=f"test-fixtures/batch-lifecycle/{pid}/{idx}-{j}.jpg",
                     file_type="image",
+                    media_object_identity={
+                        "etag": "batch-lifecycle-fixture",
+                        "byte_size": 1,
+                        "version_id": None,
+                    },
                     status="pending",
                     # Frozen round evidence for tests that later move the task
                     # into review before a batch decision.
@@ -1744,7 +1754,8 @@ class TestBatchSubmitReview:
         )
         assert batch_audit is not None
         assert batch_audit.actor_email == current_email
-        assert actor.name == current_name and actor.email == current_email
+        # Current Identity facts drive Audit without hydrating a caller's User ORM.
+        assert (actor.name, actor.email) == (initial_name, initial_email)
         for task in tasks:
             await db_session.refresh(task)
             assert task.status == "review"

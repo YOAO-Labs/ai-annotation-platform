@@ -76,12 +76,19 @@ async def test_smtp_uses_one_fresh_saved_cohort_despite_partial_cache(db_session
     assert config["smtp_password"] == "new-secret"
 
 
-async def test_import_snapshot_identifies_same_version_as_management(db_session):
+@pytest.mark.parametrize("registration_default", [None, False, True])
+async def test_import_snapshot_identifies_same_version_as_management(
+    db_session, registration_default
+):
     await SystemSettingsService.set_many(
         db_session, {"offline_threshold_minutes": 6}, None
     )
-    management = await SystemSettingsService.snapshot(db_session, bypass_cache=True)
-    budget = await SystemSettingsService.get_import_limits_snapshot(db_session)
+    management = await SystemSettingsService.snapshot(
+        db_session, bypass_cache=True, registration_default=registration_default
+    )
+    budget = await SystemSettingsService.get_import_limits_snapshot(
+        db_session, registration_default=registration_default
+    )
     assert budget["version"] == management.version
 
 
@@ -102,3 +109,100 @@ async def test_deployment_changes_invalidate_an_old_management_version(
             None,
             expected_version=before.version,
         )
+
+
+async def test_registration_default_participates_in_version_and_cas(db_session):
+    from app.services.system_settings_service import SettingsVersionConflict
+
+    before = await SystemSettingsService.snapshot(
+        db_session, bypass_cache=True, registration_default=False
+    )
+    after = await SystemSettingsService.snapshot(
+        db_session, bypass_cache=True, registration_default=True
+    )
+
+    assert before.values["allow_open_registration"] is False
+    assert after.values["allow_open_registration"] is True
+    assert before.version != after.version
+    with pytest.raises(SettingsVersionConflict):
+        await SystemSettingsService.set_many(
+            db_session,
+            {"allow_open_registration": False},
+            None,
+            expected_version=before.version,
+            registration_default=True,
+        )
+    assert await db_session.scalar(select(SystemSetting)) is None
+
+
+async def test_registration_override_wins_and_reset_uses_owner_default(db_session):
+    await SystemSettingsService.set_many(
+        db_session,
+        {"allow_open_registration": False},
+        None,
+        registration_default=False,
+    )
+
+    overridden = await SystemSettingsService.snapshot(
+        db_session, bypass_cache=True, registration_default=True
+    )
+    assert overridden.values["allow_open_registration"] is False
+    assert (
+        overridden.version
+        != (
+            await SystemSettingsService.snapshot(
+                db_session, bypass_cache=True, registration_default=False
+            )
+        ).version
+    )
+    assert overridden.rows["allow_open_registration"].value_json is False
+
+    changes = await SystemSettingsService.reset_many(
+        db_session,
+        ["allow_open_registration"],
+        registration_default=True,
+    )
+    reset = await SystemSettingsService.snapshot(
+        db_session, bypass_cache=True, registration_default=True
+    )
+    assert changes == {"allow_open_registration": (False, True)}
+    assert reset.values["allow_open_registration"] is True
+    assert reset.rows.get("allow_open_registration") is None
+
+
+async def test_corrupt_registration_override_can_be_repaired_to_owner_default(
+    db_session, monkeypatch
+):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "allow_open_registration", True)
+    db_session.add(
+        SystemSetting(
+            key="allow_open_registration",
+            value_type="bool",
+            value_json="corrupt-bool-row",
+        )
+    )
+    await db_session.flush()
+    fallback = await SystemSettingsService.snapshot(
+        db_session, bypass_cache=True, registration_default=False
+    )
+    assert fallback.values["allow_open_registration"] is False
+
+    changes = await SystemSettingsService.set_many(
+        db_session,
+        {"allow_open_registration": False},
+        None,
+        registration_default=False,
+    )
+    stored_value = await db_session.scalar(
+        select(SystemSetting.value_json).where(
+            SystemSetting.key == "allow_open_registration"
+        )
+    )
+    repaired = await SystemSettingsService.snapshot(
+        db_session, bypass_cache=True, registration_default=False
+    )
+    assert changes == {"allow_open_registration": (False, False)}
+    assert stored_value is False
+    assert repaired.values["allow_open_registration"] is False

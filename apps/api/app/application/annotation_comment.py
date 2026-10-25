@@ -4,13 +4,12 @@ import uuid
 from typing import Literal
 
 from fastapi import HTTPException
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.task_workflow_errors import TaskWorkflowError
 from app.application.task_workflow_locks import (
+    lock_core_nowait,
     lock_current_task_target,
-    lock_row_nowait,
 )
 from app.db.enums import ProjectRole
 from app.db.models.annotation import Annotation
@@ -32,8 +31,9 @@ from app.services.discussion_notifications import (
 from app.services.feedback import FeedbackService
 from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
 from app.services.notification import NotificationService
-from app.services.workspace_contract import ProjectAccess
+from aap_workspace_contract.access import ProjectAccess
 from app.services.task_discussion import require_visible_annotation
+from app.services.labeling_core_read_relations import lock_annotation_rows_for_core_read
 
 
 class AnnotationCommentWorkflow:
@@ -131,7 +131,7 @@ class AnnotationCommentWorkflow:
         )
         await self.db.commit()
         await NotificationService(self.db).publish_committed(pending_notifications)
-        await self.db.refresh(comment)
+        comment = await self.comments.refresh(comment)
         return comment, actor
 
     async def update(
@@ -151,9 +151,11 @@ class AnnotationCommentWorkflow:
             expected_access=expected_access,
             operation="edit",
         )
-        self.comments.update(comment, body=data.body, is_resolved=data.is_resolved)
+        comment = await self.comments.update(
+            comment, body=data.body, is_resolved=data.is_resolved
+        )
         await self.db.commit()
-        await self.db.refresh(comment)
+        comment = await self.comments.refresh(comment)
         return comment
 
     async def delete(
@@ -174,7 +176,7 @@ class AnnotationCommentWorkflow:
             expected_access=expected_access,
             operation="delete",
         )
-        self.comments.soft_delete(comment)
+        await self.comments.soft_delete(comment)
         await AuditService.log(
             self.db,
             actor=actor,
@@ -220,7 +222,7 @@ class AnnotationCommentWorkflow:
         *,
         operation: Literal["edit", "delete"],
     ) -> tuple[AnnotationComment, Annotation, Task, IdentityActorStatus, ProjectAccess]:
-        comment = await self.db.get(AnnotationComment, comment_id)
+        comment = await self.comments.get(comment_id)
         if comment is None or not comment.is_active:
             raise HTTPException(status_code=404, detail="Comment not found")
         actor = await IdentityAccountLockData(self.db).read_actor_status(actor_id)
@@ -257,14 +259,18 @@ class AnnotationCommentWorkflow:
             await task_access.assert_task_visible(
                 self.db, task, actor.id, access=access
             )
-            annotation = await lock_row_nowait(
+            annotations = await lock_core_nowait(
                 self.db,
-                select(Annotation)
-                .where(Annotation.id == annotation_id)
-                .with_for_update(nowait=True)
-                .execution_options(populate_existing=True),
+                lambda: lock_annotation_rows_for_core_read(
+                    self.db,
+                    [annotation_id],
+                    lock_mode="update",
+                    nowait=True,
+                    populate_existing=True,
+                ),
                 reason="annotation_busy",
             )
+            annotation = annotations[0] if annotations else None
         except TaskWorkflowError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
         if annotation is None:
@@ -297,17 +303,7 @@ class AnnotationCommentWorkflow:
             expected_access=expected_access,
             require_active=False,
         )
-        try:
-            comment = await lock_row_nowait(
-                self.db,
-                select(AnnotationComment)
-                .where(AnnotationComment.id == comment_id)
-                .with_for_update(nowait=True)
-                .execution_options(populate_existing=True),
-                reason="comment_busy",
-            )
-        except TaskWorkflowError as exc:
-            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        comment = await self.comments.lock(comment_id)
         if comment is None or not comment.is_active:
             raise HTTPException(status_code=404, detail="Comment not found")
         if comment.annotation_id != annotation.id:

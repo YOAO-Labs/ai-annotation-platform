@@ -12,6 +12,8 @@
 
 from __future__ import annotations
 
+from aap_inference import resolve_model_task
+
 import logging
 
 import httpx
@@ -92,8 +94,6 @@ async def run_secondary_inference(
 
     if is_controlled(model_id):
         raise HTTPException(status_code=422, detail="受控模型当前不支持框内二次推理")
-
-    from app.services.ml_capabilities import resolve_model_task
 
     try:
         visual_task = resolve_model_task(backend, model_id, visual_task or task_type)

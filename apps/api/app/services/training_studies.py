@@ -26,6 +26,7 @@ from app.services import (
     training_runs as runs,
 )
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.project_access import get_workspace_project
 from app.services.project_write_guard import lock_project_manager
 from app.services.training_dataset_bridge import content_digest
 from app.services.training_authority_contract import TrainingAuthorityPort
@@ -306,7 +307,12 @@ async def coordinate(db, study_id, *, training_authority: TrainingAuthorityPort)
             actor_id=preliminary.creator_id,
             api_key_id=preliminary.authorization.get("api_key_id"),
         )
-        project = await db.get(Project, preliminary.project_id, populate_existing=True)
+        project = await get_workspace_project(
+            db,
+            actor_id=preliminary.creator_id,
+            project_id=preliminary.project_id,
+            populate_existing=True,
+        )
         if project.status != "in_progress":
             error = "项目已停用"
     except HTTPException as exc:

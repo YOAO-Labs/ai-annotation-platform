@@ -16,8 +16,9 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm.attributes import set_committed_value
 
 _API_ROOT = Path(__file__).resolve().parent.parent
 if str(_API_ROOT) not in sys.path:
@@ -27,17 +28,33 @@ from app.config import settings  # noqa: E402
 from app.db.models.async_job import AsyncJob, AsyncJobStatus  # noqa: E402
 from app.db.models.ml_backend_registry import MLBackendRegistry  # noqa: E402
 from app.db.models.notification import Notification  # noqa: E402
-from app.db.models.prediction import (  # noqa: E402
-    FailedPrediction,
-    Prediction,
-    PredictionMeta,
-)
-from app.db.models.task import Task  # noqa: E402
-from app.db.models.project import Project  # noqa: E402
+from app.services.project_access import get_workspace_project  # noqa: E402
 from app.services.identity_commands import IdentityCommandService  # noqa: E402
 from app.services.prediction import PredictionService  # noqa: E402
 from app.workers.celery_app import celery_app  # noqa: E402
 from scripts.cleanup_screenshot_ocr_flow import assert_screenshot_scope  # noqa: E402
+from aap_labeling.screenshot_operations_contract import (  # noqa: E402
+    CleanupRecoveryRows,
+    SCREENSHOT_OPERATIONS_PROTOCOL,
+)
+from aap_labeling.prediction_record_contract import (  # noqa: E402
+    DeletePredictionData,
+    PredictionIdentity,
+)
+from app.services.labeling_core_read_relations import (  # noqa: E402
+    execute_core_read,
+    failed_prediction_row,
+    get_core_row,
+    prediction_meta_row,
+    prediction_row,
+    task_row,
+)
+from app.services.labeling_screenshot_operations import (  # noqa: E402
+    screenshot_operations_command,
+)
+from app.services.labeling_prediction_records import (  # noqa: E402
+    sync_deleted_prediction_records,
+)
 
 
 ASSET_ID = "jobs-retry-recovery"
@@ -83,16 +100,18 @@ async def _owned_rows(
     }
     marked_failed = list(
         (
-            await db.execute(
-                select(FailedPrediction).where(
-                    FailedPrediction.project_id == project_id,
-                    FailedPrediction.task_id == task_id,
-                    FailedPrediction.extra["recording_asset_id"].astext == ASSET_ID,
-                )
+            await execute_core_read(
+                db,
+                select(failed_prediction_row.id).where(
+                    failed_prediction_row.project_id == project_id,
+                    failed_prediction_row.task_id == task_id,
+                    failed_prediction_row.extra["recording_asset_id"].astext
+                    == ASSET_ID,
+                ),
             )
         ).scalars()
     )
-    failed_ids.update(row.id for row in marked_failed)
+    failed_ids.update(marked_failed)
 
     retry_jobs: list[AsyncJob] = []
     if failed_ids:
@@ -107,7 +126,7 @@ async def _owned_rows(
                         ),
                     )
                 )
-            ).scalars()
+            ).all()
         )
 
     prediction_ids = {
@@ -135,14 +154,24 @@ async def cleanup_owned(
         task_id=task_id,
     )
     job_ids = {job.id for job in jobs}
+    prediction_count = 0
+    failed_count = 0
+    remaining_predictions = None
+    owner_calls = 0
 
     if prediction_ids:
         predictions = list(
             (
-                await db.execute(
-                    select(Prediction).where(Prediction.id.in_(prediction_ids))
+                await execute_core_read(
+                    db,
+                    select(
+                        prediction_row.id,
+                        prediction_row.project_id,
+                        prediction_row.task_id,
+                        prediction_row.created_at,
+                    ).where(prediction_row.id.in_(prediction_ids)),
                 )
-            ).scalars()
+            ).all()
         )
         if any(
             prediction.project_id != project_id or prediction.task_id != task_id
@@ -151,20 +180,44 @@ async def cleanup_owned(
             raise RuntimeError(
                 "cleanup refused: retry prediction escaped screenshot task"
             )
-        await db.execute(
-            delete(PredictionMeta).where(
-                PredictionMeta.prediction_id.in_(prediction_ids)
-            )
+        meta_ids = list(
+            (
+                await execute_core_read(
+                    db,
+                    select(prediction_meta_row.id).where(
+                        prediction_meta_row.prediction_id.in_(prediction_ids)
+                    ),
+                )
+            ).scalars()
         )
-        prediction_result = await db.execute(
-            delete(Prediction).where(
-                Prediction.id.in_(prediction_ids),
-                Prediction.project_id == project_id,
-                Prediction.task_id == task_id,
-            )
+        result = await screenshot_operations_command(
+            db,
+            CleanupRecoveryRows(
+                schema=SCREENSHOT_OPERATIONS_PROTOCOL,
+                operation="cleanup_recovery_rows",
+                project_id=project_id,
+                task_id=task_id,
+                failed_prediction_ids=(),
+                prediction_ids=tuple(sorted(prediction_ids, key=str)),
+            ),
         )
-    else:
-        prediction_result = None
+        prediction_count = result.counts["predictions"]
+        remaining_predictions = result.counts["remaining_predictions"]
+        sync_deleted_prediction_records(
+            db,
+            DeletePredictionData(
+                operation="delete_for_tasks",
+                predictions=prediction_count,
+                failed_predictions=0,
+                deleted_predictions=[
+                    PredictionIdentity(id=row.id, created_at=row.created_at)
+                    for row in predictions
+                ],
+                deleted_failed_prediction_ids=[],
+                deleted_prediction_meta_ids=meta_ids,
+            ),
+        )
+        owner_calls += 1
 
     notification_targets = [*job_ids, *failed_ids]
     if notification_targets:
@@ -174,15 +227,31 @@ async def cleanup_owned(
     else:
         notification_result = None
     if failed_ids:
-        failed_result = await db.execute(
-            delete(FailedPrediction).where(
-                FailedPrediction.id.in_(failed_ids),
-                FailedPrediction.project_id == project_id,
-                FailedPrediction.task_id == task_id,
-            )
+        result = await screenshot_operations_command(
+            db,
+            CleanupRecoveryRows(
+                schema=SCREENSHOT_OPERATIONS_PROTOCOL,
+                operation="cleanup_recovery_rows",
+                project_id=project_id,
+                task_id=task_id,
+                failed_prediction_ids=tuple(sorted(failed_ids, key=str)),
+                prediction_ids=(),
+            ),
         )
-    else:
-        failed_result = None
+        failed_count = result.counts["failed_predictions"]
+        remaining_predictions = result.counts["remaining_predictions"]
+        sync_deleted_prediction_records(
+            db,
+            DeletePredictionData(
+                operation="delete_for_tasks",
+                predictions=0,
+                failed_predictions=failed_count,
+                deleted_predictions=[],
+                deleted_failed_prediction_ids=list(failed_ids),
+                deleted_prediction_meta_ids=[],
+            ),
+        )
+        owner_calls += 1
     if job_ids:
         job_result = await db.execute(
             delete(AsyncJob).where(
@@ -193,30 +262,32 @@ async def cleanup_owned(
     else:
         job_result = None
 
-    task = await db.get(Task, task_id)
+    if owner_calls == 0:
+        result = await screenshot_operations_command(
+            db,
+            CleanupRecoveryRows(
+                schema=SCREENSHOT_OPERATIONS_PROTOCOL,
+                operation="cleanup_recovery_rows",
+                project_id=project_id,
+                task_id=task_id,
+                failed_prediction_ids=(),
+                prediction_ids=(),
+            ),
+        )
+        remaining_predictions = result.counts["remaining_predictions"]
+    task = await get_core_row(db, task_row, task_id, populate_existing=True)
     if task is None or task.project_id != project_id:
         raise RuntimeError("cleanup task disappeared from screenshot project")
-    task.total_predictions = int(
-        await db.scalar(
-            select(func.count())
-            .select_from(Prediction)
-            .where(Prediction.task_id == task_id)
-        )
-        or 0
-    )
+    set_committed_value(task, "total_predictions", int(remaining_predictions or 0))
     await db.flush()
     return (
         {
             "async_jobs": job_result.rowcount if job_result is not None else 0,
-            "failed_predictions": (
-                failed_result.rowcount if failed_result is not None else 0
-            ),
+            "failed_predictions": failed_count,
             "notifications": (
                 notification_result.rowcount if notification_result is not None else 0
             ),
-            "predictions": (
-                prediction_result.rowcount if prediction_result is not None else 0
-            ),
+            "predictions": prediction_count,
         },
         celery_task_ids,
     )
@@ -230,8 +301,8 @@ async def seed(
     user_email: str,
 ) -> dict[str, str]:
     await cleanup_owned(db, project_id=project_id, task_id=task_id)
-    task = await db.get(Task, task_id)
-    project = await db.get(Project, project_id)
+    task = await get_core_row(db, task_row, task_id)
+    project = await get_workspace_project(db, project_id=project_id)
     if task is None or project is None or task.project_id != project.id:
         raise RuntimeError("screenshot OCR task or project disappeared")
     user_id = await IdentityCommandService(db).lookup_seed_account_id(user_email)

@@ -1,0 +1,5007 @@
+{
+  "capture_kind": "actual-pre-port-template-query-and-response-projection",
+  "direct_read_probes": [
+    {
+      "caller_transaction_open_after_read": true,
+      "included_in_route_result": true,
+      "no_autoflush": false,
+      "pending_in_session_new_after_read": false,
+      "visible_from_owner_before_caller_rollback": false
+    },
+    {
+      "caller_transaction_open_after_read": true,
+      "included_in_route_result": false,
+      "no_autoflush": true,
+      "pending_in_session_new_after_read": true,
+      "visible_from_owner_before_caller_rollback": false
+    }
+  ],
+  "runtime_identity": {
+    "database": "aap_wt_9474f2f6e2670c78_test",
+    "database_role": "legacy_runtime"
+  },
+  "samples": [
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "super_admin",
+          "id": "$actor_super_admin",
+          "role": "super_admin"
+        },
+        "body": null,
+        "method": "GET",
+        "params": null,
+        "path": "/api/v1/project-templates"
+      },
+      "response": {
+        "body": [
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:13:00Z",
+            "created_by": "$actor_unknown_role",
+            "created_by_name": "Historical Unknown Role",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_private_unknown_role_display_id",
+            "id": "$template_private_unknown_role",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Own private unknown",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "private",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:13:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:12:00Z",
+            "created_by": "$actor_reviewer",
+            "created_by_name": "Historical Reviewer",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_private_reviewer_display_id",
+            "id": "$template_private_reviewer",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Own private reviewer",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "private",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:12:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:11:00Z",
+            "created_by": "$actor_annotator",
+            "created_by_name": "Historical Annotator",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_private_annotator_display_id",
+            "id": "$template_private_annotator",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Own private annotator",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "private",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:11:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:10:00Z",
+            "created_by": "$actor_other_creator",
+            "created_by_name": "Other Private Creator",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_organization_retired_member_display_id",
+            "id": "$template_organization_retired_member",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Retired member organization",
+            "organization_id": "$organization_retired",
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "organization",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:10:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:09:00Z",
+            "created_by": "$actor_other_creator",
+            "created_by_name": "Other Private Creator",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_organization_nonmember_display_id",
+            "id": "$template_organization_nonmember",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Organization nonmember",
+            "organization_id": "$organization_nonmember",
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "organization",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:09:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:08:00Z",
+            "created_by": "$actor_other_creator",
+            "created_by_name": "Other Private Creator",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_organization_member_display_id",
+            "id": "$template_organization_member",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Organization member",
+            "organization_id": "$organization_member",
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "organization",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:08:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:07:00Z",
+            "created_by": "$actor_other_creator",
+            "created_by_name": "Other Private Creator",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_private_other_display_id",
+            "id": "$template_private_other",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Other private template",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "private",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:07:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:06:00Z",
+            "created_by": "$actor_viewer",
+            "created_by_name": "Baseline Viewer",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_private_viewer_display_id",
+            "id": "$template_private_viewer",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Own private viewer",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "private",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:06:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:05:00Z",
+            "created_by": "$actor_employee",
+            "created_by_name": "Baseline Employee",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_private_employee_display_id",
+            "id": "$template_private_employee",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Own private employee",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "private",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:05:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:04:00Z",
+            "created_by": "$actor_project_admin",
+            "created_by_name": "Baseline Project Admin",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_private_project_admin_display_id",
+            "id": "$template_private_project_admin",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Own private admin",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "private",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:04:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:03:00Z",
+            "created_by": "$actor_blank_creator",
+            "created_by_name": "",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_public_empty_creator_display_id",
+            "id": "$template_public_empty_creator",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Public blank creator",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "public",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:03:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:02:00Z",
+            "created_by": "$actor_other_creator",
+            "created_by_name": "Other Private Creator",
+            "data_type": "video",
+            "description": null,
+            "display_id": "$template_public_video_display_id",
+            "id": "$template_public_video",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Public 视频 猫",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "public",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "video-track",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:02:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": "# Deep guide\n\n- keep nested data",
+            "attribute_schema": {
+              "fields": [
+                {
+                  "applies_to": null,
+                  "default": null,
+                  "description": null,
+                  "hotkey": null,
+                  "key": "confidence",
+                  "label": "Confidence",
+                  "max": null,
+                  "min": null,
+                  "mutable": null,
+                  "options": null,
+                  "regex": null,
+                  "required": null,
+                  "style_occluded": null,
+                  "type": "number",
+                  "visible_if": null
+                }
+              ]
+            },
+            "box_threshold": 0.35,
+            "classes": [
+              "car",
+              "person"
+            ],
+            "classes_config": {
+              "car": {
+                "alias": "vehicle",
+                "color": "#ff0000",
+                "order": 0
+              },
+              "person": {
+                "alias": null,
+                "color": null,
+                "order": 1
+              }
+            },
+            "created_at": "2020-01-01T00:01:00Z",
+            "created_by": "$actor_inactive_creator",
+            "created_by_name": "Inactive Creator",
+            "data_type": "image",
+            "description": "Deep JSON and computed-class projection",
+            "display_id": "$template_public_image_display_id",
+            "id": "$template_public_image",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {
+              "nested": {
+                "values": [
+                  1,
+                  {
+                    "unicode": "猫"
+                  }
+                ]
+              }
+            },
+            "maximum_annotations": 1,
+            "name": "Public Mixed Case 42%",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": [
+                1.0,
+                2.0,
+                3.0
+              ],
+              "controlPointsSize": null,
+              "cssImageFilter": "contrast(1.1)",
+              "propagateOverwrite": null,
+              "smoothImage": true,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "public",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {
+              "bbox": {
+                "attribute_schema": {
+                  "fields": [
+                    {
+                      "applies_to": null,
+                      "default": null,
+                      "description": null,
+                      "hotkey": null,
+                      "key": "confidence",
+                      "label": "Confidence",
+                      "max": null,
+                      "min": null,
+                      "mutable": null,
+                      "options": null,
+                      "regex": null,
+                      "required": null,
+                      "style_occluded": null,
+                      "type": "number",
+                      "visible_if": null
+                    }
+                  ]
+                },
+                "classes": [
+                  {
+                    "alias": "vehicle",
+                    "alias_to": null,
+                    "color": "#ff0000",
+                    "name": "car",
+                    "order": 0
+                  },
+                  {
+                    "alias": null,
+                    "alias_to": null,
+                    "color": null,
+                    "name": "person",
+                    "order": 1
+                  }
+                ],
+                "enabled": true,
+                "keypoint_schema": null,
+                "video_modes": null
+              }
+            },
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:01:00Z",
+            "usage_count": 5
+          }
+        ],
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 200
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "project_admin",
+          "id": "$actor_project_admin",
+          "role": "project_admin"
+        },
+        "body": null,
+        "method": "GET",
+        "params": null,
+        "path": "/api/v1/project-templates"
+      },
+      "response": {
+        "body": [
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:08:00Z",
+            "created_by": "$actor_other_creator",
+            "created_by_name": "Other Private Creator",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_organization_member_display_id",
+            "id": "$template_organization_member",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Organization member",
+            "organization_id": "$organization_member",
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "organization",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:08:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:04:00Z",
+            "created_by": "$actor_project_admin",
+            "created_by_name": "Baseline Project Admin",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_private_project_admin_display_id",
+            "id": "$template_private_project_admin",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Own private admin",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "private",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:04:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:03:00Z",
+            "created_by": "$actor_blank_creator",
+            "created_by_name": "",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_public_empty_creator_display_id",
+            "id": "$template_public_empty_creator",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Public blank creator",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "public",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:03:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:02:00Z",
+            "created_by": "$actor_other_creator",
+            "created_by_name": "Other Private Creator",
+            "data_type": "video",
+            "description": null,
+            "display_id": "$template_public_video_display_id",
+            "id": "$template_public_video",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Public 视频 猫",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "public",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "video-track",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:02:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": "# Deep guide\n\n- keep nested data",
+            "attribute_schema": {
+              "fields": [
+                {
+                  "applies_to": null,
+                  "default": null,
+                  "description": null,
+                  "hotkey": null,
+                  "key": "confidence",
+                  "label": "Confidence",
+                  "max": null,
+                  "min": null,
+                  "mutable": null,
+                  "options": null,
+                  "regex": null,
+                  "required": null,
+                  "style_occluded": null,
+                  "type": "number",
+                  "visible_if": null
+                }
+              ]
+            },
+            "box_threshold": 0.35,
+            "classes": [
+              "car",
+              "person"
+            ],
+            "classes_config": {
+              "car": {
+                "alias": "vehicle",
+                "color": "#ff0000",
+                "order": 0
+              },
+              "person": {
+                "alias": null,
+                "color": null,
+                "order": 1
+              }
+            },
+            "created_at": "2020-01-01T00:01:00Z",
+            "created_by": "$actor_inactive_creator",
+            "created_by_name": "Inactive Creator",
+            "data_type": "image",
+            "description": "Deep JSON and computed-class projection",
+            "display_id": "$template_public_image_display_id",
+            "id": "$template_public_image",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {
+              "nested": {
+                "values": [
+                  1,
+                  {
+                    "unicode": "猫"
+                  }
+                ]
+              }
+            },
+            "maximum_annotations": 1,
+            "name": "Public Mixed Case 42%",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": [
+                1.0,
+                2.0,
+                3.0
+              ],
+              "controlPointsSize": null,
+              "cssImageFilter": "contrast(1.1)",
+              "propagateOverwrite": null,
+              "smoothImage": true,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "public",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {
+              "bbox": {
+                "attribute_schema": {
+                  "fields": [
+                    {
+                      "applies_to": null,
+                      "default": null,
+                      "description": null,
+                      "hotkey": null,
+                      "key": "confidence",
+                      "label": "Confidence",
+                      "max": null,
+                      "min": null,
+                      "mutable": null,
+                      "options": null,
+                      "regex": null,
+                      "required": null,
+                      "style_occluded": null,
+                      "type": "number",
+                      "visible_if": null
+                    }
+                  ]
+                },
+                "classes": [
+                  {
+                    "alias": "vehicle",
+                    "alias_to": null,
+                    "color": "#ff0000",
+                    "name": "car",
+                    "order": 0
+                  },
+                  {
+                    "alias": null,
+                    "alias_to": null,
+                    "color": null,
+                    "name": "person",
+                    "order": 1
+                  }
+                ],
+                "enabled": true,
+                "keypoint_schema": null,
+                "video_modes": null
+              }
+            },
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:01:00Z",
+            "usage_count": 5
+          }
+        ],
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 200
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "employee",
+          "id": "$actor_employee",
+          "role": "employee"
+        },
+        "body": null,
+        "method": "GET",
+        "params": null,
+        "path": "/api/v1/project-templates"
+      },
+      "response": {
+        "body": [
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:05:00Z",
+            "created_by": "$actor_employee",
+            "created_by_name": "Baseline Employee",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_private_employee_display_id",
+            "id": "$template_private_employee",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Own private employee",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "private",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:05:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:03:00Z",
+            "created_by": "$actor_blank_creator",
+            "created_by_name": "",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_public_empty_creator_display_id",
+            "id": "$template_public_empty_creator",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Public blank creator",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "public",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:03:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:02:00Z",
+            "created_by": "$actor_other_creator",
+            "created_by_name": "Other Private Creator",
+            "data_type": "video",
+            "description": null,
+            "display_id": "$template_public_video_display_id",
+            "id": "$template_public_video",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Public 视频 猫",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "public",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "video-track",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:02:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": "# Deep guide\n\n- keep nested data",
+            "attribute_schema": {
+              "fields": [
+                {
+                  "applies_to": null,
+                  "default": null,
+                  "description": null,
+                  "hotkey": null,
+                  "key": "confidence",
+                  "label": "Confidence",
+                  "max": null,
+                  "min": null,
+                  "mutable": null,
+                  "options": null,
+                  "regex": null,
+                  "required": null,
+                  "style_occluded": null,
+                  "type": "number",
+                  "visible_if": null
+                }
+              ]
+            },
+            "box_threshold": 0.35,
+            "classes": [
+              "car",
+              "person"
+            ],
+            "classes_config": {
+              "car": {
+                "alias": "vehicle",
+                "color": "#ff0000",
+                "order": 0
+              },
+              "person": {
+                "alias": null,
+                "color": null,
+                "order": 1
+              }
+            },
+            "created_at": "2020-01-01T00:01:00Z",
+            "created_by": "$actor_inactive_creator",
+            "created_by_name": "Inactive Creator",
+            "data_type": "image",
+            "description": "Deep JSON and computed-class projection",
+            "display_id": "$template_public_image_display_id",
+            "id": "$template_public_image",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {
+              "nested": {
+                "values": [
+                  1,
+                  {
+                    "unicode": "猫"
+                  }
+                ]
+              }
+            },
+            "maximum_annotations": 1,
+            "name": "Public Mixed Case 42%",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": [
+                1.0,
+                2.0,
+                3.0
+              ],
+              "controlPointsSize": null,
+              "cssImageFilter": "contrast(1.1)",
+              "propagateOverwrite": null,
+              "smoothImage": true,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "public",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {
+              "bbox": {
+                "attribute_schema": {
+                  "fields": [
+                    {
+                      "applies_to": null,
+                      "default": null,
+                      "description": null,
+                      "hotkey": null,
+                      "key": "confidence",
+                      "label": "Confidence",
+                      "max": null,
+                      "min": null,
+                      "mutable": null,
+                      "options": null,
+                      "regex": null,
+                      "required": null,
+                      "style_occluded": null,
+                      "type": "number",
+                      "visible_if": null
+                    }
+                  ]
+                },
+                "classes": [
+                  {
+                    "alias": "vehicle",
+                    "alias_to": null,
+                    "color": "#ff0000",
+                    "name": "car",
+                    "order": 0
+                  },
+                  {
+                    "alias": null,
+                    "alias_to": null,
+                    "color": null,
+                    "name": "person",
+                    "order": 1
+                  }
+                ],
+                "enabled": true,
+                "keypoint_schema": null,
+                "video_modes": null
+              }
+            },
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:01:00Z",
+            "usage_count": 5
+          }
+        ],
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 200
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "viewer",
+          "id": "$actor_viewer",
+          "role": "viewer"
+        },
+        "body": null,
+        "method": "GET",
+        "params": null,
+        "path": "/api/v1/project-templates"
+      },
+      "response": {
+        "body": [
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:06:00Z",
+            "created_by": "$actor_viewer",
+            "created_by_name": "Baseline Viewer",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_private_viewer_display_id",
+            "id": "$template_private_viewer",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Own private viewer",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "private",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:06:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:03:00Z",
+            "created_by": "$actor_blank_creator",
+            "created_by_name": "",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_public_empty_creator_display_id",
+            "id": "$template_public_empty_creator",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Public blank creator",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "public",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:03:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:02:00Z",
+            "created_by": "$actor_other_creator",
+            "created_by_name": "Other Private Creator",
+            "data_type": "video",
+            "description": null,
+            "display_id": "$template_public_video_display_id",
+            "id": "$template_public_video",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Public 视频 猫",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "public",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "video-track",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:02:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": "# Deep guide\n\n- keep nested data",
+            "attribute_schema": {
+              "fields": [
+                {
+                  "applies_to": null,
+                  "default": null,
+                  "description": null,
+                  "hotkey": null,
+                  "key": "confidence",
+                  "label": "Confidence",
+                  "max": null,
+                  "min": null,
+                  "mutable": null,
+                  "options": null,
+                  "regex": null,
+                  "required": null,
+                  "style_occluded": null,
+                  "type": "number",
+                  "visible_if": null
+                }
+              ]
+            },
+            "box_threshold": 0.35,
+            "classes": [
+              "car",
+              "person"
+            ],
+            "classes_config": {
+              "car": {
+                "alias": "vehicle",
+                "color": "#ff0000",
+                "order": 0
+              },
+              "person": {
+                "alias": null,
+                "color": null,
+                "order": 1
+              }
+            },
+            "created_at": "2020-01-01T00:01:00Z",
+            "created_by": "$actor_inactive_creator",
+            "created_by_name": "Inactive Creator",
+            "data_type": "image",
+            "description": "Deep JSON and computed-class projection",
+            "display_id": "$template_public_image_display_id",
+            "id": "$template_public_image",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {
+              "nested": {
+                "values": [
+                  1,
+                  {
+                    "unicode": "猫"
+                  }
+                ]
+              }
+            },
+            "maximum_annotations": 1,
+            "name": "Public Mixed Case 42%",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": [
+                1.0,
+                2.0,
+                3.0
+              ],
+              "controlPointsSize": null,
+              "cssImageFilter": "contrast(1.1)",
+              "propagateOverwrite": null,
+              "smoothImage": true,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "public",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {
+              "bbox": {
+                "attribute_schema": {
+                  "fields": [
+                    {
+                      "applies_to": null,
+                      "default": null,
+                      "description": null,
+                      "hotkey": null,
+                      "key": "confidence",
+                      "label": "Confidence",
+                      "max": null,
+                      "min": null,
+                      "mutable": null,
+                      "options": null,
+                      "regex": null,
+                      "required": null,
+                      "style_occluded": null,
+                      "type": "number",
+                      "visible_if": null
+                    }
+                  ]
+                },
+                "classes": [
+                  {
+                    "alias": "vehicle",
+                    "alias_to": null,
+                    "color": "#ff0000",
+                    "name": "car",
+                    "order": 0
+                  },
+                  {
+                    "alias": null,
+                    "alias_to": null,
+                    "color": null,
+                    "name": "person",
+                    "order": 1
+                  }
+                ],
+                "enabled": true,
+                "keypoint_schema": null,
+                "video_modes": null
+              }
+            },
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:01:00Z",
+            "usage_count": 5
+          }
+        ],
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 200
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "project_admin",
+          "id": "$actor_project_admin",
+          "role": "project_admin"
+        },
+        "body": null,
+        "method": "GET",
+        "params": [
+          [
+            "scope",
+            "public"
+          ]
+        ],
+        "path": "/api/v1/project-templates"
+      },
+      "response": {
+        "body": [
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:03:00Z",
+            "created_by": "$actor_blank_creator",
+            "created_by_name": "",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_public_empty_creator_display_id",
+            "id": "$template_public_empty_creator",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Public blank creator",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "public",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:03:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:02:00Z",
+            "created_by": "$actor_other_creator",
+            "created_by_name": "Other Private Creator",
+            "data_type": "video",
+            "description": null,
+            "display_id": "$template_public_video_display_id",
+            "id": "$template_public_video",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Public 视频 猫",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "public",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "video-track",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:02:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": "# Deep guide\n\n- keep nested data",
+            "attribute_schema": {
+              "fields": [
+                {
+                  "applies_to": null,
+                  "default": null,
+                  "description": null,
+                  "hotkey": null,
+                  "key": "confidence",
+                  "label": "Confidence",
+                  "max": null,
+                  "min": null,
+                  "mutable": null,
+                  "options": null,
+                  "regex": null,
+                  "required": null,
+                  "style_occluded": null,
+                  "type": "number",
+                  "visible_if": null
+                }
+              ]
+            },
+            "box_threshold": 0.35,
+            "classes": [
+              "car",
+              "person"
+            ],
+            "classes_config": {
+              "car": {
+                "alias": "vehicle",
+                "color": "#ff0000",
+                "order": 0
+              },
+              "person": {
+                "alias": null,
+                "color": null,
+                "order": 1
+              }
+            },
+            "created_at": "2020-01-01T00:01:00Z",
+            "created_by": "$actor_inactive_creator",
+            "created_by_name": "Inactive Creator",
+            "data_type": "image",
+            "description": "Deep JSON and computed-class projection",
+            "display_id": "$template_public_image_display_id",
+            "id": "$template_public_image",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {
+              "nested": {
+                "values": [
+                  1,
+                  {
+                    "unicode": "猫"
+                  }
+                ]
+              }
+            },
+            "maximum_annotations": 1,
+            "name": "Public Mixed Case 42%",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": [
+                1.0,
+                2.0,
+                3.0
+              ],
+              "controlPointsSize": null,
+              "cssImageFilter": "contrast(1.1)",
+              "propagateOverwrite": null,
+              "smoothImage": true,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "public",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {
+              "bbox": {
+                "attribute_schema": {
+                  "fields": [
+                    {
+                      "applies_to": null,
+                      "default": null,
+                      "description": null,
+                      "hotkey": null,
+                      "key": "confidence",
+                      "label": "Confidence",
+                      "max": null,
+                      "min": null,
+                      "mutable": null,
+                      "options": null,
+                      "regex": null,
+                      "required": null,
+                      "style_occluded": null,
+                      "type": "number",
+                      "visible_if": null
+                    }
+                  ]
+                },
+                "classes": [
+                  {
+                    "alias": "vehicle",
+                    "alias_to": null,
+                    "color": "#ff0000",
+                    "name": "car",
+                    "order": 0
+                  },
+                  {
+                    "alias": null,
+                    "alias_to": null,
+                    "color": null,
+                    "name": "person",
+                    "order": 1
+                  }
+                ],
+                "enabled": true,
+                "keypoint_schema": null,
+                "video_modes": null
+              }
+            },
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:01:00Z",
+            "usage_count": 5
+          }
+        ],
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 200
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "project_admin",
+          "id": "$actor_project_admin",
+          "role": "project_admin"
+        },
+        "body": null,
+        "method": "GET",
+        "params": [
+          [
+            "scope",
+            "private"
+          ]
+        ],
+        "path": "/api/v1/project-templates"
+      },
+      "response": {
+        "body": [
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:04:00Z",
+            "created_by": "$actor_project_admin",
+            "created_by_name": "Baseline Project Admin",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_private_project_admin_display_id",
+            "id": "$template_private_project_admin",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Own private admin",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "private",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:04:00Z",
+            "usage_count": 0
+          }
+        ],
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 200
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "project_admin",
+          "id": "$actor_project_admin",
+          "role": "project_admin"
+        },
+        "body": null,
+        "method": "GET",
+        "params": [
+          [
+            "scope",
+            "organization"
+          ]
+        ],
+        "path": "/api/v1/project-templates"
+      },
+      "response": {
+        "body": [
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:08:00Z",
+            "created_by": "$actor_other_creator",
+            "created_by_name": "Other Private Creator",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_organization_member_display_id",
+            "id": "$template_organization_member",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Organization member",
+            "organization_id": "$organization_member",
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "organization",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:08:00Z",
+            "usage_count": 0
+          }
+        ],
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 200
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "project_admin",
+          "id": "$actor_project_admin",
+          "role": "project_admin"
+        },
+        "body": null,
+        "method": "GET",
+        "params": [
+          [
+            "type_key",
+            "image-det"
+          ],
+          [
+            "type_key",
+            "video-track"
+          ]
+        ],
+        "path": "/api/v1/project-templates"
+      },
+      "response": {
+        "body": [
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:08:00Z",
+            "created_by": "$actor_other_creator",
+            "created_by_name": "Other Private Creator",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_organization_member_display_id",
+            "id": "$template_organization_member",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Organization member",
+            "organization_id": "$organization_member",
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "organization",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:08:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:04:00Z",
+            "created_by": "$actor_project_admin",
+            "created_by_name": "Baseline Project Admin",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_private_project_admin_display_id",
+            "id": "$template_private_project_admin",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Own private admin",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "private",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:04:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:03:00Z",
+            "created_by": "$actor_blank_creator",
+            "created_by_name": "",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_public_empty_creator_display_id",
+            "id": "$template_public_empty_creator",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Public blank creator",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "public",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:03:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:02:00Z",
+            "created_by": "$actor_other_creator",
+            "created_by_name": "Other Private Creator",
+            "data_type": "video",
+            "description": null,
+            "display_id": "$template_public_video_display_id",
+            "id": "$template_public_video",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Public 视频 猫",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "public",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "video-track",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:02:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": "# Deep guide\n\n- keep nested data",
+            "attribute_schema": {
+              "fields": [
+                {
+                  "applies_to": null,
+                  "default": null,
+                  "description": null,
+                  "hotkey": null,
+                  "key": "confidence",
+                  "label": "Confidence",
+                  "max": null,
+                  "min": null,
+                  "mutable": null,
+                  "options": null,
+                  "regex": null,
+                  "required": null,
+                  "style_occluded": null,
+                  "type": "number",
+                  "visible_if": null
+                }
+              ]
+            },
+            "box_threshold": 0.35,
+            "classes": [
+              "car",
+              "person"
+            ],
+            "classes_config": {
+              "car": {
+                "alias": "vehicle",
+                "color": "#ff0000",
+                "order": 0
+              },
+              "person": {
+                "alias": null,
+                "color": null,
+                "order": 1
+              }
+            },
+            "created_at": "2020-01-01T00:01:00Z",
+            "created_by": "$actor_inactive_creator",
+            "created_by_name": "Inactive Creator",
+            "data_type": "image",
+            "description": "Deep JSON and computed-class projection",
+            "display_id": "$template_public_image_display_id",
+            "id": "$template_public_image",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {
+              "nested": {
+                "values": [
+                  1,
+                  {
+                    "unicode": "猫"
+                  }
+                ]
+              }
+            },
+            "maximum_annotations": 1,
+            "name": "Public Mixed Case 42%",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": [
+                1.0,
+                2.0,
+                3.0
+              ],
+              "controlPointsSize": null,
+              "cssImageFilter": "contrast(1.1)",
+              "propagateOverwrite": null,
+              "smoothImage": true,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "public",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {
+              "bbox": {
+                "attribute_schema": {
+                  "fields": [
+                    {
+                      "applies_to": null,
+                      "default": null,
+                      "description": null,
+                      "hotkey": null,
+                      "key": "confidence",
+                      "label": "Confidence",
+                      "max": null,
+                      "min": null,
+                      "mutable": null,
+                      "options": null,
+                      "regex": null,
+                      "required": null,
+                      "style_occluded": null,
+                      "type": "number",
+                      "visible_if": null
+                    }
+                  ]
+                },
+                "classes": [
+                  {
+                    "alias": "vehicle",
+                    "alias_to": null,
+                    "color": "#ff0000",
+                    "name": "car",
+                    "order": 0
+                  },
+                  {
+                    "alias": null,
+                    "alias_to": null,
+                    "color": null,
+                    "name": "person",
+                    "order": 1
+                  }
+                ],
+                "enabled": true,
+                "keypoint_schema": null,
+                "video_modes": null
+              }
+            },
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:01:00Z",
+            "usage_count": 5
+          }
+        ],
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 200
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "project_admin",
+          "id": "$actor_project_admin",
+          "role": "project_admin"
+        },
+        "body": null,
+        "method": "GET",
+        "params": [
+          [
+            "type_key",
+            ""
+          ]
+        ],
+        "path": "/api/v1/project-templates"
+      },
+      "response": {
+        "body": [],
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 200
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "project_admin",
+          "id": "$actor_project_admin",
+          "role": "project_admin"
+        },
+        "body": null,
+        "method": "GET",
+        "params": [
+          [
+            "search",
+            "mixed case"
+          ]
+        ],
+        "path": "/api/v1/project-templates"
+      },
+      "response": {
+        "body": [
+          {
+            "ai_enabled": false,
+            "annotation_guide": "# Deep guide\n\n- keep nested data",
+            "attribute_schema": {
+              "fields": [
+                {
+                  "applies_to": null,
+                  "default": null,
+                  "description": null,
+                  "hotkey": null,
+                  "key": "confidence",
+                  "label": "Confidence",
+                  "max": null,
+                  "min": null,
+                  "mutable": null,
+                  "options": null,
+                  "regex": null,
+                  "required": null,
+                  "style_occluded": null,
+                  "type": "number",
+                  "visible_if": null
+                }
+              ]
+            },
+            "box_threshold": 0.35,
+            "classes": [
+              "car",
+              "person"
+            ],
+            "classes_config": {
+              "car": {
+                "alias": "vehicle",
+                "color": "#ff0000",
+                "order": 0
+              },
+              "person": {
+                "alias": null,
+                "color": null,
+                "order": 1
+              }
+            },
+            "created_at": "2020-01-01T00:01:00Z",
+            "created_by": "$actor_inactive_creator",
+            "created_by_name": "Inactive Creator",
+            "data_type": "image",
+            "description": "Deep JSON and computed-class projection",
+            "display_id": "$template_public_image_display_id",
+            "id": "$template_public_image",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {
+              "nested": {
+                "values": [
+                  1,
+                  {
+                    "unicode": "猫"
+                  }
+                ]
+              }
+            },
+            "maximum_annotations": 1,
+            "name": "Public Mixed Case 42%",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": [
+                1.0,
+                2.0,
+                3.0
+              ],
+              "controlPointsSize": null,
+              "cssImageFilter": "contrast(1.1)",
+              "propagateOverwrite": null,
+              "smoothImage": true,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "public",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {
+              "bbox": {
+                "attribute_schema": {
+                  "fields": [
+                    {
+                      "applies_to": null,
+                      "default": null,
+                      "description": null,
+                      "hotkey": null,
+                      "key": "confidence",
+                      "label": "Confidence",
+                      "max": null,
+                      "min": null,
+                      "mutable": null,
+                      "options": null,
+                      "regex": null,
+                      "required": null,
+                      "style_occluded": null,
+                      "type": "number",
+                      "visible_if": null
+                    }
+                  ]
+                },
+                "classes": [
+                  {
+                    "alias": "vehicle",
+                    "alias_to": null,
+                    "color": "#ff0000",
+                    "name": "car",
+                    "order": 0
+                  },
+                  {
+                    "alias": null,
+                    "alias_to": null,
+                    "color": null,
+                    "name": "person",
+                    "order": 1
+                  }
+                ],
+                "enabled": true,
+                "keypoint_schema": null,
+                "video_modes": null
+              }
+            },
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:01:00Z",
+            "usage_count": 5
+          }
+        ],
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 200
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "project_admin",
+          "id": "$actor_project_admin",
+          "role": "project_admin"
+        },
+        "body": null,
+        "method": "GET",
+        "params": [
+          [
+            "search",
+            "%"
+          ]
+        ],
+        "path": "/api/v1/project-templates"
+      },
+      "response": {
+        "body": [
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:08:00Z",
+            "created_by": "$actor_other_creator",
+            "created_by_name": "Other Private Creator",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_organization_member_display_id",
+            "id": "$template_organization_member",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Organization member",
+            "organization_id": "$organization_member",
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "organization",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:08:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:04:00Z",
+            "created_by": "$actor_project_admin",
+            "created_by_name": "Baseline Project Admin",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_private_project_admin_display_id",
+            "id": "$template_private_project_admin",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Own private admin",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "private",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:04:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:03:00Z",
+            "created_by": "$actor_blank_creator",
+            "created_by_name": "",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_public_empty_creator_display_id",
+            "id": "$template_public_empty_creator",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Public blank creator",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "public",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:03:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:02:00Z",
+            "created_by": "$actor_other_creator",
+            "created_by_name": "Other Private Creator",
+            "data_type": "video",
+            "description": null,
+            "display_id": "$template_public_video_display_id",
+            "id": "$template_public_video",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Public 视频 猫",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "public",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "video-track",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:02:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": "# Deep guide\n\n- keep nested data",
+            "attribute_schema": {
+              "fields": [
+                {
+                  "applies_to": null,
+                  "default": null,
+                  "description": null,
+                  "hotkey": null,
+                  "key": "confidence",
+                  "label": "Confidence",
+                  "max": null,
+                  "min": null,
+                  "mutable": null,
+                  "options": null,
+                  "regex": null,
+                  "required": null,
+                  "style_occluded": null,
+                  "type": "number",
+                  "visible_if": null
+                }
+              ]
+            },
+            "box_threshold": 0.35,
+            "classes": [
+              "car",
+              "person"
+            ],
+            "classes_config": {
+              "car": {
+                "alias": "vehicle",
+                "color": "#ff0000",
+                "order": 0
+              },
+              "person": {
+                "alias": null,
+                "color": null,
+                "order": 1
+              }
+            },
+            "created_at": "2020-01-01T00:01:00Z",
+            "created_by": "$actor_inactive_creator",
+            "created_by_name": "Inactive Creator",
+            "data_type": "image",
+            "description": "Deep JSON and computed-class projection",
+            "display_id": "$template_public_image_display_id",
+            "id": "$template_public_image",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {
+              "nested": {
+                "values": [
+                  1,
+                  {
+                    "unicode": "猫"
+                  }
+                ]
+              }
+            },
+            "maximum_annotations": 1,
+            "name": "Public Mixed Case 42%",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": [
+                1.0,
+                2.0,
+                3.0
+              ],
+              "controlPointsSize": null,
+              "cssImageFilter": "contrast(1.1)",
+              "propagateOverwrite": null,
+              "smoothImage": true,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "public",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {
+              "bbox": {
+                "attribute_schema": {
+                  "fields": [
+                    {
+                      "applies_to": null,
+                      "default": null,
+                      "description": null,
+                      "hotkey": null,
+                      "key": "confidence",
+                      "label": "Confidence",
+                      "max": null,
+                      "min": null,
+                      "mutable": null,
+                      "options": null,
+                      "regex": null,
+                      "required": null,
+                      "style_occluded": null,
+                      "type": "number",
+                      "visible_if": null
+                    }
+                  ]
+                },
+                "classes": [
+                  {
+                    "alias": "vehicle",
+                    "alias_to": null,
+                    "color": "#ff0000",
+                    "name": "car",
+                    "order": 0
+                  },
+                  {
+                    "alias": null,
+                    "alias_to": null,
+                    "color": null,
+                    "name": "person",
+                    "order": 1
+                  }
+                ],
+                "enabled": true,
+                "keypoint_schema": null,
+                "video_modes": null
+              }
+            },
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:01:00Z",
+            "usage_count": 5
+          }
+        ],
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 200
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "project_admin",
+          "id": "$actor_project_admin",
+          "role": "project_admin"
+        },
+        "body": null,
+        "method": "GET",
+        "params": [
+          [
+            "search",
+            "_"
+          ]
+        ],
+        "path": "/api/v1/project-templates"
+      },
+      "response": {
+        "body": [
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:08:00Z",
+            "created_by": "$actor_other_creator",
+            "created_by_name": "Other Private Creator",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_organization_member_display_id",
+            "id": "$template_organization_member",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Organization member",
+            "organization_id": "$organization_member",
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "organization",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:08:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:04:00Z",
+            "created_by": "$actor_project_admin",
+            "created_by_name": "Baseline Project Admin",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_private_project_admin_display_id",
+            "id": "$template_private_project_admin",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Own private admin",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "private",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:04:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:03:00Z",
+            "created_by": "$actor_blank_creator",
+            "created_by_name": "",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_public_empty_creator_display_id",
+            "id": "$template_public_empty_creator",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Public blank creator",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "public",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:03:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:02:00Z",
+            "created_by": "$actor_other_creator",
+            "created_by_name": "Other Private Creator",
+            "data_type": "video",
+            "description": null,
+            "display_id": "$template_public_video_display_id",
+            "id": "$template_public_video",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Public 视频 猫",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "public",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "video-track",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:02:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": "# Deep guide\n\n- keep nested data",
+            "attribute_schema": {
+              "fields": [
+                {
+                  "applies_to": null,
+                  "default": null,
+                  "description": null,
+                  "hotkey": null,
+                  "key": "confidence",
+                  "label": "Confidence",
+                  "max": null,
+                  "min": null,
+                  "mutable": null,
+                  "options": null,
+                  "regex": null,
+                  "required": null,
+                  "style_occluded": null,
+                  "type": "number",
+                  "visible_if": null
+                }
+              ]
+            },
+            "box_threshold": 0.35,
+            "classes": [
+              "car",
+              "person"
+            ],
+            "classes_config": {
+              "car": {
+                "alias": "vehicle",
+                "color": "#ff0000",
+                "order": 0
+              },
+              "person": {
+                "alias": null,
+                "color": null,
+                "order": 1
+              }
+            },
+            "created_at": "2020-01-01T00:01:00Z",
+            "created_by": "$actor_inactive_creator",
+            "created_by_name": "Inactive Creator",
+            "data_type": "image",
+            "description": "Deep JSON and computed-class projection",
+            "display_id": "$template_public_image_display_id",
+            "id": "$template_public_image",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {
+              "nested": {
+                "values": [
+                  1,
+                  {
+                    "unicode": "猫"
+                  }
+                ]
+              }
+            },
+            "maximum_annotations": 1,
+            "name": "Public Mixed Case 42%",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": [
+                1.0,
+                2.0,
+                3.0
+              ],
+              "controlPointsSize": null,
+              "cssImageFilter": "contrast(1.1)",
+              "propagateOverwrite": null,
+              "smoothImage": true,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "public",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {
+              "bbox": {
+                "attribute_schema": {
+                  "fields": [
+                    {
+                      "applies_to": null,
+                      "default": null,
+                      "description": null,
+                      "hotkey": null,
+                      "key": "confidence",
+                      "label": "Confidence",
+                      "max": null,
+                      "min": null,
+                      "mutable": null,
+                      "options": null,
+                      "regex": null,
+                      "required": null,
+                      "style_occluded": null,
+                      "type": "number",
+                      "visible_if": null
+                    }
+                  ]
+                },
+                "classes": [
+                  {
+                    "alias": "vehicle",
+                    "alias_to": null,
+                    "color": "#ff0000",
+                    "name": "car",
+                    "order": 0
+                  },
+                  {
+                    "alias": null,
+                    "alias_to": null,
+                    "color": null,
+                    "name": "person",
+                    "order": 1
+                  }
+                ],
+                "enabled": true,
+                "keypoint_schema": null,
+                "video_modes": null
+              }
+            },
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:01:00Z",
+            "usage_count": 5
+          }
+        ],
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 200
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "project_admin",
+          "id": "$actor_project_admin",
+          "role": "project_admin"
+        },
+        "body": null,
+        "method": "GET",
+        "params": [
+          [
+            "search",
+            ""
+          ]
+        ],
+        "path": "/api/v1/project-templates"
+      },
+      "response": {
+        "body": [
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:08:00Z",
+            "created_by": "$actor_other_creator",
+            "created_by_name": "Other Private Creator",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_organization_member_display_id",
+            "id": "$template_organization_member",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Organization member",
+            "organization_id": "$organization_member",
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "organization",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:08:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:04:00Z",
+            "created_by": "$actor_project_admin",
+            "created_by_name": "Baseline Project Admin",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_private_project_admin_display_id",
+            "id": "$template_private_project_admin",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Own private admin",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "private",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:04:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:03:00Z",
+            "created_by": "$actor_blank_creator",
+            "created_by_name": "",
+            "data_type": "image",
+            "description": null,
+            "display_id": "$template_public_empty_creator_display_id",
+            "id": "$template_public_empty_creator",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Public blank creator",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "public",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:03:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:02:00Z",
+            "created_by": "$actor_other_creator",
+            "created_by_name": "Other Private Creator",
+            "data_type": "video",
+            "description": null,
+            "display_id": "$template_public_video_display_id",
+            "id": "$template_public_video",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Public 视频 猫",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "public",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "video-track",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:02:00Z",
+            "usage_count": 0
+          },
+          {
+            "ai_enabled": false,
+            "annotation_guide": "# Deep guide\n\n- keep nested data",
+            "attribute_schema": {
+              "fields": [
+                {
+                  "applies_to": null,
+                  "default": null,
+                  "description": null,
+                  "hotkey": null,
+                  "key": "confidence",
+                  "label": "Confidence",
+                  "max": null,
+                  "min": null,
+                  "mutable": null,
+                  "options": null,
+                  "regex": null,
+                  "required": null,
+                  "style_occluded": null,
+                  "type": "number",
+                  "visible_if": null
+                }
+              ]
+            },
+            "box_threshold": 0.35,
+            "classes": [
+              "car",
+              "person"
+            ],
+            "classes_config": {
+              "car": {
+                "alias": "vehicle",
+                "color": "#ff0000",
+                "order": 0
+              },
+              "person": {
+                "alias": null,
+                "color": null,
+                "order": 1
+              }
+            },
+            "created_at": "2020-01-01T00:01:00Z",
+            "created_by": "$actor_inactive_creator",
+            "created_by_name": "Inactive Creator",
+            "data_type": "image",
+            "description": "Deep JSON and computed-class projection",
+            "display_id": "$template_public_image_display_id",
+            "id": "$template_public_image",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {
+              "nested": {
+                "values": [
+                  1,
+                  {
+                    "unicode": "猫"
+                  }
+                ]
+              }
+            },
+            "maximum_annotations": 1,
+            "name": "Public Mixed Case 42%",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": [
+                1.0,
+                2.0,
+                3.0
+              ],
+              "controlPointsSize": null,
+              "cssImageFilter": "contrast(1.1)",
+              "propagateOverwrite": null,
+              "smoothImage": true,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "public",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {
+              "bbox": {
+                "attribute_schema": {
+                  "fields": [
+                    {
+                      "applies_to": null,
+                      "default": null,
+                      "description": null,
+                      "hotkey": null,
+                      "key": "confidence",
+                      "label": "Confidence",
+                      "max": null,
+                      "min": null,
+                      "mutable": null,
+                      "options": null,
+                      "regex": null,
+                      "required": null,
+                      "style_occluded": null,
+                      "type": "number",
+                      "visible_if": null
+                    }
+                  ]
+                },
+                "classes": [
+                  {
+                    "alias": "vehicle",
+                    "alias_to": null,
+                    "color": "#ff0000",
+                    "name": "car",
+                    "order": 0
+                  },
+                  {
+                    "alias": null,
+                    "alias_to": null,
+                    "color": null,
+                    "name": "person",
+                    "order": 1
+                  }
+                ],
+                "enabled": true,
+                "keypoint_schema": null,
+                "video_modes": null
+              }
+            },
+            "type_key": "image-det",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:01:00Z",
+            "usage_count": 5
+          }
+        ],
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 200
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "project_admin",
+          "id": "$actor_project_admin",
+          "role": "project_admin"
+        },
+        "body": null,
+        "method": "GET",
+        "params": [
+          [
+            "search",
+            "猫"
+          ]
+        ],
+        "path": "/api/v1/project-templates"
+      },
+      "response": {
+        "body": [
+          {
+            "ai_enabled": false,
+            "annotation_guide": null,
+            "attribute_schema": {
+              "fields": []
+            },
+            "box_threshold": 0.35,
+            "classes": [],
+            "classes_config": {},
+            "created_at": "2020-01-01T00:02:00Z",
+            "created_by": "$actor_other_creator",
+            "created_by_name": "Other Private Creator",
+            "data_type": "video",
+            "description": null,
+            "display_id": "$template_public_video_display_id",
+            "id": "$template_public_video",
+            "iou_dedup_threshold": 0.7,
+            "label_config": {},
+            "maximum_annotations": 1,
+            "name": "Public 视频 猫",
+            "organization_id": null,
+            "rendering_config": {
+              "box3dDefaultSize": null,
+              "controlPointsSize": null,
+              "cssImageFilter": null,
+              "propagateOverwrite": null,
+              "smoothImage": null,
+              "snapToGrid": null,
+              "trackerDefaultModel": null
+            },
+            "sampling": "sequence",
+            "scope": "public",
+            "show_overlap_first": false,
+            "source_project_id": null,
+            "text_threshold": 0.25,
+            "tool_bindings": {},
+            "type_key": "video-track",
+            "type_label": "Image label",
+            "updated_at": "2020-01-01T00:02:00Z",
+            "usage_count": 0
+          }
+        ],
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 200
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "project_admin",
+          "id": "$actor_project_admin",
+          "role": "project_admin"
+        },
+        "body": null,
+        "method": "GET",
+        "params": [
+          [
+            "search",
+            "no-such-template"
+          ]
+        ],
+        "path": "/api/v1/project-templates"
+      },
+      "response": {
+        "body": [],
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 200
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "project_admin",
+          "id": "$actor_project_admin",
+          "role": "project_admin"
+        },
+        "body": null,
+        "method": "GET",
+        "params": [
+          [
+            "scope",
+            "historical"
+          ]
+        ],
+        "path": "/api/v1/project-templates"
+      },
+      "response": {
+        "body": {
+          "detail": [
+            {
+              "ctx": {
+                "pattern": "^(private|organization|public)$"
+              },
+              "input": "historical",
+              "loc": [
+                "query",
+                "scope"
+              ],
+              "msg": "String should match pattern '^(private|organization|public)$'",
+              "type": "string_pattern_mismatch"
+            }
+          ]
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 422
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "annotator",
+          "id": "$actor_annotator",
+          "role": "annotator"
+        },
+        "body": null,
+        "method": "GET",
+        "params": null,
+        "path": "/api/v1/project-templates"
+      },
+      "response": {
+        "body": {
+          "detail": "无效的认证凭据"
+        },
+        "headers": {
+          "content-type": "application/json",
+          "www-authenticate": "Bearer"
+        },
+        "status": 401
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "annotator",
+          "id": "$actor_annotator",
+          "role": "annotator"
+        },
+        "body": null,
+        "method": "GET",
+        "params": null,
+        "path": "/api/v1/project-templates/$template_private_annotator"
+      },
+      "response": {
+        "body": {
+          "detail": "无效的认证凭据"
+        },
+        "headers": {
+          "content-type": "application/json",
+          "www-authenticate": "Bearer"
+        },
+        "status": 401
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "reviewer",
+          "id": "$actor_reviewer",
+          "role": "reviewer"
+        },
+        "body": null,
+        "method": "GET",
+        "params": null,
+        "path": "/api/v1/project-templates"
+      },
+      "response": {
+        "body": {
+          "detail": "无效的认证凭据"
+        },
+        "headers": {
+          "content-type": "application/json",
+          "www-authenticate": "Bearer"
+        },
+        "status": 401
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "reviewer",
+          "id": "$actor_reviewer",
+          "role": "reviewer"
+        },
+        "body": null,
+        "method": "GET",
+        "params": null,
+        "path": "/api/v1/project-templates/$template_private_reviewer"
+      },
+      "response": {
+        "body": {
+          "detail": "无效的认证凭据"
+        },
+        "headers": {
+          "content-type": "application/json",
+          "www-authenticate": "Bearer"
+        },
+        "status": 401
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "unknown_role",
+          "id": "$actor_unknown_role",
+          "role": "historical_observer"
+        },
+        "body": null,
+        "method": "GET",
+        "params": null,
+        "path": "/api/v1/project-templates"
+      },
+      "response": {
+        "body": {
+          "detail": "无效的认证凭据"
+        },
+        "headers": {
+          "content-type": "application/json",
+          "www-authenticate": "Bearer"
+        },
+        "status": 401
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "unknown_role",
+          "id": "$actor_unknown_role",
+          "role": "historical_observer"
+        },
+        "body": null,
+        "method": "GET",
+        "params": null,
+        "path": "/api/v1/project-templates/$template_private_unknown_role"
+      },
+      "response": {
+        "body": {
+          "detail": "无效的认证凭据"
+        },
+        "headers": {
+          "content-type": "application/json",
+          "www-authenticate": "Bearer"
+        },
+        "status": 401
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "super_admin",
+          "id": "$actor_super_admin",
+          "role": "super_admin"
+        },
+        "body": null,
+        "method": "GET",
+        "params": null,
+        "path": "/api/v1/project-templates/$template_private_other"
+      },
+      "response": {
+        "body": {
+          "ai_enabled": false,
+          "annotation_guide": null,
+          "attribute_schema": {
+            "fields": []
+          },
+          "box_threshold": 0.35,
+          "classes": [],
+          "classes_config": {},
+          "created_at": "2020-01-01T00:07:00Z",
+          "created_by": "$actor_other_creator",
+          "created_by_name": "Other Private Creator",
+          "data_type": "image",
+          "description": null,
+          "display_id": "$template_private_other_display_id",
+          "id": "$template_private_other",
+          "iou_dedup_threshold": 0.7,
+          "label_config": {},
+          "maximum_annotations": 1,
+          "name": "Other private template",
+          "organization_id": null,
+          "rendering_config": {
+            "box3dDefaultSize": null,
+            "controlPointsSize": null,
+            "cssImageFilter": null,
+            "propagateOverwrite": null,
+            "smoothImage": null,
+            "snapToGrid": null,
+            "trackerDefaultModel": null
+          },
+          "sampling": "sequence",
+          "scope": "private",
+          "show_overlap_first": false,
+          "source_project_id": null,
+          "text_threshold": 0.25,
+          "tool_bindings": {},
+          "type_key": "image-det",
+          "type_label": "Image label",
+          "updated_at": "2020-01-01T00:07:00Z",
+          "usage_count": 0
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 200
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "super_admin",
+          "id": "$actor_super_admin",
+          "role": "super_admin"
+        },
+        "body": null,
+        "method": "GET",
+        "params": null,
+        "path": "/api/v1/project-templates/$template_organization_nonmember"
+      },
+      "response": {
+        "body": {
+          "ai_enabled": false,
+          "annotation_guide": null,
+          "attribute_schema": {
+            "fields": []
+          },
+          "box_threshold": 0.35,
+          "classes": [],
+          "classes_config": {},
+          "created_at": "2020-01-01T00:09:00Z",
+          "created_by": "$actor_other_creator",
+          "created_by_name": "Other Private Creator",
+          "data_type": "image",
+          "description": null,
+          "display_id": "$template_organization_nonmember_display_id",
+          "id": "$template_organization_nonmember",
+          "iou_dedup_threshold": 0.7,
+          "label_config": {},
+          "maximum_annotations": 1,
+          "name": "Organization nonmember",
+          "organization_id": "$organization_nonmember",
+          "rendering_config": {
+            "box3dDefaultSize": null,
+            "controlPointsSize": null,
+            "cssImageFilter": null,
+            "propagateOverwrite": null,
+            "smoothImage": null,
+            "snapToGrid": null,
+            "trackerDefaultModel": null
+          },
+          "sampling": "sequence",
+          "scope": "organization",
+          "show_overlap_first": false,
+          "source_project_id": null,
+          "text_threshold": 0.25,
+          "tool_bindings": {},
+          "type_key": "image-det",
+          "type_label": "Image label",
+          "updated_at": "2020-01-01T00:09:00Z",
+          "usage_count": 0
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 200
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "project_admin",
+          "id": "$actor_project_admin",
+          "role": "project_admin"
+        },
+        "body": null,
+        "method": "GET",
+        "params": null,
+        "path": "/api/v1/project-templates/$template_private_project_admin"
+      },
+      "response": {
+        "body": {
+          "ai_enabled": false,
+          "annotation_guide": null,
+          "attribute_schema": {
+            "fields": []
+          },
+          "box_threshold": 0.35,
+          "classes": [],
+          "classes_config": {},
+          "created_at": "2020-01-01T00:04:00Z",
+          "created_by": "$actor_project_admin",
+          "created_by_name": "Baseline Project Admin",
+          "data_type": "image",
+          "description": null,
+          "display_id": "$template_private_project_admin_display_id",
+          "id": "$template_private_project_admin",
+          "iou_dedup_threshold": 0.7,
+          "label_config": {},
+          "maximum_annotations": 1,
+          "name": "Own private admin",
+          "organization_id": null,
+          "rendering_config": {
+            "box3dDefaultSize": null,
+            "controlPointsSize": null,
+            "cssImageFilter": null,
+            "propagateOverwrite": null,
+            "smoothImage": null,
+            "snapToGrid": null,
+            "trackerDefaultModel": null
+          },
+          "sampling": "sequence",
+          "scope": "private",
+          "show_overlap_first": false,
+          "source_project_id": null,
+          "text_threshold": 0.25,
+          "tool_bindings": {},
+          "type_key": "image-det",
+          "type_label": "Image label",
+          "updated_at": "2020-01-01T00:04:00Z",
+          "usage_count": 0
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 200
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "project_admin",
+          "id": "$actor_project_admin",
+          "role": "project_admin"
+        },
+        "body": null,
+        "method": "GET",
+        "params": null,
+        "path": "/api/v1/project-templates/$template_private_other"
+      },
+      "response": {
+        "body": {
+          "detail": "模板不存在"
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 404
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "project_admin",
+          "id": "$actor_project_admin",
+          "role": "project_admin"
+        },
+        "body": null,
+        "method": "GET",
+        "params": null,
+        "path": "/api/v1/project-templates/$template_organization_member"
+      },
+      "response": {
+        "body": {
+          "ai_enabled": false,
+          "annotation_guide": null,
+          "attribute_schema": {
+            "fields": []
+          },
+          "box_threshold": 0.35,
+          "classes": [],
+          "classes_config": {},
+          "created_at": "2020-01-01T00:08:00Z",
+          "created_by": "$actor_other_creator",
+          "created_by_name": "Other Private Creator",
+          "data_type": "image",
+          "description": null,
+          "display_id": "$template_organization_member_display_id",
+          "id": "$template_organization_member",
+          "iou_dedup_threshold": 0.7,
+          "label_config": {},
+          "maximum_annotations": 1,
+          "name": "Organization member",
+          "organization_id": "$organization_member",
+          "rendering_config": {
+            "box3dDefaultSize": null,
+            "controlPointsSize": null,
+            "cssImageFilter": null,
+            "propagateOverwrite": null,
+            "smoothImage": null,
+            "snapToGrid": null,
+            "trackerDefaultModel": null
+          },
+          "sampling": "sequence",
+          "scope": "organization",
+          "show_overlap_first": false,
+          "source_project_id": null,
+          "text_threshold": 0.25,
+          "tool_bindings": {},
+          "type_key": "image-det",
+          "type_label": "Image label",
+          "updated_at": "2020-01-01T00:08:00Z",
+          "usage_count": 0
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 200
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "project_admin",
+          "id": "$actor_project_admin",
+          "role": "project_admin"
+        },
+        "body": null,
+        "method": "GET",
+        "params": null,
+        "path": "/api/v1/project-templates/$template_organization_nonmember"
+      },
+      "response": {
+        "body": {
+          "detail": "模板不存在"
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 404
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "project_admin",
+          "id": "$actor_project_admin",
+          "role": "project_admin"
+        },
+        "body": null,
+        "method": "GET",
+        "params": null,
+        "path": "/api/v1/project-templates/$template_organization_retired_member"
+      },
+      "response": {
+        "body": {
+          "detail": "模板不存在"
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 404
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "employee",
+          "id": "$actor_employee",
+          "role": "employee"
+        },
+        "body": null,
+        "method": "GET",
+        "params": null,
+        "path": "/api/v1/project-templates/$template_private_project_admin"
+      },
+      "response": {
+        "body": {
+          "detail": "模板不存在"
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 404
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "viewer",
+          "id": "$actor_viewer",
+          "role": "viewer"
+        },
+        "body": null,
+        "method": "GET",
+        "params": null,
+        "path": "/api/v1/project-templates/$template_public_video"
+      },
+      "response": {
+        "body": {
+          "ai_enabled": false,
+          "annotation_guide": null,
+          "attribute_schema": {
+            "fields": []
+          },
+          "box_threshold": 0.35,
+          "classes": [],
+          "classes_config": {},
+          "created_at": "2020-01-01T00:02:00Z",
+          "created_by": "$actor_other_creator",
+          "created_by_name": "Other Private Creator",
+          "data_type": "video",
+          "description": null,
+          "display_id": "$template_public_video_display_id",
+          "id": "$template_public_video",
+          "iou_dedup_threshold": 0.7,
+          "label_config": {},
+          "maximum_annotations": 1,
+          "name": "Public 视频 猫",
+          "organization_id": null,
+          "rendering_config": {
+            "box3dDefaultSize": null,
+            "controlPointsSize": null,
+            "cssImageFilter": null,
+            "propagateOverwrite": null,
+            "smoothImage": null,
+            "snapToGrid": null,
+            "trackerDefaultModel": null
+          },
+          "sampling": "sequence",
+          "scope": "public",
+          "show_overlap_first": false,
+          "source_project_id": null,
+          "text_threshold": 0.25,
+          "tool_bindings": {},
+          "type_key": "video-track",
+          "type_label": "Image label",
+          "updated_at": "2020-01-01T00:02:00Z",
+          "usage_count": 0
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 200
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "project_admin",
+          "id": "$actor_project_admin",
+          "role": "project_admin"
+        },
+        "body": null,
+        "method": "GET",
+        "params": null,
+        "path": "/api/v1/project-templates/$missing_template"
+      },
+      "response": {
+        "body": {
+          "detail": "模板不存在"
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 404
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "project_admin",
+          "id": "$actor_project_admin",
+          "role": "project_admin"
+        },
+        "body": {
+          "annotation_guide": "# Created guide",
+          "description": "Preserved create description",
+          "label_config": {
+            "nested": [
+              "created",
+              {
+                "value": "猫"
+              }
+            ]
+          },
+          "name": "Created projection $capture_suffix",
+          "rendering_config": {
+            "smoothImage": true
+          },
+          "tool_bindings": {
+            "bbox": {
+              "attribute_schema": {
+                "fields": [
+                  {
+                    "key": "confidence",
+                    "label": "Confidence",
+                    "type": "number"
+                  }
+                ]
+              },
+              "classes": [
+                {
+                  "alias": "Vehicle",
+                  "color": "#ff0000",
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true
+            }
+          },
+          "type_key": "image-det",
+          "type_label": "Image label"
+        },
+        "method": "POST",
+        "params": null,
+        "path": "/api/v1/project-templates"
+      },
+      "response": {
+        "body": {
+          "ai_enabled": false,
+          "annotation_guide": "# Created guide",
+          "attribute_schema": {
+            "fields": [
+              {
+                "applies_to": null,
+                "default": null,
+                "description": null,
+                "hotkey": null,
+                "key": "confidence",
+                "label": "Confidence",
+                "max": null,
+                "min": null,
+                "mutable": null,
+                "options": null,
+                "regex": null,
+                "required": null,
+                "style_occluded": null,
+                "type": "number",
+                "visible_if": null
+              }
+            ]
+          },
+          "box_threshold": 0.35,
+          "classes": [
+            "car",
+            "person"
+          ],
+          "classes_config": {
+            "car": {
+              "alias": "vehicle",
+              "color": "#ff0000",
+              "order": 0
+            },
+            "person": {
+              "alias": null,
+              "color": null,
+              "order": 1
+            }
+          },
+          "created_at": "<timestamp>",
+          "created_by": "$actor_project_admin",
+          "created_by_name": "Baseline Project Admin",
+          "data_type": "image",
+          "description": "Preserved create description",
+          "display_id": "$template_created_display_id",
+          "id": "$template_created",
+          "iou_dedup_threshold": 0.7,
+          "label_config": {
+            "nested": [
+              "created",
+              {
+                "value": "猫"
+              }
+            ]
+          },
+          "maximum_annotations": 1,
+          "name": "Created projection $capture_suffix",
+          "organization_id": null,
+          "rendering_config": {
+            "box3dDefaultSize": null,
+            "controlPointsSize": null,
+            "cssImageFilter": null,
+            "propagateOverwrite": null,
+            "smoothImage": true,
+            "snapToGrid": null,
+            "trackerDefaultModel": null
+          },
+          "sampling": "sequence",
+          "scope": "private",
+          "show_overlap_first": false,
+          "source_project_id": null,
+          "text_threshold": 0.25,
+          "tool_bindings": {
+            "bbox": {
+              "attribute_schema": {
+                "fields": [
+                  {
+                    "applies_to": null,
+                    "default": null,
+                    "description": null,
+                    "hotkey": null,
+                    "key": "confidence",
+                    "label": "Confidence",
+                    "max": null,
+                    "min": null,
+                    "mutable": null,
+                    "options": null,
+                    "regex": null,
+                    "required": null,
+                    "style_occluded": null,
+                    "type": "number",
+                    "visible_if": null
+                  }
+                ]
+              },
+              "classes": [
+                {
+                  "alias": "vehicle",
+                  "alias_to": null,
+                  "color": "#ff0000",
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "alias": null,
+                  "alias_to": null,
+                  "color": null,
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true,
+              "keypoint_schema": null,
+              "video_modes": null
+            }
+          },
+          "type_key": "image-det",
+          "type_label": "Image label",
+          "updated_at": "<timestamp>",
+          "usage_count": 0
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 201
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "project_admin",
+          "id": "$actor_project_admin",
+          "role": "project_admin"
+        },
+        "body": {
+          "annotation_guide": null,
+          "name": "Updated projection $capture_suffix",
+          "tool_bindings": {}
+        },
+        "method": "PATCH",
+        "params": null,
+        "path": "/api/v1/project-templates/$template_created"
+      },
+      "response": {
+        "body": {
+          "ai_enabled": false,
+          "annotation_guide": null,
+          "attribute_schema": {
+            "fields": []
+          },
+          "box_threshold": 0.35,
+          "classes": [],
+          "classes_config": {},
+          "created_at": "<timestamp>",
+          "created_by": "$actor_project_admin",
+          "created_by_name": "Baseline Project Admin",
+          "data_type": "image",
+          "description": "Preserved create description",
+          "display_id": "$template_created_display_id",
+          "id": "$template_created",
+          "iou_dedup_threshold": 0.7,
+          "label_config": {
+            "nested": [
+              "created",
+              {
+                "value": "猫"
+              }
+            ]
+          },
+          "maximum_annotations": 1,
+          "name": "Updated projection $capture_suffix",
+          "organization_id": null,
+          "rendering_config": {
+            "box3dDefaultSize": null,
+            "controlPointsSize": null,
+            "cssImageFilter": null,
+            "propagateOverwrite": null,
+            "smoothImage": true,
+            "snapToGrid": null,
+            "trackerDefaultModel": null
+          },
+          "sampling": "sequence",
+          "scope": "private",
+          "show_overlap_first": false,
+          "source_project_id": null,
+          "text_threshold": 0.25,
+          "tool_bindings": {},
+          "type_key": "image-det",
+          "type_label": "Image label",
+          "updated_at": "<timestamp>",
+          "usage_count": 0
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 200
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "project_admin",
+          "id": "$actor_project_admin",
+          "role": "project_admin"
+        },
+        "body": null,
+        "method": "POST",
+        "params": null,
+        "path": "/api/v1/project-templates/$template_public_image/duplicate"
+      },
+      "response": {
+        "body": {
+          "ai_enabled": false,
+          "annotation_guide": "# Deep guide\n\n- keep nested data",
+          "attribute_schema": {
+            "fields": [
+              {
+                "applies_to": null,
+                "default": null,
+                "description": null,
+                "hotkey": null,
+                "key": "confidence",
+                "label": "Confidence",
+                "max": null,
+                "min": null,
+                "mutable": null,
+                "options": null,
+                "regex": null,
+                "required": null,
+                "style_occluded": null,
+                "type": "number",
+                "visible_if": null
+              }
+            ]
+          },
+          "box_threshold": 0.35,
+          "classes": [
+            "car",
+            "person"
+          ],
+          "classes_config": {
+            "car": {
+              "alias": "vehicle",
+              "color": "#ff0000",
+              "order": 0
+            },
+            "person": {
+              "alias": null,
+              "color": null,
+              "order": 1
+            }
+          },
+          "created_at": "<timestamp>",
+          "created_by": "$actor_project_admin",
+          "created_by_name": "Baseline Project Admin",
+          "data_type": "image",
+          "description": "Deep JSON and computed-class projection",
+          "display_id": "$template_duplicate_display_id",
+          "id": "$template_duplicate",
+          "iou_dedup_threshold": 0.7,
+          "label_config": {
+            "nested": {
+              "values": [
+                1,
+                {
+                  "unicode": "猫"
+                }
+              ]
+            }
+          },
+          "maximum_annotations": 1,
+          "name": "Public Mixed Case 42% (副本)",
+          "organization_id": null,
+          "rendering_config": {
+            "box3dDefaultSize": [
+              1.0,
+              2.0,
+              3.0
+            ],
+            "controlPointsSize": null,
+            "cssImageFilter": "contrast(1.1)",
+            "propagateOverwrite": null,
+            "smoothImage": true,
+            "snapToGrid": null,
+            "trackerDefaultModel": null
+          },
+          "sampling": "sequence",
+          "scope": "private",
+          "show_overlap_first": false,
+          "source_project_id": null,
+          "text_threshold": 0.25,
+          "tool_bindings": {
+            "bbox": {
+              "attribute_schema": {
+                "fields": [
+                  {
+                    "applies_to": null,
+                    "default": null,
+                    "description": null,
+                    "hotkey": null,
+                    "key": "confidence",
+                    "label": "Confidence",
+                    "max": null,
+                    "min": null,
+                    "mutable": null,
+                    "options": null,
+                    "regex": null,
+                    "required": null,
+                    "style_occluded": null,
+                    "type": "number",
+                    "visible_if": null
+                  }
+                ]
+              },
+              "classes": [
+                {
+                  "alias": "vehicle",
+                  "alias_to": null,
+                  "color": "#ff0000",
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "alias": null,
+                  "alias_to": null,
+                  "color": null,
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true,
+              "keypoint_schema": null,
+              "video_modes": null
+            }
+          },
+          "type_key": "image-det",
+          "type_label": "Image label",
+          "updated_at": "<timestamp>",
+          "usage_count": 0
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 201
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "project_admin",
+          "id": "$actor_project_admin",
+          "role": "project_admin"
+        },
+        "body": {
+          "name": "Applied projection template $capture_suffix",
+          "template_id": "$template_public_image"
+        },
+        "method": "POST",
+        "params": null,
+        "path": "/api/v1/projects"
+      },
+      "response": {
+        "body": {
+          "ai_completed_tasks": 0,
+          "ai_enabled": false,
+          "ai_interactive_enabled": true,
+          "annotation_guide": "# Deep guide\n\n- keep nested data",
+          "attribute_schema": {
+            "fields": [
+              {
+                "applies_to": null,
+                "default": null,
+                "description": null,
+                "hotkey": null,
+                "key": "confidence",
+                "label": "Confidence",
+                "max": null,
+                "min": null,
+                "mutable": null,
+                "options": null,
+                "regex": null,
+                "required": null,
+                "style_occluded": null,
+                "type": "number",
+                "visible_if": null
+              }
+            ]
+          },
+          "batch_summary": {
+            "assigned": 0,
+            "in_review": 0,
+            "total": 0
+          },
+          "box_threshold": 0.3499999940395355,
+          "capability_warnings": [],
+          "classes": [
+            "car",
+            "person"
+          ],
+          "classes_config": {
+            "car": {
+              "alias": "vehicle",
+              "color": "#ff0000",
+              "order": 0
+            },
+            "person": {
+              "alias": null,
+              "color": null,
+              "order": 1
+            }
+          },
+          "completed_tasks": 0,
+          "created_at": "<timestamp>",
+          "data_type": "image",
+          "default_variants": {},
+          "display_id": "$project_applied_display_id",
+          "due_date": null,
+          "guide_assets": [],
+          "id": "$project_applied",
+          "in_progress_tasks": 0,
+          "iou_dedup_threshold": 0.7,
+          "label_config": {
+            "nested": {
+              "values": [
+                1,
+                {
+                  "unicode": "猫"
+                }
+              ]
+            }
+          },
+          "mask_qc_config": {
+            "auto_run": "on_review_submit",
+            "blocking": false,
+            "config_revision": 1,
+            "enabled": true,
+            "schema_version": 1,
+            "severity_overrides": {},
+            "single_frame": {
+              "bbox_iou_min": 0.98,
+              "boundary_noise_ratio": 0.15,
+              "narrow_bridge_width": 2,
+              "near_empty_pixels": 16,
+              "overlap_pixels": 1,
+              "small_component_pixels": 32,
+              "small_component_ratio": 0.005,
+              "small_hole_pixels": 32
+            },
+            "temporal": {
+              "area_change_ratio": 0.5,
+              "centroid_shift_diagonal": 0.15,
+              "component_delta": 2,
+              "drift_min_consecutive": 3,
+              "flicker_max_frames": 2,
+              "iou_drop": 0.35,
+              "sample_step": 1
+            }
+          },
+          "maximum_annotations": 1,
+          "member_count": 0,
+          "ml_backend_id": null,
+          "model_version": null,
+          "my_project_role": null,
+          "name": "Applied projection template $capture_suffix",
+          "organization_id": null,
+          "owner_avatar_ref": null,
+          "owner_id": "$actor_project_admin",
+          "owner_name": "Baseline Project Admin",
+          "point_cloud_quality_config": {
+            "class_thresholds": {},
+            "config_revision": 1,
+            "enabled": true,
+            "enabled_rules": [
+              "duplicate_track_member",
+              "ground_clearance",
+              "low_point_count",
+              "projection_residual",
+              "size_outlier",
+              "temporal_jump",
+              "track_gap",
+              "track_identity_drift"
+            ],
+            "governance": {
+              "maximum_false_positive_rate": 0.1,
+              "minimum_confirmed_retention": 0.9,
+              "minimum_reviewed_per_rule": 20
+            },
+            "schema_version": 2,
+            "severity_overrides": {},
+            "thresholds": {
+              "ground_float_m": 0.45,
+              "ground_margin_m": 0.75,
+              "ground_penetration_m": 0.2,
+              "ground_sample_min": 24,
+              "minimum_points": 5,
+              "projection_max_edge_residual_ratio": 0.025,
+              "projection_min_iou": 0.5,
+              "size_mad_z": 4.5,
+              "size_min_samples": 8,
+              "temporal_center_jump_m": 4.0,
+              "temporal_size_change_ratio": 0.6,
+              "temporal_yaw_jump_rad": 0.8
+            }
+          },
+          "preannotate_pipeline": null,
+          "prefer_same_scene_continuation": false,
+          "raster_mask_native_editing_enabled": true,
+          "rendering_config": {
+            "box3dDefaultSize": [
+              1.0,
+              2.0,
+              3.0
+            ],
+            "controlPointsSize": null,
+            "cssImageFilter": "contrast(1.1)",
+            "propagateOverwrite": null,
+            "smoothImage": true,
+            "snapToGrid": null,
+            "trackerDefaultModel": null
+          },
+          "review_tasks": 0,
+          "sampling": "sequence",
+          "scene_continuation_window_min": 30,
+          "scene_mode": false,
+          "show_overlap_first": false,
+          "status": "in_progress",
+          "task_lock_ttl_seconds": 300,
+          "text_threshold": 0.25,
+          "tool_bindings": {
+            "bbox": {
+              "attribute_schema": {
+                "fields": [
+                  {
+                    "applies_to": null,
+                    "default": null,
+                    "description": null,
+                    "hotkey": null,
+                    "key": "confidence",
+                    "label": "Confidence",
+                    "max": null,
+                    "min": null,
+                    "mutable": null,
+                    "options": null,
+                    "regex": null,
+                    "required": null,
+                    "style_occluded": null,
+                    "type": "number",
+                    "visible_if": null
+                  }
+                ]
+              },
+              "classes": [
+                {
+                  "alias": "vehicle",
+                  "alias_to": null,
+                  "color": "#ff0000",
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "alias": null,
+                  "alias_to": null,
+                  "color": null,
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true,
+              "keypoint_schema": null,
+              "video_modes": null
+            }
+          },
+          "total_tasks": 0,
+          "type_key": "image-det",
+          "type_label": "Image label",
+          "updated_at": "<timestamp>",
+          "video_collaboration": {
+            "enabled": false,
+            "overlap_frames": 0
+          },
+          "video_sampling": {
+            "frame_step": null,
+            "mode": "none",
+            "target_fps": null
+          }
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 200
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "project_admin",
+          "id": "$actor_project_admin",
+          "role": "project_admin"
+        },
+        "body": null,
+        "method": "GET",
+        "params": null,
+        "path": "/api/v1/project-templates/$template_public_image"
+      },
+      "response": {
+        "body": {
+          "ai_enabled": false,
+          "annotation_guide": "# Deep guide\n\n- keep nested data",
+          "attribute_schema": {
+            "fields": [
+              {
+                "applies_to": null,
+                "default": null,
+                "description": null,
+                "hotkey": null,
+                "key": "confidence",
+                "label": "Confidence",
+                "max": null,
+                "min": null,
+                "mutable": null,
+                "options": null,
+                "regex": null,
+                "required": null,
+                "style_occluded": null,
+                "type": "number",
+                "visible_if": null
+              }
+            ]
+          },
+          "box_threshold": 0.35,
+          "classes": [
+            "car",
+            "person"
+          ],
+          "classes_config": {
+            "car": {
+              "alias": "vehicle",
+              "color": "#ff0000",
+              "order": 0
+            },
+            "person": {
+              "alias": null,
+              "color": null,
+              "order": 1
+            }
+          },
+          "created_at": "2020-01-01T00:01:00Z",
+          "created_by": "$actor_inactive_creator",
+          "created_by_name": "Inactive Creator",
+          "data_type": "image",
+          "description": "Deep JSON and computed-class projection",
+          "display_id": "$template_public_image_display_id",
+          "id": "$template_public_image",
+          "iou_dedup_threshold": 0.7,
+          "label_config": {
+            "nested": {
+              "values": [
+                1,
+                {
+                  "unicode": "猫"
+                }
+              ]
+            }
+          },
+          "maximum_annotations": 1,
+          "name": "Public Mixed Case 42%",
+          "organization_id": null,
+          "rendering_config": {
+            "box3dDefaultSize": [
+              1.0,
+              2.0,
+              3.0
+            ],
+            "controlPointsSize": null,
+            "cssImageFilter": "contrast(1.1)",
+            "propagateOverwrite": null,
+            "smoothImage": true,
+            "snapToGrid": null,
+            "trackerDefaultModel": null
+          },
+          "sampling": "sequence",
+          "scope": "public",
+          "show_overlap_first": false,
+          "source_project_id": null,
+          "text_threshold": 0.25,
+          "tool_bindings": {
+            "bbox": {
+              "attribute_schema": {
+                "fields": [
+                  {
+                    "applies_to": null,
+                    "default": null,
+                    "description": null,
+                    "hotkey": null,
+                    "key": "confidence",
+                    "label": "Confidence",
+                    "max": null,
+                    "min": null,
+                    "mutable": null,
+                    "options": null,
+                    "regex": null,
+                    "required": null,
+                    "style_occluded": null,
+                    "type": "number",
+                    "visible_if": null
+                  }
+                ]
+              },
+              "classes": [
+                {
+                  "alias": "vehicle",
+                  "alias_to": null,
+                  "color": "#ff0000",
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "alias": null,
+                  "alias_to": null,
+                  "color": null,
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true,
+              "keypoint_schema": null,
+              "video_modes": null
+            }
+          },
+          "type_key": "image-det",
+          "type_label": "Image label",
+          "updated_at": "<timestamp>",
+          "usage_count": 6
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 200
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "project_admin",
+          "id": "$actor_project_admin",
+          "role": "project_admin"
+        },
+        "body": {
+          "label_config": null
+        },
+        "method": "PATCH",
+        "params": null,
+        "path": "/api/v1/project-templates/$template_created"
+      },
+      "response": {
+        "body": "Internal Server Error",
+        "headers": {
+          "content-type": "text/plain; charset=utf-8"
+        },
+        "status": 500
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "project_admin",
+          "id": "$actor_project_admin",
+          "role": "project_admin"
+        },
+        "body": null,
+        "method": "GET",
+        "params": null,
+        "path": "/api/v1/project-templates/$template_created"
+      },
+      "response": {
+        "body": {
+          "ai_enabled": false,
+          "annotation_guide": null,
+          "attribute_schema": {
+            "fields": []
+          },
+          "box_threshold": 0.35,
+          "classes": [],
+          "classes_config": {},
+          "created_at": "<timestamp>",
+          "created_by": "$actor_project_admin",
+          "created_by_name": "Baseline Project Admin",
+          "data_type": "image",
+          "description": "Preserved create description",
+          "display_id": "$template_created_display_id",
+          "id": "$template_created",
+          "iou_dedup_threshold": 0.7,
+          "label_config": {},
+          "maximum_annotations": 1,
+          "name": "Updated projection $capture_suffix",
+          "organization_id": null,
+          "rendering_config": {
+            "box3dDefaultSize": null,
+            "controlPointsSize": null,
+            "cssImageFilter": null,
+            "propagateOverwrite": null,
+            "smoothImage": true,
+            "snapToGrid": null,
+            "trackerDefaultModel": null
+          },
+          "sampling": "sequence",
+          "scope": "private",
+          "show_overlap_first": false,
+          "source_project_id": null,
+          "text_threshold": 0.25,
+          "tool_bindings": {},
+          "type_key": "image-det",
+          "type_label": "Image label",
+          "updated_at": "<timestamp>",
+          "usage_count": 0
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 200
+      }
+    },
+    {
+      "request": {
+        "actor": {
+          "active": false,
+          "alias": "viewer",
+          "id": "$actor_viewer",
+          "role": "viewer"
+        },
+        "body": null,
+        "method": "GET",
+        "params": null,
+        "path": "/api/v1/project-templates"
+      },
+      "response": {
+        "body": {
+          "detail": "无效的认证凭据"
+        },
+        "headers": {
+          "content-type": "application/json",
+          "www-authenticate": "Bearer"
+        },
+        "status": 401
+      }
+    }
+  ],
+  "schema_boundaries": {
+    "organization_id_null_policy": "policy helper permits it, but the current database constraint prevents storage",
+    "organization_scope_without_id": "omitted: ck_project_template_org_scope rejects it",
+    "unknown_scope_row": "omitted: ck_project_template_scope rejects it"
+  },
+  "source": {
+    "capture_driver_sha256": "9fc2955f4c15110a906917105d73376d2eb3b075a02ea1353bf9266e50753839",
+    "captured_head": "bbfb47bf301a6390f788cc3edb736dad383fb71b",
+    "pre_port_base": "a0317013841ca3aaf1b53b06ce051c6eb07ac798",
+    "runtime_source_sha256": {
+      "apps/api/app/api/v1/project_templates.py": "73389f5c39dddf59be6f55569db5d660940daf285f98aedb081c8f12a47dc26e",
+      "apps/api/app/db/models/project_template.py": "aa7698124cb7502264db443872e37d9185617de58c6866d9ff348a5928e96d5f",
+      "apps/api/app/services/project_template.py": "0bd5313f28f3ae1ce01ac3c288305d8edc19cbceebd7775d44d8cd641cd1dce8",
+      "apps/api/app/services/workspace_configuration.py": "3f45179e636f89431f140ee8efb6e8fe9f1a5005d27c763adc8c46e9224f4c99",
+      "apps/workspace/src/aap_workspace/configuration_policy.py": "ea1f5690863f70c3938e1c91b47de235cb7787c36139fcf07a8099cc2105dcc5",
+      "apps/workspace/src/aap_workspace/configuration_requests.py": "ecb0c32bd3a40c6ebbaeee9406ec082e20c21702842b688b1000a41aee595055"
+    }
+  },
+  "timezone_read_probe": {
+    "detail_created_at_iso": "2020-01-01T00:01:00+00:00",
+    "list_created_at_iso": "2020-01-01T00:01:00+00:00",
+    "timezone_after_detail": "Asia/Shanghai",
+    "timezone_after_list": "Asia/Shanghai",
+    "timezone_before_reads": "Asia/Shanghai",
+    "timezone_before_set": "UTC"
+  }
+}

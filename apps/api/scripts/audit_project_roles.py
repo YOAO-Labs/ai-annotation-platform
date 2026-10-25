@@ -6,10 +6,13 @@ Increment A preparation for the project-scoped employee roles plan
 writes roles, memberships or assignments.
 
 The audit also runs *before* revision 0173 exists.  It inspects
-``information_schema`` for the additive preparation columns and substitutes
+``information_schema`` and owner metadata for the additive preparation columns and substitutes
 ``NULL`` projections plus missing-evidence classifications, so reviewing a
 production schema ahead of the migration is safe and reports unknown rather
-than fabricating completeness.
+than fabricating completeness. An operator must first install the fixed Identity
+and Workspace audit relations with identity-role-audit-grants.sql and
+workspace-role-audit-grants.sql; this read-only CLI never installs them or falls
+back to private owner tables.
 
 Report shape (versioned JSON)::
 
@@ -131,13 +134,13 @@ WITH effective AS (
 )
 """
 _EFFECTIVE_ASSIGNMENT_JOINS = """
-LEFT JOIN project_members ma
+LEFT JOIN aap_workspace_audit_v1.project_member_facts ma
        ON ma.project_id = e.project_id AND ma.user_id = e.effective_assignee_id
-LEFT JOIN users ua ON ua.id = e.effective_assignee_id
-LEFT JOIN project_members mr
+LEFT JOIN aap_identity_audit_v1.account_roles ua ON ua.id = e.effective_assignee_id
+LEFT JOIN aap_workspace_audit_v1.project_member_facts mr
        ON mr.project_id = e.project_id AND mr.user_id = e.effective_reviewer_id
-LEFT JOIN users ur ON ur.id = e.effective_reviewer_id
-LEFT JOIN projects p ON p.id = e.project_id
+LEFT JOIN aap_identity_audit_v1.account_roles ur ON ur.id = e.effective_reviewer_id
+LEFT JOIN aap_workspace_audit_v1.project_facts p ON p.id = e.project_id
 """
 _EFFECTIVE_ASSIGNMENT_SELECT = (
     "SELECT e.task_id, e.project_id, e.status, "
@@ -187,13 +190,37 @@ async def detect_schema_capabilities(db: AsyncSession) -> dict[str, bool]:
         db,
         "SELECT table_name, column_name FROM information_schema.columns "
         "WHERE table_schema = ANY(current_schemas(false)) "
-        "AND table_name IN ('project_members', 'user_invitations', 'tasks')",
+        "AND table_name = 'tasks'",
     )
     available: dict[str, set[str]] = {table: set() for table in PREPARATION_COLUMNS}
     for row in rows:
         table = row["table_name"]
         if table in available:
             available[table].add(row["column_name"])
+    workspace = await _fetch(
+        db,
+        "SELECT member_version, member_updated_at "
+        "FROM aap_workspace_audit_v1.schema_capabilities",
+    )
+    if len(workspace) != 1 or any(
+        type(workspace[0][key]) is not bool
+        for key in ("member_version", "member_updated_at")
+    ):
+        raise AuditError("Invalid Workspace audit schema capabilities")
+    for column, key in (
+        ("version", "member_version"),
+        ("updated_at", "member_updated_at"),
+    ):
+        if workspace[0][key]:
+            available["project_members"].add(column)
+    identity = await _fetch(
+        db,
+        "SELECT invitation_project_role FROM aap_identity_audit_v1.schema_capabilities",
+    )
+    if len(identity) != 1 or type(identity[0]["invitation_project_role"]) is not bool:
+        raise AuditError("Invalid Identity audit schema capabilities")
+    if identity[0]["invitation_project_role"]:
+        available["user_invitations"].add("project_role")
     return {
         f"{table}.{column}": column in available[table]
         for table, columns in PREPARATION_COLUMNS.items()
@@ -425,11 +452,11 @@ async def audit_role_discrepancies(db: AsyncSession, *, max_rows: int) -> dict:
     unknown_platform_roles = await _count_and_rows(
         db,
         count_sql=(
-            "SELECT count(*) FROM users "
+            "SELECT count(*) FROM aap_identity_audit_v1.account_roles "
             f"WHERE role IS NULL OR role NOT IN {_PLATFORM_ROLES_SQL}"
         ),
         rows_sql=(
-            "SELECT id, role FROM users "
+            "SELECT id, role FROM aap_identity_audit_v1.account_roles "
             f"WHERE role IS NULL OR role NOT IN {_PLATFORM_ROLES_SQL} "
             "ORDER BY id LIMIT :max_rows"
         ),
@@ -438,11 +465,11 @@ async def audit_role_discrepancies(db: AsyncSession, *, max_rows: int) -> dict:
     unknown_member_roles = await _count_and_rows(
         db,
         count_sql=(
-            "SELECT count(*) FROM project_members "
+            "SELECT count(*) FROM aap_workspace_audit_v1.project_member_facts "
             f"WHERE role IS NULL OR role NOT IN {_PROJECT_ROLES_SQL}"
         ),
         rows_sql=(
-            "SELECT id, project_id, user_id, role FROM project_members "
+            "SELECT id, project_id, user_id, role FROM aap_workspace_audit_v1.project_member_facts "
             f"WHERE role IS NULL OR role NOT IN {_PROJECT_ROLES_SQL} "
             "ORDER BY id LIMIT :max_rows"
         ),
@@ -453,15 +480,15 @@ async def audit_role_discrepancies(db: AsyncSession, *, max_rows: int) -> dict:
     legacy_mismatches = await _count_and_rows(
         db,
         count_sql=(
-            "SELECT count(*) FROM project_members pm "
-            "JOIN users u ON u.id = pm.user_id "
+            "SELECT count(*) FROM aap_workspace_audit_v1.project_member_facts pm "
+            "JOIN aap_identity_audit_v1.account_roles u ON u.id = pm.user_id "
             f"WHERE u.role IN {_LEGACY_EMPLOYEE_SQL} "
             f"AND pm.role IN {_PROJECT_ROLES_SQL} AND pm.role <> u.role"
         ),
         rows_sql=(
             "SELECT pm.id, pm.project_id, pm.user_id, u.role AS platform_role, "
             "pm.role AS project_role, u.role AS expected_project_role "
-            "FROM project_members pm JOIN users u ON u.id = pm.user_id "
+            "FROM aap_workspace_audit_v1.project_member_facts pm JOIN aap_identity_audit_v1.account_roles u ON u.id = pm.user_id "
             f"WHERE u.role IN {_LEGACY_EMPLOYEE_SQL} "
             f"AND pm.role IN {_PROJECT_ROLES_SQL} AND pm.role <> u.role "
             "ORDER BY pm.project_id, pm.user_id LIMIT :max_rows"
@@ -473,13 +500,13 @@ async def audit_role_discrepancies(db: AsyncSession, *, max_rows: int) -> dict:
     role_diversity = await _count_and_rows(
         db,
         count_sql=(
-            "SELECT count(*) FROM (SELECT pm.user_id FROM project_members pm "
+            "SELECT count(*) FROM (SELECT pm.user_id FROM aap_workspace_audit_v1.project_member_facts pm "
             "GROUP BY pm.user_id HAVING count(DISTINCT pm.role) > 1) AS diverse"
         ),
         rows_sql=(
             "SELECT pm.user_id, count(DISTINCT pm.role) AS distinct_project_roles, "
             "array_agg(DISTINCT pm.role ORDER BY pm.role) AS project_roles "
-            "FROM project_members pm GROUP BY pm.user_id "
+            "FROM aap_workspace_audit_v1.project_member_facts pm GROUP BY pm.user_id "
             "HAVING count(DISTINCT pm.role) > 1 ORDER BY pm.user_id LIMIT :max_rows"
         ),
         max_rows=max_rows,
@@ -489,15 +516,15 @@ async def audit_role_discrepancies(db: AsyncSession, *, max_rows: int) -> dict:
     viewer_conflicts = await _count_and_rows(
         db,
         count_sql=(
-            "SELECT count(*) FROM project_members pm "
-            "JOIN users u ON u.id = pm.user_id "
+            "SELECT count(*) FROM aap_workspace_audit_v1.project_member_facts pm "
+            "JOIN aap_identity_audit_v1.account_roles u ON u.id = pm.user_id "
             "WHERE u.role = 'viewer' "
             "AND (pm.role IS NULL OR pm.role IS DISTINCT FROM 'viewer')"
         ),
         rows_sql=(
             "SELECT pm.id, pm.project_id, pm.user_id, u.role AS platform_role, "
-            "pm.role AS project_role FROM project_members pm "
-            "JOIN users u ON u.id = pm.user_id WHERE u.role = 'viewer' "
+            "pm.role AS project_role FROM aap_workspace_audit_v1.project_member_facts pm "
+            "JOIN aap_identity_audit_v1.account_roles u ON u.id = pm.user_id WHERE u.role = 'viewer' "
             "AND (pm.role IS NULL OR pm.role IS DISTINCT FROM 'viewer') "
             "ORDER BY pm.project_id, pm.user_id LIMIT :max_rows"
         ),
@@ -508,14 +535,14 @@ async def audit_role_discrepancies(db: AsyncSession, *, max_rows: int) -> dict:
     administrator_memberships = await _count_and_rows(
         db,
         count_sql=(
-            "SELECT count(*) FROM project_members pm "
-            "JOIN users u ON u.id = pm.user_id "
+            "SELECT count(*) FROM aap_workspace_audit_v1.project_member_facts pm "
+            "JOIN aap_identity_audit_v1.account_roles u ON u.id = pm.user_id "
             f"WHERE u.role IN {_ADMIN_PLATFORM_ROLES_SQL}"
         ),
         rows_sql=(
             "SELECT pm.id, pm.project_id, pm.user_id, u.role AS platform_role, "
-            "pm.role AS project_role FROM project_members pm "
-            "JOIN users u ON u.id = pm.user_id "
+            "pm.role AS project_role FROM aap_workspace_audit_v1.project_member_facts pm "
+            "JOIN aap_identity_audit_v1.account_roles u ON u.id = pm.user_id "
             f"WHERE u.role IN {_ADMIN_PLATFORM_ROLES_SQL} "
             "ORDER BY pm.project_id, pm.user_id LIMIT :max_rows"
         ),
@@ -526,12 +553,12 @@ async def audit_role_discrepancies(db: AsyncSession, *, max_rows: int) -> dict:
     invalid_owners = await _count_and_rows(
         db,
         count_sql=(
-            "SELECT count(*) FROM projects p LEFT JOIN users u ON u.id = p.owner_id "
+            "SELECT count(*) FROM aap_workspace_audit_v1.project_facts p LEFT JOIN aap_identity_audit_v1.account_roles u ON u.id = p.owner_id "
             f"WHERE u.id IS NULL OR u.role IS NULL OR u.role NOT IN {_ADMIN_PLATFORM_ROLES_SQL}"
         ),
         rows_sql=(
             "SELECT p.id AS project_id, p.owner_id, u.role AS owner_role "
-            "FROM projects p LEFT JOIN users u ON u.id = p.owner_id "
+            "FROM aap_workspace_audit_v1.project_facts p LEFT JOIN aap_identity_audit_v1.account_roles u ON u.id = p.owner_id "
             f"WHERE u.id IS NULL OR u.role IS NULL OR u.role NOT IN {_ADMIN_PLATFORM_ROLES_SQL} "
             "ORDER BY p.id LIMIT :max_rows"
         ),
@@ -540,12 +567,12 @@ async def audit_role_discrepancies(db: AsyncSession, *, max_rows: int) -> dict:
     inactive_owners = await _count_and_rows(
         db,
         count_sql=(
-            "SELECT count(*) FROM projects p JOIN users u ON u.id = p.owner_id "
+            "SELECT count(*) FROM aap_workspace_audit_v1.project_facts p JOIN aap_identity_audit_v1.account_roles u ON u.id = p.owner_id "
             "WHERE u.is_active IS NOT TRUE"
         ),
         rows_sql=(
             "SELECT p.id AS project_id, p.owner_id, u.role AS owner_role "
-            "FROM projects p JOIN users u ON u.id = p.owner_id "
+            "FROM aap_workspace_audit_v1.project_facts p JOIN aap_identity_audit_v1.account_roles u ON u.id = p.owner_id "
             "WHERE u.is_active IS NOT TRUE ORDER BY p.id LIMIT :max_rows"
         ),
         max_rows=max_rows,
@@ -620,14 +647,14 @@ async def audit_assignment_gaps(db: AsyncSession, *, max_rows: int) -> dict:
         db,
         count_sql=(
             _EFFECTIVE_ASSIGNMENT_CTE + "SELECT count(DISTINCT u.id) FROM effective e "
-            "JOIN users u ON u.is_active IS NOT TRUE "
+            "JOIN aap_identity_audit_v1.account_roles u ON u.is_active IS NOT TRUE "
             "AND u.id IN (e.effective_assignee_id, e.effective_reviewer_id) "
             "WHERE e.status <> 'completed'"
         ),
         rows_sql=(
             _EFFECTIVE_ASSIGNMENT_CTE
             + "SELECT u.id AS user_id, u.role, count(*) AS unfinished_tasks "
-            "FROM effective e JOIN users u ON u.is_active IS NOT TRUE "
+            "FROM effective e JOIN aap_identity_audit_v1.account_roles u ON u.is_active IS NOT TRUE "
             "AND u.id IN (e.effective_assignee_id, e.effective_reviewer_id) "
             "WHERE e.status <> 'completed' "
             "GROUP BY u.id, u.role ORDER BY u.id LIMIT :max_rows"
@@ -655,20 +682,21 @@ async def audit_invitations(
     status_counts = {
         "pending": await _scalar(
             db,
-            "SELECT count(*) FROM user_invitations "
+            "SELECT count(*) FROM aap_identity_audit_v1.invitation_facts "
             "WHERE accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now()",
         ),
         "accepted": await _scalar(
-            db, "SELECT count(*) FROM user_invitations WHERE accepted_at IS NOT NULL"
+            db,
+            "SELECT count(*) FROM aap_identity_audit_v1.invitation_facts WHERE accepted_at IS NOT NULL",
         ),
         "revoked": await _scalar(
             db,
-            "SELECT count(*) FROM user_invitations "
+            "SELECT count(*) FROM aap_identity_audit_v1.invitation_facts "
             "WHERE accepted_at IS NULL AND revoked_at IS NOT NULL",
         ),
         "expired": await _scalar(
             db,
-            "SELECT count(*) FROM user_invitations "
+            "SELECT count(*) FROM aap_identity_audit_v1.invitation_facts "
             "WHERE accepted_at IS NULL AND revoked_at IS NULL AND expires_at <= now()",
         ),
     }
@@ -677,7 +705,7 @@ async def audit_invitations(
         "SELECT i.id, i.project_id, i.role, "
         f"{project_role} AS project_role, i.expires_at, i.invited_by, "
         "(p.id IS NOT NULL) AS target_exists "
-        "FROM user_invitations i LEFT JOIN projects p ON p.id = i.project_id "
+        "FROM aap_identity_audit_v1.invitation_facts i LEFT JOIN aap_workspace_audit_v1.project_facts p ON p.id = i.project_id "
         "WHERE i.accepted_at IS NULL AND i.revoked_at IS NULL "
         "AND i.expires_at > now() ORDER BY i.project_id NULLS FIRST, i.id "
         "LIMIT :max_rows"
@@ -685,7 +713,7 @@ async def audit_invitations(
     pending = await _count_and_rows(
         db,
         count_sql=(
-            "SELECT count(*) FROM user_invitations "
+            "SELECT count(*) FROM aap_identity_audit_v1.invitation_facts "
             "WHERE accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now()"
         ),
         rows_sql=pending_rows_sql,
@@ -693,26 +721,26 @@ async def audit_invitations(
     )
     account_only_count = await _scalar(
         db,
-        "SELECT count(*) FROM user_invitations WHERE project_id IS NULL "
+        "SELECT count(*) FROM aap_identity_audit_v1.invitation_facts WHERE project_id IS NULL "
         "AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now()",
     )
     project_target_count = await _scalar(
         db,
-        "SELECT count(*) FROM user_invitations WHERE project_id IS NOT NULL "
+        "SELECT count(*) FROM aap_identity_audit_v1.invitation_facts WHERE project_id IS NOT NULL "
         "AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now()",
     )
     deleted_targets = await _count_and_rows(
         db,
         count_sql=(
-            "SELECT count(*) FROM user_invitations i "
-            "LEFT JOIN projects p ON p.id = i.project_id "
+            "SELECT count(*) FROM aap_identity_audit_v1.invitation_facts i "
+            "LEFT JOIN aap_workspace_audit_v1.project_facts p ON p.id = i.project_id "
             "WHERE i.project_id IS NOT NULL AND p.id IS NULL "
             "AND i.accepted_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > now()"
         ),
         rows_sql=(
             "SELECT i.id, i.project_id, i.role, "
             f"{project_role} AS project_role, i.expires_at "
-            "FROM user_invitations i LEFT JOIN projects p ON p.id = i.project_id "
+            "FROM aap_identity_audit_v1.invitation_facts i LEFT JOIN aap_workspace_audit_v1.project_facts p ON p.id = i.project_id "
             "WHERE i.project_id IS NOT NULL AND p.id IS NULL "
             "AND i.accepted_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > now() "
             "ORDER BY i.id LIMIT :max_rows"
@@ -724,7 +752,7 @@ async def audit_invitations(
     # the 0173 column every pending project invitation needs the backfill.
     project_role_to_backfill = await _scalar(
         db,
-        "SELECT count(*) FROM user_invitations WHERE project_id IS NOT NULL "
+        "SELECT count(*) FROM aap_identity_audit_v1.invitation_facts WHERE project_id IS NOT NULL "
         f"{project_role_backfill_filter(capabilities)} "
         "AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now()",
     )
@@ -732,12 +760,12 @@ async def audit_invitations(
         account_invitation_with_project_role = await _count_and_rows(
             db,
             count_sql=(
-                "SELECT count(*) FROM user_invitations "
+                "SELECT count(*) FROM aap_identity_audit_v1.invitation_facts "
                 "WHERE project_id IS NULL AND project_role IS NOT NULL "
                 "AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now()"
             ),
             rows_sql=(
-                "SELECT id, role, project_role FROM user_invitations "
+                "SELECT id, role, project_role FROM aap_identity_audit_v1.invitation_facts "
                 "WHERE project_id IS NULL AND project_role IS NOT NULL "
                 "AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now() "
                 "ORDER BY id LIMIT :max_rows"
@@ -828,16 +856,19 @@ async def audit_reconciliation(db: AsyncSession) -> dict:
         }
 
     users_by_role = await grouped(
-        "SELECT role, count(*) AS count FROM users GROUP BY role", "role"
+        "SELECT role, count(*) AS count FROM aap_identity_audit_v1.account_roles GROUP BY role",
+        "role",
     )
     memberships_by_role = await grouped(
-        "SELECT role, count(*) AS count FROM project_members GROUP BY role", "role"
+        "SELECT role, count(*) AS count FROM aap_workspace_audit_v1.project_member_facts GROUP BY role",
+        "role",
     )
     tasks_by_status = await grouped(
         "SELECT status, count(*) AS count FROM tasks GROUP BY status", "status"
     )
     projects_by_status = await grouped(
-        "SELECT status, count(*) AS count FROM projects GROUP BY status", "status"
+        "SELECT status, count(*) AS count FROM aap_workspace_audit_v1.project_facts GROUP BY status",
+        "status",
     )
     annotations_by_source = await grouped(
         "SELECT source, count(*) AS count FROM annotations GROUP BY source", "source"
@@ -855,21 +886,29 @@ async def audit_reconciliation(db: AsyncSession) -> dict:
     )
     return {
         "users": {
-            "total": await _scalar(db, "SELECT count(*) FROM users"),
+            "total": await _scalar(
+                db, "SELECT count(*) FROM aap_identity_audit_v1.account_roles"
+            ),
             "active": await _scalar(
-                db, "SELECT count(*) FROM users WHERE is_active IS TRUE"
+                db,
+                "SELECT count(*) FROM aap_identity_audit_v1.account_roles WHERE is_active IS TRUE",
             ),
             "inactive": await _scalar(
-                db, "SELECT count(*) FROM users WHERE is_active IS NOT TRUE"
+                db,
+                "SELECT count(*) FROM aap_identity_audit_v1.account_roles WHERE is_active IS NOT TRUE",
             ),
             "by_role": users_by_role,
         },
         "memberships": {
-            "total": await _scalar(db, "SELECT count(*) FROM project_members"),
+            "total": await _scalar(
+                db, "SELECT count(*) FROM aap_workspace_audit_v1.project_member_facts"
+            ),
             "by_role": memberships_by_role,
         },
         "projects": {
-            "total": await _scalar(db, "SELECT count(*) FROM projects"),
+            "total": await _scalar(
+                db, "SELECT count(*) FROM aap_workspace_audit_v1.project_facts"
+            ),
             "by_status": projects_by_status,
         },
         "tasks": {

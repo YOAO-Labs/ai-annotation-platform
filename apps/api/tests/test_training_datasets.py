@@ -922,11 +922,11 @@ async def test_dispatch_exception_never_overwrites_an_accepted_attempt(
 async def test_api_key_scopes_and_post_queue_revocation(
     db_session, super_admin, httpx_client, source_headers
 ):
-    from app.services.api_key_service import _create_key_for_owner
+    from tests.factory import create_api_key
 
     owner, _ = super_admin
     project, _ = await reviewed_project(db_session, owner)
-    key, token = await _create_key_for_owner(db_session, owner.id, "training", [])
+    key, token = await create_api_key(db_session, owner.id, "training", [])
     path = f"/api/v1/projects/{project.id}/training-datasets"
     denied = await httpx_client.get(path, headers={"Authorization": f"Bearer {token}"})
     assert denied.status_code == 403
@@ -1166,6 +1166,11 @@ def test_changed_source_is_rejected_before_preserving_media(tmp_path):
         }
         sample["media"] = service.capture_source_media(sample)
         storage_service.put_bytes(key, b"changed", content_type="image/png")
+        if version_id := sample["media"]["version_id"]:
+            # An overwrite alone keeps the frozen source readable in versioned buckets.
+            storage_service.client.delete_object(
+                Bucket=storage_service.bucket, Key=key, VersionId=version_id
+            )
         with pytest.raises(TrainingDatasetError) as error:
             materialize_image(sample, prefix.rstrip("/"), "frozen", tmp_path)
         assert error.value.code == "source_media_changed"
@@ -1173,6 +1178,35 @@ def test_changed_source_is_rejected_before_preserving_media(tmp_path):
             storage_service.list_objects(prefix, bucket=storage_service.training_bucket)
             == []
         )
+    finally:
+        storage_service.delete_prefix(prefix)
+        storage_service.delete_prefix(prefix, bucket=storage_service.training_bucket)
+
+
+def test_versioned_source_overwrite_preserves_frozen_image(tmp_path):
+    from app.services.storage import storage_service
+    from app.workers.training_dataset import materialize_image
+
+    prefix = f"test-training-source/{uuid.uuid4()}/"
+    key = prefix + "image.png"
+    image = io.BytesIO()
+    Image.new("RGB", (7, 5), "red").save(image, format="PNG")
+    original = image.getvalue()
+    try:
+        storage_service.put_bytes(key, original, content_type="image/png")
+        sample = {
+            "task_id": str(uuid.uuid4()),
+            "source_bucket": storage_service.bucket,
+            "source_key": key,
+        }
+        sample["media"] = service.capture_source_media(sample)
+        if not sample["media"]["version_id"]:
+            pytest.skip("requires object versioning for frozen source retention")
+        storage_service.put_bytes(key, b"changed", content_type="image/png")
+        media = materialize_image(sample, prefix.rstrip("/"), "frozen", tmp_path)
+        assert media["sha256"] == hashlib.sha256(original).hexdigest()
+        assert (media["width"], media["height"]) == (7, 5)
+        assert (tmp_path / sample["task_id"]).read_bytes() == original
     finally:
         storage_service.delete_prefix(prefix)
         storage_service.delete_prefix(prefix, bucket=storage_service.training_bucket)

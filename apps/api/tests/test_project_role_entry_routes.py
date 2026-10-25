@@ -33,7 +33,7 @@ from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.db.models.video_tracker_job import VideoTrackerJob
-from app.services.workspace_contract import ProjectAccess, ProjectCapability
+from aap_workspace_contract.access import ProjectAccess, ProjectCapability
 from app.services.data_management.views import TaskViewService
 from tests.factory import (
     create_batch,
@@ -399,7 +399,10 @@ async def test_video_chapter_requires_project_manager(
 
 
 async def test_video_tracker_job_write_denies_reviewer(
-    httpx_client, db_session: AsyncSession, super_admin
+    httpx_client,
+    video_tracker_job_dispatcher,
+    db_session: AsyncSession,
+    super_admin,
 ):
     admin, _ = super_admin
     item, task = await _seed_video_item_task(db_session, owner_id=admin.id)
@@ -443,6 +446,7 @@ async def test_video_tracker_job_write_denies_reviewer(
         f"/api/v1/video-tracker-jobs/{job.id}", headers=_headers(annotator)
     )
     assert allowed.status_code == 200
+    assert video_tracker_job_dispatcher.jobs == [job.id]
 
     # A reviewer is denied annotation-phase tracker work outside a review round.
     second = VideoTrackerJob(
@@ -464,6 +468,12 @@ async def test_video_tracker_job_write_denies_reviewer(
         headers=_headers(reviewer),
     )
     assert denied_reviewer.status_code == 403
+
+    denied_cancel = await httpx_client.delete(
+        f"/api/v1/video-tracker-jobs/{second.id}", headers=_headers(reviewer)
+    )
+    assert denied_cancel.status_code == 403
+    assert video_tracker_job_dispatcher.jobs == [job.id]
 
     outsider = await _employee(db_session, prefix="trk-out")
     hidden = await httpx_client.get(

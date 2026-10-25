@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import uuid
 
 import pytest
+from sqlalchemy import inspect
 
 from aap_assets_inputs.contract import InputFailure
 from app.workers.predictions_retry import (
@@ -33,6 +34,8 @@ def test_empty_prediction_is_valid_but_missing_target_result_is_not():
 class _ReadSession:
     def __init__(self, failed, task, backend):
         self.failed, self.task, self.backend = failed, task, backend
+        self.identity_map = {}
+        self.autoflush = False
 
     async def __aenter__(self):
         return self
@@ -48,6 +51,11 @@ class _ReadSession:
         if model.__name__ == "MLBackendRegistry":
             return self.backend
         return None
+
+    async def execute(self, statement):
+        model = inspect(statement.column_descriptions[0]["entity"]).mapper.class_
+        row = self.failed if model.__name__ == "FailedPrediction" else self.task
+        return SimpleNamespace(scalar_one_or_none=lambda: row)
 
 
 def _frozen_failed_prediction():
@@ -132,7 +140,7 @@ async def test_transient_frozen_input_wait_has_no_retry_side_effects(
 
     monkeypatch.setattr("app.services.accepted_inputs.input_gateway", fake_gateway)
     monkeypatch.setattr(async_job_service, "track_job", unexpected_side_effect)
-    monkeypatch.setattr(NotificationService, "notify", unexpected_side_effect)
+    monkeypatch.setattr(NotificationService, "notify_terminal", unexpected_side_effect)
 
     with pytest.raises(FrozenInputRetryDeferred, match=code):
         async with _prepare_retry_input(

@@ -10,11 +10,6 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only
 
-from app.db.models.annotation import Annotation
-from app.db.models.dataset import DatasetItem
-from app.db.models.task import Task
-from app.db.models.task_batch import TaskBatch
-from app.db.models.task_lock import AnnotationDraft, TaskLock
 from app.services.labeling_active_learning_source_contract import (
     CandidateBatchState,
     CandidateEditFence,
@@ -27,6 +22,15 @@ from app.services.labeling_active_learning_source_contract import (
     CandidateSourcesRead,
     CandidateTaskState,
     LabelingActiveLearningSources,
+)
+from app.services.assets_spatial_views import labeling_dataset_item_facts
+from app.services.labeling_core_read_relations import (
+    annotation_draft_rows,
+    annotation_row,
+    batch_row,
+    execute_core_read,
+    task_lock_row,
+    task_row,
 )
 from app.services.task_lock import TaskLockConflictError, TaskLockService
 from app.services.labeling_scene import read_spatial_item_facts
@@ -49,65 +53,68 @@ class SqlAlchemyLabelingActiveLearningSources(LabelingActiveLearningSources):
     @staticmethod
     def _eligibility():
         return and_(
-            Task.file_type == "image",
-            Task.status == "pending",
-            Task.is_labeled.is_(False),
-            Task.total_annotations == 0,
-            Task.assignee_id.is_(None),
-            Task.reviewer_id.is_(None),
-            Task.submitted_at.is_(None),
-            Task.reviewed_at.is_(None),
-            Task.skipped_at.is_(None),
-            Task.skip_reason.is_(None),
-            Task.first_reviewed_at.is_(None),
-            Task.first_review_result.is_(None),
-            Task.reopened_count == 0,
+            task_row.file_type == "image",
+            task_row.status == "pending",
+            task_row.is_labeled.is_(False),
+            task_row.total_annotations == 0,
+            task_row.assignee_id.is_(None),
+            task_row.reviewer_id.is_(None),
+            task_row.submitted_at.is_(None),
+            task_row.reviewed_at.is_(None),
+            task_row.skipped_at.is_(None),
+            task_row.skip_reason.is_(None),
+            task_row.first_reviewed_at.is_(None),
+            task_row.first_review_result.is_(None),
+            task_row.reopened_count == 0,
             or_(
-                Task.batch_id.is_(None),
+                task_row.batch_id.is_(None),
                 and_(
-                    TaskBatch.display_id == "B-DEFAULT",
-                    TaskBatch.project_id == Task.project_id,
-                    TaskBatch.status != "archived",
-                    TaskBatch.admin_locked.is_(False),
-                    TaskBatch.annotator_id.is_(None),
-                    TaskBatch.reviewer_id.is_(None),
-                    TaskBatch.assigned_user_ids == [],
+                    batch_row.display_id == "B-DEFAULT",
+                    batch_row.project_id == task_row.project_id,
+                    batch_row.status != "archived",
+                    batch_row.admin_locked.is_(False),
+                    batch_row.annotator_id.is_(None),
+                    batch_row.reviewer_id.is_(None),
+                    batch_row.assigned_user_ids == [],
                 ),
             ),
-            ~select(Annotation.id)
+            ~select(annotation_row.id)
             .where(
-                Annotation.task_id == Task.id,
-                Annotation.is_active.is_(True),
-                Annotation.was_cancelled.is_(False),
+                annotation_row.task_id == task_row.id,
+                annotation_row.is_active.is_(True),
+                annotation_row.was_cancelled.is_(False),
             )
             .exists(),
-            ~select(AnnotationDraft.id)
-            .where(AnnotationDraft.task_id == Task.id)
+            ~select(annotation_draft_rows.c.id)
+            .where(annotation_draft_rows.c.task_id == task_row.id)
             .exists(),
-            ~select(TaskLock.id)
+            ~select(task_lock_row.id)
             .where(
-                TaskLock.task_id == Task.id,
-                TaskLock.expire_at > datetime.now(timezone.utc),
+                task_lock_row.task_id == task_row.id,
+                task_lock_row.expire_at > datetime.now(timezone.utc),
             )
             .exists(),
         )
 
     def _candidate_query(self, project_id: uuid.UUID):
         return (
-            select(Task, DatasetItem, TaskBatch)
-            .outerjoin(DatasetItem, DatasetItem.id == Task.dataset_item_id)
-            .outerjoin(TaskBatch, TaskBatch.id == Task.batch_id)
-            .where(Task.project_id == project_id, self._eligibility())
+            select(task_row, labeling_dataset_item_facts, batch_row)
+            .outerjoin(
+                labeling_dataset_item_facts,
+                labeling_dataset_item_facts.id == task_row.dataset_item_id,
+            )
+            .outerjoin(batch_row, batch_row.id == task_row.batch_id)
+            .where(task_row.project_id == project_id, self._eligibility())
             .options(
                 load_only(
-                    DatasetItem.id,
-                    DatasetItem.dataset_id,
-                    DatasetItem.file_path,
-                    DatasetItem.file_type,
-                    DatasetItem.file_size,
-                    DatasetItem.content_hash,
-                    DatasetItem.width,
-                    DatasetItem.height,
+                    labeling_dataset_item_facts.id,
+                    labeling_dataset_item_facts.dataset_id,
+                    labeling_dataset_item_facts.file_path,
+                    labeling_dataset_item_facts.file_type,
+                    labeling_dataset_item_facts.file_size,
+                    labeling_dataset_item_facts.content_hash,
+                    labeling_dataset_item_facts.width,
+                    labeling_dataset_item_facts.height,
                 )
             )
             .execution_options(populate_existing=True)
@@ -224,17 +231,21 @@ class SqlAlchemyLabelingActiveLearningSources(LabelingActiveLearningSources):
         }
 
     async def list_candidates(self, request: CandidatePageRead) -> CandidatePoolPage:
-        total = await self._db.scalar(
-            select(func.count()).select_from(
-                self._candidate_query(request.project_id).subquery()
+        total = (
+            await execute_core_read(
+                self._db,
+                select(func.count()).select_from(
+                    self._candidate_query(request.project_id).subquery()
+                ),
             )
-        )
+        ).scalar_one()
         rows = (
-            await self._db.execute(
+            await execute_core_read(
+                self._db,
                 self._candidate_query(request.project_id)
-                .order_by(Task.created_at, Task.id)
+                .order_by(task_row.created_at, task_row.id)
                 .limit(request.limit)
-                .offset(request.offset)
+                .offset(request.offset),
             )
         ).all()
         spatial_items, _ = await read_spatial_item_facts(
@@ -267,10 +278,11 @@ class SqlAlchemyLabelingActiveLearningSources(LabelingActiveLearningSources):
         self, request: CandidateSourcesRead
     ) -> list[CandidateSourceSnapshot]:
         rows = (
-            await self._db.execute(
+            await execute_core_read(
+                self._db,
                 self._candidate_query(request.project_id)
-                .where(Task.id.in_(request.task_ids))
-                .order_by(Task.id)
+                .where(task_row.id.in_(request.task_ids))
+                .order_by(task_row.id),
             )
         ).all()
         if len(rows) != len(request.task_ids):

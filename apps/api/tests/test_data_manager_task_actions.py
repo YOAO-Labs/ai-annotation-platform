@@ -5,8 +5,7 @@ from __future__ import annotations
 import uuid
 import json
 from datetime import datetime, timedelta, timezone
-from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
@@ -371,8 +370,8 @@ async def test_export_keeps_exact_task_scope_in_job_worker_and_artifact(
         db_session, project_id=project.id, display_id=f"T-DM-SIB-{uuid.uuid4().hex[:8]}"
     )
     await db_session.commit()
-    dispatch = Mock(return_value=SimpleNamespace(id=str(uuid.uuid4())))
-    monkeypatch.setattr(data_manager.run_export, "delay", dispatch)
+    dispatch = AsyncMock(side_effect=lambda **kwargs: kwargs["execution_id"])
+    monkeypatch.setattr(data_manager, "dispatch_job", dispatch)
     endpoint = f"/api/v1/projects/{project.id}/data-manager/tasks/export"
     headers = {
         "Authorization": f"Bearer {token}",
@@ -436,8 +435,8 @@ async def test_export_rejects_foreign_tasks_empty_selection_and_partial_scene_fo
         display_id=f"T-DM-LOCAL-{uuid.uuid4().hex[:8]}",
     )
     await db_session.commit()
-    dispatch = Mock()
-    monkeypatch.setattr(data_manager.run_export, "delay", dispatch)
+    dispatch = AsyncMock(side_effect=lambda **kwargs: kwargs["execution_id"])
+    monkeypatch.setattr(data_manager, "dispatch_job", dispatch)
     endpoint = f"/api/v1/projects/{project.id}/data-manager/tasks/export"
     headers = {"Authorization": f"Bearer {token}"}
     for body, status in [
@@ -454,4 +453,4 @@ async def test_export_rejects_foreign_tasks_empty_selection_and_partial_scene_fo
     ]:
         response = await httpx_client.post(endpoint, headers=headers, json=body)
         assert response.status_code == status, response.text
-    dispatch.assert_not_called()
+    dispatch.assert_not_awaited()

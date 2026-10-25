@@ -1,0 +1,1326 @@
+{
+  "capture_kind": "actual-legacy-project-guide-assets-http-and-effects",
+  "object_store": {
+    "api_bucket_matches_owned_bucket": true,
+    "bucket": "$owned-guide-assets-bucket",
+    "ownership_tag_verified": true,
+    "uploads": "presigned HTTP PUT to verifier MinIO",
+    "versioning": "Enabled"
+  },
+  "observations": {
+    "api_head_and_delete_are_unmocked": true,
+    "cleanup_scope": "exact generated object keys and versions only",
+    "delete_storage_failure": "actual MinIO AccessDenied with existing readonly catalog credential; metadata still commits, object remains",
+    "fixture_object_put_is_real": true
+  },
+  "runtime_identity": {
+    "database": "$owned_test_database",
+    "database_role": "legacy_runtime",
+    "postgres_container_id": "c59bf79f811f12d7b0498acf7143677024e6ece475f68b5fa350ce6dc07bf800",
+    "postgres_container_identity": "49bcb0c3b1c46922cefce2cf"
+  },
+  "samples": [
+    {
+      "label": "upload_init_presign",
+      "object_after_presign": {
+        "exists": false
+      },
+      "object_versions_after_presign": {
+        "count": 0,
+        "delete_markers": 0
+      },
+      "ordered_effects": [
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "database.query",
+          "sequence": 1,
+          "sql": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "database.query",
+          "sequence": 2,
+          "sql": "SELECT aap_identity_v1.read_actor_context($1, $2)"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.read",
+          "sequence": 3,
+          "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.actor_status",
+          "sequence": 4,
+          "sql": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.read",
+          "sequence": 5,
+          "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.account_lock",
+          "sequence": 6,
+          "sql": "SELECT aap_identity_v1.lock_accounts_share(CAST($1 AS uuid[]), CAST($2 AS boolean))"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.project_key_share",
+          "sequence": 7,
+          "sql": "SELECT projects.id, projects.organization_id, projects.display_id, projects.name, projects.type_label, projects.type_key, projects.data_type, projects.owner_id, projects.status, projects.ai_enabled, projects.ml_backend_pool_id, projects.default_variants, projects.preannotate_pipeline, projects.label_config, projects.tool_bindings, projects.sampling, projects.maximum_annotations, projects.show_overlap_first, projects.iou_dedup_threshold, projects.box_threshold, projects.text_threshold, projects.ai_interactive_enabled, projects.raster_mask_native_editing_enabled, projects.mask_qc_config, projects.point_cloud_quality_config, projects.rendering_config, projects.annotation_guide, projects.guide_assets, projects.model_version, projects.task_lock_ttl_seconds, projects.total_tasks, projects.completed_tasks, projects.review_tasks, projects.in_progress_tasks, projects.batch_summary, projects.video_sampling, projects.video_collaboration, projects.scene_mode, projects.prefer_same_scene_continuation, projects.scene_continuation_window_min, projects.due_date, projects.created_at, projects.updated_at FROM projects WHERE projects.id = $1::UUID FOR KEY SHARE NOWAIT"
+        },
+        {
+          "bucket": "$owned-guide-assets-bucket",
+          "expires_in": 900,
+          "key": "$project_main_guide_key",
+          "kind": "storage",
+          "operation": "generate_upload_url",
+          "outcome": "returned",
+          "sequence": 8
+        }
+      ],
+      "project_assets_after": [],
+      "project_assets_before": [],
+      "request": {
+        "actor_alias": "owner",
+        "body": {
+          "content_type": "image/png",
+          "filename": "guide.png",
+          "size": 28
+        },
+        "method": "POST",
+        "path": "/api/v1/projects/$project_main/guide-assets/upload-init"
+      },
+      "response": {
+        "body": {
+          "expires_in": 900,
+          "key": "$project_main_guide_key",
+          "upload_url": {
+            "authority": null,
+            "path": "/minio/$owned-guide-assets-bucket/$project_main_guide_key",
+            "query_redacted": true,
+            "scheme": null
+          }
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 200
+      }
+    },
+    {
+      "label": "upload_complete_head_then_manager_lock_write",
+      "object_after": {
+        "content_length": 28,
+        "content_type": "image/png",
+        "exists": true
+      },
+      "object_before": {
+        "content_length": 28,
+        "content_type": "image/png",
+        "exists": true
+      },
+      "object_versions_after": {
+        "count": 1,
+        "delete_markers": 0
+      },
+      "ordered_effects": [
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "database.query",
+          "sequence": 1,
+          "sql": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "database.query",
+          "sequence": 2,
+          "sql": "SELECT aap_identity_v1.read_actor_context($1, $2)"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.read",
+          "sequence": 3,
+          "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.actor_status",
+          "sequence": 4,
+          "sql": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.read",
+          "sequence": 5,
+          "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.account_read",
+          "sequence": 6,
+          "sql": "SELECT users.id AS users_id, users.email AS users_email, users.name AS users_name, users.password_hash AS users_password_hash, users.credential_generation AS users_credential_generation, users.role AS users_role, users.group_name AS users_group_name, users.group_id AS users_group_id, users.status AS users_status, users.is_active AS users_is_active, users.disabled_kind AS users_disabled_kind, users.disabled_at AS users_disabled_at, users.disabled_by AS users_disabled_by, users.disabled_reason AS users_disabled_reason, users.email_verified_at AS users_email_verified_at, users.last_login_at AS users_last_login_at, users.last_seen_at AS users_last_seen_at, users.password_admin_reset_at AS users_password_admin_reset_at, users.deactivation_requested_at AS users_deactivation_requested_at, users.deactivation_reason AS users_deactivation_reason, users.deactivation_scheduled_at AS users_deactivation_scheduled_at, users.weekly_target_default AS users_weekly_target_default, users.avatar_ref AS users_avatar_ref, users.preferences AS users_preferences, users.created_at AS users_created_at FROM users WHERE users.id = $1::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.read",
+          "sequence": 7,
+          "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.actor_status",
+          "sequence": 8,
+          "sql": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.read",
+          "sequence": 9,
+          "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+        },
+        {
+          "bucket": "$owned-guide-assets-bucket",
+          "content_length": 28,
+          "content_type": "image/png",
+          "key": "$project_main_guide_key",
+          "kind": "storage",
+          "operation": "verify_upload",
+          "outcome": "found",
+          "sequence": 10
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.account_lock",
+          "sequence": 11,
+          "sql": "SELECT aap_identity_v1.lock_accounts_share(CAST($1 AS uuid[]), CAST($2 AS boolean))"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.project_key_share",
+          "sequence": 12,
+          "sql": "SELECT projects.id, projects.organization_id, projects.display_id, projects.name, projects.type_label, projects.type_key, projects.data_type, projects.owner_id, projects.status, projects.ai_enabled, projects.ml_backend_pool_id, projects.default_variants, projects.preannotate_pipeline, projects.label_config, projects.tool_bindings, projects.sampling, projects.maximum_annotations, projects.show_overlap_first, projects.iou_dedup_threshold, projects.box_threshold, projects.text_threshold, projects.ai_interactive_enabled, projects.raster_mask_native_editing_enabled, projects.mask_qc_config, projects.point_cloud_quality_config, projects.rendering_config, projects.annotation_guide, projects.guide_assets, projects.model_version, projects.task_lock_ttl_seconds, projects.total_tasks, projects.completed_tasks, projects.review_tasks, projects.in_progress_tasks, projects.batch_summary, projects.video_sampling, projects.video_collaboration, projects.scene_mode, projects.prefer_same_scene_continuation, projects.scene_continuation_window_min, projects.due_date, projects.created_at, projects.updated_at FROM projects WHERE projects.id = $1::UUID FOR KEY SHARE NOWAIT"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.lock",
+          "sequence": 13,
+          "sql": "SELECT projects.id, projects.organization_id, projects.display_id, projects.name, projects.type_label, projects.type_key, projects.data_type, projects.owner_id, projects.status, projects.ai_enabled, projects.ml_backend_pool_id, projects.default_variants, projects.preannotate_pipeline, projects.label_config, projects.tool_bindings, projects.sampling, projects.maximum_annotations, projects.show_overlap_first, projects.iou_dedup_threshold, projects.box_threshold, projects.text_threshold, projects.ai_interactive_enabled, projects.raster_mask_native_editing_enabled, projects.mask_qc_config, projects.point_cloud_quality_config, projects.rendering_config, projects.annotation_guide, projects.guide_assets, projects.model_version, projects.task_lock_ttl_seconds, projects.total_tasks, projects.completed_tasks, projects.review_tasks, projects.in_progress_tasks, projects.batch_summary, projects.video_sampling, projects.video_collaboration, projects.scene_mode, projects.prefer_same_scene_continuation, projects.scene_continuation_window_min, projects.due_date, projects.created_at, projects.updated_at FROM projects WHERE projects.id = $1::UUID FOR UPDATE NOWAIT"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.write",
+          "sequence": 14,
+          "sql": "UPDATE projects SET guide_assets=$1::JSONB, updated_at=now() WHERE projects.id = $2::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "commit",
+          "sequence": 15
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.read",
+          "sequence": 16,
+          "sql": "SELECT projects.id, projects.organization_id, projects.display_id, projects.name, projects.type_label, projects.type_key, projects.data_type, projects.owner_id, projects.status, projects.ai_enabled, projects.ml_backend_pool_id, projects.default_variants, projects.preannotate_pipeline, projects.label_config, projects.tool_bindings, projects.sampling, projects.maximum_annotations, projects.show_overlap_first, projects.iou_dedup_threshold, projects.box_threshold, projects.text_threshold, projects.ai_interactive_enabled, projects.raster_mask_native_editing_enabled, projects.mask_qc_config, projects.point_cloud_quality_config, projects.rendering_config, projects.annotation_guide, projects.guide_assets, projects.model_version, projects.task_lock_ttl_seconds, projects.total_tasks, projects.completed_tasks, projects.review_tasks, projects.in_progress_tasks, projects.batch_summary, projects.video_sampling, projects.video_collaboration, projects.scene_mode, projects.prefer_same_scene_continuation, projects.scene_continuation_window_min, projects.due_date, projects.created_at, projects.updated_at FROM projects WHERE projects.id = $1::UUID"
+        }
+      ],
+      "presigned_put_status": 200,
+      "project_assets_after": [
+        {
+          "content_type": "image/png",
+          "key": "$project_main_guide_key",
+          "original_name": "guide.png",
+          "size": 28,
+          "uploaded_at": "<dynamic-timestamp>"
+        }
+      ],
+      "project_assets_before": [],
+      "request": {
+        "actor_alias": "owner",
+        "body": {
+          "content_type": "image/png",
+          "key": "$project_main_guide_key",
+          "original_name": "guide.png"
+        },
+        "method": "POST",
+        "path": "/api/v1/projects/$project_main/guide-assets/upload-complete"
+      },
+      "response": {
+        "body": {
+          "content_type": "image/png",
+          "key": "$project_main_guide_key",
+          "original_name": "guide.png",
+          "size": 28,
+          "uploaded_at": "<dynamic-timestamp>"
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 200
+      }
+    },
+    {
+      "label": "visible_member_signs_registered_asset",
+      "object_after": {
+        "content_length": 28,
+        "content_type": "image/png",
+        "exists": true
+      },
+      "ordered_effects": [
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "database.query",
+          "sequence": 1,
+          "sql": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "database.query",
+          "sequence": 2,
+          "sql": "SELECT aap_identity_v1.read_actor_context($1, $2)"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.read",
+          "sequence": 3,
+          "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.actor_status",
+          "sequence": 4,
+          "sql": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.read",
+          "sequence": 5,
+          "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.project_membership",
+          "sequence": 6,
+          "sql": "SELECT project_members.id, project_members.project_id, project_members.user_id, project_members.role, project_members.assigned_by, project_members.assigned_at, project_members.version, project_members.updated_at, project_members.weekly_target FROM project_members WHERE project_members.project_id = $1::UUID AND project_members.user_id = $2::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.account_lock",
+          "sequence": 7,
+          "sql": "SELECT aap_identity_v1.lock_accounts_share(CAST($1 AS uuid[]), CAST($2 AS boolean))"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.project_key_share",
+          "sequence": 8,
+          "sql": "SELECT projects.id, projects.organization_id, projects.display_id, projects.name, projects.type_label, projects.type_key, projects.data_type, projects.owner_id, projects.status, projects.ai_enabled, projects.ml_backend_pool_id, projects.default_variants, projects.preannotate_pipeline, projects.label_config, projects.tool_bindings, projects.sampling, projects.maximum_annotations, projects.show_overlap_first, projects.iou_dedup_threshold, projects.box_threshold, projects.text_threshold, projects.ai_interactive_enabled, projects.raster_mask_native_editing_enabled, projects.mask_qc_config, projects.point_cloud_quality_config, projects.rendering_config, projects.annotation_guide, projects.guide_assets, projects.model_version, projects.task_lock_ttl_seconds, projects.total_tasks, projects.completed_tasks, projects.review_tasks, projects.in_progress_tasks, projects.batch_summary, projects.video_sampling, projects.video_collaboration, projects.scene_mode, projects.prefer_same_scene_continuation, projects.scene_continuation_window_min, projects.due_date, projects.created_at, projects.updated_at FROM projects WHERE projects.id = $1::UUID FOR KEY SHARE NOWAIT"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.project_key_share",
+          "sequence": 9,
+          "sql": "SELECT project_members.id, project_members.project_id, project_members.user_id, project_members.role, project_members.assigned_by, project_members.assigned_at, project_members.version, project_members.updated_at, project_members.weekly_target FROM project_members WHERE project_members.project_id = $1::UUID AND project_members.user_id = $2::UUID FOR SHARE NOWAIT"
+        },
+        {
+          "bucket": "$owned-guide-assets-bucket",
+          "expires_in": 3600,
+          "key": "$project_main_guide_key",
+          "kind": "storage",
+          "operation": "generate_download_url",
+          "outcome": "returned",
+          "sequence": 10
+        }
+      ],
+      "project_assets_after": [
+        {
+          "content_type": "image/png",
+          "key": "$project_main_guide_key",
+          "original_name": "guide.png",
+          "size": 28,
+          "uploaded_at": "<dynamic-timestamp>"
+        }
+      ],
+      "project_assets_before": [
+        {
+          "content_type": "image/png",
+          "key": "$project_main_guide_key",
+          "original_name": "guide.png",
+          "size": 28,
+          "uploaded_at": "<dynamic-timestamp>"
+        }
+      ],
+      "request": {
+        "actor_alias": "reader",
+        "method": "GET",
+        "path": "/api/v1/projects/$project_main/guide-assets/sign-url",
+        "query": {
+          "key": "$project_main_guide_key"
+        }
+      },
+      "response": {
+        "body": {
+          "expires_in": 3600,
+          "url": {
+            "authority": null,
+            "path": "/minio/$owned-guide-assets-bucket/$project_main_guide_key",
+            "query_redacted": true,
+            "scheme": null
+          }
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 200
+      }
+    },
+    {
+      "label": "member_delete_denied_before_storage",
+      "object_after": {
+        "content_length": 28,
+        "content_type": "image/png",
+        "exists": true
+      },
+      "ordered_effects": [
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "database.query",
+          "sequence": 1,
+          "sql": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "database.query",
+          "sequence": 2,
+          "sql": "SELECT aap_identity_v1.read_actor_context($1, $2)"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.read",
+          "sequence": 3,
+          "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.actor_status",
+          "sequence": 4,
+          "sql": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.read",
+          "sequence": 5,
+          "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.project_membership",
+          "sequence": 6,
+          "sql": "SELECT project_members.id, project_members.project_id, project_members.user_id, project_members.role, project_members.assigned_by, project_members.assigned_at, project_members.version, project_members.updated_at, project_members.weekly_target FROM project_members WHERE project_members.project_id = $1::UUID AND project_members.user_id = $2::UUID"
+        }
+      ],
+      "project_assets_after": [
+        {
+          "content_type": "image/png",
+          "key": "$project_main_guide_key",
+          "original_name": "guide.png",
+          "size": 28,
+          "uploaded_at": "<dynamic-timestamp>"
+        }
+      ],
+      "project_assets_before": [
+        {
+          "content_type": "image/png",
+          "key": "$project_main_guide_key",
+          "original_name": "guide.png",
+          "size": 28,
+          "uploaded_at": "<dynamic-timestamp>"
+        }
+      ],
+      "request": {
+        "actor_alias": "nonowner_manager",
+        "method": "DELETE",
+        "path": "/api/v1/projects/$project_main/guide-assets",
+        "query": {
+          "key": "$project_main_guide_key"
+        }
+      },
+      "response": {
+        "body": {
+          "detail": "仅项目负责人或超级管理员可执行"
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 403
+      }
+    },
+    {
+      "label": "wrong_project_key_upload_complete_before_head",
+      "main_project_assets_after": [
+        {
+          "content_type": "image/png",
+          "key": "$project_main_guide_key",
+          "original_name": "guide.png",
+          "size": 28,
+          "uploaded_at": "<dynamic-timestamp>"
+        }
+      ],
+      "main_project_assets_before": [
+        {
+          "content_type": "image/png",
+          "key": "$project_main_guide_key",
+          "original_name": "guide.png",
+          "size": 28,
+          "uploaded_at": "<dynamic-timestamp>"
+        }
+      ],
+      "object_after": {
+        "content_length": 28,
+        "content_type": "image/png",
+        "exists": true
+      },
+      "ordered_effects": [
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "database.query",
+          "sequence": 1,
+          "sql": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "database.query",
+          "sequence": 2,
+          "sql": "SELECT aap_identity_v1.read_actor_context($1, $2)"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.read",
+          "sequence": 3,
+          "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.actor_status",
+          "sequence": 4,
+          "sql": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.read",
+          "sequence": 5,
+          "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.account_read",
+          "sequence": 6,
+          "sql": "SELECT users.id AS users_id, users.email AS users_email, users.name AS users_name, users.password_hash AS users_password_hash, users.credential_generation AS users_credential_generation, users.role AS users_role, users.group_name AS users_group_name, users.group_id AS users_group_id, users.status AS users_status, users.is_active AS users_is_active, users.disabled_kind AS users_disabled_kind, users.disabled_at AS users_disabled_at, users.disabled_by AS users_disabled_by, users.disabled_reason AS users_disabled_reason, users.email_verified_at AS users_email_verified_at, users.last_login_at AS users_last_login_at, users.last_seen_at AS users_last_seen_at, users.password_admin_reset_at AS users_password_admin_reset_at, users.deactivation_requested_at AS users_deactivation_requested_at, users.deactivation_reason AS users_deactivation_reason, users.deactivation_scheduled_at AS users_deactivation_scheduled_at, users.weekly_target_default AS users_weekly_target_default, users.avatar_ref AS users_avatar_ref, users.preferences AS users_preferences, users.created_at AS users_created_at FROM users WHERE users.id = $1::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.read",
+          "sequence": 7,
+          "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.actor_status",
+          "sequence": 8,
+          "sql": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.read",
+          "sequence": 9,
+          "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+        }
+      ],
+      "other_project_assets_after": [],
+      "other_project_assets_before": [],
+      "request": {
+        "actor_alias": "owner",
+        "body": {
+          "content_type": "image/png",
+          "key": "$project_main_guide_key",
+          "original_name": "guide.png"
+        },
+        "method": "POST",
+        "path": "/api/v1/projects/$project_other/guide-assets/upload-complete"
+      },
+      "response": {
+        "body": {
+          "detail": "Guide asset not found"
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 404
+      }
+    },
+    {
+      "label": "wrong_project_key_rejected_before_storage",
+      "main_project_assets_after": [
+        {
+          "content_type": "image/png",
+          "key": "$project_main_guide_key",
+          "original_name": "guide.png",
+          "size": 28,
+          "uploaded_at": "<dynamic-timestamp>"
+        }
+      ],
+      "main_project_assets_before": [
+        {
+          "content_type": "image/png",
+          "key": "$project_main_guide_key",
+          "original_name": "guide.png",
+          "size": 28,
+          "uploaded_at": "<dynamic-timestamp>"
+        }
+      ],
+      "object_after": {
+        "content_length": 28,
+        "content_type": "image/png",
+        "exists": true
+      },
+      "ordered_effects": [
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "database.query",
+          "sequence": 1,
+          "sql": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "database.query",
+          "sequence": 2,
+          "sql": "SELECT aap_identity_v1.read_actor_context($1, $2)"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.read",
+          "sequence": 3,
+          "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.actor_status",
+          "sequence": 4,
+          "sql": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.read",
+          "sequence": 5,
+          "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.account_lock",
+          "sequence": 6,
+          "sql": "SELECT aap_identity_v1.lock_accounts_share(CAST($1 AS uuid[]), CAST($2 AS boolean))"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.project_key_share",
+          "sequence": 7,
+          "sql": "SELECT projects.id, projects.organization_id, projects.display_id, projects.name, projects.type_label, projects.type_key, projects.data_type, projects.owner_id, projects.status, projects.ai_enabled, projects.ml_backend_pool_id, projects.default_variants, projects.preannotate_pipeline, projects.label_config, projects.tool_bindings, projects.sampling, projects.maximum_annotations, projects.show_overlap_first, projects.iou_dedup_threshold, projects.box_threshold, projects.text_threshold, projects.ai_interactive_enabled, projects.raster_mask_native_editing_enabled, projects.mask_qc_config, projects.point_cloud_quality_config, projects.rendering_config, projects.annotation_guide, projects.guide_assets, projects.model_version, projects.task_lock_ttl_seconds, projects.total_tasks, projects.completed_tasks, projects.review_tasks, projects.in_progress_tasks, projects.batch_summary, projects.video_sampling, projects.video_collaboration, projects.scene_mode, projects.prefer_same_scene_continuation, projects.scene_continuation_window_min, projects.due_date, projects.created_at, projects.updated_at FROM projects WHERE projects.id = $1::UUID FOR KEY SHARE NOWAIT"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.lock",
+          "sequence": 8,
+          "sql": "SELECT projects.id, projects.organization_id, projects.display_id, projects.name, projects.type_label, projects.type_key, projects.data_type, projects.owner_id, projects.status, projects.ai_enabled, projects.ml_backend_pool_id, projects.default_variants, projects.preannotate_pipeline, projects.label_config, projects.tool_bindings, projects.sampling, projects.maximum_annotations, projects.show_overlap_first, projects.iou_dedup_threshold, projects.box_threshold, projects.text_threshold, projects.ai_interactive_enabled, projects.raster_mask_native_editing_enabled, projects.mask_qc_config, projects.point_cloud_quality_config, projects.rendering_config, projects.annotation_guide, projects.guide_assets, projects.model_version, projects.task_lock_ttl_seconds, projects.total_tasks, projects.completed_tasks, projects.review_tasks, projects.in_progress_tasks, projects.batch_summary, projects.video_sampling, projects.video_collaboration, projects.scene_mode, projects.prefer_same_scene_continuation, projects.scene_continuation_window_min, projects.due_date, projects.created_at, projects.updated_at FROM projects WHERE projects.id = $1::UUID FOR UPDATE NOWAIT"
+        }
+      ],
+      "other_project_assets_after": [],
+      "other_project_assets_before": [],
+      "request": {
+        "actor_alias": "owner",
+        "method": "DELETE",
+        "path": "/api/v1/projects/$project_other/guide-assets",
+        "query": {
+          "key": "$project_main_guide_key"
+        }
+      },
+      "response": {
+        "body": {
+          "detail": "Guide asset not found"
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 404
+      }
+    },
+    {
+      "label": "unregistered_reference_rejected_before_storage",
+      "object_after": {
+        "content_length": 25,
+        "content_type": "image/png",
+        "exists": true
+      },
+      "object_before": {
+        "content_length": 25,
+        "content_type": "image/png",
+        "exists": true
+      },
+      "ordered_effects": [
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "database.query",
+          "sequence": 1,
+          "sql": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "database.query",
+          "sequence": 2,
+          "sql": "SELECT aap_identity_v1.read_actor_context($1, $2)"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.read",
+          "sequence": 3,
+          "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.actor_status",
+          "sequence": 4,
+          "sql": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.read",
+          "sequence": 5,
+          "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.account_lock",
+          "sequence": 6,
+          "sql": "SELECT aap_identity_v1.lock_accounts_share(CAST($1 AS uuid[]), CAST($2 AS boolean))"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.project_key_share",
+          "sequence": 7,
+          "sql": "SELECT projects.id, projects.organization_id, projects.display_id, projects.name, projects.type_label, projects.type_key, projects.data_type, projects.owner_id, projects.status, projects.ai_enabled, projects.ml_backend_pool_id, projects.default_variants, projects.preannotate_pipeline, projects.label_config, projects.tool_bindings, projects.sampling, projects.maximum_annotations, projects.show_overlap_first, projects.iou_dedup_threshold, projects.box_threshold, projects.text_threshold, projects.ai_interactive_enabled, projects.raster_mask_native_editing_enabled, projects.mask_qc_config, projects.point_cloud_quality_config, projects.rendering_config, projects.annotation_guide, projects.guide_assets, projects.model_version, projects.task_lock_ttl_seconds, projects.total_tasks, projects.completed_tasks, projects.review_tasks, projects.in_progress_tasks, projects.batch_summary, projects.video_sampling, projects.video_collaboration, projects.scene_mode, projects.prefer_same_scene_continuation, projects.scene_continuation_window_min, projects.due_date, projects.created_at, projects.updated_at FROM projects WHERE projects.id = $1::UUID FOR KEY SHARE NOWAIT"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.lock",
+          "sequence": 8,
+          "sql": "SELECT projects.id, projects.organization_id, projects.display_id, projects.name, projects.type_label, projects.type_key, projects.data_type, projects.owner_id, projects.status, projects.ai_enabled, projects.ml_backend_pool_id, projects.default_variants, projects.preannotate_pipeline, projects.label_config, projects.tool_bindings, projects.sampling, projects.maximum_annotations, projects.show_overlap_first, projects.iou_dedup_threshold, projects.box_threshold, projects.text_threshold, projects.ai_interactive_enabled, projects.raster_mask_native_editing_enabled, projects.mask_qc_config, projects.point_cloud_quality_config, projects.rendering_config, projects.annotation_guide, projects.guide_assets, projects.model_version, projects.task_lock_ttl_seconds, projects.total_tasks, projects.completed_tasks, projects.review_tasks, projects.in_progress_tasks, projects.batch_summary, projects.video_sampling, projects.video_collaboration, projects.scene_mode, projects.prefer_same_scene_continuation, projects.scene_continuation_window_min, projects.due_date, projects.created_at, projects.updated_at FROM projects WHERE projects.id = $1::UUID FOR UPDATE NOWAIT"
+        }
+      ],
+      "project_assets_after": [
+        {
+          "content_type": "image/png",
+          "key": "$project_main_guide_key",
+          "original_name": "guide.png",
+          "size": 28,
+          "uploaded_at": "<dynamic-timestamp>"
+        }
+      ],
+      "project_assets_before": [
+        {
+          "content_type": "image/png",
+          "key": "$project_main_guide_key",
+          "original_name": "guide.png",
+          "size": 28,
+          "uploaded_at": "<dynamic-timestamp>"
+        }
+      ],
+      "request": {
+        "actor_alias": "owner",
+        "method": "DELETE",
+        "path": "/api/v1/projects/$project_main/guide-assets",
+        "query": {
+          "key": "$guide_unregistered"
+        }
+      },
+      "response": {
+        "body": {
+          "detail": "Asset not found"
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 404
+      }
+    },
+    {
+      "label": "missing_object_head_rejected_before_write_lock",
+      "object_after": {
+        "exists": false
+      },
+      "ordered_effects": [
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "database.query",
+          "sequence": 1,
+          "sql": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "database.query",
+          "sequence": 2,
+          "sql": "SELECT aap_identity_v1.read_actor_context($1, $2)"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.read",
+          "sequence": 3,
+          "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.actor_status",
+          "sequence": 4,
+          "sql": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.read",
+          "sequence": 5,
+          "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.account_read",
+          "sequence": 6,
+          "sql": "SELECT users.id AS users_id, users.email AS users_email, users.name AS users_name, users.password_hash AS users_password_hash, users.credential_generation AS users_credential_generation, users.role AS users_role, users.group_name AS users_group_name, users.group_id AS users_group_id, users.status AS users_status, users.is_active AS users_is_active, users.disabled_kind AS users_disabled_kind, users.disabled_at AS users_disabled_at, users.disabled_by AS users_disabled_by, users.disabled_reason AS users_disabled_reason, users.email_verified_at AS users_email_verified_at, users.last_login_at AS users_last_login_at, users.last_seen_at AS users_last_seen_at, users.password_admin_reset_at AS users_password_admin_reset_at, users.deactivation_requested_at AS users_deactivation_requested_at, users.deactivation_reason AS users_deactivation_reason, users.deactivation_scheduled_at AS users_deactivation_scheduled_at, users.weekly_target_default AS users_weekly_target_default, users.avatar_ref AS users_avatar_ref, users.preferences AS users_preferences, users.created_at AS users_created_at FROM users WHERE users.id = $1::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.read",
+          "sequence": 7,
+          "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.actor_status",
+          "sequence": 8,
+          "sql": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.read",
+          "sequence": 9,
+          "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+        },
+        {
+          "bucket": "$owned-guide-assets-bucket",
+          "key": "$guide_missing",
+          "kind": "storage",
+          "operation": "verify_upload",
+          "outcome": "missing",
+          "sequence": 10
+        }
+      ],
+      "project_assets_after": [
+        {
+          "content_type": "image/png",
+          "key": "$project_main_guide_key",
+          "original_name": "guide.png",
+          "size": 28,
+          "uploaded_at": "<dynamic-timestamp>"
+        }
+      ],
+      "project_assets_before": [
+        {
+          "content_type": "image/png",
+          "key": "$project_main_guide_key",
+          "original_name": "guide.png",
+          "size": 28,
+          "uploaded_at": "<dynamic-timestamp>"
+        }
+      ],
+      "request": {
+        "actor_alias": "owner",
+        "body": {
+          "content_type": "image/png",
+          "key": "$guide_missing",
+          "original_name": "missing.png"
+        },
+        "method": "POST",
+        "path": "/api/v1/projects/$project_main/guide-assets/upload-complete"
+      },
+      "response": {
+        "body": {
+          "detail": "File not found in storage"
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 400
+      }
+    },
+    {
+      "label": "unsupported_upload_type_rejected_without_storage",
+      "ordered_effects": [
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "database.query",
+          "sequence": 1,
+          "sql": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "database.query",
+          "sequence": 2,
+          "sql": "SELECT aap_identity_v1.read_actor_context($1, $2)"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.read",
+          "sequence": 3,
+          "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.actor_status",
+          "sequence": 4,
+          "sql": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.read",
+          "sequence": 5,
+          "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.account_lock",
+          "sequence": 6,
+          "sql": "SELECT aap_identity_v1.lock_accounts_share(CAST($1 AS uuid[]), CAST($2 AS boolean))"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.project_key_share",
+          "sequence": 7,
+          "sql": "SELECT projects.id, projects.organization_id, projects.display_id, projects.name, projects.type_label, projects.type_key, projects.data_type, projects.owner_id, projects.status, projects.ai_enabled, projects.ml_backend_pool_id, projects.default_variants, projects.preannotate_pipeline, projects.label_config, projects.tool_bindings, projects.sampling, projects.maximum_annotations, projects.show_overlap_first, projects.iou_dedup_threshold, projects.box_threshold, projects.text_threshold, projects.ai_interactive_enabled, projects.raster_mask_native_editing_enabled, projects.mask_qc_config, projects.point_cloud_quality_config, projects.rendering_config, projects.annotation_guide, projects.guide_assets, projects.model_version, projects.task_lock_ttl_seconds, projects.total_tasks, projects.completed_tasks, projects.review_tasks, projects.in_progress_tasks, projects.batch_summary, projects.video_sampling, projects.video_collaboration, projects.scene_mode, projects.prefer_same_scene_continuation, projects.scene_continuation_window_min, projects.due_date, projects.created_at, projects.updated_at FROM projects WHERE projects.id = $1::UUID FOR KEY SHARE NOWAIT"
+        }
+      ],
+      "project_assets_after": [
+        {
+          "content_type": "image/png",
+          "key": "$project_main_guide_key",
+          "original_name": "guide.png",
+          "size": 28,
+          "uploaded_at": "<dynamic-timestamp>"
+        }
+      ],
+      "project_assets_before": [
+        {
+          "content_type": "image/png",
+          "key": "$project_main_guide_key",
+          "original_name": "guide.png",
+          "size": 28,
+          "uploaded_at": "<dynamic-timestamp>"
+        }
+      ],
+      "request": {
+        "actor_alias": "owner",
+        "body": {
+          "content_type": "application/x-msdownload",
+          "filename": "unsafe.exe",
+          "size": 128
+        },
+        "method": "POST",
+        "path": "/api/v1/projects/$project_main/guide-assets/upload-init"
+      },
+      "response": {
+        "body": {
+          "detail": "Unsupported content type: application/x-msdownload"
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 400
+      }
+    },
+    {
+      "label": "real_delete_denial_still_removes_metadata",
+      "object_after": {
+        "content_length": 28,
+        "content_type": "image/png",
+        "exists": true
+      },
+      "object_versions_after": {
+        "count": 1,
+        "delete_markers": 0
+      },
+      "object_versions_before": {
+        "count": 1,
+        "delete_markers": 0
+      },
+      "ordered_effects": [
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "database.query",
+          "sequence": 1,
+          "sql": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "database.query",
+          "sequence": 2,
+          "sql": "SELECT aap_identity_v1.read_actor_context($1, $2)"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.read",
+          "sequence": 3,
+          "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.actor_status",
+          "sequence": 4,
+          "sql": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.read",
+          "sequence": 5,
+          "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.account_lock",
+          "sequence": 6,
+          "sql": "SELECT aap_identity_v1.lock_accounts_share(CAST($1 AS uuid[]), CAST($2 AS boolean))"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.project_key_share",
+          "sequence": 7,
+          "sql": "SELECT projects.id, projects.organization_id, projects.display_id, projects.name, projects.type_label, projects.type_key, projects.data_type, projects.owner_id, projects.status, projects.ai_enabled, projects.ml_backend_pool_id, projects.default_variants, projects.preannotate_pipeline, projects.label_config, projects.tool_bindings, projects.sampling, projects.maximum_annotations, projects.show_overlap_first, projects.iou_dedup_threshold, projects.box_threshold, projects.text_threshold, projects.ai_interactive_enabled, projects.raster_mask_native_editing_enabled, projects.mask_qc_config, projects.point_cloud_quality_config, projects.rendering_config, projects.annotation_guide, projects.guide_assets, projects.model_version, projects.task_lock_ttl_seconds, projects.total_tasks, projects.completed_tasks, projects.review_tasks, projects.in_progress_tasks, projects.batch_summary, projects.video_sampling, projects.video_collaboration, projects.scene_mode, projects.prefer_same_scene_continuation, projects.scene_continuation_window_min, projects.due_date, projects.created_at, projects.updated_at FROM projects WHERE projects.id = $1::UUID FOR KEY SHARE NOWAIT"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.lock",
+          "sequence": 8,
+          "sql": "SELECT projects.id, projects.organization_id, projects.display_id, projects.name, projects.type_label, projects.type_key, projects.data_type, projects.owner_id, projects.status, projects.ai_enabled, projects.ml_backend_pool_id, projects.default_variants, projects.preannotate_pipeline, projects.label_config, projects.tool_bindings, projects.sampling, projects.maximum_annotations, projects.show_overlap_first, projects.iou_dedup_threshold, projects.box_threshold, projects.text_threshold, projects.ai_interactive_enabled, projects.raster_mask_native_editing_enabled, projects.mask_qc_config, projects.point_cloud_quality_config, projects.rendering_config, projects.annotation_guide, projects.guide_assets, projects.model_version, projects.task_lock_ttl_seconds, projects.total_tasks, projects.completed_tasks, projects.review_tasks, projects.in_progress_tasks, projects.batch_summary, projects.video_sampling, projects.video_collaboration, projects.scene_mode, projects.prefer_same_scene_continuation, projects.scene_continuation_window_min, projects.due_date, projects.created_at, projects.updated_at FROM projects WHERE projects.id = $1::UUID FOR UPDATE NOWAIT"
+        },
+        {
+          "bucket": "$owned-guide-assets-bucket",
+          "error_code": "AccessDenied",
+          "error_type": "AccessDenied",
+          "key": "$guide_delete_denied",
+          "kind": "storage",
+          "operation": "delete_object",
+          "outcome": "error",
+          "sequence": 9
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.write",
+          "sequence": 10,
+          "sql": "UPDATE projects SET guide_assets=$1::JSONB, updated_at=now() WHERE projects.id = $2::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "commit",
+          "sequence": 11
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.read",
+          "sequence": 12,
+          "sql": "SELECT projects.id, projects.organization_id, projects.display_id, projects.name, projects.type_label, projects.type_key, projects.data_type, projects.owner_id, projects.status, projects.ai_enabled, projects.ml_backend_pool_id, projects.default_variants, projects.preannotate_pipeline, projects.label_config, projects.tool_bindings, projects.sampling, projects.maximum_annotations, projects.show_overlap_first, projects.iou_dedup_threshold, projects.box_threshold, projects.text_threshold, projects.ai_interactive_enabled, projects.raster_mask_native_editing_enabled, projects.mask_qc_config, projects.point_cloud_quality_config, projects.rendering_config, projects.annotation_guide, projects.guide_assets, projects.model_version, projects.task_lock_ttl_seconds, projects.total_tasks, projects.completed_tasks, projects.review_tasks, projects.in_progress_tasks, projects.batch_summary, projects.video_sampling, projects.video_collaboration, projects.scene_mode, projects.prefer_same_scene_continuation, projects.scene_continuation_window_min, projects.due_date, projects.created_at, projects.updated_at FROM projects WHERE projects.id = $1::UUID"
+        }
+      ],
+      "project_assets_after": [
+        {
+          "content_type": "image/png",
+          "key": "$project_main_guide_key",
+          "original_name": "guide.png",
+          "size": 28,
+          "uploaded_at": "<dynamic-timestamp>"
+        }
+      ],
+      "project_assets_before": [
+        {
+          "content_type": "image/png",
+          "key": "$project_main_guide_key",
+          "original_name": "guide.png",
+          "size": 28,
+          "uploaded_at": "<dynamic-timestamp>"
+        },
+        {
+          "content_type": "image/png",
+          "key": "$guide_delete_denied",
+          "original_name": "delete-denied.png",
+          "size": 28,
+          "uploaded_at": "<dynamic-timestamp>"
+        }
+      ],
+      "request": {
+        "actor_alias": "owner",
+        "method": "DELETE",
+        "path": "/api/v1/projects/$project_main/guide-assets",
+        "query": {
+          "key": "$guide_delete_denied"
+        }
+      },
+      "response": {
+        "body": {
+          "deleted": "$guide_delete_denied"
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 200
+      },
+      "storage_identity": "existing-verifier-catalog-readonly",
+      "storage_policy_changed": false
+    },
+    {
+      "label": "registered_reference_removed_then_exact_object_deleted",
+      "object_after": {
+        "exists": false
+      },
+      "object_before": {
+        "content_length": 28,
+        "content_type": "image/png",
+        "exists": true
+      },
+      "object_versions_after": {
+        "count": 2,
+        "delete_markers": 1
+      },
+      "ordered_effects": [
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "database.query",
+          "sequence": 1,
+          "sql": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "database.query",
+          "sequence": 2,
+          "sql": "SELECT aap_identity_v1.read_actor_context($1, $2)"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.read",
+          "sequence": 3,
+          "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.actor_status",
+          "sequence": 4,
+          "sql": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.read",
+          "sequence": 5,
+          "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.account_lock",
+          "sequence": 6,
+          "sql": "SELECT aap_identity_v1.lock_accounts_share(CAST($1 AS uuid[]), CAST($2 AS boolean))"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "authorization.project_key_share",
+          "sequence": 7,
+          "sql": "SELECT projects.id, projects.organization_id, projects.display_id, projects.name, projects.type_label, projects.type_key, projects.data_type, projects.owner_id, projects.status, projects.ai_enabled, projects.ml_backend_pool_id, projects.default_variants, projects.preannotate_pipeline, projects.label_config, projects.tool_bindings, projects.sampling, projects.maximum_annotations, projects.show_overlap_first, projects.iou_dedup_threshold, projects.box_threshold, projects.text_threshold, projects.ai_interactive_enabled, projects.raster_mask_native_editing_enabled, projects.mask_qc_config, projects.point_cloud_quality_config, projects.rendering_config, projects.annotation_guide, projects.guide_assets, projects.model_version, projects.task_lock_ttl_seconds, projects.total_tasks, projects.completed_tasks, projects.review_tasks, projects.in_progress_tasks, projects.batch_summary, projects.video_sampling, projects.video_collaboration, projects.scene_mode, projects.prefer_same_scene_continuation, projects.scene_continuation_window_min, projects.due_date, projects.created_at, projects.updated_at FROM projects WHERE projects.id = $1::UUID FOR KEY SHARE NOWAIT"
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.lock",
+          "sequence": 8,
+          "sql": "SELECT projects.id, projects.organization_id, projects.display_id, projects.name, projects.type_label, projects.type_key, projects.data_type, projects.owner_id, projects.status, projects.ai_enabled, projects.ml_backend_pool_id, projects.default_variants, projects.preannotate_pipeline, projects.label_config, projects.tool_bindings, projects.sampling, projects.maximum_annotations, projects.show_overlap_first, projects.iou_dedup_threshold, projects.box_threshold, projects.text_threshold, projects.ai_interactive_enabled, projects.raster_mask_native_editing_enabled, projects.mask_qc_config, projects.point_cloud_quality_config, projects.rendering_config, projects.annotation_guide, projects.guide_assets, projects.model_version, projects.task_lock_ttl_seconds, projects.total_tasks, projects.completed_tasks, projects.review_tasks, projects.in_progress_tasks, projects.batch_summary, projects.video_sampling, projects.video_collaboration, projects.scene_mode, projects.prefer_same_scene_continuation, projects.scene_continuation_window_min, projects.due_date, projects.created_at, projects.updated_at FROM projects WHERE projects.id = $1::UUID FOR UPDATE NOWAIT"
+        },
+        {
+          "bucket": "$owned-guide-assets-bucket",
+          "key": "$project_main_guide_key",
+          "kind": "storage",
+          "operation": "delete_object",
+          "outcome": "returned",
+          "sequence": 9
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.write",
+          "sequence": 10,
+          "sql": "UPDATE projects SET guide_assets=$1::JSONB, updated_at=now() WHERE projects.id = $2::UUID"
+        },
+        {
+          "kind": "database",
+          "operation": "commit",
+          "sequence": 11
+        },
+        {
+          "kind": "database",
+          "operation": "statement",
+          "phase": "project.read",
+          "sequence": 12,
+          "sql": "SELECT projects.id, projects.organization_id, projects.display_id, projects.name, projects.type_label, projects.type_key, projects.data_type, projects.owner_id, projects.status, projects.ai_enabled, projects.ml_backend_pool_id, projects.default_variants, projects.preannotate_pipeline, projects.label_config, projects.tool_bindings, projects.sampling, projects.maximum_annotations, projects.show_overlap_first, projects.iou_dedup_threshold, projects.box_threshold, projects.text_threshold, projects.ai_interactive_enabled, projects.raster_mask_native_editing_enabled, projects.mask_qc_config, projects.point_cloud_quality_config, projects.rendering_config, projects.annotation_guide, projects.guide_assets, projects.model_version, projects.task_lock_ttl_seconds, projects.total_tasks, projects.completed_tasks, projects.review_tasks, projects.in_progress_tasks, projects.batch_summary, projects.video_sampling, projects.video_collaboration, projects.scene_mode, projects.prefer_same_scene_continuation, projects.scene_continuation_window_min, projects.due_date, projects.created_at, projects.updated_at FROM projects WHERE projects.id = $1::UUID"
+        }
+      ],
+      "project_assets_after": [],
+      "project_assets_before": [
+        {
+          "content_type": "image/png",
+          "key": "$project_main_guide_key",
+          "original_name": "guide.png",
+          "size": 28,
+          "uploaded_at": "<dynamic-timestamp>"
+        }
+      ],
+      "request": {
+        "actor_alias": "owner",
+        "method": "DELETE",
+        "path": "/api/v1/projects/$project_main/guide-assets",
+        "query": {
+          "key": "$project_main_guide_key"
+        }
+      },
+      "response": {
+        "body": {
+          "deleted": "$project_main_guide_key"
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "status": 200
+      }
+    }
+  ],
+  "source": {
+    "capture_driver_sha256": "2c56be361888b5f16247f74c4f5d05cd61df5a1f7bcd47ed693c3d2cc823f52f",
+    "captured_head": "99c595004e62c84951b34057fd7383c4910f89ed",
+    "pre_extraction_base": "9c2c4c7c05ec8e4bf5e79ddcb2fa4c9f70e0118b",
+    "runtime_source_sha256": {
+      "apps/api/app/api/v1/guide_assets.py": "8ad2439c233e3f57af7dec420cdc13e6416b80ccc4a3d216f9e3d9e7b18344d0",
+      "apps/api/app/application/project_guide_assets.py": "f2755c30663afdee70e86fbcc9654a1e0d209b754ecf13ca6ea73fec5e4c85a7",
+      "apps/api/app/application/project_workspace.py": "48f6a52b6c5d17004675a0ec4f9186cbacfdcf89e6bc37fb11dcf4ce661dac00",
+      "apps/api/app/config.py": "528e3000704f635479d5ed851fd774b98d6d498ae238c11c784d0e3b57a740ef",
+      "apps/api/app/core/security.py": "70ca9d3325406f3128bcac0dc5048f6b1387cb1a795dfb1b76d6df29a2ac0b9b",
+      "apps/api/app/db/models/project.py": "b274f2a7765a14e1ec62b3f9e1253e09046f592edd94c0a769fedd6be7e31da4",
+      "apps/api/app/db/models/project_member.py": "55857f5fe62a1c591eae8357029e497a02ac3a04ac0bff1cd6d4b00feb96d107",
+      "apps/api/app/db/models/user.py": "ab646405f6960cee9dce564ca6caff5ea9a9676c4551f9af1b2a738251ded687",
+      "apps/api/app/deps.py": "fbb9af9ab07e6ca3adce3b8b170c2e5cc37fc8c17afea8a10fe341896a932168",
+      "apps/api/app/schemas/guide_asset.py": "034cf01e2288eab40345e9719f81c7968ac1e230d835cfa8fb6d693b6cb5f330",
+      "apps/api/app/services/guide_asset_contracts.py": "f3dc27ce62fdb2f4b1c965ba211a9060392cb443c1b7048c1f204c7ff4f66d84",
+      "apps/api/app/services/identity_account_lock_data.py": "4bea102159fb190d140767211734a9e9426e9b3c98006e98364204d68390bfe1",
+      "apps/api/app/services/identity_contracts.py": "39fc901226518dcfa6adb840992b70c2131b361beeb5ed7aadd915f06d595b3e",
+      "apps/api/app/services/identity_gateway.py": "a81f0b92875ff28e1248d3e26e573ca3a20ba172a911264ca100d12723f8b914",
+      "apps/api/app/services/project_access.py": "dc81de059c46473283e3aa48a35344d4acf57db8532136805149e06d7bb3ce4a",
+      "apps/api/app/services/project_workspace.py": "f61976e839f90826689f750b8c00b786dcc4b59f23477852cd692e6e74f84002",
+      "apps/api/app/services/storage.py": "002fc8c1b777b61d51bf0d66ef41a6cd090d07ed94d0029e448a4eddce4d0c8d",
+      "apps/api/tests/factory.py": "145647dab2e72e09bf8516b935e497b99f67f59ef7bf07d5d19afce81d3a1c40",
+      "apps/workspace/src/aap_workspace/access_contract.py": "1807f98dea15c7e9a98181ebd216d05861de2e820097dbab017bda445ea2ec8c"
+    }
+  }
+}

@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 from app.services.exporting.contracts import export_contracts, video_source_contract
+from app.services.project_access import get_workspace_project
 
 import asyncio
 import hashlib
@@ -114,6 +115,10 @@ from app.config import settings
 from app.utils.raster_mask_rle import coco_rle_bbox_norm
 from app.services.video_context import derive_sampled_frames, derive_step
 from app.services.video_tracks import derive_track_number
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    task_dataset_item_link_row,
+)
 
 VIDEO_EXPORT_FORMATS = {
     "video_json",
@@ -646,7 +651,7 @@ async def build_export_zip(
     VOC 走旧同步路径，不在此处。
     """
     svc = ExportService(db, task_ids=task_ids)
-    project = await svc.db.get(Project, project_id)
+    project = await get_workspace_project(svc.db, project_id=project_id)
 
     tmp_path = _new_zip_tempfile()
     try:
@@ -983,9 +988,9 @@ async def _load_lidar_link_items(
     if not task_ids:
         return {}
     result = await svc.db.execute(
-        select(TaskDatasetItemLink)
-        .where(TaskDatasetItemLink.task_id.in_(task_ids))
-        .order_by(TaskDatasetItemLink.role)
+        select(task_dataset_item_link_row)
+        .where(task_dataset_item_link_row.task_id.in_(task_ids))
+        .order_by(task_dataset_item_link_row.role)
     )
     links = list(result.scalars())
     item_facts, _ = await read_spatial_item_facts(
@@ -1202,13 +1207,15 @@ async def _build_lidar_export_zip(
                 camera_members = list(
                     (
                         await svc.db.execute(
-                            select(Annotation)
-                            .where(Annotation.task_id.in_(task_ids))
-                            .where(Annotation.sensor_role.is_not(None))
-                            .where(Annotation.geometry["type"].as_string() == "bbox")
-                            .where(Annotation.is_active.is_(True))
-                            .where(Annotation.was_cancelled.is_(False))
-                            .order_by(Annotation.task_id, Annotation.id)
+                            select(annotation_row)
+                            .where(annotation_row.task_id.in_(task_ids))
+                            .where(annotation_row.sensor_role.is_not(None))
+                            .where(
+                                annotation_row.geometry["type"].as_string() == "bbox"
+                            )
+                            .where(annotation_row.is_active.is_(True))
+                            .where(annotation_row.was_cancelled.is_(False))
+                            .order_by(annotation_row.task_id, annotation_row.id)
                         )
                     ).scalars()
                 )

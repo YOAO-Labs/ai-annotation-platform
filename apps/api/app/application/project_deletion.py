@@ -3,15 +3,15 @@
 from typing import NoReturn
 from uuid import UUID, uuid4
 
+from aap_workspace.project_deletion_contract import (
+    ProjectDeletionFailure,
+    ProjectDeletionReceipt,
+)
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aap_audit_contract import ProjectDeletionAuditContext
 from app.db.models.project import Project
-from app.services.project_deletion_contract import (
-    ProjectDeletionFailure,
-    ProjectDeletionReceipt,
-)
 from app.services.project_deletion_data import ProjectDeletionData
 
 _RETAINED = {
@@ -36,6 +36,14 @@ def _restore_failure(exc: ProjectDeletionFailure) -> NoReturn:
             detail={
                 "code": exc.code,
                 "message": "主动学习历史仍引用此来源；未删除数据或存储对象",
+            },
+        ) from exc
+    if exc.code == "video_execution_not_retired":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": exc.code,
+                "message": "存在尚未退役的视频执行，请先取消并完成退役后重试",
             },
         ) from exc
     if exc.code == "account_not_active":

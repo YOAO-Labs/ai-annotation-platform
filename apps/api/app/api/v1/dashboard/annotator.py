@@ -3,19 +3,16 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, cast, Date, or_, and_
+from sqlalchemy.orm import aliased
 from app.deps import (
     get_current_user,
     get_db,
     require_roles,
 )
-from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
-from app.db.models.task import Task
 from app.db.models.dataset import DatasetItem
-from app.db.models.annotation import Annotation
-from app.db.models.task_batch import TaskBatch
 from aap_assets_media.contract import ReadSourceRequest
-from app.db.models.task_event import TaskEvent
+from app.services.labeling_discussion_relations import task_event_facts
 from app.db.enums import UserRole, TaskStatus, ProjectRole
 from app.schemas.dashboard import (
     AnnotatorDashboardStats,
@@ -29,8 +26,8 @@ from app.services.project_aggregates import (
     ANNOTATOR_ROLE,
     DASHBOARD_PLATFORM_ROLES,
     project_scope_clause,
-    task_project_scope,
 )
+from app.services.workspace_read_relations import project_search_scope
 from app.services.user_brief import resolve_briefs_with_project_role
 from app.services.video_poster_references import video_poster_urls
 from app.services.dashboard_stats import (
@@ -41,6 +38,13 @@ from app.services.dashboard_stats import (
 )
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.identity_read_relations import account_profiles
+from app.services.workspace_read_relations import project_member_facts
+
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    batch_row,
+    task_row,
+)
 
 router = APIRouter()
 
@@ -73,17 +77,20 @@ async def annotator_project_onboarding(
         # Pass the resolved project role: the task-visibility predicate fails
         # closed without one, so omitting it would hide every assigned task.
         assignment_scope = or_(
-            Task.batch_id.in_(
-                select(TaskBatch.id)
+            task_row.batch_id.in_(
+                select(batch_row.id)
                 .where(
                     task_visibility_clause(
-                        current_user.id, project_role=access.project_role
+                        current_user.id,
+                        project_role=access.project_role,
+                        task_model=task_row,
+                        batch_model=batch_row,
                     )
                 )
-                .correlate_except(TaskBatch)
+                .correlate_except(batch_row)
             ),
             and_(
-                Task.file_type == "video",
+                task_row.file_type == "video",
                 bool((project.video_collaboration or {}).get("enabled")),
             ),
         )
@@ -92,11 +99,11 @@ async def annotator_project_onboarding(
         (
             await db.execute(
                 select(func.count())
-                .select_from(Task)
+                .select_from(task_row)
                 .where(
-                    Task.project_id == project_id,
-                    Task.assignee_id == current_user.id,
-                    Task.status != "uploading",
+                    task_row.project_id == project_id,
+                    task_row.assignee_id == current_user.id,
+                    task_row.status != "uploading",
                     assignment_scope,
                 )
             )
@@ -106,14 +113,14 @@ async def annotator_project_onboarding(
     opened_task_count = int(
         (
             await db.execute(
-                select(func.count(func.distinct(TaskEvent.task_id)))
-                .select_from(TaskEvent)
-                .join(Task, Task.id == TaskEvent.task_id)
+                select(func.count(func.distinct(task_event_facts.c.task_id)))
+                .select_from(task_event_facts)
+                .join(task_row, task_row.id == task_event_facts.c.task_id)
                 .where(
-                    Task.project_id == project_id,
-                    TaskEvent.user_id == current_user.id,
-                    TaskEvent.project_id == project_id,
-                    TaskEvent.kind == "annotate",
+                    task_row.project_id == project_id,
+                    task_event_facts.c.user_id == current_user.id,
+                    task_event_facts.c.project_id == project_id,
+                    task_event_facts.c.kind == "annotate",
                 )
             )
         ).scalar()
@@ -123,13 +130,13 @@ async def annotator_project_onboarding(
         (
             await db.execute(
                 select(func.count())
-                .select_from(Annotation)
-                .join(Task, Task.id == Annotation.task_id)
+                .select_from(annotation_row)
+                .join(task_row, task_row.id == annotation_row.task_id)
                 .where(
-                    Task.project_id == project_id,
-                    Annotation.user_id == current_user.id,
-                    Annotation.is_active.is_(True),
-                    Annotation.was_cancelled.is_(False),
+                    task_row.project_id == project_id,
+                    annotation_row.user_id == current_user.id,
+                    annotation_row.is_active.is_(True),
+                    annotation_row.was_cancelled.is_(False),
                 )
             )
         ).scalar()
@@ -139,26 +146,26 @@ async def annotator_project_onboarding(
         (
             await db.execute(
                 select(func.count())
-                .select_from(Task)
+                .select_from(task_row)
                 .where(
-                    Task.project_id == project_id,
-                    Task.assignee_id == current_user.id,
-                    Task.reviewed_at.is_not(None),
-                    Task.status.in_([TaskStatus.COMPLETED, "rejected"]),
+                    task_row.project_id == project_id,
+                    task_row.assignee_id == current_user.id,
+                    task_row.reviewed_at.is_not(None),
+                    task_row.status.in_([TaskStatus.COMPLETED, "rejected"]),
                 )
             )
         ).scalar()
         or 0
     )
     reviewed_task = await db.scalar(
-        select(Task)
+        select(task_row)
         .where(
-            Task.project_id == project_id,
-            Task.assignee_id == current_user.id,
-            Task.reviewed_at.is_not(None),
-            Task.status.in_([TaskStatus.COMPLETED, "rejected"]),
+            task_row.project_id == project_id,
+            task_row.assignee_id == current_user.id,
+            task_row.reviewed_at.is_not(None),
+            task_row.status.in_([TaskStatus.COMPLETED, "rejected"]),
         )
-        .order_by(Task.reviewed_at.desc(), Task.id.desc())
+        .order_by(task_row.reviewed_at.desc(), task_row.id.desc())
         .limit(1)
     )
     return OnboardingProjectSummary(
@@ -189,28 +196,28 @@ async def annotator_dashboard(
     # employee who is only a reviewer elsewhere must not see that project's
     # task queue; a manager keeps the existing owner/super-admin override.
     # Historical personal metrics below stay account-scoped.
-    annotator_work_scope = task_project_scope(
-        current_user, project_roles=(ANNOTATOR_ROLE,)
+    annotator_work_scope = project_scope_clause(
+        current_user, task_row.project_id, project_roles=(ANNOTATOR_ROLE,)
     )
     assigned_filters = [
-        Task.assignee_id == current_user.id,
-        Task.status.in_([TaskStatus.PENDING, TaskStatus.IN_PROGRESS]),
+        task_row.assignee_id == current_user.id,
+        task_row.status.in_([TaskStatus.PENDING, TaskStatus.IN_PROGRESS]),
     ]
     rejected_filters = [
-        Task.assignee_id == current_user.id,
-        Task.status == "rejected",
+        task_row.assignee_id == current_user.id,
+        task_row.status == "rejected",
     ]
     if annotator_work_scope is not None:
         assigned_filters.append(annotator_work_scope)
         rejected_filters.append(annotator_work_scope)
 
     assigned_result = await db.execute(
-        select(func.count()).select_from(Task).where(*assigned_filters)
+        select(func.count()).select_from(task_row).where(*assigned_filters)
     )
     assigned_tasks = assigned_result.scalar() or 0
 
     rejected_tasks_result = await db.execute(
-        select(func.count()).select_from(Task).where(*rejected_filters)
+        select(func.count()).select_from(task_row).where(*rejected_filters)
     )
     rejected_tasks_count = rejected_tasks_result.scalar() or 0
 
@@ -220,43 +227,43 @@ async def annotator_dashboard(
 
     today_completed_result = await db.execute(
         select(func.count())
-        .select_from(Annotation)
+        .select_from(annotation_row)
         .where(
-            Annotation.user_id == current_user.id,
-            Annotation.is_active.is_(True),
-            Annotation.created_at >= today_start,
+            annotation_row.user_id == current_user.id,
+            annotation_row.is_active.is_(True),
+            annotation_row.created_at >= today_start,
         )
     )
     today_completed = today_completed_result.scalar() or 0
 
     weekly_completed_result = await db.execute(
         select(func.count())
-        .select_from(Annotation)
+        .select_from(annotation_row)
         .where(
-            Annotation.user_id == current_user.id,
-            Annotation.is_active.is_(True),
-            Annotation.created_at >= week_start,
+            annotation_row.user_id == current_user.id,
+            annotation_row.is_active.is_(True),
+            annotation_row.created_at >= week_start,
         )
     )
     weekly_completed = weekly_completed_result.scalar() or 0
 
     total_completed_result = await db.execute(
         select(func.count())
-        .select_from(Annotation)
+        .select_from(annotation_row)
         .where(
-            Annotation.user_id == current_user.id,
-            Annotation.is_active.is_(True),
+            annotation_row.user_id == current_user.id,
+            annotation_row.is_active.is_(True),
         )
     )
     total_completed = total_completed_result.scalar() or 0
 
     ai_derived_result = await db.execute(
         select(func.count())
-        .select_from(Annotation)
+        .select_from(annotation_row)
         .where(
-            Annotation.user_id == current_user.id,
-            Annotation.is_active.is_(True),
-            Annotation.parent_prediction_id.isnot(None),
+            annotation_row.user_id == current_user.id,
+            annotation_row.is_active.is_(True),
+            annotation_row.parent_prediction_id.isnot(None),
         )
     )
     ai_derived = ai_derived_result.scalar() or 0
@@ -272,17 +279,17 @@ async def annotator_dashboard(
         day_end = day_start + timedelta(days=1)
         day_result = await db.execute(
             select(func.count())
-            .select_from(Annotation)
+            .select_from(annotation_row)
             .where(
-                Annotation.user_id == current_user.id,
-                Annotation.is_active.is_(True),
-                Annotation.created_at >= day_start,
-                Annotation.created_at < day_end,
+                annotation_row.user_id == current_user.id,
+                annotation_row.is_active.is_(True),
+                annotation_row.created_at >= day_start,
+                annotation_row.created_at < day_end,
             )
         )
         daily_counts.append(day_result.scalar() or 0)
 
-    # v0.8.4 · 效率看板 L2 字段：基于 Task.assigned_at / submitted_at / reopened_count
+    # v0.8.4 · 效率看板 L2 字段：基于 task_row.assigned_at / submitted_at / reopened_count
     # 中位单题耗时（仅本人 + assigned_at IS NOT NULL + submitted_at 在过去 30d）
     cutoff_30d = now - timedelta(days=30)
     duration_rows = (
@@ -291,16 +298,18 @@ async def annotator_dashboard(
                 func.percentile_cont(0.5)
                 .within_group(
                     (
-                        func.extract("epoch", Task.submitted_at - Task.assigned_at)
+                        func.extract(
+                            "epoch", task_row.submitted_at - task_row.assigned_at
+                        )
                         * 1000
                     ).asc()
                 )
                 .label("median_ms")
             ).where(
-                Task.assignee_id == current_user.id,
-                Task.assigned_at.isnot(None),
-                Task.submitted_at.isnot(None),
-                Task.submitted_at >= cutoff_30d,
+                task_row.assignee_id == current_user.id,
+                task_row.assigned_at.isnot(None),
+                task_row.submitted_at.isnot(None),
+                task_row.submitted_at >= cutoff_30d,
             )
         )
     ).first()
@@ -315,11 +324,13 @@ async def annotator_dashboard(
         await db.execute(
             select(
                 func.count().label("submitted_n"),
-                func.count().filter(Task.reopened_count > 0).label("reopened_n"),
-                func.coalesce(func.avg(Task.reopened_count), 0.0).label("reopen_avg"),
+                func.count().filter(task_row.reopened_count > 0).label("reopened_n"),
+                func.coalesce(func.avg(task_row.reopened_count), 0.0).label(
+                    "reopen_avg"
+                ),
             ).where(
-                Task.assignee_id == current_user.id,
-                Task.submitted_at.isnot(None),
+                task_row.assignee_id == current_user.id,
+                task_row.submitted_at.isnot(None),
             )
         )
     ).first()
@@ -340,12 +351,12 @@ async def annotator_dashboard(
     last_week_n = (
         await db.execute(
             select(func.count())
-            .select_from(Annotation)
+            .select_from(annotation_row)
             .where(
-                Annotation.user_id == current_user.id,
-                Annotation.is_active.is_(True),
-                Annotation.created_at >= last_week_start,
-                Annotation.created_at < week_start,
+                annotation_row.user_id == current_user.id,
+                annotation_row.is_active.is_(True),
+                annotation_row.created_at >= last_week_start,
+                annotation_row.created_at < week_start,
             )
         )
     ).scalar() or 0
@@ -366,9 +377,11 @@ async def annotator_dashboard(
     # active_minutes_today: 当日累计 duration_ms / 60000
     active_ms_row = (
         await db.execute(
-            select(func.coalesce(func.sum(TaskEvent.duration_ms), 0).label("ms")).where(
-                TaskEvent.user_id == current_user.id,
-                TaskEvent.started_at >= today_start,
+            select(
+                func.coalesce(func.sum(task_event_facts.c.duration_ms), 0).label("ms")
+            ).where(
+                task_event_facts.c.user_id == current_user.id,
+                task_event_facts.c.started_at >= today_start,
             )
         )
     ).first()
@@ -378,15 +391,15 @@ async def annotator_dashboard(
     hour_rows = (
         await db.execute(
             select(
-                func.extract("hour", TaskEvent.started_at).label("hour"),
-                func.coalesce(func.sum(TaskEvent.duration_ms), 0).label("ms"),
+                func.extract("hour", task_event_facts.c.started_at).label("hour"),
+                func.coalesce(func.sum(task_event_facts.c.duration_ms), 0).label("ms"),
             )
             .where(
-                TaskEvent.user_id == current_user.id,
-                TaskEvent.started_at >= today_start,
-                TaskEvent.started_at < today_start + timedelta(days=1),
+                task_event_facts.c.user_id == current_user.id,
+                task_event_facts.c.started_at >= today_start,
+                task_event_facts.c.started_at < today_start + timedelta(days=1),
             )
-            .group_by(func.extract("hour", TaskEvent.started_at))
+            .group_by(func.extract("hour", task_event_facts.c.started_at))
         )
     ).all()
     hour_map = {int(r.hour): int(r.ms // 60000) for r in hour_rows}
@@ -394,13 +407,13 @@ async def annotator_dashboard(
 
     # streak_days: 从今天倒推 distinct UTC 日期连续计数（30 天上限）
     streak_cutoff = today_start - timedelta(days=29)
-    day_expr = cast(func.timezone("UTC", TaskEvent.started_at), Date)
+    day_expr = cast(func.timezone("UTC", task_event_facts.c.started_at), Date)
     day_rows = (
         await db.execute(
             select(day_expr.label("d"))
             .where(
-                TaskEvent.user_id == current_user.id,
-                TaskEvent.started_at >= streak_cutoff,
+                task_event_facts.c.user_id == current_user.id,
+                task_event_facts.c.started_at >= streak_cutoff,
             )
             .distinct()
         )
@@ -445,22 +458,32 @@ async def my_batches(
     super_admin 看到所有同状态批次（便于演示 / 调试）；其他角色按 annotator_id 过滤（v0.7.2 单值）。"""
     visible_statuses = ["active", "annotating", "rejected", "reviewing"]
 
+    visible_projects = project_search_scope(current_user)
     q = (
-        select(TaskBatch, Project.name, Project.id)
-        .join(Project, TaskBatch.project_id == Project.id)
-        .where(TaskBatch.status.in_(visible_statuses))
+        select(
+            batch_row,
+            visible_projects.c.project_name,
+            visible_projects.c.project_id,
+        )
+        .join(
+            visible_projects,
+            visible_projects.c.project_id == batch_row.project_id,
+        )
+        .where(batch_row.status.in_(visible_statuses))
     )
     if current_user.role != UserRole.SUPER_ADMIN:
-        q = q.where(TaskBatch.annotator_id == current_user.id)
+        q = q.where(batch_row.annotator_id == current_user.id)
         # "My batches" is annotation work: restrict to projects where the
         # account still holds an annotator role (managers may also annotate in
         # a project they own).
         batch_scope = project_scope_clause(
-            current_user, TaskBatch.project_id, project_roles=(ANNOTATOR_ROLE,)
+            current_user, batch_row.project_id, project_roles=(ANNOTATOR_ROLE,)
         )
         if batch_scope is not None:
             q = q.where(batch_scope)
-    q = q.order_by(Project.name, TaskBatch.created_at.desc()).limit(100)
+    q = q.order_by(visible_projects.c.project_name, batch_row.created_at.desc()).limit(
+        100
+    )
 
     rows = (await db.execute(q)).all()
 
@@ -471,40 +494,40 @@ async def my_batches(
     in_progress_map: dict = {}
     if batch_ids:
         ip_rows = await db.execute(
-            select(Task.batch_id, func.count())
+            select(task_row.batch_id, func.count())
             .where(
-                Task.batch_id.in_(batch_ids),
-                Task.status == "in_progress",
+                task_row.batch_id.in_(batch_ids),
+                task_row.status == "in_progress",
             )
-            .group_by(Task.batch_id)
+            .group_by(task_row.batch_id)
         )
         in_progress_map = {row[0]: row[1] for row in ip_rows.all()}
 
     # 批次封面缩略图：每个 batch 取最早一张「有缩略图」的任务作封面（DISTINCT ON）。
     # 缩略图口径与 tasks/_shared.py 一致：dataset 导入的任务缩略图存在 DatasetItem 上，
-    # Task.thumbnail_path 为空，故需 LEFT JOIN + COALESCE，否则数据集任务永远拿不到封面。
+    # task_row.thumbnail_path 为空，故需 LEFT JOIN + COALESCE，否则数据集任务永远拿不到封面。
     cover_map: dict = {}
     video_cover_requests: list[ReadSourceRequest] = []
     if batch_ids:
-        eff_thumb = func.coalesce(DatasetItem.thumbnail_path, Task.thumbnail_path)
-        eff_blur = func.coalesce(DatasetItem.blurhash, Task.blurhash)
+        eff_thumb = func.coalesce(DatasetItem.thumbnail_path, task_row.thumbnail_path)
+        eff_blur = func.coalesce(DatasetItem.blurhash, task_row.blurhash)
         cover_rows = await db.execute(
             select(
-                Task.batch_id,
-                Task.id,
-                Task.dataset_item_id,
-                Task.file_type,
+                task_row.batch_id,
+                task_row.id,
+                task_row.dataset_item_id,
+                task_row.file_type,
                 DatasetItem.file_type,
                 eff_thumb,
                 eff_blur,
             )
-            .outerjoin(DatasetItem, DatasetItem.id == Task.dataset_item_id)
+            .outerjoin(DatasetItem, DatasetItem.id == task_row.dataset_item_id)
             .where(
-                Task.batch_id.in_(batch_ids),
+                task_row.batch_id.in_(batch_ids),
                 eff_thumb.is_not(None),
             )
-            .order_by(Task.batch_id, Task.created_at.asc())
-            .distinct(Task.batch_id)
+            .order_by(task_row.batch_id, task_row.created_at.asc())
+            .distinct(task_row.batch_id)
         )
         for (
             batch_id,
@@ -624,11 +647,11 @@ async def my_performance(
     throughput = (
         await db.execute(
             select(func.count())
-            .select_from(Annotation)
+            .select_from(annotation_row)
             .where(
-                Annotation.user_id == uid,
-                Annotation.is_active.is_(True),
-                Annotation.created_at >= start,
+                annotation_row.user_id == uid,
+                annotation_row.is_active.is_(True),
+                annotation_row.created_at >= start,
             )
         )
     ).scalar() or 0
@@ -636,17 +659,20 @@ async def my_performance(
     # 团队 annotator 群体（活跃），用于每周均线分母。
     # 项目职责来自 project_members，账户必须是当前活跃账号；legacy 全局
     # annotator 账号角色不再参与统计。
+    annotator_membership = aliased(
+        ProjectMember, project_member_facts(), adapt_on_names=True
+    )
     team_ids = (
         (
             await db.execute(
-                select(ProjectMember.user_id)
+                select(annotator_membership.user_id)
                 .join(
                     account_profiles,
-                    account_profiles.c.id == ProjectMember.user_id,
+                    account_profiles.c.id == annotator_membership.user_id,
                 )
                 .where(
                     account_profiles.c.is_active.is_(True),
-                    ProjectMember.role == ProjectRole.ANNOTATOR.value,
+                    annotator_membership.role == ProjectRole.ANNOTATOR.value,
                 )
                 .distinct()
             )
@@ -666,12 +692,12 @@ async def my_performance(
         n = (
             await db.execute(
                 select(func.count())
-                .select_from(Annotation)
+                .select_from(annotation_row)
                 .where(
-                    Annotation.user_id == uid,
-                    Annotation.is_active.is_(True),
-                    Annotation.created_at >= ws,
-                    Annotation.created_at < we,
+                    annotation_row.user_id == uid,
+                    annotation_row.is_active.is_(True),
+                    annotation_row.created_at >= ws,
+                    annotation_row.created_at < we,
                 )
             )
         ).scalar() or 0
@@ -681,12 +707,12 @@ async def my_performance(
             await db.execute(
                 select(
                     func.count().label("sn"),
-                    func.count().filter(Task.reopened_count > 0).label("rn"),
+                    func.count().filter(task_row.reopened_count > 0).label("rn"),
                 ).where(
-                    Task.assignee_id == uid,
-                    Task.submitted_at.isnot(None),
-                    Task.submitted_at >= ws,
-                    Task.submitted_at < we,
+                    task_row.assignee_id == uid,
+                    task_row.submitted_at.isnot(None),
+                    task_row.submitted_at >= ws,
+                    task_row.submitted_at < we,
                 )
             )
         ).first()
@@ -697,12 +723,12 @@ async def my_performance(
         team_total = (
             await db.execute(
                 select(func.count())
-                .select_from(Annotation)
+                .select_from(annotation_row)
                 .where(
-                    Annotation.user_id.in_(team_ids),
-                    Annotation.is_active.is_(True),
-                    Annotation.created_at >= ws,
-                    Annotation.created_at < we,
+                    annotation_row.user_id.in_(team_ids),
+                    annotation_row.is_active.is_(True),
+                    annotation_row.created_at >= ws,
+                    annotation_row.created_at < we,
                 )
             )
         ).scalar() or 0
@@ -712,10 +738,10 @@ async def my_performance(
     duration_rows = (
         (
             await db.execute(
-                select(TaskEvent.duration_ms).where(
-                    TaskEvent.user_id == uid,
-                    TaskEvent.kind == "annotate",
-                    TaskEvent.started_at >= start,
+                select(task_event_facts.c.duration_ms).where(
+                    task_event_facts.c.user_id == uid,
+                    task_event_facts.c.kind == "annotate",
+                    task_event_facts.c.started_at >= start,
                 )
             )
         )
@@ -750,23 +776,23 @@ async def my_performance(
     last_n = (
         await db.execute(
             select(func.count())
-            .select_from(Annotation)
+            .select_from(annotation_row)
             .where(
-                Annotation.user_id == uid,
-                Annotation.is_active.is_(True),
-                Annotation.created_at >= last_week_start,
-                Annotation.created_at < week_start_dt,
+                annotation_row.user_id == uid,
+                annotation_row.is_active.is_(True),
+                annotation_row.created_at >= last_week_start,
+                annotation_row.created_at < week_start_dt,
             )
         )
     ).scalar() or 0
     this_n = (
         await db.execute(
             select(func.count())
-            .select_from(Annotation)
+            .select_from(annotation_row)
             .where(
-                Annotation.user_id == uid,
-                Annotation.is_active.is_(True),
-                Annotation.created_at >= week_start_dt,
+                annotation_row.user_id == uid,
+                annotation_row.is_active.is_(True),
+                annotation_row.created_at >= week_start_dt,
             )
         )
     ).scalar() or 0

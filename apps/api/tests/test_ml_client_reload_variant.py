@@ -12,12 +12,15 @@ import httpx
 import pytest
 
 from app.db.models.ml_backend_registry import MLBackendRegistry
-from app.services.ml_client import (
+from aap_inference.backend_transport import (
     GPU_HEALTH_CHALLENGE_ECHO_MARKER,
     GPU_HEALTH_CHALLENGE_HEADER,
     GPU_HEALTH_CHALLENGE_QUERY_PARAM,
-    MLBackendClient,
 )
+from app.services.ml_client import MLBackendClient
+
+
+pytestmark = pytest.mark.usefixtures("isolated_routing_port")
 
 
 def _backend(url="http://fake:9090"):
@@ -37,7 +40,9 @@ def _patched(transport):
         kwargs["transport"] = transport
         return real(*args, **kwargs)
 
-    return patch("app.services.ml_client.httpx.AsyncClient", side_effect=factory)
+    return patch(
+        "aap_inference.backend_transport.httpx.AsyncClient", side_effect=factory
+    )
 
 
 @pytest.mark.asyncio

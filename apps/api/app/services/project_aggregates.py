@@ -6,7 +6,7 @@ authority: the project role always comes from ``project_members`` and a
 missing/unknown membership fails closed.  Management is a super administrator
 or the project owner whose *platform* role is administrative, matching
 :func:`app.services.project_access.is_privileged_for_project` and
-:class:`app.services.workspace_contract.ProjectAccess`.
+:class:`aap_workspace_contract.access.ProjectAccess`.
 
 Every helper returns a SQL predicate so one query can restrict a whole page of
 tasks, batches or jobs without an N+1 membership lookup per row.  Callers pass
@@ -17,6 +17,7 @@ role set means "any membership", never "any account role".
 from __future__ import annotations
 
 from sqlalchemy import Select, false, or_, select
+from sqlalchemy.orm import aliased
 
 from app.db.enums import (
     PLATFORM_ROLES,
@@ -27,10 +28,15 @@ from app.db.enums import (
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
-from app.services.workspace_contract import platform_role_is_manager
 from aap_identity.read_relation_contract import AccountProfile
+from aap_workspace_contract.access import platform_role_is_manager
 from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
 from app.services.identity_read_relations import account_profiles
+from app.services.workspace_read_relations import (
+    actor_project_memberships,
+    project_member_facts,
+    project_search_scope,
+)
 
 #: Platform roles allowed to open the personal annotator/reviewer dashboards.
 #: Legacy ``annotator`` / ``reviewer`` account values are intentionally absent;
@@ -46,28 +52,28 @@ REVIEWER_ROLE = ProjectRole.REVIEWER.value
 VIEWER_ROLE = ProjectRole.VIEWER.value
 
 
-def _valid_membership_conditions():
+def _valid_membership_conditions(project_role_column):
     """SQL conditions mirroring the shared resolver's membership contract.
 
     A membership only authorizes when the account is active, its platform role
     is a current known value (never legacy ``annotator``/``reviewer``), the
     project role is a known current value, and the platform/project-role pairing
     is valid (a platform viewer may only hold a viewer membership).  Callers
-    must join ``account_profiles`` on the membership.
+    must join the Identity profile for the actor represented by the membership.
     """
 
     return (
         account_profiles.c.is_active.is_(True),
         account_profiles.c.role.in_(list(PLATFORM_ROLES)),
-        ProjectMember.role.in_(list(PROJECT_ROLES)),
+        project_role_column.in_(list(PROJECT_ROLES)),
         or_(
             account_profiles.c.role != PlatformRole.VIEWER.value,
-            ProjectMember.role == ProjectRole.VIEWER.value,
+            project_role_column == ProjectRole.VIEWER.value,
         ),
     )
 
 
-def valid_membership_conditions():
+def valid_membership_conditions(project_role_column):
     """Public alias for the shared valid-membership SQL contract.
 
     Other aggregate/delivery owners (for example notification delivery) reuse
@@ -75,7 +81,7 @@ def valid_membership_conditions():
     pairing contract is defined once.
     """
 
-    return _valid_membership_conditions()
+    return _valid_membership_conditions(project_role_column)
 
 
 def membership_project_ids(
@@ -84,33 +90,60 @@ def membership_project_ids(
 ) -> Select[tuple[object]]:
     """Project IDs where ``user`` holds a valid membership, optionally role-filtered."""
 
+    project_scope = actor_project_memberships(user.id)
+    # Retain ORM autoflush for standalone execution while selecting only facts.
+    facts = select(
+        project_scope.c.project_id,
+        project_scope.c.member_role.label("role"),
+    ).subquery("workspace_member_facts")
+    membership = aliased(ProjectMember, facts, adapt_on_names=True)
     stmt = (
-        select(ProjectMember.project_id)
-        .join(account_profiles, account_profiles.c.id == ProjectMember.user_id)
-        .where(ProjectMember.user_id == user.id, *_valid_membership_conditions())
+        select(membership.project_id.label("project_id"))
+        .select_from(facts.join(account_profiles, account_profiles.c.id == user.id))
+        .where(*_valid_membership_conditions(membership.role))
     )
     if project_roles:
-        stmt = stmt.where(ProjectMember.role.in_(list(project_roles)))
+        stmt = stmt.where(membership.role.in_(list(project_roles)))
     return stmt
 
 
 def member_user_ids(project_id, *project_roles: str) -> Select[tuple[object]]:
     """User IDs holding a valid membership in ``project_id``, optionally role-filtered."""
 
+    member_facts = project_member_facts()
+    membership = aliased(ProjectMember, member_facts, adapt_on_names=True)
     stmt = (
-        select(ProjectMember.user_id)
-        .join(account_profiles, account_profiles.c.id == ProjectMember.user_id)
-        .where(ProjectMember.project_id == project_id, *_valid_membership_conditions())
+        select(membership.user_id)
+        .select_from(membership)
+        .join(account_profiles, account_profiles.c.id == membership.user_id)
+        .where(
+            membership.project_id == project_id,
+            *_valid_membership_conditions(membership.role),
+        )
     )
     if project_roles:
-        stmt = stmt.where(ProjectMember.role.in_(list(project_roles)))
+        stmt = stmt.where(membership.role.in_(list(project_roles)))
     return stmt
 
 
 def _managed_project_ids(
     user: AccountProfile | IdentityActorFacts | IdentityActorStatus,
 ) -> Select[tuple[object]]:
-    return select(Project.id).where(Project.owner_id == user.id)
+    return owned_project_ids(user)
+
+
+def owned_project_ids(
+    user: AccountProfile | IdentityActorFacts | IdentityActorStatus,
+) -> Select[tuple[object]]:
+    """Owned IDs in the caller's candidate scope; callers retain manager gates."""
+
+    project_scope = project_search_scope(user)
+    # The ORM column alias preserves the original Select's flush behavior.
+    facts = select(
+        project_scope.c.project_id.label("id"), project_scope.c.owner_id
+    ).subquery("workspace_owned_project_facts")
+    project = aliased(Project, facts, adapt_on_names=True)
+    return select(project.id.label("project_id")).where(project.owner_id == user.id)
 
 
 def managed_project_scope_clause(

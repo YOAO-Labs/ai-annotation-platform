@@ -8,9 +8,8 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.project import (
-    ProjectCreate,
-    ProjectUpdate,
+from aap_workspace.configuration_requests import ProjectCreate, ProjectUpdate
+from aap_workspace.configuration_values import (
     VideoCollaborationConfig,
     VideoSamplingConfig,
 )

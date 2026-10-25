@@ -274,11 +274,19 @@ seed/login/cleanup 请求。production 即使设置开关也不挂载路由。
 
 **fixture 用法**：`reset()` 返回固定结构（admin/annotator/reviewer 三个邮箱 + 项目 id + 5 个任务 id）；密码统一 `Test1234`。新增数据用 `apps/api/tests/factory.py` 的 `create_user / create_project / create_task / create_batch / create_membership`。用户工厂只创建平台身份；`create_membership` 显式创建项目成员与职责，两者分开，工厂不会从平台角色推断 membership。批量 `add_all`、需要跨会话并发 seed 或固定 `id` / `version` 的场景仍按需内联构造。
 
+E2E seed 写入 Labeling 的 Batch、Task、Annotation、视频追踪作业和 TaskDatasetItemLink 时通过固定 Labeling owner 命令；视频反馈锚点更新也走同一测试协议。命令只在数据库名以 `_e2e` 或 `_test` 结尾时可由运行角色调用，并在调用方原事务中执行；seed 路由仍负责原有提交或回滚时机。
+
 筛选验收使用 `seed.filtering()`，它先重置基础 fixture，再返回类型化 manifest：同对象/跨对象属性、必填条件嵌套组、检测与追踪候选组合、101 项分页、Scene 逻辑轨迹和管理列表数据。`e2e/fixtures/filtering.ts` 提供同一入口。视频预测中的最小 shape 只验证指标；工作台几何交互通过产品预测导入 API 添加有效的带帧候选。点云 fixture 包含真实 PCD 字节和可解析的相机内外参。
 
 需要手动体验并保留数据时，使用 `pnpm dev:worktree -- up --mode e2e --scenario filtering`；见[手动验收筛选功能](./how-to/worktree-environments#手动验收筛选功能)。该入口与自动化测试复用基础夹具，重启不重置，结束后显式清理。
 
 同一测试库一次只运行一个 seed/reset 流程。并行测试还需给各进程配置独立 MinIO buckets：基础清理使用固定媒体前缀，仅隔离数据库无法保护另一套测试的媒体。新增清理条件应使用 fixture 的项目、任务或显式标记；数据保留断言必须重新查询数据库，不能依赖未过期的 ORM identity map。
+
+共享 reset 前先调用各 namespace 的 owned-cleanup；共享选择器不能代替 owned
+项目、筛选模板的精确清理。Workspace 夹具通过固定原生能力创建项目／模板并清理，
+在删除子记录前检查视频退役状态，未退役或忙锁返回 409。清理失败后须保留原数据，
+解决阻塞再重试；不得为测试重跑伪造退役历史。协议与授权见
+[Workspace 夹具边界](/api/guides/workspace-runtime#门控-e2e-夹具)。
 
 Playwright 正常结束时由 `globalTeardown` 调用 `/seed/cleanup`。它只是兜底：
 强制中断可能跳过 teardown，因此必须始终依赖 `annotation_e2e` 的数据库隔离，

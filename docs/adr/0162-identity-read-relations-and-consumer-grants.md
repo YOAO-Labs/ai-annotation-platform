@@ -92,17 +92,3 @@ application role 和远程 consumer 的 SELECT，不向尚无关系调用的其�
 172 项选定案例、20 项运行授权／选择检查、355 项架构检查及文档构建通过，
 149 条不适用架构规则另计。三个源码工作树已按已核对的分支和提交清理，分支保留；
 只移除本次本地虚拟环境、字节码和构建缓存。主工作区及四个共享容器保持原状态。
-
-## 旧 Workspace 消费者的采用补充
-
-按完整 Identity 模块采用到原有 API 时，模板与命名编排仍需要当前组织归属，不能
-保留对 Identity 的 `organization_members` 私表读取，也不应为采用 Identity 而
-切换整个 Workspace 实现。复用既有只读
-`aap_identity_v1.workspace_template_query_org_ids(uuid)` 及其闭合 JSON 回复，普通
-API allowlist 扩为两视图、六函数；其他账号、凭据、回执和组织私表／列权限仍拒绝。
-调用方保留 `autoflush` 与外层事务，不新增提交点或服务模式。
-
-采用检查点的真实 HTTP 测试验证公共、私有、有效组织、软移除组织和无关组织的
-可见性，以及创建者名称读取；普通 LOGIN 直接读取三张私表均被 42501 拒绝。
-同一账号的 Node 调用验证现有回复协议，SQL guard 继续核对完整函数白名单和所有权。
-完整冷工件及主环境采用仍单独验收，本补充不扩大 Workspace 整模块的完成声明。

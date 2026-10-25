@@ -449,19 +449,80 @@ describe("useNotificationSocket", () => {
     expect(toastCallCount()).toBe(0);
   });
 
-  it("未知类型默认不弹", async () => {
+  it("未来通知类型和扩展字段仍刷新通知，不强制解释 target 或 marker", async () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidateSpy = vi.spyOn(qc, "invalidateQueries");
     seedPreferences(qc, "u1", [{ type: "task.rejected", toast: true }]);
     mount(qc);
     act(() => {
       MockWebSocket.instances[0].triggerMessage({
         id: "x",
         type: "future.unknown_event",
-        payload: {},
+        target_type: "future_target",
+        target_id: "opaque-id",
+        payload: { detail: "future payload shape", kind: "future_kind" },
+        schema: "aap-notification-event/v2",
+        extension: { value: "ignored by the current consumer" },
       });
     });
+    expect(invalidateSpy).toHaveBeenCalledTimes(1);
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["notifications"] });
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ["async-jobs"] });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1500);
+    });
+    expect(toastCallCount()).toBe(0);
+  });
+
+  it.each([
+    { payload: null },
+    { payload: ["legacy", null, 7] },
+    { payload: "legacy" },
+    { payload: 0 },
+    { payload: false },
+  ])("旧通知的非对象 payload 仍刷新作业和通知 (%j)", ({ payload }) => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidateSpy = vi.spyOn(qc, "invalidateQueries");
+    seedPreferences(qc, "u1", []);
+    mount(qc);
+
+    act(() => {
+      MockWebSocket.instances[0].triggerMessage({
+        id: "legacy-payload",
+        type: "job.completed",
+        payload,
+      });
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["async-jobs"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["notifications"] });
+    expect(toastCallCount()).toBe(0);
+  });
+
+  it.each([
+    ["reason omitted", { type: "notifications.sync", schema: "future/v2" }],
+    [
+      "future reason and extension marker",
+      {
+        type: "notifications.sync",
+        reason: "future_reason",
+        schema: "aap-notification-event/v2",
+        extension: { trace_id: "opaque" },
+      },
+    ],
+  ])("sync without id accepts an open envelope (%s)", (_case, message) => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidateSpy = vi.spyOn(qc, "invalidateQueries");
+    mount(qc);
+
+    act(() => {
+      MockWebSocket.instances[0].triggerMessage(message);
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledTimes(1);
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["notifications"] });
+    expect(invalidateSpy).not.toHaveBeenCalledWith({
+      queryKey: ["notification-preferences", "u1"],
     });
     expect(toastCallCount()).toBe(0);
   });
@@ -581,5 +642,25 @@ describe("useNotificationSocket", () => {
     const { unmount } = mount();
     unmount();
     expect(MockWebSocket.instances[0].closedManually).toBe(true);
+  });
+
+  it("卸载时取消尚未展示的提醒", async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    seedPreferences(qc, "u1", [{ type: "task.rejected", toast: true }]);
+    const { unmount } = mount(qc);
+
+    act(() => {
+      MockWebSocket.instances[0].triggerMessage({
+        id: "pending-alert",
+        type: "task.rejected",
+        payload: { task_display_id: "T-1" },
+      });
+    });
+    unmount();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    expect(toastCallCount()).toBe(0);
   });
 });

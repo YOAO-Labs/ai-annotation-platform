@@ -1,0 +1,1529 @@
+{
+  "$defs": {
+    "BackendCompatibilityIdentity": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "else": {
+            "properties": {
+              "builtin_implementation_digest": {
+                "type": "null"
+              },
+              "builtin_implementation_id": {
+                "type": "null"
+              },
+              "registry_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            }
+          },
+          "if": {
+            "properties": {
+              "provider_kind": {
+                "const": "builtin"
+              }
+            },
+            "required": ["provider_kind"]
+          },
+          "then": {
+            "properties": {
+              "backend_incarnation": {
+                "type": "null"
+              },
+              "builtin_implementation_id": {
+                "const": "aap-mock-bbox/v1"
+              },
+              "model_id": {
+                "const": "mock_bbox"
+              },
+              "model_key": {
+                "const": "mock_bbox"
+              },
+              "registry_id": {
+                "type": "null"
+              },
+              "role": {
+                "const": "track"
+              },
+              "tracker_context_mode": {
+                "const": "none"
+              },
+              "weights_release_id": {
+                "type": "null"
+              },
+              "weights_sha256": {
+                "type": "null"
+              }
+            },
+            "required": ["builtin_implementation_id"]
+          }
+        }
+      ],
+      "description": "Non-secret model/backend identity required before checkpoint reuse.",
+      "properties": {
+        "backend_incarnation": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Backend Incarnation"
+        },
+        "builtin_implementation_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Builtin Implementation Digest"
+        },
+        "builtin_implementation_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Builtin Implementation Id"
+        },
+        "capability_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Capability Digest"
+        },
+        "max_context_frames": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Max Context Frames",
+          "type": "integer"
+        },
+        "max_window_frames": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Max Window Frames"
+        },
+        "model_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Model Id"
+        },
+        "model_key": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Model Key",
+          "type": "string"
+        },
+        "provider_kind": {
+          "default": "registry",
+          "enum": ["registry", "builtin"],
+          "title": "Provider Kind",
+          "type": "string"
+        },
+        "registry_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Registry Id"
+        },
+        "role": {
+          "enum": ["track", "discovery"],
+          "title": "Role",
+          "type": "string"
+        },
+        "tracker_context_mode": {
+          "enum": ["none", "session"],
+          "title": "Tracker Context Mode",
+          "type": "string"
+        },
+        "weights_release_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Weights Release Id"
+        },
+        "weights_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Weights Sha256"
+        }
+      },
+      "required": [
+        "role",
+        "registry_id",
+        "backend_incarnation",
+        "model_key",
+        "model_id",
+        "weights_release_id",
+        "weights_sha256",
+        "tracker_context_mode",
+        "max_context_frames",
+        "max_window_frames",
+        "capability_digest"
+      ],
+      "title": "BackendCompatibilityIdentity",
+      "type": "object"
+    },
+    "FrozenWindowSettings": {
+      "additionalProperties": false,
+      "description": "Effective platform/backend window bounds captured when the plan is made.",
+      "properties": {
+        "combo_discovery_window_frames": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Combo Discovery Window Frames"
+        },
+        "discovery_backend_max_frames": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Discovery Backend Max Frames"
+        },
+        "effective_discovery_max_frames": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Effective Discovery Max Frames"
+        },
+        "effective_track_max_frames": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Effective Track Max Frames",
+          "type": "integer"
+        },
+        "platform_default_frames": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Platform Default Frames",
+          "type": "integer"
+        },
+        "platform_sam3_frames": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Platform Sam3 Frames",
+          "type": "integer"
+        },
+        "track_backend_max_frames": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Track Backend Max Frames"
+        }
+      },
+      "required": [
+        "platform_default_frames",
+        "platform_sam3_frames",
+        "track_backend_max_frames",
+        "effective_track_max_frames",
+        "combo_discovery_window_frames",
+        "discovery_backend_max_frames",
+        "effective_discovery_max_frames"
+      ],
+      "title": "FrozenWindowSettings",
+      "type": "object"
+    },
+    "VideoCheckpointManifest": {
+      "additionalProperties": false,
+      "properties": {
+        "checkpoint_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Checkpoint Id",
+          "type": "string"
+        },
+        "context_span_closed": {
+          "const": true,
+          "title": "Context Span Closed",
+          "type": "boolean"
+        },
+        "context_span_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Context Span Digest",
+          "type": "string"
+        },
+        "continuation_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Continuation Digest"
+        },
+        "discovery_output_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Discovery Output Digest"
+        },
+        "discovery_seeds_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Discovery Seeds Digest"
+        },
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "manifest_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Manifest Digest",
+          "type": "string"
+        },
+        "payload_byte_size": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Payload Byte Size",
+          "type": "integer"
+        },
+        "payload_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Payload Digest",
+          "type": "string"
+        },
+        "payload_part_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Payload Part Count",
+          "type": "integer"
+        },
+        "plan_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Plan Digest",
+          "type": "string"
+        },
+        "predecessor_checkpoint_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Predecessor Checkpoint Digest"
+        },
+        "raw_response_digests": {
+          "items": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "maxItems": 8192,
+          "minItems": 1,
+          "title": "Raw Response Digests",
+          "type": "array"
+        },
+        "request_id": {
+          "format": "uuid",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "result_byte_size": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Result Byte Size",
+          "type": "integer"
+        },
+        "result_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Result Digest",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-video-window-checkpoint/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "span_end_ordinal": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Span End Ordinal",
+          "type": "integer"
+        },
+        "span_revision": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Span Revision",
+          "type": "integer"
+        },
+        "span_start_ordinal": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Span Start Ordinal",
+          "type": "integer"
+        },
+        "terminal_window_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Terminal Window Digest",
+          "type": "string"
+        },
+        "window_digests": {
+          "items": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "maxItems": 8192,
+          "minItems": 1,
+          "title": "Window Digests",
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema",
+        "checkpoint_id",
+        "manifest_digest",
+        "request_id",
+        "input_id",
+        "plan_digest",
+        "context_span_digest",
+        "span_start_ordinal",
+        "span_end_ordinal",
+        "terminal_window_digest",
+        "window_digests",
+        "span_revision",
+        "context_span_closed",
+        "predecessor_checkpoint_digest",
+        "raw_response_digests",
+        "result_digest",
+        "result_byte_size",
+        "payload_digest",
+        "payload_byte_size",
+        "payload_part_count",
+        "continuation_digest",
+        "discovery_output_digest",
+        "discovery_seeds_digest"
+      ],
+      "title": "VideoCheckpointManifest",
+      "type": "object"
+    },
+    "VideoCheckpointPart": {
+      "additionalProperties": false,
+      "properties": {
+        "checkpoint_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Checkpoint Id",
+          "type": "string"
+        },
+        "content": {
+          "maxLength": 699052,
+          "minLength": 1,
+          "title": "Content",
+          "type": "string"
+        },
+        "manifest_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Manifest Digest",
+          "type": "string"
+        },
+        "part_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Part Count",
+          "type": "integer"
+        },
+        "part_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Part Digest",
+          "type": "string"
+        },
+        "part_index": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Part Index",
+          "type": "integer"
+        },
+        "payload_byte_size": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Payload Byte Size",
+          "type": "integer"
+        },
+        "payload_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Payload Digest",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-video-window-checkpoint-part/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "checkpoint_id",
+        "manifest_digest",
+        "part_index",
+        "part_count",
+        "payload_digest",
+        "payload_byte_size",
+        "part_digest",
+        "content"
+      ],
+      "title": "VideoCheckpointPart",
+      "type": "object"
+    },
+    "VideoCheckpointPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "context_span_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Context Span Digest",
+          "type": "string"
+        },
+        "continuation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VideoContinuationPostState"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "discovery_output_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Discovery Output Digest"
+        },
+        "discovery_seeds": {
+          "items": {
+            "$ref": "#/$defs/VideoDiscoverySeed"
+          },
+          "maxItems": 100000,
+          "title": "Discovery Seeds",
+          "type": "array"
+        },
+        "discovery_seeds_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Discovery Seeds Digest"
+        },
+        "frame_results": {
+          "items": {
+            "$ref": "#/$defs/VideoFrameResultRow"
+          },
+          "maxItems": 1000000,
+          "title": "Frame Results",
+          "type": "array"
+        },
+        "plan_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Plan Digest",
+          "type": "string"
+        },
+        "predecessor_checkpoint_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Predecessor Checkpoint Digest"
+        },
+        "raw_response_digests": {
+          "items": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "maxItems": 8192,
+          "minItems": 1,
+          "title": "Raw Response Digests",
+          "type": "array"
+        },
+        "schema": {
+          "const": "aap-video-window-checkpoint-content/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "seed_input_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Seed Input Digest"
+        },
+        "span_revision": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Span Revision",
+          "type": "integer"
+        },
+        "window_digests": {
+          "items": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "maxItems": 8192,
+          "minItems": 1,
+          "title": "Window Digests",
+          "type": "array"
+        },
+        "window_ordinals": {
+          "items": {
+            "maximum": 9223372036854775807,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 8192,
+          "minItems": 1,
+          "title": "Window Ordinals",
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema",
+        "plan_digest",
+        "context_span_digest",
+        "span_revision",
+        "window_ordinals",
+        "window_digests",
+        "raw_response_digests",
+        "seed_input_digest",
+        "predecessor_checkpoint_digest",
+        "frame_results",
+        "continuation",
+        "discovery_output_digest",
+        "discovery_seeds_digest",
+        "discovery_seeds"
+      ],
+      "title": "VideoCheckpointPayload",
+      "type": "object"
+    },
+    "VideoContextSpanSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "end_ordinal": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "End Ordinal",
+          "type": "integer"
+        },
+        "from_frame": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "From Frame",
+          "type": "integer"
+        },
+        "mode": {
+          "enum": ["none", "session"],
+          "title": "Mode",
+          "type": "string"
+        },
+        "start_ordinal": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Start Ordinal",
+          "type": "integer"
+        },
+        "to_frame": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "To Frame",
+          "type": "integer"
+        }
+      },
+      "required": ["start_ordinal", "end_ordinal", "from_frame", "to_frame", "mode"],
+      "title": "VideoContextSpanSpec",
+      "type": "object"
+    },
+    "VideoContinuationPostState": {
+      "additionalProperties": false,
+      "description": "Portable tracker state; opaque backend session tokens are intentionally absent.",
+      "properties": {
+        "last_geom_by_instance": {
+          "items": {
+            "$ref": "#/$defs/VideoGeometryByInstance"
+          },
+          "maxItems": 100000,
+          "title": "Last Geom By Instance",
+          "type": "array"
+        },
+        "last_geometry": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Geometry"
+        },
+        "mp_next_global": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Mp Next Global",
+          "type": "integer"
+        },
+        "mp_prev_boundary": {
+          "items": {
+            "$ref": "#/$defs/VideoGeometryByInstance"
+          },
+          "maxItems": 100000,
+          "title": "Mp Prev Boundary",
+          "type": "array"
+        }
+      },
+      "required": ["last_geometry", "last_geom_by_instance", "mp_prev_boundary", "mp_next_global"],
+      "title": "VideoContinuationPostState",
+      "type": "object"
+    },
+    "VideoDiscoverySeed": {
+      "additionalProperties": false,
+      "properties": {
+        "geometry": {
+          "additionalProperties": true,
+          "title": "Geometry",
+          "type": "object"
+        },
+        "obj_id": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Obj Id",
+          "type": "integer"
+        }
+      },
+      "required": ["obj_id", "geometry"],
+      "title": "VideoDiscoverySeed",
+      "type": "object"
+    },
+    "VideoExecutionContextSpan": {
+      "additionalProperties": false,
+      "properties": {
+        "end_ordinal": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "End Ordinal",
+          "type": "integer"
+        },
+        "from_frame": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "From Frame",
+          "type": "integer"
+        },
+        "mode": {
+          "enum": ["none", "session"],
+          "title": "Mode",
+          "type": "string"
+        },
+        "span_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Span Digest",
+          "type": "string"
+        },
+        "start_ordinal": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Start Ordinal",
+          "type": "integer"
+        },
+        "to_frame": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "To Frame",
+          "type": "integer"
+        }
+      },
+      "required": ["start_ordinal", "end_ordinal", "from_frame", "to_frame", "mode", "span_digest"],
+      "title": "VideoExecutionContextSpan",
+      "type": "object"
+    },
+    "VideoExecutionPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "backend_compatibility": {
+          "items": {
+            "$ref": "#/$defs/BackendCompatibilityIdentity"
+          },
+          "maxItems": 2,
+          "minItems": 1,
+          "title": "Backend Compatibility",
+          "type": "array"
+        },
+        "correction_frame": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Correction Frame"
+        },
+        "direction": {
+          "enum": ["forward", "backward", "bidirectional"],
+          "title": "Direction",
+          "type": "string"
+        },
+        "from_frame": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "From Frame",
+          "type": "integer"
+        },
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "job_kind": {
+          "enum": ["tracking", "correction"],
+          "title": "Job Kind",
+          "type": "string"
+        },
+        "output": {
+          "$ref": "#/$defs/VideoOutputIdentity"
+        },
+        "plan_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Plan Digest",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "prompt_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Prompt Digest",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        },
+        "request_id": {
+          "format": "uuid",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "requested_model_key": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Requested Model Key",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-video-execution-plan/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "segment_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Segment Id"
+        },
+        "source": {
+          "$ref": "#/$defs/VideoSourceIdentity"
+        },
+        "source_plan_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Plan Digest",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "timebase": {
+          "$ref": "#/$defs/VideoTimebaseIdentity"
+        },
+        "to_frame": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "To Frame",
+          "type": "integer"
+        },
+        "window_settings": {
+          "$ref": "#/$defs/FrozenWindowSettings"
+        },
+        "windows": {
+          "items": {
+            "$ref": "#/$defs/VideoExecutionWindow"
+          },
+          "maxItems": 8192,
+          "minItems": 1,
+          "title": "Windows",
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema",
+        "request_id",
+        "input_id",
+        "task_id",
+        "project_id",
+        "request_digest",
+        "prompt_digest",
+        "source_plan_digest",
+        "source",
+        "timebase",
+        "requested_model_key",
+        "job_kind",
+        "direction",
+        "from_frame",
+        "to_frame",
+        "correction_frame",
+        "segment_id",
+        "window_settings",
+        "backend_compatibility",
+        "output",
+        "windows",
+        "plan_digest"
+      ],
+      "title": "VideoExecutionPlan",
+      "type": "object"
+    },
+    "VideoExecutionWindow": {
+      "additionalProperties": false,
+      "properties": {
+        "backend_role": {
+          "enum": ["track", "discovery"],
+          "title": "Backend Role",
+          "type": "string"
+        },
+        "branch": {
+          "enum": ["forward", "backward"],
+          "title": "Branch",
+          "type": "string"
+        },
+        "context_span": {
+          "$ref": "#/$defs/VideoExecutionContextSpan"
+        },
+        "from_frame": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "From Frame",
+          "type": "integer"
+        },
+        "is_seed_window": {
+          "title": "Is Seed Window",
+          "type": "boolean"
+        },
+        "ordinal": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "phase": {
+          "enum": ["discovery", "track"],
+          "title": "Phase",
+          "type": "string"
+        },
+        "seed_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Seed Digest"
+        },
+        "seed_required": {
+          "title": "Seed Required",
+          "type": "boolean"
+        },
+        "seed_source": {
+          "enum": [
+            "none",
+            "prompt",
+            "source_geometry",
+            "correction",
+            "discovery",
+            "continuation",
+            "session"
+          ],
+          "title": "Seed Source",
+          "type": "string"
+        },
+        "to_frame": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "To Frame",
+          "type": "integer"
+        },
+        "window_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Window Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "phase",
+        "backend_role",
+        "branch",
+        "ordinal",
+        "from_frame",
+        "to_frame",
+        "is_seed_window",
+        "seed_required",
+        "seed_source",
+        "seed_digest",
+        "context_span",
+        "window_digest"
+      ],
+      "title": "VideoExecutionWindow",
+      "type": "object"
+    },
+    "VideoExecutionWindowSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "backend_role": {
+          "enum": ["track", "discovery"],
+          "title": "Backend Role",
+          "type": "string"
+        },
+        "branch": {
+          "enum": ["forward", "backward"],
+          "title": "Branch",
+          "type": "string"
+        },
+        "context_span": {
+          "$ref": "#/$defs/VideoExecutionContextSpan"
+        },
+        "from_frame": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "From Frame",
+          "type": "integer"
+        },
+        "is_seed_window": {
+          "title": "Is Seed Window",
+          "type": "boolean"
+        },
+        "ordinal": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "phase": {
+          "enum": ["discovery", "track"],
+          "title": "Phase",
+          "type": "string"
+        },
+        "seed_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Seed Digest"
+        },
+        "seed_required": {
+          "title": "Seed Required",
+          "type": "boolean"
+        },
+        "seed_source": {
+          "enum": [
+            "none",
+            "prompt",
+            "source_geometry",
+            "correction",
+            "discovery",
+            "continuation",
+            "session"
+          ],
+          "title": "Seed Source",
+          "type": "string"
+        },
+        "to_frame": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "To Frame",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "phase",
+        "backend_role",
+        "branch",
+        "ordinal",
+        "from_frame",
+        "to_frame",
+        "is_seed_window",
+        "seed_required",
+        "seed_source",
+        "seed_digest",
+        "context_span"
+      ],
+      "title": "VideoExecutionWindowSpec",
+      "type": "object"
+    },
+    "VideoFrameResultRow": {
+      "additionalProperties": false,
+      "description": "Canonical candidate row compatible with the current staged tracker result.",
+      "properties": {
+        "candidate_key": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Candidate Key",
+          "type": "string"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Confidence"
+        },
+        "frame_index": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Frame Index",
+          "type": "integer"
+        },
+        "geometry": {
+          "additionalProperties": true,
+          "title": "Geometry",
+          "type": "object"
+        },
+        "geometry_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Geometry Digest",
+          "type": "string"
+        },
+        "instance_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Instance Id"
+        },
+        "outside": {
+          "title": "Outside",
+          "type": "boolean"
+        },
+        "primary": {
+          "title": "Primary",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "frame_index",
+        "geometry",
+        "confidence",
+        "outside",
+        "instance_id",
+        "primary",
+        "geometry_digest",
+        "candidate_key"
+      ],
+      "title": "VideoFrameResultRow",
+      "type": "object"
+    },
+    "VideoGeometryByInstance": {
+      "additionalProperties": false,
+      "properties": {
+        "geometry": {
+          "additionalProperties": true,
+          "title": "Geometry",
+          "type": "object"
+        },
+        "instance_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Instance Id",
+          "type": "string"
+        }
+      },
+      "required": ["instance_id", "geometry"],
+      "title": "VideoGeometryByInstance",
+      "type": "object"
+    },
+    "VideoOutputIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "geometry": {
+          "enum": ["bbox", "polygon", "mask"],
+          "title": "Geometry",
+          "type": "string"
+        },
+        "grid_step": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Grid Step",
+          "type": "integer"
+        },
+        "result_schema": {
+          "const": "aap-video-tracker-frame-results/v1",
+          "default": "aap-video-tracker-frame-results/v1",
+          "title": "Result Schema",
+          "type": "string"
+        }
+      },
+      "required": ["geometry", "grid_step"],
+      "title": "VideoOutputIdentity",
+      "type": "object"
+    },
+    "VideoResumeDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": ["complete", "execute_span", "replay_span", "reuse_span"],
+          "title": "Action",
+          "type": "string"
+        },
+        "checkpoint_id": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Checkpoint Id"
+        },
+        "context_span_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Context Span Digest"
+        },
+        "end_ordinal": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "End Ordinal"
+        },
+        "span_revision": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Span Revision"
+        },
+        "start_ordinal": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Start Ordinal"
+        }
+      },
+      "required": [
+        "action",
+        "context_span_digest",
+        "start_ordinal",
+        "end_ordinal",
+        "span_revision",
+        "checkpoint_id"
+      ],
+      "title": "VideoResumeDecision",
+      "type": "object"
+    },
+    "VideoSourceIdentity": {
+      "additionalProperties": false,
+      "description": "Exact retained source version and measured video facts.",
+      "properties": {
+        "byte_size": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Byte Size",
+          "type": "integer"
+        },
+        "duration_ms": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Duration Ms",
+          "type": "integer"
+        },
+        "frame_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Frame Count",
+          "type": "integer"
+        },
+        "height": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Height",
+          "type": "integer"
+        },
+        "source_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Sha256",
+          "type": "string"
+        },
+        "source_version_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Source Version Id",
+          "type": "string"
+        },
+        "video_stream": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Video Stream",
+          "type": "integer"
+        },
+        "width": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Width",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "source_version_id",
+        "source_sha256",
+        "byte_size",
+        "frame_count",
+        "width",
+        "height",
+        "duration_ms",
+        "video_stream"
+      ],
+      "title": "VideoSourceIdentity",
+      "type": "object"
+    },
+    "VideoTimebaseIdentity": {
+      "additionalProperties": false,
+      "description": "Frozen selected-frame timing and the accepted annotation grid.",
+      "properties": {
+        "grid_step": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Grid Step",
+          "type": "integer"
+        },
+        "sampling_step": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Sampling Step",
+          "type": "integer"
+        },
+        "selected_frame_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Selected Frame Count",
+          "type": "integer"
+        },
+        "timebase_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Timebase Digest",
+          "type": "string"
+        }
+      },
+      "required": ["timebase_digest", "selected_frame_count", "sampling_step", "grid_step"],
+      "title": "VideoTimebaseIdentity",
+      "type": "object"
+    }
+  },
+  "$id": "aap-video-execution-plan/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/VideoExecutionPlan"
+    },
+    {
+      "$ref": "#/$defs/VideoCheckpointPayload"
+    },
+    {
+      "$ref": "#/$defs/VideoCheckpointManifest"
+    },
+    {
+      "$ref": "#/$defs/VideoCheckpointPart"
+    },
+    {
+      "$ref": "#/$defs/VideoResumeDecision"
+    }
+  ],
+  "title": "AAP frozen video execution and checkpoint values",
+  "x-aap-schema": "aap-video-execution-plan/v1",
+  "x-budgets": {
+    "checkpoint_part_base64_chars": 699052,
+    "checkpoint_part_bytes": 524288,
+    "checkpoint_parts": 128,
+    "checkpoint_payload_bytes": 67108864,
+    "checkpoint_result_bytes": 67108864,
+    "plan_bytes": 2097152,
+    "video_windows": 8192
+  }
+}

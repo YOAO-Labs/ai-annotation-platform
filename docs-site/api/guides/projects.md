@@ -27,6 +27,25 @@ GET /api/v1/projects/query?page=1&page_size=20
 
 `GET /api/v1/projects` 继续返回全部匹配项目的数组，供现有 SDK、CLI 和项目选择器使用；筛选与排序规则和分页接口一致。
 
+## 成员与提及候选
+
+`GET /api/v1/projects/{project_id}/access` 返回当前平台角色、项目职责、成员 ID／版本和能力列表。
+管理者的成员字段可以为 null；普通成员的职责和版本使用最终同一次权限读取。
+能力列表按名称排序，既有字段和 SDK 用法保持不变。
+
+`GET /api/v1/projects/{project_id}/members` 按成员加入时间倒序返回项目职责和全局用户资料；
+空项目返回空数组，缺失用户资料的成员继续省略。`GET /api/v1/projects/{project_id}/mention-candidates`
+按负责人、启用超级管理员、成员的顺序返回，重复用户保留首次出现的种类。
+成员组保留停用账号的现有展示规则。两条读取都按当前账号和项目可见性授权，
+没有可见权限时返回404。内部独立部署配置见 [Workspace 运行协议](workspace-runtime#项目成员与提及候选)。
+
+## 类别与属性用量
+
+`GET /api/v1/projects/{project_id}/class-usage` 由当前项目负责人或超级管理员读取，返回
+`classes` 与 `attributes` 两个计数映射。统计项目内所有启用标注，包括仍启用的已取消和
+AI 标注；空类别名省略，属性统计对象的顶层键。类别和属性来自顺序的两次读取，
+不承诺共同快照或映射键顺序。内部提供方配置见 [Labeling 运行协议](labeling-runtime)。
+
 ## 创建项目
 
 ```http
@@ -256,7 +275,9 @@ GET /api/v1/dashboard?view=projects        # 超管看全部
 
 归档：`PATCH /projects/:id` 设 `status='archived'`。归档项目对标注员不可见但数据保留。
 
-物理删除仅 super_admin，且需要先移除所有 task。
+`DELETE /api/v1/projects/{project_id}` 由项目负责人或超级管理员按当前管理权限执行，成功返回 204。项目任务、标注和各 owner 清理、审计与回执共同提交，原数据集和素材对象保留；学习证据等保留规则仍会阻止删除。
+
+存在尚未退役的视频执行时返回 409，`detail.code` 为 `video_execution_not_retired`。先取消执行并完成退役后重试；业务终态不能替代退役证明。拒绝时不会删除 Task、Job、输入或检查点，也不留下部分 outbox 或删除审计。旧作业缺少证明时仍拒绝，详见[数据能力协议](./module-data#视频退役与删除围栏)及模块台账。
 
 ## 相关
 

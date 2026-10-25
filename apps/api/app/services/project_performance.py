@@ -32,16 +32,18 @@ from sqlalchemy import (
     union_all,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from aap_identity.read_relation_contract import AccountProfile
 
-from app.db.models.annotation import Annotation
-from app.db.models.audit_log import AuditLog
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
-from app.db.models.task import Task
-from app.db.models.task_batch import TaskBatch
 from app.db.models.task_event import TaskEvent
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    batch_row,
+    task_row,
+)
 from app.services.scheduler import (
     effective_task_assignee_expr,
     effective_task_reviewer_expr,
@@ -63,13 +65,16 @@ from app.schemas.project_performance import (
     PerformanceTrendPoint,
 )
 from app.services.audit import AuditAction
+from app.services.audit_read_relations import audit_event
 from app.services.csv_export import csv_literal
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.labeling_discussion_relations import task_event_facts
 from app.services.identity_read_relations import (
     account_profiles,
     read_account_profile,
     read_account_profiles,
 )
+from app.services.workspace_read_relations import project_member_facts
 
 
 _WORKFLOW_ACTIONS = (
@@ -236,7 +241,7 @@ def _annotation_source_label(source: Any, imported: Any) -> str:
 def _project_audit_filter(project_id: UUID):
     # ``contains`` works on PostgreSQL JSONB and is also understood by the
     # SQLite test dialect used by the API unit suite.
-    return AuditLog.detail_json.contains({"project_id": str(project_id)})
+    return audit_event.detail_json.contains({"project_id": str(project_id)})
 
 
 async def resolve_performance_access(
@@ -244,7 +249,9 @@ async def resolve_performance_access(
     project_id: UUID,
     user: IdentityActorFacts,
 ) -> Project:
-    project = await db.get(Project, project_id)
+    from app.services.project_access import get_workspace_project
+
+    project = await get_workspace_project(db, project_id=project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
     # Project performance stays manager-only: a super administrator or an owner
@@ -276,7 +283,7 @@ async def _load_workflow_metrics(
             """
             WITH interval_events AS MATERIALIZED (
                 SELECT id, actor_id, action, target_id, created_at, detail_json
-                FROM audit_logs
+                FROM aap_audit_v1.audit_events
                 WHERE status_code = 200
                   AND detail_json @> CAST(:project_filter AS jsonb)
                   AND created_at >= :start_at AND created_at < :end_at
@@ -289,7 +296,7 @@ async def _load_workflow_metrics(
                 FROM interval_events
                 WHERE action = 'task.submit' AND target_id IS NOT NULL
             ), prior_submissions AS (
-                SELECT DISTINCT target_id FROM audit_logs
+                SELECT DISTINCT target_id FROM aap_audit_v1.audit_events
                 WHERE status_code = 200 AND action = 'task.submit'
                   AND detail_json @> CAST(:project_filter AS jsonb)
                   AND created_at < :start_at
@@ -309,7 +316,7 @@ async def _load_workflow_metrics(
                 SELECT DISTINCT ON (s.target_id, r.round_id)
                        s.target_id, r.round_id, s.id,
                        s.detail_json -> 'contributor_ids' AS contributors
-                FROM audit_logs s JOIN decision_rounds r
+                FROM aap_audit_v1.audit_events s JOIN decision_rounds r
                   ON s.target_id = r.target_id
                  AND s.detail_json ->> 'review_round_id' = r.round_id
                 WHERE :work_type = 'annotation'
@@ -410,32 +417,35 @@ async def _load_submission_coverage(
 ) -> str:
     """Detect old video rounds whose submit audit was never retained."""
     submit_exists = (
-        select(AuditLog.id)
+        select(audit_event.id)
         .where(
-            AuditLog.action.in_(_ROUND_START_ACTIONS),
-            AuditLog.status_code == 200,
+            audit_event.action.in_(_ROUND_START_ACTIONS),
+            audit_event.status_code == 200,
             _project_audit_filter(project_id),
-            AuditLog.target_id == cast(Task.id, String),
-            AuditLog.created_at >= scope.start,
-            AuditLog.created_at < scope.end,
+            audit_event.target_id == cast(task_row.id, String),
+            audit_event.created_at >= scope.start,
+            audit_event.created_at < scope.end,
         )
-        .correlate(Task)
+        .correlate(task_row)
         .exists()
     )
     missing = await db.scalar(
-        select(func.count(Task.id)).where(
-            Task.project_id == project_id,
-            Task.file_type == "video",
+        select(func.count(task_row.id)).where(
+            task_row.project_id == project_id,
+            task_row.file_type == "video",
             or_(
-                and_(Task.submitted_at >= scope.start, Task.submitted_at < scope.end),
+                and_(
+                    task_row.submitted_at >= scope.start,
+                    task_row.submitted_at < scope.end,
+                ),
                 # Legacy rounds have no durable submission timestamp. Once
                 # withdraw/reopen clears it, their history cannot prove that
                 # this interval is complete, even if the transition audit was
                 # archived too. Do not guess a count or use mutable ownership.
                 and_(
-                    Task.submitted_at.is_(None),
-                    Task.first_review_eligible.is_(None),
-                    Task.created_at < scope.end,
+                    task_row.submitted_at.is_(None),
+                    task_row.first_review_eligible.is_(None),
+                    task_row.created_at < scope.end,
                 ),
             ),
             ~submit_exists,
@@ -484,8 +494,8 @@ async def _load_qualified_time(
                          AND te.collection_coverage = 'qualified'
                    )
                        AS qualified_count
-            FROM task_events AS te
-            JOIN tasks AS t ON t.id = te.task_id
+            FROM aap_labeling_v1.task_event_facts AS te
+            JOIN aap_labeling_v1.task_rows AS t ON t.id = te.task_id
             WHERE t.project_id = :project_id
               AND te.project_id = :project_id
               AND te.started_at < :end_at
@@ -507,8 +517,8 @@ async def _load_qualified_time(
                 SELECT te.user_id, te.kind,
                        GREATEST(te.started_at, :start_at) AS interval_start,
                        LEAST(te.ended_at, :end_at) AS interval_end
-                FROM task_events AS te
-                JOIN tasks AS t ON t.id = te.task_id
+                FROM aap_labeling_v1.task_event_facts AS te
+                JOIN aap_labeling_v1.task_rows AS t ON t.id = te.task_id
                 WHERE t.project_id = :project_id
                   AND te.project_id = :project_id
                   AND te.started_at < :end_at
@@ -697,11 +707,12 @@ async def _build_roster(
         "avatar_ref",
     )
     profile_columns = [profile.c[field].label(field) for field in profile_fields]
+    membership = aliased(ProjectMember, project_member_facts(), adapt_on_names=True)
     rows = (
         await db.execute(
-            select(ProjectMember, *profile_columns)
-            .join(profile, profile.c.id == ProjectMember.user_id)
-            .where(ProjectMember.project_id == project.id)
+            select(membership, *profile_columns)
+            .join(profile, profile.c.id == membership.user_id)
+            .where(membership.project_id == project.id)
         )
     ).all()
     by_id: dict[UUID, RosterEntry] = {}
@@ -736,7 +747,7 @@ async def _build_roster(
                 """
                 WITH activity AS (
                     SELECT actor_id, detail_json
-                    FROM audit_logs
+                    FROM aap_audit_v1.audit_events
                     WHERE status_code = 200
                       AND action = ANY(:actions)
                       AND detail_json @> CAST(:project_filter AS jsonb)
@@ -750,7 +761,7 @@ async def _build_roster(
                          THEN a.detail_json -> 'contributor_ids' ELSE '[]'::jsonb END
                 ) c(user_id)
                 UNION
-                SELECT c.user_id FROM tasks t
+                SELECT c.user_id FROM aap_labeling_v1.task_rows AS t
                 CROSS JOIN LATERAL jsonb_array_elements_text(
                     CASE WHEN jsonb_typeof(t.first_review_contributor_ids) = 'array'
                          THEN t.first_review_contributor_ids ELSE '[]'::jsonb END
@@ -774,26 +785,26 @@ async def _build_roster(
             if (user_id := _as_uuid(value)) is not None
         }
         annotation_ids = await db.execute(
-            select(Annotation.user_id)
+            select(annotation_row.user_id)
             .where(
-                Annotation.project_id == project.id,
-                Annotation.user_id.is_not(None),
-                Annotation.created_at >= scope.start,
-                Annotation.created_at < scope.end,
+                annotation_row.project_id == project.id,
+                annotation_row.user_id.is_not(None),
+                annotation_row.created_at >= scope.start,
+                annotation_row.created_at < scope.end,
             )
             .distinct()
         )
         historical_ids.update(value for (value,) in annotation_ids if value is not None)
         event_ids = await db.execute(
-            select(TaskEvent.user_id)
-            .join(Task, Task.id == TaskEvent.task_id)
+            select(task_event_facts.c.user_id)
+            .join(task_row, task_row.id == task_event_facts.c.task_id)
             .where(
-                Task.project_id == project.id,
-                TaskEvent.project_id == project.id,
-                TaskEvent.collection_source == "session",
-                TaskEvent.collection_coverage == "qualified",
-                TaskEvent.started_at < scope.end,
-                TaskEvent.ended_at > scope.start,
+                task_row.project_id == project.id,
+                task_event_facts.c.project_id == project.id,
+                task_event_facts.c.collection_source == "session",
+                task_event_facts.c.collection_coverage == "qualified",
+                task_event_facts.c.started_at < scope.end,
+                task_event_facts.c.ended_at > scope.start,
             )
             .distinct()
         )
@@ -848,46 +859,49 @@ async def _annotation_activity(
     if not user_ids:
         return {}, {}, {}, {}
     base = (
-        Annotation.project_id == project_id,
-        Annotation.user_id.in_(user_ids),
-        Annotation.is_active.is_(True),
-        Annotation.was_cancelled.is_(False),
-        Annotation.created_at >= scope.start,
-        Annotation.created_at < scope.end,
+        annotation_row.project_id == project_id,
+        annotation_row.user_id.in_(user_ids),
+        annotation_row.is_active.is_(True),
+        annotation_row.was_cancelled.is_(False),
+        annotation_row.created_at >= scope.start,
+        annotation_row.created_at < scope.end,
     )
-    image_task = func.distinct(case((Task.file_type == "image", Annotation.task_id)))
+    image_task = func.distinct(
+        case((task_row.file_type == "image", annotation_row.task_id))
+    )
     totals = await db.execute(
         select(
-            Annotation.user_id,
-            func.count(Annotation.id),
-            func.count(func.distinct(Annotation.task_id)),
+            annotation_row.user_id,
+            func.count(annotation_row.id),
+            func.count(func.distinct(annotation_row.task_id)),
             func.count(image_task),
         )
-        .join(Task, Task.id == Annotation.task_id)
+        .select_from(annotation_row)
+        .join(task_row, task_row.id == annotation_row.task_id)
         .where(*base)
-        .group_by(Annotation.user_id)
+        .group_by(annotation_row.user_id)
     )
     count_map = {
         user_id: (int(objects or 0), int(tasks or 0), int(images or 0))
         for user_id, objects, tasks, images in totals
         if user_id is not None
     }
-    imported_expr = Annotation.attributes["_imported"].astext
+    imported_expr = annotation_row.attributes["_imported"].astext
     breakdown_rows = await db.execute(
         select(
-            Annotation.user_id,
-            Annotation.source,
-            Annotation.annotation_type,
-            Annotation.class_name,
+            annotation_row.user_id,
+            annotation_row.source,
+            annotation_row.annotation_type,
+            annotation_row.class_name,
             imported_expr,
-            func.count(Annotation.id),
+            func.count(annotation_row.id),
         )
         .where(*base)
         .group_by(
-            Annotation.user_id,
-            Annotation.source,
-            Annotation.annotation_type,
-            Annotation.class_name,
+            annotation_row.user_id,
+            annotation_row.source,
+            annotation_row.annotation_type,
+            annotation_row.class_name,
             imported_expr,
         )
     )
@@ -910,21 +924,22 @@ async def _load_backlog_counts(
     user_ids: set[UUID],
 ) -> tuple[dict[UUID, tuple[int, int]], int, int]:
     """Aggregate the live load in SQL without materializing every task."""
-    assignee = effective_task_assignee_expr()
-    reviewer = effective_task_reviewer_expr()
+    assignee = effective_task_assignee_expr(task_model=task_row, batch_model=batch_row)
+    reviewer = effective_task_reviewer_expr(task_model=task_row, batch_model=batch_row)
     rows = await db.execute(
         select(
-            Task.status,
+            task_row.status,
             assignee,
             reviewer,
-            func.count(Task.id),
+            func.count(task_row.id),
         )
-        .outerjoin(TaskBatch, TaskBatch.id == Task.batch_id)
+        .select_from(task_row)
+        .outerjoin(batch_row, batch_row.id == task_row.batch_id)
         .where(
-            Task.project_id == project_id,
-            Task.status.in_(_ANNOTATION_BACKLOG | {"review"}),
+            task_row.project_id == project_id,
+            task_row.status.in_(_ANNOTATION_BACKLOG | {"review"}),
         )
-        .group_by(Task.status, assignee, reviewer)
+        .group_by(task_row.status, assignee, reviewer)
     )
     per_member: dict[UUID, list[int]] = defaultdict(lambda: [0, 0])
     current_total = 0
@@ -959,7 +974,7 @@ async def _load_first_review_metrics(
                        first_review_result = 'approved' AS passed,
                        CASE WHEN jsonb_typeof(first_review_contributor_ids) = 'array'
                             THEN first_review_contributor_ids ELSE '[]'::jsonb END AS contributors
-                FROM tasks
+                FROM aap_labeling_v1.task_rows
                 WHERE project_id = :project_id
                   AND first_reviewed_at >= :start_at AND first_reviewed_at < :end_at
             ), attributed AS (
@@ -977,8 +992,9 @@ async def _load_first_review_metrics(
                        SELECT 1 FROM jsonb_array_elements_text(contributors) c
                        WHERE c.value ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
                    )), false) OR EXISTS (
-                       SELECT 1 FROM audit_logs a
-                       LEFT JOIN tasks t ON t.project_id = :project_id
+                       SELECT 1 FROM aap_audit_v1.audit_events a
+                       LEFT JOIN aap_labeling_v1.task_rows AS t
+                           ON t.project_id = :project_id
                            AND t.id::text = a.target_id
                        WHERE a.status_code = 200
                          AND a.action IN ('task.approve', 'task.reject')
@@ -1008,8 +1024,8 @@ async def _load_task_display_ids(
     if not task_ids:
         return {}
     rows = await db.execute(
-        select(Task.id, Task.display_id).where(
-            Task.project_id == project_id, Task.id.in_(task_ids)
+        select(task_row.id, task_row.display_id).where(
+            task_row.project_id == project_id, task_row.id.in_(task_ids)
         )
     )
     return {task_id: display_id for task_id, display_id in rows}
@@ -1262,21 +1278,24 @@ async def _annotation_totals(
     ``image`` regardless of the project label.
     """
     base = (
-        Annotation.project_id == project_id,
-        Annotation.is_active.is_(True),
-        Annotation.was_cancelled.is_(False),
-        Annotation.created_at >= scope.start,
-        Annotation.created_at < scope.end,
+        annotation_row.project_id == project_id,
+        annotation_row.is_active.is_(True),
+        annotation_row.was_cancelled.is_(False),
+        annotation_row.created_at >= scope.start,
+        annotation_row.created_at < scope.end,
     )
     row = (
         await db.execute(
             select(
-                func.count(Annotation.id),
+                func.count(annotation_row.id),
                 func.count(
-                    func.distinct(case((Task.file_type == "image", Annotation.task_id)))
+                    func.distinct(
+                        case((task_row.file_type == "image", annotation_row.task_id))
+                    )
                 ),
             )
-            .join(Task, Task.id == Annotation.task_id)
+            .select_from(annotation_row)
+            .join(task_row, task_row.id == annotation_row.task_id)
             .where(*base)
         )
     ).one()
@@ -1582,38 +1601,38 @@ async def _load_evidence_page(
 ) -> tuple[list[PerformanceEvidenceItem], str | None]:
     """Fetch one bounded, SQL-paginated page of audit and session evidence."""
     audit_detail = func.coalesce(
-        AuditLog.detail_json["reason"].astext,
-        AuditLog.detail_json["result"].astext,
-        AuditLog.detail_json["reason_type"].astext,
+        audit_event.detail_json["reason"].astext,
+        audit_event.detail_json["result"].astext,
+        audit_event.detail_json["reason_type"].astext,
     )
     audit_stmt = select(
         literal("audit").label("source_kind"),
-        cast(AuditLog.id, String).label("source_id"),
-        AuditLog.created_at.label("at"),
-        AuditLog.action.label("action"),
-        AuditLog.target_id.label("task_id"),
+        cast(audit_event.id, String).label("source_id"),
+        audit_event.created_at.label("at"),
+        audit_event.action.label("action"),
+        audit_event.target_id.label("task_id"),
         audit_detail.label("detail"),
     ).where(
-        AuditLog.status_code == 200,
+        audit_event.status_code == 200,
         _project_audit_filter(project_id),
-        AuditLog.created_at >= scope.start,
-        AuditLog.created_at < scope.end,
+        audit_event.created_at >= scope.start,
+        audit_event.created_at < scope.end,
     )
     if work_type == "review":
         audit_stmt = audit_stmt.where(
-            AuditLog.actor_id == member_id,
-            AuditLog.action.in_(_REVIEW_ACTIONS),
+            audit_event.actor_id == member_id,
+            audit_event.action.in_(_REVIEW_ACTIONS),
         )
     else:
         audit_stmt = audit_stmt.where(
             or_(
                 and_(
-                    AuditLog.actor_id == member_id,
-                    AuditLog.action.in_(_ANNOTATION_ACTIONS),
+                    audit_event.actor_id == member_id,
+                    audit_event.action.in_(_ANNOTATION_ACTIONS),
                 ),
                 and_(
-                    AuditLog.action.in_(_DECISION_ACTIONS),
-                    AuditLog.detail_json.contains(
+                    audit_event.action.in_(_DECISION_ACTIONS),
+                    audit_event.detail_json.contains(
                         {"contributor_ids": [str(member_id)]}
                     ),
                 ),
@@ -1624,22 +1643,22 @@ async def _load_evidence_page(
     session_stmt = (
         select(
             literal("session").label("source_kind"),
-            cast(TaskEvent.id, String).label("source_id"),
-            TaskEvent.started_at.label("at"),
-            (literal("session.") + TaskEvent.kind).label("action"),
-            cast(TaskEvent.task_id, String).label("task_id"),
-            cast(TaskEvent.duration_ms, String).label("detail"),
+            cast(task_event_facts.c.id, String).label("source_id"),
+            task_event_facts.c.started_at.label("at"),
+            (literal("session.") + task_event_facts.c.kind).label("action"),
+            cast(task_event_facts.c.task_id, String).label("task_id"),
+            cast(task_event_facts.c.duration_ms, String).label("detail"),
         )
-        .join(Task, Task.id == TaskEvent.task_id)
+        .join(task_row, task_row.id == task_event_facts.c.task_id)
         .where(
-            Task.project_id == project_id,
-            TaskEvent.project_id == project_id,
-            TaskEvent.user_id == member_id,
-            TaskEvent.kind == event_kind,
-            TaskEvent.collection_source == "session",
-            TaskEvent.collection_coverage == "qualified",
-            TaskEvent.started_at < scope.end,
-            TaskEvent.ended_at > scope.start,
+            task_row.project_id == project_id,
+            task_event_facts.c.project_id == project_id,
+            task_event_facts.c.user_id == member_id,
+            task_event_facts.c.kind == event_kind,
+            task_event_facts.c.collection_source == "session",
+            task_event_facts.c.collection_coverage == "qualified",
+            task_event_facts.c.started_at < scope.end,
+            task_event_facts.c.ended_at > scope.start,
         )
     )
     combined = union_all(audit_stmt, session_stmt).subquery()

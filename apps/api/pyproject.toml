@@ -4,22 +4,31 @@ version = "0.26.1"
 requires-python = ">=3.11"
 dependencies = [
     "aap-identity[postgres]",
+    "aap-identity-admission[http]",
+    "aap-inference",
+    "aap-inference-contract[client]",
     "aap-mail-transport",
     "aap-assets-catalog",
     "aap-assets-media[client,runtime]",
     "aap-assets-mask-content[client,storage]",
     "aap-labeling-mask-gc[client]",
+    "aap-labeling[postgres]",
     "aap-preannotation-results",
     "aap-assets-cleanup",
     "aap-assets-source",
     "aap-audit-contract",
+    "aap-audit[postgres]",
+    "aap-jobs[queue-client]",
+    "aap-notifications[postgres,publication-client]",
     "aap-media-probe[client]",
     "aap-task-contract",
     "aap-training-contract",
     "aap-workspace-contract",
+    "aap-workspace[postgres]",
     "aap-protocol-v2",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
+    "websockets>=15.0",
     "sqlalchemy[asyncio]>=2.0.0",
     "asyncpg>=0.30.0",
     "alembic>=1.14.0",
@@ -55,20 +64,29 @@ dependencies = [
 ]
 
 [tool.uv.sources]
+aap-owner-data = { path = "../_shared/owner_data", editable = true }
 aap-identity = { path = "../identity", editable = true }
+aap-identity-admission = { path = "../_shared/identity_admission", editable = true }
+aap-inference = { path = "../inference", editable = true }
+aap-inference-contract = { path = "../_shared/inference_contract", editable = true }
 aap-mail-transport = { path = "../_shared/mail_transport", editable = true }
 aap-assets-catalog = { path = "../assets-catalog", editable = true }
 aap-assets-media = { path = "../assets-media", editable = true }
 aap-assets-mask-content = { path = "../assets-mask-content", editable = true }
 aap-labeling-mask-gc = { path = "../labeling-mask-gc", editable = true }
+aap-labeling = { path = "../labeling", editable = true }
 aap-preannotation-results = { path = "../preannotation-results", editable = true }
 aap-assets-cleanup = { path = "../assets-cleanup", editable = true }
 aap-assets-source = { path = "../assets-source", editable = true }
 aap-audit-contract = { path = "../_shared/audit_contract", editable = true }
+aap-audit = { path = "../audit", editable = true }
+aap-jobs = { path = "../jobs", editable = true }
+aap-notifications = { path = "../notifications", editable = true }
 aap-media-probe = { path = "../media-probe", editable = true }
 aap-task-contract = { path = "../_shared/task_contract", editable = true }
 aap-training-contract = { path = "../_shared/training_contract", editable = true }
 aap-workspace-contract = { path = "../_shared/workspace_contract", editable = true }
+aap-workspace = { path = "../workspace", editable = true }
 aap-protocol-v2 = { path = "../_shared/protocol_v2", editable = true }
 
 [tool.uv]

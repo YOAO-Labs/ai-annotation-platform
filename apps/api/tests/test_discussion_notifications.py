@@ -472,9 +472,12 @@ async def test_annotation_mentions_notify_original_comment_only_and_filter_acces
     )
     assert response.status_code == 201, response.text
     assert response.json()["author_name"] == locked_actor_name
-    # The lock query refreshes the same request-session identity-map row held by
-    # the original auth dependency, so preserve this legacy output timing.
-    assert owner.name == locked_actor_name
+    # The current Identity fact controls the response and notification; a
+    # fixture's cached ORM object is not part of that contract.
+    assert (
+        await db_session.scalar(select(User.name).where(User.id == owner.id))
+        == locked_actor_name
+    )
     comment_id = UUID(response.json()["id"])
 
     notifications = list(

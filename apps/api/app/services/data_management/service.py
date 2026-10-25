@@ -48,13 +48,10 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.annotation import Annotation
 from app.db.models.dataset import DatasetItem
 from app.db.models.project import Project
-from app.db.models.task import Task
-from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.db.models.user import User
-from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
+from app.db.models.video_tracker_job import VideoTrackerJobStatus
 from app.schemas.data_manager import (
     DataManagerAiReviewSummary,
     DataManagerAnnotationSummary,
@@ -64,7 +61,7 @@ from app.schemas.data_manager import (
     DataManagerScopeSummary,
     DataManagerSummaryResponse,
 )
-from app.services.project_kind import project_kind
+from aap_workspace.configuration_policy import project_kind
 from app.services.prediction import to_internal_shape
 from app.services.project_access import is_privileged_for_project
 from app.services.feedback import unresolved_issue_count_sq
@@ -74,6 +71,12 @@ from app.services.data_management.views import (
     visible_tasks_stmt,
 )
 from app.services.data_management.match_evidence import collect_match_evidence
+from app.services.labeling_core_read_relations import task_dataset_item_link_row
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    task_row,
+    video_tracker_job_row,
+)
 
 VIDEO_TOTALS_BATCH_ITEMS = 100_000
 
@@ -121,17 +124,19 @@ def _attribute_eligibility_clause(
     unit: str,
     field: dict[str, Any],
 ):
-    clauses = [annotation_base, Annotation.tool_unit_id == unit]
+    clauses = [annotation_base, annotation_row.tool_unit_id == unit]
     applies_to = field.get("applies_to")
     if isinstance(applies_to, list) and applies_to:
-        clauses.append(Annotation.class_name.in_([str(item) for item in applies_to]))
+        clauses.append(
+            annotation_row.class_name.in_([str(item) for item in applies_to])
+        )
     visible_if = field.get("visible_if")
     if isinstance(visible_if, dict) and visible_if.get("key"):
         dependency = str(visible_if["key"])
         clauses.extend(
             [
-                Annotation.attributes.has_key(dependency),  # noqa: W601
-                Annotation.attributes[dependency].astext
+                annotation_row.attributes.has_key(dependency),  # noqa: W601
+                annotation_row.attributes[dependency].astext
                 == _json_scalar_text(visible_if.get("equals")),
             ]
         )
@@ -168,30 +173,30 @@ class DataManagerService:
         )
 
         status_rows = await self.db.execute(
-            select(Task.status, func.count(Task.id))
-            .join(matched_ids, matched_ids.c.id == Task.id)
-            .group_by(Task.status)
+            select(task_row.status, func.count(task_row.id))
+            .join(matched_ids, matched_ids.c.id == task_row.id)
+            .group_by(task_row.status)
         )
         task_status = {str(status): int(count) for status, count in status_rows}
 
         annotation_base = and_(
-            Annotation.task_id.in_(select(matched_ids.c.id)),
-            Annotation.is_active.is_(True),
-            Annotation.was_cancelled.is_(False),
+            annotation_row.task_id.in_(select(matched_ids.c.id)),
+            annotation_row.is_active.is_(True),
+            annotation_row.was_cancelled.is_(False),
         )
         annotation_counts = (
             await self.db.execute(
                 select(
-                    func.count(Annotation.id).label("total"),
-                    func.count(Annotation.id)
-                    .filter(Annotation.track_id.is_not(None))
+                    func.count(annotation_row.id).label("total"),
+                    func.count(annotation_row.id)
+                    .filter(annotation_row.track_id.is_not(None))
                     .label("tracked"),
-                    func.count(func.distinct(Annotation.track_id))
-                    .filter(Annotation.track_id.is_not(None))
+                    func.count(func.distinct(annotation_row.track_id))
+                    .filter(annotation_row.track_id.is_not(None))
                     .label("distinct_tracks"),
-                    func.count(Annotation.id)
+                    func.count(annotation_row.id)
                     .filter(
-                        Annotation.attributes.op("@>")(
+                        annotation_row.attributes.op("@>")(
                             literal({"_imported": True}, type_=JSONB)
                         )
                     )
@@ -206,16 +211,16 @@ class DataManagerService:
 
         dimension_queries = []
         for dimension, column in (
-            ("source", Annotation.source),
-            ("class", Annotation.class_name),
-            ("tool_unit", Annotation.tool_unit_id),
-            ("type", Annotation.annotation_type),
+            ("source", annotation_row.source),
+            ("class", annotation_row.class_name),
+            ("tool_unit", annotation_row.tool_unit_id),
+            ("type", annotation_row.annotation_type),
         ):
             dimension_queries.append(
                 select(
                     literal(dimension).label("dimension"),
                     cast(column, String).label("value"),
-                    func.count(Annotation.id).label("count"),
+                    func.count(annotation_row.id).label("count"),
                 )
                 .where(annotation_base, column.is_not(None))
                 .group_by(column)
@@ -275,16 +280,16 @@ class DataManagerService:
                 select(
                     func.coalesce(func.sum(pending_tracker_jobs_expr(user, project)), 0)
                 )
-                .select_from(Task)
-                .join(matched_ids, matched_ids.c.id == Task.id)
+                .select_from(task_row)
+                .join(matched_ids, matched_ids.c.id == task_row.id)
             )
             or 0
         )
         unresolved_feedback = int(
             await self.db.scalar(
                 select(func.sum(unresolved_issue_count_sq()))
-                .select_from(Task)
-                .join(matched_ids, matched_ids.c.id == Task.id)
+                .select_from(task_row)
+                .join(matched_ids, matched_ids.c.id == task_row.id)
             )
             or 0
         )
@@ -301,9 +306,9 @@ class DataManagerService:
             counts = (
                 await self.db.execute(
                     select(
-                        func.count(Annotation.id).label("eligible"),
-                        func.count(Annotation.id)
-                        .filter(Annotation.attributes.has_key(key))  # noqa: W601
+                        func.count(annotation_row.id).label("eligible"),
+                        func.count(annotation_row.id)
+                        .filter(annotation_row.attributes.has_key(key))  # noqa: W601
                         .label("present"),
                     ).where(eligible_clause)
                 )
@@ -312,15 +317,15 @@ class DataManagerService:
             present = int(counts.present or 0)
             values: dict[str, int] = {}
             if field.get("type") in {"boolean", "select"}:
-                value_expr = Annotation.attributes[key].astext
+                value_expr = annotation_row.attributes[key].astext
                 rows = await self.db.execute(
                     select(
                         value_expr,
-                        func.count(Annotation.id),
+                        func.count(annotation_row.id),
                     )
                     .where(
                         eligible_clause,
-                        Annotation.attributes.has_key(key),  # noqa: W601
+                        annotation_row.attributes.has_key(key),  # noqa: W601
                     )
                     .group_by(value_expr)
                     .limit(50)
@@ -338,7 +343,7 @@ class DataManagerService:
                 )
             )
 
-        kind = project_kind(project)
+        kind = project_kind(project.data_type, project.scene_mode)
         kind_metrics: dict[str, int | float | None] = {}
         if kind.data_type == "image":
             image_rows = (
@@ -365,9 +370,9 @@ class DataManagerService:
                         )
                         .label("distinct_resolutions"),
                     )
-                    .select_from(Task)
-                    .join(matched_ids, matched_ids.c.id == Task.id)
-                    .join(DatasetItem, DatasetItem.id == Task.dataset_item_id)
+                    .select_from(task_row)
+                    .join(matched_ids, matched_ids.c.id == task_row.id)
+                    .join(DatasetItem, DatasetItem.id == task_row.dataset_item_id)
                 )
             ).one()
             kind_metrics = {
@@ -378,11 +383,11 @@ class DataManagerService:
             video_item_ids = list(
                 (
                     await self.db.execute(
-                        select(Task.dataset_item_id)
-                        .select_from(Task)
-                        .join(matched_ids, matched_ids.c.id == Task.id)
-                        .join(DatasetItem, DatasetItem.id == Task.dataset_item_id)
-                        .where(Task.dataset_item_id.is_not(None))
+                        select(task_row.dataset_item_id)
+                        .select_from(task_row)
+                        .join(matched_ids, matched_ids.c.id == task_row.id)
+                        .join(DatasetItem, DatasetItem.id == task_row.dataset_item_id)
+                        .where(task_row.dataset_item_id.is_not(None))
                     )
                 )
                 .scalars()
@@ -393,15 +398,15 @@ class DataManagerService:
             )
             keyframes = case(
                 (
-                    func.jsonb_typeof(Annotation.geometry["keyframes"]) == "array",
-                    func.jsonb_array_length(Annotation.geometry["keyframes"]),
+                    func.jsonb_typeof(annotation_row.geometry["keyframes"]) == "array",
+                    func.jsonb_array_length(annotation_row.geometry["keyframes"]),
                 ),
                 else_=0,
             )
             outside_ranges = case(
                 (
-                    func.jsonb_typeof(Annotation.geometry["outside"]) == "array",
-                    func.jsonb_array_length(Annotation.geometry["outside"]),
+                    func.jsonb_typeof(annotation_row.geometry["outside"]) == "array",
+                    func.jsonb_array_length(annotation_row.geometry["outside"]),
                 ),
                 else_=0,
             )
@@ -423,22 +428,24 @@ class DataManagerService:
             }
         elif kind.data_type == "lidar":
             camera_clause = and_(
-                TaskDatasetItemLink.task_id.in_(select(matched_ids.c.id)),
-                TaskDatasetItemLink.role.like("camera_%"),
+                task_dataset_item_link_row.task_id.in_(select(matched_ids.c.id)),
+                task_dataset_item_link_row.role.like("camera_%"),
             )
             camera_links = int(
                 await self.db.scalar(
-                    select(func.count(TaskDatasetItemLink.id)).where(camera_clause)
+                    select(func.count(task_dataset_item_link_row.id)).where(
+                        camera_clause
+                    )
                 )
                 or 0
             )
             calibration_issues = int(
                 await self.db.scalar(
-                    select(func.count(TaskDatasetItemLink.id))
+                    select(func.count(task_dataset_item_link_row.id))
                     .join(
                         spatial_item_references,
                         spatial_item_references.c.item_id
-                        == TaskDatasetItemLink.dataset_item_id,
+                        == task_dataset_item_link_row.dataset_item_id,
                     )
                     .where(
                         camera_clause,
@@ -457,23 +464,23 @@ class DataManagerService:
             }
         if kind.scene_mode:
             primary_item_id = (
-                select(TaskDatasetItemLink.dataset_item_id)
+                select(task_dataset_item_link_row.dataset_item_id)
                 .where(
-                    TaskDatasetItemLink.task_id == Task.id,
-                    TaskDatasetItemLink.role == "primary_lidar",
+                    task_dataset_item_link_row.task_id == task_row.id,
+                    task_dataset_item_link_row.role == "primary_lidar",
                 )
                 .limit(1)
-                .correlate(Task)
+                .correlate(task_row)
                 .scalar_subquery()
             )
             scene_ids = (
                 select(spatial_item_references.c.scene_id)
-                .select_from(Task)
-                .join(matched_ids, matched_ids.c.id == Task.id)
+                .select_from(task_row)
+                .join(matched_ids, matched_ids.c.id == task_row.id)
                 .join(
                     spatial_item_references,
                     spatial_item_references.c.item_id
-                    == func.coalesce(Task.dataset_item_id, primary_item_id),
+                    == func.coalesce(task_row.dataset_item_id, primary_item_id),
                 )
                 .where(spatial_item_references.c.scene_id.is_not(None))
                 .subquery()
@@ -535,7 +542,7 @@ class DataManagerService:
         visible = await self.db.scalar(
             visible_tasks_stmt(
                 project_id, user=user, project=project, project_role=project_role
-            ).where(Task.id == task_id)
+            ).where(task_row.id == task_id)
         )
         if visible is None:
             raise HTTPException(status_code=404, detail="Task not found")
@@ -543,7 +550,7 @@ class DataManagerService:
             visible_tasks_stmt(
                 project_id, user=user, project=project, project_role=project_role
             ).where(
-                Task.id == task_id,
+                task_row.id == task_id,
                 compile_filter(filter_json, project=project, user=user),
             )
         )
@@ -568,9 +575,9 @@ class DataManagerService:
         remaining_offset = offset
         remaining_limit = limit
         annotation_where = (
-            Annotation.task_id == task_id,
-            Annotation.is_active.is_(True),
-            Annotation.was_cancelled.is_(False),
+            annotation_row.task_id == task_id,
+            annotation_row.is_active.is_(True),
+            annotation_row.was_cancelled.is_(False),
         )
         annotation_total = 0
         if evidence.annotation_condition is not None:
@@ -578,7 +585,7 @@ class DataManagerService:
             annotation_total = int(
                 await self.db.scalar(
                     select(func.count())
-                    .select_from(Annotation)
+                    .select_from(annotation_row)
                     .where(*annotation_where)
                 )
                 or 0
@@ -586,19 +593,19 @@ class DataManagerService:
             if remaining_limit > 0 and remaining_offset < annotation_total:
                 annotation_rows = await self.db.execute(
                     select(
-                        Annotation.id,
-                        Annotation.track_id,
-                        Annotation.class_name,
-                        Annotation.tool_unit_id,
-                        Annotation.annotation_type,
-                        Annotation.source,
-                        Annotation.attributes,
-                        cast(Annotation.geometry["frame_index"].astext, Integer).label(
-                            "frame_index"
-                        ),
+                        annotation_row.id,
+                        annotation_row.track_id,
+                        annotation_row.class_name,
+                        annotation_row.tool_unit_id,
+                        annotation_row.annotation_type,
+                        annotation_row.source,
+                        annotation_row.attributes,
+                        cast(
+                            annotation_row.geometry["frame_index"].astext, Integer
+                        ).label("frame_index"),
                     )
                     .where(*annotation_where)
-                    .order_by(Annotation.created_at, Annotation.id)
+                    .order_by(annotation_row.created_at, annotation_row.id)
                     .offset(remaining_offset)
                     .limit(remaining_limit)
                 )
@@ -673,17 +680,17 @@ class DataManagerService:
 
         tracker_total = 0
         if evidence.tracker_jobs:
-            tracker_results = VideoTrackerJob.staged_result["results"]
+            tracker_results = video_tracker_job_row.staged_result["results"]
             tracker_clause = and_(
-                VideoTrackerJob.task_id == task_id,
-                VideoTrackerJob.status.in_(
+                video_tracker_job_row.task_id == task_id,
+                video_tracker_job_row.status.in_(
                     [
                         VideoTrackerJobStatus.PENDING_REVIEW.value,
                         VideoTrackerJobStatus.PARTIALLY_REVIEWED.value,
                         VideoTrackerJobStatus.CANCELLED.value,
                     ]
                 ),
-                VideoTrackerJob.staged_result.is_not(None),
+                video_tracker_job_row.staged_result.is_not(None),
                 case(
                     (
                         func.jsonb_typeof(tracker_results) == "array",
@@ -695,12 +702,12 @@ class DataManagerService:
             )
             if not is_privileged_for_project(user, project):
                 tracker_clause = and_(
-                    tracker_clause, VideoTrackerJob.created_by == user.id
+                    tracker_clause, video_tracker_job_row.created_by == user.id
                 )
             tracker_total = int(
                 await self.db.scalar(
                     select(func.count())
-                    .select_from(VideoTrackerJob)
+                    .select_from(video_tracker_job_row)
                     .where(tracker_clause)
                 )
                 or 0
@@ -709,9 +716,11 @@ class DataManagerService:
 
             if remaining_limit > 0 and remaining_offset < tracker_total:
                 tracker_rows = await self.db.execute(
-                    select(VideoTrackerJob)
+                    select(video_tracker_job_row)
                     .where(tracker_clause)
-                    .order_by(VideoTrackerJob.created_at, VideoTrackerJob.id)
+                    .order_by(
+                        video_tracker_job_row.created_at, video_tracker_job_row.id
+                    )
                     .offset(remaining_offset)
                     .limit(remaining_limit)
                 )

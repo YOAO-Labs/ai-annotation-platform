@@ -1,7 +1,7 @@
 """v0.14.11 · capability_registry SSOT 单测.
 
 校验:
-- 受控词表与 services/ml_capabilities.py re-export 一致 (防回归);
+- 受控词表与 aap_inference.capabilities re-export 一致 (防回归);
 - task / infra / modality / geometry 元数据完整 (label / summary 非空);
 - task.default_geometry 与 _TASK_DEFAULT_GEOMETRY 一致;
 - suggested_backends.repo_url 是合法 https URL;
@@ -13,8 +13,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
-from app.services import capability_registry as reg
-from app.services import ml_capabilities as caps
+from aap_inference import capability_registry as reg
+from aap_inference import capabilities as caps
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]

@@ -24,7 +24,7 @@ async def test_delete_user_redacts_audit_email(httpx_client, super_admin, db_ses
         email="gdpr-target@test.local",
         name="ToRedact",
         password_hash="$2b$12$" + "0" * 53,
-        role="annotator",
+        role="employee",
         is_active=True,
     )
     db_session.add(target)
@@ -49,9 +49,7 @@ async def test_delete_user_redacts_audit_email(httpx_client, super_admin, db_ses
         f"/api/v1/users/{uid}",
         headers={"Authorization": f"Bearer {sa_token}"},
     )
-    assert r.status_code in (200, 409), r.text
-    if r.status_code == 409:
-        pytest.skip("用户有其他依赖，跳过；本用例只验证脱敏路径")
+    assert r.status_code == 200, r.text
 
     # 历史 audit_logs 行 actor_email / actor_role 应已抹除
     rows = (
@@ -60,6 +58,7 @@ async def test_delete_user_redacts_audit_email(httpx_client, super_admin, db_ses
                 select(AuditLog)
                 .where(AuditLog.actor_id == uid)
                 .where(AuditLog.action.like("test.dummy.%"))
+                .execution_options(populate_existing=True)
             )
         )
         .scalars()
@@ -80,4 +79,4 @@ async def test_delete_user_redacts_audit_email(httpx_client, super_admin, db_ses
         )
     ).scalar_one_or_none()
     assert delete_audit is not None
-    assert (delete_audit.detail_json or {}).get("redacted_audit_rows", 0) >= 3
+    assert (delete_audit.detail_json or {}).get("redacted_audit_rows", 0) == 3

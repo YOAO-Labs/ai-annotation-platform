@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-labeling-upload-tasks/v1",
+  "$defs": {
+    "UploadTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "task_id": { "type": "string", "format": "uuid" },
+        "project_id": { "type": "string", "format": "uuid" },
+        "batch_id": { "type": ["string", "null"], "format": "uuid" },
+        "file_path": { "type": "string", "maxLength": 1000 },
+        "file_type": { "type": "string", "maxLength": 20 }
+      },
+      "required": ["task_id", "project_id", "batch_id", "file_path", "file_type"]
+    },
+    "CreateUploadTask": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "task_id": { "type": "string", "format": "uuid" },
+        "project_id": { "type": "string", "format": "uuid" },
+        "file_name": { "type": "string", "maxLength": 500 },
+        "file_path": { "type": "string", "maxLength": 1000 },
+        "file_type": { "type": "string", "maxLength": 20 }
+      },
+      "required": ["task_id", "project_id", "file_name", "file_path", "file_type"]
+    },
+    "CompleteUploadResult": {
+      "enum": ["pending", "task_not_found", "task_not_uploading", "task_target_changed"]
+    }
+  },
+  "x-postgresql-functions": {
+    "aap_labeling_v1.create_uploading_task": {
+      "arguments": "uuid,uuid,text,text,text",
+      "request": "CreateUploadTask",
+      "returns": "uuid",
+      "reply": "the exact requested Task UUID",
+      "volatility": "volatile",
+      "parallel": "unsafe"
+    },
+    "aap_labeling_v1.complete_uploading_task": {
+      "arguments": "uuid,uuid,uuid,text,text",
+      "request": "UploadTarget",
+      "returns": "text",
+      "reply": "CompleteUploadResult",
+      "volatility": "volatile",
+      "parallel": "unsafe"
+    }
+  },
+  "x-security": {
+    "owner": "NOLOGIN Labeling definer; PUBLIC execute revoked",
+    "search_path": "pg_catalog,pg_temp",
+    "authority": "caller holds current Identity and Workspace manager fences; completion holds canonical Task fence after storage I/O"
+  },
+  "x-transactions": {
+    "commit": false,
+    "rollback": false,
+    "completion": "blocking Task lock, uploading-state and captured target comparison; status update and image admission share caller transaction",
+    "initialization": "original Task defaults and display_seq_tasks allocation; caller retains original commit before signed URL generation"
+  }
+}

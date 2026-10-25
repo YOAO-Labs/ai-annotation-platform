@@ -13,7 +13,6 @@ from app.api.v1.tasks._shared import (
     require_task_annotation_write,
     require_task_annotation_write_strict,
 )
-from app.db.models.project import Project
 from app.deps import get_current_user, get_db, require_scopes
 from app.schemas.multicamera_annotation import (
     CameraAnnotationMemberCreate,
@@ -36,7 +35,7 @@ from app.services.multicamera_annotation import (
     restore_camera_member,
     update_camera_member,
 )
-from app.services.workspace_contract import ProjectAccess
+from aap_workspace_contract.access import ProjectAccess
 from app.services.assets_spatial import AssetsSpatialGateway, AssetsSpatialGatewayError
 from aap_assets_catalog.spatial_contract import (
     ReadCameraTargetRequest,
@@ -45,6 +44,7 @@ from aap_assets_catalog.spatial_contract import (
 from aap_audit_contract import ProjectDeletionAuditContext
 from app.middleware.request_id import request_id_var
 from app.services.audit import audit_origin_from_request
+from app.services.project_access import get_workspace_project
 from app.services.identity_contracts import IdentityActorFacts
 
 
@@ -369,7 +369,7 @@ async def patch_camera_calibration(
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id, access=access)
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, actor_id=None, project_id=task.project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
     if not access.is_manager:

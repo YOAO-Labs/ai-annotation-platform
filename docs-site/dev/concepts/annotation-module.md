@@ -277,9 +277,9 @@ refresh 和响应次序。`open` 清除 resolver/time。该 Issue 仍由 Mask QC
 
 `Annotation.attributes` 是 JSONB 自由字段，由项目级 `AttributeField` schema（`apps/api/app/db/models/project.py` → `attribute_schema`，前端在「项目设置 / 类别与属性」用 `AttributeSchemaEditor` 维护）约束 key、类型、必填、`applies_to` 类别白名单等。
 
-类型支持：`text` / `number` / `boolean` / `select` / `multiselect` / `range`，由 `apps/api/app/schemas/_jsonb_types.py` 的 `AttributeField` discriminated union 校验。
+类型支持：`text` / `number` / `boolean` / `select` / `multiselect` / `range`，由 `apps/workspace/src/aap_workspace/configuration_values.py` 的 `AttributeField` discriminated union 校验。
 
-**派生渲染开关 `style_occluded`**（v0.11.27 引入）：单个 `AttributeField` 上的可选标记，**仅 `boolean` 字段允许**（后端 `_jsonb_types.py` 强校验，前端 `AttributeSchemaEditor` 在类型从 `boolean` 切走时同步清掉残留值、`validateAttributeFields` 做客户端兜底）。打开后，当该属性在某 annotation 上为 `true`，画布框渲染为虚线 + 半透（"遮挡样式"）。
+**派生渲染开关 `style_occluded`**：单个 `AttributeField` 上的可选标记，**仅 `boolean` 字段允许**（后端 `aap_workspace.configuration_values` 强校验，前端 `AttributeSchemaEditor` 在类型从 `boolean` 切走时同步清掉残留值、`validateAttributeFields` 做客户端兜底）。打开后，当该属性在某 annotation 上为 `true`，画布框渲染为虚线 + 半透（"遮挡样式"）。
 
 该值不在 annotation 表上加列、不引入新枚举，纯属性驱动；因此：
 

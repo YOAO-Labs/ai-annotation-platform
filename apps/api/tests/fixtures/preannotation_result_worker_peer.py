@@ -48,7 +48,7 @@ def _record_batch_delivery(task_id, task, **_kwargs) -> None:
 
 def install() -> None:
     from app.application.preannotation_results import BatchResultExecution
-    from app.services.ml_client import PredictionResult
+    from aap_inference.backend_transport import PredictionResult
     from app.workers.tasks import batch_predict
     from app.workers.predictions_retry import retry_failed_prediction
     from app.services.ml_routing.client import RoutedMLBackendClient

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { filterNotificationItems, groupNotificationItems } from "./NotificationsPopover.helpers";
+import {
+  filterNotificationItems,
+  groupNotificationItems,
+  notificationPayloadRecord,
+} from "./NotificationsPopover.helpers";
 import { jobSnippet } from "./NotificationsPopover";
 import type { NotificationItem } from "@/api/notifications";
 
@@ -17,6 +21,24 @@ function makeNotification(overrides: Partial<NotificationItem>): NotificationIte
 }
 
 describe("NotificationsPopover helpers", () => {
+  it.each([null, [], "legacy", 42, true])(
+    "treats non-object payload %j as having no UI fields",
+    (payload) => {
+      expect(notificationPayloadRecord(payload)).toEqual({});
+      expect(
+        jobSnippet(makeNotification({ type: "job.completed", target_type: "async_job", payload })),
+      ).toBe("");
+    },
+  );
+
+  it("returns object payloads for existing UI fields without copying them", () => {
+    const payload = { project_id: "project-1", reason: "all_predicted", skipped_count: 32 };
+    expect(notificationPayloadRecord(payload)).toBe(payload);
+    expect(
+      jobSnippet(makeNotification({ type: "job.completed", target_type: "async_job", payload })),
+    ).toBe("已全部预标，跳过 32 个");
+  });
+
   it("filters loaded notifications by target_type", () => {
     const items = [
       makeNotification({ id: "task", target_type: "task" }),

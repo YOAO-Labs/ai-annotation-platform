@@ -1,0 +1,1140 @@
+{
+  "source_commit": "aa9cd59ea43261a1ad95ac273507f735dbba7026",
+  "source_module": "apps/inference/src/aap_inference/pipeline.py",
+  "pydantic_version": "2.13.3",
+  "cases": [
+    {
+      "name": "none",
+      "input": null,
+      "expected": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "name": "empty_list",
+      "input": [],
+      "expected": {
+        "ok": true,
+        "value": []
+      }
+    },
+    {
+      "name": "empty_object",
+      "input": {},
+      "expected": {
+        "ok": true,
+        "value": {}
+      }
+    },
+    {
+      "name": "empty_text",
+      "input": "",
+      "expected": {
+        "ok": true,
+        "value": ""
+      }
+    },
+    {
+      "name": "false",
+      "input": false,
+      "expected": {
+        "ok": true,
+        "value": false
+      }
+    },
+    {
+      "name": "zero",
+      "input": 0,
+      "expected": {
+        "ok": true,
+        "value": 0
+      }
+    },
+    {
+      "name": "invalid_text",
+      "input": "bad",
+      "expected": {
+        "ok": false,
+        "exception": "PipelineValidationError",
+        "detail": "preannotate_pipeline 须为阶段对象数组"
+      }
+    },
+    {
+      "name": "non_object_stage",
+      "input": [1],
+      "expected": {
+        "ok": false,
+        "exception": "PipelineValidationError",
+        "detail": "preannotate_pipeline 须为阶段对象数组"
+      }
+    },
+    {
+      "name": "root_nonzero",
+      "input": [
+        {
+          "stage": 17,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000001"
+        }
+      ],
+      "expected": {
+        "ok": true,
+        "value": [
+          {
+            "stage": 17,
+            "ml_backend_id": "00000000-0000-0000-0000-000000000001"
+          }
+        ]
+      }
+    },
+    {
+      "name": "legacy_text_task",
+      "input": [
+        {
+          "stage": 17,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000001",
+          "task": "text"
+        }
+      ],
+      "expected": {
+        "ok": false,
+        "exception": "PipelineValidationError",
+        "detail": "preannotate_pipeline 校验失败: 1 validation error for PreannotateRequest\npipeline_stages.0\n  Value error, unknown task: text [type=value_error, input_value={'stage': 17, 'ml_backend...000001', 'task': 'text'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error"
+      }
+    },
+    {
+      "name": "coerced_stage",
+      "input": [
+        {
+          "stage": "17",
+          "ml_backend_id": "00000000-0000-0000-0000-000000000001"
+        }
+      ],
+      "expected": {
+        "ok": true,
+        "value": [
+          {
+            "stage": 17,
+            "ml_backend_id": "00000000-0000-0000-0000-000000000001"
+          }
+        ]
+      }
+    },
+    {
+      "name": "boolean_stage",
+      "input": [
+        {
+          "stage": true,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000001"
+        }
+      ],
+      "expected": {
+        "ok": true,
+        "value": [
+          {
+            "stage": 1,
+            "ml_backend_id": "00000000-0000-0000-0000-000000000001"
+          }
+        ]
+      }
+    },
+    {
+      "name": "valid_attributes",
+      "input": [
+        {
+          "stage": 17,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000001"
+        },
+        {
+          "stage": 18,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000002",
+          "parent_stage": 17,
+          "write": {
+            "target": "attributes",
+            "keys": ["color"]
+          },
+          "label": "hat"
+        }
+      ],
+      "expected": {
+        "ok": true,
+        "value": [
+          {
+            "stage": 17,
+            "ml_backend_id": "00000000-0000-0000-0000-000000000001"
+          },
+          {
+            "stage": 18,
+            "ml_backend_id": "00000000-0000-0000-0000-000000000002",
+            "parent_stage": 17,
+            "write": {
+              "target": "attributes",
+              "keys": ["color"]
+            },
+            "label": "hat"
+          }
+        ]
+      }
+    },
+    {
+      "name": "valid_parallel_labels",
+      "input": [
+        {
+          "stage": 17,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000001"
+        },
+        {
+          "stage": 18,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000002",
+          "parent_stage": 17,
+          "write": {
+            "keys": ["color"]
+          },
+          "label": "hat"
+        },
+        {
+          "stage": 19,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000002",
+          "parent_stage": 17,
+          "write": {
+            "keys": ["color"]
+          },
+          "label": "shoe"
+        }
+      ],
+      "expected": {
+        "ok": true,
+        "value": [
+          {
+            "stage": 17,
+            "ml_backend_id": "00000000-0000-0000-0000-000000000001"
+          },
+          {
+            "stage": 18,
+            "ml_backend_id": "00000000-0000-0000-0000-000000000002",
+            "parent_stage": 17,
+            "write": {
+              "keys": ["color"]
+            },
+            "label": "hat"
+          },
+          {
+            "stage": 19,
+            "ml_backend_id": "00000000-0000-0000-0000-000000000002",
+            "parent_stage": 17,
+            "write": {
+              "keys": ["color"]
+            },
+            "label": "shoe"
+          }
+        ]
+      }
+    },
+    {
+      "name": "conflicting_keys",
+      "input": [
+        {
+          "stage": 17,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000001"
+        },
+        {
+          "stage": 18,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000002",
+          "parent_stage": 17,
+          "write": {
+            "keys": ["color"]
+          }
+        },
+        {
+          "stage": 19,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000002",
+          "parent_stage": 17,
+          "write": {
+            "keys": ["color"]
+          }
+        }
+      ],
+      "expected": {
+        "ok": false,
+        "exception": "PipelineValidationError",
+        "detail": "preannotate_pipeline 校验失败: 1 validation error for PreannotateRequest\n  Value error, attribute key 冲突: stage 19 与 stage 18 都写 'color' 到 root; 设 on_key_conflict=last_wins 以允许末位覆盖 [type=value_error, input_value={'ml_backend_id': '000000...: {'keys': ['color']}}]}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error"
+      }
+    },
+    {
+      "name": "two_roots",
+      "input": [
+        {
+          "stage": 17,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000001"
+        },
+        {
+          "stage": 19,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000002"
+        }
+      ],
+      "expected": {
+        "ok": false,
+        "exception": "PipelineValidationError",
+        "detail": "preannotate_pipeline 须恰有一个源阶段 (parent_stage=None)"
+      }
+    },
+    {
+      "name": "duplicate_stage",
+      "input": [
+        {
+          "stage": 17,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000001"
+        },
+        {
+          "stage": 17,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000002",
+          "parent_stage": 17
+        }
+      ],
+      "expected": {
+        "ok": false,
+        "exception": "PipelineValidationError",
+        "detail": "preannotate_pipeline 校验失败: 1 validation error for PreannotateRequest\n  Value error, pipeline_stages 的 stage 序号不可重复 [type=value_error, input_value={'ml_backend_id': '000000...', 'parent_stage': 17}]}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error"
+      }
+    },
+    {
+      "name": "unknown_parent",
+      "input": [
+        {
+          "stage": 17,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000001"
+        },
+        {
+          "stage": 20,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000002",
+          "parent_stage": 19
+        }
+      ],
+      "expected": {
+        "ok": false,
+        "exception": "PipelineValidationError",
+        "detail": "preannotate_pipeline 校验失败: 1 validation error for PreannotateRequest\n  Value error, stage 20 的 parent_stage=19 未在前面定义; 受限树形要求父阶段序号严格小于子阶段 [type=value_error, input_value={'ml_backend_id': '000000...', 'parent_stage': 19}]}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error"
+      }
+    },
+    {
+      "name": "parent_not_earlier",
+      "input": [
+        {
+          "stage": 17,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000001"
+        },
+        {
+          "stage": 18,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000002",
+          "parent_stage": 19
+        }
+      ],
+      "expected": {
+        "ok": false,
+        "exception": "PipelineValidationError",
+        "detail": "preannotate_pipeline 校验失败: 1 validation error for PreannotateRequest\n  Value error, stage 18 的 parent_stage=19 必须小于子阶段序号 [type=value_error, input_value={'ml_backend_id': '000000...', 'parent_stage': 19}]}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error"
+      }
+    },
+    {
+      "name": "non_geometry_parent",
+      "input": [
+        {
+          "stage": 17,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000001"
+        },
+        {
+          "stage": 18,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000002",
+          "parent_stage": 17
+        },
+        {
+          "stage": 19,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000002",
+          "parent_stage": 18
+        }
+      ],
+      "expected": {
+        "ok": false,
+        "exception": "PipelineValidationError",
+        "detail": "preannotate_pipeline 校验失败: 1 validation error for PreannotateRequest\n  Value error, stage 19 的父阶段 18 write.target='attributes', 不产几何, 无法作为父阶段 [type=value_error, input_value={'ml_backend_id': '000000...', 'parent_stage': 18}]}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error"
+      }
+    },
+    {
+      "name": "depth_four",
+      "input": [
+        {
+          "stage": 17,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000001"
+        },
+        {
+          "stage": 18,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000002",
+          "parent_stage": 17,
+          "write": {
+            "target": "intermediate"
+          }
+        },
+        {
+          "stage": 19,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000002",
+          "parent_stage": 18,
+          "write": {
+            "target": "geometry"
+          }
+        },
+        {
+          "stage": 20,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000002",
+          "parent_stage": 19
+        }
+      ],
+      "expected": {
+        "ok": false,
+        "exception": "PipelineValidationError",
+        "detail": "preannotate_pipeline 校验失败: 1 validation error for PreannotateRequest\n  Value error, stage 20 超过最大深度 3 (父深度=3) [type=value_error, input_value={'ml_backend_id': '000000...', 'parent_stage': 19}]}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error"
+      }
+    },
+    {
+      "name": "deep_drop_box",
+      "input": [
+        {
+          "stage": 17,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000001"
+        },
+        {
+          "stage": 18,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000002",
+          "parent_stage": 17,
+          "write": {
+            "target": "intermediate"
+          }
+        },
+        {
+          "stage": 19,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000002",
+          "parent_stage": 18,
+          "on_failure": "drop_box"
+        }
+      ],
+      "expected": {
+        "ok": false,
+        "exception": "PipelineValidationError",
+        "detail": "preannotate_pipeline 校验失败: 1 validation error for PreannotateRequest\n  Value error, stage 19 的 on_failure='drop_box' 仅支持父阶段为源阶段 (stage 17); 深层阶段请用 on_failure='keep_parent' [type=value_error, input_value={'ml_backend_id': '000000..._failure': 'drop_box'}]}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error"
+      }
+    },
+    {
+      "name": "invalid_roi_pad",
+      "input": [
+        {
+          "stage": 17,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000001"
+        },
+        {
+          "stage": 18,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000002",
+          "parent_stage": 17,
+          "roi": {
+            "pad": "bad"
+          }
+        }
+      ],
+      "expected": {
+        "ok": false,
+        "exception": "PipelineValidationError",
+        "detail": "preannotate_pipeline 校验失败: 1 validation error for PreannotateRequest\n  Value error, could not convert string to float: 'bad' [type=value_error, input_value={'ml_backend_id': '000000...'roi': {'pad': 'bad'}}]}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error"
+      }
+    },
+    {
+      "name": "invalid_input_mode",
+      "input": [
+        {
+          "stage": 17,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000001"
+        },
+        {
+          "stage": 18,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000002",
+          "parent_stage": 17,
+          "input": {
+            "mode": "full_image"
+          }
+        }
+      ],
+      "expected": {
+        "ok": false,
+        "exception": "PipelineValidationError",
+        "detail": "preannotate_pipeline 校验失败: 1 validation error for PreannotateRequest\n  Value error, input.mode 须为 'crop' / 'geometry', 收到 'full_image' [type=value_error, input_value={'ml_backend_id': '000000...'mode': 'full_image'}}]}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error"
+      }
+    },
+    {
+      "name": "extra_stage_field",
+      "input": [
+        {
+          "stage": 17,
+          "ml_backend_id": "00000000-0000-0000-0000-000000000001",
+          "unknown": true
+        }
+      ],
+      "expected": {
+        "ok": false,
+        "exception": "PipelineValidationError",
+        "detail": "preannotate_pipeline 校验失败: 1 validation error for PreannotateRequest\npipeline_stages.0.unknown\n  Extra inputs are not permitted [type=extra_forbidden, input_value=True, input_type=bool]\n    For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden"
+      }
+    },
+    {
+      "name": "bad_backend",
+      "input": [
+        {
+          "stage": 17,
+          "ml_backend_id": "invalid"
+        }
+      ],
+      "expected": {
+        "ok": false,
+        "exception": "PipelineValidationError",
+        "detail": "preannotate_pipeline 校验失败: 2 validation errors for PreannotateRequest\nml_backend_id\n  Input should be a valid UUID, invalid character: found `i` at 1 [type=uuid_parsing, input_value='invalid', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/uuid_parsing\npipeline_stages.0.ml_backend_id\n  Input should be a valid UUID, invalid character: found `i` at 1 [type=uuid_parsing, input_value='invalid', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/uuid_parsing"
+      }
+    }
+  ],
+  "schemas": {
+    "PipelineStage": {
+      "additionalProperties": false,
+      "description": "v0.18.1 · 多阶段预标注的单个阶段声明 (路径 B).\n\nstage 0 (parent_stage=None) 是源检测阶段, 吃整图产框; 下游阶段 (parent_stage 指向源阶段)\n平台按父框 bbox 裁 ROI crop 喂入, 把返回的 attributes 合并进父框 (write.target=attributes)。\nv0.18.2 (M2): 支持单层并行扇出 (多个下游共享同一 parent_stage)、按类别路由\n(parent_class_filter)、阶段级失败策略 (on_failure)。深度≥3 / new_shape 留 M3。",
+      "properties": {
+        "stage": {
+          "title": "Stage",
+          "type": "integer"
+        },
+        "ml_backend_id": {
+          "format": "uuid",
+          "title": "Ml Backend Id",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        },
+        "model_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Id"
+        },
+        "task": {
+          "anyOf": [
+            {
+              "enum": [
+                "detect",
+                "segment",
+                "classify",
+                "pose",
+                "obb",
+                "ocr",
+                "doc_layout",
+                "tracker",
+                "interactive_seg"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task"
+        },
+        "prompt_type": {
+          "anyOf": [
+            {
+              "const": "text",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt Type"
+        },
+        "model_variants": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Variants"
+        },
+        "params": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Params"
+        },
+        "class_filter": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Class Filter"
+        },
+        "parent_stage": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Stage"
+        },
+        "parent_class_filter": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Class Filter"
+        },
+        "roi": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Roi"
+        },
+        "write": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Write"
+        },
+        "on_failure": {
+          "default": "keep_parent",
+          "enum": ["keep_parent", "drop_box"],
+          "title": "On Failure",
+          "type": "string"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "input": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input"
+        }
+      },
+      "required": ["stage", "ml_backend_id"],
+      "title": "PipelineStage",
+      "type": "object"
+    },
+    "PreannotateRequest": {
+      "$defs": {
+        "PipelineStage": {
+          "additionalProperties": false,
+          "description": "v0.18.1 · 多阶段预标注的单个阶段声明 (路径 B).\n\nstage 0 (parent_stage=None) 是源检测阶段, 吃整图产框; 下游阶段 (parent_stage 指向源阶段)\n平台按父框 bbox 裁 ROI crop 喂入, 把返回的 attributes 合并进父框 (write.target=attributes)。\nv0.18.2 (M2): 支持单层并行扇出 (多个下游共享同一 parent_stage)、按类别路由\n(parent_class_filter)、阶段级失败策略 (on_failure)。深度≥3 / new_shape 留 M3。",
+          "properties": {
+            "stage": {
+              "title": "Stage",
+              "type": "integer"
+            },
+            "ml_backend_id": {
+              "format": "uuid",
+              "title": "Ml Backend Id",
+              "type": "string"
+            },
+            "source": {
+              "anyOf": [
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Source"
+            },
+            "model_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Model Id"
+            },
+            "task": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "detect",
+                    "segment",
+                    "classify",
+                    "pose",
+                    "obb",
+                    "ocr",
+                    "doc_layout",
+                    "tracker",
+                    "interactive_seg"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Task"
+            },
+            "prompt_type": {
+              "anyOf": [
+                {
+                  "const": "text",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Prompt Type"
+            },
+            "model_variants": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Model Variants"
+            },
+            "params": {
+              "anyOf": [
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Params"
+            },
+            "class_filter": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Class Filter"
+            },
+            "parent_stage": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Parent Stage"
+            },
+            "parent_class_filter": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Parent Class Filter"
+            },
+            "roi": {
+              "anyOf": [
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Roi"
+            },
+            "write": {
+              "anyOf": [
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Write"
+            },
+            "on_failure": {
+              "default": "keep_parent",
+              "enum": ["keep_parent", "drop_box"],
+              "title": "On Failure",
+              "type": "string"
+            },
+            "label": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Label"
+            },
+            "input": {
+              "anyOf": [
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Input"
+            }
+          },
+          "required": ["stage", "ml_backend_id"],
+          "title": "PipelineStage",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "ml_backend_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ml Backend Id"
+        },
+        "task_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "maxItems": 200,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Ids"
+        },
+        "prompt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt"
+        },
+        "output_mode": {
+          "default": "mask",
+          "enum": ["box", "mask", "both"],
+          "title": "Output Mode",
+          "type": "string"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Batch Id"
+        },
+        "execution_scope": {
+          "default": "bulk",
+          "enum": ["bulk", "workbench"],
+          "title": "Execution Scope",
+          "type": "string"
+        },
+        "params": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Params"
+        },
+        "predict_mode": {
+          "default": "skip_predicted",
+          "enum": ["skip_predicted", "overwrite", "append"],
+          "title": "Predict Mode",
+          "type": "string"
+        },
+        "model_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Id"
+        },
+        "task": {
+          "anyOf": [
+            {
+              "enum": [
+                "detect",
+                "segment",
+                "classify",
+                "pose",
+                "obb",
+                "ocr",
+                "doc_layout",
+                "tracker",
+                "interactive_seg"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task"
+        },
+        "prompt_type": {
+          "anyOf": [
+            {
+              "const": "text",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt Type"
+        },
+        "model_variants": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Variants"
+        },
+        "class_filter": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Class Filter"
+        },
+        "pipeline_stages": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/PipelineStage"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pipeline Stages"
+        },
+        "on_key_conflict": {
+          "default": "reject",
+          "enum": ["reject", "last_wins"],
+          "title": "On Key Conflict",
+          "type": "string"
+        }
+      },
+      "title": "PreannotateRequest",
+      "type": "object"
+    }
+  },
+  "request_example": {
+    "ml_backend_id": "00000000-0000-0000-0000-000000000001",
+    "params": null,
+    "model_id": null,
+    "task": null,
+    "prompt_type": null,
+    "model_variants": null,
+    "class_filter": null,
+    "pipeline_stages": [
+      {
+        "stage": 17,
+        "ml_backend_id": "00000000-0000-0000-0000-000000000001"
+      },
+      {
+        "stage": 18,
+        "ml_backend_id": "00000000-0000-0000-0000-000000000002",
+        "parent_stage": 17,
+        "write": {
+          "keys": ["color"]
+        },
+        "label": "hat"
+      },
+      {
+        "stage": 19,
+        "ml_backend_id": "00000000-0000-0000-0000-000000000002",
+        "parent_stage": 17,
+        "write": {
+          "keys": ["color"]
+        },
+        "label": "shoe"
+      }
+    ]
+  }
+}

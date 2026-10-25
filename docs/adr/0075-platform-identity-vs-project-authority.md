@@ -117,7 +117,7 @@
 ## Notes
 
 - 授权解析：`apps/api/app/services/project_access.py`；接线：`apps/api/app/deps.py`。
-- 成员变更 / 交接工作流：`apps/api/app/application/project_membership.py`，成员行写入：`apps/api/app/services/project_membership.py`；离职 / 传统生命周期：`apps/api/app/application/{user_lifecycle,legacy_user_lifecycle}.py`。身份状态 / 资料 / 凭据由 `services/{user_lifecycle,identity_commands}.py` 持有，批次与任务责任由 `BatchService` 持有。
+- 成员变更由 `apps/workspace/src/aap_workspace/{manager,policy}.py` 持有策略，`aap_workspace_membership_v1` 通过调用方事务组合成员写入、Labeling 交接及固定 Audit；API 适配器为 `apps/api/app/services/workspace_membership{,_data}.py`，见 [ADR-0133](0133-workspace-membership-lifecycle-owner.md)。账号锁由 `apps/api/app/services/user_lifecycle.py::UserLifecycleService.lock_accounts` 复用；离职由独立 Identity offboarding owner 持有。管理员 DELETE／暂停／恢复仍由 `users.py` 提供公开路由，分别组合 `apps/api/app/api/v1/{deletion_commands,suspension_commands}.py` 与相应的 `identity_*_commands.py`；DELETE 的任务转交和历史审计脱敏边界见 [ADR-0127](0127-independent-identity-deletion-commands.md)。`BatchService` 不再代写成员职责交接。
 - 契约：`apps/api/app/api/v1/projects.py`（access / preview / change role）、`apps/api/app/schemas/project.py`、`apps/api/app/schemas/invitation.py`。
 - 任务与审阅证据：`apps/api/app/api/v1/tasks/_shared.py`；`db/models/task.py`。
 - 迁移：`apps/api/alembic/versions/0173_project_role_preparation.py`、`0174_project_role_conversion.py`。

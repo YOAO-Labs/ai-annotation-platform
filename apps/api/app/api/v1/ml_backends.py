@@ -6,13 +6,13 @@ import time
 import uuid
 
 import httpx
+from aap_inference import extract_capabilities, resolve_model_task
 from aap_protocol_v2 import (
     MAX_MASK_RESPONSE_BYTES,
     CocoRlePayload,
     canonical_rle_bytes,
 )
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,7 +34,6 @@ from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.dataset import DatasetItem
 from app.db.models.user import User
 from app.db.models.task import Task
-from app.db.models.project import Project
 from app.schemas.ml_backend import (
     MLBackendCreate,
     MLBackendUpdate,
@@ -65,7 +64,8 @@ from app.services.ml_backend import (
     MLBackendURLConflict,
 )
 from app.services import ml_client as ml_client_module
-from app.services.ml_capabilities import extract_capabilities
+from app.services.project_access import get_workspace_project
+from app.services.inference_limits import capability_limits_from_settings
 from app.services.ml_interaction_proxy import (
     normalize_native_mask_response,
     prepare_interactive_context,
@@ -76,7 +76,7 @@ from app.services.labeling_prediction_contract import (
     ApplyPredictionResultRequest,
 )
 from app.services.prediction import PredictionService, to_video_bbox_result
-from app.services.workspace_contract import ProjectAccess, ProjectCapability
+from aap_workspace_contract.access import ProjectAccess, ProjectCapability
 from app.services.storage import StorageService
 from app.services.audit import AuditService
 from app.services.ai_mask_receipt import issue_ai_mask_receipt
@@ -90,6 +90,11 @@ from app.observability.metrics import (
     record_mask_ai_operation,
 )
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.labeling_core_read_relations import (
+    get_core_row,
+    lock_task_for_core_read,
+    task_row,
+)
 
 # v0.10.1 · /setup 代理结果的进程内 TTL 缓存. 工作台进入即拉, 避免 N 次 backend 探活.
 # key = backend_id (绑定改动 → 重绑后新 backend_id 自然 invalidate); 30s TTL 兜底.
@@ -149,7 +154,7 @@ async def _reacquire_write_boundary(
             detail="账号已停用，请联系管理员",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    task = await db.get(Task, task_id, populate_existing=True)
+    task = await get_core_row(db, task_row, task_id, populate_existing=True)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     access = await task_access.resolve_task_access(
@@ -163,14 +168,9 @@ async def _reacquire_write_boundary(
 
 async def _lock_task_nowait(db: AsyncSession, task_id: uuid.UUID) -> Task:
     try:
-        task = (
-            await db.execute(
-                select(Task)
-                .where(Task.id == task_id)
-                .with_for_update(nowait=True)
-                .execution_options(populate_existing=True)
-            )
-        ).scalar_one_or_none()
+        task = await lock_task_for_core_read(
+            db, task_id, nowait=True, populate_existing=True
+        )
     except DBAPIError as exc:
         if getattr(exc.orig, "sqlstate", None) in {"55P03", "40P01", "40001"}:
             raise HTTPException(
@@ -609,10 +609,8 @@ async def unload_ml_backend(
     平台管理员, 与前端「运行时观测」面板 (super_admin only) 及 admin observe/smoke-test 的
     运维基线一致; 不叠加 require_project_owner —— 全局操作按 backend_id 定位, 与 path 里的
     project 无归属关系。构造性的 /warmup 仍保留在 project_owner (见该端点注释)。"""
-    from app.services.ml_routing.safety import (
-        MLBackendQuiescenceError,
-        require_registry_quiescent,
-    )
+    from app.services.ml_routing.contracts import MLBackendQuiescenceError
+    from app.services.ml_routing.safety import require_registry_quiescent
 
     svc = MLBackendService(
         db,
@@ -620,8 +618,8 @@ async def unload_ml_backend(
         dispatch_context_factory=dispatch_context_factory,
     )
     try:
-        await require_registry_quiescent(db, backend_id)
-        result = await svc.unload(backend_id)
+        topology = await require_registry_quiescent(db, backend_id)
+        result = await svc.unload(backend_id, expected_topology=topology)
     except MLBackendQuiescenceError as exc:
         raise HTTPException(
             status_code=503 if exc.unavailable else 409, detail=exc.as_detail()
@@ -669,6 +667,8 @@ async def reload_ml_backend(
     鉴权 super_admin only · /reload 会改写「全局 backend 常驻变体」(同 backend 被多项目共用),
     切变体等于换掉其他项目正在用的权重, 属破坏性驻留操作, 与 /unload 同基线收口到平台管理员
     (对齐 super_admin only 的「运行时观测」面板)。"""
+    from app.services.ml_routing.contracts import MLBackendQuiescenceError
+
     svc = MLBackendService(
         db,
         shadow_session_factory=shadow_session_factory,
@@ -684,6 +684,10 @@ async def reload_ml_backend(
             dino_variant=dino_variant,
             modality=modality,
         )
+    except MLBackendQuiescenceError as exc:
+        raise HTTPException(
+            status_code=503 if exc.unavailable else 409, detail=exc.as_detail()
+        ) from exc
     except GPUArbiterDispatchError:
         raise
     except Exception as exc:
@@ -836,7 +840,7 @@ async def _prepare_safe_interactive_context(
     if not uses_mask_contract:
         return dict(context), None
     setup = await _fetch_setup_cached(backend, backend_id)
-    capabilities = extract_capabilities(setup)
+    capabilities = extract_capabilities(setup, limits=capability_limits_from_settings())
     return prepare_interactive_context(
         context,
         capabilities,
@@ -1117,7 +1121,7 @@ async def get_ml_backend_capabilities(
         raise HTTPException(status_code=404, detail="ML Backend not found")
 
     setup = await _fetch_setup_cached(backend, backend_id)
-    return extract_capabilities(setup) or {}
+    return extract_capabilities(setup, limits=capability_limits_from_settings()) or {}
 
 
 @router.post(
@@ -1142,7 +1146,7 @@ async def refresh_ml_backend_capabilities(
 
     _setup_cache.pop(backend_id, None)
     setup = await _fetch_setup_cached(backend, backend_id)
-    return extract_capabilities(setup) or {}
+    return extract_capabilities(setup, limits=capability_limits_from_settings()) or {}
 
 
 @router.post(
@@ -1174,7 +1178,7 @@ async def _get_task_in_project(
 ) -> Task:
     """取 task 并校验归属本项目 — 防跨项目越权 (只用主键取任务会让 A 项目成员用 A 的
     backend + B 项目的 task_id 完成推理)。不存在 / 不属于本项目都回 404, 不暴露存在性。"""
-    task = await db.get(Task, task_id)
+    task = await get_core_row(db, task_row, task_id)
     if task is None or task.project_id != project_id:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
@@ -1185,7 +1189,7 @@ async def _require_ai_interactive_enabled(
 ) -> None:
     """项目级「交互式 AI 工具」总开关的后端守卫。语义与前端 (`?? true`) 一致 = 默认开:
     仅当显式关闭 (ai_interactive_enabled is False) 才 403, None/True 放行。"""
-    project = await db.get(Project, project_id)
+    project = await get_workspace_project(db, actor_id=None, project_id=project_id)
     if project is not None and project.ai_interactive_enabled is False:
         raise HTTPException(
             status_code=403, detail="AI interactive is disabled for this project"
@@ -1451,7 +1455,7 @@ async def predict_frame(
         raise HTTPException(status_code=422, detail="受控模型当前不支持视频单帧预标注")
 
     # DINO 阈值取项目级 override (与 worker 单阶段路径一致, 见 application/preannotation_execution.py batch prediction)。
-    project = await db.get(Project, project_id)
+    project = await get_workspace_project(db, actor_id=None, project_id=project_id)
     try:
         context = build_predict_context(
             prompt=cfg.get("prompt"),
@@ -1475,8 +1479,6 @@ async def predict_frame(
                 else None
             ),
         )
-        from app.services.ml_capabilities import resolve_model_task
-
         if context is not None:
             context["task"] = resolve_model_task(
                 backend, context.get("model_id"), context.get("task")

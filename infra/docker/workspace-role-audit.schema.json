@@ -1,0 +1,277 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-workspace-role-audit/v1",
+  "$defs": {
+    "WorkspaceRoleAuditProject": {
+      "additionalProperties": false,
+      "description": "Project facts used by the audit, preserving raw nullable diagnostics.",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "owner_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Owner Id"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "maxLength": 30,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Status"
+        }
+      },
+      "required": ["id", "owner_id", "status"],
+      "title": "WorkspaceRoleAuditProject",
+      "type": "object"
+    },
+    "WorkspaceRoleAuditProjectMember": {
+      "additionalProperties": false,
+      "description": "Membership facts, without joining or normalizing Identity roles.",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "user_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "User Id"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "maxLength": 30,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Role"
+        }
+      },
+      "required": ["id", "project_id", "user_id", "role"],
+      "title": "WorkspaceRoleAuditProjectMember",
+      "type": "object"
+    },
+    "WorkspaceRoleAuditSchemaCapabilities": {
+      "additionalProperties": false,
+      "description": "Presence of the two ProjectMember fields added in revision 0173.",
+      "properties": {
+        "member_version": {
+          "title": "Member Version",
+          "type": "boolean"
+        },
+        "member_updated_at": {
+          "title": "Member Updated At",
+          "type": "boolean"
+        }
+      },
+      "required": ["member_version", "member_updated_at"],
+      "title": "WorkspaceRoleAuditSchemaCapabilities",
+      "type": "object"
+    }
+  },
+  "title": "Workspace project-role audit relation rows",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/WorkspaceRoleAuditProject"
+    },
+    {
+      "$ref": "#/$defs/WorkspaceRoleAuditProjectMember"
+    },
+    {
+      "$ref": "#/$defs/WorkspaceRoleAuditSchemaCapabilities"
+    }
+  ],
+  "x-postgres-read-relations": {
+    "protocol": "aap-workspace-role-audit/v1",
+    "relations": [
+      {
+        "name": "project_facts",
+        "qualified_name": "aap_workspace_audit_v1.project_facts",
+        "kind": "security_barrier_view",
+        "columns": [
+          {
+            "name": "id",
+            "postgres_type": "uuid",
+            "nullable": false,
+            "json_schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          },
+          {
+            "name": "owner_id",
+            "postgres_type": "uuid",
+            "nullable": true,
+            "json_schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Owner Id"
+            }
+          },
+          {
+            "name": "status",
+            "postgres_type": "character varying(30)",
+            "nullable": true,
+            "json_schema": {
+              "anyOf": [
+                {
+                  "maxLength": 30,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "semantics": "One row for every public.projects row, without filtering, joining, ordering, or deduplication. Only id, owner_id, and status are exposed; owner and status values remain raw, including NULL where present. The caller retains the historical LEFT JOIN behavior and owns the read-only transaction snapshot."
+      },
+      {
+        "name": "project_member_facts",
+        "qualified_name": "aap_workspace_audit_v1.project_member_facts",
+        "kind": "security_barrier_view",
+        "columns": [
+          {
+            "name": "id",
+            "postgres_type": "uuid",
+            "nullable": false,
+            "json_schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "postgres_type": "uuid",
+            "nullable": true,
+            "json_schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "user_id",
+            "postgres_type": "uuid",
+            "nullable": true,
+            "json_schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User Id"
+            }
+          },
+          {
+            "name": "role",
+            "postgres_type": "character varying(30)",
+            "nullable": true,
+            "json_schema": {
+              "anyOf": [
+                {
+                  "maxLength": 30,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Role"
+            }
+          }
+        ],
+        "semantics": "One row for every public.project_members row, without filtering, Identity joins, role mapping, ordering, or deduplication. Unknown role strings and NULL diagnostics remain raw. The caller performs the historical joins to account_roles inside its SQL and owns the read-only transaction snapshot."
+      },
+      {
+        "name": "schema_capabilities",
+        "qualified_name": "aap_workspace_audit_v1.schema_capabilities",
+        "kind": "security_barrier_view",
+        "columns": [
+          {
+            "name": "member_version",
+            "postgres_type": "boolean",
+            "nullable": false,
+            "json_schema": {
+              "title": "Member Version",
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "member_updated_at",
+            "postgres_type": "boolean",
+            "nullable": false,
+            "json_schema": {
+              "title": "Member Updated At",
+              "type": "boolean"
+            }
+          }
+        ],
+        "semantics": "Exactly one row reports whether public.project_members.version and .updated_at exist. Values come from pg_catalog.pg_attribute, so additive revision 0173 is visible without reinstalling these fixed views."
+      }
+    ],
+    "authorization_boundary": "Only a trusted historical-audit LOGIN receives SELECT on these relations. The ordinary Workspace API consumer keeps its existing fixed allowlist.",
+    "transaction_boundary": "The caller owns the read-only transaction and snapshot; these relations do not commit, filter, or authorize rows."
+  }
+}

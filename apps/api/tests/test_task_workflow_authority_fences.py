@@ -207,4 +207,6 @@ async def test_review_audits_and_notifies_from_the_locked_actor_profile(
     )
     assert notification is not None
     assert notification.payload["actor_name"] == current_name
-    assert actor.name == current_name
+    # Identity facts drive the write without refreshing an unrelated cached ORM row.
+    assert actor.name == "Initial Reviewer"
+    assert actor.email != current_email

@@ -47,6 +47,53 @@ if os.environ.get("AAP_WORKTREE_MODE") == "dev":
 os.environ["E2E_SEED_ENABLED"] = "true"
 
 
+@pytest.fixture
+def isolated_routing_port(monkeypatch):
+    """Explicit unit-only dependency for transport/GPU tests with unpersisted rows.
+
+    These tests exercise HTTP/GPU behavior. Native and routing admission use the
+    separate owned-database integration tests; this fixture never supplies proof.
+    """
+    from contextlib import asynccontextmanager
+    from app.services.ml_routing import authority
+
+    class Grant:
+        headers = {}
+
+        async def response(self, _status):
+            pass
+
+        async def uncertain(self, _reason):
+            pass
+
+    @asynccontextmanager
+    async def request_context(_request):
+        yield Grant()
+
+    monkeypatch.setattr(
+        authority, "backend_request_context", lambda *_args, **_kwargs: request_context
+    )
+
+
+@pytest.fixture
+def savepoint_routing_owner(db_session, monkeypatch):
+    """Unit-only Native port for fake-inference tests with staged topology.
+
+    It deliberately shares the test savepoint and supplies no independent commit
+    or physical execution evidence. Committed-world routing acceptance must never
+    opt into this fixture.
+    """
+    from contextlib import asynccontextmanager
+    from app.services.ml_routing import authority
+
+    class SavepointAuthority(authority.RoutingAuthority):
+        @asynccontextmanager
+        async def _data_transaction(self):
+            yield await authority._SqlAlchemyData.bind(await db_session.connection())
+
+    monkeypatch.setattr(authority, "RoutingAuthority", SavepointAuthority)
+
+
 def _validate_test_db_target(url: str) -> str:
     """校验解析出的测试库目标确实是获准的一次性测试库。
 
@@ -248,6 +295,15 @@ class _MediaJobDispatcherStub:
         self.video_frames.append((item_id, requests))
 
 
+class _VideoTrackerJobDispatcherStub:
+    def __init__(self) -> None:
+        self.jobs: list[UUID] = []
+
+    def dispatch_tracker_job(self, job_id: UUID) -> str:
+        self.jobs.append(job_id)
+        return str(uuid4())
+
+
 @pytest.fixture
 def media_dispatcher(app_module):
     from app.deps import get_media_job_dispatcher
@@ -256,6 +312,18 @@ def media_dispatcher(app_module):
     app_module.dependency_overrides[get_media_job_dispatcher] = lambda: dispatcher
     yield dispatcher
     app_module.dependency_overrides.pop(get_media_job_dispatcher, None)
+
+
+@pytest.fixture
+def video_tracker_job_dispatcher(app_module):
+    from app.deps import get_video_tracker_job_dispatcher
+
+    dispatcher = _VideoTrackerJobDispatcherStub()
+    app_module.dependency_overrides[get_video_tracker_job_dispatcher] = lambda: (
+        dispatcher
+    )
+    yield dispatcher
+    app_module.dependency_overrides.pop(get_video_tracker_job_dispatcher, None)
 
 
 @pytest.fixture
@@ -273,7 +341,9 @@ def dataset_dispatcher(monkeypatch, app_module):
 
 @pytest.fixture
 async def httpx_client(
-    app_module, db_session: AsyncSession, media_dispatcher: _MediaJobDispatcherStub
+    app_module,
+    db_session: AsyncSession,
+    media_dispatcher: _MediaJobDispatcherStub,
 ):
     """ASGI httpx client，dependency_overrides[get_db] 绑定到 db_session。
 

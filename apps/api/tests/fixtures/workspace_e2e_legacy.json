@@ -1,0 +1,1032 @@
+{
+  "source_commit": "968c1df40101f3b5b330af4030da479676db48f5",
+  "capture_evidence": ".worktree/workspace-e2e-baseline-first.json",
+  "snapshots": {
+    "owned": {
+      "projects": [
+        {
+          "name": "E2E Owned wkse2e",
+          "status": "in_progress",
+          "due_date": null,
+          "owner_id": "admin-wkse2e@e2e.test",
+          "sampling": "sequence",
+          "type_key": "image-det",
+          "data_type": "image",
+          "ai_enabled": true,
+          "display_id": "P-E2E-<random>",
+          "scene_mode": false,
+          "type_label": "图像目标检测",
+          "total_tasks": 0,
+          "guide_assets": [],
+          "label_config": {},
+          "review_tasks": 0,
+          "batch_summary": {},
+          "box_threshold": 0.35,
+          "model_version": null,
+          "tool_bindings": {
+            "bbox": {
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true,
+              "attribute_schema": {
+                "fields": []
+              }
+            },
+            "region": {
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true,
+              "attribute_schema": {
+                "fields": []
+              }
+            }
+          },
+          "mask_qc_config": {},
+          "text_threshold": 0.25,
+          "video_sampling": {},
+          "completed_tasks": 0,
+          "organization_id": null,
+          "annotation_guide": null,
+          "default_variants": {},
+          "rendering_config": {},
+          "in_progress_tasks": 0,
+          "ml_backend_pool_id": true,
+          "show_overlap_first": false,
+          "iou_dedup_threshold": 0.7,
+          "maximum_annotations": 1,
+          "video_collaboration": {},
+          "preannotate_pipeline": null,
+          "task_lock_ttl_seconds": 300,
+          "ai_interactive_enabled": true,
+          "point_cloud_quality_config": {},
+          "scene_continuation_window_min": 30,
+          "prefer_same_scene_continuation": false,
+          "raster_mask_native_editing_enabled": true
+        }
+      ],
+      "members": [
+        {
+          "role": "annotator",
+          "user_id": "anno-wkse2e@e2e.test",
+          "version": 1,
+          "project_id": "E2E Owned wkse2e",
+          "assigned_by": "admin-wkse2e@e2e.test",
+          "weekly_target": null
+        },
+        {
+          "role": "reviewer",
+          "user_id": "rev-wkse2e@e2e.test",
+          "version": 1,
+          "project_id": "E2E Owned wkse2e",
+          "assigned_by": "admin-wkse2e@e2e.test",
+          "weekly_target": null
+        }
+      ],
+      "templates": []
+    },
+    "project-roles": {
+      "projects": [
+        {
+          "name": "E2E Project Roles A wkse2e",
+          "status": "in_progress",
+          "due_date": null,
+          "owner_id": "owner-a-wkse2e@e2e.test",
+          "sampling": "sequence",
+          "type_key": "image-det",
+          "data_type": "image",
+          "ai_enabled": false,
+          "display_id": "P-PR-A-wkse2e",
+          "scene_mode": false,
+          "type_label": "图像目标检测",
+          "total_tasks": 0,
+          "guide_assets": [],
+          "label_config": {},
+          "review_tasks": 0,
+          "batch_summary": {},
+          "box_threshold": 0.35,
+          "model_version": null,
+          "tool_bindings": {
+            "bbox": {
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true,
+              "attribute_schema": {
+                "fields": []
+              }
+            }
+          },
+          "mask_qc_config": {},
+          "text_threshold": 0.25,
+          "video_sampling": {},
+          "completed_tasks": 0,
+          "organization_id": null,
+          "annotation_guide": null,
+          "default_variants": {},
+          "rendering_config": {},
+          "in_progress_tasks": 0,
+          "ml_backend_pool_id": false,
+          "show_overlap_first": false,
+          "iou_dedup_threshold": 0.7,
+          "maximum_annotations": 1,
+          "video_collaboration": {},
+          "preannotate_pipeline": null,
+          "task_lock_ttl_seconds": 300,
+          "ai_interactive_enabled": true,
+          "point_cloud_quality_config": {},
+          "scene_continuation_window_min": 30,
+          "prefer_same_scene_continuation": false,
+          "raster_mask_native_editing_enabled": true
+        },
+        {
+          "name": "E2E Project Roles B wkse2e",
+          "status": "in_progress",
+          "due_date": null,
+          "owner_id": "owner-b-wkse2e@e2e.test",
+          "sampling": "sequence",
+          "type_key": "image-det",
+          "data_type": "image",
+          "ai_enabled": false,
+          "display_id": "P-PR-B-wkse2e",
+          "scene_mode": false,
+          "type_label": "图像目标检测",
+          "total_tasks": 0,
+          "guide_assets": [],
+          "label_config": {},
+          "review_tasks": 0,
+          "batch_summary": {},
+          "box_threshold": 0.35,
+          "model_version": null,
+          "tool_bindings": {
+            "bbox": {
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true,
+              "attribute_schema": {
+                "fields": []
+              }
+            }
+          },
+          "mask_qc_config": {},
+          "text_threshold": 0.25,
+          "video_sampling": {},
+          "completed_tasks": 0,
+          "organization_id": null,
+          "annotation_guide": null,
+          "default_variants": {},
+          "rendering_config": {},
+          "in_progress_tasks": 0,
+          "ml_backend_pool_id": false,
+          "show_overlap_first": false,
+          "iou_dedup_threshold": 0.7,
+          "maximum_annotations": 1,
+          "video_collaboration": {},
+          "preannotate_pipeline": null,
+          "task_lock_ttl_seconds": 300,
+          "ai_interactive_enabled": true,
+          "point_cloud_quality_config": {},
+          "scene_continuation_window_min": 30,
+          "prefer_same_scene_continuation": false,
+          "raster_mask_native_editing_enabled": true
+        },
+        {
+          "name": "E2E Project Roles C wkse2e",
+          "status": "in_progress",
+          "due_date": null,
+          "owner_id": "owner-c-wkse2e@e2e.test",
+          "sampling": "sequence",
+          "type_key": "image-det",
+          "data_type": "image",
+          "ai_enabled": false,
+          "display_id": "P-PR-C-wkse2e",
+          "scene_mode": false,
+          "type_label": "图像目标检测",
+          "total_tasks": 0,
+          "guide_assets": [],
+          "label_config": {},
+          "review_tasks": 0,
+          "batch_summary": {},
+          "box_threshold": 0.35,
+          "model_version": null,
+          "tool_bindings": {
+            "bbox": {
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true,
+              "attribute_schema": {
+                "fields": []
+              }
+            }
+          },
+          "mask_qc_config": {},
+          "text_threshold": 0.25,
+          "video_sampling": {},
+          "completed_tasks": 0,
+          "organization_id": null,
+          "annotation_guide": null,
+          "default_variants": {},
+          "rendering_config": {},
+          "in_progress_tasks": 0,
+          "ml_backend_pool_id": false,
+          "show_overlap_first": false,
+          "iou_dedup_threshold": 0.7,
+          "maximum_annotations": 1,
+          "video_collaboration": {},
+          "preannotate_pipeline": null,
+          "task_lock_ttl_seconds": 300,
+          "ai_interactive_enabled": true,
+          "point_cloud_quality_config": {},
+          "scene_continuation_window_min": 30,
+          "prefer_same_scene_continuation": false,
+          "raster_mask_native_editing_enabled": true
+        },
+        {
+          "name": "E2E Project Roles D wkse2e",
+          "status": "in_progress",
+          "due_date": null,
+          "owner_id": "owner-a-wkse2e@e2e.test",
+          "sampling": "sequence",
+          "type_key": "image-det",
+          "data_type": "image",
+          "ai_enabled": false,
+          "display_id": "P-PR-D-wkse2e",
+          "scene_mode": false,
+          "type_label": "图像目标检测",
+          "total_tasks": 0,
+          "guide_assets": [],
+          "label_config": {},
+          "review_tasks": 0,
+          "batch_summary": {},
+          "box_threshold": 0.35,
+          "model_version": null,
+          "tool_bindings": {
+            "bbox": {
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true,
+              "attribute_schema": {
+                "fields": []
+              }
+            }
+          },
+          "mask_qc_config": {},
+          "text_threshold": 0.25,
+          "video_sampling": {},
+          "completed_tasks": 0,
+          "organization_id": null,
+          "annotation_guide": null,
+          "default_variants": {},
+          "rendering_config": {},
+          "in_progress_tasks": 0,
+          "ml_backend_pool_id": false,
+          "show_overlap_first": false,
+          "iou_dedup_threshold": 0.7,
+          "maximum_annotations": 1,
+          "video_collaboration": {},
+          "preannotate_pipeline": null,
+          "task_lock_ttl_seconds": 300,
+          "ai_interactive_enabled": true,
+          "point_cloud_quality_config": {},
+          "scene_continuation_window_min": 30,
+          "prefer_same_scene_continuation": false,
+          "raster_mask_native_editing_enabled": true
+        }
+      ],
+      "members": [
+        {
+          "role": "annotator",
+          "user_id": "employee-wkse2e@e2e.test",
+          "version": 1,
+          "project_id": "E2E Project Roles A wkse2e",
+          "assigned_by": "owner-a-wkse2e@e2e.test",
+          "weekly_target": null
+        },
+        {
+          "role": "reviewer",
+          "user_id": "peer-wkse2e@e2e.test",
+          "version": 1,
+          "project_id": "E2E Project Roles A wkse2e",
+          "assigned_by": "owner-a-wkse2e@e2e.test",
+          "weekly_target": null
+        },
+        {
+          "role": "viewer",
+          "user_id": "spare-wkse2e@e2e.test",
+          "version": 1,
+          "project_id": "E2E Project Roles A wkse2e",
+          "assigned_by": "owner-a-wkse2e@e2e.test",
+          "weekly_target": null
+        },
+        {
+          "role": "viewer",
+          "user_id": "viewer-wkse2e@e2e.test",
+          "version": 1,
+          "project_id": "E2E Project Roles A wkse2e",
+          "assigned_by": "owner-a-wkse2e@e2e.test",
+          "weekly_target": null
+        },
+        {
+          "role": "reviewer",
+          "user_id": "employee-wkse2e@e2e.test",
+          "version": 1,
+          "project_id": "E2E Project Roles B wkse2e",
+          "assigned_by": "owner-b-wkse2e@e2e.test",
+          "weekly_target": null
+        },
+        {
+          "role": "annotator",
+          "user_id": "peer-wkse2e@e2e.test",
+          "version": 1,
+          "project_id": "E2E Project Roles B wkse2e",
+          "assigned_by": "owner-b-wkse2e@e2e.test",
+          "weekly_target": null
+        },
+        {
+          "role": "annotator",
+          "user_id": "peer-wkse2e@e2e.test",
+          "version": 1,
+          "project_id": "E2E Project Roles C wkse2e",
+          "assigned_by": "owner-c-wkse2e@e2e.test",
+          "weekly_target": null
+        },
+        {
+          "role": "annotator",
+          "user_id": "employee-wkse2e@e2e.test",
+          "version": 1,
+          "project_id": "E2E Project Roles D wkse2e",
+          "assigned_by": "owner-a-wkse2e@e2e.test",
+          "weekly_target": null
+        },
+        {
+          "role": "reviewer",
+          "user_id": "peer-wkse2e@e2e.test",
+          "version": 1,
+          "project_id": "E2E Project Roles D wkse2e",
+          "assigned_by": "owner-a-wkse2e@e2e.test",
+          "weekly_target": null
+        }
+      ],
+      "templates": []
+    },
+    "filtering": {
+      "projects": [
+        {
+          "name": "Filter Image Semantics",
+          "status": "in_progress",
+          "due_date": null,
+          "owner_id": "admin-wkse2e@e2e.test",
+          "sampling": "sequence",
+          "type_key": "image-det",
+          "data_type": "image",
+          "ai_enabled": false,
+          "display_id": "P-FI-I-wkse2e",
+          "scene_mode": false,
+          "type_label": "Image detection",
+          "total_tasks": 0,
+          "guide_assets": [],
+          "label_config": {},
+          "review_tasks": 0,
+          "batch_summary": {},
+          "box_threshold": 0.35,
+          "model_version": null,
+          "tool_bindings": {
+            "bbox": {
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true,
+              "attribute_schema": {
+                "fields": [
+                  {
+                    "key": "color",
+                    "type": "select",
+                    "label": "Color",
+                    "options": [
+                      {
+                        "label": "Red",
+                        "value": "red"
+                      },
+                      {
+                        "label": "Blue",
+                        "value": "blue"
+                      }
+                    ],
+                    "required": true,
+                    "applies_to": ["car"]
+                  },
+                  {
+                    "key": "weather",
+                    "type": "select",
+                    "label": "Weather",
+                    "options": [
+                      {
+                        "label": "Sunny",
+                        "value": "sunny"
+                      },
+                      {
+                        "label": "Rain",
+                        "value": "rain"
+                      }
+                    ]
+                  },
+                  {
+                    "key": "finish",
+                    "type": "select",
+                    "label": "Finish",
+                    "options": [
+                      {
+                        "label": "Matte",
+                        "value": "matte"
+                      },
+                      {
+                        "label": "Gloss",
+                        "value": "gloss"
+                      }
+                    ],
+                    "required": true,
+                    "applies_to": ["car"],
+                    "visible_if": {
+                      "key": "weather",
+                      "equals": "rain"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "mask_qc_config": {},
+          "text_threshold": 0.25,
+          "video_sampling": {},
+          "completed_tasks": 0,
+          "organization_id": null,
+          "annotation_guide": null,
+          "default_variants": {},
+          "rendering_config": {},
+          "in_progress_tasks": 0,
+          "ml_backend_pool_id": false,
+          "show_overlap_first": false,
+          "iou_dedup_threshold": 0.7,
+          "maximum_annotations": 1,
+          "video_collaboration": {},
+          "preannotate_pipeline": null,
+          "task_lock_ttl_seconds": 300,
+          "ai_interactive_enabled": true,
+          "point_cloud_quality_config": {},
+          "scene_continuation_window_min": 30,
+          "prefer_same_scene_continuation": false,
+          "raster_mask_native_editing_enabled": true
+        },
+        {
+          "name": "Filter Paging Image",
+          "status": "in_progress",
+          "due_date": null,
+          "owner_id": "admin-wkse2e@e2e.test",
+          "sampling": "sequence",
+          "type_key": "image-det",
+          "data_type": "image",
+          "ai_enabled": false,
+          "display_id": "P-FI-P-wkse2e",
+          "scene_mode": false,
+          "type_label": "Image detection",
+          "total_tasks": 0,
+          "guide_assets": [],
+          "label_config": {},
+          "review_tasks": 0,
+          "batch_summary": {},
+          "box_threshold": 0.35,
+          "model_version": null,
+          "tool_bindings": {
+            "bbox": {
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                }
+              ],
+              "enabled": true,
+              "attribute_schema": {
+                "fields": []
+              }
+            }
+          },
+          "mask_qc_config": {},
+          "text_threshold": 0.25,
+          "video_sampling": {},
+          "completed_tasks": 0,
+          "organization_id": null,
+          "annotation_guide": null,
+          "default_variants": {},
+          "rendering_config": {},
+          "in_progress_tasks": 0,
+          "ml_backend_pool_id": false,
+          "show_overlap_first": false,
+          "iou_dedup_threshold": 0.7,
+          "maximum_annotations": 1,
+          "video_collaboration": {},
+          "preannotate_pipeline": null,
+          "task_lock_ttl_seconds": 300,
+          "ai_interactive_enabled": true,
+          "point_cloud_quality_config": {},
+          "scene_continuation_window_min": 30,
+          "prefer_same_scene_continuation": false,
+          "raster_mask_native_editing_enabled": true
+        },
+        {
+          "name": "Filter Scene LiDAR",
+          "status": "in_progress",
+          "due_date": null,
+          "owner_id": "admin-wkse2e@e2e.test",
+          "sampling": "sequence",
+          "type_key": "lidar",
+          "data_type": "lidar",
+          "ai_enabled": false,
+          "display_id": "P-FI-L-wkse2e",
+          "scene_mode": true,
+          "type_label": "LiDAR annotation",
+          "total_tasks": 0,
+          "guide_assets": [],
+          "label_config": {},
+          "review_tasks": 0,
+          "batch_summary": {},
+          "box_threshold": 0.35,
+          "model_version": null,
+          "tool_bindings": {
+            "lidar_box_3d": {
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                }
+              ],
+              "enabled": true,
+              "attribute_schema": {
+                "fields": []
+              }
+            }
+          },
+          "mask_qc_config": {},
+          "text_threshold": 0.25,
+          "video_sampling": {},
+          "completed_tasks": 0,
+          "organization_id": null,
+          "annotation_guide": null,
+          "default_variants": {},
+          "rendering_config": {},
+          "in_progress_tasks": 0,
+          "ml_backend_pool_id": false,
+          "show_overlap_first": false,
+          "iou_dedup_threshold": 0.7,
+          "maximum_annotations": 1,
+          "video_collaboration": {},
+          "preannotate_pipeline": null,
+          "task_lock_ttl_seconds": 300,
+          "ai_interactive_enabled": true,
+          "point_cloud_quality_config": {},
+          "scene_continuation_window_min": 30,
+          "prefer_same_scene_continuation": false,
+          "raster_mask_native_editing_enabled": true
+        },
+        {
+          "name": "Filter Video AI Review",
+          "status": "in_progress",
+          "due_date": null,
+          "owner_id": "admin-wkse2e@e2e.test",
+          "sampling": "sequence",
+          "type_key": "video-det",
+          "data_type": "video",
+          "ai_enabled": false,
+          "display_id": "P-FI-V-wkse2e",
+          "scene_mode": false,
+          "type_label": "Video detection",
+          "total_tasks": 0,
+          "guide_assets": [],
+          "label_config": {},
+          "review_tasks": 0,
+          "batch_summary": {},
+          "box_threshold": 0.35,
+          "model_version": null,
+          "tool_bindings": {
+            "bbox": {
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                }
+              ],
+              "enabled": true,
+              "video_modes": {
+                "track": true
+              },
+              "attribute_schema": {
+                "fields": []
+              }
+            }
+          },
+          "mask_qc_config": {},
+          "text_threshold": 0.25,
+          "video_sampling": {},
+          "completed_tasks": 0,
+          "organization_id": null,
+          "annotation_guide": null,
+          "default_variants": {},
+          "rendering_config": {},
+          "in_progress_tasks": 0,
+          "ml_backend_pool_id": false,
+          "show_overlap_first": false,
+          "iou_dedup_threshold": 0.7,
+          "maximum_annotations": 1,
+          "video_collaboration": {},
+          "preannotate_pipeline": null,
+          "task_lock_ttl_seconds": 300,
+          "ai_interactive_enabled": true,
+          "point_cloud_quality_config": {},
+          "scene_continuation_window_min": 30,
+          "prefer_same_scene_continuation": false,
+          "raster_mask_native_editing_enabled": true
+        },
+        {
+          "name": "[wkse2e] Filter Ops Alpha",
+          "status": "in_progress",
+          "due_date": null,
+          "owner_id": "admin-wkse2e@e2e.test",
+          "sampling": "sequence",
+          "type_key": "image-det",
+          "data_type": "image",
+          "ai_enabled": false,
+          "display_id": "P-FI-OA-wkse2e",
+          "scene_mode": false,
+          "type_label": "Image detection",
+          "total_tasks": 0,
+          "guide_assets": [],
+          "label_config": {},
+          "review_tasks": 0,
+          "batch_summary": {},
+          "box_threshold": 0.35,
+          "model_version": null,
+          "tool_bindings": {
+            "bbox": {
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                }
+              ],
+              "enabled": true,
+              "attribute_schema": {
+                "fields": []
+              }
+            }
+          },
+          "mask_qc_config": {},
+          "text_threshold": 0.25,
+          "video_sampling": {},
+          "completed_tasks": 0,
+          "organization_id": null,
+          "annotation_guide": null,
+          "default_variants": {},
+          "rendering_config": {},
+          "in_progress_tasks": 0,
+          "ml_backend_pool_id": false,
+          "show_overlap_first": false,
+          "iou_dedup_threshold": 0.7,
+          "maximum_annotations": 1,
+          "video_collaboration": {},
+          "preannotate_pipeline": null,
+          "task_lock_ttl_seconds": 300,
+          "ai_interactive_enabled": true,
+          "point_cloud_quality_config": {},
+          "scene_continuation_window_min": 30,
+          "prefer_same_scene_continuation": false,
+          "raster_mask_native_editing_enabled": true
+        },
+        {
+          "name": "[wkse2e] Filter Ops Beta",
+          "status": "in_progress",
+          "due_date": null,
+          "owner_id": "admin-wkse2e@e2e.test",
+          "sampling": "sequence",
+          "type_key": "video-det",
+          "data_type": "video",
+          "ai_enabled": false,
+          "display_id": "P-FI-OB-wkse2e",
+          "scene_mode": false,
+          "type_label": "Video detection",
+          "total_tasks": 0,
+          "guide_assets": [],
+          "label_config": {},
+          "review_tasks": 0,
+          "batch_summary": {},
+          "box_threshold": 0.35,
+          "model_version": null,
+          "tool_bindings": {
+            "bbox": {
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                }
+              ],
+              "enabled": true,
+              "video_modes": {
+                "track": true
+              },
+              "attribute_schema": {
+                "fields": []
+              }
+            }
+          },
+          "mask_qc_config": {},
+          "text_threshold": 0.25,
+          "video_sampling": {},
+          "completed_tasks": 0,
+          "organization_id": null,
+          "annotation_guide": null,
+          "default_variants": {},
+          "rendering_config": {},
+          "in_progress_tasks": 0,
+          "ml_backend_pool_id": false,
+          "show_overlap_first": false,
+          "iou_dedup_threshold": 0.7,
+          "maximum_annotations": 1,
+          "video_collaboration": {},
+          "preannotate_pipeline": null,
+          "task_lock_ttl_seconds": 300,
+          "ai_interactive_enabled": true,
+          "point_cloud_quality_config": {},
+          "scene_continuation_window_min": 30,
+          "prefer_same_scene_continuation": false,
+          "raster_mask_native_editing_enabled": true
+        }
+      ],
+      "members": [
+        {
+          "role": "annotator",
+          "user_id": "anno-wkse2e@e2e.test",
+          "version": 1,
+          "project_id": "Filter Image Semantics",
+          "assigned_by": "admin-wkse2e@e2e.test",
+          "weekly_target": null
+        },
+        {
+          "role": "reviewer",
+          "user_id": "rev-wkse2e@e2e.test",
+          "version": 1,
+          "project_id": "Filter Image Semantics",
+          "assigned_by": "admin-wkse2e@e2e.test",
+          "weekly_target": null
+        },
+        {
+          "role": "annotator",
+          "user_id": "anno-wkse2e@e2e.test",
+          "version": 1,
+          "project_id": "Filter Paging Image",
+          "assigned_by": "admin-wkse2e@e2e.test",
+          "weekly_target": null
+        },
+        {
+          "role": "annotator",
+          "user_id": "anno-wkse2e@e2e.test",
+          "version": 1,
+          "project_id": "Filter Scene LiDAR",
+          "assigned_by": "admin-wkse2e@e2e.test",
+          "weekly_target": null
+        },
+        {
+          "role": "annotator",
+          "user_id": "anno-wkse2e@e2e.test",
+          "version": 1,
+          "project_id": "Filter Video AI Review",
+          "assigned_by": "admin-wkse2e@e2e.test",
+          "weekly_target": null
+        },
+        {
+          "role": "reviewer",
+          "user_id": "rev-wkse2e@e2e.test",
+          "version": 1,
+          "project_id": "Filter Video AI Review",
+          "assigned_by": "admin-wkse2e@e2e.test",
+          "weekly_target": null
+        }
+      ],
+      "templates": [
+        {
+          "name": "[wkse2e] Filter Private Template",
+          "scope": "private",
+          "sampling": "sequence",
+          "type_key": "image-det",
+          "data_type": "image",
+          "ai_enabled": false,
+          "created_by": "admin-wkse2e@e2e.test",
+          "display_id": "TPLFI-A-wkse2e",
+          "type_label": "Image detection",
+          "description": "private fixture",
+          "usage_count": 0,
+          "label_config": {},
+          "box_threshold": 0.35,
+          "tool_bindings": {
+            "bbox": {
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                }
+              ],
+              "enabled": true,
+              "attribute_schema": {
+                "fields": []
+              }
+            }
+          },
+          "text_threshold": 0.25,
+          "organization_id": null,
+          "annotation_guide": null,
+          "rendering_config": {},
+          "source_project_id": "[wkse2e] Filter Ops Alpha",
+          "show_overlap_first": false,
+          "iou_dedup_threshold": 0.7,
+          "maximum_annotations": 1
+        },
+        {
+          "name": "[wkse2e] Filter Public Template",
+          "scope": "public",
+          "sampling": "sequence",
+          "type_key": "video-det",
+          "data_type": "video",
+          "ai_enabled": false,
+          "created_by": "admin-wkse2e@e2e.test",
+          "display_id": "TPLFI-B-wkse2e",
+          "type_label": "Video detection",
+          "description": "public fixture",
+          "usage_count": 0,
+          "label_config": {},
+          "box_threshold": 0.35,
+          "tool_bindings": {
+            "bbox": {
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                }
+              ],
+              "enabled": true,
+              "video_modes": {
+                "track": true
+              },
+              "attribute_schema": {
+                "fields": []
+              }
+            }
+          },
+          "text_threshold": 0.25,
+          "organization_id": null,
+          "annotation_guide": null,
+          "rendering_config": {},
+          "source_project_id": "[wkse2e] Filter Ops Beta",
+          "show_overlap_first": false,
+          "iou_dedup_threshold": 0.7,
+          "maximum_annotations": 1
+        }
+      ]
+    },
+    "lidar": {
+      "projects": [
+        {
+          "name": "E2E Lidar wkse2e",
+          "status": "in_progress",
+          "due_date": null,
+          "owner_id": "admin-wkse2e@e2e.test",
+          "sampling": "sequence",
+          "type_key": "lidar",
+          "data_type": "lidar",
+          "ai_enabled": false,
+          "display_id": "P-E2E-LIDAR-<random>",
+          "scene_mode": false,
+          "type_label": "点云标注",
+          "total_tasks": 0,
+          "guide_assets": [],
+          "label_config": {},
+          "review_tasks": 0,
+          "batch_summary": {},
+          "box_threshold": 0.35,
+          "model_version": null,
+          "tool_bindings": {
+            "lidar_box_3d": {
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "name": "pedestrian",
+                  "order": 1
+                }
+              ],
+              "enabled": true,
+              "attribute_schema": {
+                "fields": []
+              }
+            },
+            "point_mask_3d": {
+              "classes": [
+                {
+                  "name": "ground",
+                  "order": 0
+                }
+              ],
+              "enabled": true,
+              "attribute_schema": {
+                "fields": []
+              }
+            }
+          },
+          "mask_qc_config": {},
+          "text_threshold": 0.25,
+          "video_sampling": {},
+          "completed_tasks": 0,
+          "organization_id": null,
+          "annotation_guide": null,
+          "default_variants": {},
+          "rendering_config": {},
+          "in_progress_tasks": 0,
+          "ml_backend_pool_id": false,
+          "show_overlap_first": false,
+          "iou_dedup_threshold": 0.7,
+          "maximum_annotations": 1,
+          "video_collaboration": {},
+          "preannotate_pipeline": null,
+          "task_lock_ttl_seconds": 300,
+          "ai_interactive_enabled": true,
+          "point_cloud_quality_config": {},
+          "scene_continuation_window_min": 30,
+          "prefer_same_scene_continuation": false,
+          "raster_mask_native_editing_enabled": true
+        }
+      ],
+      "members": [
+        {
+          "role": "annotator",
+          "user_id": "anno-wkse2e@e2e.test",
+          "version": 1,
+          "project_id": "E2E Lidar wkse2e",
+          "assigned_by": "admin-wkse2e@e2e.test",
+          "weekly_target": null
+        }
+      ],
+      "templates": []
+    }
+  }
+}

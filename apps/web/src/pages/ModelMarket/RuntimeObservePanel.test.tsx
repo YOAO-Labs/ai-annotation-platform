@@ -541,71 +541,84 @@ describe("RuntimeObservePanel · service-pool tree (P4)", () => {
     expect(screen.getByRole("button", { name: /试启动/ })).toBeInTheDocument();
   });
 
-  it("unload 门控：routable 实例卸载按钮禁用；点击停流触发 drain", async () => {
-    mockTopology.mockResolvedValue({
-      generated_at: "2026-07-20T10:00:00Z",
-      router_mode: "enforce",
-      schema_version: "topology.v1",
-      pools: [makePool({ members: [makeMember({ traffic_state: "active" })] })],
-    });
-    mockRuntimeSnapshot.mockResolvedValue(
-      makeSnapshot({
-        router_mode: "enforce",
-        pools: [
-          {
-            id: "pool-1",
-            name: "图像分割池",
-            members: [makeMember({ traffic_state: "active", route_inflight: 0 })],
-          },
-        ],
-      }),
-    );
-    mockObserve.mockResolvedValue({ configured_count: 1, targets: [] });
-    mockListAll.mockResolvedValue({ items: [makeBackend()] });
+  it.each(["off", "observe", "enforce"] as const)(
+    "router_mode=%s 时 active 成员使用实际停流操作，不标记为预配置",
+    async (routerMode) => {
+      mockTopology.mockResolvedValue({
+        generated_at: "2026-07-20T10:00:00Z",
+        router_mode: routerMode,
+        schema_version: "topology.v1",
+        pools: [makePool({ members: [makeMember({ traffic_state: "active" })] })],
+      });
+      mockRuntimeSnapshot.mockResolvedValue(
+        makeSnapshot({
+          router_mode: routerMode,
+          pools: [
+            {
+              id: "pool-1",
+              name: "图像分割池",
+              members: [makeMember({ traffic_state: "active", route_inflight: 0 })],
+            },
+          ],
+        }),
+      );
+      mockObserve.mockResolvedValue({ configured_count: 1, targets: [] });
+      mockListAll.mockResolvedValue({ items: [makeBackend()] });
 
-    renderPanel();
-    fireEvent.click(await screen.findByRole("button", { name: /展开服务池成员/ }));
+      renderPanel();
+      fireEvent.click(await screen.findByRole("button", { name: /展开服务池成员/ }));
 
-    const unloadBtn = await screen.findByRole("button", { name: /^卸载$/ });
-    expect(unloadBtn).toBeDisabled();
+      const unloadBtn = await screen.findByRole("button", { name: /^卸载$/ });
+      expect(unloadBtn).toBeDisabled();
+      expect(screen.getByRole("button", { name: "停流" })).toBeInTheDocument();
+      expect(screen.queryByText("预配置")).not.toBeInTheDocument();
 
-    // drain fires the pool-member drain mutation
-    fireEvent.click(screen.getByRole("button", { name: /停流/ }));
-    await waitFor(() => expect(mockDrainPoolMember).toHaveBeenCalledWith("pool-1", "inst-1"));
-  });
+      fireEvent.click(screen.getByRole("button", { name: "停流" }));
+      await waitFor(() => expect(mockDrainPoolMember).toHaveBeenCalledWith("pool-1", "inst-1"));
+    },
+  );
 
-  it("drained + inflight=0 + 新鲜账本 → 卸载启用并触发 unload", async () => {
-    mockTopology.mockResolvedValue({
-      generated_at: "2026-07-20T10:00:00Z",
-      router_mode: "enforce",
-      schema_version: "topology.v1",
-      pools: [makePool({ members: [makeMember({ traffic_state: "draining" })] })],
-    });
-    mockRuntimeSnapshot.mockResolvedValue(
-      makeSnapshot({
-        router_mode: "enforce",
-        pools: [
-          {
-            id: "pool-1",
-            name: "图像分割池",
-            members: [makeMember({ traffic_state: "draining", route_inflight: 0 })],
-          },
-        ],
-      }),
-    );
-    mockObserve.mockResolvedValue({ configured_count: 1, targets: [] });
-    mockListAll.mockResolvedValue({ items: [makeBackend()] });
+  it.each(["off", "observe", "enforce"] as const)(
+    "router_mode=%s 时 draining 且新鲜 zero observation 可请求卸载",
+    async (routerMode) => {
+      mockTopology.mockResolvedValue({
+        generated_at: "2026-07-20T10:00:00Z",
+        router_mode: routerMode,
+        schema_version: "topology.v1",
+        pools: [makePool({ members: [makeMember({ traffic_state: "draining" })] })],
+      });
+      mockRuntimeSnapshot.mockResolvedValue(
+        makeSnapshot({
+          router_mode: routerMode,
+          pools: [
+            {
+              id: "pool-1",
+              name: "图像分割池",
+              members: [makeMember({ traffic_state: "draining", route_inflight: 0 })],
+            },
+          ],
+        }),
+      );
+      mockObserve.mockResolvedValue({ configured_count: 1, targets: [] });
+      mockListAll.mockResolvedValue({ items: [makeBackend()] });
 
-    renderPanel();
-    fireEvent.click(await screen.findByRole("button", { name: /展开服务池成员/ }));
-    const unloadBtn = await screen.findByRole("button", { name: /^卸载$/ });
-    expect(unloadBtn).not.toBeDisabled();
+      renderPanel();
+      fireEvent.click(await screen.findByRole("button", { name: /展开服务池成员/ }));
+      const unloadBtn = await screen.findByRole("button", { name: /^卸载$/ });
+      expect(unloadBtn).not.toBeDisabled();
+      fireEvent.focus(screen.getByLabelText("卸载状态"));
+      expect(await screen.findByRole("tooltip")).toHaveTextContent(
+        "当前观测未见活动执行；可请求卸载，服务端仍会再次核验运行状态",
+      );
 
-    fireEvent.click(unloadBtn);
-    await waitFor(() => expect(mockUnloadMutate).toHaveBeenCalledWith("inst-1", expect.anything()));
-  });
+      fireEvent.click(unloadBtn);
+      await waitFor(() =>
+        expect(mockUnloadMutate).toHaveBeenCalledWith("inst-1", expect.anything()),
+      );
+    },
+  );
 
-  it("陈旧账本阻塞卸载（drained 但 router_ledger stale）", async () => {
+  it("陈旧路由执行状态阻塞卸载请求", async () => {
     mockTopology.mockResolvedValue({
       generated_at: "2026-07-20T10:00:00Z",
       router_mode: "enforce",
@@ -627,7 +640,7 @@ describe("RuntimeObservePanel · service-pool tree (P4)", () => {
           {
             name: "router_ledger",
             stale: true,
-            error: "redis timeout",
+            error: "routing authority timeout",
             updated_at: "2026-07-20T09:00:00Z",
           },
           { name: "health", stale: false, updated_at: "2026-07-20T10:00:00Z" },
@@ -643,22 +656,26 @@ describe("RuntimeObservePanel · service-pool tree (P4)", () => {
     expect(unloadBtn).toBeDisabled();
   });
 
-  it("router_mode=observe：drained 实例卸载仍被阻塞（shadow drain）", async () => {
+  it("off 模式缺少路由执行状态时仍禁用卸载请求", async () => {
     mockTopology.mockResolvedValue({
       generated_at: "2026-07-20T10:00:00Z",
-      router_mode: "observe",
+      router_mode: "off",
       schema_version: "topology.v1",
       pools: [makePool({ members: [makeMember({ traffic_state: "draining" })] })],
     });
     mockRuntimeSnapshot.mockResolvedValue(
       makeSnapshot({
-        router_mode: "observe",
+        router_mode: "off",
         pools: [
           {
             id: "pool-1",
             name: "图像分割池",
             members: [makeMember({ traffic_state: "draining", route_inflight: 0 })],
           },
+        ],
+        sources: [
+          { name: "topology", stale: false, updated_at: "2026-07-20T10:00:00Z" },
+          { name: "health", stale: false, updated_at: "2026-07-20T10:00:00Z" },
         ],
       }),
     );
@@ -671,7 +688,7 @@ describe("RuntimeObservePanel · service-pool tree (P4)", () => {
     expect(unloadBtn).toBeDisabled();
   });
 
-  it("stale inflight 阻塞安全卸载：route_inflight=3 → 卸载禁用", async () => {
+  it("活动执行计数非零时禁用卸载请求", async () => {
     mockTopology.mockResolvedValue({
       generated_at: "2026-07-20T10:00:00Z",
       router_mode: "enforce",
@@ -711,7 +728,7 @@ describe("RuntimeObservePanel · service-pool tree (P4)", () => {
         partial: true,
         partial_reason: "router_ledger stale",
         pools: [{ id: "pool-1", name: "图像分割池", members: [makeMember()] }],
-        sources: [{ name: "router_ledger", stale: true, error: "redis timeout" }],
+        sources: [{ name: "router_ledger", stale: true, error: "routing authority timeout" }],
       }),
     );
     mockObserve.mockResolvedValue({ configured_count: 1, targets: [] });

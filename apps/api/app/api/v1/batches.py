@@ -1,6 +1,8 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from sqlalchemy import inspect
+from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.quality_job_dispatch import QualityJobDispatcher
@@ -48,17 +50,19 @@ from app.services.batch import (
     assert_can_transition,
     REVERSE_TRANSITIONS,
 )
-from app.services.workspace_contract import ProjectAccess, ProjectCapability
+from aap_workspace_contract.access import ProjectAccess, ProjectCapability
 from app.services.management import preview_batch_distribution
 from app.services.audit import AuditAction, AuditService, audit_origin_from_request
 from app.services.notification import NotificationService
 from app.services.user_brief import resolve_briefs_with_project_role
-from app.db.models.audit_log import AuditLog
+from app.services.audit_read_relations import audit_event
 from sqlalchemy import select as sa_select
 
 from app.application.task_submission import TaskSubmissionWorkflow
 from app.application.task_workflow_errors import TaskWorkflowError
 from app.services.identity_contracts import IdentityActorFacts
+
+from app.services.labeling_core_read_relations import batch_row, get_core_row, task_row
 
 router = APIRouter()
 
@@ -75,6 +79,22 @@ def _batch_to_out(batch, briefs: dict | None = None) -> BatchOut:
         if batch.reviewer_id is not None:
             out.reviewer = briefs.get(str(batch.reviewer_id))
     return out
+
+
+async def _refresh_batch(db: AsyncSession, batch):
+    state = inspect(batch)
+    if state.identity is None:
+        raise InvalidRequestError(
+            f"Could not refresh instance of {type(batch).__name__}"
+        )
+    batch_id = state.identity[0]
+    db.expire(batch)
+    refreshed = await get_core_row(db, batch_row, batch_id, populate_existing=True)
+    if refreshed is None:
+        raise InvalidRequestError(
+            f"Could not refresh {type(batch).__name__} with identity {batch_id}"
+        )
+    return refreshed
 
 
 async def _briefs_for_batches(db, project_id, batches) -> dict:
@@ -113,15 +133,14 @@ async def get_unclassified_task_count(
     给 BatchesSection 顶部横带「未归类 N 条 · 去分包」用。
     """
     from sqlalchemy import select as sa_sel, func as sa_func
-    from app.db.models.task import Task
 
     n = (
         await db.execute(
             sa_sel(sa_func.count())
-            .select_from(Task)
+            .select_from(task_row)
             .where(
-                Task.project_id == project_id,
-                Task.batch_id.is_(None),
+                task_row.project_id == project_id,
+                task_row.batch_id.is_(None),
             )
         )
     ).scalar() or 0
@@ -165,7 +184,7 @@ async def create_batch(
         detail={"name": batch.name, "project_id": str(project_id)},
     )
     await db.commit()
-    await db.refresh(batch)
+    batch = await _refresh_batch(db, batch)
     briefs = await _briefs_for_batches(db, project_id, [batch])
     return _batch_to_out(batch, briefs)
 
@@ -184,7 +203,7 @@ async def update_batch(
         raise HTTPException(status_code=404, detail="Batch not found")
     batch = await svc.update(batch_id, data, project_id=project_id)
     await db.commit()
-    await db.refresh(batch)
+    batch = await _refresh_batch(db, batch)
     briefs = await _briefs_for_batches(db, project_id, [batch])
     return _batch_to_out(batch, briefs)
 
@@ -246,7 +265,7 @@ async def apply_batch_assignment(
         detail={"assignment": plan.items[0].model_dump(mode="json")},
     )
     await db.commit()
-    await db.refresh(batch)
+    batch = await _refresh_batch(db, batch)
     return _batch_to_out(batch, await _briefs_for_batches(db, project_id, [batch]))
 
 
@@ -371,7 +390,7 @@ async def transition_batch(
     await db.commit()
     if pending_notifications:
         await NotificationService(db).publish_committed(pending_notifications)
-    await db.refresh(batch)
+    batch = await _refresh_batch(db, batch)
     briefs = await _briefs_for_batches(db, project_id, [batch])
     return _batch_to_out(batch, briefs)
 
@@ -439,7 +458,7 @@ async def split_batches(
         )
     await db.commit()
     for b in batches:
-        await db.refresh(b)
+        b = await _refresh_batch(db, b)
     briefs = await _briefs_for_batches(db, project_id, batches)
     return [_batch_to_out(b, briefs) for b in batches]
 
@@ -613,7 +632,7 @@ async def reject_batch(
     await db.commit()
     if pending_notifications:
         await NotificationService(db).publish_committed(pending_notifications)
-    await db.refresh(batch)
+    batch = await _refresh_batch(db, batch)
     briefs = await _briefs_for_batches(db, project_id, [batch])
     return _batch_to_out(batch, briefs)
 
@@ -665,7 +684,7 @@ async def reset_batch_to_draft(
     )
 
     await db.commit()
-    await db.refresh(batch)
+    batch = await _refresh_batch(db, batch)
     briefs = await _briefs_for_batches(db, project_id, [batch])
     return _batch_to_out(batch, briefs)
 
@@ -729,7 +748,7 @@ async def admin_lock_batch(
     await db.commit()
     if pending_notifications:
         await NotificationService(db).publish_committed(pending_notifications)
-    await db.refresh(batch)
+    batch = await _refresh_batch(db, batch)
     briefs = await _briefs_for_batches(db, project_id, [batch])
     return _batch_to_out(batch, briefs)
 
@@ -784,7 +803,7 @@ async def admin_unlock_batch(
     await db.commit()
     if pending_notifications:
         await NotificationService(db).publish_committed(pending_notifications)
-    await db.refresh(batch)
+    batch = await _refresh_batch(db, batch)
     briefs = await _briefs_for_batches(db, project_id, [batch])
     return _batch_to_out(batch, briefs)
 
@@ -998,7 +1017,7 @@ async def bulk_reject_batches(
     # 通知各批次的标注员
     pending_notifications = []
     if summary["succeeded"]:
-        loaded = await svc._load_batches_for_bulk(project_id, summary["succeeded"])
+        loaded = await svc._list_batches_in_project(project_id, summary["succeeded"])
         notif_svc = NotificationService(db)
         for batch in loaded.values():
             if batch.annotator_id and batch.annotator_id != current_user.id:
@@ -1048,26 +1067,28 @@ async def list_batch_audit_logs(
         AuditAction.BULK_BATCH_REASSIGN.value,
         AuditAction.BULK_BATCH_ACTIVATE.value,
     )
-    direct = (AuditLog.target_type == "batch") & (AuditLog.target_id == str(batch_id))
+    direct = (audit_event.target_type == "batch") & (
+        audit_event.target_id == str(batch_id)
+    )
     if batch is None:
         path = f"/api/v1/projects/{project_id}/batches/{batch_id}"
         direct &= or_(
-            AuditLog.detail_json["project_id"].astext == str(project_id),
-            AuditLog.path == path,
-            AuditLog.path.startswith(path + "/", autoescape=True),
+            audit_event.detail_json["project_id"].astext == str(project_id),
+            audit_event.path == path,
+            audit_event.path.startswith(path + "/", autoescape=True),
         )
     bulk_match = (
-        (AuditLog.target_type == "project")
-        & (AuditLog.target_id == str(project_id))
-        & (AuditLog.action.in_(bulk_actions))
-        & (AuditLog.detail_json.contains({"batch_ids": [str(batch_id)]}))
+        (audit_event.target_type == "project")
+        & (audit_event.target_id == str(project_id))
+        & (audit_event.action.in_(bulk_actions))
+        & (audit_event.detail_json.contains({"batch_ids": [str(batch_id)]}))
     )
     rows = (
         (
             await db.execute(
-                sa_select(AuditLog)
+                sa_select(audit_event)
                 .where(or_(direct, bulk_match))
-                .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+                .order_by(audit_event.created_at.desc(), audit_event.id.desc())
                 .limit(limit)
             )
         )
@@ -1273,7 +1294,7 @@ async def export_batch(
 
     from app.services import async_job as async_job_svc
     from app.db.models.async_job import AsyncJobKind
-    from app.workers.export import run_export
+    from app.services.jobs_queue import dispatch_job
 
     job = await async_job_svc.create_job(
         db,
@@ -1331,23 +1352,28 @@ async def export_batch(
     )
     await db.commit()
 
-    run_export.delay(
-        project_id=str(project_id),
-        batch_id=str(batch_id),
-        targets=targets,
-        opts={
-            "include_attributes": include_attributes,
-            "video_frame_mode": video_frame_mode,
-            "axis_frame": axis_frame,
-            "video_overlap_policy": video_overlap_policy,
-            "mots_frame_base": mots_frame_base,
-            **(
-                {"video_export_scope": video_scope_payload}
-                if video_scope_payload
-                else {}
-            ),
-            **({"lidar": lidar_options_payload} if lidar_options_payload else {}),
+    await dispatch_job(
+        task_name="app.workers.export.run_export",
+        execution_id=str(uuid.uuid4()),
+        args=[],
+        kwargs={
+            "project_id": str(project_id),
+            "batch_id": str(batch_id),
+            "targets": targets,
+            "opts": {
+                "include_attributes": include_attributes,
+                "video_frame_mode": video_frame_mode,
+                "axis_frame": axis_frame,
+                "video_overlap_policy": video_overlap_policy,
+                "mots_frame_base": mots_frame_base,
+                **(
+                    {"video_export_scope": video_scope_payload}
+                    if video_scope_payload
+                    else {}
+                ),
+                **({"lidar": lidar_options_payload} if lidar_options_payload else {}),
+            },
+            "async_job_id": str(job.id),
         },
-        async_job_id=str(job.id),
     )
     return {"job_id": str(job.id)}

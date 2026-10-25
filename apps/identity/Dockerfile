@@ -3,6 +3,10 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv
 RUN python -m pip install --no-cache-dir uv==0.11.29
 WORKDIR /build
 COPY apps/_shared/mail_transport /_shared/mail_transport
+COPY apps/_shared/identity_admission /_shared/identity_admission
+COPY apps/_shared/owner_data /_shared/owner_data
+COPY apps/notifications/pyproject.toml /notifications/pyproject.toml
+COPY apps/notifications/src /notifications/src
 COPY apps/identity/pyproject.toml apps/identity/uv.lock ./
 COPY apps/identity/src ./src
 RUN uv sync --locked --no-dev --extra runtime --no-editable

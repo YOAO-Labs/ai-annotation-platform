@@ -43,10 +43,8 @@ from app.services.gpu_arbitration.proofs import (
     _optional_datetime_document,
     _parse_gpu_proof_residency,
 )
-from app.services.ml_client import (
-    GPU_HEALTH_CHALLENGE_ECHO_MARKER,
-    MLBackendClient,
-)
+from aap_inference.backend_transport import GPU_HEALTH_CHALLENGE_ECHO_MARKER
+from app.services.ml_client import MLBackendClient
 from app.utils.gpu_resource import validate_gpu_resource_id
 
 

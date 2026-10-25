@@ -1,38 +1,49 @@
 from __future__ import annotations
 
-import copy
 import hashlib
 import json
 import logging
 import re
 import uuid
-from collections import Counter
 from datetime import datetime
 from dataclasses import replace
-from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import select, func, text
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy import inspect, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import set_committed_value
+
+from aap_labeling.annotation_write_contract import (
+    ANNOTATION_WRITE_PROTOCOL,
+    BindSceneTrackMember,
+    CreateAnnotation,
+    DeleteAnnotation,
+    ReadCreateReceipt,
+    UpdateAnnotation,
+    WriteCreateReceipt,
+)
+from aap_labeling.annotation_bulk_contract import (
+    ANNOTATION_BULK_PROTOCOL,
+    AnnotationBulkPatch,
+    UpdateAnnotations,
+)
+from aap_labeling.cross_frame_write_policy import (
+    PROPAGATABLE_GEOMETRY_TYPES as PROPAGATABLE_GEOMETRY_TYPES,
+)
+from aap_labeling.annotation_prediction_contract import (
+    ApplySecondaryAttributes,
+    CreateAcceptedAnnotation,
+    MarkSecondaryChild,
+)
 
 from app.db.models.annotation import Annotation
-from app.db.models.annotation_operation import AnnotationOperation
+from app.services.project_access import get_workspace_project
 from app.db.models.scene_track import SceneTrack
 from app.db.models.prediction import (
     INTERACTIVE_ACCEPT_PREDICTION_SOURCE,
-    Prediction,
 )
 from app.db.models.task import Task
-from app.db.models.task_batch import TaskBatch
 from app.db.models.task_lock import AnnotationDraft
-from app.services.video_tracks import (
-    frame_is_outside,
-    normalize_outside_ranges,
-    resolved_track_frames,
-    resolve_track_at_frame,
-    sorted_keyframes,
-)
 
 # v0.16.x 拆分：传播纯逻辑簇已抽到 annotation_propagation.py，此处 import 回来给
 # 端点/类方法自用，并保持 `from app.services.annotation import ...` 旧入口经 re-export 不变。
@@ -46,7 +57,6 @@ from app.services.annotation_propagation import (
 )
 from app.services.annotation_evidence import (
     record_annotation_actor,
-    record_annotation_actors_for_tasks,
 )
 from app.services.annotation_track_identity import prepare_compact_track_identity
 from app.services.labeling_write_scope import LabelingWriteScope
@@ -64,61 +74,33 @@ from app.services.raster_mask_storage import (
 )
 from app.services.scene_track_domain import (
     SceneTrackIntegrityError,
-    bind_annotation_to_scene_track,
-    ensure_scene_track,
-    reclassify_single_member_scene_track,
     touch_annotation_scene_track,
+)
+from app.services.labeling_annotation_maintenance import (
+    LabelingAnnotationMaintenanceService,
+    _orphan_user_attribute_keys as _orphan_user_attribute_keys,
+    _prune_orphan_user_attributes as _prune_orphan_user_attributes,
+)
+from app.services.labeling_annotation_data import annotation_write_command
+from app.services.labeling_annotation_bulk_data import annotation_bulk_command
+from app.services.labeling_video_bbox_editing import LabelingVideoBBoxEditingService
+from app.services.labeling_cross_frame_writes import LabelingCrossFrameWriteService
+from app.services.labeling_annotation_prediction import (
+    annotation_prediction_command,
+    annotation_prediction_context,
+)
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    get_core_row,
+    lock_task_for_core_read,
+    prediction_meta_row,
+    prediction_row,
+    task_row,
 )
 
 logger = logging.getLogger("app.services.annotation")
 
 VIDEO_BBOX_CONVERSION_LIMIT = 5000
-ANNOTATION_CREATE_OPERATION_KIND = "create_annotation"
-
-
-def _orphan_user_attribute_keys(
-    attributes: dict[str, Any] | None, allowed_keys: set[str]
-) -> list[str]:
-    if not isinstance(attributes, dict):
-        return []
-    return [
-        key for key in attributes if key not in allowed_keys and not key.startswith("_")
-    ]
-
-
-def _prune_orphan_user_attributes(
-    attributes: dict[str, Any] | None, allowed_keys: set[str]
-) -> dict[str, Any]:
-    if not isinstance(attributes, dict):
-        return {}
-    return {
-        key: value
-        for key, value in attributes.items()
-        if key in allowed_keys or key.startswith("_")
-    }
-
-
-_SCHEMA_CLEANUP_LOCK_FAILURES = {"55P03", "40001", "40P01"}
-
-
-async def _lock_schema_cleanup_rows(
-    db: AsyncSession, statement: Any, *, reason: str
-) -> list[Any]:
-    try:
-        with db.no_autoflush:
-            result = await db.execute(statement)
-    except DBAPIError as exc:
-        sqlstate = getattr(exc.orig, "sqlstate", None) or getattr(
-            exc.orig, "pgcode", None
-        )
-        if sqlstate in _SCHEMA_CLEANUP_LOCK_FAILURES:
-            await db.rollback()
-            raise HTTPException(
-                status_code=409,
-                detail={"reason": reason},
-            ) from exc
-        raise
-    return result.scalars().all()
 
 
 def annotation_create_request_digest(payload: dict) -> str:
@@ -206,24 +188,148 @@ def _sync_attributes_meta(
     return new_meta
 
 
-# v0.14.1 · 可跨帧 propagate 的几何类型。视频内 track 几何由 video_tracker_runner
-# 处理(case A 内部), point_mask_3d 跨帧 point_indices 无意义(§5.4 留 v0.15+)。
-PROPAGATABLE_GEOMETRY_TYPES = frozenset(
-    {
-        "box_3d",
-        "bbox",
-        "polygon",
-        "multi_polygon",
-        "rotated_bbox",
-        "polyline",
-        "keypoint",
-    }
-)
-
-
 class AnnotationService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
+
+    async def _load_after_write(self, annotation_id: uuid.UUID) -> Annotation:
+        return (
+            await self.db.execute(
+                select(annotation_row)
+                .where(annotation_row.id == annotation_id)
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one()
+
+    async def _refresh_loaded_annotation_fields(
+        self, annotation_ids: set[uuid.UUID], fields: tuple[str, ...]
+    ) -> None:
+        loaded = {
+            item.id: item
+            for item in self.db.sync_session.identity_map.values()
+            if isinstance(item, Annotation) and item.id in annotation_ids
+        }
+        if not loaded:
+            return
+        columns = [
+            annotation_row.id,
+            *(getattr(annotation_row, field) for field in fields),
+        ]
+        with self.db.no_autoflush:
+            rows = (
+                await self.db.execute(
+                    select(*columns).where(annotation_row.id.in_(loaded))
+                )
+            ).mappings()
+            for row in rows:
+                item = loaded[row["id"]]
+                state = inspect(item)
+                for field in fields:
+                    value = row[field]
+                    if field not in state.dict or state.dict[field] != value:
+                        set_committed_value(item, field, value)
+
+    async def _refresh_loaded_scene_track_fields(
+        self, scene_track_id: uuid.UUID, fields: tuple[str, ...]
+    ) -> None:
+        loaded = next(
+            (
+                item
+                for item in self.db.sync_session.identity_map.values()
+                if isinstance(item, SceneTrack) and item.id == scene_track_id
+            ),
+            None,
+        )
+        if loaded is None:
+            return
+        from app.services.labeling_scene_read import read_scene_data
+
+        with self.db.no_autoflush:
+            data = await read_scene_data(
+                self.db, "load_scene_track_cache", scene_track_id=scene_track_id
+            )
+        row = data.track_cache
+        if row is not None:
+            state = inspect(loaded)
+            for field in fields:
+                value = row[field]
+                if field not in state.dict or state.dict[field] != value:
+                    set_committed_value(loaded, field, value)
+
+    async def _refresh_loaded_scene_track_cameras(
+        self, scene_track_id: uuid.UUID
+    ) -> None:
+        loaded = {
+            item.id: item
+            for item in self.db.sync_session.identity_map.values()
+            if isinstance(item, Annotation)
+            and inspect(item).dict.get("scene_track_id", scene_track_id)
+            == scene_track_id
+            and inspect(item).dict.get("sensor_role", "camera") is not None
+        }
+        if not loaded:
+            return
+        from app.services.labeling_scene_read import read_scene_data
+
+        with self.db.no_autoflush:
+            data = await read_scene_data(
+                self.db,
+                "load_scene_camera_cache",
+                scene_track_id=scene_track_id,
+                annotation_ids=list(loaded),
+            )
+        for row in data.camera_members:
+            item = loaded[row.id]
+            state = inspect(item)
+            for field in ("class_name", "version", "updated_at"):
+                value = getattr(row, field)
+                if field not in state.dict or state.dict[field] != value:
+                    set_committed_value(item, field, value)
+
+    async def _refresh_deleted_annotation_cache(
+        self,
+        annotation: Annotation,
+        *,
+        deleted_camera_members: int,
+        deleted_children: int,
+    ) -> None:
+        loaded = {
+            item.id: item
+            for item in self.db.sync_session.identity_map.values()
+            if isinstance(item, Annotation)
+        }
+        if not loaded:
+            return
+        targets = [annotation_row.id == annotation.id]
+        if deleted_camera_members and annotation.scene_track_id is not None:
+            targets.append(
+                (annotation_row.task_id == annotation.task_id)
+                & (annotation_row.scene_track_id == annotation.scene_track_id)
+                & annotation_row.sensor_role.is_not(None)
+                & annotation_row.was_cancelled.is_(False)
+            )
+        if deleted_children:
+            targets.append(annotation_row.parent_annotation_id == annotation.id)
+        with self.db.no_autoflush:
+            rows = (
+                await self.db.execute(
+                    select(
+                        annotation_row.id,
+                        annotation_row.is_active,
+                        annotation_row.version,
+                        annotation_row.updated_at,
+                    ).where(or_(*targets))
+                )
+            ).mappings()
+            for row in rows:
+                item = loaded.get(row["id"])
+                if item is None:
+                    continue
+                state = inspect(item)
+                for field in ("is_active", "version", "updated_at"):
+                    value = row[field]
+                    if field not in state.dict or state.dict[field] != value:
+                        set_committed_value(item, field, value)
 
     async def _validate_class_name(
         self, project_id: uuid.UUID | None, tool_unit_id: str, class_name: str
@@ -240,11 +346,10 @@ class AnnotationService:
             return
         if class_name == "__unknown":
             return
-        from app.db.models.project import Project
-        from app.services.project_workspace import lookup_classes_for_tool_unit
+        from aap_workspace.configuration_policy import lookup_classes_for_tool_unit
         from fastapi import HTTPException
 
-        project = await self.db.get(Project, project_id)
+        project = await get_workspace_project(self.db, project_id=project_id)
         if project is None:
             return
         allowed = lookup_classes_for_tool_unit(
@@ -275,10 +380,10 @@ class AnnotationService:
         # Slice restore may deactivate a prospective parent. Serialize child
         # creation with it before validating, so a waiter cannot create a child
         # from an active-state snapshot taken before the restore committed.
-        await self.db.execute(select(Task).where(Task.id == task_id).with_for_update())
+        await lock_task_for_core_read(self.db, task_id)
         parent = await self.db.scalar(
-            select(Annotation)
-            .where(Annotation.id == parent_annotation_id)
+            select(annotation_row)
+            .where(annotation_row.id == parent_annotation_id)
             .execution_options(populate_existing=True)
         )
         if parent is None or not parent.is_active:
@@ -319,8 +424,10 @@ class AnnotationService:
         verified_mask_content: _VerifiedMaskContent | None = None,
         require_verified_mask_content: bool = False,
     ) -> Annotation:
-        task = await self.db.get(Task, task_id)
-        if task is not None and not require_verified_mask_content:
+        task = await get_core_row(self.db, task_row, task_id)
+        if task is None:
+            raise HTTPException(status_code=404, detail="Task not found")
+        if not require_verified_mask_content:
             verified_mask_content = (
                 verified_mask_content
                 or await preflight_mask_payload_for_write(self.db, task, geometry)
@@ -328,11 +435,9 @@ class AnnotationService:
         # A2 · record before any Annotation/SceneTrack lock: this takes the task
         # row lock first, keeps the global Task -> Annotation order, and rolls
         # back with the mutation if the mutation fails.
-        if task is not None:
-            await record_annotation_actor(self.db, task, user_id)
-        source = "prediction_based" if parent_prediction_id else "manual"
+        await record_annotation_actor(self.db, task, user_id)
 
-        if task and task.project_id:
+        if task.project_id:
             await self._validate_class_name(task.project_id, tool_unit_id, class_name)
 
         if parent_annotation_id is not None:
@@ -352,41 +457,60 @@ class AnnotationService:
         geometry, track_id = prepare_compact_track_identity(geometry)
         if geometry.get("type") == "box_3d" and track_id is None:
             track_id = _new_track_id()
-        annotation = Annotation(
-            id=uuid.uuid4(),
-            task_id=task_id,
-            project_id=task.project_id if task else None,
-            video_segment_id=video_segment_id,
-            user_id=user_id,
-            source=source,
-            annotation_type=str(geometry.get("type") or annotation_type),
-            tool_unit_id=tool_unit_id,
-            class_name=class_name,
-            geometry=geometry,
-            track_id=track_id,
-            confidence=confidence,
-            parent_prediction_id=parent_prediction_id,
-            parent_annotation_id=parent_annotation_id,
-            lead_time=lead_time,
-            attributes=attributes or {},
-            temporal_role="keyframe" if geometry.get("type") == "box_3d" else "sample",
+        annotation_id = uuid.uuid4()
+        project_id = task.project_id
+        resolved_annotation_type = str(geometry.get("type") or annotation_type)
+
+        await annotation_write_command(
+            self.db,
+            CreateAnnotation(
+                schema=ANNOTATION_WRITE_PROTOCOL,
+                operation="create",
+                annotation_id=annotation_id,
+                task_id=task_id,
+                project_id=project_id,
+                actor_id=user_id,
+                annotation_type=resolved_annotation_type,
+                tool_unit_id=tool_unit_id,
+                class_name=class_name,
+                geometry=geometry,
+                confidence=confidence,
+                parent_prediction_id=parent_prediction_id,
+                parent_annotation_id=parent_annotation_id,
+                video_segment_id=video_segment_id,
+                lead_time=lead_time,
+                attributes=attributes or {},
+                track_id=track_id,
+            ),
         )
-        self.db.add(annotation)
-        if task is not None:
-            try:
-                await bind_annotation_to_scene_track(
+        if geometry.get("type") == "box_3d":
+            from app.services.labeling_scene import resolve_task_scene_frames
+
+            scene_frame = (await resolve_task_scene_frames(self.db, [task_id]))[task_id]
+            if scene_frame.scene_id is not None and scene_frame.frame_index is not None:
+                await annotation_write_command(
                     self.db,
-                    annotation=annotation,
-                    task=task,
-                    temporal_role="keyframe",
-                    interval_source="manual",
-                    actor_id=user_id,
+                    BindSceneTrackMember(
+                        schema=ANNOTATION_WRITE_PROTOCOL,
+                        operation="bind_scene_track_member",
+                        annotation_id=annotation_id,
+                        task_id=task_id,
+                        project_id=project_id,
+                        actor_id=user_id,
+                        expected_version=1,
+                        scene_id=scene_frame.scene_id,
+                        frame_index=scene_frame.frame_index,
+                        temporal_role="keyframe",
+                    ),
                 )
-            except SceneTrackIntegrityError as exc:
-                _raise_scene_track_conflict(exc)
         await self.db.flush()
 
         await self._update_task_stats(task_id)
+        annotation = await self._load_after_write(annotation_id)
+        if annotation.scene_track_id is not None:
+            await self._refresh_loaded_scene_track_fields(
+                annotation.scene_track_id, ("revision", "updated_at")
+            )
         return annotation
 
     async def annotation_create_receipt_response(
@@ -398,30 +522,27 @@ class AnnotationService:
         request_digest: str,
     ) -> dict | None:
         """Load a frozen create response or reject reuse of another operation key."""
-        operation = await self.db.scalar(
-            select(AnnotationOperation).where(
-                AnnotationOperation.task_id == task_id,
-                AnnotationOperation.actor_id == actor_id,
-                AnnotationOperation.idempotency_key == idempotency_key,
-            )
+        project_id = await self.db.scalar(
+            select(task_row.project_id).where(task_row.id == task_id)
         )
-        if operation is None:
+        if project_id is None:
             return None
-        if (
-            operation.kind != ANNOTATION_CREATE_OPERATION_KIND
-            or operation.request_digest != request_digest
-        ):
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "reason": "idempotency_conflict",
-                    "message": "idempotency key was already used with another request",
-                    "operation_id": str(operation.id),
-                },
-            )
-        return operation.response_json
+        result = await annotation_write_command(
+            self.db,
+            ReadCreateReceipt(
+                schema=ANNOTATION_WRITE_PROTOCOL,
+                operation="read_create_receipt",
+                task_id=task_id,
+                project_id=project_id,
+                actor_id=actor_id,
+                idempotency_key=idempotency_key,
+                request_digest=request_digest,
+            ),
+        )
+        assert result.receipt is not None
+        return result.receipt.response_json if result.receipt.found else None
 
-    def record_annotation_create_receipt(
+    async def record_annotation_create_receipt(
         self,
         *,
         task_id: uuid.UUID,
@@ -431,19 +552,24 @@ class AnnotationService:
         response_json: dict,
     ) -> None:
         """Stage the historical create response in the labeling transaction."""
-        self.db.add(
-            AnnotationOperation(
+        project_id = await self.db.scalar(
+            select(task_row.project_id).where(task_row.id == task_id)
+        )
+        if project_id is None:
+            raise HTTPException(status_code=404, detail="Task not found")
+        await annotation_write_command(
+            self.db,
+            WriteCreateReceipt(
+                schema=ANNOTATION_WRITE_PROTOCOL,
+                operation="write_create_receipt",
+                operation_id=uuid.uuid4(),
                 task_id=task_id,
+                project_id=project_id,
                 actor_id=actor_id,
-                kind=ANNOTATION_CREATE_OPERATION_KIND,
                 idempotency_key=idempotency_key,
                 request_digest=request_digest,
-                scope_fingerprint=request_digest,
-                source_versions={},
-                result_versions={},
-                report={},
                 response_json=response_json,
-            )
+            ),
         )
 
     async def _accept_prediction(
@@ -475,7 +601,7 @@ class AnnotationService:
         # v0.10.25 · predictions 复合 PK (id, created_at) 后不能用 db.get(单值)，改按 id 查。
         prediction = (
             await self.db.execute(
-                select(Prediction).where(Prediction.id == prediction_id)
+                select(prediction_row).where(prediction_row.id == prediction_id)
             )
         ).scalar_one_or_none()
         if (
@@ -486,12 +612,11 @@ class AnnotationService:
             return None
         if prediction.source == INTERACTIVE_ACCEPT_PREDICTION_SOURCE:
             return None
-        from app.db.models.prediction import PredictionMeta
 
         pred_meta = (
             await self.db.execute(
-                select(PredictionMeta).where(
-                    PredictionMeta.prediction_id == prediction_id
+                select(prediction_meta_row).where(
+                    prediction_meta_row.prediction_id == prediction_id
                 )
             )
         ).scalar_one_or_none()
@@ -666,8 +791,8 @@ class AnnotationService:
                 (index, to_internal_shape(raw_shape))
                 for index, raw_shape in enumerate(raw_shapes)
             ]
-        preflight_task = await self.db.get(
-            Task, prediction.task_id, populate_existing=True
+        preflight_task = await get_core_row(
+            self.db, task_row, prediction.task_id, populate_existing=True
         )
         verified_mask_content = await preflight_mask_payload_for_write(
             self.db,
@@ -713,13 +838,12 @@ class AnnotationService:
                     ai_key_model[f"{prefix}{k}"] = model_ref
 
         # v0.9.7 fix · prediction.result 是 LabelStudio 标准, 转内部 schema 后入 annotation
-        from app.db.models.project import Project
 
         # B-11 · DINO 写入的 class_name 是项目类别的英文 alias; 采纳时反查
         # 对应 tool_unit 的 classes 把 alias 映射回原类别名 (中文 / 业务名).
         # v0.10.17 · 强隔离: 只查 prediction.tool_unit_id 对应 unit 的 classes,
         # 不再跨 unit 走派生 classes_config (不同 unit 同名类可有不同 alias).
-        project = await self.db.get(Project, prediction.project_id)
+        project = await get_workspace_project(self.db, project_id=prediction.project_id)
         prediction_unit = getattr(prediction, "tool_unit_id", None) or "bbox"
         alias_to_name: dict[str, str] = {}
         # v0.18.0 · select/multiselect 属性的合法取值集合, 采纳时软校验 (不阻断, 仅 warning).
@@ -825,41 +949,59 @@ class AnnotationService:
             )
             if geometry.get("type") == "box_3d" and track_id is None:
                 track_id = _new_track_id()
-            annotation = Annotation(
-                id=uuid.uuid4(),
-                task_id=prediction.task_id,
-                project_id=prediction.project_id,
-                video_segment_id=video_segment_id,
-                user_id=user_id,
-                source="prediction_based",
-                annotation_type=shape.get("type", "bbox"),
-                # v0.10.17 · 沿用 prediction 的 tool_unit_id; to_internal_shape 输出的
-                # shape.type 也可派生 unit (polygon → region), 但优先 prediction 行已落实.
-                tool_unit_id=prediction_unit,
-                class_name=mapped_class,
-                geometry=geometry,
-                track_id=track_id,
-                confidence=shape.get("confidence"),
-                parent_prediction_id=prediction_id,
-                attributes=attributes,
-                attributes_meta=attributes_meta,
-                temporal_role=(
-                    "keyframe" if geometry.get("type") == "box_3d" else "sample"
+            annotation_id = uuid.uuid4()
+            confidence = shape.get("confidence")
+            annotation_type = shape.get("type", "bbox")
+            await annotation_prediction_command(
+                self.db,
+                CreateAcceptedAnnotation(
+                    **annotation_prediction_context(task, user_id),
+                    operation="create_accepted",
+                    annotation_id=annotation_id,
+                    prediction_id=prediction_id,
+                    prediction_created_at=prediction.created_at,
+                    video_segment_id=video_segment_id,
+                    annotation_type="bbox"
+                    if annotation_type is None
+                    else annotation_type,
+                    tool_unit_id=prediction_unit,
+                    class_name=mapped_class,
+                    geometry=geometry,
+                    track_id=track_id,
+                    confidence=float(confidence) if confidence is not None else None,
+                    attributes=attributes,
+                    attributes_meta=attributes_meta,
+                    temporal_role="keyframe"
+                    if geometry.get("type") == "box_3d"
+                    else "sample",
                 ),
             )
-            self.db.add(annotation)
-            if task is not None:
-                try:
-                    await bind_annotation_to_scene_track(
+            if geometry.get("type") == "box_3d":
+                from app.services.labeling_scene import resolve_task_scene_frames
+
+                scene_frame = (await resolve_task_scene_frames(self.db, [task.id]))[
+                    task.id
+                ]
+                if (
+                    scene_frame.scene_id is not None
+                    and scene_frame.frame_index is not None
+                ):
+                    await annotation_write_command(
                         self.db,
-                        annotation=annotation,
-                        task=task,
-                        temporal_role="keyframe",
-                        interval_source="manual",
-                        actor_id=user_id,
+                        BindSceneTrackMember(
+                            schema=ANNOTATION_WRITE_PROTOCOL,
+                            operation="bind_scene_track_member",
+                            annotation_id=annotation_id,
+                            task_id=task.id,
+                            project_id=task.project_id,
+                            actor_id=user_id,
+                            expected_version=1,
+                            scene_id=scene_frame.scene_id,
+                            frame_index=scene_frame.frame_index,
+                            temporal_role="keyframe",
+                        ),
                     )
-                except SceneTrackIntegrityError as exc:
-                    _raise_scene_track_conflict(exc)
+            annotation = await self._load_after_write(annotation_id)
             anns.append(annotation)
 
         await self.db.flush()
@@ -951,7 +1093,9 @@ class AnnotationService:
         task, _actor, _access = await lock_labeling_write(
             self.db, write_scope, operations=("secondary_inference",)
         )
-        annotation = await self.db.get(Annotation, write_scope.source_annotation_id)
+        annotation = await get_core_row(
+            self.db, annotation_row, write_scope.source_annotation_id
+        )
         await record_annotation_actor(self.db, task, actor_id)
 
         if result.write_target == "attributes":
@@ -969,9 +1113,21 @@ class AnnotationService:
                 current_meta[key] = {"origin": "ai", "model_ref": model_ref}
                 changed = True
             if changed:
-                annotation.attributes = current_attributes
-                annotation.attributes_meta = current_meta
-                annotation.version += 1
+                written = await annotation_prediction_command(
+                    self.db,
+                    ApplySecondaryAttributes(
+                        **annotation_prediction_context(task, actor_id),
+                        operation="apply_secondary_attributes",
+                        annotation_id=annotation.id,
+                        expected_version=annotation.version,
+                        attributes=current_attributes,
+                        attributes_meta=current_meta,
+                    ),
+                )
+                set_committed_value(annotation, "attributes", current_attributes)
+                set_committed_value(annotation, "attributes_meta", current_meta)
+                set_committed_value(annotation, "version", written.version)
+                set_committed_value(annotation, "updated_at", written.updated_at)
                 await touch_annotation_scene_track(
                     self.db, annotation, make_keyframe=False
                 )
@@ -1014,7 +1170,19 @@ class AnnotationService:
                     video_segment_id=annotation.video_segment_id,
                     verified_mask_content=verified_content,
                 )
-            child.source = "prediction_based"
+            written = await annotation_prediction_command(
+                self.db,
+                MarkSecondaryChild(
+                    **annotation_prediction_context(task, actor_id),
+                    operation="mark_secondary_child",
+                    annotation_id=child.id,
+                    expected_version=child.version,
+                    parent_annotation_id=annotation.id,
+                ),
+            )
+            set_committed_value(child, "source", written.source)
+            # The old source-only ORM UPDATE did not refresh Mask-trigger versions.
+            set_committed_value(child, "updated_at", written.updated_at)
             children.append(child)
         if children:
             await self.db.flush()
@@ -1034,7 +1202,7 @@ class AnnotationService:
 
         prediction = (
             await self.db.execute(
-                select(Prediction).where(Prediction.id == prediction_id)
+                select(prediction_row).where(prediction_row.id == prediction_id)
             )
         ).scalar_one_or_none()
         if (
@@ -1054,18 +1222,16 @@ class AnnotationService:
                 detail=f"shape_index {shape_index} out of range (0..{total_shapes - 1})",
             )
 
-        # Re-read under the Task lock so concurrent rejects merge current history.
-        await self.db.refresh(prediction, ["rejected_shape_indexes"])
-        rejected = list(prediction.rejected_shape_indexes or [])
-        rejected_set = set(rejected)
-        targets = (
-            [shape_index] if shape_index is not None else list(range(total_shapes))
+        from app.services.labeling_prediction_records import reject_prediction_candidate
+
+        await reject_prediction_candidate(
+            self.db,
+            prediction_id=prediction.id,
+            prediction_created_at=prediction.created_at,
+            task_id=write_scope.task_id,
+            project_id=write_scope.project_id,
+            shape_index=shape_index,
         )
-        for index in targets:
-            if index not in rejected_set:
-                rejected.append(index)
-                rejected_set.add(index)
-        prediction.rejected_shape_indexes = rejected
 
         from app.services.task_lock import TaskLockService
 
@@ -1077,16 +1243,16 @@ class AnnotationService:
         include_cancelled: bool = False,
         video_segment_id: uuid.UUID | None = None,
     ) -> list[Annotation]:
-        q = select(Annotation).where(
-            Annotation.task_id == task_id,
-            Annotation.is_active.is_(True),
-            Annotation.sensor_role.is_(None),
+        q = select(annotation_row).where(
+            annotation_row.task_id == task_id,
+            annotation_row.is_active.is_(True),
+            annotation_row.sensor_role.is_(None),
         )
         if not include_cancelled:
-            q = q.where(Annotation.was_cancelled.is_(False))
+            q = q.where(annotation_row.was_cancelled.is_(False))
         if video_segment_id is not None:
-            q = q.where(Annotation.video_segment_id == video_segment_id)
-        q = q.order_by(Annotation.created_at)
+            q = q.where(annotation_row.video_segment_id == video_segment_id)
+        q = q.order_by(annotation_row.created_at)
         result = await self.db.execute(q)
         return list(result.scalars().all())
 
@@ -1102,15 +1268,15 @@ class AnnotationService:
         """
         if not task_ids:
             return []
-        q = select(Annotation).where(
-            Annotation.task_id.in_(task_ids),
-            Annotation.is_active.is_(True),
-            Annotation.was_cancelled.is_(False),
-            Annotation.sensor_role.is_(None),
+        q = select(annotation_row).where(
+            annotation_row.task_id.in_(task_ids),
+            annotation_row.is_active.is_(True),
+            annotation_row.was_cancelled.is_(False),
+            annotation_row.sensor_role.is_(None),
         )
         if track_id is not None:
-            q = q.where(Annotation.track_id == track_id)
-        q = q.order_by(Annotation.task_id, Annotation.created_at)
+            q = q.where(annotation_row.track_id == track_id)
+        q = q.order_by(annotation_row.task_id, annotation_row.created_at)
         result = await self.db.execute(q)
         return list(result.scalars().all())
 
@@ -1128,22 +1294,24 @@ class AnnotationService:
         cursor 元组语义：取「严格小于」该 (ts, id) 的下一页。
         排序键参考 alembic 0031 的 ix_annotations_task_created_id 复合索引。
         """
-        q = select(Annotation).where(
-            Annotation.task_id == task_id,
-            Annotation.is_active.is_(True),
-            Annotation.sensor_role.is_(None),
+        q = select(annotation_row).where(
+            annotation_row.task_id == task_id,
+            annotation_row.is_active.is_(True),
+            annotation_row.sensor_role.is_(None),
         )
         if not include_cancelled:
-            q = q.where(Annotation.was_cancelled.is_(False))
+            q = q.where(annotation_row.was_cancelled.is_(False))
         if video_segment_id is not None:
-            q = q.where(Annotation.video_segment_id == video_segment_id)
+            q = q.where(annotation_row.video_segment_id == video_segment_id)
         if cursor is not None:
             cur_ts, cur_id = cursor
             q = q.where(
-                (Annotation.created_at < cur_ts)
-                | ((Annotation.created_at == cur_ts) & (Annotation.id < cur_id))
+                (annotation_row.created_at < cur_ts)
+                | ((annotation_row.created_at == cur_ts) & (annotation_row.id < cur_id))
             )
-        q = q.order_by(Annotation.created_at.desc(), Annotation.id.desc()).limit(limit)
+        q = q.order_by(
+            annotation_row.created_at.desc(), annotation_row.id.desc()
+        ).limit(limit)
         rows = list((await self.db.execute(q)).scalars().all())
         next_cursor: tuple[datetime, uuid.UUID] | None = None
         if len(rows) == limit and rows:
@@ -1151,52 +1319,43 @@ class AnnotationService:
             next_cursor = (tail.created_at, tail.id)
         return rows, next_cursor
 
-    async def delete(self, annotation_id: uuid.UUID) -> bool:
-        annotation = await self.db.get(Annotation, annotation_id)
+    async def delete(
+        self, annotation_id: uuid.UUID, *, actor_id: uuid.UUID | None = None
+    ) -> bool:
+        annotation = await get_core_row(self.db, annotation_row, annotation_id)
         if not annotation:
             return False
-        if annotation.sensor_role is not None:
-            raise HTTPException(
-                status_code=422,
-                detail="camera members must be deleted through the point-cloud camera member API",
+        project_id = annotation.project_id
+        if project_id is None:
+            project_id = await self.db.scalar(
+                select(task_row.project_id).where(task_row.id == annotation.task_id)
             )
-        annotation.is_active = False
-        annotation.version += 1
-        await touch_annotation_scene_track(self.db, annotation, make_keyframe=False)
-        if annotation.sensor_role is None and annotation.scene_track_id is not None:
-            camera_members = list(
-                (
-                    await self.db.execute(
-                        select(Annotation)
-                        .where(Annotation.task_id == annotation.task_id)
-                        .where(Annotation.scene_track_id == annotation.scene_track_id)
-                        .where(Annotation.sensor_role.is_not(None))
-                        .where(Annotation.is_active.is_(True))
-                        .where(Annotation.was_cancelled.is_(False))
-                        .with_for_update()
-                    )
-                ).scalars()
-            )
-            for camera_member in camera_members:
-                camera_member.is_active = False
-                camera_member.version += 1
-        # v0.20.9 · 级联软删子框: 删父框时其所有 active 子框一并软删, 不留 orphan。
-        # 父子仅一层 (create 时约束), 故无需递归。
-        children = (
-            (
-                await self.db.execute(
-                    select(Annotation).where(
-                        Annotation.parent_annotation_id == annotation_id,
-                        Annotation.is_active.is_(True),
-                    )
-                )
-            )
-            .scalars()
-            .all()
+        if project_id is None:
+            return False
+        result = await annotation_write_command(
+            self.db,
+            DeleteAnnotation(
+                schema=ANNOTATION_WRITE_PROTOCOL,
+                operation="delete",
+                annotation_id=annotation.id,
+                task_id=annotation.task_id,
+                project_id=project_id,
+                actor_id=actor_id,
+                expected_version=int(annotation.version or 1),
+            ),
         )
-        for child in children:
-            child.is_active = False
-            child.version += 1
+        assert result.mutation is not None
+        if not result.mutation.changed:
+            return False
+        await self._refresh_deleted_annotation_cache(
+            annotation,
+            deleted_camera_members=result.mutation.deleted_camera_members,
+            deleted_children=result.mutation.deleted_children,
+        )
+        if annotation.scene_track_id is not None:
+            await self._refresh_loaded_scene_track_fields(
+                annotation.scene_track_id, ("revision", "updated_at")
+            )
         await self.db.flush()
         await self._update_task_stats(annotation.task_id)
         return True
@@ -1210,6 +1369,9 @@ class AnnotationService:
         z_order: int | None = None,
         is_locked: bool | None = None,
         is_hidden: bool | None = None,
+        actor_id: uuid.UUID | None = None,
+        task_id: uuid.UUID | None = None,
+        project_id: uuid.UUID | None = None,
     ) -> list[Annotation]:
         """I12 · 批量 patch N 个标注. 任一标注被锁/已软删则整体 422.
 
@@ -1220,7 +1382,11 @@ class AnnotationService:
         if not ids:
             return []
         rows = (
-            (await self.db.execute(select(Annotation).where(Annotation.id.in_(ids))))
+            (
+                await self.db.execute(
+                    select(annotation_row).where(annotation_row.id.in_(ids))
+                )
+            )
             .scalars()
             .all()
         )
@@ -1230,172 +1396,112 @@ class AnnotationService:
                 status_code=404,
                 detail=f"annotations not found: {sorted(str(m) for m in missing)}",
             )
-        mask_task_ids = sorted(
-            {
-                row.task_id
-                for row in rows
-                if (row.geometry or {}).get("type")
-                in {"raster_mask", "video_mask", "video_track_mask"}
-            },
-            key=str,
+        result_order = [row.id for row in rows]
+        if any(
+            (row.geometry or {}).get("type")
+            in {"raster_mask", "video_mask", "video_track_mask"}
+            for row in rows
+        ):
+            result_order.sort()
+        if (task_id is None) != (project_id is None):
+            raise ValueError("task_id and project_id must be supplied together")
+        patch = {
+            key: value
+            for key, value in {
+                "class_name": class_name,
+                "attributes": attributes,
+                "z_order": z_order,
+                "is_locked": is_locked,
+                "is_hidden": is_hidden,
+            }.items()
+            if value is not None
+        }
+        result = await annotation_bulk_command(
+            self.db,
+            UpdateAnnotations(
+                schema=ANNOTATION_BULK_PROTOCOL,
+                operation="update",
+                actor_id=actor_id,
+                task_id=task_id,
+                project_id=project_id,
+                ids=ids,
+                patch=AnnotationBulkPatch(**patch),
+            ),
         )
-        if mask_task_ids:
-            await self.db.execute(
-                select(Task)
-                .where(Task.id.in_(mask_task_ids))
-                .order_by(Task.id)
-                .with_for_update()
-            )
-            rows = (
-                (
-                    await self.db.execute(
-                        select(Annotation)
-                        .where(Annotation.id.in_(ids))
-                        .order_by(Annotation.id)
-                        .with_for_update()
-                        .execution_options(populate_existing=True)
-                    )
-                )
-                .scalars()
-                .all()
-            )
-        # 整体校验: 任一被锁 / 已软删 → 422 + 整体回滚 (调用方上游事务承担).
-        for r in rows:
-            if r.sensor_role is not None:
-                raise HTTPException(
-                    status_code=422,
-                    detail="camera members must be edited through the point-cloud camera member API",
-                )
-            if not r.is_active:
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"annotation {r.id} is not active",
-                )
-            if r.is_locked and (
-                class_name is not None or attributes is not None or z_order is not None
+
+        write_fields = set(patch)
+        if "attributes" in patch:
+            write_fields.add("attributes_meta")
+        loaded = {row.id: row for row in rows}
+        for snapshot in result.annotations:
+            annotation = loaded.get(snapshot.id)
+            if annotation is None:
+                continue
+            fields = {
+                "class_name": snapshot.class_name,
+                "attributes": snapshot.attributes,
+                "attributes_meta": snapshot.attributes_meta,
+                "z_order": snapshot.z_order,
+                "is_locked": snapshot.is_locked,
+                "is_hidden": snapshot.is_hidden,
+            }
+            state = inspect(annotation)
+            for field, value in fields.items():
+                if (
+                    field in write_fields
+                    or not state.attrs[field].history.has_changes()
+                ):
+                    set_committed_value(annotation, field, value)
+            set_committed_value(annotation, "version", snapshot.version)
+            set_committed_value(annotation, "updated_at", snapshot.updated_at)
+
+        loaded_by_id = {
+            item.id: item
+            for item in self.db.identity_map.values()
+            if isinstance(item, Annotation)
+        }
+        for snapshot in result.camera_members:
+            annotation = loaded_by_id.get(snapshot.id)
+            if annotation is None:
+                continue
+            state = inspect(annotation)
+            if (
+                "class_name" in patch
+                or not state.attrs.class_name.history.has_changes()
             ):
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"annotation {r.id} is locked; unlock it first",
-                )
-        # class_name 走软校验 (复用 _validate_class_name); bulk 时按 tool_unit_id 分桶,
-        # 每桶各校验一次, 避免 N 次同 unit 重复查 project.tool_bindings.
-        if class_name is not None:
-            by_unit: dict[tuple[uuid.UUID | None, str], None] = {}
-            for r in rows:
-                by_unit[(r.project_id, r.tool_unit_id)] = None
-            for (pid, unit), _ in by_unit.items():
-                await self._validate_class_name(pid, unit, class_name)
-        linked_rows = [row for row in rows if row.scene_track_id is not None]
-        linked_track_ids = sorted(
-            {
-                row.scene_track_id
-                for row in linked_rows
-                if row.scene_track_id is not None
-            },
-            key=str,
-        )
-        linked_tracks: dict[uuid.UUID, SceneTrack] = {}
-        if linked_track_ids:
-            tracks = list(
-                (
-                    await self.db.execute(
-                        select(SceneTrack)
-                        .where(SceneTrack.id.in_(linked_track_ids))
-                        .order_by(SceneTrack.id)
-                        .with_for_update()
-                    )
-                ).scalars()
-            )
-            linked_tracks = {track.id: track for track in tracks}
-            if len(linked_tracks) != len(linked_track_ids):
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "reason": "track_missing",
-                        "message": "one or more annotations reference a missing Scene Track",
-                    },
-                )
-        if class_name is not None:
-            selected_counts = Counter(
-                row.scene_track_id
-                for row in linked_rows
-                if row.scene_track_id is not None
-            )
-            for track_id, selected_count in selected_counts.items():
-                active_count = await self.db.scalar(
-                    select(func.count())
-                    .select_from(Annotation)
-                    .where(Annotation.scene_track_id == track_id)
-                    .where(Annotation.is_active.is_(True))
-                    .where(Annotation.was_cancelled.is_(False))
-                    .where(Annotation.sensor_role.is_(None))
-                )
-                if int(active_count or 0) != selected_count:
-                    raise HTTPException(
-                        status_code=409,
-                        detail={
-                            "reason": "track_class_change_requires_scope",
-                            "message": "select every active Scene Track member to change its class",
-                        },
-                    )
-                linked_tracks[track_id].class_name = class_name
-                camera_members = list(
-                    (
-                        await self.db.execute(
-                            select(Annotation)
-                            .where(Annotation.scene_track_id == track_id)
-                            .where(Annotation.sensor_role.is_not(None))
-                            .where(Annotation.was_cancelled.is_(False))
-                            .with_for_update()
-                        )
-                    ).scalars()
-                )
-                for camera_member in camera_members:
-                    camera_member.class_name = class_name
-                    camera_member.version = int(camera_member.version or 1) + 1
-        for r in rows:
-            if class_name is not None:
-                r.class_name = class_name
-            if attributes is not None:
-                # v0.20.10 · 同 update: 批量改属性时同步各行 meta（人工认领）。
-                r.attributes_meta = _sync_attributes_meta(
-                    r.attributes, r.attributes_meta, attributes
-                )
-                r.attributes = attributes
-            if z_order is not None:
-                r.z_order = z_order
-            if is_locked is not None:
-                r.is_locked = is_locked
-            if is_hidden is not None:
-                r.is_hidden = is_hidden
-            r.version += 1
-        for track in linked_tracks.values():
-            track.revision = int(track.revision or 1) + 1
+                set_committed_value(annotation, "class_name", snapshot.class_name)
+            set_committed_value(annotation, "version", snapshot.version)
+            set_committed_value(annotation, "updated_at", snapshot.updated_at)
+
+        loaded_tracks = {
+            item.id: item
+            for item in self.db.identity_map.values()
+            if isinstance(item, SceneTrack)
+        }
+        for snapshot in result.tracks:
+            track = loaded_tracks.get(snapshot.id)
+            if track is None:
+                continue
+            state = inspect(track)
+            if (
+                "class_name" in patch
+                or not state.attrs.class_name.history.has_changes()
+            ):
+                set_committed_value(track, "class_name", snapshot.class_name)
+            set_committed_value(track, "revision", snapshot.revision)
+            set_committed_value(track, "updated_at", snapshot.updated_at)
         await self.db.flush()
-        return rows
+        return [loaded[annotation_id] for annotation_id in result_order]
 
     async def _resolve_axis_convention(self, task: Task) -> str | None:
-        """v0.14.1 · 取 task 主 dataset_item 所在 dataset 的 axis_convention。
-        无主 item / 无 metadata key → None(前端按 iso_8855 identity 处理)。"""
-        from app.services.labeling_scene import resolve_primary_item_id
-        from app.services.labeling_scene import read_spatial_item_facts
-
-        primary_item_id = await resolve_primary_item_id(self.db, task)
-        if primary_item_id is None:
-            return None
-        item_facts, _ = await read_spatial_item_facts(self.db, [primary_item_id])
-        item = item_facts.get(primary_item_id)
-        return item.axis_convention if item is not None else None
+        return await LabelingCrossFrameWriteService(self.db)._resolve_axis_convention(
+            task,
+        )
 
     async def _frame_pose(self, scene_id, frame_index):
-        """v0.15.1 · 取 (scene_id, frame_index) 的 ego pose;任一参数缺/无行 → None。"""
-        if scene_id is None or frame_index is None:
-            return None
-        from app.services.assets_spatial import AssetsSpatialGateway
-
-        return await AssetsSpatialGateway(self.db).read_frame_pose(
-            scene_id, frame_index
+        return await LabelingCrossFrameWriteService(self.db)._frame_pose(
+            scene_id,
+            frame_index,
         )
 
     async def _propagate(
@@ -1406,225 +1512,12 @@ class AnnotationService:
         user_id: uuid.UUID,
         override_psr: dict | None = None,
     ) -> tuple[Annotation, bool]:
-        """v0.14.1 · 跨帧目标延续: 把源 annotation 复制到目标 task。
-
-        语义:
-        - 仅复制静态几何(PROPAGATABLE_GEOMETRY_TYPES); video_* / point_mask_3d 拒。
-        - 跨帧链共享 track_id (ADR-0045): 源无 track_id 时 _new_track_id() 分配并
-          写回源, 再复用; 不再写 group_id (跨帧语义已全切 track_id)。
-        - box_3d 的 convention_at_create 取**目标** dataset 的 axis_convention:
-          DB 内 PSR 永远是 ISO 系字节, 原值复制即对齐世界坐标; convention_at_create
-          写目标值仅为让前端 banner 不误报(v0.13.11 安全网)。
-        - override_psr 留扩展位, 给定时覆盖 box_3d 的 center/size/rotation
-          (并跳过运动补偿——调用方已显式给定目标 PSR)。
-        - v0.15.1 · 运动补偿: box_3d 且源/目标帧都有 ego pose 时, 由「世界位置
-          不变」反算目标帧 PSR(静止物自动对齐); 无 pose 退化为原样复制。
-
-        返回 (新 annotation, motion_compensated)。
-        """
-        from fastapi import HTTPException
-
-        src = await self.db.get(
-            Annotation, source_annotation_id, populate_existing=True
-        )
-        if src is None or not src.is_active:
-            raise HTTPException(status_code=404, detail="source annotation not found")
-
-        target_task = await self.db.get(Task, target_task_id)
-        if target_task is None:
-            raise HTTPException(status_code=404, detail="target task not found")
-
-        src_task = await self.db.get(Task, src.task_id)
-        if src_task is None:
-            raise HTTPException(status_code=404, detail="source task not found")
-
-        # A2 · lock the target task before the propagated annotations are written.
-        await record_annotation_actor(self.db, target_task, user_id)
-        ctx = await self._resolve_propagate_context(
-            src_task=src_task, target_task=target_task
-        )
-        new_annotation, motion_compensated = await self._propagate_one(
-            src=src, ctx=ctx, user_id=user_id, override_psr=override_psr
-        )
-        await self.db.flush()
-        await self._update_task_stats(target_task_id)
-        return new_annotation, motion_compensated
-
-    async def _resolve_propagate_context(
-        self, *, src_task: Task, target_task: Task
-    ) -> _PropagateContext:
-        """解析 propagate 的整批恒定上下文: 同 task/project/scene 校验 +
-        源/目标 scene_id / frame_index。
-
-        propagate_batch 一次解析供全框复用; 单条 propagate 解析后即用一次。
-        box_3d 专用的 axis_convention / pose 延迟到 _propagate_one 首次遇到
-        box_3d 时解析(见 _ensure_box3d_context),2D 几何不付这部分往返。
-        """
-        from fastapi import HTTPException
-
-        if target_task.id == src_task.id:
-            raise HTTPException(
-                status_code=422, detail="propagate 目标不能是源 task 自身"
-            )
-        # §5.6 · 严格同 project(跨 project/dataset/scene propagate 语义不成立)。
-        if src_task.project_id != target_task.project_id:
-            raise HTTPException(status_code=422, detail="跨 project propagate 不被允许")
-
-        # 同 scene 校验: 两侧主 item 必须解析到相同且非空的 scene_id。
-        from app.services.labeling_scene import resolve_primary_item_id
-        from app.services.labeling_scene import read_spatial_item_facts
-
-        src_item_id = await resolve_primary_item_id(self.db, src_task)
-        target_item_id = await resolve_primary_item_id(self.db, target_task)
-        item_facts, _ = await read_spatial_item_facts(
-            self.db,
-            [
-                item_id
-                for item_id in (src_item_id, target_item_id)
-                if item_id is not None
-            ],
-        )
-        src_item = item_facts.get(src_item_id) if src_item_id is not None else None
-        target_item = (
-            item_facts.get(target_item_id) if target_item_id is not None else None
-        )
-        src_scene_id = src_item.scene_id if src_item is not None else None
-        target_scene_id = target_item.scene_id if target_item is not None else None
-        src_frame_index = src_item.frame_index if src_item is not None else None
-        target_frame_index = (
-            target_item.frame_index if target_item is not None else None
-        )
-        if (
-            src_scene_id is None
-            or target_scene_id is None
-            or src_scene_id != target_scene_id
-        ):
-            raise HTTPException(status_code=422, detail="跨 scene propagate 不被允许")
-
-        return _PropagateContext(
-            src_task=src_task,
-            target_task=target_task,
-            src_scene_id=src_scene_id,
-            src_frame_index=src_frame_index,
-            target_scene_id=target_scene_id,
-            target_frame_index=target_frame_index,
-        )
-
-    async def _ensure_box3d_context(self, ctx: _PropagateContext) -> None:
-        """box_3d 专用上下文解析: 目标 axis_convention + 源/目标帧 ego pose。
-
-        结果缓存在 ctx 上,整批只在首次遇到 box_3d 时解析一次。
-        """
-        if ctx._box3d_resolved:
-            return
-        ctx.axis_convention = await self._resolve_axis_convention(ctx.target_task)
-        ctx.pose_src = await self._frame_pose(ctx.src_scene_id, ctx.src_frame_index)
-        ctx.pose_dst = await self._frame_pose(
-            ctx.target_scene_id, ctx.target_frame_index
-        )
-        ctx._box3d_resolved = True
-
-    async def _propagate_one(
-        self,
-        *,
-        src: Annotation,
-        ctx: _PropagateContext,
-        user_id: uuid.UUID,
-        override_psr: dict | None = None,
-    ) -> tuple[Annotation, bool]:
-        """单框 propagate 核心: 校验几何类型、延续 track_id、box_3d 运动补偿、
-        建新 annotation。
-
-        使用 ctx 中整批预解析好的 scene/frame/axis/pose,不再逐框解析。
-        **不** flush、**不** 更新 task stats —— 由调用方(propagate / propagate_batch)
-        在循环外统一收尾,避免逐框 N+1。
-        """
-        from fastapi import HTTPException
-
-        if src is None or not src.is_active:
-            raise HTTPException(status_code=404, detail="source annotation not found")
-
-        geom_type = (src.geometry or {}).get("type")
-        if geom_type not in PROPAGATABLE_GEOMETRY_TYPES:
-            raise HTTPException(
-                status_code=422,
-                detail=f"geometry type '{geom_type}' 不支持跨帧 propagate",
-            )
-
-        # 共享跨帧标识 track_id: 源无则分配并写回(每框各自一条独立链)。
-        # v0.21.2 · ADR-0045 · Phase 6 · track_id 为唯一权威跨帧标识, 不再 dual-write
-        # group_id (readers 已全切 track_id); cross_frame_group_seq 停写 (v0.21.3 DROP)。
-        track_id = src.track_id
-        if track_id is None:
-            track_id = _new_track_id()
-            src.track_id = track_id
-            src.version += 1
-
-        geometry = copy.deepcopy(src.geometry or {})
-        motion_compensated = False
-        if geom_type == "box_3d":
-            await self._ensure_box3d_context(ctx)
-            geometry["convention_at_create"] = ctx.axis_convention
-            if override_psr:
-                for key in ("center", "size", "rotation"):
-                    if key in override_psr:
-                        geometry[key] = override_psr[key]
-            elif all(k in geometry for k in ("center", "size", "rotation")):
-                # v0.15.1 · 运动补偿: 世界位置不变, 投回目标帧 ego 系;
-                # 任一帧无 pose → compensate_psr 恒等返回(= v0.14.1 原样复制)
-                from app.services.ego_transform import compensate_psr
-
-                psr, motion_compensated = compensate_psr(
-                    {
-                        "center": geometry["center"],
-                        "size": geometry["size"],
-                        "rotation": geometry["rotation"],
-                    },
-                    pose_src=ctx.pose_src,
-                    pose_dst=ctx.pose_dst,
-                )
-                if motion_compensated:
-                    geometry.update(psr)
-
-        new_annotation = Annotation(
-            id=uuid.uuid4(),
-            task_id=ctx.target_task.id,
-            project_id=ctx.target_task.project_id,
-            video_segment_id=src.video_segment_id,
+        return await LabelingCrossFrameWriteService(self.db)._propagate(
+            source_annotation_id=source_annotation_id,
+            target_task_id=target_task_id,
             user_id=user_id,
-            source="manual",
-            annotation_type=src.annotation_type,
-            tool_unit_id=src.tool_unit_id,
-            class_name=src.class_name,
-            geometry=geometry,
-            track_id=track_id,
-            attributes=copy.deepcopy(src.attributes or {}),
-            temporal_role="derived" if geom_type == "box_3d" else "sample",
+            override_psr=override_psr,
         )
-        self.db.add(new_annotation)
-        if geom_type == "box_3d":
-            assert ctx.src_frame_index is not None
-            assert ctx.target_frame_index is not None
-            assert ctx.target_scene_id is not None
-            try:
-                track = await ensure_scene_track(
-                    self.db,
-                    project_id=ctx.target_task.project_id,
-                    scene_id=ctx.target_scene_id,
-                    track_id=track_id,
-                    class_name=src.class_name,
-                    frames={ctx.src_frame_index, ctx.target_frame_index},
-                    actor_id=user_id,
-                    interval_source="derived",
-                )
-            except SceneTrackIntegrityError as exc:
-                _raise_scene_track_conflict(exc)
-            src.scene_track_id = track.id
-            if src.temporal_role != "keyframe":
-                src.temporal_role = "keyframe"
-                src.version = int(src.version or 1) + 1
-            new_annotation.scene_track_id = track.id
-        return new_annotation, motion_compensated
 
     async def _propagate_batch(
         self,
@@ -1634,93 +1527,12 @@ class AnnotationService:
         annotation_ids: list[uuid.UUID] | None,
         user_id: uuid.UUID,
     ) -> tuple[list[tuple[uuid.UUID, Annotation]], bool]:
-        """v0.15.1 · 多目标批量 propagate: 一次把源 task 的多个(或全部)box_3d
-        运动补偿延续到目标 task,各自延续 group_id 链。
-
-        - annotation_ids=None → 源 task 全部 active box_3d(空 → 422)。
-        - 显式 ids → 必须都属于源 task 且 active(否则 404),逐条复用单条
-          propagate 的全部校验;任一失败整批回滚(同一事务)。
-
-        返回 ([(src_id, 新 annotation)...], motion_compensated)。
-        """
-        from fastapi import HTTPException
-
-        if annotation_ids is None:
-            rows = (
-                (
-                    await self.db.execute(
-                        select(Annotation)
-                        .where(Annotation.task_id == source_task_id)
-                        .where(Annotation.is_active.is_(True))
-                        .where(Annotation.geometry["type"].astext == "box_3d")
-                        .order_by(Annotation.created_at, Annotation.id)
-                        .execution_options(populate_existing=True)
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            if not rows:
-                raise HTTPException(
-                    status_code=422, detail="源 task 没有可延续的 box_3d 标注"
-                )
-        else:
-            if not annotation_ids:
-                raise HTTPException(status_code=422, detail="annotation_ids 不能为空")
-            rows = (
-                (
-                    await self.db.execute(
-                        select(Annotation)
-                        .where(Annotation.id.in_(annotation_ids))
-                        .execution_options(populate_existing=True)
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            by_id = {r.id: r for r in rows}
-            missing = [
-                str(i)
-                for i in annotation_ids
-                if i not in by_id
-                or not by_id[i].is_active
-                or by_id[i].task_id != source_task_id
-            ]
-            if missing:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"annotations 不存在/不属于源 task: {', '.join(missing)}",
-                )
-            rows = [by_id[i] for i in annotation_ids]
-
-        # 整批共享同一 source_task / target_task → scene/frame/axis/pose 全恒定。
-        # 循环外解析一次(原先逐条 propagate 会重复解析 → N+1,框数 20-50+ 放大成
-        # 上百次 DB 往返)。校验语义不变: 仍走与单条 propagate 同一份 context 解析。
-        source_task = await self.db.get(Task, source_task_id)
-        if source_task is None:
-            raise HTTPException(status_code=404, detail="source task not found")
-        target_task = await self.db.get(Task, target_task_id)
-        if target_task is None:
-            raise HTTPException(status_code=404, detail="target task not found")
-        # A2 · lock the target task before the batch of propagated annotations.
-        await record_annotation_actor(self.db, target_task, user_id)
-        ctx = await self._resolve_propagate_context(
-            src_task=source_task, target_task=target_task
+        return await LabelingCrossFrameWriteService(self.db)._propagate_batch(
+            source_task_id=source_task_id,
+            target_task_id=target_task_id,
+            annotation_ids=annotation_ids,
+            user_id=user_id,
         )
-
-        results: list[tuple[uuid.UUID, Annotation]] = []
-        motion_compensated = False
-        for src in rows:
-            new_annotation, compensated = await self._propagate_one(
-                src=src, ctx=ctx, user_id=user_id
-            )
-            motion_compensated = motion_compensated or compensated
-            results.append((src.id, new_annotation))
-        # 一次 flush + 一次 task stats 更新(原逐框 _update_task_stats 是 N+1 的另一
-        # 来源: 每框都做 count 查询 + Task.get)。最终计数/状态与逐框累加等价。
-        await self.db.flush()
-        await self._update_task_stats(target_task_id)
-        return results, motion_compensated
 
     async def _interpolate_range(
         self,
@@ -1733,229 +1545,15 @@ class AnnotationService:
         assert_task_visible=None,
         lock_task_for_write=None,
     ) -> tuple[list[Annotation], bool, list[int]]:
-        """v0.15.1 · 关键帧区间插值: 同 track_id 链上帧 i 与帧 k 各有一框,
-        给区间 (i,k) 内每个有 task 的中间帧生成插值框(source="interpolated")。
-
-        v0.21.2 · ADR-0045 · 跨帧链按 track_id 查询(原按 group_id); 新插值框
-        dual-write track_id + 端点框的 group_id(readers 尚未全切, 过渡期兼容)。
-
-        - 两端框: 各自 task 上该 track 的唯一 active box_3d(0 或 >1 → 422)。
-        - 几何: 世界系线性内插中心 + slerp 朝向 + 线性尺寸,投回各帧 ego 系;
-          任一帧缺 pose → 纯 ego 系插值(motion_compensated=False)。
-        - 幂等: 中间帧已有该 group 的 active 标注 → 跳过(记入 skipped_frames),
-          重复触发/人工微调过的帧不重复生成。
-        - assert_task_editable: API 层注入的锁态校验(reviewer 例外逻辑在 api 层),
-          任一中间帧不可写 → 整批 422/409,不产生部分写入。
-        - assert_task_visible: API 层注入的 batch 可见性/分派校验(async)。两端 task
-          已在端点校验,但中间帧 task 由 group 链 + scene 反查得到,必须逐帧再校验,
-          否则 annotator 凭两端可见即可往不可见/未分派的中间批次写入(权限漂移)。
-        - lock_task_for_write: API 层在中间帧未命中幂等跳过时,写入前刷新并校验该 task。
-
-        返回 (新建 annotations, motion_compensated, skipped_frames)。
-        """
-        from fastapi import HTTPException
-
-        from aap_assets_catalog.spatial_contract import ReadPosesRequest
-        from app.services.assets_spatial import AssetsSpatialGateway
-        from app.services.ego_transform import interpolate_psr
-        from app.services.labeling_scene import (
-            get_scene_frame_task_map,
-            read_spatial_item_facts,
-            resolve_primary_item_id,
+        return await LabelingCrossFrameWriteService(self.db)._interpolate_range(
+            track_id=track_id,
+            from_task_id=from_task_id,
+            to_task_id=to_task_id,
+            user_id=user_id,
+            assert_task_editable=assert_task_editable,
+            assert_task_visible=assert_task_visible,
+            lock_task_for_write=lock_task_for_write,
         )
-
-        if from_task_id == to_task_id:
-            raise HTTPException(status_code=422, detail="插值区间两端不能是同一 task")
-
-        from_task = await self.db.get(Task, from_task_id)
-        to_task = await self.db.get(Task, to_task_id)
-        if from_task is None or to_task is None:
-            raise HTTPException(status_code=404, detail="task not found")
-        if from_task.project_id != to_task.project_id:
-            raise HTTPException(status_code=422, detail="跨 project 插值不被允许")
-
-        # A2 · interpolation also writes to middle-frame tasks discovered later,
-        # so use the nonblocking task lock: a busy endpoint task rolls back to a
-        # retryable 409 rather than forming a wait cycle.
-        await record_annotation_actors_for_tasks(
-            self.db, [from_task.id, to_task.id], user_id, nowait=True
-        )
-
-        async def _scene_frame(task: Task) -> tuple[uuid.UUID | None, int | None]:
-            item_id = await resolve_primary_item_id(self.db, task)
-            if item_id is None:
-                return None, None
-            item_facts, _ = await read_spatial_item_facts(self.db, [item_id])
-            item = item_facts.get(item_id)
-            if item is None:
-                return None, None
-            return item.scene_id, item.frame_index
-
-        from_scene, from_frame = await _scene_frame(from_task)
-        to_scene, to_frame = await _scene_frame(to_task)
-        if (
-            from_scene is None
-            or from_scene != to_scene
-            or from_frame is None
-            or to_frame is None
-        ):
-            raise HTTPException(status_code=422, detail="插值区间必须在同一 scene 内")
-        if abs(to_frame - from_frame) < 2:
-            raise HTTPException(
-                status_code=422, detail="插值区间无中间帧(两端帧需间隔 ≥ 2)"
-            )
-
-        async def _endpoint_box(task_id: uuid.UUID) -> Annotation:
-            rows = (
-                (
-                    await self.db.execute(
-                        select(Annotation)
-                        .where(Annotation.task_id == task_id)
-                        .where(Annotation.track_id == track_id)
-                        .where(Annotation.is_active.is_(True))
-                        .where(Annotation.geometry["type"].astext == "box_3d")
-                        .execution_options(populate_existing=True)
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            if len(rows) != 1:
-                raise HTTPException(
-                    status_code=422,
-                    detail=(
-                        f"task {task_id} 上 track {track_id} 的 active box_3d "
-                        f"数量为 {len(rows)},插值要求恰好 1 个"
-                    ),
-                )
-            return rows[0]
-
-        box_from = await _endpoint_box(from_task_id)
-        box_to = await _endpoint_box(to_task_id)
-
-        # 统一成 i < k(几何插值对称,t 取向不影响结果)
-        if from_frame > to_frame:
-            from_frame, to_frame = to_frame, from_frame
-            box_from, box_to = box_to, box_from
-
-        frame_to_task = await get_scene_frame_task_map(self.db, from_scene)
-        mid_frames = sorted(f for f in frame_to_task if from_frame < f < to_frame)
-        if not mid_frames:
-            raise HTTPException(
-                status_code=422, detail="插值区间内没有可写的中间帧 task"
-            )
-
-        # 整批前置校验: 中间帧 task 可见性(batch 可见/分派)+ 锁态。
-        # 可见性必须逐帧校验——两端 task 可见不代表中间帧批次对该用户可见/已分派。
-        mid_tasks: dict[int, Task] = {}
-        for f in mid_frames:
-            t = await self.db.get(Task, frame_to_task[f])
-            if t is None:
-                continue
-            if assert_task_visible is not None:
-                await assert_task_visible(t)
-            if assert_task_editable is not None:
-                assert_task_editable(t)
-            mid_tasks[f] = t
-
-        trajectory = {
-            p.frame_index: p
-            for p in await AssetsSpatialGateway(self.db).read_poses(
-                ReadPosesRequest(actor_id=None, scene_id=from_scene)
-            )
-        }
-        psr_a = {
-            "center": box_from.geometry["center"],
-            "size": box_from.geometry["size"],
-            "rotation": box_from.geometry["rotation"],
-        }
-        psr_b = {
-            "center": box_to.geometry["center"],
-            "size": box_to.geometry["size"],
-            "rotation": box_to.geometry["rotation"],
-        }
-        convention = await self._resolve_axis_convention(from_task)
-
-        created: list[Annotation] = []
-        skipped_frames: list[int] = []
-        motion_compensated = True
-        for f, mid_task in mid_tasks.items():
-            # 幂等: 该帧已有同 track 的 active 标注 → 跳过
-            existing = await self.db.scalar(
-                select(func.count())
-                .select_from(Annotation)
-                .where(Annotation.task_id == mid_task.id)
-                .where(Annotation.track_id == track_id)
-                .where(Annotation.is_active.is_(True))
-            )
-            if existing:
-                skipped_frames.append(f)
-                continue
-
-            if lock_task_for_write is not None:
-                mid_task = await lock_task_for_write(mid_task)
-
-            # A2 · lock this mid task (NOWAIT) before writing its interpolation.
-            await record_annotation_actor(self.db, mid_task, user_id, nowait=True)
-            t = (f - from_frame) / (to_frame - from_frame)
-            psr, compensated = interpolate_psr(
-                psr_a,
-                psr_b,
-                t,
-                pose_a=trajectory.get(from_frame),
-                pose_b=trajectory.get(to_frame),
-                pose_mid=trajectory.get(f),
-            )
-            motion_compensated = motion_compensated and compensated
-
-            geometry = copy.deepcopy(box_from.geometry or {})
-            geometry.update(psr)
-            geometry["convention_at_create"] = convention
-            ann = Annotation(
-                id=uuid.uuid4(),
-                task_id=mid_task.id,
-                project_id=mid_task.project_id,
-                user_id=user_id,
-                source="interpolated",
-                annotation_type=box_from.annotation_type,
-                tool_unit_id=box_from.tool_unit_id,
-                class_name=box_from.class_name,
-                geometry=geometry,
-                track_id=track_id,
-                attributes=copy.deepcopy(box_from.attributes or {}),
-                temporal_role="derived",
-            )
-            self.db.add(ann)
-            created.append(ann)
-
-        try:
-            track = await ensure_scene_track(
-                self.db,
-                project_id=from_task.project_id,
-                scene_id=from_scene,
-                track_id=track_id,
-                class_name=box_from.class_name,
-                frames=set(range(from_frame, to_frame + 1)),
-                actor_id=user_id,
-                interval_source="derived",
-            )
-        except SceneTrackIntegrityError as exc:
-            _raise_scene_track_conflict(exc)
-        box_from.scene_track_id = track.id
-        box_to.scene_track_id = track.id
-        if box_from.temporal_role != "keyframe":
-            box_from.temporal_role = "keyframe"
-            box_from.version = int(box_from.version or 1) + 1
-        if box_to.temporal_role != "keyframe":
-            box_to.temporal_role = "keyframe"
-            box_to.version = int(box_to.version or 1) + 1
-        for ann in created:
-            ann.scene_track_id = track.id
-
-        await self.db.flush()
-        for ann in created:
-            await self._update_task_stats(ann.task_id)
-        return created, motion_compensated and bool(created), skipped_frames
 
     async def update(
         self,
@@ -1968,9 +1566,10 @@ class AnnotationService:
         is_locked: bool | None = None,
         is_hidden: bool | None = None,
         mask_payload_prepared: bool = False,
+        actor_id: uuid.UUID | None = None,
     ) -> Annotation | None:
         """Surgical update of mutable fields. Increments version for optimistic concurrency."""
-        annotation = await self.db.get(Annotation, annotation_id)
+        annotation = await get_core_row(self.db, annotation_row, annotation_id)
         if not annotation or not annotation.is_active:
             return None
         if annotation.sensor_role is not None:
@@ -1980,27 +1579,17 @@ class AnnotationService:
             )
         verified_mask_content = None
         if geometry is not None and not mask_payload_prepared:
-            task = await self.db.get(Task, annotation.task_id)
+            task = await get_core_row(self.db, task_row, annotation.task_id)
             verified_mask_content = await preflight_mask_payload_for_write(
                 self.db, task, geometry
             )
-        track_reclassified = False
         if class_name is not None:
             # v0.14.17 · 与 create / accept_prediction 对齐: PATCH 改类也走软校验,
             # 堵住"采纳后 PATCH 改成项目标签集外的任意非法值"的数据质量缺口.
             await self._validate_class_name(
                 annotation.project_id, annotation.tool_unit_id, class_name
             )
-            try:
-                track_reclassified = await reclassify_single_member_scene_track(
-                    self.db,
-                    annotation=annotation,
-                    class_name=class_name,
-                )
-            except SceneTrackIntegrityError as exc:
-                _raise_scene_track_conflict(exc)
         if geometry is not None:
-            next_type = str(geometry.get("type") or "")
             validate_geometry_type_transition(
                 tool_unit_id=annotation.tool_unit_id,
                 previous_geometry=annotation.geometry,
@@ -2015,65 +1604,132 @@ class AnnotationService:
                     require_verified_content=verified_mask_content is not None,
                 )
             try:
-                geometry, track_id = prepare_compact_track_identity(
+                geometry, next_track_id = prepare_compact_track_identity(
                     geometry,
                     annotation.track_id,
                     reject_identity_change=True,
                 )
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
-            annotation.geometry = geometry
-            annotation.annotation_type = next_type
-            annotation.track_id = track_id
+        else:
+            next_track_id = annotation.track_id
+        next_geometry = geometry if geometry is not None else annotation.geometry
+        if (next_geometry or {}).get("type") == "box_3d" and next_track_id is None:
+            next_track_id = _new_track_id()
+
+        project_id = annotation.project_id
+        if project_id is None:
+            project_id = await self.db.scalar(
+                select(task_row.project_id).where(task_row.id == annotation.task_id)
+            )
+        if project_id is None:
+            raise HTTPException(status_code=404, detail="Task not found")
+        values: dict[str, object] = {
+            "schema": ANNOTATION_WRITE_PROTOCOL,
+            "operation": "update",
+            "annotation_id": annotation.id,
+            "task_id": annotation.task_id,
+            "project_id": project_id,
+            "actor_id": actor_id,
+            "expected_version": int(annotation.version or 1),
+            "track_id": next_track_id,
+        }
+        if geometry is not None:
+            values["geometry"] = geometry
         if class_name is not None:
-            annotation.class_name = class_name
+            values["class_name"] = class_name
         if confidence is not None:
-            annotation.confidence = confidence
+            values["confidence"] = confidence
         if attributes is not None:
             # v0.20.10 · 先据旧值算 meta 同步（人工改动即认领），再替换 attributes。
-            annotation.attributes_meta = _sync_attributes_meta(
+            values["attributes_meta"] = _sync_attributes_meta(
                 annotation.attributes, annotation.attributes_meta, attributes
             )
-            annotation.attributes = attributes
+            values["attributes"] = attributes
         # v0.10.5 M4-β · shape 状态位字段级 PATCH（I15）
         if z_order is not None:
-            annotation.z_order = z_order
+            values["z_order"] = z_order
         if is_locked is not None:
-            annotation.is_locked = is_locked
+            values["is_locked"] = is_locked
         if is_hidden is not None:
-            annotation.is_hidden = is_hidden
-        annotation.version += 1
-        newly_bound = False
-        if (annotation.geometry or {}).get("type") == "box_3d":
-            if annotation.track_id is None:
-                annotation.track_id = _new_track_id()
-            if annotation.scene_track_id is None:
-                task = await self.db.get(Task, annotation.task_id)
-                if task is not None:
-                    binding = await bind_annotation_to_scene_track(
-                        self.db,
-                        annotation=annotation,
-                        task=task,
+            values["is_hidden"] = is_hidden
+        scene_track_id = annotation.scene_track_id
+        track_reclassified = (
+            scene_track_id is not None
+            and class_name is not None
+            and class_name != annotation.class_name
+        )
+        result = await annotation_write_command(self.db, UpdateAnnotation(**values))
+        assert result.mutation is not None
+
+        if scene_track_id is not None:
+            await self._refresh_loaded_scene_track_fields(
+                scene_track_id,
+                ("class_name", "revision", "updated_at")
+                if track_reclassified
+                else ("revision", "updated_at"),
+            )
+            if track_reclassified:
+                await self._refresh_loaded_scene_track_cameras(scene_track_id)
+
+        scene_track_bound = False
+        if scene_track_id is None and (next_geometry or {}).get("type") == "box_3d":
+            from app.services.labeling_scene import resolve_task_scene_frames
+
+            scene_frame = (
+                await resolve_task_scene_frames(self.db, [annotation.task_id])
+            )[annotation.task_id]
+            if scene_frame.scene_id is not None and scene_frame.frame_index is not None:
+                await annotation_write_command(
+                    self.db,
+                    BindSceneTrackMember(
+                        schema=ANNOTATION_WRITE_PROTOCOL,
+                        operation="bind_scene_track_member",
+                        annotation_id=annotation.id,
+                        task_id=annotation.task_id,
+                        project_id=project_id,
+                        actor_id=None,
+                        expected_version=result.mutation.version,
+                        scene_id=scene_frame.scene_id,
+                        frame_index=scene_frame.frame_index,
                         temporal_role=(
                             "keyframe"
                             if geometry is not None or class_name is not None
                             else annotation.temporal_role
                         ),
-                        interval_source="manual",
-                        actor_id=None,
-                    )
-                    newly_bound = binding is not None
-        try:
-            if not track_reclassified and not newly_bound:
-                await touch_annotation_scene_track(
-                    self.db,
-                    annotation,
-                    make_keyframe=geometry is not None,
+                    ),
                 )
-            elif track_reclassified and geometry is not None:
-                annotation.temporal_role = "keyframe"
-        except SceneTrackIntegrityError as exc:
-            _raise_scene_track_conflict(exc)
+                scene_track_bound = True
+        cache_fields = {"version", "updated_at"}
+        if geometry is not None:
+            cache_fields.update(("geometry", "annotation_type", "track_id"))
+        elif (annotation.geometry or {}).get(
+            "type"
+        ) == "box_3d" and annotation.track_id is None:
+            cache_fields.add("track_id")
+        if class_name is not None:
+            cache_fields.add("class_name")
+        if confidence is not None:
+            cache_fields.add("confidence")
+        if attributes is not None:
+            cache_fields.update(("attributes", "attributes_meta"))
+        if z_order is not None:
+            cache_fields.add("z_order")
+        if is_locked is not None:
+            cache_fields.add("is_locked")
+        if is_hidden is not None:
+            cache_fields.add("is_hidden")
+        if (scene_track_id is not None and geometry is not None) or scene_track_bound:
+            cache_fields.add("temporal_role")
+        if scene_track_bound:
+            cache_fields.add("scene_track_id")
+        await self._refresh_loaded_annotation_fields(
+            {annotation.id}, tuple(sorted(cache_fields))
+        )
+        if scene_track_bound and annotation.scene_track_id is not None:
+            await self._refresh_loaded_scene_track_fields(
+                annotation.scene_track_id, ("revision", "updated_at")
+            )
         await self.db.flush()
         return annotation
 
@@ -2090,110 +1746,19 @@ class AnnotationService:
         frame_count: int | None = None,
         max_created: int = VIDEO_BBOX_CONVERSION_LIMIT,
     ) -> tuple[Annotation | None, list[Annotation], bool, list[int]]:
-        # A2 · lock the task before any annotation row is created/updated.
-        await record_annotation_actor(self.db, task, user_id)
-        geometry = annotation.geometry or {}
-        if geometry.get("type") != "video_track_bbox":
-            raise ValueError("annotation must be a video_track_bbox")
-
-        frames: list[dict]
-        removed_frame_indexes: list[int] = []
-        deleted_source = False
-
-        if scope == "frame":
-            if frame_index is None:
-                raise ValueError("frame_index is required for frame scope")
-            keyframes = sorted_keyframes(geometry)
-            if operation == "split":
-                exact = next(
-                    (
-                        kf
-                        for kf in keyframes
-                        if int(kf.get("frame_index", 0)) == frame_index
-                    ),
-                    None,
-                )
-                if not exact or frame_is_outside(geometry, frame_index):
-                    raise ValueError("frame split requires an exact visible keyframe")
-                frames = [
-                    {
-                        "frame_index": frame_index,
-                        "bbox": exact.get("bbox") or {},
-                        "source": exact.get("source", "manual"),
-                    }
-                ]
-                removed_frame_indexes = [frame_index]
-            else:
-                resolved = resolve_track_at_frame(geometry, frame_index)
-                if not resolved:
-                    raise ValueError("track has no bbox at the requested frame")
-                frames = [resolved]
-        elif scope == "track":
-            frames = resolved_track_frames(
-                geometry,
-                frame_mode=frame_mode,
-                frame_count=frame_count,
-            )
-            if operation == "split":
-                removed_frame_indexes = [int(frame["frame_index"]) for frame in frames]
-        else:
-            raise ValueError("scope must be one of: frame, track")
-
-        if not frames:
-            raise ValueError("track conversion produced no frames")
-        if len(frames) > max_created:
-            raise ValueError(
-                f"track conversion would create more than {max_created} bboxes"
-            )
-
-        created: list[Annotation] = []
-        for frame in frames:
-            bbox = frame.get("bbox") or {}
-            created_ann = Annotation(
-                id=uuid.uuid4(),
-                task_id=task.id,
-                project_id=task.project_id,
-                video_segment_id=annotation.video_segment_id,
-                user_id=user_id,
-                source=annotation.source,
-                annotation_type="video_bbox",
-                class_name=annotation.class_name,
-                geometry={
-                    "type": "video_bbox",
-                    "frame_index": int(frame.get("frame_index", 0)),
-                    "x": bbox.get("x", 0),
-                    "y": bbox.get("y", 0),
-                    "w": bbox.get("w", 0),
-                    "h": bbox.get("h", 0),
-                },
-                confidence=annotation.confidence,
-                parent_annotation_id=annotation.id,
-                attributes=dict(annotation.attributes or {}),
-            )
-            self.db.add(created_ann)
-            created.append(created_ann)
-
-        if operation == "split":
-            if scope == "frame":
-                remaining = [
-                    kf
-                    for kf in sorted_keyframes(geometry)
-                    if int(kf.get("frame_index", 0)) != frame_index
-                ]
-                if remaining:
-                    annotation.geometry = {**geometry, "keyframes": remaining}
-                    annotation.version += 1
-                else:
-                    annotation.is_active = False
-                    deleted_source = True
-            else:
-                annotation.is_active = False
-                deleted_source = True
-
-        await self.db.flush()
-        await self._update_task_stats(task.id)
-        source = None if deleted_source else annotation
-        return source, created, deleted_source, removed_frame_indexes
+        return await LabelingVideoBBoxEditingService(
+            self.db
+        ).convert_video_track_to_bboxes(
+            task=task,
+            annotation=annotation,
+            user_id=user_id,
+            operation=operation,
+            scope=scope,
+            frame_index=frame_index,
+            frame_mode=frame_mode,
+            frame_count=frame_count,
+            max_created=max_created,
+        )
 
     async def compose_video_tracks(
         self,
@@ -2206,324 +1771,29 @@ class AnnotationService:
         delete_sources: bool = True,
         gap_mode: str = "interpolate",
     ) -> tuple[list[Annotation], list[Annotation], list[uuid.UUID]]:
-        # A2 · lock the task before any annotation row is created/updated.
-        await record_annotation_actor(self.db, task, user_id)
-        if operation == "aggregate_bboxes":
-            updated, created, deleted = await self._aggregate_video_bboxes(
-                task=task,
-                annotations=annotations,
-                user_id=user_id,
-                delete_sources=delete_sources,
-            )
-        elif operation == "split_track":
-            updated, created, deleted = await self._split_video_track(
-                task=task,
-                annotations=annotations,
-                user_id=user_id,
-                frame_index=frame_index,
-            )
-        elif operation == "merge_tracks":
-            updated, created, deleted = await self._merge_video_tracks(
-                task=task,
-                annotations=annotations,
-            )
-        elif operation == "join_tracks":
-            updated, created, deleted = await self._join_video_tracks(
-                task=task,
-                annotations=annotations,
-                gap_mode=gap_mode,
-            )
-        else:
-            raise ValueError("unsupported composition operation")
-
-        await self.db.flush()
-        await self._update_task_stats(task.id)
-        return updated, created, deleted
-
-    async def _aggregate_video_bboxes(
-        self,
-        *,
-        task: Task,
-        annotations: list[Annotation],
-        user_id: uuid.UUID,
-        delete_sources: bool,
-    ) -> tuple[list[Annotation], list[Annotation], list[uuid.UUID]]:
-        if not annotations:
-            raise ValueError("annotation_ids is required")
-        if any((ann.geometry or {}).get("type") != "video_bbox" for ann in annotations):
-            raise ValueError("aggregate_bboxes only accepts video_bbox annotations")
-        class_names = {ann.class_name for ann in annotations}
-        if len(class_names) != 1:
-            raise ValueError("video_bbox annotations must share one class")
-
-        frames: dict[int, Annotation] = {}
-        for ann in annotations:
-            frame = int((ann.geometry or {}).get("frame_index", 0))
-            if frame in frames:
-                raise ValueError("video_bbox annotations must not share a frame_index")
-            frames[frame] = ann
-
-        ordered = [frames[frame] for frame in sorted(frames)]
-        keyframes = [
-            _composition_keyframe(
-                int(ann.geometry.get("frame_index", 0)),
-                ann.geometry,
-                source="manual",
-            )
-            for ann in ordered
-        ]
-        created_track_id = _new_track_id()
-        created = Annotation(
-            id=uuid.uuid4(),
-            task_id=task.id,
-            project_id=task.project_id,
-            video_segment_id=ordered[0].video_segment_id,
-            user_id=user_id,
-            source=ordered[0].source,
-            annotation_type="video_track_bbox",
-            class_name=ordered[0].class_name,
-            geometry={
-                "type": "video_track_bbox",
-                "track_id": created_track_id,
-                "keyframes": keyframes,
-                "outside": [],
-            },
-            track_id=created_track_id,
-            confidence=ordered[0].confidence,
-            attributes=dict(ordered[0].attributes or {}),
-        )
-        self.db.add(created)
-
-        deleted_ids: list[uuid.UUID] = []
-        if delete_sources:
-            for ann in ordered:
-                ann.is_active = False
-                deleted_ids.append(ann.id)
-        return [], [created], deleted_ids
-
-    async def _split_video_track(
-        self,
-        *,
-        task: Task,
-        annotations: list[Annotation],
-        user_id: uuid.UUID,
-        frame_index: int | None,
-    ) -> tuple[list[Annotation], list[Annotation], list[uuid.UUID]]:
-        if frame_index is None:
-            raise ValueError("frame_index is required for split_track")
-        if len(annotations) != 1:
-            raise ValueError("split_track requires exactly one annotation")
-        source = annotations[0]
-        geometry = source.geometry or {}
-        if geometry.get("type") != "video_track_bbox":
-            raise ValueError("split_track only accepts a video_track_bbox annotation")
-        if not resolve_track_at_frame(geometry, frame_index):
-            raise ValueError("split_track requires a visible frame")
-
-        keyframes = sorted_keyframes(geometry)
-        before_keyframes = [
-            dict(kf) for kf in keyframes if int(kf.get("frame_index", 0)) <= frame_index
-        ]
-        if not any(
-            int(kf.get("frame_index", 0)) == frame_index for kf in before_keyframes
-        ):
-            resolved = resolve_track_at_frame(geometry, frame_index)
-            if not resolved:
-                raise ValueError("split_track requires a visible frame")
-            before_keyframes.append(
-                _composition_keyframe(frame_index, resolved.get("bbox") or {})
-            )
-        before_keyframes.sort(key=lambda kf: int(kf.get("frame_index", 0)))
-
-        next_frame = frame_index + 1
-        next_resolved = resolve_track_at_frame(geometry, next_frame)
-        after_keyframes = [
-            dict(kf) for kf in keyframes if int(kf.get("frame_index", 0)) > frame_index
-        ]
-        if next_resolved and not any(
-            int(kf.get("frame_index", 0)) == next_frame for kf in after_keyframes
-        ):
-            after_keyframes.insert(
-                0, _composition_keyframe(next_frame, next_resolved.get("bbox") or {})
-            )
-        after_keyframes.sort(key=lambda kf: int(kf.get("frame_index", 0)))
-        if not _track_visible_keyframes(
-            {"type": "video_track_bbox", "keyframes": after_keyframes}
-        ):
-            raise ValueError("split_track requires a visible tail segment")
-
-        source.geometry = {
-            **geometry,
-            "keyframes": before_keyframes,
-            "outside": _clip_outside_ranges(geometry, start=None, end=frame_index),
-        }
-        source.version += 1
-
-        tail_track_id = _new_track_id()
-        tail = Annotation(
-            id=uuid.uuid4(),
-            task_id=task.id,
-            project_id=task.project_id,
-            video_segment_id=source.video_segment_id,
-            user_id=user_id,
-            source=source.source,
-            annotation_type="video_track_bbox",
-            class_name=source.class_name,
-            geometry={
-                "type": "video_track_bbox",
-                "track_id": tail_track_id,
-                "semantic_label": geometry.get("semantic_label"),
-                "keyframes": after_keyframes,
-                "outside": _clip_outside_ranges(geometry, start=next_frame, end=None),
-            },
-            track_id=tail_track_id,
-            confidence=source.confidence,
-            parent_annotation_id=source.id,
-            attributes=dict(source.attributes or {}),
-        )
-        self.db.add(tail)
-        return [source], [tail], []
-
-    async def _merge_video_tracks(
-        self,
-        *,
-        task: Task,
-        annotations: list[Annotation],
-    ) -> tuple[list[Annotation], list[Annotation], list[uuid.UUID]]:
-        # merge_tracks 默认把 gap 区间标 outside 后合并.
-        return self._combine_two_video_tracks(
+        return await LabelingVideoBBoxEditingService(self.db).compose_video_tracks(
+            task=task,
             annotations=annotations,
-            operation="merge_tracks",
-            fill_gap_outside=True,
+            user_id=user_id,
+            operation=operation,
+            frame_index=frame_index,
+            delete_sources=delete_sources,
+            gap_mode=gap_mode,
         )
-
-    async def _join_video_tracks(
-        self,
-        *,
-        task: Task,
-        annotations: list[Annotation],
-        gap_mode: str,
-    ) -> tuple[list[Annotation], list[Annotation], list[uuid.UUID]]:
-        # v0.10.30 · D-2.5 · 两条帧号不重叠的 track 之间补 gap 后合并.
-        # gap_mode="outside" 与 merge_tracks 行为一致 (gap 标 outside);
-        # gap_mode="interpolate" 不写 gap outside, gap 端点间靠现有线性插值连接.
-        return self._combine_two_video_tracks(
-            annotations=annotations,
-            operation="join_tracks",
-            fill_gap_outside=(gap_mode == "outside"),
-        )
-
-    def _combine_two_video_tracks(
-        self,
-        *,
-        annotations: list[Annotation],
-        operation: str,
-        fill_gap_outside: bool,
-    ) -> tuple[list[Annotation], list[Annotation], list[uuid.UUID]]:
-        """merge / join 共用的两条 track 合并落库路径.
-
-        校验恰好两条同 class 的 video_track 且帧号区间不重叠, 合并 keyframes
-        (frame_index 唯一), 透传 survivor 既有 geometry (含 semantic_label) 与两条
-        track 的 outside; ``fill_gap_outside`` 决定是否把 gap 区间额外标 outside.
-        落库约定: survivor 保留并 version+1, removed 置 is_active=False.
-        """
-        if len(annotations) != 2:
-            raise ValueError(f"{operation} requires exactly two annotations")
-        if any(
-            (ann.geometry or {}).get("type") != "video_track_bbox"
-            for ann in annotations
-        ):
-            raise ValueError(f"{operation} only accepts video_track_bbox annotations")
-        if annotations[0].class_name != annotations[1].class_name:
-            raise ValueError(f"{operation} requires tracks with the same class")
-
-        ranges: list[tuple[int, int, Annotation]] = []
-        for ann in annotations:
-            visible = _track_visible_keyframes(ann.geometry or {})
-            if not visible:
-                raise ValueError(f"{operation} requires visible keyframes")
-            frames = [int(kf.get("frame_index", 0)) for kf in visible]
-            ranges.append((min(frames), max(frames), ann))
-        ranges.sort(key=lambda item: item[0])
-        first_start, first_end, first = ranges[0]
-        second_start, second_end, second = ranges[1]
-        if first_end >= second_start:
-            raise ValueError(f"{operation} requires non-overlapping tracks")
-
-        survivor = annotations[0]
-        removed = annotations[1]
-        keyframes = [
-            dict(kf)
-            for ann in annotations
-            for kf in sorted_keyframes(ann.geometry or {})
-        ]
-        frame_counts: dict[int, int] = {}
-        for kf in keyframes:
-            frame = int(kf.get("frame_index", 0))
-            frame_counts[frame] = frame_counts.get(frame, 0) + 1
-        if any(count > 1 for count in frame_counts.values()):
-            raise ValueError(f"{operation} requires unique keyframe frame_index values")
-        keyframes.sort(key=lambda kf: int(kf.get("frame_index", 0)))
-
-        outside = [
-            range_
-            for ann in annotations
-            for range_ in ((ann.geometry or {}).get("outside") or [])
-        ]
-        if fill_gap_outside and first_end + 1 <= second_start - 1:
-            outside.append(
-                {
-                    "from": first_end + 1,
-                    "to": second_start - 1,
-                    "source": "manual",
-                }
-            )
-
-        survivor.geometry = {
-            **(survivor.geometry or {}),
-            "type": "video_track_bbox",
-            "track_id": (survivor.geometry or {}).get("track_id") or _new_track_id(),
-            "keyframes": keyframes,
-            "outside": normalize_outside_ranges(outside),
-        }
-        survivor.track_id = survivor.geometry["track_id"]
-        survivor.version += 1
-        removed.is_active = False
-        return [survivor], [], [removed.id]
 
     async def save_draft(
         self, task_id: uuid.UUID, user_id: uuid.UUID, result: dict
     ) -> AnnotationDraft:
-        existing = await self.db.execute(
-            select(AnnotationDraft).where(
-                AnnotationDraft.task_id == task_id,
-                AnnotationDraft.user_id == user_id,
-            )
+        return await LabelingAnnotationMaintenanceService(self.db).save_draft(
+            task_id, user_id, result
         )
-        draft = existing.scalar_one_or_none()
-        if draft:
-            draft.result = result
-        else:
-            draft = AnnotationDraft(
-                id=uuid.uuid4(),
-                task_id=task_id,
-                user_id=user_id,
-                result=result,
-            )
-            self.db.add(draft)
-        await self.db.flush()
-        return draft
 
     async def get_draft(
         self, task_id: uuid.UUID, user_id: uuid.UUID
     ) -> AnnotationDraft | None:
-        result = await self.db.execute(
-            select(AnnotationDraft).where(
-                AnnotationDraft.task_id == task_id,
-                AnnotationDraft.user_id == user_id,
-            )
+        return await LabelingAnnotationMaintenanceService(self.db).get_draft(
+            task_id, user_id
         )
-        return result.scalar_one_or_none()
 
     async def cleanup_schema_orphan_annotations(
         self,
@@ -2534,178 +1804,15 @@ class AnnotationService:
         actor_id: uuid.UUID,
         dry_run: bool,
     ) -> dict[str, int | dict[str, int]]:
-        with self.db.no_autoflush:
-            annotations = list(
-                (
-                    await self.db.execute(
-                        select(Annotation).where(
-                            Annotation.project_id == project_id,
-                            Annotation.is_active.is_(True),
-                        )
-                    )
-                )
-                .scalars()
-                .all()
-            )
-
-        orphan_annotations = 0
-        orphan_attribute_keys: Counter[str] = Counter()
-        mutation_annotation_tasks: dict[uuid.UUID, uuid.UUID] = {}
-        mutation_task_ids: set[uuid.UUID] = set()
-
-        for ann in annotations:
-            if ann.class_name not in class_names:
-                orphan_annotations += 1
-                if not dry_run:
-                    mutation_annotation_tasks[ann.id] = ann.task_id
-                    mutation_task_ids.add(ann.task_id)
-                continue
-
-            orphan_keys = _orphan_user_attribute_keys(ann.attributes, attribute_keys)
-            if not orphan_keys:
-                continue
-            orphan_attribute_keys.update(orphan_keys)
-            if not dry_run:
-                mutation_annotation_tasks[ann.id] = ann.task_id
-                mutation_task_ids.add(ann.task_id)
-
-        if dry_run:
-            return {
-                "orphan_annotations": orphan_annotations,
-                "orphan_attribute_keys": dict(orphan_attribute_keys),
-            }
-
-        if not mutation_annotation_tasks:
-            return {
-                "orphan_annotations": 0,
-                "orphan_attribute_keys": {},
-            }
-
-        with self.db.no_autoflush:
-            observed_task_rows = (
-                await self.db.execute(
-                    select(Task.id, Task.project_id, Task.batch_id)
-                    .where(Task.id.in_(mutation_task_ids))
-                    .order_by(Task.id)
-                )
-            ).all()
-        observed_tasks = {
-            task_id: (task_project_id, batch_id)
-            for task_id, task_project_id, batch_id in observed_task_rows
-        }
-        if set(observed_tasks) != mutation_task_ids or any(
-            task_project_id != project_id
-            for task_project_id, _batch_id in observed_tasks.values()
-        ):
-            raise HTTPException(
-                status_code=409,
-                detail={"reason": "task_target_changed"},
-            )
-
-        batch_ids = {
-            batch_id
-            for _task_project_id, batch_id in observed_tasks.values()
-            if batch_id is not None
-        }
-        if batch_ids:
-            locked_batches = await _lock_schema_cleanup_rows(
-                self.db,
-                select(TaskBatch)
-                .where(TaskBatch.id.in_(batch_ids))
-                .order_by(TaskBatch.id)
-                .with_for_update(nowait=True)
-                .execution_options(populate_existing=True),
-                reason="batch_busy",
-            )
-            if {batch.id for batch in locked_batches} != batch_ids or any(
-                batch.project_id != project_id for batch in locked_batches
-            ):
-                raise HTTPException(
-                    status_code=409,
-                    detail={"reason": "task_target_changed"},
-                )
-
-        locked_tasks = await _lock_schema_cleanup_rows(
-            self.db,
-            select(Task)
-            .where(Task.id.in_(mutation_task_ids))
-            .order_by(Task.id)
-            .with_for_update(nowait=True)
-            .execution_options(populate_existing=True),
-            reason="task_busy",
+        return await LabelingAnnotationMaintenanceService(
+            self.db
+        ).cleanup_schema_orphan_annotations(
+            project_id=project_id,
+            class_names=class_names,
+            attribute_keys=attribute_keys,
+            actor_id=actor_id,
+            dry_run=dry_run,
         )
-        tasks_by_id = {task.id: task for task in locked_tasks}
-        if set(tasks_by_id) != mutation_task_ids or any(
-            task.project_id != project_id or task.batch_id != observed_tasks[task.id][1]
-            for task in locked_tasks
-        ):
-            raise HTTPException(
-                status_code=409,
-                detail={"reason": "task_target_changed"},
-            )
-
-        locked_annotations = await _lock_schema_cleanup_rows(
-            self.db,
-            select(Annotation)
-            .where(Annotation.id.in_(mutation_annotation_tasks))
-            .order_by(Annotation.id)
-            .with_for_update(nowait=True)
-            .execution_options(populate_existing=True),
-            reason="annotation_busy",
-        )
-
-        if {ann.id for ann in locked_annotations} != set(mutation_annotation_tasks):
-            raise HTTPException(
-                status_code=409,
-                detail={"reason": "annotation_target_changed"},
-            )
-
-        orphan_annotations = 0
-        orphan_attribute_keys.clear()
-        affected_task_ids: set[uuid.UUID] = set()
-        deactivated_task_ids: set[uuid.UUID] = set()
-        for ann in locked_annotations:
-            if (
-                ann.project_id != project_id
-                or ann.task_id != mutation_annotation_tasks[ann.id]
-                or ann.task_id not in tasks_by_id
-            ):
-                raise HTTPException(
-                    status_code=409,
-                    detail={"reason": "annotation_target_changed"},
-                )
-            if not ann.is_active:
-                continue
-            if ann.class_name not in class_names:
-                orphan_annotations += 1
-                ann.is_active = False
-                affected_task_ids.add(ann.task_id)
-                deactivated_task_ids.add(ann.task_id)
-                continue
-
-            orphan_keys = _orphan_user_attribute_keys(ann.attributes, attribute_keys)
-            if orphan_keys:
-                orphan_attribute_keys.update(orphan_keys)
-                ann.attributes = _prune_orphan_user_attributes(
-                    ann.attributes, attribute_keys
-                )
-                affected_task_ids.add(ann.task_id)
-
-        await self.db.flush()
-        for task_id in sorted(affected_task_ids, key=str):
-            await record_annotation_actor(
-                self.db,
-                tasks_by_id[task_id],
-                actor_id,
-                lock=False,
-            )
-        for task_id in sorted(deactivated_task_ids, key=str):
-            await self._update_task_stats(task_id)
-
-        return {
-            "orphan_annotations": orphan_annotations,
-            "orphan_attribute_keys": dict(orphan_attribute_keys),
-        }
 
     async def _update_task_stats(
         self,
@@ -2719,47 +1826,12 @@ class AnnotationService:
         trigger_batch_transitions=False: 只更新 task 本身，跳过 batch 流转
         （用于批量导入，避免导入过程意外推进整个 batch 状态）。
         """
-        count_result = await self.db.execute(
-            select(func.count()).where(
-                Annotation.task_id == task_id,
-                Annotation.is_active.is_(True),
-                Annotation.was_cancelled.is_(False),
-                Annotation.sensor_role.is_(None),
-            )
+        from app.services.labeling_annotation_statistics import (
+            update_annotation_statistics,
         )
-        count = count_result.scalar() or 0
 
-        task = await self.db.get(Task, task_id)
-        status_changed = False
-        if task:
-            task.total_annotations = count
-            task.is_labeled = count > 0
-            # B-20：首次产生标注 → 把 task 从 pending 转 in_progress；标注全删 → 回 pending。
-            # 让 batch.in_progress_tasks / dashboard 进度条与"已动工"状态对齐。
-            if count > 0 and task.status == "pending":
-                task.status = "in_progress"
-                status_changed = True
-            elif count == 0 and task.status == "in_progress":
-                task.status = "pending"
-                status_changed = True
-        await self.db.flush()
-
-        if trigger_batch_transitions and status_changed and task and task.batch_id:
-            # 在函数内 import 避免 services 层循环依赖。
-            from app.services.batch import BatchService
-
-            batch_svc = BatchService(self.db)
-            await batch_svc.check_auto_transitions(task.batch_id)
-            await batch_svc.recalculate_counters(task.batch_id)
-
-    async def rename_class_name(
-        self, project_id: uuid.UUID, old_name: str, new_name: str
-    ) -> None:
-        """Rename matching annotations across every tool unit in one project."""
-        await self.db.execute(
-            text(
-                "UPDATE annotations SET class_name = :new "
-                "WHERE project_id = :pid AND class_name = :old"
-            ),
-            {"pid": str(project_id), "old": old_name, "new": new_name},
+        await update_annotation_statistics(
+            self.db,
+            task_id,
+            trigger_batch_transitions=trigger_batch_transitions,
         )

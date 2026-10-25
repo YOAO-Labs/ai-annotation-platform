@@ -1,10 +1,9 @@
 /**
  * v0.23.4 · lifecycle action cluster for a pool member.
  *
- * Plan §8.1: drain → quiescent → unload is the only safe unload path. This
- * component owns the state gates so a routable / inflight-bearing / stale
- * instance can never be one-click unloaded. Force-unload (when the contract
- * ever supports it) is a separate high-risk `AlertDialog`, NOT the default.
+ * Draining and a fresh zero-work observation gate the unload request. The
+ * server still decides whether the backend is safe to unload. This component
+ * keeps a routable / busy / stale instance from offering that request.
  *
  * Mutations are wired through existing hooks (registry health/unload,
  * project-scoped warmup) plus the v0.23.3 pool-member drain/resume contract.
@@ -15,7 +14,6 @@ import type { ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { adminMlIntegrationsApi } from "@/api/adminMlIntegrations";
-import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { useToastStore } from "@/components/ui/Toast";
@@ -36,9 +34,9 @@ export interface LifecycleActionsProps {
   poolId: string;
   member: MemberViewModel;
   /**
-   * View model — supplies `router_mode` + the router_ledger freshness used by
-   * the unload gate. Null when runtime snapshot is unavailable (Project Admin
-   * or load failure) — in that case unload is gated (can't prove quiescent).
+   * View model supplies route execution-state freshness for the unload request
+   * gate. Null when runtime snapshot is unavailable (Project Admin or load
+   * failure) — in that case the request remains disabled.
    */
   topology: RuntimeTopologyViewModel | null;
   /** Project id for warmup; null/undefined when no project binding exists. */
@@ -53,9 +51,8 @@ export const FORCE_UNLOAD_CONTRACT_AVAILABLE = false;
 function ledgerFreshFromTopology(topology: RuntimeTopologyViewModel | null): boolean {
   if (!topology) return false;
   const ledger = topology.sources.find((s) => s.name === "router_ledger");
-  // No router_ledger source at all → off mode is fine (no inflight claim);
-  // otherwise trust its `stale` flag.
-  if (!ledger) return topology.router_mode === "off";
+  // An absent source cannot establish that there is no open execution work.
+  if (!ledger) return false;
   return !ledger.stale;
 }
 
@@ -101,8 +98,7 @@ export function LifecycleActions({
       }),
   });
 
-  // Safe-path unload (the only unload contract v0.23.3 ships). Gated by
-  // evaluateUnloadGate; the surrounding tooltip surfaces the reasons.
+  // This submits an unload request; the server performs the final safety check.
   const onUnload = () => {
     unload.mutate(member.registry_id, {
       onSuccess: (res) =>
@@ -132,14 +128,10 @@ export function LifecycleActions({
     });
   };
 
-  const drainShadow = routerMode !== "enforce" && member.traffic_state === "active";
-  const drainLabel = drainShadow ? "停流（预配置）" : "停流";
-  const drainTip = drainShadow
-    ? `router_mode=${routerMode}，drain 仅预配置未实际停流`
-    : "停止接收新请求（active → draining）";
-  const unloadTip = gate.can_unload
-    ? "实例已 quiescent，可安全发起卸载"
-    : `不可卸载：${gate.reasons.join("；")}`;
+  const drainTip = "停止接收新的路由执行（active → draining）";
+  const unloadTip = gate.can_request_unload
+    ? "当前观测未见活动执行；可请求卸载，服务端仍会再次核验运行状态"
+    : `暂不可请求卸载：${gate.reasons.join("；")}`;
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
@@ -153,7 +145,7 @@ export function LifecycleActions({
                 disabled={drain.isPending}
               >
                 <Icon name="pause" size={10} />
-                {drainLabel}
+                停流
               </Button>
             </TooltipTrigger>
             <TooltipContent side="top">{drainTip}</TooltipContent>
@@ -171,19 +163,17 @@ export function LifecycleActions({
           恢复接流
         </Button>
       )}
-      {member.traffic_state === "draining" && drainShadow && (
-        <span title={drainTip}>
-          <Badge variant="warning">预配置</Badge>
-        </span>
-      )}
-
       <TooltipProvider delayDuration={200}>
         <Tooltip>
           <TooltipTrigger asChild>
             {/* span wraps the disabled button: Radix TooltipTrigger won't
                 forward its ref onto a disabled <button>, so anchor on span. */}
             <span tabIndex={0} aria-label="卸载状态">
-              <Button size="xs" onClick={onUnload} disabled={!gate.can_unload || unload.isPending}>
+              <Button
+                size="xs"
+                onClick={onUnload}
+                disabled={!gate.can_request_unload || unload.isPending}
+              >
                 <Icon name="pause" size={10} />
                 卸载
               </Button>

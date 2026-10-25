@@ -23,6 +23,7 @@ SAM 2 image embedding LRU 缓存:
 from __future__ import annotations
 
 from aap_protocol_v2.predict import normalize_context_task
+from aap_protocol_v2.routing_runtime import install_backend_routing_controller
 from aap_task_contract import normalize_modality_fields
 
 import asyncio
@@ -156,6 +157,7 @@ MAX_PREDICT_REQUEST_BYTES = 6 * 1024 * 1024
 BACKEND_VERSION = os.getenv("BACKEND_VERSION", "0.10.1")
 
 app = FastAPI(title="grounded-sam2-backend", version=BACKEND_VERSION)
+install_backend_routing_controller(app)
 
 
 async def _buffer_bounded_predict_body(request: Request) -> None:
@@ -509,11 +511,22 @@ async def _begin_workload(
     generation_header, token = _managed_lifecycle_headers(request)
     if _gpu_lifecycle is None:
         raise HTTPException(status_code=503, detail="backend not ready")
-    return await _gpu_lifecycle.begin_workload(
+    operation = await _gpu_lifecycle.begin_workload(
         scope,
         generation_header=generation_header,
         token=token,
     )
+    operation._backend_routing_controller = getattr(
+        request.app.state, "backend_routing_controller", None
+    )
+    return operation
+
+
+def _track_operation_future(operation: WorkloadOperation, future: Any) -> None:
+    operation.track_future(future)
+    controller = getattr(operation, "_backend_routing_controller", None)
+    if controller is not None:
+        controller.track_background_future(future)
 
 
 def _request_operation(request: Request) -> WorkloadOperation:
@@ -1195,7 +1208,7 @@ async def reload(request: Request, req: ReloadRequest | None = None) -> dict:
         try:
             cache_hit, _load_ms, _evicted = await _video_pool.warmup(sv)
         except VideoBuildTimeout as exc:
-            operation.track_future(exc.builder)
+            _track_operation_future(operation, exc.builder)
             raise ModelUnavailableError(sv, str(exc)) from exc
         except VideoPoolBusyError as exc:
             raise ModelUnavailableError(sv, str(exc)) from exc
@@ -1204,7 +1217,7 @@ async def reload(request: Request, req: ReloadRequest | None = None) -> dict:
                 sv, f"video checkpoint not provisioned: {exc}"
             ) from exc
         except asyncio.CancelledError:
-            operation.track_future(_video_pool.builder_for_now(sv))
+            _track_operation_future(operation, _video_pool.builder_for_now(sv))
             raise
         return {
             "ok": True,
@@ -1229,7 +1242,7 @@ async def reload(request: Request, req: ReloadRequest | None = None) -> dict:
     try:
         cache_hit, _load_ms, _evicted = await _pool.warmup(sv, dv)
     except ModelBuildTimeout as exc:
-        operation.track_future(exc.builder)
+        _track_operation_future(operation, exc.builder)
         raise ModelUnavailableError(_model_key(sv, dv), str(exc)) from exc
     except ModelPoolBusyError as exc:
         raise ModelUnavailableError(_model_key(sv, dv), str(exc)) from exc
@@ -1239,7 +1252,7 @@ async def reload(request: Request, req: ReloadRequest | None = None) -> dict:
             f"checkpoint not provisioned: {exc}",
         ) from exc
     except asyncio.CancelledError:
-        operation.track_future(_pool.builder_for_now(sv, dv))
+        _track_operation_future(operation, _pool.builder_for_now(sv, dv))
         raise
     return {
         "ok": True,
@@ -1278,7 +1291,7 @@ async def warmup(request: Request, req: WarmupRequest) -> WarmupResponse:
         try:
             cache_hit, load_ms, evicted = await _video_pool.warmup(sv)
         except VideoBuildTimeout as exc:
-            operation.track_future(exc.builder)
+            _track_operation_future(operation, exc.builder)
             raise ModelUnavailableError(sv, str(exc)) from exc
         except VideoPoolBusyError as exc:
             raise ModelUnavailableError(sv, str(exc)) from exc
@@ -1287,7 +1300,7 @@ async def warmup(request: Request, req: WarmupRequest) -> WarmupResponse:
                 sv, f"video checkpoint not provisioned: {exc}"
             ) from exc
         except asyncio.CancelledError:
-            operation.track_future(_video_pool.builder_for_now(sv))
+            _track_operation_future(operation, _video_pool.builder_for_now(sv))
             raise
         return WarmupResponse(
             ok=True,
@@ -1302,7 +1315,7 @@ async def warmup(request: Request, req: WarmupRequest) -> WarmupResponse:
     try:
         cache_hit, load_ms, evicted = await _pool.warmup(sv, dv)
     except ModelBuildTimeout as exc:
-        operation.track_future(exc.builder)
+        _track_operation_future(operation, exc.builder)
         raise ModelUnavailableError(_model_key(sv, dv), str(exc)) from exc
     except ModelPoolBusyError as exc:
         raise ModelUnavailableError(_model_key(sv, dv), str(exc)) from exc
@@ -1311,7 +1324,7 @@ async def warmup(request: Request, req: WarmupRequest) -> WarmupResponse:
             _model_key(sv, dv), f"checkpoint not provisioned: {exc}"
         ) from exc
     except asyncio.CancelledError:
-        operation.track_future(_pool.builder_for_now(sv, dv))
+        _track_operation_future(operation, _pool.builder_for_now(sv, dv))
         raise
     return WarmupResponse(
         ok=True,
@@ -1329,7 +1342,7 @@ async def _run_executor_to_completion(
 
     future = asyncio.get_running_loop().run_in_executor(None, call)
     if operation is not None:
-        operation.track_future(future)
+        _track_operation_future(operation, future)
     cancelled = False
     while not future.done():
         try:
@@ -1656,7 +1669,7 @@ async def _run_prompt(
             )
     except ModelBuildTimeout as exc:
         if operation is not None:
-            operation.track_future(exc.builder)
+            _track_operation_future(operation, exc.builder)
         raise ModelUnavailableError(_model_key(sv, dv), str(exc)) from exc
     except ModelPoolBusyError as exc:
         raise ModelUnavailableError(_model_key(sv, dv), str(exc)) from exc
@@ -1671,7 +1684,7 @@ async def _run_prompt(
         ) from exc
     except asyncio.CancelledError:
         if operation is not None:
-            operation.track_future(_pool.builder_for_now(sv, dv))
+            _track_operation_future(operation, _pool.builder_for_now(sv, dv))
         raise
 
 
@@ -1771,7 +1784,7 @@ async def _run_box_seg(
             )
     except ModelBuildTimeout as exc:
         if operation is not None:
-            operation.track_future(exc.builder)
+            _track_operation_future(operation, exc.builder)
         raise ModelUnavailableError(_model_key(sv, dv), str(exc)) from exc
     except ModelPoolBusyError as exc:
         raise ModelUnavailableError(_model_key(sv, dv), str(exc)) from exc
@@ -1782,7 +1795,7 @@ async def _run_box_seg(
         ) from exc
     except asyncio.CancelledError:
         if operation is not None:
-            operation.track_future(_pool.builder_for_now(sv, dv))
+            _track_operation_future(operation, _pool.builder_for_now(sv, dv))
         raise
 
 
@@ -2093,7 +2106,7 @@ async def _run_video_tracker(
             )
     except VideoBuildTimeout as exc:
         if operation is not None:
-            operation.track_future(exc.builder)
+            _track_operation_future(operation, exc.builder)
         raise ModelUnavailableError(sv, str(exc)) from exc
     except VideoPoolBusyError as exc:
         raise ModelUnavailableError(sv, str(exc)) from exc
@@ -2104,7 +2117,7 @@ async def _run_video_tracker(
         ) from exc
     except asyncio.CancelledError:
         if operation is not None:
-            operation.track_future(_video_pool.builder_for_now(sv))
+            _track_operation_future(operation, _video_pool.builder_for_now(sv))
         raise
     record_video_tracker(sv, len(result), time.perf_counter() - started)
     return result, sv, None

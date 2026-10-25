@@ -34,11 +34,9 @@ async def test_management_user_query_stats_export_share_scope_and_filters(
     admin, _ = super_admin
     manager, _ = project_admin
     project = await create_project(db_session, owner_id=manager.id, name="Managed")
-    member = await create_user(
-        db_session, "annotator", "managed@e.test", "Managed User"
-    )
+    member = await create_user(db_session, "employee", "managed@e.test", "Managed User")
     outside = await create_user(
-        db_session, "annotator", "outside@e.test", "Outside User"
+        db_session, "employee", "outside@e.test", "Outside User"
     )
     await create_membership(
         db_session,
@@ -92,6 +90,7 @@ async def test_management_invitation_query_stats_export_filter_scope(
     db_session: AsyncSession,
 ):
     admin, _ = super_admin
+    actor_email = admin.email
     manager, _ = project_admin
     project = await create_project(db_session, owner_id=manager.id, name="Invite Scope")
     rows = [
@@ -141,7 +140,7 @@ async def test_management_invitation_query_stats_export_filter_scope(
     )
     assert exported.status_code == 200, exported.text
     assert json.loads(exported.text)["_export_meta"]["count"] >= 3
-    assert admin.email  # keep the fixture principal part of the scope assertion
+    assert json.loads(exported.text)["_export_meta"]["exported_by"] == actor_email
 
 
 async def test_send_invitation_email_keeps_token_and_does_not_revoke_on_smtp_failure(
@@ -150,7 +149,39 @@ async def test_send_invitation_email_keeps_token_and_does_not_revoke_on_smtp_fai
     db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    from app.services.email import SmtpConfigError
+    from contextlib import asynccontextmanager
+    import aap_mail_transport
+    from aap_mail_transport import MailDeliveryResult, MailOutcome, MailReason
+    from app.config import settings
+    from app.services import identity_mail_v2_delivery
+
+    for name in (
+        "identity_url",
+        "identity_invitation_database_url",
+        "identity_invitation_database_url_file",
+        "identity_mail_v2_database_url",
+        "identity_mail_v2_database_url_file",
+        "identity_mail_settings_database_url",
+        "identity_mail_settings_database_url_file",
+    ):
+        monkeypatch.setattr(settings, name, "")
+
+    @asynccontextmanager
+    async def session():
+        yield db_session
+
+    monkeypatch.setattr(identity_mail_v2_delivery, "async_session", session)
+    monkeypatch.setattr(
+        identity_mail_v2_delivery,
+        "_smtp_fallbacks",
+        lambda: {
+            "smtp_host": "synthetic-smtp.invalid",
+            "smtp_port": 2525,
+            "smtp_user": "",
+            "smtp_password": "",
+            "smtp_from": "noreply@example.test",
+        },
+    )
 
     admin, _ = super_admin
     invitation = UserInvitation(
@@ -165,10 +196,11 @@ async def test_send_invitation_email_keeps_token_and_does_not_revoke_on_smtp_fai
     token = invitation.token
     sent: list[str] = []
 
-    async def fake_send(db, to_address, invite_url, **kwargs):
-        sent.append(f"{to_address}:{invite_url}")
+    def fake_send(config, message):
+        sent.append(message.get_content())
+        return MailDeliveryResult(MailOutcome.DELIVERED, MailReason.SENT)
 
-    monkeypatch.setattr("app.api.v1.invitations_admin.send_invitation_email", fake_send)
+    monkeypatch.setattr(aap_mail_transport, "send_message", fake_send)
     response = await httpx_client.post(
         f"/api/v1/invitations/{invitation.id}/send-email",
         headers=_headers(super_admin),
@@ -180,15 +212,16 @@ async def test_send_invitation_email_keeps_token_and_does_not_revoke_on_smtp_fai
     assert invitation.token == token
     assert invitation.revoked_at is None
 
-    async def fail_send(db, to_address, invite_url, **kwargs):
-        raise SmtpConfigError("SMTP unavailable")
+    def fail_send(config, message):
+        return MailDeliveryResult(MailOutcome.REJECTED, MailReason.RECIPIENT_REJECTED)
 
-    monkeypatch.setattr("app.api.v1.invitations_admin.send_invitation_email", fail_send)
+    monkeypatch.setattr(aap_mail_transport, "send_message", fail_send)
     failed = await httpx_client.post(
         f"/api/v1/invitations/{invitation.id}/send-email",
         headers=_headers(super_admin),
     )
     assert failed.status_code == 502
+    assert failed.json()["detail"]["message"] == "SMTP 发送失败: recipient_rejected"
     await db_session.refresh(invitation)
     assert invitation.token == token
     assert invitation.revoked_at is None

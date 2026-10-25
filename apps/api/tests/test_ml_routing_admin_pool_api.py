@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
 
 import pytest
 from sqlalchemy import select
@@ -14,7 +15,7 @@ from app.services.ml_backend import (
     MLBackendCapabilityRevalidationError,
     MLBackendService,
 )
-from app.services.ml_routing.capability import capability_fingerprint
+from aap_inference.pool_capability import capability_fingerprint
 from tests.conftest import create_registry_with_pool
 
 
@@ -22,6 +23,104 @@ def _caps(model_id: str = "sam3") -> dict:
     return {
         "capabilities": {"model_ids": [model_id], "supported_trackers": ["sam3_video"]}
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["upsert", "drain", "resume", "remove"])
+async def test_member_mutation_projects_cached_pool_after_commit(
+    httpx_client, db_session, super_admin, monkeypatch, operation
+) -> None:
+    _, token = super_admin
+    monkeypatch.setattr(settings, "ml_backend_router_mode", "enforce")
+    backend, pool = await create_registry_with_pool(
+        db_session,
+        name=f"cached-pool-{uuid.uuid4().hex[:8]}",
+        health_meta=_caps(),
+    )
+    await MLBackendService(db_session)._reconcile_pool_capability(
+        backend.id, backend.health_meta["capabilities"]
+    )
+    member = await db_session.scalar(
+        select(MLBackendPoolMember).where(
+            MLBackendPoolMember.pool_id == pool.id,
+            MLBackendPoolMember.registry_id == backend.id,
+        )
+    )
+    assert member is not None
+    if operation in {"resume", "remove"}:
+        member.traffic_state = "draining"
+    await db_session.flush()
+    await db_session.refresh(pool)
+    pool_id, backend_id = pool.id, backend.id
+    generation = pool.routing_generation
+    previous_updated_at = pool.updated_at
+    headers = {"Authorization": f"Bearer {token}"}
+    path = f"/api/v1/admin/ml-integrations/service-pools/{pool_id}/members/{backend_id}"
+    if operation == "upsert":
+        response = await httpx_client.put(path, json={"weight": 7}, headers=headers)
+        action = "ml_service_pool.member_upserted"
+    elif operation == "remove":
+        response = await httpx_client.delete(path, headers=headers)
+        action = "ml_service_pool.member_removed"
+    else:
+        response = await httpx_client.post(f"{path}/{operation}", headers=headers)
+        action = (
+            f"ml_service_pool.member_{'drained' if operation == 'drain' else 'resumed'}"
+        )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    # Keep this same identity-map object alive across commit: get() alone does
+    # not reload its server-generated, partially expired updated_at value.
+    assert pool.id == pool_id
+    assert body["routing_generation"] == generation + 1
+    assert pool.updated_at >= previous_updated_at
+    assert body["updated_at"] is not None
+    if operation == "remove":
+        assert body["members"] == []
+        assert body["legacy_instance_id"] is None
+        assert body["enabled"] is False
+        assert (
+            await db_session.scalar(
+                select(MLBackendPoolMember.id).where(
+                    MLBackendPoolMember.pool_id == pool_id,
+                    MLBackendPoolMember.registry_id == backend_id,
+                )
+            )
+            is None
+        )
+    else:
+        assert len(body["members"]) == 1
+        assert body["members"][0]["registry_id"] == str(backend_id)
+        assert body["members"][0]["weight"] == (7 if operation == "upsert" else 1)
+        assert body["members"][0]["traffic_state"] == (
+            "draining" if operation == "drain" else "active"
+        )
+    audits = (
+        await db_session.scalars(
+            select(AuditLog).where(
+                AuditLog.action == action, AuditLog.target_id == str(pool_id)
+            )
+        )
+    ).all()
+    assert len(audits) == 1
+    if operation == "remove":
+        repeated = await httpx_client.delete(path, headers=headers)
+        assert repeated.status_code == 404
+        await db_session.refresh(pool)
+        assert pool.routing_generation == generation + 1
+        assert (
+            len(
+                (
+                    await db_session.scalars(
+                        select(AuditLog).where(
+                            AuditLog.action == action,
+                            AuditLog.target_id == str(pool_id),
+                        )
+                    )
+                ).all()
+            )
+            == 1
+        )
 
 
 @pytest.mark.asyncio
@@ -694,8 +793,11 @@ async def test_capability_drift_api_rejects_failed_fresh_probe(
 
 @pytest.mark.asyncio
 async def test_remove_managed_member_requires_real_drain(
-    httpx_client, db_session, super_admin, monkeypatch
+    httpx_client, db_session, super_admin, monkeypatch, savepoint_routing_owner
 ) -> None:
+    from app.services.ml_routing import authority, safety
+
+    monkeypatch.setattr(safety, "RoutingAuthority", authority.RoutingAuthority)
     _, token = super_admin
     backend, pool = await create_registry_with_pool(
         db_session,
@@ -715,17 +817,21 @@ async def test_remove_managed_member_requires_real_drain(
 
 
 @pytest.mark.asyncio
-async def test_remove_fails_closed_when_router_ledger_is_unavailable(
+async def test_remove_fails_closed_when_routing_owner_is_unavailable(
     httpx_client, db_session, super_admin, monkeypatch
 ) -> None:
     from app.services.ml_routing import safety
 
-    class UnavailableLedger:
-        async def healthcheck(self) -> None:
-            raise ConnectionError("redis unavailable")
+    class UnavailableAuthority:
+        def __init__(self, _engine):
+            pass
 
-        async def aclose(self) -> None:
-            return None
+        @asynccontextmanager
+        async def data_transaction(self):
+            yield self
+
+        async def step(self, _action, _arguments):
+            raise ConnectionError("routing owner unavailable")
 
     _, token = super_admin
     backend, pool = await create_registry_with_pool(
@@ -740,7 +846,7 @@ async def test_remove_fails_closed_when_router_ledger_is_unavailable(
     member.traffic_state = "draining"
     await db_session.commit()
     monkeypatch.setattr(settings, "ml_backend_router_mode", "enforce")
-    monkeypatch.setattr(safety, "make_ledger_from_settings", UnavailableLedger)
+    monkeypatch.setattr(safety, "RoutingAuthority", UnavailableAuthority)
 
     response = await httpx_client.delete(
         f"/api/v1/admin/ml-integrations/service-pools/{pool.id}/members/{backend.id}",

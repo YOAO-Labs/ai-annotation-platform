@@ -14,7 +14,9 @@ from app.db.models.video_track_quality import VideoTrackQualityRun
 from app.services.exporting.video_scope import VideoExportScope, clip_video_geometry
 from app.services.video_collaboration import collaboration_enabled
 from app.services.video_track_quality import _DisjointSet, refresh_staleness
+from app.services.labeling_spatial_quality import quality_rows, spatial_quality_data
 from app.services.video_tracks import normalize_outside_ranges
+from app.services.labeling_core_read_relations import task_row, video_segment_row
 
 
 class VideoBoundaryUnreconciledError(RuntimeError):
@@ -67,17 +69,8 @@ async def accepted_boundary_runs(
     boundaries = _required_boundaries(segments, scope)
     if not boundaries:
         return []
-    rows = list(
-        (
-            await db.execute(
-                select(VideoTrackQualityRun)
-                .where(VideoTrackQualityRun.task_id == task.id)
-                .order_by(VideoTrackQualityRun.created_at.desc())
-            )
-        )
-        .scalars()
-        .all()
-    )
+    run_data = await spatial_quality_data(db, "list_video_runs", task_id=task.id)
+    rows = quality_rows(VideoTrackQualityRun, run_data.get("rows"))
     by_boundary: dict[tuple[uuid.UUID, uuid.UUID], list[VideoTrackQualityRun]] = {}
     for run in rows:
         by_boundary.setdefault((run.left_segment_id, run.right_segment_id), []).append(
@@ -201,9 +194,9 @@ async def canonical_task_annotations(
     segments = list(
         (
             await db.execute(
-                select(VideoSegment)
-                .where(VideoSegment.dataset_item_id == task.dataset_item_id)
-                .order_by(VideoSegment.segment_index)
+                select(video_segment_row)
+                .where(video_segment_row.dataset_item_id == task.dataset_item_id)
+                .order_by(video_segment_row.segment_index)
             )
         )
         .scalars()
@@ -242,9 +235,9 @@ async def assert_task_boundaries_reconciled(
     segments = list(
         (
             await db.execute(
-                select(VideoSegment)
-                .where(VideoSegment.dataset_item_id == task.dataset_item_id)
-                .order_by(VideoSegment.segment_index)
+                select(video_segment_row)
+                .where(video_segment_row.dataset_item_id == task.dataset_item_id)
+                .order_by(video_segment_row.segment_index)
             )
         )
         .scalars()
@@ -262,19 +255,19 @@ async def assert_export_boundaries_reconciled(
 ) -> None:
     if not collaboration_enabled(project):
         return
-    query = select(Task).where(Task.project_id == project.id)
+    query = select(task_row).where(task_row.project_id == project.id)
     if batch_id is not None:
-        query = query.where(Task.batch_id == batch_id)
+        query = query.where(task_row.batch_id == batch_id)
     if scope is not None:
-        query = query.where(Task.id == scope.task_id)
+        query = query.where(task_row.id == scope.task_id)
     tasks = list((await db.execute(query)).scalars().all())
     for task in tasks:
         segments = list(
             (
                 await db.execute(
-                    select(VideoSegment)
-                    .where(VideoSegment.dataset_item_id == task.dataset_item_id)
-                    .order_by(VideoSegment.segment_index)
+                    select(video_segment_row)
+                    .where(video_segment_row.dataset_item_id == task.dataset_item_id)
+                    .order_by(video_segment_row.segment_index)
                 )
             )
             .scalars()

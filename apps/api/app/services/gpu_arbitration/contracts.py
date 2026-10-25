@@ -97,7 +97,7 @@ GPUDispatchOperation = Literal[
 ]
 
 
-GPUDispatchOutcomeKind = Literal["response_received", "uncertain"]
+GPUDispatchOutcomeKind = Literal["response_received", "not_sent", "uncertain"]
 
 
 GPUDispatchUncertainReason = Literal["request_aborted", "response_not_reported"]
@@ -127,6 +127,7 @@ class GPUDispatchOutcomeChannel:
 
     def __init__(self) -> None:
         self._outcome: GPUDispatchOutcome | None = None
+        self._send_started = False
 
     @property
     def outcome(self) -> GPUDispatchOutcome | None:
@@ -156,6 +157,17 @@ class GPUDispatchOutcomeChannel:
         self._outcome = GPUDispatchOutcome(kind="uncertain", reason=reason)
         return True
 
+    def report_not_sent(self) -> bool:
+        if self._outcome is not None or self._send_started:
+            return False
+        self._outcome = GPUDispatchOutcome(kind="not_sent")
+        return True
+
+    def request_started(self) -> None:
+        if self._outcome is not None or self._send_started:
+            raise ValueError("dispatch grant already used")
+        self._send_started = True
+
 
 @dataclass(frozen=True)
 class GPUDispatchGrant:
@@ -184,6 +196,12 @@ class GPUDispatchGrant:
 
     def report_response(self, status_code: int) -> bool:
         return self.outcome_channel.report_response(status_code)
+
+    def report_not_sent(self) -> bool:
+        return self.outcome_channel.report_not_sent()
+
+    def request_started(self) -> None:
+        self.outcome_channel.request_started()
 
     def report_uncertain_if_missing(
         self,

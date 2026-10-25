@@ -51,8 +51,20 @@ docs/research/data/
 infra/grafana/dashboards/
 
 # Immutable history; keep its original authored formatting
+apps/api/tests/fixtures/workspace_template_queries_legacy/*.json
+apps/api/tests/fixtures/workspace_project_queries_legacy/*.json
+apps/api/tests/fixtures/workspace_directory_reads_legacy/*.json
 docs/adr/archive/
 docs/changelogs/
 docs/plans/archive/
 docs/plans/_spike-results/
 ROADMAP/archive/
+apps/api/tests/fixtures/workspace_access_reads_legacy/*.json
+apps/api/tests/fixtures/labeling_class_usage_reads_legacy/*.json
+apps/api/tests/fixtures/project_class_rename_legacy/*.json
+apps/api/tests/fixtures/project_guide_assets_legacy/*.json
+apps/api/tests/fixtures/named_pipeline_legacy/*.json
+apps/inference/tests/fixtures/pool_capability_legacy.json
+apps/api/tests/fixtures/inference_pool_lifecycle_legacy/*.json
+apps/api/tests/fixtures/inference_registry_legacy/*.json
+apps/api/tests/fixtures/inference_health_legacy/*.json

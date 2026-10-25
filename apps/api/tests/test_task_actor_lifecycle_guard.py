@@ -3,7 +3,6 @@
 from types import SimpleNamespace
 
 from fastapi import Depends, Request
-from fastapi.security import HTTPAuthorizationCredentials
 import pytest
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +12,12 @@ from app.api.v1.tasks import review as task_review_api
 from app.application.task_review import TaskReviewWorkflow
 from app.application.task_submission import TaskSubmissionWorkflow
 from app.db.models.user import User
-from app.deps import bearer_scheme, get_current_user, get_db
+from app.deps import (
+    get_current_principal,
+    get_current_user,
+    get_db,
+    get_identity_gateway,
+)
 from tests.test_task_lock import _create_annotation, _seed_project_and_task
 
 
@@ -128,11 +132,12 @@ async def test_task_actor_id_and_access_dependencies_share_request_auth_and_sess
 
     async def counted_get_current_user(
         request: Request,
-        credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+        principal=Depends(get_current_principal),
         db: AsyncSession = Depends(get_db),
+        identity=Depends(get_identity_gateway),
     ):
         counts["auth"] += 1
-        return await original_get_current_user(request, credentials, db)
+        return await original_get_current_user(request, principal, db, identity)
 
     class TrackingSubmissionWorkflow(TaskSubmissionWorkflow):
         def __init__(self, db: AsyncSession) -> None:

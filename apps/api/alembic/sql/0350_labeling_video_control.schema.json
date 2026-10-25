@@ -1,0 +1,2624 @@
+{
+  "$defs": {
+    "ApplyReview": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "minimum": 1,
+          "title": "Expected Revision",
+          "type": "integer"
+        },
+        "expected_status": {
+          "enum": ["pending_review", "partially_reviewed", "cancelled"],
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": ["accept", "decide", "discard"],
+          "title": "Kind",
+          "type": "string"
+        },
+        "mask_review_scope": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MaskReviewScopeWrite"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "new_tracks": {
+          "items": {
+            "$ref": "#/$defs/NewTrackWrite"
+          },
+          "title": "New Tracks",
+          "type": "array"
+        },
+        "operation": {
+          "const": "apply_review",
+          "title": "Operation",
+          "type": "string"
+        },
+        "prompt": {
+          "additionalProperties": true,
+          "title": "Prompt",
+          "type": "object"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "source_annotations": {
+          "items": {
+            "$ref": "#/$defs/SourceAnnotationWrite"
+          },
+          "title": "Source Annotations",
+          "type": "array"
+        },
+        "staged_result": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Staged Result"
+        },
+        "status": {
+          "enum": ["partially_reviewed", "accepted", "discarded"],
+          "title": "Status",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "job_id",
+        "task_id",
+        "actor_id",
+        "kind",
+        "expected_revision",
+        "expected_status",
+        "prompt",
+        "staged_result",
+        "status",
+        "source_annotations",
+        "new_tracks"
+      ],
+      "title": "ApplyReview",
+      "type": "object"
+    },
+    "CancelJob": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "now": {
+          "format": "date-time",
+          "title": "Now",
+          "type": "string"
+        },
+        "operation": {
+          "const": "cancel_job",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "job_id", "actor_id", "now"],
+      "title": "CancelJob",
+      "type": "object"
+    },
+    "CheckReviewScopes": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "frame_indices": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Frame Indices"
+        },
+        "from_frame": {
+          "minimum": 0,
+          "title": "From Frame",
+          "type": "integer"
+        },
+        "operation": {
+          "const": "check_review_scopes",
+          "title": "Operation",
+          "type": "string"
+        },
+        "result_annotation_version": {
+          "minimum": 1,
+          "title": "Result Annotation Version",
+          "type": "integer"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "to_frame": {
+          "minimum": 0,
+          "title": "To Frame",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "task_id",
+        "actor_id",
+        "annotation_id",
+        "result_annotation_version",
+        "from_frame",
+        "to_frame",
+        "frame_indices"
+      ],
+      "title": "CheckReviewScopes",
+      "type": "object"
+    },
+    "CheckReviewScopesData": {
+      "additionalProperties": false,
+      "properties": {
+        "scopes": {
+          "items": {
+            "$ref": "#/$defs/MaskReviewScopeRecord"
+          },
+          "title": "Scopes",
+          "type": "array"
+        }
+      },
+      "required": ["scopes"],
+      "title": "CheckReviewScopesData",
+      "type": "object"
+    },
+    "CreateJob": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "annotation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Annotation Id"
+        },
+        "correction_frame": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Correction Frame"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "direction": {
+          "enum": ["forward", "backward", "bidirectional"],
+          "title": "Direction",
+          "type": "string"
+        },
+        "expected_batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Batch Id"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "expected_task_status": {
+          "title": "Expected Task Status",
+          "type": "string"
+        },
+        "from_frame": {
+          "minimum": 0,
+          "title": "From Frame",
+          "type": "integer"
+        },
+        "job_kind": {
+          "enum": ["tracking", "correction"],
+          "title": "Job Kind",
+          "type": "string"
+        },
+        "model_key": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Model Key",
+          "type": "string"
+        },
+        "operation": {
+          "const": "create_job",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "prompt": {
+          "additionalProperties": true,
+          "title": "Prompt",
+          "type": "object"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "segment_id": {
+          "format": "uuid",
+          "title": "Segment Id",
+          "type": "string"
+        },
+        "target_class_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Class Name"
+        },
+        "target_tool_unit_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Tool Unit Id"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "to_frame": {
+          "minimum": 0,
+          "title": "To Frame",
+          "type": "integer"
+        },
+        "track_id_snapshot": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Track Id Snapshot"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "task_id",
+        "project_id",
+        "dataset_item_id",
+        "actor_id",
+        "expected_batch_id",
+        "expected_task_status",
+        "expected_review_round_id",
+        "annotation_id",
+        "segment_id",
+        "target_class_name",
+        "target_tool_unit_id",
+        "job_kind",
+        "track_id_snapshot",
+        "correction_frame",
+        "model_key",
+        "direction",
+        "from_frame",
+        "to_frame",
+        "prompt"
+      ],
+      "title": "CreateJob",
+      "type": "object"
+    },
+    "EnsureSegments": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "count_segments": {
+          "default": true,
+          "title": "Count Segments",
+          "type": "boolean"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "expected_batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Batch Id"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "expected_task_status": {
+          "title": "Expected Task Status",
+          "type": "string"
+        },
+        "frame_count": {
+          "minimum": 1,
+          "title": "Frame Count",
+          "type": "integer"
+        },
+        "from_frame": {
+          "minimum": 0,
+          "title": "From Frame",
+          "type": "integer"
+        },
+        "now": {
+          "format": "date-time",
+          "title": "Now",
+          "type": "string"
+        },
+        "operation": {
+          "const": "ensure_segments",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "segment_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Segment Id"
+        },
+        "segment_size_frames": {
+          "minimum": 1,
+          "title": "Segment Size Frames",
+          "type": "integer"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "to_frame": {
+          "minimum": 0,
+          "title": "To Frame",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "expected_batch_id",
+        "expected_task_status",
+        "expected_review_round_id",
+        "dataset_item_id",
+        "segment_id",
+        "from_frame",
+        "to_frame",
+        "frame_count",
+        "segment_size_frames",
+        "now"
+      ],
+      "title": "EnsureSegments",
+      "type": "object"
+    },
+    "ExpireCandidates": {
+      "additionalProperties": false,
+      "properties": {
+        "cutoff": {
+          "format": "date-time",
+          "title": "Cutoff",
+          "type": "string"
+        },
+        "operation": {
+          "const": "expire_candidates",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "cutoff"],
+      "title": "ExpireCandidates",
+      "type": "object"
+    },
+    "ListTimeline": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "allowed_project_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Allowed Project Ids"
+        },
+        "cursor_created_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cursor Created At"
+        },
+        "cursor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cursor Id"
+        },
+        "limit": {
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "model_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Model Key"
+        },
+        "operation": {
+          "const": "list_timeline",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Status"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "actor_id",
+        "model_key",
+        "project_id",
+        "allowed_project_ids",
+        "status",
+        "cursor_created_at",
+        "cursor_id",
+        "limit"
+      ],
+      "title": "ListTimeline",
+      "type": "object"
+    },
+    "LockReviewAnnotations": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "annotations": {
+          "items": {
+            "$ref": "#/$defs/ReviewSourceVersion"
+          },
+          "title": "Annotations",
+          "type": "array"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "lock_review_annotations",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "job_id", "task_id", "actor_id", "annotations"],
+      "title": "LockReviewAnnotations",
+      "type": "object"
+    },
+    "LockReviewJob": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "lock_review_job",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "job_id", "actor_id"],
+      "title": "LockReviewJob",
+      "type": "object"
+    },
+    "LockWorkerJob": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "lock_worker_job",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "job_id"],
+      "title": "LockWorkerJob",
+      "type": "object"
+    },
+    "MarkEnqueueFailed": {
+      "additionalProperties": false,
+      "properties": {
+        "completed_at": {
+          "format": "date-time",
+          "title": "Completed At",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "mark_enqueue_failed",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "job_id", "completed_at"],
+      "title": "MarkEnqueueFailed",
+      "type": "object"
+    },
+    "MarkEnqueued": {
+      "additionalProperties": false,
+      "properties": {
+        "celery_task_id": {
+          "title": "Celery Task Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "mark_enqueued",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "job_id", "celery_task_id"],
+      "title": "MarkEnqueued",
+      "type": "object"
+    },
+    "MaskReviewScopeRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "enum": ["accept", "reject"],
+          "title": "Decision",
+          "type": "string"
+        },
+        "frame_end": {
+          "title": "Frame End",
+          "type": "integer"
+        },
+        "frame_start": {
+          "title": "Frame Start",
+          "type": "integer"
+        },
+        "region_digest": {
+          "title": "Region Digest",
+          "type": "string"
+        },
+        "region_mask_ref": {
+          "additionalProperties": true,
+          "title": "Region Mask Ref",
+          "type": "object"
+        },
+        "scope_id": {
+          "format": "uuid",
+          "title": "Scope Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope_id",
+        "frame_start",
+        "frame_end",
+        "region_mask_ref",
+        "region_digest",
+        "decision"
+      ],
+      "title": "MaskReviewScopeRecord",
+      "type": "object"
+    },
+    "MaskReviewScopeWrite": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "candidate_digest": {
+          "title": "Candidate Digest",
+          "type": "string"
+        },
+        "decision": {
+          "enum": ["accept", "reject"],
+          "title": "Decision",
+          "type": "string"
+        },
+        "frame_end": {
+          "minimum": 0,
+          "title": "Frame End",
+          "type": "integer"
+        },
+        "frame_start": {
+          "minimum": 0,
+          "title": "Frame Start",
+          "type": "integer"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "qc_issue_id": {
+          "format": "uuid",
+          "title": "Qc Issue Id",
+          "type": "string"
+        },
+        "region_digest": {
+          "title": "Region Digest",
+          "type": "string"
+        },
+        "region_mask_ref": {
+          "additionalProperties": true,
+          "title": "Region Mask Ref",
+          "type": "object"
+        },
+        "result_annotation_version": {
+          "minimum": 1,
+          "title": "Result Annotation Version",
+          "type": "integer"
+        },
+        "reviewer_id": {
+          "format": "uuid",
+          "title": "Reviewer Id",
+          "type": "string"
+        },
+        "source_annotation_version": {
+          "minimum": 1,
+          "title": "Source Annotation Version",
+          "type": "integer"
+        },
+        "source_job_id": {
+          "format": "uuid",
+          "title": "Source Job Id",
+          "type": "string"
+        },
+        "source_job_revision": {
+          "minimum": 1,
+          "title": "Source Job Revision",
+          "type": "integer"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "project_id",
+        "task_id",
+        "annotation_id",
+        "qc_issue_id",
+        "source_job_id",
+        "reviewer_id",
+        "source_annotation_version",
+        "result_annotation_version",
+        "source_job_revision",
+        "frame_start",
+        "frame_end",
+        "region_mask_ref",
+        "region_digest",
+        "candidate_digest",
+        "decision"
+      ],
+      "title": "MaskReviewScopeWrite",
+      "type": "object"
+    },
+    "NewTrackWrite": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "annotation_type": {
+          "title": "Annotation Type",
+          "type": "string"
+        },
+        "class_name": {
+          "title": "Class Name",
+          "type": "string"
+        },
+        "geometry": {
+          "additionalProperties": true,
+          "title": "Geometry",
+          "type": "object"
+        },
+        "tool_unit_id": {
+          "title": "Tool Unit Id",
+          "type": "string"
+        },
+        "track_id": {
+          "title": "Track Id",
+          "type": "string"
+        },
+        "user_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "User Id"
+        },
+        "video_segment_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Video Segment Id"
+        }
+      },
+      "required": [
+        "annotation_id",
+        "video_segment_id",
+        "user_id",
+        "class_name",
+        "tool_unit_id",
+        "geometry",
+        "track_id",
+        "annotation_type"
+      ],
+      "title": "NewTrackWrite",
+      "type": "object"
+    },
+    "OperateKeyframe": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "expected_batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Batch Id"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "expected_task_status": {
+          "title": "Expected Task Status",
+          "type": "string"
+        },
+        "expected_version": {
+          "minimum": 1,
+          "title": "Expected Version",
+          "type": "integer"
+        },
+        "frame_index": {
+          "minimum": 0,
+          "title": "Frame Index",
+          "type": "integer"
+        },
+        "geometry": {
+          "additionalProperties": true,
+          "title": "Geometry",
+          "type": "object"
+        },
+        "operation": {
+          "const": "operate_keyframe",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "segment_id": {
+          "format": "uuid",
+          "title": "Segment Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "expected_batch_id",
+        "expected_task_status",
+        "expected_review_round_id",
+        "annotation_id",
+        "segment_id",
+        "frame_index",
+        "expected_version",
+        "geometry"
+      ],
+      "title": "OperateKeyframe",
+      "type": "object"
+    },
+    "ReadActiveCorrection": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_active_correction",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "track_id": {
+          "title": "Track Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "task_id", "actor_id", "track_id"],
+      "title": "ReadActiveCorrection",
+      "type": "object"
+    },
+    "ReadAnnotations": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "annotation_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Annotation Ids",
+          "type": "array"
+        },
+        "lock_for_update": {
+          "default": false,
+          "title": "Lock For Update",
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "read_annotations",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "task_id", "actor_id", "annotation_ids"],
+      "title": "ReadAnnotations",
+      "type": "object"
+    },
+    "ReadJob": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_job",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "job_id", "actor_id"],
+      "title": "ReadJob",
+      "type": "object"
+    },
+    "ReadSegments": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "count_segments": {
+          "default": true,
+          "title": "Count Segments",
+          "type": "boolean"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "from_frame": {
+          "minimum": 0,
+          "title": "From Frame",
+          "type": "integer"
+        },
+        "nowait": {
+          "default": false,
+          "title": "Nowait",
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "read_segments",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "segment_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Segment Id"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "to_frame": {
+          "minimum": 0,
+          "title": "To Frame",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "dataset_item_id",
+        "segment_id",
+        "from_frame",
+        "to_frame"
+      ],
+      "title": "ReadSegments",
+      "type": "object"
+    },
+    "ReadTaskJobs": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_task_jobs",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "statuses": {
+          "items": {
+            "enum": [
+              "queued",
+              "running",
+              "completed",
+              "failed",
+              "cancelled",
+              "pending_review",
+              "partially_reviewed",
+              "accepted",
+              "discarded"
+            ],
+            "type": "string"
+          },
+          "title": "Statuses",
+          "type": "array"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "task_id", "actor_id", "statuses"],
+      "title": "ReadTaskJobs",
+      "type": "object"
+    },
+    "ReadWorkerJob": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_worker_job",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "job_id"],
+      "title": "ReadWorkerJob",
+      "type": "object"
+    },
+    "ReadWorkerSegment": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_worker_segment",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "job_id"],
+      "title": "ReadWorkerSegment",
+      "type": "object"
+    },
+    "ReviewSourceVersion": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "expected_version": {
+          "minimum": 1,
+          "title": "Expected Version",
+          "type": "integer"
+        }
+      },
+      "required": ["annotation_id", "expected_version"],
+      "title": "ReviewSourceVersion",
+      "type": "object"
+    },
+    "SaveKeyframe": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "expected_batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Batch Id"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "expected_task_status": {
+          "title": "Expected Task Status",
+          "type": "string"
+        },
+        "expected_version": {
+          "minimum": 1,
+          "title": "Expected Version",
+          "type": "integer"
+        },
+        "frame_index": {
+          "minimum": 0,
+          "title": "Frame Index",
+          "type": "integer"
+        },
+        "geometry": {
+          "additionalProperties": true,
+          "title": "Geometry",
+          "type": "object"
+        },
+        "operation": {
+          "const": "save_keyframe",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "segment_id": {
+          "format": "uuid",
+          "title": "Segment Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "expected_batch_id",
+        "expected_task_status",
+        "expected_review_round_id",
+        "annotation_id",
+        "segment_id",
+        "frame_index",
+        "expected_version",
+        "geometry"
+      ],
+      "title": "SaveKeyframe",
+      "type": "object"
+    },
+    "SourceAnnotationWrite": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "annotation_type": {
+          "title": "Annotation Type",
+          "type": "string"
+        },
+        "expected_version": {
+          "minimum": 1,
+          "title": "Expected Version",
+          "type": "integer"
+        },
+        "geometry": {
+          "additionalProperties": true,
+          "title": "Geometry",
+          "type": "object"
+        },
+        "tool_unit_id": {
+          "title": "Tool Unit Id",
+          "type": "string"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Track Id"
+        }
+      },
+      "required": [
+        "annotation_id",
+        "expected_version",
+        "geometry",
+        "track_id",
+        "annotation_type",
+        "tool_unit_id"
+      ],
+      "title": "SourceAnnotationWrite",
+      "type": "object"
+    },
+    "StartWorkerJob": {
+      "additionalProperties": false,
+      "properties": {
+        "celery_task_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Celery Task Id"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "start_worker_job",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "job_id", "celery_task_id", "started_at"],
+      "title": "StartWorkerJob",
+      "type": "object"
+    },
+    "VideoAnnotationRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_type": {
+          "title": "Annotation Type",
+          "type": "string"
+        },
+        "attributes": {
+          "additionalProperties": true,
+          "title": "Attributes",
+          "type": "object"
+        },
+        "attributes_meta": {
+          "additionalProperties": true,
+          "title": "Attributes Meta",
+          "type": "object"
+        },
+        "calibration_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Calibration Digest"
+        },
+        "calibration_revision": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Calibration Revision"
+        },
+        "class_name": {
+          "title": "Class Name",
+          "type": "string"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Confidence"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "geometry": {
+          "additionalProperties": true,
+          "title": "Geometry",
+          "type": "object"
+        },
+        "ground_truth": {
+          "title": "Ground Truth",
+          "type": "boolean"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "is_active": {
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "is_hidden": {
+          "title": "Is Hidden",
+          "type": "boolean"
+        },
+        "is_locked": {
+          "title": "Is Locked",
+          "type": "boolean"
+        },
+        "lead_time": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Lead Time"
+        },
+        "parent_annotation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Parent Annotation Id"
+        },
+        "parent_prediction_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Parent Prediction Id"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "scene_track_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scene Track Id"
+        },
+        "sensor_dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sensor Dataset Item Id"
+        },
+        "sensor_role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sensor Role"
+        },
+        "sensor_visibility": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sensor Visibility"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "temporal_role": {
+          "enum": ["keyframe", "derived", "sample"],
+          "title": "Temporal Role",
+          "type": "string"
+        },
+        "tool_unit_id": {
+          "title": "Tool Unit Id",
+          "type": "string"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Track Id"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "user_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "User Id"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        },
+        "video_segment_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Video Segment Id"
+        },
+        "was_cancelled": {
+          "title": "Was Cancelled",
+          "type": "boolean"
+        },
+        "z_order": {
+          "title": "Z Order",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "task_id",
+        "project_id",
+        "video_segment_id",
+        "user_id",
+        "source",
+        "annotation_type",
+        "tool_unit_id",
+        "class_name",
+        "geometry",
+        "confidence",
+        "parent_prediction_id",
+        "parent_annotation_id",
+        "track_id",
+        "scene_track_id",
+        "sensor_dataset_item_id",
+        "sensor_role",
+        "sensor_visibility",
+        "calibration_revision",
+        "calibration_digest",
+        "temporal_role",
+        "lead_time",
+        "was_cancelled",
+        "ground_truth",
+        "is_active",
+        "attributes",
+        "attributes_meta",
+        "z_order",
+        "is_locked",
+        "is_hidden",
+        "version",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "VideoAnnotationRecord",
+      "type": "object"
+    },
+    "VideoControlAnnotationWriteData": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": ["annotation_id", "version", "updated_at"],
+      "title": "VideoControlAnnotationWriteData",
+      "type": "object"
+    },
+    "VideoControlExpiryData": {
+      "additionalProperties": false,
+      "properties": {
+        "expired": {
+          "minimum": 0,
+          "title": "Expired",
+          "type": "integer"
+        }
+      },
+      "required": ["expired"],
+      "title": "VideoControlExpiryData",
+      "type": "object"
+    },
+    "VideoControlSegmentsData": {
+      "additionalProperties": false,
+      "properties": {
+        "segment_count": {
+          "minimum": 0,
+          "title": "Segment Count",
+          "type": "integer"
+        },
+        "segments": {
+          "items": {
+            "$ref": "#/$defs/VideoSegmentRecord"
+          },
+          "title": "Segments",
+          "type": "array"
+        }
+      },
+      "required": ["segments", "segment_count"],
+      "title": "VideoControlSegmentsData",
+      "type": "object"
+    },
+    "VideoControlTimelineData": {
+      "additionalProperties": false,
+      "properties": {
+        "counts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Counts",
+          "type": "object"
+        },
+        "has_more": {
+          "title": "Has More",
+          "type": "boolean"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/VideoControlTimelineRow"
+          },
+          "title": "Rows",
+          "type": "array"
+        }
+      },
+      "required": ["counts", "rows", "has_more"],
+      "title": "VideoControlTimelineData",
+      "type": "object"
+    },
+    "VideoControlTimelineRow": {
+      "additionalProperties": false,
+      "properties": {
+        "job": {
+          "$ref": "#/$defs/VideoTrackerJobRecord"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        }
+      },
+      "required": ["job", "project_id"],
+      "title": "VideoControlTimelineRow",
+      "type": "object"
+    },
+    "VideoControlWorkerSegmentData": {
+      "additionalProperties": false,
+      "properties": {
+        "segment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VideoSegmentRecord"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "segment_count": {
+          "minimum": 0,
+          "title": "Segment Count",
+          "type": "integer"
+        }
+      },
+      "required": ["segment", "segment_count"],
+      "title": "VideoControlWorkerSegmentData",
+      "type": "object"
+    },
+    "VideoSegmentRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "assignee_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Assignee Id"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "end_frame": {
+          "title": "End Frame",
+          "type": "integer"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "lock_expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Lock Expires At"
+        },
+        "locked_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Locked At"
+        },
+        "locked_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Locked By"
+        },
+        "segment_index": {
+          "title": "Segment Index",
+          "type": "integer"
+        },
+        "start_frame": {
+          "title": "Start Frame",
+          "type": "integer"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "dataset_item_id",
+        "segment_index",
+        "start_frame",
+        "end_frame",
+        "assignee_id",
+        "status",
+        "locked_by",
+        "locked_at",
+        "lock_expires_at",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "VideoSegmentRecord",
+      "type": "object"
+    },
+    "VideoTrackerJobRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Annotation Id"
+        },
+        "cancel_requested_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cancel Requested At"
+        },
+        "celery_task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Celery Task Id"
+        },
+        "completed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Completed At"
+        },
+        "correction_frame": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Correction Frame"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "created_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Created By"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "direction": {
+          "enum": ["forward", "backward", "bidirectional"],
+          "title": "Direction",
+          "type": "string"
+        },
+        "error_message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error Message"
+        },
+        "event_channel": {
+          "title": "Event Channel",
+          "type": "string"
+        },
+        "from_frame": {
+          "title": "From Frame",
+          "type": "integer"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "job_kind": {
+          "enum": ["tracking", "correction"],
+          "title": "Job Kind",
+          "type": "string"
+        },
+        "model_key": {
+          "title": "Model Key",
+          "type": "string"
+        },
+        "prompt": {
+          "additionalProperties": true,
+          "title": "Prompt",
+          "type": "object"
+        },
+        "revision": {
+          "title": "Revision",
+          "type": "integer"
+        },
+        "segment_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Segment Id"
+        },
+        "staged_result": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Staged Result"
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Started At"
+        },
+        "status": {
+          "enum": [
+            "queued",
+            "running",
+            "completed",
+            "failed",
+            "cancelled",
+            "pending_review",
+            "partially_reviewed",
+            "accepted",
+            "discarded"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "target_class_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Class Name"
+        },
+        "target_tool_unit_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Tool Unit Id"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "to_frame": {
+          "title": "To Frame",
+          "type": "integer"
+        },
+        "track_id_snapshot": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Track Id Snapshot"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Updated At"
+        }
+      },
+      "required": [
+        "id",
+        "task_id",
+        "dataset_item_id",
+        "annotation_id",
+        "segment_id",
+        "target_class_name",
+        "target_tool_unit_id",
+        "created_by",
+        "status",
+        "job_kind",
+        "track_id_snapshot",
+        "correction_frame",
+        "model_key",
+        "direction",
+        "from_frame",
+        "to_frame",
+        "prompt",
+        "staged_result",
+        "revision",
+        "event_channel",
+        "celery_task_id",
+        "cancel_requested_at",
+        "started_at",
+        "completed_at",
+        "error_message",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "VideoTrackerJobRecord",
+      "type": "object"
+    }
+  },
+  "$id": "aap-labeling-video-control/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "data": {
+      "title": "Data"
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "request": {
+      "discriminator": {
+        "mapping": {
+          "apply_review": "#/$defs/ApplyReview",
+          "cancel_job": "#/$defs/CancelJob",
+          "check_review_scopes": "#/$defs/CheckReviewScopes",
+          "create_job": "#/$defs/CreateJob",
+          "ensure_segments": "#/$defs/EnsureSegments",
+          "expire_candidates": "#/$defs/ExpireCandidates",
+          "list_timeline": "#/$defs/ListTimeline",
+          "lock_review_annotations": "#/$defs/LockReviewAnnotations",
+          "lock_review_job": "#/$defs/LockReviewJob",
+          "lock_worker_job": "#/$defs/LockWorkerJob",
+          "mark_enqueue_failed": "#/$defs/MarkEnqueueFailed",
+          "mark_enqueued": "#/$defs/MarkEnqueued",
+          "operate_keyframe": "#/$defs/OperateKeyframe",
+          "read_active_correction": "#/$defs/ReadActiveCorrection",
+          "read_annotations": "#/$defs/ReadAnnotations",
+          "read_job": "#/$defs/ReadJob",
+          "read_segments": "#/$defs/ReadSegments",
+          "read_task_jobs": "#/$defs/ReadTaskJobs",
+          "read_worker_job": "#/$defs/ReadWorkerJob",
+          "read_worker_segment": "#/$defs/ReadWorkerSegment",
+          "save_keyframe": "#/$defs/SaveKeyframe",
+          "start_worker_job": "#/$defs/StartWorkerJob"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ReadJob"
+        },
+        {
+          "$ref": "#/$defs/ReadWorkerJob"
+        },
+        {
+          "$ref": "#/$defs/LockWorkerJob"
+        },
+        {
+          "$ref": "#/$defs/StartWorkerJob"
+        },
+        {
+          "$ref": "#/$defs/LockReviewJob"
+        },
+        {
+          "$ref": "#/$defs/ReadTaskJobs"
+        },
+        {
+          "$ref": "#/$defs/ReadActiveCorrection"
+        },
+        {
+          "$ref": "#/$defs/ReadAnnotations"
+        },
+        {
+          "$ref": "#/$defs/LockReviewAnnotations"
+        },
+        {
+          "$ref": "#/$defs/ReadSegments"
+        },
+        {
+          "$ref": "#/$defs/ReadWorkerSegment"
+        },
+        {
+          "$ref": "#/$defs/EnsureSegments"
+        },
+        {
+          "$ref": "#/$defs/CheckReviewScopes"
+        },
+        {
+          "$ref": "#/$defs/ExpireCandidates"
+        },
+        {
+          "$ref": "#/$defs/CreateJob"
+        },
+        {
+          "$ref": "#/$defs/CancelJob"
+        },
+        {
+          "$ref": "#/$defs/SaveKeyframe"
+        },
+        {
+          "$ref": "#/$defs/OperateKeyframe"
+        },
+        {
+          "$ref": "#/$defs/ApplyReview"
+        },
+        {
+          "$ref": "#/$defs/MarkEnqueued"
+        },
+        {
+          "$ref": "#/$defs/MarkEnqueueFailed"
+        },
+        {
+          "$ref": "#/$defs/ListTimeline"
+        }
+      ],
+      "title": "Request"
+    },
+    "schema": {
+      "const": "aap-labeling-video-control/v1",
+      "title": "Schema",
+      "type": "string"
+    }
+  },
+  "required": ["schema", "ok", "request", "data"],
+  "title": "VideoControlReply",
+  "type": "object",
+  "x-data-contracts": {
+    "apply_review": {
+      "$ref": "#/$defs/VideoTrackerJobRecord"
+    },
+    "cancel_job": {
+      "$ref": "#/$defs/VideoTrackerJobRecord"
+    },
+    "check_review_scopes": {
+      "$ref": "#/$defs/CheckReviewScopesData"
+    },
+    "create_job": {
+      "$ref": "#/$defs/VideoTrackerJobRecord"
+    },
+    "ensure_segments": {
+      "$ref": "#/$defs/VideoControlSegmentsData"
+    },
+    "expire_candidates": {
+      "$ref": "#/$defs/VideoControlExpiryData"
+    },
+    "list_timeline": {
+      "$ref": "#/$defs/VideoControlTimelineData"
+    },
+    "lock_review_annotations": {
+      "items": {
+        "$ref": "#/$defs/VideoAnnotationRecord"
+      },
+      "type": "array"
+    },
+    "lock_review_job": {
+      "$ref": "#/$defs/VideoTrackerJobRecord"
+    },
+    "lock_worker_job": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/VideoTrackerJobRecord"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "mark_enqueue_failed": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/VideoTrackerJobRecord"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "mark_enqueued": {
+      "$ref": "#/$defs/VideoTrackerJobRecord"
+    },
+    "operate_keyframe": {
+      "$ref": "#/$defs/VideoControlAnnotationWriteData"
+    },
+    "read_active_correction": {
+      "oneOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "read_annotations": {
+      "items": {
+        "$ref": "#/$defs/VideoAnnotationRecord"
+      },
+      "type": "array"
+    },
+    "read_job": {
+      "$ref": "#/$defs/VideoTrackerJobRecord"
+    },
+    "read_segments": {
+      "$ref": "#/$defs/VideoControlSegmentsData"
+    },
+    "read_task_jobs": {
+      "items": {
+        "$ref": "#/$defs/VideoTrackerJobRecord"
+      },
+      "type": "array"
+    },
+    "read_worker_job": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/VideoTrackerJobRecord"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "read_worker_segment": {
+      "$ref": "#/$defs/VideoControlWorkerSegmentData"
+    },
+    "save_keyframe": {
+      "$ref": "#/$defs/VideoControlAnnotationWriteData"
+    },
+    "start_worker_job": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/VideoTrackerJobRecord"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "x-postgresql-functions": ["aap_labeling_v1.video_control_command(jsonb)"]
+}

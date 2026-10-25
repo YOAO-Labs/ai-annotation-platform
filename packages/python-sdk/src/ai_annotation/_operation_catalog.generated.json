@@ -1130,7 +1130,7 @@
       "path": "/api/v1/auth/me/avatar",
       "operation_id": "clear_avatar_api_v1_auth_me_avatar_delete",
       "summary": "Clear Avatar",
-      "description": "恢复默认头像（= 回退首字母圆片）。",
+      "description": "恢复默认头像，回退到姓名首字母。",
       "tags": [
         "me"
       ],
@@ -1161,7 +1161,7 @@
       "path": "/api/v1/auth/me/deactivation-request",
       "operation_id": "cancel_self_deactivation_api_v1_auth_me_deactivation_request_delete",
       "summary": "Cancel Self Deactivation",
-      "description": "v0.8.1 · 冷静期内撤销自助注销申请。",
+      "description": "冷静期内撤销自助注销申请。",
       "tags": [
         "me"
       ],
@@ -1326,6 +1326,9 @@
         "204": {
           "description": "Successful Response"
         },
+        "409": {
+          "description": "Source is referenced or busy, or the idempotency key conflicts. For source_in_use, remove references in the owning project or feature before retrying; the source and stored objects are retained."
+        },
         "422": {
           "description": "Validation Error",
           "content": {
@@ -1397,6 +1400,9 @@
       "responses": {
         "204": {
           "description": "Successful Response"
+        },
+        "409": {
+          "description": "Source is referenced or busy, or the idempotency key conflicts. For source_in_use, remove references in the owning project or feature before retrying; the source and stored objects are retained."
         },
         "422": {
           "description": "Validation Error",
@@ -2660,7 +2666,7 @@
       "path": "/api/v1/users/{user_id}",
       "operation_id": "delete_user_api_v1_users__user_id__delete",
       "summary": "Delete User",
-      "description": "软删除（is_active=False）。super_admin 可删任意（除自己/最后一名超管）；\nproject_admin 可删启用的标注员/审核员，但目标的派生项目（成员、批次、\n任务、锁、名下项目）一旦出现在其他人的项目里（跨项目交接需上级处理）\n则拒绝；未分配账号无项目归属，可直接删除。\n\n若 target 仍持有未完成任务（assignee_id + status in pending/in_progress/review）或 task_lock，\n返回 409，要求传入 `transfer_to_user_id`；前端弹\"先转交\"二次 Modal。\nproject_admin 的转交接收人必须是每个待转交任务所在项目的成员。",
+      "description": "Soft-delete with current manager authority and the existing task handoff rules.",
       "tags": [
         "users"
       ],
@@ -5037,7 +5043,7 @@
       "path": "/api/v1/auth/me/preferences",
       "operation_id": "get_preferences_api_v1_auth_me_preferences_get",
       "summary": "Get Preferences",
-      "description": "v0.9.41 · 读取当前用户的标注偏好。空字段走 schema 默认值。",
+      "description": "读取当前账号偏好，未设置字段使用默认值，保留 opaque 工作区和快捷键。",
       "tags": [
         "me"
       ],
@@ -20068,7 +20074,7 @@
       "path": "/api/v1/users/stats",
       "operation_id": "users_stats_api_v1_users_stats_get",
       "summary": "Users Stats",
-      "description": "v0.8.3 · UsersPage 顶部 4 卡之「本周活跃」与状态聚合。\n\nweekly_active 基于 last_seen_at >= now-7d，比旧的 status==online 更准确\n（旧逻辑只反映瞬时在线状态）。",
+      "description": "用户目录筛选统计，按最近七天活动时间聚合。",
       "tags": [
         "users"
       ],
@@ -20244,7 +20250,7 @@
       "path": "/api/v1/users/{user_id}/role/preview",
       "operation_id": "preview_user_role_change_api_v1_users__user_id__role_preview_get",
       "summary": "Preview User Role Change",
-      "description": "Platform-role preview.  Super administrator only (plan AUTH-04).",
+      "description": "Preview a platform-role change with current project and work blockers.",
       "tags": [
         "users"
       ],
@@ -21461,7 +21467,7 @@
       "path": "/api/v1/auth/me/avatar",
       "operation_id": "set_avatar_ref_api_v1_auth_me_avatar_patch",
       "summary": "Set Avatar Ref",
-      "description": "选择内置头像（``preset:<slug>``）或清除头像（``avatar_ref: null``）。\n\n``upload:`` 前缀一律拒绝,否则用户可以把别人的 token 挂到自己名下。",
+      "description": "选择内置头像或清除头像；上传引用只能由上传端点生成。",
       "tags": [
         "me"
       ],
@@ -21512,7 +21518,7 @@
       "path": "/api/v1/auth/me/preferences",
       "operation_id": "update_preferences_api_v1_auth_me_preferences_patch",
       "summary": "Update Preferences",
-      "description": "锁定最新用户偏好后深合并 PATCH；workspace context 原子替换且禁止版本降级。\n\n入参收 raw dict：先过 legacy 平铺键提升器 + 移除键剥离器（均 v0.16 移除）再手动走\npydantic 校验，校验失败按 FastAPI 原生 422 形态抛出。",
+      "description": "在身份所有者事务内合并稀疏偏好并校验版本冲突。",
       "tags": [
         "me"
       ],
@@ -22917,7 +22923,7 @@
       "path": "/api/v1/users/{user_id}/role",
       "operation_id": "change_user_role_api_v1_users__user_id__role_patch",
       "summary": "Change User Role",
-      "description": "Platform-role mutation.  Super administrator only (plan AUTH-04).\n\nA platform-role edit never cascades into any project's membership; project\nresponsibility is changed through the project member role endpoints.",
+      "description": "Change a platform role while preserving existing project responsibilities.\n\nA platform-role edit never cascades into any project's membership; project\nresponsibility is changed through the project member role endpoints.",
       "tags": [
         "users"
       ],
@@ -24098,7 +24104,7 @@
       "path": "/api/v1/auth/invitations/accept",
       "operation_id": "accept_invitation_for_existing_user_api_v1_auth_invitations_accept_post",
       "summary": "Accept Invitation For Existing User",
-      "description": "Explicitly attach an existing, matching account to an invitation project.",
+      "description": "Explicitly attach the matching account without changing its platform role.",
       "tags": [
         "auth"
       ],
@@ -24255,7 +24261,7 @@
       "path": "/api/v1/auth/me/avatar",
       "operation_id": "upload_avatar_api_v1_auth_me_avatar_post",
       "summary": "Upload Avatar",
-      "description": "上传自定义头像。\n\n服务端是唯一可信方:客户端声明的 MIME 只作早退,真实格式 / 像素规模由 Pillow 判定,\n产物统一为 256×256 方形 WebP 后写入 ``avatars`` 桶。请求体另有中间件级上限\n(``middleware/upload_body_limits``),此处再按文件字节复核一次。",
+      "description": "上传自定义头像，服务端校验真实图片并规范化为 256×256 WebP。\n\n头像引用提交成功后才清理旧上传对象；提交结果未知时保留新字节以便核对。",
       "tags": [
         "me"
       ],
@@ -24306,7 +24312,7 @@
       "path": "/api/v1/auth/me/deactivation-request",
       "operation_id": "request_self_deactivation_api_v1_auth_me_deactivation_request_post",
       "summary": "Request Self Deactivation",
-      "description": "v0.8.1 · 自助注销申请。7 天冷静期，期间可撤销。",
+      "description": "自助注销申请。七天冷静期，期间可撤销。",
       "tags": [
         "me"
       ],
@@ -24357,7 +24363,7 @@
       "path": "/api/v1/auth/me/heartbeat",
       "operation_id": "heartbeat_api_v1_auth_me_heartbeat_post",
       "summary": "Heartbeat",
-      "description": "v0.8.3 · 在线状态心跳。\n\n前端每 30s 调一次（document.visibilityState === 'visible' 时），刷新\nlast_seen_at 与 status='online'。Celery beat `mark_inactive_offline` 任务\n据 last_seen_at 把超 OFFLINE_THRESHOLD_MINUTES 的用户置 offline。",
+      "description": "刷新在线心跳；既有调度任务按最后活跃时间执行离线判定。",
       "tags": [
         "me"
       ],
@@ -24476,7 +24482,7 @@
       "path": "/api/v1/auth/refresh",
       "operation_id": "refresh_token_api_v1_auth_refresh_post",
       "summary": "Refresh Token",
-      "description": "v0.8.8 · 用即将 / 已过期的 token 换新 token（grace 7 天）。\n\n返回 401 时前端应跳转登录页（grace 已过、被 logout、被 deactivate）。",
+      "description": "用有效或七天宽限内的 JWT 换取新 token；401 时应重新登录。",
       "tags": [
         "auth"
       ],
@@ -24653,7 +24659,7 @@
       "path": "/api/v1/auth/send-verification-email",
       "operation_id": "send_verification_email_endpoint_api_v1_auth_send_verification_email_post",
       "summary": "Send Verification Email Endpoint",
-      "description": "v0.12.0 · 重发验证邮件。无论邮箱是否存在 / 已验证都返回 202（防枚举）。",
+      "description": "持久受理验证邮件投递，响应不等待 SMTP。",
       "tags": [
         "auth"
       ],
@@ -24697,7 +24703,7 @@
       "path": "/api/v1/auth/verify-email",
       "operation_id": "verify_email_api_v1_auth_verify_email_post",
       "summary": "Verify Email",
-      "description": "v0.12.0 · 消费验证 token，置 email_verified_at。",
+      "description": "在身份所有者事务中单次消费验证链接并记录审计。",
       "tags": [
         "auth"
       ],
@@ -26755,7 +26761,7 @@
       "path": "/api/v1/invitations/{invitation_id}/send-email",
       "operation_id": "send_invitation_email_endpoint_api_v1_invitations__invitation_id__send_email_post",
       "summary": "Send Invitation Email Endpoint",
-      "description": "Send an existing invitation; the link and token are never rotated.",
+      "description": "Await the durable sender without holding a business transaction open.",
       "tags": [
         "invitations"
       ],
@@ -37597,7 +37603,7 @@
       "path": "/api/v1/users/{user_id}/deactivate",
       "operation_id": "deactivate_user_api_v1_users__user_id__deactivate_post",
       "summary": "Deactivate User",
-      "description": null,
+      "description": "Suspend an account with current manager authority and retained reservations.",
       "tags": [
         "users"
       ],
@@ -37710,7 +37716,7 @@
       "path": "/api/v1/users/{user_id}/reactivate",
       "operation_id": "reactivate_user_api_v1_users__user_id__reactivate_post",
       "summary": "Reactivate User",
-      "description": "Reactivate only an explicitly suspended account.",
+      "description": "Reactivate a suspended account and retire its previous credentials.",
       "tags": [
         "users"
       ],

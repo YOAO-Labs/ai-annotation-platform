@@ -30,7 +30,9 @@
       "description": "Number of Project rows updated by the fixed command."
     }
   },
-  "x-postgresql-functions": ["aap_workspace_v1.clear_primary_backend_bindings(uuid)"],
+  "x-postgresql-functions": [
+    "aap_workspace_v1.clear_primary_backend_bindings(uuid)"
+  ],
   "x-postgresql-errors": {
     "invalid_request": {
       "sqlstate": "22023",

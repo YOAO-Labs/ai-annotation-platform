@@ -209,11 +209,13 @@ async def test_normalize_segment_scope_resolves_contiguous_effective_range(
     assert (scope.from_frame, scope.to_frame) == (3, 9)
     assert [segment.segment_index for segment in scope.segments] == [1, 2, 3]
 
-    dispatched: dict = {}
-    monkeypatch.setattr(
-        "app.workers.export.run_export.delay",
-        lambda **kwargs: dispatched.update(kwargs),
-    )
+    dispatched: list[dict] = []
+
+    async def _dispatch_job(**kwargs):
+        dispatched.append(kwargs)
+        return kwargs["execution_id"]
+
+    monkeypatch.setattr("app.services.jobs_queue.dispatch_job", _dispatch_job)
     response = await httpx_client.post(
         f"/api/v1/projects/{project.id}/export?targets=video_json",
         json={"scope": request.model_dump(mode="json")},
@@ -221,7 +223,7 @@ async def test_normalize_segment_scope_resolves_contiguous_effective_range(
     )
     assert response.status_code == 202
     expected_scope = scope.as_dict()
-    assert dispatched["opts"]["video_export_scope"] == expected_scope
+    assert dispatched[0]["kwargs"]["opts"]["video_export_scope"] == expected_scope
     job = await db_session.get(AsyncJob, uuid.UUID(response.json()["job_id"]))
     assert job is not None
     assert job.payload["video_export_scope"] == expected_scope

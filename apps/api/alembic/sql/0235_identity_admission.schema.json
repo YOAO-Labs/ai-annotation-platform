@@ -17,16 +17,8 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "actor_id",
-        "name",
-        "email",
-        "role",
-        "is_active",
-        "credential_type",
-        "credential_id",
-        "generation",
-        "scopes",
-        "expires_at"
+        "actor_id", "name", "email", "role", "is_active", "credential_type",
+        "credential_id", "generation", "scopes", "expires_at"
       ],
       "properties": {
         "actor_id": { "type": "string", "format": "uuid" },
@@ -45,10 +37,16 @@
           ]
         },
         "scopes": {
-          "anyOf": [{ "type": "array", "items": { "type": "string" } }, { "type": "null" }]
+          "anyOf": [
+            { "type": "array", "items": { "type": "string" } },
+            { "type": "null" }
+          ]
         },
         "expires_at": {
-          "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }]
+          "anyOf": [
+            { "type": "string", "format": "date-time" },
+            { "type": "null" }
+          ]
         }
       },
       "allOf": [
@@ -57,9 +55,7 @@
           "then": {
             "properties": {
               "generation": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 9223372036854775807
+                "type": "integer", "minimum": 0, "maximum": 9223372036854775807
               },
               "scopes": { "type": "null" },
               "expires_at": { "type": "string", "format": "date-time" }
@@ -104,14 +100,9 @@
       "properties": {
         "code": {
           "enum": [
-            "invalid_request",
-            "credential_invalid",
-            "credential_revoked",
-            "generation_outdated",
-            "token_expired",
-            "user_inactive",
-            "invalid_account_role",
-            "credential_busy"
+            "invalid_request", "credential_invalid", "credential_revoked",
+            "generation_outdated", "token_expired", "user_inactive",
+            "invalid_account_role", "credential_busy"
           ]
         }
       }
@@ -137,7 +128,10 @@
           "items": { "$ref": "#/$defs/Candidate" }
         },
         "next_after": {
-          "anyOf": [{ "type": "string", "format": "uuid" }, { "type": "null" }]
+          "anyOf": [
+            { "type": "string", "format": "uuid" },
+            { "type": "null" }
+          ]
         }
       }
     },
@@ -158,9 +152,7 @@
       "properties": {
         "schema": { "const": "aap-identity-retirement/v1" },
         "generation": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 9223372036854775807
+          "type": "integer", "minimum": 1, "maximum": 9223372036854775807
         },
         "revoked_key_ids": {
           "type": "array",
@@ -197,14 +189,9 @@
     "aap_identity_v1.purge_expired_revocations(integer)"
   ],
   "x-native-errors": [
-    "invalid_request",
-    "credential_invalid",
-    "credential_revoked",
-    "generation_outdated",
-    "token_expired",
-    "user_inactive",
-    "invalid_account_role",
-    "credential_busy"
+    "invalid_request", "credential_invalid", "credential_revoked",
+    "generation_outdated", "token_expired", "user_inactive",
+    "invalid_account_role", "credential_busy"
   ],
   "x-native-retention": "Revoked JTIs remain authoritative through the supplied expiration-plus-refresh-grace time.",
   "x-native-lock-order": "User, then API key; JTI revocation uses one deterministic advisory transaction lock shared with the final-principal fence."

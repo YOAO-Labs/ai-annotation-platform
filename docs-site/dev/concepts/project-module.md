@@ -1,9 +1,8 @@
 ---
 audience: [dev]
 type: explanation
-since: v0.9.14
 status: stable
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-21
 ---
 
 # 项目模块
@@ -38,21 +37,24 @@ Project 是业务顶层容器。项目可以属于 organization；成员、批�
 
 ## 代码入口
 
-| 位置                                                                     | 作用                                               |
-| ------------------------------------------------------------------------ | -------------------------------------------------- |
-| `apps/api/app/db/models/project.py`                                      | Project 主模型                                     |
-| `apps/api/app/db/models/project_member.py`                               | 项目成员关系                                       |
-| `apps/api/app/db/models/project_pipeline.py`                             | 命名预标编排                                       |
-| `apps/api/app/db/models/ml_backend_pool.py` · `ml_backend_registry.py`   | 服务池、物理实例与项目启用关系                     |
-| `apps/api/app/schemas/project.py`                                        | Project 请求 / 响应 schema                         |
-| `apps/api/app/api/v1/projects.py`                                        | 项目 HTTP 路由                                     |
-| `apps/api/app/api/v1/ml_backends.py` · `project_pipelines.py`            | 项目 ML 服务池与编排 API                           |
-| `apps/api/app/schemas/preannotate.py`                                    | `PipelineStage` / `PreannotateRequest` 请求 schema |
-| `apps/api/app/services/pipeline_template.py`                             | 保存流水线校验与写命令所有者                       |
-| `apps/api/app/application/project_pipeline.py`                           | apply 的项目授权与 backend 启用组合                |
-| `apps/api/app/api/v1/dashboard/`(admin/reviewer/annotator 受众子 router) | 项目级统计与聚合                                   |
-| `apps/web/src/api/projects.ts`                                           | 前端 project API wrapper                           |
-| `apps/web/src/pages/Projects/`                                           | 项目设置与管理 UI                                  |
+| 位置                                                                           | 作用                                               |
+| ------------------------------------------------------------------------------ | -------------------------------------------------- |
+| `apps/api/app/db/models/project.py`                                            | Project 主模型                                     |
+| `apps/api/app/db/models/project_member.py`                                     | 项目成员关系                                       |
+| `apps/api/app/db/models/project_pipeline.py`                                   | 保存编排表映射（API 不直接读写 ORM）               |
+| `apps/api/app/db/models/ml_backend_pool.py` · `ml_backend_registry.py`         | 服务池、物理实例与项目启用关系                     |
+| `apps/api/app/schemas/project.py`                                              | Project 请求 / 响应 schema                         |
+| `apps/api/app/api/v1/projects.py`                                              | 项目 HTTP 路由                                     |
+| `apps/api/app/api/v1/ml_backends.py` · `project_pipelines.py`                  | 项目 ML 服务池与编排 API                           |
+| `apps/inference/src/aap_inference/preannotate.py`                              | `PipelineStage` / `PreannotateRequest` 请求 schema |
+| `apps/api/app/services/inference_pipelines.py`                                 | 选择命名编排 owner、提交边界和提交后投影           |
+| `apps/api/app/services/inference_pipelines_data.py`                            | 借用 API Session 的固定 Native 数据适配            |
+| `apps/inference/src/aap_inference/pipeline_manager.py` · `pipeline_policy.py`  | 命名编排便携命令、读取与纯策略                     |
+| `apps/inference/src/aap_inference/pipeline_postgres.py` · `pipeline_server.py` | 独立 owner 的 Native 数据与 HTTP server            |
+| `apps/inference/src/aap_inference/pipeline_client.py`                          | 受限 HTTP client 与状态探测                        |
+| `apps/api/app/api/v1/dashboard/`(admin/reviewer/annotator 受众子 router)       | 项目级统计与聚合                                   |
+| `apps/web/src/api/projects.ts`                                                 | 前端 project API wrapper                           |
+| `apps/web/src/pages/Projects/`                                                 | 项目设置与管理 UI                                  |
 
 ## 数据模型
 
@@ -135,7 +137,7 @@ archived
 
 如果你改的是「标注长什么样」, 十有八九要从 project.tool_bindings 入手, 而不是 task。
 
-写入路径: `projects.py` 只负责 HTTP 请求、提交与响应, 委托 `application/project_workspace_configuration.py::WorkspaceConfigurationWorkflow`; `services/project_workspace.py` 是项目配置与 ProjectTemplate 行命令的唯一服务所有者, 包含旧扁平类别/属性字段到 `tool_bindings` 的规范化。工作流复核当前 actor/项目/模板权限, 组合模板与源项目配置并协调 backend 启用和主绑定; 项目内嵌已保存流水线使用 `services/pipeline_template.py::validate_saved_pipeline` 校验结构。读出路径由 `ProjectOut` 的 `model_validator` 用 `derive_*` 从 `tool_bindings` 派生扁平投影; 纯投影 helper 留在 `apps/api/app/services/project.py`, 模板可见性/scope/payload helper 留在 `services/project_template.py`。
+写入路径由 `projects.py` 保留 HTTP 请求、提交与响应；六项项目／模板配置命令通过 `services/workspace_configuration.py` 进入同一个 Workspace owner。`apps/workspace/src/aap_workspace` 持有配置编排、值、旧扁平类别/属性规范化、kind、克隆与模板策略；Native 执行当前权限围栏、跨 owner 类型化调用及固定列写入。默认适配器借用调用方 Session，不自行提交或回滚；独立 DSN／HTTP 只拥有各自的业务事务，显式失败不回退。原配置 API 工作流与 ORM 行命令已删除；模板列表／详情和提交后的响应投影通过 `services/workspace_template_query.py` 进入读取 owner；API 附带成功命令回执读取当前行，再校验公开响应。原模板 ORM 读取适配器已删除；命名流水线复用 Identity 的窄组织事实能力。项目内嵌与命名流水线共用 `aap_inference.pipeline.validate_saved_pipeline`。`ProjectOut` 继续消费共享 Workspace 纯投影。六项命令已完成限定本地包、进程、镜像与恢复验收；项目普通读取已由查询 owner 提供，成员／mention／access 也已接入各自查询 owner；其余相邻写入继续迁移，见 [配置命令 ADR](/dev/adr/0136-workspace-configuration-command-owner)。
 
 前端项目设置的归属：`基本信息` 只维护名称、状态、截止日期和类型展示；`类别与属性` 是 `tool_bindings` 的唯一编辑入口，同一个工具单位 tab 下同时维护类别、关键点骨骼模板与属性 schema。
 
@@ -162,7 +164,7 @@ scene 模式项目额外多一层连续派题逻辑：打开 `prefer_same_scene_
 项目还决定：
 
 - 是否启用 AI：`ai_enabled` 是独立持久化字段；当前前端在选择或清空主后端时同步写入它，但数据库没有“只要绑定后端就自动派生”的约束
-- 主服务池：ORM 字段是 `Project.ml_backend_pool_id`，workspace 提供 `set_primary_backend_binding()` 字段设置命令。`application/ml_registry_deletion.py` 先完成删除准入、路由静默及 registry 删除，仅成功后才由 workspace 清空指向该池的全部主绑定；清理与 registry 删除同属一个调用者事务，启用关系不变。公共 API 暂以 `ml_backend_id` 接收 / 返回 registry ID，并在配置入口解析到服务池。
+- 主服务池：ORM 字段是 `Project.ml_backend_pool_id`，配置 owner 通过固定 Native binding 步骤写入。`application/ml_registry_deletion.py` 先完成删除准入、路由静默及 registry 删除，仅成功后才调用 `services/project_workspace.py::clear_primary_backend_binding_for_pool()` 清空指向该池的全部主绑定；清理与 registry 删除同属一个调用者事务，启用关系不变。公共 API 暂以 `ml_backend_id` 接收 / 返回 registry ID，并在配置入口解析到服务池。
 - 文本预标注默认阈值：`box_threshold` / `text_threshold`
 
 AI 能力是 project 级开关，不是 batch 或 task 私有配置。
@@ -216,7 +218,9 @@ Project 决定 task 的这些上层语义：
 
 ## 主要 API 面
 
-`apps/api/app/api/v1/projects.py` 当前覆盖项目 CRUD、成员、导出、预标注触发和数据关联；ML 启用 / 服务池由 `ml_backends.py` 管理，命名编排 CRUD 由 `/project-pipelines` 路由装配，写入由 `services/pipeline_template.py` 持有；项目套用端点由 `application/project_pipeline.py::apply_saved_pipeline` 组合当前管理权威与 backend 启用检查。`PipelineStage` 与 `PreannotateRequest` 的权威 schema 位于 `schemas/preannotate.py`，项目内嵌旧配置也复用 `validate_saved_pipeline`。
+`apps/api/app/api/v1/projects.py` 当前覆盖项目 CRUD、成员、导出、预标注触发和数据关联；ML 启用 / 服务池由 `ml_backends.py` 管理。`/project-pipelines` 的五个 CRUD 路由与项目 apply 路由共六个公开路由仍保持原请求 / 响应合同，读写由 `aap_inference.pipeline_manager.PipelineManager` 执行，API 经 `services/inference_pipelines.py` 选择默认借用事务、专用 DSN 或 HTTP owner。命名编排数据不经 `ProjectPipeline` ORM 读写；请求与响应 schema 仍位于 API。项目内嵌旧配置和保存编排结构继续共用 `aap_inference.pipeline.validate_saved_pipeline`，canonical `PipelineStage` 与 `PreannotateRequest` 位于 `aap_inference.preannotate`。
+
+项目 apply 保留 `require_project_owner` 在源编排查询之前的入口检查；manager 读取源和 backend 启用事实后，再经 Workspace 固定能力重读当前账号、项目与成员锁。借用事务由 API 提交成功命令，再以完整命令回执读取新投影，并通过 Identity UserBrief 补充创建者名称；apply 响应沿用 `created_by_name: null`。
 
 项目主路由覆盖的主要能力：
 
@@ -295,3 +299,24 @@ Project 模型本身保留了多种聚合字段：
 - 后端 schema 加了字段，前端 settings 页没接
 - project 配置改了，但 `scheduler` 还在读旧字段
 - owner / member 权限判断只改了一半
+
+## 项目读取的所有权基础
+
+权限上下文、能力与角色兼容规则已由独立 Workspace 包的
+`aap_workspace_contract.access` 持有，Workspace／API／服务／worker 调用方直接导入该所有者，
+原 API 值模块已删除。当前 SQL 权限解析、锁与最终写入检查仍由原适配器执行；
+这些值本身不是跨进程授权凭据。
+
+项目普通读取由独立 Workspace 查询 owner 提供，0260提供了15项固定 PostgreSQL 读取能力：
+Labeling 持有物化计数、AI／时间序列及任务／批次事实，Assets 持有数据集和素材事实，
+Jobs 持有建题作业计数与最新状态，Inference 持有主池的 legacy instance 映射。
+Workspace 只获显式函数权限，不直接读取这些所有者的原表。
+
+实际旧行为已冻结27项 HTTP 观测、两项调用方事务探针，以及日期编码与43个物理字段；
+原 SQL 读取、授权时点和配置提交后的响应失败行为仍保留。补充采集已冻结有限极端日期、
+搜索、重命名和移交／配置提交后降权的读回行为。独立包内已实现 Project 查询协议、
+原始值编码与分阶段策略；API 已选择借用事务、专用只读连接或 HTTP 运行时，显式失败不回退。
+50 项冻结 HTTP 观测在三路径通过，独立包、受限镜像、故障／重启、真实备份恢复和完整迁移均已限定本地验证。
+负责人转移保留提交前解码和提交后重新读行两个阶段；公开 DTO 仍在 API 验证。
+成员／mention／access、相邻写入和其他跨域消费者仍未完成。
+详见 [Project 查询 owner ADR](/dev/adr/0139-workspace-project-query-owner)。

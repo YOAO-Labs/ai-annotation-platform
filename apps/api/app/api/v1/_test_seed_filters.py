@@ -15,7 +15,18 @@ from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import attributes
+from aap_labeling.e2e_fixture_contract import TaskBatchFixturePatch, TaskFixturePatch
+
+from app.services.workspace_e2e_fixtures import (
+    create_fixture_project as _create_project,
+    create_fixture_templates,
+)
+from app.services.seed_membership_data import SeedMembershipWrites
+from app.services.labeling_e2e_fixture_writes import LabelingE2EFixtureWrites
+from app.services.workspace_seed_data import register_seed_project_projection
 
 
 # Owned-namespace display ids for every fixed identifier below. Bases keep the
@@ -204,6 +215,46 @@ def _now(offset: int = 0) -> datetime:
     return datetime.now(timezone.utc) + timedelta(microseconds=offset)
 
 
+async def _set_filter_fixture_job_outcomes(
+    db: AsyncSession, completed_job: Any, failed_job: Any
+) -> None:
+    count = await db.scalar(
+        text(
+            "SELECT aap_jobs_v1.set_filter_fixture_job_outcomes("
+            "CAST(:p_completed_job_id AS pg_catalog.uuid), "
+            "CAST(:p_failed_job_id AS pg_catalog.uuid))"
+        ),
+        {
+            "p_completed_job_id": completed_job.id,
+            "p_failed_job_id": failed_job.id,
+        },
+    )
+    if type(count) is not int or count != 2:
+        raise RuntimeError("Jobs filter fixture outcome count mismatch")
+
+    for job, values in (
+        (
+            completed_job,
+            {
+                "status": "completed",
+                "progress_pct": 100,
+                "result": {"success_count": 2},
+            },
+        ),
+        (
+            failed_job,
+            {
+                "status": "failed",
+                "progress_pct": 40,
+                "error_message": "fixture failure",
+            },
+        ),
+    ):
+        for name, value in values.items():
+            attributes.set_committed_value(job, name, value)
+        db.expire(job, ["updated_at"])
+
+
 def _image_binding(*, include_obsolete: bool = True) -> dict[str, Any]:
     fields: list[dict[str, Any]] = [
         {
@@ -293,36 +344,6 @@ async def _get_users(db: AsyncSession, ids: _FilterIds) -> dict[str, Any]:
     return users
 
 
-async def _create_project(
-    db: AsyncSession,
-    *,
-    owner_id: UUID,
-    display_id: str,
-    name: str,
-    type_key: str,
-    type_label: str,
-    data_type: str,
-    tool_bindings: dict[str, Any],
-    scene_mode: bool = False,
-):
-    from app.db.models.project import Project
-
-    project = Project(
-        display_id=display_id,
-        name=name,
-        type_key=type_key,
-        type_label=type_label,
-        data_type=data_type,
-        owner_id=owner_id,
-        tool_bindings=tool_bindings,
-        scene_mode=scene_mode,
-        ai_enabled=False,
-    )
-    db.add(project)
-    await db.flush()
-    return project
-
-
 async def _create_dataset(
     db: AsyncSession,
     *,
@@ -333,6 +354,7 @@ async def _create_dataset(
     data_type: str,
     file_count: int = 0,
     is_temporal: bool = False,
+    membership_writes: SeedMembershipWrites | None = None,
 ):
     from app.db.models.dataset import Dataset, ProjectDataset
 
@@ -345,7 +367,10 @@ async def _create_dataset(
         created_by=created_by,
     )
     db.add(dataset)
-    await db.flush()
+    if membership_writes is None:
+        await db.flush()
+    else:
+        await membership_writes.flush()
     db.add(ProjectDataset(project_id=project_id, dataset_id=dataset.id))
     await db.flush()
     return dataset
@@ -376,9 +401,7 @@ async def _create_batch(
         ],
         created_by=created_by,
     )
-    db.add(batch)
-    await db.flush()
-    return batch
+    return (await LabelingE2EFixtureWrites(db).insert_batches([batch]))[0]
 
 
 async def _create_item(
@@ -440,9 +463,7 @@ async def _create_task(
         created_at=_now(sequence_order),
         updated_at=_now(sequence_order),
     )
-    db.add(task)
-    await db.flush()
-    return task
+    return (await LabelingE2EFixtureWrites(db).insert_tasks([task]))[0]
 
 
 def _bbox_annotation(
@@ -503,7 +524,6 @@ def _bbox_annotation(
 async def _seed_image_semantics(
     db: AsyncSession, ids: _FilterIds, users: dict[str, Any], image_key: str
 ) -> FilteringImageManifest:
-    from app.db.models.project_member import ProjectMember
     from app.db.models.project_task_view import ProjectTaskView
 
     admin, annotator, reviewer = users["admin"], users["anno"], users["rev"]
@@ -517,24 +537,22 @@ async def _seed_image_semantics(
         data_type="image",
         tool_bindings=_image_binding(),
     )
-    db.add_all(
-        [
-            ProjectMember(
-                project_id=project.id,
-                user_id=annotator.id,
-                role="annotator",
-                assigned_by=admin.id,
-            ),
-            ProjectMember(
-                project_id=project.id,
-                user_id=reviewer.id,
-                role="reviewer",
-                assigned_by=admin.id,
-            ),
-        ]
+    membership_writes = SeedMembershipWrites(db)
+    membership_writes.add(
+        project_id=project.id,
+        user_id=annotator.id,
+        role="annotator",
+        assigned_by=admin.id,
+    )
+    membership_writes.add(
+        project_id=project.id,
+        user_id=reviewer.id,
+        role="reviewer",
+        assigned_by=admin.id,
     )
     dataset = await _create_dataset(
         db,
+        membership_writes=membership_writes,
         project_id=project.id,
         created_by=admin.id,
         display_id=ids.display("DS-E2E-FILTER-I"),
@@ -608,6 +626,7 @@ async def _seed_image_semantics(
         ),
     }
     tasks: dict[str, Any] = {}
+    task_patches: list[TaskFixturePatch] = []
     objects: dict[str, list[str]] = {}
     for index, (key, (display_id, batch, specs)) in enumerate(task_specs.items()):
         item = await _create_item(
@@ -660,15 +679,31 @@ async def _seed_image_semantics(
                     ),
                 ]
             )
-        db.add_all(rows)
-        await db.flush()
-        task.total_annotations = sum(
-            1 for row in rows if row.is_active and not row.was_cancelled
+        rows = await LabelingE2EFixtureWrites(db).insert_annotations(rows)
+        task_patches.append(
+            TaskFixturePatch(
+                id=task.id,
+                project_id=project.id,
+                total_annotations=sum(
+                    1 for row in rows if row.is_active and not row.was_cancelled
+                ),
+            )
         )
         objects[key] = [str(row.id) for row in rows]
-    visible_batch.total_tasks = len(tasks) - 1
-    hidden_batch.total_tasks = 1
-    await db.flush()
+    fixture_writes = LabelingE2EFixtureWrites(db)
+    await fixture_writes.patch_tasks(task_patches)
+    await fixture_writes.patch_batches(
+        [
+            TaskBatchFixturePatch(
+                id=visible_batch.id,
+                project_id=project.id,
+                total_tasks=len(tasks) - 1,
+            ),
+            TaskBatchFixturePatch(
+                id=hidden_batch.id, project_id=project.id, total_tasks=1
+            ),
+        ]
+    )
 
     root_or = ProjectTaskView(
         project_id=project.id,
@@ -739,6 +774,7 @@ async def _seed_image_semantics(
     )
     db.add_all([root_or, required_nested, object_filter, invalid_view])
     await db.flush()
+    register_seed_project_projection(db, project.id)
     project.tool_bindings = {
         **project.tool_bindings,
         "bbox": {
@@ -819,7 +855,6 @@ async def _seed_video_review(
     db: AsyncSession, ids: _FilterIds, users: dict[str, Any], video_key: str
 ) -> FilteringVideoManifest:
     from app.db.models.annotation import Annotation
-    from app.db.models.project_member import ProjectMember
     from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
 
     admin, annotator, reviewer = users["admin"], users["anno"], users["rev"]
@@ -833,24 +868,22 @@ async def _seed_video_review(
         data_type="video",
         tool_bindings=_video_binding(),
     )
-    db.add_all(
-        [
-            ProjectMember(
-                project_id=project.id,
-                user_id=annotator.id,
-                role="annotator",
-                assigned_by=admin.id,
-            ),
-            ProjectMember(
-                project_id=project.id,
-                user_id=reviewer.id,
-                role="reviewer",
-                assigned_by=admin.id,
-            ),
-        ]
+    membership_writes = SeedMembershipWrites(db)
+    membership_writes.add(
+        project_id=project.id,
+        user_id=annotator.id,
+        role="annotator",
+        assigned_by=admin.id,
+    )
+    membership_writes.add(
+        project_id=project.id,
+        user_id=reviewer.id,
+        role="reviewer",
+        assigned_by=admin.id,
     )
     dataset = await _create_dataset(
         db,
+        membership_writes=membership_writes,
         project_id=project.id,
         created_by=admin.id,
         display_id=ids.display("DS-E2E-FILTER-V"),
@@ -900,7 +933,8 @@ async def _seed_video_review(
             file_type="video",
             sequence_order=index,
         )
-    batch.total_tasks = 4
+    fixture_writes = LabelingE2EFixtureWrites(db)
+    await fixture_writes.patch_batch(batch, total_tasks=4)
     # ponytail: metric-only candidate payloads omit render geometry; Workbench coverage
     # imports valid framed shapes through the product API when geometry is required.
     predictions: dict[str, Any] = {}
@@ -951,7 +985,7 @@ async def _seed_video_review(
         parent_prediction_id=predictions["accepted"].id,
         attributes={"_shape_index": 0},
     )
-    db.add(accepted)
+    accepted = (await fixture_writes.insert_annotations([accepted]))[0]
     jobs: dict[str, Any] = {}
     for name in ("tracker_only", "both"):
         task = tasks[name]
@@ -984,14 +1018,21 @@ async def _seed_video_review(
             },
             event_channel="filtering",
         )
-    db.add_all(jobs.values())
-    await db.flush()
-    for task_name, task in tasks.items():
-        task.total_predictions = sum(
-            prediction.task_id == task.id for prediction in predictions.values()
-        )
-        task.total_annotations = int(task_name == "neither")
-    await db.flush()
+    jobs_rows = await fixture_writes.insert_video_tracker_jobs(list(jobs.values()))
+    jobs = {name: row for name, row in zip(jobs, jobs_rows, strict=True)}
+    await fixture_writes.patch_tasks(
+        [
+            TaskFixturePatch(
+                id=task.id,
+                project_id=project.id,
+                total_predictions=sum(
+                    prediction.task_id == task.id for prediction in predictions.values()
+                ),
+                total_annotations=int(task_name == "neither"),
+            )
+            for task_name, task in tasks.items()
+        ]
+    )
     return FilteringVideoManifest(
         project_id=str(project.id),
         task_ids={key: str(task.id) for key, task in tasks.items()},
@@ -1014,7 +1055,6 @@ async def _seed_video_review(
 async def _seed_paging(
     db: AsyncSession, ids: _FilterIds, users: dict[str, Any], image_key: str
 ) -> FilteringPagingManifest:
-    from app.db.models.project_member import ProjectMember
 
     admin, annotator = users["admin"], users["anno"]
     project = await _create_project(
@@ -1033,16 +1073,16 @@ async def _seed_paging(
             }
         },
     )
-    db.add(
-        ProjectMember(
-            project_id=project.id,
-            user_id=annotator.id,
-            role="annotator",
-            assigned_by=admin.id,
-        )
+    membership_writes = SeedMembershipWrites(db)
+    membership_writes.add(
+        project_id=project.id,
+        user_id=annotator.id,
+        role="annotator",
+        assigned_by=admin.id,
     )
     dataset = await _create_dataset(
         db,
+        membership_writes=membership_writes,
         project_id=project.id,
         created_by=admin.id,
         display_id=ids.display("DS-E2E-FILTER-P"),
@@ -1091,12 +1131,11 @@ async def _seed_paging(
         row.created_at = base + timedelta(microseconds=101 - index)
         row.updated_at = base + timedelta(microseconds=101 - index)
         rows.append(row)
-    db.add_all(rows)
-    await db.flush()
-    task.total_annotations = 101
-    task.is_labeled = True
-    batch.total_tasks = 1
-    await db.flush()
+    rows = await LabelingE2EFixtureWrites(db).insert_annotations(rows)
+    await LabelingE2EFixtureWrites(db).patch_task(
+        task, total_annotations=101, is_labeled=True
+    )
+    await LabelingE2EFixtureWrites(db).patch_batch(batch, total_tasks=1)
     ids = [str(row.id) for row in rows]
     return FilteringPagingManifest(
         project_id=str(project.id),
@@ -1119,9 +1158,8 @@ async def _seed_lidar(
     )
     from aap_assets_catalog.spatial_values import FramePose
     from app.services.assets_spatial import AssetsSpatialGateway
-    from app.db.models.project_member import ProjectMember
+    from app.services.task_dataset_link import link_items
     from app.db.models.project_task_view import ProjectTaskView
-    from app.db.models.task_dataset_item_link import TaskDatasetItemLink
     from app.services.scene_track_domain import ensure_scene_track
     from app.services.storage import storage_service
 
@@ -1143,16 +1181,16 @@ async def _seed_lidar(
         },
         scene_mode=True,
     )
-    db.add(
-        ProjectMember(
-            project_id=project.id,
-            user_id=annotator.id,
-            role="annotator",
-            assigned_by=admin.id,
-        )
+    membership_writes = SeedMembershipWrites(db)
+    membership_writes.add(
+        project_id=project.id,
+        user_id=annotator.id,
+        role="annotator",
+        assigned_by=admin.id,
     )
     dataset = await _create_dataset(
         db,
+        membership_writes=membership_writes,
         project_id=project.id,
         created_by=admin.id,
         display_id=ids.display("DS-E2E-FILTER-L"),
@@ -1252,18 +1290,13 @@ async def _seed_lidar(
             file_type="point_cloud",
             sequence_order=frame_index,
         )
-        db.add_all(
+        await link_items(
+            db,
+            task.id,
             [
-                TaskDatasetItemLink(
-                    task_id=task.id, dataset_item_id=item.id, role="primary_lidar"
-                ),
-                TaskDatasetItemLink(
-                    task_id=task.id,
-                    dataset_item_id=camera_item.id,
-                    role="camera_front",
-                    sensor_name="front",
-                ),
-            ]
+                (item.id, "primary_lidar", None),
+                (camera_item.id, "camera_front", "front"),
+            ],
         )
         tasks.append(task)
         pose_facts.append(
@@ -1304,6 +1337,8 @@ async def _seed_lidar(
         ),
         same_session_native=True,
     )
+    fixture_writes = LabelingE2EFixtureWrites(db)
+    annotation_rows = []
     track_refs = [f"filter-track-{index + 1:03d}" for index in range(101)]
     for track_ref in track_refs:
         track = await ensure_scene_track(
@@ -1317,7 +1352,7 @@ async def _seed_lidar(
             interval_source="imported",
         )
         for frame_index, task in enumerate(tasks[:2]):
-            db.add(
+            annotation_rows.append(
                 _bbox_annotation(
                     task_id=task.id,
                     project_id=project.id,
@@ -1342,7 +1377,7 @@ async def _seed_lidar(
         actor_id=annotator.id,
         interval_source="imported",
     )
-    db.add(
+    annotation_rows.append(
         _bbox_annotation(
             task_id=tasks[2].id,
             project_id=project.id,
@@ -1356,9 +1391,17 @@ async def _seed_lidar(
             scene_track_id=hidden_track.id,
         )
     )
-    visible_batch.total_tasks = 2
-    hidden_batch.total_tasks = 1
-    await db.flush()
+    await fixture_writes.insert_annotations(annotation_rows)
+    await fixture_writes.patch_batches(
+        [
+            TaskBatchFixturePatch(
+                id=visible_batch.id, project_id=project.id, total_tasks=2
+            ),
+            TaskBatchFixturePatch(
+                id=hidden_batch.id, project_id=project.id, total_tasks=1
+            ),
+        ]
+    )
     track_view = ProjectTaskView(
         project_id=project.id,
         owner_id=admin.id,
@@ -1392,9 +1435,10 @@ async def _seed_operations(
     from app.services.identity_e2e_fixtures import IdentityE2EFixtures
     from aap_identity.e2e_fixture_contract import FixtureInvitation
     from app.db.models.async_job import AsyncJob
-    from app.db.models.audit_log import AuditLog
     from app.db.models.bug_report import BugReport
-    from app.db.models.project_template import ProjectTemplate
+    from app.middleware.request_id import request_id_var
+    from app.services.audit import AuditService
+    from app.services.audit_origin_contract import AuditOriginContext
 
     admin, annotator = users["admin"], users["anno"]
     identity = IdentityE2EFixtures(db)
@@ -1457,36 +1501,37 @@ async def _seed_operations(
             data_type="video",
         ),
     ]
-    templates = [
-        ProjectTemplate(
-            display_id=ids.display("TPL-E2E-FILTER-A"),
-            name=ids.display_name("Filter Private Template"),
-            description="private fixture",
-            type_label="Image detection",
-            type_key="image-det",
-            data_type="image",
-            tool_bindings=project_a.tool_bindings,
-            label_config={},
-            scope="private",
-            created_by=admin.id,
-            source_project_id=project_a.id,
-        ),
-        ProjectTemplate(
-            display_id=ids.display("TPL-E2E-FILTER-B"),
-            name=ids.display_name("Filter Public Template"),
-            description="public fixture",
-            type_label="Video detection",
-            type_key="video-det",
-            data_type="video",
-            tool_bindings=project_b.tool_bindings,
-            label_config={},
-            scope="public",
-            created_by=admin.id,
-            source_project_id=project_b.id,
-        ),
-    ]
-    db.add_all(templates)
-    await db.flush()
+    templates = await create_fixture_templates(
+        db,
+        [
+            dict(
+                display_id=ids.display("TPL-E2E-FILTER-A"),
+                name=ids.display_name("Filter Private Template"),
+                description="private fixture",
+                type_label="Image detection",
+                type_key="image-det",
+                data_type="image",
+                tool_bindings=project_a.tool_bindings,
+                label_config={},
+                scope="private",
+                created_by=admin.id,
+                source_project_id=project_a.id,
+            ),
+            dict(
+                display_id=ids.display("TPL-E2E-FILTER-B"),
+                name=ids.display_name("Filter Public Template"),
+                description="public fixture",
+                type_label="Video detection",
+                type_key="video-det",
+                data_type="video",
+                tool_bindings=project_b.tool_bindings,
+                label_config={},
+                scope="public",
+                created_by=admin.id,
+                source_project_id=project_b.id,
+            ),
+        ],
+    )
     now = _now()
     invitations = [
         FixtureInvitation(
@@ -1539,26 +1584,25 @@ async def _seed_operations(
             kind="batch_predict",
             project_id=project_a.id,
             user_id=admin.id,
-            status="completed",
-            progress_pct=100,
+            status="pending",
+            progress_pct=0,
             payload={
                 "model_key": "filter-detector",
                 "prompt": ids.job_prompt("alpha complete"),
             },
-            result={"success_count": 2},
+            result={},
         ),
         AsyncJob(
             kind="export",
             project_id=project_b.id,
             user_id=admin.id,
-            status="failed",
-            progress_pct=40,
+            status="pending",
+            progress_pct=0,
             payload={
                 "model_key": "filter-export",
                 "prompt": ids.job_prompt("beta failed"),
             },
             result={},
-            error_message="fixture failure",
         ),
     ]
     db.add_all(jobs)
@@ -1590,36 +1634,40 @@ async def _seed_operations(
     ]
     db.add_all(bugs)
     await identity.create_invitations(invitations)
-    audit_rows = [
-        AuditLog(
-            actor_id=admin.id,
-            actor_email=admin.email,
-            actor_role=admin.role,
-            action="filter.fixture.created",
-            target_type="project",
-            target_id=str(project_a.id),
-            method="POST",
-            path="/api/v1/__test/seed/filtering",
-            status_code=201,
-            detail_json=_filter_audit_detail(ids, "alpha"),
-            created_at=now,
-        ),
-        AuditLog(
-            actor_id=admin.id,
-            actor_email=admin.email,
-            actor_role=admin.role,
-            action="filter.fixture.failed",
-            target_type="job",
-            target_id=str(jobs[1].id),
-            method="POST",
-            path="/api/v1/__test/seed/filtering",
-            status_code=500,
-            detail_json=_filter_audit_detail(ids, "beta"),
-            created_at=now + timedelta(microseconds=1),
-        ),
-    ]
-    db.add_all(audit_rows)
+    await _set_filter_fixture_job_outcomes(db, jobs[0], jobs[1])
     await db.flush()
+    audit_rows = []
+    request_id_token = request_id_var.set(None)
+    try:
+        origin = AuditOriginContext(
+            method="POST", path="/api/v1/__test/seed/filtering", ip=None
+        )
+        audit_rows.append(
+            await AuditService.log(
+                db,
+                actor=admin,
+                action="filter.fixture.created",
+                target_type="project",
+                target_id=project_a.id,
+                origin=origin,
+                status_code=201,
+                detail=_filter_audit_detail(ids, "alpha"),
+            )
+        )
+        audit_rows.append(
+            await AuditService.log(
+                db,
+                actor=admin,
+                action="filter.fixture.failed",
+                target_type="job",
+                target_id=jobs[1].id,
+                origin=origin,
+                status_code=500,
+                detail=_filter_audit_detail(ids, "beta"),
+            )
+        )
+    finally:
+        request_id_var.reset(request_id_token)
     return FilteringOperationsManifest(
         project_ids=[str(project_a.id), str(project_b.id)],
         dataset_ids=[str(dataset.id) for dataset in datasets],

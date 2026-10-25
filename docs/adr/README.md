@@ -40,10 +40,41 @@
 
 ### 待决（Proposed / Draft）
 
+- [0166](0166-workspace-locked-authority-snapshots.md) — Workspace 锁定权限读取与会话快照（限定本地定向验收通过）
+- [0167](0167-workspace-unlocked-authority-snapshots.md) — Workspace 无锁权限读取与调用方快照（限定本地定向验收通过）
+- [0168](0168-workspace-exclusive-project-snapshots.md) — Workspace 独占 Project 快照（限定本地定向验收通过）
+- [0173](0173-workspace-actor-scope-relations.md) — Workspace actor 范围与列表读取（限定本地验收通过）
+- [0174](0174-workspace-nonlocking-member-facts.md) — Workspace 非锁定成员事实与 ORM 名册（限定本地验收通过）
+- [0175](0175-workspace-project-fact-relations.md) — Workspace Project 集合与原生事实（限定本地验收通过）
+- [0176](0176-labeling-lifecycle-counter-deltas.md) — Labeling 生命周期与审核原子计数（限定本地验收通过）
+- [0177](0177-workspace-caller-transaction-dataset-unlink.md) — Workspace 数据集解绑的可移植事务绑定（限定本地验收通过）
+- [0178](0178-video-retirement-deletion-fences.md) — 视频退役后的删除与解绑围栏（限定本地验收通过）
+- [0179](0179-workspace-consumer-credential-closure.md) — Workspace 普通消费者凭据边界（限定本地验收通过）
+- [0172](0172-project-set-locks-and-labeling-counters.md) — Workspace 项目集合锁与 Labeling 计数持久化（限定本地验收通过）
+- [0171](0171-workspace-actorless-business-snapshots.md) — Workspace 无 actor 的业务快照（限定本地定向验收通过）
+- [0170](0170-workspace-transactional-member-locks.md) — Workspace 同事务成员锁（限定本地定向验收通过）
+- [0169](0169-workspace-task-training-project-snapshots.md) — Task／Training 的 Workspace 项目快照（限定本地定向验收通过）
+- [0165](0165-workspace-caller-transaction-project-deletion.md) — Workspace 项目删除的调用方事务边界（调用边界定向通过，视频前置未闭合）
+- [0164](0164-workspace-transactional-project-maintenance.md) — Workspace 相邻项目写入的同事务能力（限定本地定向验收通过）
+- [0163](0163-identity-registration-policy-owner.md) — Identity 注册状态与部署默认值的统一读取（限定本地定向验收通过）
+- [0162](0162-identity-read-relations-and-consumer-grants.md) — Identity 集合读取关系与独立 API 消费者权限（限定本地定向验收通过）
+- [0157](0157-video-execution-claims-and-route-binding.md) — 视频执行代次、原子路由绑定与当前写入检查（完整恢复继续实施）
+- [0156](0156-scoped-inference-retirement.md) — 推理执行范围的定向退役与作业交接边界（定向退役通过限定本地验收）
 - [0009](0009-task-events-table-and-partition.md) — task_events 表与按月分区方案
 - [0025](0025-webhook-event-envelope-versioning.md) — Webhook 事件信封与版本化（草案，未实现）
 - [0034](0034-lidar-axis-convention.md) — 点云数据集 lidar 坐标系约定：dataset 级声明 + 加载侧归一化
 - [0075](0075-platform-identity-vs-project-authority.md) — 平台身份与项目职责分离：员工按项目成员角色授权（本地实现中，未部署）
+- [0131](0131-identity-transactional-account-locks.md) — Identity 同事务账号锁与只读事实（本地实现中，资格验证待完成）
+- [0132](0132-identity-operational-provisioning-and-authority-reads.md) — Identity 运维账号 provisioning 与 authority facts 复用（已通过限定本地资格）
+- [0133](0133-workspace-membership-lifecycle-owner.md) — Workspace 项目成员生命周期命令 owner（成员命令本地限定验收通过）
+- [0134](0134-workspace-project-owner-transfer.md) — Workspace 项目负责人转移命令与本地传输提供方实验（限定本地验收通过）
+- [0135](0135-workspace-configuration-values-and-dependencies.md) — Workspace 配置值、纯策略与跨模块依赖（配置命令 owner 仍在实施）
+- [0136](0136-workspace-configuration-command-owner.md) — Workspace 配置命令协议、分阶段写入与事务边界（限定本地验收通过）
+- [0137](0137-workspace-template-query-owner.md) — Workspace 模板读取与提交后响应投影（限定本地验收通过）
+- [0138](0138-workspace-project-read-foundation.md) — Project 读取的类型化外域依赖与 Workspace 权限值（基础实现已验证，查询 owner 接入中）
+- [0139](0139-workspace-project-query-owner.md) — Project 查询协议、原始值编码与分阶段读取策略（选定查询能力已完成限定本地验收）
+- [0140](0140-workspace-directory-query-owner.md) — 成员目录与提及候选的独立读取协议及成员时间戳权限边界
+- [0141](0141-workspace-project-access-query.md) — Project 访问上下文的两轮当前权威读取、成员版本与共享权限策略
 
 ### 已采纳（Accepted，归档）
 
@@ -160,3 +191,37 @@
 - [0112 — Durable Mask deletion fences and terminal receipts](0112-durable-mask-gc-fences.md)
 - [0113 — Durable ordinary preannotation results and execution handoff](0113-durable-preannotation-results.md)
 - [0114 — Durable failed-prediction retries and running tracker roots](0114-durable-prediction-retries.md)
+- [0115 — Identity 准入与持久会话撤权](0115-identity-admission-and-durable-revocation.md)
+- [0116 — API key 命令与可重放签发](0116-independent-identity-key-commands.md)
+- [0117 — 核心会话命令与原子审计](0117-independent-identity-session-commands.md)
+- [0118 — 自助账户命令与在线状态所有权](0118-independent-identity-account-commands.md)
+- [0119 — Identity 注册恢复与凭据邮件独立所有权](0119-independent-identity-recovery-and-mail.md)
+- [0120 — Identity 分组目录与指派独立所有权](0120-independent-identity-group-catalog-and-assignment.md)
+- [0121 — Identity 自助注销与通知投递所有权](0121-identity-self-deactivation-and-notification-delivery.md)
+- [0122 — Identity 邀请生命周期与 durable MailV2 投递所有权](0122-independent-identity-invitations-and-mail-v2.md)
+- [0123 — Identity 用户目录读取所有权与可见性合同](0123-independent-identity-directory-reads.md)
+- [0124 — Identity 管理员临时密码重置所有权](0124-independent-identity-admin-password-reset.md)
+- [0125 — Identity 平台角色预览与变更所有权](0125-independent-identity-platform-role-commands.md)
+- [0126 — Identity 管理员停用与恢复账号所有权](0126-independent-identity-suspension-commands.md)
+- [0127 — Identity 管理员删除账号所有权](0127-independent-identity-deletion-commands.md)
+- [0128 — Identity 离职预览与提交所有权（限定本地资格）](0128-independent-identity-offboarding-commands.md)
+- [0129 — Identity 批量 UserBrief 读取（限定本地资格）](0129-identity-batched-user-brief-reads.md)
+- [0130 — Identity 认证后的主体上下文读取（限定本地资格）](0130-identity-post-admission-actor-context.md)
+- [0142 — Labeling Class Usage Query Owner](0142-labeling-class-usage-query-owner.md)
+- [0143 — Workspace Project Class Rename Owner](0143-workspace-project-class-rename-owner.md)
+- [0144 — Workspace Guide Assets and Assets Object Capability](0144-workspace-guide-assets-owner.md)
+- [0145 — Workspace Project Access Facts for Independent Owners](0145-workspace-project-access-facts.md)
+- [0146 — Independent Inference Named-Pipeline Owner](0146-inference-named-pipeline-owner.md)
+- [0147 — Inference Pool Policy and Workspace Backend Bindings](0147-inference-pool-policy-and-workspace-bindings.md)
+- [0148 — Inference Backend Transport and Deletion Dependencies](0148-inference-backend-transport-and-deletion-dependencies.md)
+- [0149 — Credential-owning Workspace Backend Probe](0149-credential-owning-workspace-backend-probe.md)
+- [0150 — Portable Backend Health Coordination](0150-portable-backend-health-coordination.md)
+- [0151 — Inference Topology Locking](0151-inference-topology-locking.md)
+- [0152 — Credential-owning Health Observations](0152-credential-owning-health-observations.md)
+- [0153 — Caller-owned Native Health Data](0153-caller-owned-native-health-data.md)
+- [0154 — Registry Ingress and Environment Synchronization Owner](0154-registry-ingress-and-environment-sync-owner.md)
+- [0155 — Durable Inference Routing Authority](0155-durable-inference-routing-authority.md)
+- [0156 — Scoped Inference retirement](0156-scoped-inference-retirement.md)
+- [0157 — 视频执行代次与原子路由绑定](0157-video-execution-claims-and-route-binding.md)
+- [0158 — 视频窗口账本与会话重放](0158-video-window-journals-and-replay.md)
+- [0159 — Labeling 视频 worker 最终写入 owner](0159-independent-labeling-video-writer.md)

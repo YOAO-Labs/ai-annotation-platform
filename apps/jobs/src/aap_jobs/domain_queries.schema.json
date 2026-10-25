@@ -1,0 +1,333 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-jobs-domain-queries/v1",
+  "$defs": {
+    "CrossFrameKeyRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "singleflight_key": {
+          "title": "Singleflight Key",
+          "type": "string"
+        }
+      },
+      "required": ["actor_id", "singleflight_key"],
+      "title": "CrossFrameKeyRequest",
+      "type": "object"
+    },
+    "CrossFrameSceneRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "scene_id": {
+          "title": "Scene Id",
+          "type": "string"
+        }
+      },
+      "required": ["actor_id", "scene_id"],
+      "title": "CrossFrameSceneRequest",
+      "type": "object"
+    },
+    "CrossFramePageRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "scene_id": {
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "limit": {
+          "maximum": 50,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        }
+      },
+      "required": ["actor_id", "scene_id", "limit"],
+      "title": "CrossFramePageRequest",
+      "type": "object"
+    },
+    "LatestPredictionTimesRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "project_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Project Ids",
+          "type": "array"
+        }
+      },
+      "required": ["project_ids"],
+      "title": "LatestPredictionTimesRequest",
+      "type": "object"
+    },
+    "LatestPredictionTime": {
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "latest_created_at": {
+          "format": "date-time",
+          "title": "Latest Created At",
+          "type": "string"
+        }
+      },
+      "required": ["project_id", "latest_created_at"],
+      "title": "LatestPredictionTime",
+      "type": "object"
+    },
+    "JobCount": {
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Count",
+          "type": "integer"
+        }
+      },
+      "required": ["count"],
+      "title": "JobCount",
+      "type": "object"
+    },
+    "AsyncJobLifecycleRow": {
+      "additionalProperties": false,
+      "description": "Fixed public row used to refresh the existing API ORM identity.",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "maxLength": 40,
+          "title": "Kind",
+          "type": "string"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "retained_project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Retained Project Id"
+        },
+        "user_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "User Id"
+        },
+        "status": {
+          "maxLength": 20,
+          "title": "Status",
+          "type": "string"
+        },
+        "progress_pct": {
+          "title": "Progress Pct",
+          "type": "integer"
+        },
+        "payload": {
+          "title": "Payload"
+        },
+        "result": {
+          "title": "Result"
+        },
+        "error_message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error Message"
+        },
+        "celery_task_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Celery Task Id"
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Started At"
+        },
+        "completed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Completed At"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "project_id",
+        "retained_project_id",
+        "user_id",
+        "status",
+        "progress_pct",
+        "payload",
+        "result",
+        "error_message",
+        "celery_task_id",
+        "started_at",
+        "completed_at",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "AsyncJobLifecycleRow",
+      "type": "object"
+    }
+  },
+  "x-postgresql-functions": {
+    "aap_jobs_v1.lock_cross_frame_singleflight": {
+      "arguments": "uuid, text",
+      "returns": "void",
+      "volatility": "volatile"
+    },
+    "aap_jobs_v1.active_cross_frame_job": {
+      "arguments": "uuid, text",
+      "returns": "TABLE(id uuid, kind character varying, project_id uuid, retained_project_id uuid, user_id uuid, status character varying, progress_pct integer, payload jsonb, result jsonb, error_message text, celery_task_id character varying, started_at timestamp with time zone, completed_at timestamp with time zone, created_at timestamp with time zone, updated_at timestamp with time zone)",
+      "volatility": "stable"
+    },
+    "aap_jobs_v1.cross_frame_job_page": {
+      "arguments": "uuid, text, integer",
+      "returns": "TABLE(id uuid, kind character varying, project_id uuid, retained_project_id uuid, user_id uuid, status character varying, progress_pct integer, payload jsonb, result jsonb, error_message text, celery_task_id character varying, started_at timestamp with time zone, completed_at timestamp with time zone, created_at timestamp with time zone, updated_at timestamp with time zone)",
+      "volatility": "stable"
+    },
+    "aap_jobs_v1.cross_frame_job_count": {
+      "arguments": "uuid, text",
+      "returns": "bigint",
+      "volatility": "stable"
+    },
+    "aap_jobs_v1.latest_batch_prediction_times": {
+      "arguments": "uuid[]",
+      "returns": "TABLE(project_id uuid, latest_created_at timestamp with time zone)",
+      "volatility": "stable"
+    }
+  },
+  "x-row-columns": [
+    "id",
+    "kind",
+    "project_id",
+    "retained_project_id",
+    "user_id",
+    "status",
+    "progress_pct",
+    "payload",
+    "result",
+    "error_message",
+    "celery_task_id",
+    "started_at",
+    "completed_at",
+    "created_at",
+    "updated_at"
+  ],
+  "x-row-types": {
+    "id": "uuid",
+    "kind": "character varying",
+    "project_id": "uuid",
+    "retained_project_id": "uuid",
+    "user_id": "uuid",
+    "status": "character varying",
+    "progress_pct": "integer",
+    "payload": "jsonb",
+    "result": "jsonb",
+    "error_message": "text",
+    "celery_task_id": "character varying",
+    "started_at": "timestamp with time zone",
+    "completed_at": "timestamp with time zone",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone"
+  },
+  "x-query-semantics": {
+    "cross_frame_kind": "point_cloud_cross_frame",
+    "active_statuses": ["pending", "running"],
+    "json_filters": "native JSONB ->> text comparison; no UUID or JSON normalization",
+    "order": "created_at DESC; no added tie breaker",
+    "page_and_count": "separate statements; count ignores the page limit",
+    "latest_prediction": "batch_predict; current project_id only; max(created_at)",
+    "authorization": "caller retains current actor/task/project visibility checks",
+    "singleflight": "lock before the active lookup; original advisory namespace and transaction lifetime"
+  },
+  "x-transactions": {
+    "commit": false,
+    "rollback": false,
+    "lock_autoflush": false,
+    "read_autoflush": "original caller setting",
+    "hydration": "original ORM identity and default loaded-field cache behavior"
+  },
+  "x-security": "fixed Jobs definer functions; pg_catalog,pg_temp; PUBLIC revoked"
+}

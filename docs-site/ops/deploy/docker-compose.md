@@ -381,6 +381,30 @@ pnpm --filter @anno/web build
 
 ## 5. 备份与恢复
 
+### 5.0 恢复前提与执行权
+
+恢复应先落到隔离的目标环境，核对数据库、对象引用与权限后再决定是否启用业务写入。
+备份包含各 owner 的私有 schema、不可变回执、冻结计划和窗口原始字节；不能只导出
+`public` 表，也不能为通过启动检查而重写 realm、密钥、计划摘要或历史回执。
+
+当前视频执行与推理路由权威绑定创建它们的数据库身份。不同库恢复后会拒绝源执行证明；
+同名、同 OID 的时间点恢复也必须防止源进程持有的旧证明重新生效。现有 maintenance
+marker 只约束健康恢复脚本，不是全局写入围栏。开始执行权交接前，应停止并围住源 API、
+beat、所有 worker 和独立 owner 的数据库／对象存储写入凭据，确认旧连接与在途写入已结束；
+停止接收新请求本身不能证明后台模型已退出。
+
+隔离目标可显式使用 [离线视频恢复 operator](/api/guides/inference-runtime#离线视频恢复-operator)
+协调 Jobs／Inference 执行权交接；该入口不随普通服务启动。先应用迁移、owner 授权及专用
+`video-restore-grants.sql`，只将函数专用 LOGIN 文件交给 operator。目标业务写入保持关闭，
+以固定 restore ID、备份摘要和外部围栏记录执行；活跃请求或结果不明时重复同一命令。
+完成记录确认两类权威已轮换，并按实际 backend 当前 epoch 全局 drain／退休后，才允许
+普通 claim 取得新代次。backend incarnation、冻结模型身份与精确输入版本仍必须匹配；
+不能只清理备份内已知 scope。
+
+独立安装 CLI、CPU 后台和实际 runner 已通过限定本地数据库副本续跑验收；它复用同一
+S3 原始版本，不证明对象存储备份恢复、生产部署或 GPU 容量。后台重启导致 incarnation
+变化时拒绝同作业续跑。完整前提及失败处理见 [ADR-0160](/dev/adr/0160-coordinated-video-restore)。
+
 ### 5.1 Postgres
 
 按业务重要度分级：
@@ -411,9 +435,19 @@ mc mirror anno/datasets    s3-backup/anno/datasets
 mc mirror anno/avatars     s3-backup/anno/avatars
 ```
 
-桶名见 `MINIO_BUCKET` / `MINIO_DATASETS_BUCKET` / `MINIO_AVATARS_BUCKET`（默认 `annotations` / `datasets` / `avatars`）。恢复时先恢复数据库再回灌这三个桶，确保 `users.avatar_ref` 指向的对象已就位。
+以上命令覆盖 `MINIO_BUCKET` / `MINIO_DATASETS_BUCKET` / `MINIO_AVATARS_BUCKET`（默认
+`annotations` / `datasets` / `avatars`）的当前对象。恢复时保持业务写入关闭，在恢复数据库后
+回灌这些对象，确保 `users.avatar_ref` 与 Mask 引用指向的对象已就位。Mask 字节须与引用根、
+保留围栏和 GC epoch 一起核对；只恢复对象或只恢复数据库均不足以启动清理。
 
 启用在线学习数据版本后，另需备份并恢复 `MINIO_TRAINING_BUCKET`（默认 `training`）；数据库中的版本引用不能替代冻结原图和训练包。
+
+`MINIO_INPUTS_BUCKET`（默认 `accepted-inputs`）也是持久业务数据，必须与数据库协调备份。
+它必须保留对象版本控制及数据库固定的原始 `VersionId`、ETag、大小、SHA-256 和对象元数据。
+普通 `mc mirror`／`aws s3 sync` 的当前对象复制不能作为这些身份已保留的证据：重新 PUT 相同
+字节会得到另一版本，不能据此改写数据库的冻结引用。应选择能保留版本身份的存储备份方式，
+并在隔离恢复中逐个按原 `VersionId` 读取、验算字节后再恢复消费者；当前尚未完成这项恢复验收。
+完整桶清单及各自保留规则见[存储桶布局](/dev/reference/storage-buckets)。
 
 ### 5.3 Redis
 

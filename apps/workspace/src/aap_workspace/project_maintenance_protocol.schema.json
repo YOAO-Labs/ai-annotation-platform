@@ -1,0 +1,205 @@
+{
+  "$defs": {
+    "ImportProjectCreated": {
+      "additionalProperties": false,
+      "description": "Create result; the caller-supplied Project UUID must be present.",
+      "properties": {
+        "display_id": {
+          "title": "Display Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-workspace-project-maintenance/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "display_id", "project_id"],
+      "title": "ImportProjectCreated",
+      "type": "object"
+    },
+    "ImportProjectReference": {
+      "additionalProperties": false,
+      "description": "Lookup/create result; a null project ID means the lookup found no row.",
+      "properties": {
+        "display_id": {
+          "title": "Display Id",
+          "type": "string"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "schema": {
+          "const": "aap-workspace-project-maintenance/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "display_id", "project_id"],
+      "title": "ImportProjectReference",
+      "type": "object"
+    },
+    "PointQualityConfigWrite": {
+      "additionalProperties": false,
+      "description": "Result of the caller's point-cloud quality configuration write.",
+      "properties": {
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-workspace-project-maintenance/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string",
+          "x-source-timezone": "UTC",
+          "x-timezone-aware": true
+        }
+      },
+      "required": ["schema", "project_id", "updated_at"],
+      "title": "PointQualityConfigWrite",
+      "type": "object"
+    }
+  },
+  "$id": "aap-workspace-project-maintenance/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/ImportProjectReference"
+    },
+    {
+      "$ref": "#/$defs/ImportProjectCreated"
+    },
+    {
+      "$ref": "#/$defs/PointQualityConfigWrite"
+    }
+  ],
+  "x-native-capabilities": {
+    "authorization_boundary": "Existing application callers retain authorization and workflow evaluation; these functions add no application authorization.",
+    "functions": [
+      {
+        "arguments": [
+          {
+            "json_schema": {
+              "type": "string"
+            },
+            "name": "p_display_id",
+            "postgres_type": "text"
+          }
+        ],
+        "name": "read_import_project",
+        "result_model": "ImportProjectReference",
+        "result_postgres_type": "jsonb",
+        "result_schema_ref": "#/$defs/ImportProjectReference",
+        "signature": "aap_workspace_v1.read_import_project(text)",
+        "transaction_semantics": "Read-only lookup inside the caller's transaction; the caller owns authorization and transaction commit. A missing row returns a null project_id."
+      },
+      {
+        "arguments": [
+          {
+            "json_schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "name": "p_project_id",
+            "postgres_type": "uuid"
+          },
+          {
+            "json_schema": {
+              "type": "string"
+            },
+            "name": "p_display_id",
+            "postgres_type": "text"
+          },
+          {
+            "json_schema": {
+              "type": "string"
+            },
+            "name": "p_name",
+            "postgres_type": "text"
+          },
+          {
+            "json_schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "name": "p_owner_id",
+            "postgres_type": "uuid"
+          },
+          {
+            "json_schema": {
+              "$defs": {
+                "JsonValue": {}
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            },
+            "name": "p_tool_bindings",
+            "postgres_type": "jsonb"
+          }
+        ],
+        "name": "create_import_project",
+        "result_model": "ImportProjectCreated",
+        "result_postgres_type": "jsonb",
+        "result_schema_ref": "#/$defs/ImportProjectCreated",
+        "signature": "aap_workspace_v1.create_import_project(uuid, text, text, uuid, jsonb)",
+        "transaction_semantics": "Insert one Project with the caller-supplied UUID and return its reference; this is not an upsert. The caller owns authorization, the surrounding workflow transaction, and commit. Uniqueness, foreign-key, and length errors remain database errors."
+      },
+      {
+        "arguments": [
+          {
+            "json_schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "name": "p_project_id",
+            "postgres_type": "uuid"
+          },
+          {
+            "json_schema": {
+              "$defs": {
+                "JsonValue": {}
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            },
+            "name": "p_config",
+            "postgres_type": "jsonb"
+          }
+        ],
+        "name": "write_point_cloud_quality_config",
+        "result_model": "PointQualityConfigWrite",
+        "result_postgres_type": "jsonb",
+        "result_schema_ref": "#/$defs/PointQualityConfigWrite",
+        "signature": "aap_workspace_v1.write_point_cloud_quality_config(uuid, jsonb)",
+        "transaction_semantics": "Update the Project configuration in the caller's existing transaction. The caller owns authorization, Project FOR UPDATE, evaluation, Audit, and commit. An equal JSONB value leaves updated_at unchanged; a missing Project raises no_data_found. No compare-and-swap or lock mode is added by this capability."
+      }
+    ],
+    "postgres_schema": "aap_workspace_v1",
+    "protocol": "aap-workspace-project-maintenance/v1",
+    "transaction_boundary": "The caller owns the surrounding transaction and commit."
+  }
+}

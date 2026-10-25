@@ -21,6 +21,7 @@ from app.services.audit import AuditAction, AuditService
 from app.services.raster_mask_storage import _VerifiedMaskContent
 from app.services.video_collaboration import heartbeat_task_lock_for_legacy_video
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.labeling_core_read_relations import annotation_row, refresh_core_row
 
 
 class _AnnotationCreateSqlAdapter(AnnotationCreatePort):
@@ -96,9 +97,9 @@ class _AnnotationCreateSqlAdapter(AnnotationCreatePort):
             if idempotency_key is not None:
                 # AnnotationService.create flushes the annotation and task stats;
                 # refresh server defaults before persisting the historical response.
-                await self.db.refresh(annotation)
+                await refresh_core_row(self.db, annotation_row, annotation)
                 annotation_response = AnnotationOut.model_validate(annotation)
-                self.annotations.record_annotation_create_receipt(
+                await self.annotations.record_annotation_create_receipt(
                     task_id=command.task_id,
                     actor_id=command.actor_id,
                     idempotency_key=idempotency_key,
@@ -122,7 +123,7 @@ class _AnnotationCreateSqlAdapter(AnnotationCreatePort):
                 },
             )
             await self.db.commit()
-            await self.db.refresh(annotation)
+            await refresh_core_row(self.db, annotation_row, annotation)
             return AnnotationOut.model_validate(annotation)
         except HTTPException as exc:
             raise AnnotationCreateError(

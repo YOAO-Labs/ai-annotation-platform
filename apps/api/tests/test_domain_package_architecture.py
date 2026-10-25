@@ -46,6 +46,16 @@ _SPATIAL_RETIRED_MODULES = (
 )
 
 REMOVED_MODULES = (
+    "app.services.workspace_contract",
+    "app.services.project_template",
+    "app.services.notification_preferences",
+    "app.services.notification_preferences_command",
+    "app.application.project_workspace_configuration",
+    "app.services.project_membership",
+    "app.application.project_membership",
+    "app.services.invitation",
+    "app.application.invitation_acceptance",
+    "app.services.deactivation_service",
     "app.services.mask_formats.safe_archive",
     "app.services.role_patterns",
     "app.services.dataset_frame_grouping",
@@ -77,11 +87,14 @@ REMOVED_MODULES = (
     "app.workers.roi",
     "app.services.project_delete",
     "app.services.project",
+    "app.services.pipeline_template",
+    "app.application.project_pipeline",
     "app.services.dataset_upload_contract",
     "app.services.dataset_source_deletion_contract",
     "app.services.storage_connection",
     "app.services.media_materialization",
     "app.workers.media_materialization",
+    "app.services.ml_routing.capability",
     *_SPATIAL_RETIRED_MODULES,
 )
 
@@ -105,6 +118,9 @@ class DomainSpec:
     lazy_roots: tuple[str, ...] = ()
     # Optional positive app-dependency boundary for transport-independent owners.
     allowed_app_imports: tuple[str, ...] | None = None
+    # Narrow exceptions for data adapters that must use a framework without
+    # relaxing the rest of the contract package's dependency boundary.
+    allowed_framework_imports: tuple[str, ...] = ()
 
 
 DOMAIN_PACKAGES = (
@@ -156,6 +172,12 @@ DOMAIN_PACKAGES = (
     ),
     DomainSpec(package="task_access", legacy_facades=()),
     DomainSpec(
+        package="workspace_backend_bindings",
+        legacy_facades=(),
+        allowed_app_imports=(),
+        allowed_framework_imports=("sqlalchemy", "fastapi"),
+    ),
+    DomainSpec(
         package="annotation_create_contract",
         legacy_facades=(),
         allowed_app_imports=(
@@ -203,12 +225,8 @@ DOMAIN_PACKAGES = (
         allowed_app_imports=(),
     ),
     DomainSpec(package="project_write_guard", legacy_facades=()),
-    DomainSpec(package="project_membership", legacy_facades=()),
-    DomainSpec(
-        package="workspace_contract",
-        legacy_facades=(),
-        allowed_app_imports=("app.db.enums",),
-    ),
+    DomainSpec(package="workspace_membership", legacy_facades=()),
+    DomainSpec(package="workspace_membership_data", legacy_facades=()),
     DomainSpec(package="user_lifecycle", legacy_facades=()),
     DomainSpec(package="identity_commands", legacy_facades=()),
     DomainSpec(
@@ -227,15 +245,25 @@ DOMAIN_PACKAGES = (
         legacy_facades=(),
         allowed_app_imports=("app.schemas.audit",),
     ),
+    DomainSpec(package="identity_group_commands", legacy_facades=()),
+    DomainSpec(package="identity_directory_commands", legacy_facades=()),
+    DomainSpec(package="identity_admin_password_commands", legacy_facades=()),
+    DomainSpec(package="identity_platform_role_commands", legacy_facades=()),
+    DomainSpec(package="identity_suspension_commands", legacy_facades=()),
+    DomainSpec(package="identity_deletion_commands", legacy_facades=()),
+    DomainSpec(package="identity_offboarding_commands", legacy_facades=()),
+    DomainSpec(package="identity_briefs_commands", legacy_facades=()),
     DomainSpec(
-        package="notification_preferences_command",
+        package="user_brief",
         legacy_facades=(),
         allowed_app_imports=(
-            "app.db.models.notification_preference",
-            "app.services.notification_preferences",
+            "app.schemas.user",
+            "app.services.identity_briefs_commands",
+            "app.services.identity_gateway",
         ),
     ),
-    DomainSpec(package="account_groups", legacy_facades=()),
+    DomainSpec(package="identity_invitation_commands", legacy_facades=()),
+    DomainSpec(package="identity_mail_v2_delivery", legacy_facades=()),
     DomainSpec(package="quality_job_dispatch", legacy_facades=()),
     DomainSpec(
         package="quality_job_lifecycle", legacy_facades=(), allowed_app_imports=()
@@ -501,20 +529,107 @@ DOMAIN_PACKAGES = (
     DomainSpec(
         package="project_workspace",
         legacy_facades=(),
+        allowed_app_imports=("app.db.models.project",),
+    ),
+    DomainSpec(
+        package="workspace_configuration",
+        legacy_facades=(),
         allowed_app_imports=(
-            "app.db.enums",
-            "app.db.models.dataset",
-            "app.db.models.project",
-            "app.db.models.project_template",
-            "app.db.models.user",
-            "app.services.display_id",
-            "app.services.guide_asset_contracts",
-            "app.services.project_kind",
-            "app.services.project_template",
+            "app.config",
+            "app.services.inference_limits",
+            "app.services.inference_backend_probe",
+            "app.services.workspace_configuration_data",
+            "app.services.workspace_project_query",
+            "app.services.workspace_guide_objects",
+        ),
+    ),
+    DomainSpec(package="workspace_configuration_data", legacy_facades=()),
+    DomainSpec(
+        package="inference_health_data",
+        legacy_facades=(),
+        allowed_app_imports=(
+            "app.db.models.gpu_backend_membership",
+            "app.db.models.ml_backend_pool",
+            "app.db.models.ml_backend_registry",
+        ),
+        allowed_framework_imports=("sqlalchemy",),
+    ),
+    DomainSpec(
+        package="inference_backend_probe",
+        legacy_facades=(),
+        allowed_app_imports=("app.config",),
+        allowed_framework_imports=("sqlalchemy",),
+    ),
+    DomainSpec(
+        package="inference_health_observation",
+        legacy_facades=(),
+        allowed_app_imports=("app.config",),
+        allowed_framework_imports=("fastapi", "sqlalchemy"),
+    ),
+    DomainSpec(
+        package="workspace_template_query",
+        legacy_facades=(),
+        allowed_app_imports=(
+            "app.config",
+            "app.services.workspace_template_query_data",
+        ),
+    ),
+    DomainSpec(package="workspace_template_query_data", legacy_facades=()),
+    DomainSpec(
+        package="workspace_project_query",
+        legacy_facades=(),
+        allowed_app_imports=(
+            "app.config",
+            "app.services.identity_contracts",
+            "app.services.user_brief",
+            "app.services.workspace_project_query_data",
+        ),
+    ),
+    DomainSpec(package="workspace_project_query_data", legacy_facades=()),
+    DomainSpec(
+        package="workspace_directory_query",
+        legacy_facades=(),
+        allowed_app_imports=(
+            "app.config",
+            "app.services.workspace_directory_query_data",
+            "app.services.workspace_project_query",
+        ),
+    ),
+    DomainSpec(package="workspace_directory_query_data", legacy_facades=()),
+    DomainSpec(
+        package="inference_pipelines",
+        legacy_facades=("app.services.pipeline_template",),
+        allowed_app_imports=(
+            "app.config",
+            "app.services.identity_contracts",
+            "app.services.inference_pipelines_data",
+            "app.services.user_brief",
         ),
     ),
     DomainSpec(
-        package="guide_asset_contracts", legacy_facades=(), allowed_app_imports=()
+        package="inference_pipelines_data",
+        legacy_facades=(),
+        allowed_app_imports=(),
+        allowed_framework_imports=("sqlalchemy",),
+    ),
+    DomainSpec(
+        package="labeling_class_query",
+        legacy_facades=(),
+        allowed_app_imports=("app.config", "app.services.labeling_class_query_data"),
+    ),
+    DomainSpec(package="labeling_class_query_data", legacy_facades=()),
+    DomainSpec(package="identity_organization_scope", legacy_facades=()),
+    DomainSpec(
+        package="identity_read_relations",
+        legacy_facades=(),
+        allowed_app_imports=(),
+        allowed_framework_imports=("sqlalchemy",),
+    ),
+    DomainSpec(
+        package="workspace_read_relations",
+        legacy_facades=(),
+        allowed_app_imports=(),
+        allowed_framework_imports=("sqlalchemy",),
     ),
     DomainSpec(
         package="annotation_comment",
@@ -524,7 +639,8 @@ DOMAIN_PACKAGES = (
             "app.db.models.annotation_comment",
             "app.db.models.project",
             "app.db.models.project_member",
-            "app.db.models.user",
+            "app.services.identity_read_relations",
+            "app.services.workspace_read_relations",
         ),
     ),
     DomainSpec(
@@ -828,8 +944,12 @@ def test_domain_package_forbidden_imports(spec: DomainSpec) -> None:
     ids=lambda spec: spec.package,
 )
 def test_data_contracts_do_not_import_runtime_frameworks(spec: DomainSpec) -> None:
-    """Pure contracts cannot hide a session, HTTP error or task behind an import."""
-    forbidden = ("sqlalchemy", "fastapi", "celery")
+    """Pure contracts cannot hide unapproved database, HTTP or task frameworks."""
+    forbidden = tuple(
+        root
+        for root in ("sqlalchemy", "fastapi", "celery")
+        if root not in spec.allowed_framework_imports
+    )
     offenders = []
     for path, module in _iter_domain_files(spec.package):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -909,6 +1029,110 @@ def test_domain_package_root_not_eager_importing(spec: DomainSpec) -> None:
         if leaf in forbidden_high_level:
             flagged.append(name)
     assert not flagged, f"package root eager-imports high-level module(s): {flagged}"
+
+
+def test_inference_pipeline_gateways_use_the_portable_inference_owner() -> None:
+    """The API gateways cross into only the dedicated Inference ports."""
+    expected = {
+        "inference_pipelines": {
+            "aap_inference.pipeline_client",
+            "aap_inference.pipeline_contract",
+            "aap_inference.pipeline_manager",
+            "aap_inference.pipeline_postgres",
+        },
+        "inference_pipelines_data": {"aap_inference.pipeline_contract"},
+    }
+    for package, allowed in expected.items():
+        path = _SERVICES_DIR / f"{package}.py"
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        imported = {
+            ".".join(name.split(".")[:2])
+            for name, _local in _collect_imports(tree, f"app.services.{package}")
+            if name == "aap_inference" or name.startswith("aap_inference.")
+        }
+        assert imported == allowed, f"{package} imports unexpected Inference modules"
+
+
+def test_inference_pool_capability_policy_is_portable() -> None:
+    """Pool canonicalization lives in Inference without API or runtime imports."""
+    retired = _SERVICES_DIR / "ml_routing" / "capability.py"
+    assert not retired.exists(), f"retired capability module returned: {retired}"
+
+    source = (
+        _REPO_ROOT
+        / "apps"
+        / "inference"
+        / "src"
+        / "aap_inference"
+        / "pool_capability.py"
+    )
+    tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
+    forbidden = ("app", "sqlalchemy", "fastapi", "celery", "httpx")
+    imports = [
+        imported
+        for imported, _local in _collect_imports(tree, "aap_inference.pool_capability")
+    ]
+    offenders = [
+        imported
+        for imported in imports
+        if any(
+            imported == root or imported.startswith(root + ".") for root in forbidden
+        )
+    ]
+    assert not offenders, f"pool capability imports nonportable modules {offenders}"
+
+
+def test_backend_http_implementation_lives_in_portable_inference_owner() -> None:
+    source = _REPO_ROOT / "apps/inference/src/aap_inference/backend_transport.py"
+    tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
+    forbidden = ("app", "sqlalchemy", "fastapi", "celery", "structlog", "redis")
+    imports = _collect_imports(tree, "aap_inference.backend_transport")
+    assert not [
+        imported
+        for imported, _local in imports
+        if any(
+            imported == root or imported.startswith(root + ".") for root in forbidden
+        )
+    ]
+    assert any(
+        isinstance(node, ast.ClassDef) and node.name == "BackendTransport"
+        for node in tree.body
+    )
+
+    adapter = _SERVICES_DIR / "ml_client.py"
+    api_tree = ast.parse(adapter.read_text(encoding="utf-8"), filename=str(adapter))
+    client = next(
+        node
+        for node in api_tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "MLBackendClient"
+    )
+    assert [ast.unparse(base) for base in client.bases] == ["BackendTransport"]
+    assert {
+        node.name
+        for node in client.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    } == {
+        "__init__",
+        "_observe_gpu_dispatch",
+        "_gpu_dispatch",
+    }
+    assert not any(
+        isinstance(node, ast.ClassDef) and node.name == "PredictionResult"
+        for node in api_tree.body
+    )
+    adapter_imports = _collect_imports(api_tree, "app.services.ml_client")
+    assert not any(
+        imported == "httpx" or imported.startswith("httpx.")
+        for imported, _local in adapter_imports
+    )
+    assert {
+        imported
+        for imported, _local in adapter_imports
+        if imported.startswith("aap_inference.")
+    } == {
+        "aap_inference.backend_transport",
+        "aap_inference.backend_transport.BackendTransport",
+    }
 
 
 @pytest.mark.parametrize(
@@ -1058,3 +1282,49 @@ def test_services_graph_has_no_cycle() -> None:
         )
         details.append(f"SCC {component!r}: {edges!r}")
     assert not offenders, "\n".join(details)
+
+
+def test_backend_health_coordinator_has_one_portable_policy_owner() -> None:
+    """Health and reconciliation use the owner with a borrowed data binding."""
+    api = ast.parse((_SERVICES_DIR / "ml_backend.py").read_text())
+    service = next(
+        node
+        for node in api.body
+        if isinstance(node, ast.ClassDef) and node.name == "MLBackendService"
+    )
+    methods = {
+        node.name: node
+        for node in service.body
+        if isinstance(node, ast.AsyncFunctionDef)
+    }
+    for name, port in (
+        ("check_health", "BackendHealthCoordinator"),
+        ("_reconcile_pool_capability", "reconcile_pool_capability"),
+    ):
+        method = methods[name]
+        imports = {
+            alias.name
+            for node in ast.walk(method)
+            if isinstance(node, ast.ImportFrom)
+            and node.module == "aap_inference.health"
+            for alias in node.names
+        }
+        assert port in imports
+        assert not any(
+            isinstance(node, ast.Name)
+            and node.id
+            in {"select", "update", "canonicalize_capability", "capability_fingerprint"}
+            for node in ast.walk(method)
+        )
+    owner = _REPO_ROOT / "apps/inference/src/aap_inference/health.py"
+    tree = ast.parse(owner.read_text())
+    imported = [name for name, _local in _collect_imports(tree, "aap_inference.health")]
+    forbidden = {"app", "sqlalchemy", "fastapi", "celery", "redis", "boto3"}
+    assert not [name for name in imported if name.split(".", 1)[0] in forbidden]
+    binding = ast.parse((_SERVICES_DIR / "inference_health_data.py").read_text())
+    assert not [
+        node.attr
+        for node in ast.walk(binding)
+        if isinstance(node, ast.Attribute)
+        and node.attr in {"commit", "rollback", "close", "begin", "begin_nested"}
+    ]

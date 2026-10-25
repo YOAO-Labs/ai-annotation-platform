@@ -207,6 +207,15 @@ class Settings(BaseSettings):
     minio_media_cache_bucket: str = "media-cache"
     # v0.10.17 · 审计冷分区归档独立桶。归档后永久保留,合规相关,与运营数据物理隔离。
     minio_audit_archive_bucket: str = "audit-archive"
+    # Optional read-only binding for Audit archive administration. Empty endpoint keeps
+    # the existing API storage binding; credentials are separate from general MinIO.
+    audit_archive_read_s3_endpoint_url: str = ""
+    audit_archive_read_s3_region: str = "us-east-1"
+    audit_archive_read_s3_bucket: str = "audit-archive"
+    audit_archive_read_s3_access_key_id: str = Field(default="", repr=False)
+    audit_archive_read_s3_access_key_id_file: str = ""
+    audit_archive_read_s3_secret_access_key: str = Field(default="", repr=False)
+    audit_archive_read_s3_secret_access_key_file: str = ""
     # v0.10.27 · 导入预标注 / 导出标注产物的短生命周期独立桶,各挂整桶 7 天 lifecycle。
     minio_import_bucket: str = "import"
     minio_export_bucket: str = "export"
@@ -226,6 +235,140 @@ class Settings(BaseSettings):
     # 浏览器可达的签名 URL 根地址：可为绝对 URL，也可为 DEV 同源前缀
     # (/minio，由 Vite 代理到对象存储)。
     minio_public_url: str = ""
+
+    identity_url: str = ""
+    identity_token: str = Field(default="", repr=False)
+    identity_timeout_seconds: float = Field(default=20, gt=0, le=120)
+    identity_auth_database_url: str = Field(default="", repr=False)
+    identity_auth_database_url_file: str = ""
+    identity_key_database_url: str = Field(default="", repr=False)
+    identity_key_database_url_file: str = ""
+    identity_session_database_url: str = Field(default="", repr=False)
+    identity_session_database_url_file: str = ""
+    identity_account_database_url: str = Field(default="", repr=False)
+    identity_account_database_url_file: str = ""
+    identity_group_database_url: str = Field(default="", repr=False)
+    identity_group_database_url_file: str = ""
+    identity_directory_database_url: str = Field(default="", repr=False)
+    identity_directory_database_url_file: str = ""
+    identity_admin_password_database_url: str = Field(default="", repr=False)
+    identity_admin_password_database_url_file: str = ""
+    identity_platform_role_database_url: str = Field(default="", repr=False)
+    identity_platform_role_database_url_file: str = ""
+    identity_suspension_database_url: str = Field(default="", repr=False)
+    identity_suspension_database_url_file: str = ""
+    identity_deletion_database_url: str = Field(default="", repr=False)
+    identity_deletion_database_url_file: str = ""
+    identity_offboarding_database_url: str = Field(default="", repr=False)
+    identity_offboarding_database_url_file: str = ""
+    identity_briefs_database_url: str = Field(default="", repr=False)
+    identity_briefs_database_url_file: str = ""
+    identity_invitation_database_url: str = Field(default="", repr=False)
+    identity_invitation_database_url_file: str = ""
+    identity_invitation_mail_timeout_seconds: float = Field(default=60, gt=0, le=120)
+    identity_deactivation_database_url: str = Field(default="", repr=False)
+    identity_deactivation_database_url_file: str = ""
+    identity_deactivation_operator_database_url: str = Field(default="", repr=False)
+    identity_deactivation_operator_database_url_file: str = ""
+    notification_socket_url: str = ""
+    notification_publication_url: str = ""
+    notification_publication_token: str = Field(default="", repr=False)
+    notification_publication_token_file: str = ""
+    jobs_queue_url: str = ""
+    jobs_queue_token: str = Field(default="", repr=False)
+    jobs_queue_token_file: str = ""
+    notification_publish_database_url: str = Field(default="", repr=False)
+    notification_publish_database_url_file: str = ""
+    identity_presence_database_url: str = Field(default="", repr=False)
+    identity_presence_database_url_file: str = ""
+    identity_recovery_database_url: str = Field(default="", repr=False)
+    identity_recovery_database_url_file: str = ""
+    identity_recovery_mail_key: str = Field(default="", repr=False)
+    identity_recovery_mail_key_file: str = ""
+    identity_mail_database_url: str = Field(default="", repr=False)
+    identity_mail_database_url_file: str = ""
+    identity_mail_v2_database_url: str = Field(default="", repr=False)
+    identity_mail_v2_database_url_file: str = ""
+    identity_mail_settings_database_url: str = Field(default="", repr=False)
+    identity_mail_settings_database_url_file: str = ""
+
+    workspace_membership_url: str = ""
+    workspace_membership_control_token: str = Field(default="", repr=False)
+    workspace_membership_control_token_file: str = ""
+    workspace_membership_database_url: str = Field(default="", repr=False)
+    workspace_membership_database_url_file: str = ""
+    workspace_membership_timeout_seconds: float = Field(default=30, gt=0, le=3600)
+    workspace_owner_transfer_url: str = ""
+    workspace_owner_transfer_database_url: str = Field(default="", repr=False)
+    workspace_owner_transfer_database_url_file: str = ""
+    workspace_configuration_url: str = ""
+    workspace_configuration_database_url: str = Field(default="", repr=False)
+    workspace_configuration_database_url_file: str = ""
+    workspace_configuration_timeout_seconds: float = Field(default=30, gt=0, le=3600)
+    workspace_guide_objects_url: str = Field(default="", repr=False)
+    workspace_guide_objects_token: str = Field(default="", repr=False)
+    workspace_guide_objects_token_file: str = ""
+    workspace_guide_objects_timeout_seconds: float = Field(default=15, gt=0, le=120)
+    workspace_template_query_url: str = ""
+    workspace_template_query_database_url: str = Field(default="", repr=False)
+    workspace_template_query_database_url_file: str = ""
+    workspace_template_query_timeout_seconds: float = Field(default=30, gt=0, le=3600)
+    workspace_project_query_url: str = ""
+    workspace_project_query_database_url: str = Field(default="", repr=False)
+    workspace_project_query_database_url_file: str = ""
+    workspace_project_query_timeout_seconds: float = Field(default=30, gt=0, le=3600)
+    workspace_directory_query_url: str = ""
+    workspace_directory_query_database_url: str = Field(default="", repr=False)
+    workspace_directory_query_database_url_file: str = ""
+    workspace_directory_query_timeout_seconds: float = Field(default=30, gt=0, le=3600)
+
+    labeling_class_query_url: str = ""
+    labeling_class_query_database_url: str = Field(default="", repr=False)
+    labeling_class_query_database_url_file: str = ""
+    labeling_class_query_control_token: str = Field(default="", repr=False)
+    labeling_class_query_control_token_file: str = ""
+    labeling_class_query_timeout_seconds: float = Field(default=30, gt=0, le=3600)
+
+    labeling_video_writer_url: str = ""
+    labeling_video_writer_database_url: str = Field(default="", repr=False)
+    labeling_video_writer_database_url_file: str = ""
+    labeling_video_writer_control_token: str = Field(default="", repr=False)
+    labeling_video_writer_control_token_file: str = ""
+    labeling_video_writer_timeout_seconds: float = Field(default=90, gt=0, le=3600)
+
+    inference_pipelines_url: str = ""
+    inference_pipelines_token: str = Field(default="", repr=False)
+    inference_pipelines_token_file: str = ""
+    inference_pipelines_database_url: str = Field(default="", repr=False)
+    inference_pipelines_database_url_file: str = ""
+    inference_pipelines_timeout_seconds: float = Field(default=30, gt=0, le=3600)
+
+    inference_backend_probe_url: str = Field(default="", repr=False)
+    inference_backend_probe_token: str = Field(default="", repr=False)
+    inference_backend_probe_token_file: str = ""
+    inference_backend_probe_database_url: str = Field(default="", repr=False)
+    inference_backend_probe_database_url_file: str = ""
+    inference_backend_probe_timeout_seconds: float = Field(default=30, gt=0, le=3600)
+    inference_health_observation_url: str = Field(default="", repr=False)
+    inference_health_observation_token: str = Field(default="", repr=False)
+    inference_health_observation_token_file: str = ""
+    inference_health_observation_database_url: str = Field(default="", repr=False)
+    inference_health_observation_database_url_file: str = ""
+    inference_health_observation_timeout_seconds: float = Field(
+        default=90, gt=0, le=3600
+    )
+    inference_registry_ingress_url: str = Field(default="", repr=False)
+    inference_registry_ingress_token: str = Field(default="", repr=False)
+    inference_registry_ingress_token_file: str = ""
+    inference_registry_ingress_database_url: str = Field(default="", repr=False)
+    inference_registry_ingress_database_url_file: str = ""
+    inference_registry_ingress_timeout_seconds: float = Field(default=90, gt=0, le=3600)
+    inference_routing_url: str = Field(default="", repr=False)
+    inference_routing_token: str = Field(default="", repr=False)
+    inference_routing_token_file: str = ""
+    inference_routing_database_url: str = Field(default="", repr=False)
+    inference_routing_database_url_file: str = ""
+    inference_routing_timeout_seconds: float = Field(default=30, gt=0, le=3600)
 
     media_probe_url: str = ""
     media_probe_token: str = Field(default="", repr=False)
@@ -578,53 +721,6 @@ class Settings(BaseSettings):
         # VITE_TURNSTILE_SITE_KEY 等）；pydantic-settings 2.13 起 extra 默认
         # 为 "forbid"，会让本地 dev 启动失败。这里显式忽略，让前后端共用一份 .env。
         extra = "ignore"
-
-    identity_url: str = ""
-    identity_token: str = Field(default="", repr=False)
-    identity_timeout_seconds: float = Field(default=20, gt=0, le=120)
-    identity_auth_database_url: str = Field(default="", repr=False)
-    identity_auth_database_url_file: str = ""
-    identity_key_database_url: str = Field(default="", repr=False)
-    identity_key_database_url_file: str = ""
-    identity_session_database_url: str = Field(default="", repr=False)
-    identity_session_database_url_file: str = ""
-    identity_account_database_url: str = Field(default="", repr=False)
-    identity_account_database_url_file: str = ""
-    identity_group_database_url: str = Field(default="", repr=False)
-    identity_group_database_url_file: str = ""
-    identity_directory_database_url: str = Field(default="", repr=False)
-    identity_directory_database_url_file: str = ""
-    identity_admin_password_database_url: str = Field(default="", repr=False)
-    identity_admin_password_database_url_file: str = ""
-    identity_platform_role_database_url: str = Field(default="", repr=False)
-    identity_platform_role_database_url_file: str = ""
-    identity_suspension_database_url: str = Field(default="", repr=False)
-    identity_suspension_database_url_file: str = ""
-    identity_deletion_database_url: str = Field(default="", repr=False)
-    identity_deletion_database_url_file: str = ""
-    identity_offboarding_database_url: str = Field(default="", repr=False)
-    identity_offboarding_database_url_file: str = ""
-    identity_briefs_database_url: str = Field(default="", repr=False)
-    identity_briefs_database_url_file: str = ""
-    identity_invitation_database_url: str = Field(default="", repr=False)
-    identity_invitation_database_url_file: str = ""
-    identity_invitation_mail_timeout_seconds: float = Field(default=60, gt=0, le=120)
-    identity_deactivation_database_url: str = Field(default="", repr=False)
-    identity_deactivation_database_url_file: str = ""
-    identity_deactivation_operator_database_url: str = Field(default="", repr=False)
-    identity_deactivation_operator_database_url_file: str = ""
-    identity_presence_database_url: str = Field(default="", repr=False)
-    identity_presence_database_url_file: str = ""
-    identity_recovery_database_url: str = Field(default="", repr=False)
-    identity_recovery_database_url_file: str = ""
-    identity_recovery_mail_key: str = Field(default="", repr=False)
-    identity_recovery_mail_key_file: str = ""
-    identity_mail_database_url: str = Field(default="", repr=False)
-    identity_mail_database_url_file: str = ""
-    identity_mail_v2_database_url: str = Field(default="", repr=False)
-    identity_mail_v2_database_url_file: str = ""
-    identity_mail_settings_database_url: str = Field(default="", repr=False)
-    identity_mail_settings_database_url_file: str = ""
 
 
 settings = Settings()

@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-inference-health-observation/v1",
+  "title": "Inference backend health observation wire",
+  "oneOf": [
+    { "$ref": "#/$defs/BackendHealthObservationRequest" },
+    { "$ref": "#/$defs/BackendHealthObservationReply" }
+  ],
+  "$defs": {
+    "BackendHealthObservationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "request_id", "registry_id", "subject"],
+      "properties": {
+        "schema": { "const": "aap-inference-health-observation/v1" },
+        "request_id": { "type": "string", "format": "uuid" },
+        "registry_id": { "type": "string", "format": "uuid" },
+        "subject": {
+          "type": "string",
+          "minLength": 7,
+          "pattern": "^v1\\.(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+          "writeOnly": true,
+          "description": "Opaque encrypted Native subject; never plaintext credentials."
+        }
+      }
+    },
+    "BackendHealthObservationReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "request_id", "registry_id", "subject_sha256", "evidence"],
+      "properties": {
+        "schema": { "const": "aap-inference-health-observation/v1" },
+        "request_id": { "type": "string", "format": "uuid" },
+        "registry_id": { "type": "string", "format": "uuid" },
+        "subject_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "evidence": {
+          "type": "string",
+          "minLength": 7,
+          "pattern": "^v1\\.(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+          "description": "Opaque encrypted Native evidence; never observation plaintext."
+        }
+      }
+    },
+    "BackendHealthObservationNativePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "observation_protocol",
+        "subject_protocol",
+        "evidence_protocol",
+        "origin_transaction",
+        "evidence_protection",
+        "functions",
+        "ready"
+      ],
+      "properties": {
+        "schema": { "const": "aap-inference-health-observation-native/v1" },
+        "observation_protocol": { "const": "aap-inference-health-observation/v1" },
+        "subject_protocol": { "const": "aap-inference-health-observation-subject/v1" },
+        "evidence_protocol": { "const": "aap-inference-health-observation-evidence/v1" },
+        "origin_transaction": { "const": "in_progress" },
+        "evidence_protection": { "const": "pgcrypto-pgp-aes256-mdc" },
+        "functions": {
+          "const": [
+            "aap_inference_health_observation_v1.health_observation_policy()",
+            "aap_inference_health_observation_v1.capture_health_observation_subject(uuid,uuid,text,text,double precision)",
+            "aap_inference_health_observation_v1.open_health_observation_subject(text,uuid,uuid)",
+            "aap_inference_health_observation_v1.seal_health_observation(text,uuid,uuid,text)",
+            "aap_inference_health_observation_v1.verify_health_observation(text,uuid,uuid,text)"
+          ]
+        },
+        "ready": { "type": "boolean" }
+      }
+    },
+    "HealthObservationJSONValue": {
+      "description": "JSON value accepted in the private sealed outcome; Python's legacy NaN and Infinity tokens are also preserved.",
+      "oneOf": [
+        { "type": "null" },
+        { "type": "boolean" },
+        { "type": "number", "x-allow-non-finite-numbers": true },
+        { "type": "string" },
+        {
+          "type": "array",
+          "items": { "$ref": "#/$defs/HealthObservationJSONValue" }
+        },
+        {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/HealthObservationJSONValue" }
+        }
+      ]
+    },
+    "BackendHealthObservationObservedOutcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "healthy", "meta", "setup_failed", "setup"],
+      "properties": {
+        "kind": { "const": "observed" },
+        "healthy": { "type": "boolean" },
+        "meta": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": { "$ref": "#/$defs/HealthObservationJSONValue" }
+            }
+          ]
+        },
+        "setup_failed": { "type": "boolean" },
+        "setup": { "$ref": "#/$defs/HealthObservationJSONValue" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "anyOf": [
+              { "properties": { "healthy": { "const": false } } },
+              { "properties": { "meta": { "type": "null" } } }
+            ]
+          },
+          "then": {
+            "properties": {
+              "setup_failed": { "const": false },
+              "setup": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "setup_failed": { "const": true } } },
+          "then": { "properties": { "setup": { "type": "null" } } }
+        }
+      ],
+      "x-setup-eligible-when": "healthy is true and meta is an object",
+      "x-ineligible-setup-values": { "setup_failed": false, "setup": null },
+      "x-setup-failure-value": { "setup_failed": true, "setup": null }
+    },
+    "BackendHealthObservationLegacyErrorOutcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "error_type", "error_message"],
+      "properties": {
+        "kind": { "enum": ["legacy_constructor_error", "legacy_health_error"] },
+        "error_type": {
+          "enum": [
+            "ValueError",
+            "TypeError",
+            "AttributeError",
+            "OverflowError",
+            "InvalidURL",
+            "RuntimeError"
+          ]
+        },
+        "error_message": { "type": "string" }
+      }
+    },
+    "BackendHealthObservationOutcome": {
+      "description": "Private plaintext JSON text decoded before mapping legacy exceptions; never sent in the wire envelope.",
+      "oneOf": [
+        { "$ref": "#/$defs/BackendHealthObservationObservedOutcome" },
+        { "$ref": "#/$defs/BackendHealthObservationLegacyErrorOutcome" }
+      ]
+    }
+  },
+  "x-request-max-bytes": 25165824,
+  "x-reply-max-bytes": 25165824,
+  "x-private-outcome-max-bytes": 16777216
+}

@@ -12,7 +12,7 @@ import pytest
 
 
 @pytest.mark.asyncio
-async def test_list_create_revoke_api_key(httpx_client, super_admin):
+async def test_list_create_revoke_api_key(httpx_client, super_admin, db_session):
     user, token = super_admin
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -37,6 +37,13 @@ async def test_list_create_revoke_api_key(httpx_client, super_admin):
     key_id = body["id"]
     plaintext = body["plaintext"]
 
+    # logout is JWT-only; an API key must receive an authentication response,
+    # never reach JWT decoding and produce an internal error.
+    logout = await httpx_client.post(
+        "/api/v1/auth/logout", headers={"Authorization": f"Bearer {plaintext}"}
+    )
+    assert logout.status_code == 401
+
     # 列表中可见
     res = await httpx_client.get("/api/v1/me/api-keys", headers=headers)
     assert res.status_code == 200
@@ -50,6 +57,10 @@ async def test_list_create_revoke_api_key(httpx_client, super_admin):
     )
     assert res.status_code == 200
     assert res.json()["email"] == user.email
+    from app.db.models.api_key import ApiKey
+
+    used_key = await db_session.get(ApiKey, uuid.UUID(key_id))
+    assert used_key is not None and used_key.last_used_at is not None
 
     # 吊销
     res = await httpx_client.delete(f"/api/v1/me/api-keys/{key_id}", headers=headers)
@@ -264,56 +275,88 @@ async def test_patch_key(httpx_client, super_admin):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("target", ["api_keys", "feedback_list", "feedback_patch"])
-async def test_actor_routes_reuse_auth_and_commit_last_used_independently(
+async def test_actor_routes_resolve_identity_principal_once(
     target, test_engine, app_module, monkeypatch
 ):
     import httpx
     from sqlalchemy import delete
     from sqlalchemy.ext.asyncio import async_sessionmaker
+    from types import SimpleNamespace
 
-    from app.db.models.api_key import ApiKey
     from app.db.models.user import User
-    from app.deps import get_db
-    from app.services import api_key_service
-    from app.services.api_key_service import _create_key_for_owner
+    from app.deps import get_db, get_identity_gateway
+    from app.api.v1.api_keys import get_api_key_management
+    from aap_identity.contract import Principal
+    from aap_identity.key_contract import decode_key_reply
     from tests.factory import make_user_dict
 
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     owner_id = None
-    key_id = None
     missing = object()
     previous_get_db = app_module.dependency_overrides.get(get_db, missing)
+    previous_gateway = app_module.dependency_overrides.get(
+        get_identity_gateway, missing
+    )
+    previous_keys = app_module.dependency_overrides.get(get_api_key_management, missing)
     try:
+        owner_email = f"api-key-owner-{uuid.uuid4()}@test.local"
         async with maker() as db:
             owner = User(
                 **make_user_dict(
                     "super_admin",
-                    f"api-key-owner-{uuid.uuid4()}@test.local",
+                    owner_email,
                     "API Key Owner",
                 )
             )
             db.add(owner)
             await db.flush()
             owner_id = owner.id
-            key, plaintext = await _create_key_for_owner(
-                db, owner_id, "last-used durability", []
-            )
-            key_id = key.id
             await db.commit()
 
-        async with maker() as db:
-            key_before = await db.get(ApiKey, key_id)
-            assert key_before is not None and key_before.last_used_at is None
+        class FakeGateway:
+            calls = 0
 
-        resolve_count = 0
-        resolve_token = api_key_service.resolve_token
+            async def authenticate(self, token, *, db=None):
+                self.calls += 1
+                assert token == "ak_test_identity_principal"
+                self.principal = SimpleNamespace(
+                    actor_id=owner_id,
+                    name="API Key Owner",
+                    email=owner_email,
+                    role="super_admin",
+                    is_active=True,
+                    credential_type="api_key",
+                    credential_id=uuid.uuid4(),
+                    generation=None,
+                    scopes=[],
+                    expires_at=None,
+                )
+                return self.principal
 
-        async def count_resolve_token(db, token):
-            nonlocal resolve_count
-            resolve_count += 1
-            return await resolve_token(db, token)
+            def uses_caller_session(self, _db):
+                return False
 
-        monkeypatch.setattr(api_key_service, "resolve_token", count_resolve_token)
+        gateway = FakeGateway()
+        app_module.dependency_overrides[get_identity_gateway] = lambda: gateway
+
+        class KeyOwner:
+            async def execute(self, command):
+                assert command.operation == "list_api_keys"
+                assert command.token == "ak_test_identity_principal"
+                principal = Principal(**vars(gateway.principal))
+                return decode_key_reply(
+                    command,
+                    {
+                        "schema": "aap-identity-keys/v1",
+                        "ok": True,
+                        "operation": command.operation,
+                        "operation_id": str(command.operation_id),
+                        "principal": principal.model_dump(mode="json"),
+                        "data": {"items": []},
+                    },
+                )
+
+        app_module.dependency_overrides[get_api_key_management] = lambda: KeyOwner()
         session_count = 0
 
         async def get_independent_db():
@@ -327,7 +370,7 @@ async def test_actor_routes_reuse_auth_and_commit_last_used_independently(
         async with httpx.AsyncClient(
             transport=transport, base_url="http://test"
         ) as client:
-            headers = {"Authorization": f"Bearer {plaintext}"}
+            headers = {"Authorization": "Bearer ak_test_identity_principal"}
             if target == "api_keys":
                 response = await client.get("/api/v1/me/api-keys", headers=headers)
             elif target == "feedback_list":
@@ -345,24 +388,28 @@ async def test_actor_routes_reuse_auth_and_commit_last_used_independently(
 
         if target == "api_keys":
             assert response.status_code == 200, response.text
-            assert [row["id"] for row in response.json()] == [str(key_id)]
+            assert response.json() == []
         else:
             assert response.status_code == 404, response.text
             assert response.json()["detail"] == (
                 "项目不存在" if target == "feedback_list" else "feedback not found"
             )
-        assert resolve_count == 1
+        assert gateway.calls == 1
         assert session_count == 1
-        async with maker() as db:
-            persisted_key = await db.get(ApiKey, key_id)
-            assert persisted_key is not None and persisted_key.last_used_at is not None
     finally:
         if previous_get_db is missing:
             app_module.dependency_overrides.pop(get_db, None)
         else:
             app_module.dependency_overrides[get_db] = previous_get_db
+        if previous_gateway is missing:
+            app_module.dependency_overrides.pop(get_identity_gateway, None)
+        else:
+            app_module.dependency_overrides[get_identity_gateway] = previous_gateway
+        if previous_keys is missing:
+            app_module.dependency_overrides.pop(get_api_key_management, None)
+        else:
+            app_module.dependency_overrides[get_api_key_management] = previous_keys
         if owner_id is not None:
             async with maker() as db:
-                await db.execute(delete(ApiKey).where(ApiKey.user_id == owner_id))
                 await db.execute(delete(User).where(User.id == owner_id))
                 await db.commit()

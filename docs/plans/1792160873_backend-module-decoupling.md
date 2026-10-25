@@ -1,6 +1,6 @@
 # 后端业务模块解耦与跨语言替换设计
 
-> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；同步 ZIP 与旧前缀扫描已纳入既有 Assets Source 工件及 0215 原生合同，并通过真实隔离服务、受限角色与故障恢复验收。Scene、位姿和标定切片已提取至既有 Catalog 工件，并通过隔离数据库、真实 HTTP/S3 与消费者资格验证；连接管理及本地图片/nuScenes 来源登记已迁入各自合同并完成本地验收；媒体/Blob、其余运维流程和其他模块继续推进。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
+> Status: 进行中。目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。协调视频恢复与 Identity 整模块已完成限定本地功能验收；其余模块先完成实现与调用迁移，再按模块集中验收和采用。唯一剩余工作台账见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)，分开记录实现、消费者迁移、独立运行资格与阻塞。文末 Outcome 保留历史证据，不作为另一份待办。共享物理 PostgreSQL 可以保留，所有者能力、事务／撤权／取消／旧写者与恢复语义必须保持。Go 保持实验；不推送、不发布、不切生产，当前视频恢复切片也不切日常主环境。
 >
 > 创建日期：2026-10-16。
 >
@@ -492,7 +492,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - 写入权限解析与管理命令统一复用当前账号→项目→成员锁；项目为 KEY SHARE，阻止显式 FOR UPDATE 的所有权转移/删除而不阻塞普通计数更新。最初 SHARE 在双写实测中产生 40P01；改用 KEY SHARE 和 SQL 原子计数后，两次提交均成功、完成/审核数为 2/0。传统生命周期的项目围栏同步使用 KEY SHARE。
 - 任务生命周期/审核在命令边界重新取权，旧 `ProjectAccess` 只核对主体/资源绑定，不充当许可；审核显式核对当前 `review.write`。批次、任务以 NOWAIT 刷新并锁定，整批每 200 题提交后重新取权，保留部分提交与提交后质检/通知语义，不新增编辑者角色规则。
 - 离职先锁项目再锁目标/接收人成员，并刷新 Project、批次、任务和编辑锁行后核对快照/CAS。真实保留会话的旧项目曾允许前负责人停用成员，修复后拒绝 403；职责降级后的直接审核领取曾被接受，修复后拒绝 403 且未认领。
-- 数据组交叉改名/删除先复现两种 40P01，再以操作者权威 KEY SHARE 保留撤权互斥、允许非授权字段投影，两项均成功提交。退出冲突曾先吊销令牌，现先取得账号准入：409 不破坏令牌，随后可正常退出。新增账号权威围栏回归验证撤权锁提交前互斥、提交后停用阻断目录修改。
+- 旧 ORM 数据组路径的交叉改名/删除曾复现两种 40P01，再以操作者权威 KEY SHARE 保留撤权互斥、允许非授权字段投影；该组目录／指派路径现由下方 Identity owner slice 替换，当前 Group/User 与 Workspace scope 锁序以最新切片为准。退出冲突曾先吊销令牌，现先取得账号准入：409 不破坏令牌，随后可正常退出。新增账号权威围栏回归验证撤权锁提交前互斥、提交后停用阻断目录修改。
 - 617 个不同测试通过，其中 149 项为架构检查；69 项 lazy-root 规则不适用跳过。初轮因原生夹具残留额外超管影响“最后超管”前置条件，并因偏好锁误改 NOWAIT 破坏原有并发合并而中断；重置已验证可丢弃环境，保留原等待式偏好/登录锁，仅补跑失败、未完成及新改动范围，未改写合并/CAS 断言掩盖回归。
 - 真实 ASGI/JWT/PostgreSQL/Redis：写入持锁时离职/转移 409，提交后 200；旧凭据 401、恢复后旧题 404、前负责人写入 404，历史作者与标注保留、责任与编辑锁原子交接。数据组创建/重复/指派/改名/删除、临时密码登录、自助改密、旧密码拒绝和传统删除/GDPR 均验证，历史脱敏 2 条并记录同一计数。
 - 真实 HTTP 同项目双题审核均 200，计数为 2/0；202 题整批送审实测三次提交和三次当前权威获取、202 条逐题审计，额外 rejected 题保持不变。随后撤回、重送、重开、接受退回均 200，重开后完成/审核数为 1/0。原生脚本的初次路由/响应字段错误按实际 schema 修正，分段继续验证，没有以脚本错误修改产品契约。
@@ -816,7 +816,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 
 ### 运维导入、数据库重置与开发种子清理
 
-- `DatasetService` 持有图片/nuScenes 素材创建、来源 metadata、尺寸回填、内容摘要、文件数与数据库重置；`project_workspace` 持有导入项目命令，`IdentityCommandService.ensure_import_admin` 持有原 CLI 身份引导/生产拒绝。Scene 导入来源采用独立替换入口，保留 null 清空语义，不复用 PATCH 的 null 忽略。
+- `DatasetService` 持有图片/nuScenes 素材创建、来源 metadata、尺寸回填、内容摘要、文件数与数据库重置；`project_workspace` 持有导入项目命令。`seed_pointcloud.py` 和 nuScenes importer 经调用方事务适配器委托 Identity provisioning owner 检查 exact-email admin，保留原生产拒绝与回滚语义，不直接读取或写入 User ORM。Scene 导入来源采用独立替换入口，保留 null 清空语义，不复用 PATCH 的 null 忽略。
 - `NuScenesImportWorkflow` 组合 workspace、关联、标定与任务，明确关闭标定和分块提交，让入口统一提交同一个 SQL 事务；普通建题保留原默认提交点。`DatasetResetWorkflow` 组合任务素材引用解除和素材行删除，仍只清数据库、不删除 MinIO；CLI 保留参数及数据集/owner 报告。
 - 隔离实际图片 CLI 使用 `--name` / `--folder` / `--limit` 导入真实 JPEG；nuScenes CLI 导入一场景两帧，独立连接核对 5 个素材、2 个 pose、2 个点云任务及标定/相机链接，重放不新增。真实延迟约束拒绝最后提交后无导入数据库行，7 个已上传对象仍保留；实际重置删除数据集/素材/场景/关联并解除任务来源，但不删除源字节。
 - 统一 SQL 事务暴露旧开发种子提前删对象的问题：真实旧 `P-PC-DEV` 夹具在提交失败后恢复数据库行，但旧 PCD 已丢失。改为返回旧 key 清理计划，`seed_pointcloud.main` 与 `seed.py` 都在成功提交后才物理删除。实际 `seed_pointcloud.main` 失败时旧行和旧对象均保留；成功时提交前后旧对象都存在，显式提交后清理才删除，新对象不受影响。新上传在 SQL 回滚后仍可能成为孤儿；提交后删除失败只告警，不宣称跨存储原子性。
@@ -957,7 +957,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 
 ### 运维 CLI 的身份、任务数据集与视频时间表写入
 
-- `application/bootstrap_admin.py` 组合身份命令与审计；用户创建、口令哈希和既有邮箱判断归 `IdentityCommandService`，CLI 持有最终提交。`application/task_dataset_backfill.py` 持有有界枚举、核查与报告，membership 继续由 `project_task_dataset` 写入；CLI 保留只读模式、逐批提交和 JSON Lines 输出，不改冻结内容。
+- `application/bootstrap_admin.py` 调用 Identity provisioning owner；用户创建、口令哈希、既有邮箱判断和固定 bootstrap Audit 在同一外层事务内由 Identity/Audit owners 协作，CLI 保留最终提交与旧 boolean 返回。`application/task_dataset_backfill.py` 持有有界枚举、核查与报告，membership 继续由 `project_task_dataset` 写入；CLI 保留只读模式、逐批提交和 JSON Lines 输出，不改冻结内容。
 - `VideoTimetableRebuildWorkflow` 组合原来源对象读取、纯 ffprobe 与稀疏锚点，`DatasetService` 写索引、总帧数与时间表错误字段。按项提交、失败项回滚、其它视频 metadata 保留；源 key 和既有桶前缀路由未改。探测实现迁到 canonical `services/media_probe.py`，旧 worker 模块与解析重导出不保留。
 - 隔离真实 CLI / owned PostgreSQL、MinIO、Redis worker 已观察 bootstrap 创建与重放、backfill 只读/逐批应用/第二批 SQL 失败回滚与后续恢复，以及真实 H264 的稀疏时间表、只读探测和触发器失败后的旧索引保持。普通 metadata Celery 任务实际持久化十二行索引；它不是浏览器或精确视频 renderer 资格。原始 CLI 输出与新连接观察保留在 `/tmp/aap-ops-evidence/ops-smoke.json`、`ops-smoke-commands.json`。
 - 主线双视频原生复现确认：首项源对象缺失后的 rollback 使整批已选 ORM 行过期，只缓存当前项 ID 仍会在下一项抛 `MissingGreenlet`。CLI 现先保存选择项 UUID，并在发生 rollback 后显式刷新后续项，不吞异常、不添加重试。修正后仍以非零退出码报告首项失败，但第二项完成；新 PG 事务见失败项旧索引保持、后续锚点为 `[0, 3, 6, 9, 11]`、源总帧数十二，原有 metadata 保留。该用户可见修复已记入 Unreleased。
@@ -991,7 +991,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 
 ### 邀请接受与成员授予
 
-- `application/invitation_acceptance.py` 组合身份邀请和 workspace 成员授予。邀请规则、原锁围栏、组名及接受状态由 `InvitationService` 持有；主线另把账号构造收回 `IdentityCommandService.create_invited_account`，不将 User DML 留在组合层。`project_membership.grant_invitation_membership` 独占成员 INSERT、`assigned_by` 和并发重复 409，不自行提交。HTTP 保留审计 → commit → refresh → 注册 JWT 的原顺序。
+- `application/invitation_acceptance.py` 组合身份邀请和 workspace 成员授予。邀请规则、原锁围栏、组名及接受状态由 Identity Invitation owner 持有，并在调用方事务中创建／接受账号；运维 bootstrap/import provisioning 是另一组固定语义，不被邀请流程复用。`project_membership.grant_invitation_membership` 独占成员 INSERT、`assigned_by` 和并发重复 409，不自行提交。HTTP 保留审计 → commit → refresh → 注册 JWT 的原顺序。
 - 隔离真实 Uvicorn TCP/default 依赖已观察注册 201、返回 JWT 对 `/auth/me` 认证 200、已有账号接受 200、重放 410；独立 SQL 确认两个成员的邀请人归属及两条审计持久化，未投递 SMTP。原始记录在 `/tmp/aap-invitation-evidence/http-smoke.json`，其自有 dev/test 资源已销毁。
 - 主线默认依赖 ASGI/JWT 复验相同成功路径，新 PostgreSQL 事务确认两个 invitation、正确的 annotator/reviewer 成员与邀请人、受邀 employee 账号及两条审计。首次探针误读不存在的 `AuditLog.detail` 后，只修正观察者为真实 `detail_json` 并恢复已提交夹具，没有重复注册/接受；完整说明在 `.worktree/invitation-main-smoke.json`。
 - 仅对自有 invitation UUID 安装 deferred constraint trigger，使 PostgreSQL 在实际 commit 抛错；SQLAlchemy 错误观察者确认命中该触发器，而不是用任意 500 冒充。HTTP 500 后新事务见零新账号、零新审计、原有两个成员保持、目标邀请仍 pending；触发器和函数均已移除。
@@ -2152,23 +2152,6411 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   independent owner operation. No reset command or destructive primary test is
   run. These lifecycle/ops gaps remain part of the active full-module goal.
 
-### Identity primary adoption checkpoint
+### Identity admission and durable session authority
 
-- Base is the protected primary 856fa79c87; accepted Identity implementation is selected from 4f9e0d97b, with Identity-only actor/read/write-fence and operator-consumer patches. Later Workspace implementation is excluded. The complete linear migration tail through 0306 and its owner grant artifacts are prerequisites.
-- A read-only primary snapshot passes the 0234-to-0306 upgrade and original-snapshot restore in an owned disposable PostgreSQL instance. The real baseline has 171 relations and one business row; two users and two legacy recovery tokens are added only in the copy. Password hashes, JWT admission, token hashing/email binding and original data projections are verified. The primary remains clean at 0234. Evidence: .worktree/identity-adoption-primary-copy-third.json.
-- Existing organization-ID capability is granted to the ordinary API so legacy template/pipeline consumers can remain in place while Identity private tables are revoked. The public profile is two relations and six functions. Actual HTTP visibility, denied direct table access and Node interoperability pass in .worktree/identity-primary-compatibility-first.json. No new owner implementation, SQL migration or deployment mode is introduced by this compatibility step.
-- The adoption API passes 252 unique selected contract cases across ten files: 143 from the first receipt and 109 from the second. The only intervening test source addition is the missing already-qualified preference helper; all earlier source hashes are checked before reuse. The initial fixture failures remain retained, and both owned environments are completely removed.
-- Cold API artifacts and complete independent assembly of this exact checkpoint remain pending. Source adoption and primary runtime cutover are still separate gates. Go and production remain unchanged.
+- The full10module/7gate objective remains active. Identity admission is now a
+  real extraction candidate: one portable Python verifier, closed principal
+  protocol, independent private runtime/package/image and explicit local/remote
+  assembly. Python reuses existing bcrypt/JOSE; the Go experiment is unchanged.
+- Native0235 owns generation, retained JTI metadata and11functions. Auth,
+  command, final-fence and operator LOGINS have4/5/1/1business capabilities with
+  no direct tables, role membership or CREATE/TEMP. Lifecycle revocation uses
+  the caller transaction; all REST/WS admissions use the common verifier.
+- The issuer/key derivation cutoff rejects oldJWTs, requiring login again;
+  SQL-backed APIkeys remain valid. No incomplete Redis import is used. Old
+  issuers/verifiers must be drained; retained state blocks downgrade and recovery
+  rolls forward. Credential admission alone does not fence every later write.
+- Integration fixes include PostgreSQL-compatible UUID pagination, one command
+  snapshot for current account/JTI facts, current-role hydration without stale
+  overwrite, all Principal actor-id callers, strict scope validation for refresh,
+  bounded secret files/HTTP responses and complete request deadlines. Existing
+  current-platform-role fixtures replace ordinary historical-role fixtures.
+- Preliminary isolated native/consumer/role/autogeneration checks have104unique
+  passing cases. Earlier failed fixture/WS reports remain historical; all their
+  owned PostgreSQL, Redis and storage resources were removed. The separate nine-case
+  refresh run passes, including wrong-owner rejection. Package/runtime checks
+  pass36cases and caller/audit units pass11cases in their own reports. A first
+  image was built, with final source-hash/process,
+  second-language and cutover qualification still pending.
+- Daily development remains at the previous qualified implementation and
+  migration0234. No Identity source, migration, signing-secret or environment
+  cutover is made there yet. Login/registration, key management, password/email
+  commands, profile hydration, cross-owner coordination and universal current
+  credential write fences are still part of the full Identity work. Do not call
+  this tranche full Identity or full-module independent deployment.
 
-- The first complete cold attempt reached the actual stack but stopped at a missing Node registration-peer fixture. The existing Identity fixture assets were then copied from the accepted source. A focused real registration/status peer exposed two omitted consumer patches: management settings still used the edge deployment default rather than the Identity owner default. Reuse the original 956f52fbe changes in system_settings.py and system_settings_service.py; no owner or schema rewrite is needed. The focused peer plus system-settings regression cohort now passes. Failed receipts and complete owned cleanup are retained; refresh only the API image before retrying the full case.
+### Identity installed-process and recovery qualification
 
-- Exact-checkpoint module qualification now passes at bb4b0c454: one full cold Compose/restart/restore case, 66 public requests plus actual Socket/Node/mail/publisher consumers, distinct owner/edge signing secrets, restricted API and Redis ACLs, owner outage refusal, replay and complete data/ACL restore. Canonical .worktree/identity-adoption-qualification.json SHA-256 is 7c7a3739e540e6f1de389f3b5667c8afc573865e0c6c37ceac3486a769aa19d3. The directed union is 268 unique cases, plus one distinct full-module case; no request counts are added as cases.
-- API image sha256:1f2a6942a59d9ba728eabe49a38be7fbd69e6bc7116c4d13aedcd48f11ca7941 and Identity image sha256:8add0d9cc9d69faec470d00c9472c3a7d669317dcaae2b0578607f6d782e9279 pass full source-manifest/file probes; the API imports all 580 routes in a network-disabled read-only ordinary-UID container. Docs build passes after restoring the missing Identity directory ADR dependency. Original failures remain retained and all owned runtime resources are removed.
-- Primary remains clean at 856fa79c87 and schema 0234, with reloader PID 10982 from the verified primary API cwd; no installed development-restart wrapper is present on this macOS host. Actual application/migration database is annotation on localhost:5432 as user. The next adoption step must preserve and coordinate this current API process, snapshot before mutation, fast-forward only the accepted checkpoint, update its local environment/schema, and restore readiness while retaining existing embedded bindings. Independent daily topology cutover, production and Go remain outside that step.
+- The installed host package and independent nonroot image match every current
+  Python/schema source hash. They import no API, SQLAlchemy, Redis, Celery, S3
+  or ML dependency. The image runs with a read-only root, verified tmpfs, one CPU,
+  256 MiB and 64 PIDs, with no source mounts.
+- A real API process consumes the container over HTTP. JWT and API-key identity,
+  scopes, rotation, last-use recording, logout, logout-all, credential revocation,
+  notification socket handshake/per-message rejection and service-down 503 pass.
+  A separately installed process retains revoked JTI state across restart and
+  fails readiness when any required AUTH function grant is removed.
+- A standalone Node client checks the complete actor/credential/role/generation
+  binding and preserves exact signed 64-bit generation values. It is a protocol
+  consumer fixture, not another language's provider implementation or a complete
+  language-replacement proof. Thirty-two JWT requests at concurrency eight are
+  a bounded local smoke, not sustained production capacity qualification.
+- An ACL-preserving PostgreSQL backup restores generation, JTI, API keys and
+  restricted AUTH function privileges into a second owned database. Authentication
+  uses the restricted LOGIN after restore. Both populated-account and JTI-only
+  downgrade attempts refuse without changing revision or retained state. The
+  clone and its backup are removed using the acceptance's ownership checks.
+- The current backend qualification has 537 distinct passing cases. Its 123
+  explicit exclusions are 122 domains with no lazy-root rule and one allow edge
+  covered by a dedicated case. Initial regression exposed a gateway/session
+  adapter SCC; common failures now live in the existing pure Identity contract.
+  An old employee fixture now makes its pending review Task visible so its
+  unchanged 403 annotation-capability assertion is exercised. Docker tmpfs is
+  verified through HostConfig and actual mountinfo rather than an empty Mounts
+  list. Failed reports remain historical; selected follow-ups resolve all cases.
+- SDK regression has 1131 distinct passing cases after regeneration of the
+  offline operation catalog's two existing source-delete 409 responses. The
+  selected discovery follow-up passes 21 cases; unrelated successful SDK tests
+  are not rerun. Public API/SDK versions and public response models do not change.
+- A rebuilt API image from the clean implementation commit matches 23 API,
+  dependency and migration files plus all 10 installed Identity source/schema
+  files. Network-disabled cold import verifies the real API, selected existing
+  prediction-worker signatures, exact OpenAPI and migration head 0235. This
+  artifact proof complements the separate host-API/container-Identity live run;
+  it does not claim running daily workers or a daily environment cutover.
+- The module-data verifier accepts explicit test files/node IDs, rejects targets
+  outside the API test tree, records the selected suite and refuses a zero-pass
+  all-skipped acceptance. Two focused CLI/reporting checks pass. Every owned live
+  verifier reports zero cleanup errors; shared infrastructure is preserved.
+- Daily development still uses migration 0234 and the earlier qualified source.
+  This tranche does not switch its validator, signing secret, API or workers.
+  Full Identity command ownership, least-privilege API assembly, selected provider
+  replacement, the remaining module matrix and local cutover stay active. The
+  Go experiment, production, push, release and remote CI are outside this work.
 
-### Identity accepted source adopted into primary
+### Identity API-key command ownership and replay qualification
 
-- The verified macOS LaunchAgent owns pnpm dev:api in the primary checkout. Boot it out before changing watched inputs; retain a fresh private full database dump and cluster globals with 0700 directory/0600 files. The exact new dump restores into an owned disposable PostgreSQL and matches all baseline data; the owned restore container is removed. The backup remains private for recovery.
-- Fast-forward primary from 856fa79c87 to accepted d2ea90f3f. Locked dependency sync adds only aap-identity and aap-mail-transport; all fifteen editable bindings resolve inside primary. Apply the qualified linear migration 0234-to-0306 to the verified local annotation database, then bootstrap the unchanged LaunchAgent. All 171 original business relations and the one real business row match their original fingerprints. No development fixture is seeded.
-- Actual DB/Redis/MinIO health, owner-backed registration policy, unauthenticated refusal and exact live OpenAPI/snapshot comparison pass. Touching auth.py starts a new healthy server child under the same reloader; no source content changes. Existing embedded bindings remain. Celery was and remains disabled, so aggregate/Celery health is 503; old worker images must be rebuilt before enabling. Independent daily topology cutover, another-language complete provider, production, push and Go remain unqualified/out of this adoption step.
-- Delivery receipt .worktree/identity-primary-adoption-delivery.json SHA-256 5bc31b3fa2b4d3e5f95001f6d19707a73ec1acce250d3a5724bfc245fd5d1cd2 binds source adoption, schema, data, package paths, actual API and reload. Preparation receipt SHA-256 2cb1de8539aa4258fb120999f0b8a48b95b88dbee8cf4cf97fb82eb2556c08fe records private backup hashes and restore. Reuse the earlier cold-module qualification; delivery changed no runtime source.
+- The existing Identity package and private runtime now own list, create, update,
+  rotate and revoke. The API command port carries values and validated principals;
+  the former ORM key writer and token generator are removed. Public response
+  shapes and scope rules are unchanged. Admission remains a separate call for
+  failed-request attribution, followed by independent command authentication and
+  the native commit fence.
+- Migration 0236 adds one Identity-owned mutation receipt table and two native
+  functions. The separate key LOGIN has exactly policy and command capabilities,
+  without direct tables, DDL, memberships or AUTH functions. Current User and
+  credential locks serialize writes with revocation, generation and key rotation;
+  API-key hash equality rejects a key rotated after its password verification.
+- Receipts and writes commit atomically. Explicit private operation replay returns
+  frozen data after current authentication, without reapplying old state. HMAC
+  derivation under a separate purpose domain reproduces issuance plaintext across
+  response loss and restart; receipts store neither bearer plaintext nor hashes.
+  Secret rotation conflicts with old issue operations while existing key hashes
+  remain valid. Self-rotation requires another valid owner credential for replay.
+  Public POSTs gain no automatic retry or idempotency header.
+- A real API process uses the AUTH LOGIN, which cannot SELECT users or API keys,
+  and completes all five commands through the independent owner container. Node
+  exercises every operation with exact 64-bit generation values. Tests cover
+  dropped rotation replies, provider restart, saved-operation replay, revoked
+  credentials, omitted/null expiry, Unicode names, operation conflicts, missing
+  capabilities and no fallback. This is cross-language consumption evidence,
+  not a second-language provider replacement or sustained capacity qualification.
+- ACL-preserving backup/restore retains key operation receipts as well as keys,
+  generation and JTI state. Restricted AUTH and key LOGINS authenticate and replay
+  after restore. Nonempty receipts block downgrade; after account-owned cascade,
+  retained JTI state still blocks the entire downgrade transaction.
+- Backend qualification has 524 distinct latest passing cases and 122 explicit
+  domain lazy-root exclusions. Initial native integration failures were corrected
+  for PostgreSQL JSON shape checks, fixture flush ordering, function signature
+  inspection and the revoke reply DTO. A broader regression exposed a source
+  test that assumed overwrites remove old versions; focused replacements prove
+  preserved frozen-version reads and rejection when that version is unavailable.
+  Reports retain earlier failures and their targeted successful replacements.
+- The independent installed package passes all 62 tests from a temporary working
+  directory with Python isolated mode. The current nonroot image matches all
+  package/schema source hashes and passes real process/container acceptance.
+  Focused SDK auth, API-key, discovery and OpenAPI checks pass 53 cases; the public
+  OpenAPI snapshot is unchanged. Five owned verifier runs report zero cleanup
+  errors and remove their PostgreSQL, Redis, buckets and storage identities.
+- Daily development remains at migration 0234 with the earlier qualified source;
+  no primary signing secret, source, configuration or workers are switched.
+  Login/registration, password/email/account commands, profile hydration, multi-
+  owner lifecycle, complete API least privilege, other modules, provider language
+  replacement and daily cutover remain active. The final assembled API image is
+  qualified separately from the live host-API/Identity-container acceptance.
+
+### Identity API-key assembled artifact verification
+
+- The API image built from clean implementation commit `128d1eb26` matches 29
+  API, dependency, migration and snapshot files plus all 15 installed Identity
+  source/schema files. A network-disabled, read-only cold import verifies the
+  real API, current key command bindings, existing prediction worker signatures,
+  exact public OpenAPI and migration head 0236. The proof container is removed;
+  this does not claim running daily workers or an Identity daily cutover.
+- Independent review found no concrete defect in the scoped extraction. Required
+  commit hooks, Ruff, formatting, Compose configuration and documentation build
+  pass. Two clean modifier worktrees are removed only after exact patch-identity
+  comparison with their integrated commits; older and unrelated worktrees stay.
+- Fresh read-only checks confirm the primary checkout remains clean at
+  `856fa79c8`, its database remains at 0234, and the unrelated test database stays
+  at 0218. The four original running containers are unchanged. The qualification
+  ledger is `.worktree/identity-keys-verification-current.json`; the full module
+  objective remains active with the limitations above.
+
+### Identity core-session ownership and local qualification
+
+- The existing Identity package/runtime now owns login, refresh, logout and
+  logout-all through `aap-identity-sessions/v1`. API adapters carry values and
+  Principal without User hydration or session ORM writes. The obsolete API login,
+  seen/logout setters and password-by-email locking path are removed. Registration,
+  invitation and the other account/password/email flows remain unfinished.
+- Native 0237 adds a success receipt and three session-only capabilities under a
+  separate LOGIN. Password verification precedes a current-hash/User fence;
+  refresh has a grace-aware credential fence. User state, JTI/generation, success
+  receipt and Audit-owned business event share the owner transaction. Valid failed
+  logins also commit their Audit; malformed or wrongly bound replies cannot commit.
+- The provider owns the Redis counter and rechecks the challenge threshold, while
+  API retains HTTP rate limits and Turnstile verification. A scoped Redis LOGIN
+  permits only login counter keys and the actual GET/INCRBY/EXPIRE/DEL commands,
+  plus required connection commands. Positive counter operations and denied
+  unrelated-cache/PubSub operations are exercised, with existing fail-open policy.
+- Receipts freeze database-clock expiry, explicit operation JTI and exact signed
+  64-bit generation. A fixed-claims signer recovers the same token after lost
+  response and restart, without storing raw credentials. Replay reauthenticates,
+  preserves historical claims and never rewinds current role/generation/presence,
+  revives JTI, or repeats business Audit. Policy/signing-epoch changes conflict.
+- Native/role/schema, API consumer and installed process/container/recovery
+  qualification has 411 distinct latest passes. The 122 explicit exclusions are
+  inapplicable domain lazy-root checks. Historical failures are retained with
+  targeted replacements; no already-green broad suite is rerun just for counts.
+  SQL 0237->0189, frozen independent installation/outer rollback and upgrade with
+  exact grants pass. Every owned verifier removes its PG/Redis/buckets/identities
+  with zero cleanup errors.
+- Current installed-only Identity checks pass 106 cases from an isolated working
+  directory. Wire validation rejects numeric aliases in issued JWS payloads and
+  binds login email both before native commit and at the wire. Node's 18-case
+  self-check and Python use one public test-only known answer for Unicode request
+  fingerprints, derivation and exact JWT bytes. This proves cross-language client
+  and primitive/serialization compatibility, not a second-language provider.
+- Real API processes holding only AUTH database privileges complete all four
+  commands through the independent owner, including API-key logout-all while
+  API-key logout remains rejected. Wrong-password audit/count, CAPTCHA, expiry,
+  service capability absence and no fallback pass. An actual independent login
+  issues the JWT used by the existing REST/WS live acceptance. ACL-preserving
+  backup/restore retains session receipts and reproduces issuance using restricted
+  SESSION/AUTH roles; populated downgrade and retained-JTI guards remain intact.
+- Integration corrected a PL/pgSQL CASE parsing boundary, audit-aware fixture
+  cleanup, semantic timestamp comparison, privilege inspection without private
+  schema lookup, and the API fixture's async SQLAlchemy DSN. Restricted-container
+  counter acceptance exposed the client's INCRBY wire command; the ACL and runbook
+  now match it. Refresh preserves account-update 409 separately from credential
+  contention 503, JOSE decode versus decoded-claim errors, and Bearer header rules.
+- Focused SDK auth/key/OpenAPI/discovery passes 53 cases. The public API models are
+  unchanged; the refresh description and offline operation-catalog source digest
+  are regenerated, as are local frontend API artifacts. Gateway compatibility and
+  environment isolation checks pass. No application UI is changed in this tranche.
+- Full Identity deployment remains incomplete: signup/invitation, password/email,
+  profile and account/group/multi-owner lifecycle, remaining signers and least-
+  privilege API assembly still need extraction. Web CAPTCHA rendering still has
+  a threshold5 dependency that must be removed before changing the operator
+  threshold. Other modules, universal final credential write fences, selected
+  provider replacement, sustained capacity and daily cutover remain active. No
+  production, Go expansion, push, release or remote CI work is performed.
+
+### Identity core-session assembled artifact verification
+
+- A clean-source API image from implementation commit `f7f3a5a65` matches 34 API,
+  dependency, migration and snapshot files and all 21 installed Identity source/
+  schema files. Network-disabled read-only cold import verifies the actual API,
+  both key/session command bindings, existing prediction-worker signatures, exact
+  OpenAPI and migration head 0237. The proof container is removed; this is distinct
+  from the separate live host-API/Identity-container functional acceptance.
+- Required commit hooks, schema export, Ruff/format, six-secret Compose policy
+  configuration and docs build pass. Three clean modifier worktrees are removed
+  only after patch-identity equivalence with their integrated commits, preserving
+  older and unrelated worktrees. Current evidence is retained in
+  `.worktree/identity-sessions-verification-current.json` with original failed
+  reports and the targeted successful replacements.
+- Fresh read-only checks keep primary source at `856fa79c8`, main database at
+  0234 and the unrelated test database at 0218; the original four running
+  containers remain. No primary Identity cutover, signer/configuration change or
+  worker refresh is made. This tranche completes a core-session sub-boundary;
+  complete Identity, the other module matrix and the seven-gate goal remain active.
+
+### Identity login challenge consumer
+
+- Web login renders CAPTCHA only after the existing HTTP 400
+  `detail: "captcha_required"` response. The failure-count header is display
+  metadata, not a second threshold implementation. A rejected attempt after a
+  challenge clears the single-use proof and replaces the widget; success clears
+  the local challenge. Pending form submits cannot duplicate the request.
+- The focused LoginPage suite passes 23 tests. In an owned e2e runtime, the real
+  Vite page, query hook and HTTP decoder also handle a count of 99 without a
+  challenge, a challenge at count 2, stale-proof rejection and a new proof on the
+  next attempt. Login HTTP responses and Turnstile are local fixtures; this
+  qualifies the UI consumer, not Cloudflare or another backend deployment. No
+  Cloudflare script loads and no uncaught browser error occurs. The browser and
+  owned mode resources are removed after verification.
+- This resolves the preceding threshold5 consumer limitation. Identity account
+  reads/commands and lifecycle extraction remain active; no primary runtime,
+  signing policy, production, Go, push or release change is made.
+
+### Identity portable account preference policy
+
+- Preference and workspace models, read normalization, sparse patch validation,
+  atomic map replacement, deep merge, named-preset revision CAS, downgrade guards
+  and opaque-value preservation now live in `apps/identity`. The API schemas
+  re-export the same model objects, and the current handlers adapt safe policy
+  errors without moving their User lock or write transaction. Response JSON is
+  constructed before mutation/commit. No independent account endpoint or writer
+  is claimed for this preparatory step.
+- All 38 moved model classes have identical AST structure after removing
+  docstrings. The public OpenAPI differs at 16 description values only; fields,
+  validation structure and public paths are unchanged. SDK operation-catalog
+  provenance and local frontend artifacts are regenerated. Read/write model
+  schemas are distributed with the package; they do not replace the stateful
+  patch policy or establish another-language provider compatibility.
+- Owned PostgreSQL acceptance passes 125 tests: 111 preference route/policy
+  cases, 12 model cases and 2 OpenAPI checks, including concurrent context merge
+  and one-winner named-preset CAS. The installed-only package passes 22 tests
+  from a temporary directory under its locked Pydantic environment, using the
+  10 pure policy cases and 12 existing model cases with only their import changed.
+  New portable cases cover browser numeric transport loss, newer engine
+  retention/rejection, opaque shortcut buckets and explicit unknown-entry reset.
+  Focused SDK account/OpenAPI/discovery checks pass 37 cases. Owned mode resources
+  and the temporary directory are removed.
+- The next account command group still needs native prepare/apply on one owner
+  transaction, current credential revalidation, typed Audit capability and the
+  existing presence scheduler. Avatar objects require commit/cleanup ownership;
+  recovery/email and deactivation need their complete challenge and multi-owner
+  lifecycle contracts. The full module goal remains active, without a primary
+  cutover, Go expansion, production, push, release or remote CI change.
+
+### Identity preference assembled artifact verification
+
+- Clean-source Identity and API images from `b1a81cd14` both pass network-disabled,
+  read-only cold verification. Each installed Identity package matches all 26
+  source/schema files; the API image also matches 14 affected API/dependency/
+  migration/snapshot files, imports the real preference handlers, confirms schema
+  re-export identity, and matches the complete public OpenAPI at migration head 0237. The standalone package imports no application, FastAPI, SQLAlchemy,
+  Celery or object-store module for preference policy use. Proof containers are
+  removed; this is artifact verification, not a new live account-command service.
+- Locked schema checks pass under both package/API Pydantic environments. Existing
+  admission/key/session schema JSON is semantically unchanged. Required commit
+  hooks, pinned Ruff/format, whitespace and docs build (13.36 seconds) pass.
+  The modifier is removed after clean status, no runtime ownership state, and
+  exact patch-identity equivalence with the integrated commit.
+- Fresh read-only checks keep the primary checkout clean at `856fa79c8`, the
+  main database at 0234 and the unrelated test database at 0218. Only the original
+  four infrastructure containers remain. Both used Root test/e2e modes are
+  destroyed; no task-owned browser, server, proof container or execution handle
+  remains. Current evidence is retained under
+  `.worktree/identity-preferences-verification-current.json`.
+
+### Identity independent self-account command owner
+
+- The existing Identity artifact now owns seven self-account commands: profile
+  read, name, preference read/patch, heartbeat, password change and avatar pointer.
+  Public handlers consume Principal and values without loading User rows. A
+  caller-session adapter only synchronizes already-loaded legacy instances;
+  obsolete ORM name/avatar/preference/heartbeat/offline setters are removed.
+  At this checkpoint, registration, recovery/email, group/admin and multi-owner
+  lifecycle remain open; the later group catalog/assignment owner slice is
+  recorded separately below.
+- Native0238 adds one account policy and prepare/apply functions, with a separate
+  one-function presence operator. User precedes current JWT/key locks; preference
+  patches wait for the latest row and execute the full portable policy on that
+  same transaction. Apply independently authenticates and checks its base field.
+  Audit uses existing owner capabilities, including the explicitly shared context
+  validator; ACCOUNT/PRESENCE LOGINS have no table/TEMP/foreign-module access.
+- Name/preference/password/avatar changes keep frozen successful receipts, no
+  identity passwords/hashes/bearer tokens. Current credentials precede replay;
+  historical outcomes never rewind newer state or repeat audit. Heartbeat has no
+  per-poll receipt. Self password change retains JWT generation/API keys and clears
+  the administrator-reset marker. Password validation strips raw input/context;
+  API debug SQL hides bind values.
+- Avatar bytes and normalization remain at their existing provider, outside remote
+  SQL locks. Definite rejection removes the new staged object; unknown commit
+  retains possibly referenced bytes. Old objects are cleaned only after confirmed
+  pointer commit, and a no-op has no cleanup target. Known rejection and lost-reply
+  cases are exercised, including replay without losing the committed object.
+- Latest targeted/native/API/live qualification has230 distinct backend passes and
+  zero unresolved failures/skips, including all111 current preference cases. The
+  installed-only package passes187 tests and scoped SDK checks55. Node peer's21
+  self-checks and actual seven-command/presence calls pass, preserving exact int64.
+  Public OpenAPI changes only7 descriptions; schemas/catalog/frontend artifacts
+  are regenerated. All11 owned verifier histories clean up without errors.
+- Real installed process/restart/current-revocation and readonly nonroot container
+  paths pass. A real API holding only AUTH privileges completes all seven commands
+  and real avatar storage; dedicated account/presence DSNs also work. A healthy
+  provider without account capability returns503 without selecting another writer.
+  REST/notification WebSocket revalidation remains qualified after profile migration.
+  Backup/restore preserves database/schema/function ACLs and account/key/session
+  receipts, retains historical outcome/current principal separation, and refuses
+  populated account/session/JTI downgrade while staying at238.
+- Local1CPU/256MiB sampling completes32 reads at concurrency8 in0.197s (p95 .056s)
+  and a16,777,217-byte preference value write/read in1.452s. After-load memory is
+  65.45MiB, not a peak. There is no new65KiB/16MiB account ceiling; this bounded
+  sample does not establish production capacity or an alternate-language provider.
+- Earlier failures remain in raw reports: missing code-owner validator permission
+  fixed with the existing Audit capability; protected cleanup/OID/SQL type-alias
+  test assumptions corrected; HTTP validation fixture shapes and nonfinite-number
+  diagnostics adapted. One accidental local DB selector failed before migration
+  because annotation_test is absent; its real pass is the owned verifier. Live
+  cleanup argument omissions were fixed before the successful backup/recovery run.
+- Protocol and deployment decisions are recorded in ADR0118, DEV, private/public
+  API guides and module matrix. Primary Identity cutover, full Identity/all other
+  modules/seven-gate completion, production, Go expansion, push/release/remoteCI
+  remain outside this completed self-account group. The original full goal stays
+  active. Evidence: `.worktree/identity-accounts-verification-current.json`.
+
+### Identity wire alias verification
+
+- Final API image cold verification exposed a decoder gap: an envelope containing
+  both the declared `schema` and the internal Python name `protocol` was accepted.
+  Admission, key, session, account and presence decoders now reject that name at
+  their envelope boundary; opaque preference objects keep their own same-name keys.
+- The shared pre-JSON check preserves strict JSON date/UUID semantics. An initial
+  model-before-validator approach rejected valid dates and was removed before
+  commit. Both package/API Pydantic environments now pass 31 new alias/opaque cases,
+  including the private API-key candidate page. The complete installed-only package
+  has187 passes and the API closure/gateway selection has48. Native SQL and public
+  OpenAPI shapes are unchanged.
+- The module matrix now includes the completed seven self-account commands and
+  separate presence operator, while retaining registration, recovery/email,
+  group invitation/admin workflows, other-user hydration and multi-owner
+  lifecycle as unfinished work at this checkpoint; the later group
+  catalog/assignment slice is recorded separately below.
+
+### Identity self-account assembled artifact verification
+
+- Committed source `fa1c1a3a8` supplies the final independent Identity image and
+  API image. The API's network-disabled/read-only cold proof matches all35
+  installed Identity source/schema files and21 affected API/dependency/native
+  migration/snapshot files. Its nine public self-account routes consume command
+  values, the presence task has the real unchanged zero-argument signature, SQL
+  bind values are hidden, public OpenAPI matches exactly and migration head is0238.
+- All five live account cases pass again against the corrected installed process
+  and nonroot/read-only provider image: Node seven-command/presence interoperability,
+  lost-reply restart and current credential fences, an AUTH-only real API with
+  actual avatar storage, explicit missing-capability503/no fallback, dedicated
+  account/presence DSNs, and the updated1CPU/256MiB large-preference sample above.
+  The first final-wire invocation used system Python and failed preflight without
+  provisioning resources; the project Python rerun is the current passing result.
+- Three clean modifier worktrees and branches are removed after exact stable
+  patch-identity equivalence and absence of runtime state. All owned verifier
+  resources and proof containers are removed. Fresh read-only checks keep the
+  primary checkout clean at `856fa79c8`, its database at0234 and the unrelated
+  test database at0218; only the original four infrastructure containers remain.
+  This remains local qualification on the integration branch, with no upstream,
+  push, release, remote CI, production or primary Identity cutover.
+
+### Identity registration, recovery and durable credential mail
+
+- The existing Identity artifact now owns open registration, password-reset
+  request/consumption and email-verification resend/consumption. API handlers keep
+  CAPTCHA, limits and public response translation, without User/challenge ORM
+  reads. Registration creates the original viewer/offline-or-online projection;
+  account, initial verification intent, business Audit and receipt commit together.
+- Migration 0239 hashes old challenge values in place and freezes issued email,
+  preserving valid legacy links and used/expiry metadata. Reset advances JWT
+  generation and clears the administrator-reset marker while retaining API keys.
+  Inactive resets consume their challenge without changing passwords; verification
+  never reactivates an account. Successful receipts survive account deletion
+  without retaining raw name/email/password/token/JWT fields.
+- A separate process from the same installed package/image owns mail execution.
+  MAIL has four functions and MAIL_SETTINGS one Settings snapshot function, with
+  no table/sequence/TEMP/foreign-module rights, AUTH/control/JWT secret or Recovery
+  DSN. The explicit producer/worker Fernet key is independent of signing authority.
+  Embedded legacy composition keeps its scoped function allowlist.
+- Claim commits before SMTP, renews during IO and fences completion with current
+  database time after lock waits. Lost DATA acknowledgements, key mismatch and
+  sender death retain the same challenge/ciphertext/Message-ID for retry. A second
+  readonly nonroot container takes over the expired lease after the first sender
+  is killed during DATA. SMTP remains at least once, with possible duplicate mail.
+- The current group has 78 distinct backend passes, 241 installed-package passes,
+  and 53 distinct worktree checks. Node has 30 self-checks and executes all five
+  operations against the installed owner, including current role versus frozen
+  claims and historical JWT generation failure on replay. Both package/API
+  Pydantic environments pass frozen schema checks.
+- A real API using AUTH-only database credentials completes registration,
+  verification, uniform reset requests, reset and resend through its remote owner;
+  an available owner missing Recovery returns 503 without fallback. Real SMTP
+  observes committed User/Audit/outbox state and an unlocked User during DATA.
+  Two actual Celery dispatches execute across separate event loops without pooled
+  connection leakage; task-level factories hide SQL bind values.
+- Backup/restore retains all prior Identity authority and new recovery receipts,
+  hashes, mail ciphertext and exact role ACLs. Populated downgrade is refused;
+  the independent empty clone round-trip preserves usable old non-hex links.
+  A pre-existing long frontend URL still delivers without a new 2048-character cap.
+- A local 1 CPU / 256 MiB sampling completes eight registrations at concurrency four in
+  2.066s, with observed p95 1.168s. This bounded sample does not establish
+  production capacity or an alternate-language provider. Go stays an experiment.
+- Initial migration/grant syntax and ordering errors, a pre-lock lease timestamp,
+  registration eligibility/Audit mismatch and the consume hash-envelope mismatch
+  were fixed before qualification. Fixture cleanup respects the original token
+  foreign keys. Historical failures remain in the scoped verifier reports.
+- ADR-0119, API/deployment guides, Compose, environment references, OpenAPI and
+  frontend generated artifacts describe the assembled group. Group/admin,
+  invitations, other-user hydration, multi-owner lifecycle, final write fences,
+  full Identity credentials/cutover and the other module gates remain unfinished.
+  Current evidence is retained in
+  `.worktree/identity-recovery-verification-current.json`; the full goal stays active.
+
+### Identity recovery assembled artifact verification
+
+- Committed source `b7957ba36` supplies the assembled recovery group. The
+  independent image matches all 54 build-input fingerprints, and the API's
+  network-disabled/read-only cold proof matches 49 installed Identity/mail source
+  files and 25 API/dependency/native/snapshot files. All five public recovery
+  routes consume command values; obsolete ORM token services are absent, OpenAPI
+  matches, migration head is 0239, and the real scheduler task signature and SQL
+  bind-value protection pass.
+- All five live cases pass against the current installed package and readonly
+  nonroot image, including a real AUTH-only API, SMTP after commit, sender death
+  and container takeover, bounded registration load and two actual Celery
+  dispatches across separate event loops. A final Node replay case additionally
+  keeps frozen viewer claims while current role changes, and accepts the
+  historical token's current generation failure without rejecting its valid
+  recovery receipt. The latest package has 241 passes; 78 distinct backend cases,
+  53 distinct worktree checks, 30 Node self-checks and both frozen-schema checks pass.
+- Documentation builds in 13.79 seconds, with 194 frontmatter files and 119 ADRs
+  passing their checks. Required source-commit hooks pass. A missing frontmatter
+  block in the existing spatial API guide is corrected without changing behavior.
+- Eight clean modifier worktrees are removed after all 15 commits match integrated
+  stable patch identities and no runtime ownership state exists. Scoped verifier
+  resources and proof containers are removed; the qualified local images remain
+  available. Fresh read-only checks keep the primary checkout clean at 856fa79c8,
+  annotation at 0234 and the unrelated test database at 0218, with the same four
+  infrastructure containers running. There is no push, remote CI, production or
+  primary Identity cutover; full module and provider-language gates remain active.
+
+### Identity group catalog and assignment (current slice)
+
+- The next Identity boundary is the global group catalog plus single/bulk
+  account-group assignment. The closed `aap-identity-groups/v1` protocol contains
+  eight operations; the API retains public routes and DTOs while an optional
+  `identity_group_database_url` / `IDENTITY_GROUP_DATABASE_URL_FILE` selects the
+  existing Identity process's two-function GROUP LOGIN. Shared PostgreSQL remains
+  the transaction owner; this is not a separate-database or saga design.
+- Native migration 0240 adds `aap_identity_groups_v1.group_policy()` and
+  `execute_group_command(jsonb)`, the non-User-linked operation receipt and typed
+  Audit. Workspace provides
+  `aap_workspace_v1.lock_group_assignment_scope(uuid,uuid[],boolean)` instead of
+  granting Identity Project or ProjectMember reads. Project locks precede
+  membership locks; Group precedes actor/target User locks; mutation scopes remain
+  held through the caller commit. Name trimming follows Python Unicode
+  `str.strip()` exactly.
+- Super-admin and project-admin can manage the global catalog. Project-admin
+  assignment uses the requested self/owned-project/active-employee scope;
+  batch preview/apply preserves the legacy mixed-scope behavior and per-item
+  partial results. All group writes and receipts are atomic, while directory
+  reads and preview do not create receipts.
+- Invitation acceptance uses only a private `resolve_invitation_group(uuid,text)`
+  helper inside its legacy coordinator; the GROUP LOGIN cannot call that helper.
+  Invitation lifecycle, directory/admin workflows, other-user hydration and
+  multi-owner transfers remain outstanding. The API group command/data adapters
+  and portable Python group contract/manager/Postgres owner now have an
+  implementation boundary; the assembled source and local qualification now
+  cover all eight group operations.
+  The full Identity module, other module rows, seven gates, production readiness
+  and another-language provider remain active.
+
+### Identity group local qualification
+
+- The current group has 67 distinct database-backed and process acceptance passes,
+  including the original management/invitation regressions, native receipts,
+  exact two-function GROUP LOGIN, Workspace scope and cross-group manager locks.
+  The independent installed package passes 272 tests; its 54 installed source
+  files match the current source hashes. The Node consumer has 39 self-checks and
+  consumes all eight operations, preserving int64 generation, current authority,
+  partial/duplicate bulk inputs, response loss and restart replay. This is an
+  independent consumer, not a replacement-language provider.
+- A real API using only AUTH database privileges exercises all eight public routes
+  through both the readonly owner container and a dedicated GROUP DSN. An
+  otherwise healthy owner lacking Groups returns 503 without a local fallback.
+  Group/actor/target locks and captured Workspace project IDs fence ownership and
+  membership changes through commit; rename/delete synchronize both user fields.
+- Backup/restore preserves the group catalog, frozen operation outcomes and exact
+  role/function ACLs alongside prior Identity authority. Replaying a restored
+  create does not rewind a newer name. Populated group downgrade is refused;
+  empty group downgrade and the older challenge migration remain usable.
+  Invitation helpers retain valid 64-character opaque Unicode tokens and roll
+  back staged groups when registration does not commit.
+- A bounded local run with a 1 CPU / 256 MiB provider completes 12 creates at
+  concurrency four in 0.138 seconds, observed p95 0.050 seconds. PostgreSQL is a
+  shared local service; this sample does not establish production capacity.
+- The initial invitation regressions exposed missing row-lock column privilege
+  and a missing SQL UUID default. Both are fixed, with native policy status casts,
+  missing-group preview compatibility and installed wheel cache/source checks.
+  An inadvertently selected database metadata case was moved from the static
+  check into the owned verifier and passed. Historical failures remain in reports.
+- The full goal remains active. At this group checkpoint, self-deactivation and
+  the serialized final-super-admin invariant with durable deactivation-mail
+  delivery were the next slice; the following deactivation section records that
+  qualification. Complete invitation lifecycle and MailV2 are now the current
+  slice. Management directory/role-admin commands, other-user hydration and
+  cross-owner offboarding remain. Primary Identity cutover,
+  production deployment, remote CI and Go expansion are not part of this group.
+
+### Identity group assembled artifact verification
+
+- Committed source `e9b3d9496` supplies the group assembly. The readonly nonroot
+  runtime image matches 54 installed source files. The committed API image's
+  network-disabled, readonly cold proof matches those same 54 package files and
+  36 API/dependency/native/snapshot files; all eight public group routes avoid
+  local User hydration. The five recovery routes, unchanged OpenAPI, migration
+  head 0240, scheduler signature and hidden SQL parameters also pass.
+- Documentation builds in 13.14 seconds; frontmatter 194, ADR 120, plan freshness,
+  pinned Ruff across all 35 changed Python files and source commit hooks pass.
+  The aggregate current evidence is retained in
+  `.worktree/identity-groups-verification-current.json` and applies only to this
+  group; the complete module goal remains active.
+- Four clean modifier worktrees and their branches are removed after six original
+  commits match integrated stable patch identities and no runtime state exists.
+  Owned verifier resources and proof containers are removed; qualified local
+  images remain available. Fresh read-only checks preserve primary `856fa79c8`,
+  annotation at 0234, the unrelated test database at 0218 and all four original
+  infrastructure containers. No push, remote CI, production or primary cutover
+  was performed.
+
+### Identity self-deactivation and Notifications delivery (current slice)
+
+- Preserve the public POST/DELETE self-deactivation routes and `UserOut` while
+  moving request/cancel and scheduled due processing to the existing portable
+  Identity artifact. User commands use `aap-identity-deactivation/v1`; the
+  control-only due page uses `aap-identity-deactivation-due/v1`. The due `limit`
+  is a per-transaction page size (1–500, default 256), not a total processing
+  ceiling.
+- The new private Identity runtime modules are
+  `apps/identity/src/aap_identity/deactivation_contract.py`,
+  `deactivation_manager.py` and `deactivation_postgres.py`. API uses
+  `app/api/v1/deactivation_commands.py` and
+  `app/services/identity_deactivation_commands.py` with caller-transaction SQL
+  adaptation in `identity_deactivation_data.py`; the existing Celery task name
+  and daily 04:00 UTC schedule remain.
+- The fixed global super-admin try-advisory fence is shared by new self requests
+  and existing role/lifecycle reducers. Every reducing writer takes it before
+  sorted User locks; a conflict stays a safe 409. An accepted self request
+  survives admin suspend/reactivate. Due rechecks the actual active SA count
+  immediately before disabling an SA; a final-SA candidate stays pending and
+  increments `blocked_last_super_admin` rather than clearing its request.
+- Due uses stable Celery run/page UUIDs and frozen page receipts. Worker retries
+  replay the same page before continuing; pages drain until no progress, so there
+  is no total cap. Self due keeps legacy soft-delete semantics and does not
+  advance credential generation, revoke API keys or transfer tasks/projects.
+- Approval Audit redaction only clears the existing actor email/role columns;
+  historic `detail_json` and notification identity payloads remain. Do not call
+  this complete GDPR erasure. Identity calls Notifications to create the two
+  deactivation events and `notification_delivery_outbox` rows in the same
+  transaction.
+- Notifications portable publisher lives in
+  `apps/identity/src/aap_identity/notification_delivery_contract.py` and
+  `notification_delivery_postgres.py`; runtime config/entrypoint are
+  `aap_identity_runtime/notification_config.py` and
+  `notification_worker.py`. The default-queue relay task is
+  `app.workers.notification_delivery.relay_identity_notifications`, scheduled
+  every ten seconds. Its dedicated LOGIN has only policy/claim/finish
+  functions and a Redis identity. The independent non-HTTP process and the
+  every-ten-second default-queue relay use the same executor, committed leases
+  and stable Notification ID; delivery remains at-least-once.
+- Local qualification passes 68 distinct database/process cases: exact 2/2/3
+  LOGIN surfaces, self/cancel receipts, legacy reducers and accepted-operation
+  persistence, final-SA races, frozen due pages, a bounded read-only container,
+  AUTH-only API database use with dedicated and remote owners, and two fresh
+  event loops through each existing Celery task entry point. Celery entry-point
+  checks use eager execution; they do not claim a new broker/prefork qualification.
+- The real Notifications publisher commits leases before Redis, recovers a killed
+  process with the same message ID, and needs no Identity authority credentials.
+  Owned backup/restore preserves self/due receipts and delivery lease identities;
+  populated downgrade is refused. Original failed runs are retained with their
+  corrections (Audit inet conversion, native smallint policy overloads and a
+  proof-only image identity environment variable). All owned run resources were
+  removed; no unrelated development database or service was changed.
+- The current noneditable Identity installation passes 323 package tests, and
+  28 API/notification boundary tests pass. Current-source runtime image inputs
+  are fingerprinted and match source commit `d5597b946`; the final committed API
+  image assembly is qualified below.
+  API/standalone Compose configuration and migration order are documented in DEV
+  and ADR-0121. No production deployment, daily Identity cutover,
+  alternate-language provider or Go expansion is included. The full module goal
+  remains active, including invitations, directory/admin ownership and the
+  remaining module matrix.
+
+### Identity deactivation assembled artifact verification
+
+- Source commit `d5597b946` binds the current runtime image inputs and all 66
+  installed portable package source/schema files. The noneditable installation
+  passes 323 tests; the API/notification boundary passes 28 cases. Architecture
+  and OpenAPI checks pass 298 cases, with 122 explicitly empty lazy-root skips;
+  all 53 worktree unit checks and 49 changed-file Ruff checks pass.
+- Runtime image `aap-identity:deactivation-local-22bbf3337fef` is built from those
+  exact inputs. The real read-only provider and independent notification process
+  retain their function-only identities. Local database/process qualification
+  passes 68 distinct cases, including the completed restore and lease checks.
+- API image `aap-api:local-identity-deactivation-2fd479d97774` is built from that
+  clean source commit and cold-verified with network disabled, a read-only root
+  and a 512 MiB limit. All 66 installed package files and 50 API/native files
+  match; the migration head is 0241 and the served OpenAPI equals the snapshot.
+  Both public self-deactivation routes have Principal/value dependencies, with
+  no local User hydration. Existing five recovery and eight group routes remain
+  assembled, and due/publisher task names, signatures, default routing and beat
+  registration match their committed consumers.
+- Documentation builds in 13.65 seconds; frontmatter checks 194 pages, ADR index
+  checks 121 decisions, and plan freshness has zero stale plans. The environment
+  reference contains 436 variables. All source commit hooks pass.
+- Seven modifier commits are patch-equivalent to their integrated commits; only
+  those five clean task worktrees/branches are removed. Every owned PostgreSQL,
+  Redis, storage scope and process/proof container is removed. The original
+  primary checkout remains clean at `856fa79c8`; protected database heads remain
+  0234 and 0218, and the original four infrastructure containers stay running.
+- Canonical scoped evidence is
+  `.worktree/identity-deactivation-verification-current.json`. No required work
+  remains in this group. The full module goal remains active: invitation,
+  directory/admin and multi-owner lifecycle ownership, remaining module
+  extraction, complete credential closure and replacement-provider gates remain.
+  No primary Identity cutover, production deployment, remote CI, push, release or
+  Go expansion was performed.
+
+### Identity complete invitation ownership and MailV2 (current slice)
+
+- The next Identity owner boundary covers all 13 existing invitation operations:
+  create, batch preview/apply, list/query/stats/export, revoke, resend, send
+  current email, resolve proof, register and accept an existing account. Public
+  API paths/schemas/SDK fields/statuses stay stable while the API replaces ORM
+  work with `aap-identity-invitations/v1` value commands.
+- Portable owner source is
+  `apps/identity/src/aap_identity/{invitation_contract,invitation_manager,invitation_postgres}.py`;
+  runtime API/config remains in `aap_identity_runtime`. API binds routes through
+  `app/api/v1/invitation_commands.py`,
+  `app/services/identity_invitation_commands.py` and
+  `identity_invitation_data.py`. Invitation state and successful operation
+  receipts have no live-User FK or plaintext second proof copy.
+- User, Group, Invitation proof, Workspace project/membership, Settings policy,
+  Labeling active-work hint and fixed Audit events are coordinated in one shared
+  PostgreSQL transaction. Authority order is sorted Users → email advisory key
+  → Project → Invitation/ProjectMember, with captured project-owner scope
+  revalidated after locks. Batch preview fully rolls back; batch apply uses
+  successful per-item savepoints. Existing manager scope, role compatibility,
+  list/query/stats/export semantics, 500-item limits, no list total cap and
+  all current validation/error/response rules remain.
+- Invitation email uses a separate closed `aap-identity-mail-native/v2` schema
+  and `identity_mail_v2_client`, while the existing v1 Recovery mail protocol,
+  role and worker stay recovery-only. A successful send intent is durable before
+  the API wait; public `send-email` still maps sent to 200 and failed/bounded
+  pending to 502, never 202, and always keeps the current link valid. Explicit
+  `resend` rotates proof without sending mail; SMTP failure does not rotate,
+  revoke or invalidate the invitation.
+- Migration 0242 load order is support → mail → invitation core:
+  `0242_identity_invitations_support.sql`,
+  `0242_invitation_mail.sql`, then `0242_identity_invitations.sql`. Dedicated
+  invite and MAILv2 roles get only their exact function allowlists from
+  `infra/docker/identity-invitations-grants.sql`. A `mail-v2` Compose profile
+  provides an independent non-root worker with its own MAILV2 DSN and the
+  already-scoped MAIL_SETTINGS/Fernet files; the Identity producer receives no
+  SMTP credential. The V2 process can accept, send and audit invitation mail
+  after short database transactions and may repeat an uncertain SMTP delivery
+  with a stable Message-ID.
+- This entry records the pre-qualification design checkpoint: the
+  13-operation source, V2 sender, migration/role/image assembly, public API
+  preservation, SMTP acceptance/uncertain delivery, sender takeover and
+  backup/restore checks were then being implemented or awaited. The following
+  invitation qualification section records the completed evidence. Platform-role
+  administration, remaining offboarding, full Identity, other module gates,
+  alternate-language provider, production capacity and Go experiment status
+  remain outside that invitation slice; no primary cutover or production
+  deployment is included.
+
+### Identity invitation local and assembled artifact qualification
+
+- Source integration `9a5b8e043` and corrective source `52856bc0b` complete the
+  thirteen-operation invitation owner and durable MailV2 slice. The final owned
+  verifier passes 68 cases with no skips: 58 native/role/existing-API cases and
+  ten independent process/API/SMTP/restore/legacy-challenge cases. Migration
+  head 0242/down 0189/frozen install and rollback/up head and runtime grants pass.
+- Actual independent qualification found and fixed a long-email Audit target
+  overflow, missing current target on register replay, and an overbroad replay
+  `SELECT *` incompatible with column grants. Full invitation email remains
+  authoritative; only the Audit target summary is truncated to 64 characters.
+  Query pagination preserves int64 pages and clamps offset arithmetic; Node
+  exercises `2**31` and `2**63-1` without truncation or overflow. Test fixtures
+  now use an integer mail retry delay, await committed delivery after SMTP ACK
+  and attribute registration Audit to the registrant. Temporary diagnostic
+  fallback code never entered the product or a commit.
+- Both remote-container and dedicated-DSN bindings run an API holding only AUTH
+  database capabilities through all thirteen public operations. An external
+  MailV2 process delivers without the API holding MAILV2 credentials. The real
+  500-item preview rolls back completely; partial apply, receipts, current
+  issuer/owner/credential races, registration/member/group atomicity and
+  generation-retired replay refusal pass.
+- Real SMTP loss of ACK repeats the same link and Message-ID; forced sender
+  termination after DATA is recovered by the next process using an expired
+  lease. V1 continues draining only recovery purposes; stale rotated, accepted
+  and revoked links are suppressed. Restored PostgreSQL preserves original
+  tokens/JWT, current authority, exact three/four-function ACLs, mail leases
+  and no-repeat Audit. Epoch conflict and populated downgrade refusal pass.
+- Independent noneditable Identity installation passes 375 checks; all 77 installed
+  source/schema files match. Node 37 self-checks, SDK 36 checks and API assembly
+  324 checks pass (the latter has 124 explicitly deferred architecture rules).
+  The Identity image uses the same 77 source files and passes the live container
+  proof. API image `sha256:5537983adef00c03cc15dc9e9f0cffc2ee9f4f76d22736e6334fa782bc4a2ef8`,
+  built from 52856bc0b, passes network-disabled/read-only/512 MiB cold verification
+  of 77 package files, 63 API/native inputs, 13 invitation routes, prior owner routes,
+  head 0242, OpenAPI and the default-queue invitation relay registration.
+- A 1 CPU/256 MiB/non-root/read-only Identity container returns 600 catalog rows
+  (list 273907/export 274037 bytes). Twelve creates at concurrency 4 take 0.640s
+  including 7 contention retries; observed p50/p95 = .107/.372s. These finite local
+  samples establish no production throughput, latency, GPU or capacity SLO.
+- Scoped JSON/JUnit/artifact evidence remains in the integration checkout's
+  `.worktree/identity-invitations-*`. Owned verifier resources and cold-proof
+  containers were removed. The protected primary checkout/runtime/databases
+  stay unchanged. No push, release, remote CI, production, primary Identity cutover or
+  Go expansion was performed.
+- Invitation, Directory reads, administrator password-reset and platform-role
+  owners are locally qualified in their separate sections. The Directory section
+  records its four-operation evidence and the differences between legacy list
+  visibility and query/stats/export visibility. These completed owner slices do
+  not close cross-owner offboarding, remaining Identity authority or any of the
+  other module/seven-gate work.
+
+### Identity user-directory read owner local qualification
+
+- 本 slice 只迁移 `GET /api/v1/users`、`/users/query`、`/users/stats` 和
+  `/users/export` 四项读取，使用 `aap-identity-directory/v1`。公开路径、
+  filters、defaults、`UserOut`／分页模型、状态码、SDK 调用与 CSV/JSON
+  行为保持不变；平台角色预览／变更另由下方 Identity owner slice 迁移，管理员改密、
+  deactivate/delete、offboarding/reactivation、bootstrap/import 与 dashboard analytics
+  仍是独立 flows。
+- 私有操作为 `list_users`、`query_users`、`user_stats`、`export_users`；请求
+  精确包含 `schema/operation/operation_id/token/audit_context/payload`。Legacy
+  list 的 project-admin active employee picker 与 query/stats/export 的
+  active super-admin 只读 arm 分开保留。带 `project_id` 时，project-admin
+  继续使用 self／owned-member 与所选项目成员的字面交集，不额外要求项目归
+  当前 actor 所有。Lifecycle flags 延续 Workspace/Labeling 的历史、inactive、
+  archived 和 TaskLock 引用范围。
+- Workspace 以批量 capability 提供成员与 lifecycle-blocked 投影，Labeling
+  对最多 500 个用户返回去重 project refs；用户、total 与 flags 在同一
+  PostgreSQL snapshot 读取。`identity_directory_client` 精确只有
+  `directory_policy()`、`execute_directory_command(jsonb)`，migration 0243
+  安装 `aap_identity_directory_v1`，Identity 不获得 Workspace/Labeling 原表读权。
+  Host Compose selector 是 `IDENTITY_RUNTIME_DIRECTORY_DATABASE_URL_FILE`；留空
+  会关闭 Directory 并令私有路由返回 503，既有 Identity service 仍可启动。
+- Reads 不建 receipt。Export 独自记录 `user.export`，成功 receipt 只冻结 8 个
+  导出字段、metadata 和 Audit ID；重放需当前 actor/credential，并按当前 scope
+  与原 `project_id` 重验冻结用户可见性。Search/group/status filters 不重算；
+  删除或不可见用户返回 409，profile/context 变化本身仍可重放原内容。CSV
+  header/BOM/公式转义、JSON `_export_meta`、文件名和 response byte 行为不变。
+- Source `eeeaa16e48459a1357389723a6d99ec74e3c71d3` 通过 32 项 native/role、
+  3 项 restore、3 项 live/API 检查，均零跳过；合计 38 个选定数据库／进程用例，
+  restore/live 还含旧 invitation 与 legacy challenge 兼容，因此不把 38 项都算作
+  新 Directory 用例。Live 覆盖一个 Node consumer，以及 remote 与 dedicated DSN
+  两种 API binding。
+- Noneditable Identity package 通过 398 项检查，82 个 installed source hashes
+  一致，且无 application、SQLAlchemy、Celery、Boto3、Torch 依赖。Node 22 自检
+  22 项；SDK 用户管理／CLI 31 项、OpenAPI contract 14 项、operation discovery/
+  catalog 21 项；catalog `--check` 通过，只同步 7 个既有 Identity 描述，没有
+  method/schema/version changes。API assembly 348 项通过，另有 125 条明确延期
+  的 lazy architecture rules。
+- Identity image `sha256:04cc403370bdccce6d84d89b6bc222997b9e4d77b976c0a547f0aff28805704e`
+  安装与源一致的 82 个文件，live runtime/API proof 通过。API image
+  `sha256:12eadf471566c1487a5830961928232e9abf4b01728912b03fb18fa70fc60479`
+  在禁网、只读、512 MiB 环境冷启动 39.174 秒，核对 82 个 package 文件、70 个
+  API/native inputs、四条 Directory routes、旧 owner routes、0243 head、OpenAPI
+  与 relay。API 公开路径／字段／状态不变，仅 users/stats description 更新。
+  冷启动证据为 `.worktree/identity-directory-api-artifact.json`。
+- 540 个 synthetic users 验证 list/export 超过 500 行和 64 KiB；int64 大页、
+  lifecycle reference families、stale-role 403、当前可见性 409、冻结 profile/
+  context export、no-repeat Audit、credential-generation fence 与 restart 均通过。
+  另一个 12 次 host-process 读取、并发 4 的样本耗时 0.232 秒（p50 0.077、p95
+  0.081），含 Node process overhead；不适用 1 CPU/256 MiB remote Identity
+  container 预算，也不构成生产容量/SLO。Node 保留输入数值 token 和宽整数；
+  20 位十进制 fixture 只遵循既有 canonical `0.12345678901234568`，不宣称新的
+  backend decimal precision。
+- 环境文档核对 447 个变量／48 个分组，capability catalog、schema export 通过。
+  PostgreSQL、Redis、S3 和 proof 资源已清理；primary checkout 与四个基础容器不变。
+  本 slice 未做生产／primary cutover、push/release、remote CI 或 Go 扩展。此前邀请
+  slice 仍单独维持 68 DB/process、375 installed-package、324 API-assembly checks；
+  它们不计入 Directory。平台管理员写入、offboarding、其他用户 hydration、完整
+  Identity、十模块／七门槛和 provider replacement 仍待完成。
+
+### Identity administrator password-reset owner (locally qualified slice)
+
+- 只把 `POST /api/v1/users/{user_id}/admin-reset-password` 迁入 Identity。公开
+  UUID path、每分钟 3 次限流、成功状态与三个响应字段
+  `temp_password/message/target_email`（含现有中文 message）保持不变。临时密码
+  继续是固定大小写、数字、符号字符集中的 16 位 ASCII，并至少各含一位；明文只
+  出现在原有 public success response 中。
+- 私有协议 `aap-identity-admin-passwords/v1` 有一个
+  `admin_reset_password` operation；request 精确为
+  `schema/operation/operation_id/token/audit_context/payload`，payload 只有
+  `target_user_id`。Native request 绑定已锁定 Principal、仅在 API key 时出现的
+  key hash、request fingerprint/derivation 与 bcrypt-12 hash；不接受调用方 actor，
+  不回传 hash。
+- 平台 role rank 固定为 super-admin 0、project-admin 1、reviewer 2、
+  employee/历史 annotator 3、viewer 4、未知历史 target role 99。Target 必须启用且
+  rank 严格低于当前 actor。Project-admin 可重置任意 active employee，包括未分配或
+  foreign-project employee；其余低等级 target 必须属于 actor 管理的项目。保留历史
+  project/member status 参与，不把角色变更等其他 lifecycle policy 并入此命令。
+- 按 UUID 顺序锁 actor 和 target User 后，才读取 Workspace 易变 scope。Workspace
+  按 UUID 锁 Project 后锁 ProjectMember，并在持锁事务中复核 owner/membership；项目
+  转移或成员移除不能越过重置授权。此路径不使用 Labeling scope、不转派任务，也不
+  增加通用 User fence。
+- Identity 同事务写入 password hash、`password_admin_reset_at`、typed Audit
+  `user.password_admin_reset` 和 private receipt。Audit detail 精确为 target
+  email/role、status 200、target ID 为 UUID，不含 password。成功重置不推进 JWT
+  generation、不撤 API keys；自助改密仍会清 marker。
+- HMAC domain `aap-identity-admin-passwords/v1` 将 operation UUID、actor 与
+  canonical payload 绑定到确定性 16 位密码。每个 public call 新建 UUID，不新增公开
+  idempotency header 或自动 retry；保留 UUID 的 private caller 可确认同一操作。
+  Receipt 不存 plaintext 或 bcrypt 副本。Native 重放同时检查 reset timestamp 和
+  operation-bound SHA-256 当前 bcrypt state fingerprint；自助改密、恢复 reset 或后续
+  重置均导致旧操作返回 409，而不回传 superseded 密码。Profile/context 变化单独仍可
+  还原冻结 email/timestamp。派生向量与 state fingerprint 见
+  [ADR-0124](../adr/0124-independent-identity-admin-password-reset.md)。
+- Migration 0244 创建 `aap_identity_admin_passwords_v1`。无继承
+  `identity_admin_password_client` LOGIN 仅有 `admin_password_policy()` 与
+  `execute_admin_password_command(jsonb)`。API/runtime 使用可选
+  `IDENTITY_ADMIN_PASSWORD_DATABASE_URL(_FILE)`；Compose host selector
+  `IDENTITY_RUNTIME_ADMIN_PASSWORD_DATABASE_URL_FILE` 默认空白，禁用该 capability
+  但不影响现有 Identity startup；显式选择后的 DSN 错误必须 fail closed。
+- 本地联合验收以 assembled source revision
+  `540d80726f04a230105825dfac1915e9b4931e41` 完成：42 个选定 database/process
+  cases 全部通过、零跳过。36 个 DB/restore cases 分为 native 6、roles 3、existing
+  reset 5、existing visibility 18、admin restore 1、Directory restore 1、Invitation
+  restore 1、legacy challenge 1；6 个 live cases 是 installed Python owner + Node consumer 1、admin
+  API remote/dedicated 2、真实 limiter remote/dedicated 2、existing Directory
+  dedicated 1。兼容性案例属于不同 slice，故 42 不等于 42 个新 admin-reset 行为。
+- Portable source 与 installed package 各通过 420 项检查。非 editable Identity
+  package 有 87 个逐文件 hash 匹配的源码文件，且不依赖 application、SQLAlchemy、
+  Celery、Boto3 或 Torch；安装版 Pydantic 为 2.14.1。Node 22 self-checks 通过；
+  API/architecture 467 项通过、126 条 lazy rules 明确延期；SDK user/CLI/OpenAPI
+  35 项通过且 public OpenAPI 未变。Schema/codegen 和环境文档检查通过，后者覆盖
+  450 个变量、48 个分组。
+- Identity image `sha256:58e97125a477558db72e1f2e70a4c5cef0dd5bd53b08333e25e962ebc0292c9a`
+  含 87 个 package files，并通过 nonroot/read-only runtime/API proof。API cold
+  image `sha256:6aa45b1892cec307e334570745846e615d8c9647978d743c023f26d3901676f2`
+  用时 38.223s，在 network-none/read-only/512 MiB 下核验 87 个 package files、
+  80 个 API/native inputs、admin-reset route 与既有 4 Directory、13 Invitation、
+  5 Recovery、8 Group、2 Deactivation routes，OpenAPI unchanged、migration head
+  0244、obsolete writer/generator absent、SQL parameters hidden；临时容器已移除。
+  Artifact 为 `.worktree/identity-admin-password-api-artifact.json`。
+- 实际 Identity 容器使用 nonroot/read-only/1 CPU/256 MiB。另有 12 个 target、并发
+  4 的 host-process sample：33 attempts/21 busy retries 用时 2.543434s，p50/p95
+  1.703565/2.543272s；confirmation 34 attempts/22 retries 用时 2.640446s，p50/p95
+  1.708559/2.640287s。包含 Node/HTTP/bcrypt 开销，不能当作 Identity 容器预算或
+  production capacity/SLO。12 个 receipts 与 Audit 在 confirmation 后未增加；JWT
+  generation 与 API-key rows 未变。
+- 本地资格不代表 production/primary cutover、remote CI、push/release 或 Go 扩展。
+  平台角色预览／变更已在下节独立限定验收；offboarding、other-user hydration、其他
+  Identity owners、十模块／七门槛目标与 provider replacement 仍待完成。Directory 与
+  Invitation/MailV2 的历史资格仍分别按其 own slice 统计。
+
+### Identity platform-role preview and mutation owner (locally qualified slice)
+
+- 只迁移超级管理员平台角色预览与变更：`GET
+/api/v1/users/{user_id}/role/preview` 和 `PATCH
+/api/v1/users/{user_id}/role`。Public path/method、既有请求／响应／错误与
+  SDK/CLI 保持；preview 的 UUID path 和 required role string 校验不变，mutation
+  继续以 string path 解析 UUID、body 忽略 extra fields，非法 UUID 保持 404。
+  合法请求角色仅 `super_admin/project_admin/employee/viewer`，不 trim/lowercase，
+  不加任意短长度限制；无 public CAS 或 idempotency header。
+- 私有 endpoint `POST /v1/identity/platform-roles/execute` 使用
+  `aap-identity-platform-roles/v1`，operations 为 `preview_role_change` 和
+  `change_platform_role`。Wire request 精确为
+  `schema/operation/operation_id/token/audit_context/payload`，payload 只有
+  `target_user_id/role`；Native request 用已认证 Principal、可选 API-key
+  `expected_key_hash`、fingerprint/epoch 与同一 payload。Migration 0245 创建
+  `aap_identity_platform_roles_v1` 和
+  `public.identity_platform_role_operation_receipts`；非继承
+  `identity_platform_role_client` 只有 `platform_role_policy()` 与
+  `execute_platform_role_command(jsonb)` 执行权。
+- Preview 精确保留既有十二字段及项目行 DTO，当前 super-admin-only surface 的
+  `other_project_count` 固定为 0。项目按成员关系和 Project.name/UUID 排序，展示
+  所有状态的直接 batch/task counts；viewer blocker 单独计算 pending、in_progress、
+  rejected、review 中的 effective assignee/reviewer，Task assignment 优先于 batch
+  fallback，unbatched tasks 参加且 TaskLock 不参加。工作 blockers 分为非 viewer
+  成员职责、目标拥有项目、viewer 未完成工作，依次判断。Preview 另先处理 self、
+  same role、last super-admin；不拿 last-SA reservation fence，保持 advisory。
+- Mutation 先锁 shared last-super-admin fence，再按 UUID 顺序 NOWAIT 锁 actor/target
+  User 并重验 active super-admin、JWT/API key 当前 credential。同角色直接保存 no-op
+  receipt，不锁 Project、不计算 blockers 或 last-SA、不写 Audit。真实变更先由 Workspace
+  按 UUID 锁目标拥有项目，再计算 work blockers，最后才执行 last-SA transition check；
+  账户/global fence contention 为 `account_busy` 409，project contention 为 `project_busy`
+  409，work blockers 为带封闭 blocker list 的 `platform_role_change_blocked` 409。
+  此写入不改成员、batch owner 或 Task。
+- Workspace stable facts 返回 owned-project 数、raw non-viewer membership 数和加入
+  Project 的成员项目；volatile owner lock 独立。Labeling 一次性接收已排序的成员
+  project UUID，返回不按 ID 限制的 global unfinished-work count 和同序、含零项的四种
+  direct project counts。两者使用封闭 versioned JSON schema；Identity 无外部原表读权，
+  Labeling 不调用 Workspace。Audit 仅接受 typed `user.role_change` facts。
+- 每个成功 mutation（包括 same-role no-op）冻结原 accepted 21-field User snapshot；
+  真实 role change 同事务写一个 `user.role_change` Audit，no-op 无 Audit。Receipt 不带
+  credential、hash、Principal 或 User FK。Replay 仍重验 active 当前 SA actor/target，
+  但不重算 blocker/last-SA 写入检查、不重复执行或 Audit。A→B→A 后 replay 原 B operation
+  返回 frozen B snapshot、数据库仍为 A；没有新 User version、supersession guard 或
+  Audit scan。Public 新请求用新 UUID。
+- API/runtime 可选 `IDENTITY_PLATFORM_ROLE_DATABASE_URL(_FILE)`，Compose host selector
+  为 `IDENTITY_RUNTIME_PLATFORM_ROLE_DATABASE_URL_FILE`；selector 留空只关闭该
+  capability、私有 route 503，不影响现有 Identity startup。API direct DSN 在调用前
+  检查 `platform_role_policy()` readiness，明确配置失败不 fallback。
+- 本地联合验收以 Root source `34800df85` 完成 56 个选定 database/process cases，零跳过：
+  Native/旧 API 48、restore 5、live 3。Installed portable package 有 94 个 `.py`／`.json`
+  文件 hash 精确匹配，source 与 installed suites 各 447 项通过。API/architecture 499 项
+  通过、127 条 lazy rules 明确延期；Node 22 self-check 和 SDK user/CLI/OpenAPI 35 项通过。
+- API cold image `sha256:a49450a0b203a3f05f68c6de058cd61d7d84d66cfd2b9384265ce3d8adbb6ca9`
+  用时 38.894s，在 network-none/read-only/1 CPU/512 MiB 下核对 94 个 package files、
+  89 个 API/native inputs、两个平台角色路由、既有 owner 路由数量、当前 OpenAPI、migration
+  head 0245 和 retired helpers absent；cold container 已移除。Live cases 覆盖 installed
+  Python owner 与 Node consumer、AUTH-only nonroot/read-only Identity remote container 与 dedicated API DSN。
+- 12 个 target、并发 4 的 host-process sample：execute 34 attempts/22 busy retries，
+  927.441ms（p50/p95 455.302/920.672ms）；replay 34 attempts/22 retries，907.557ms
+  （p50/p95 446.324/907.389ms）。含 Node/HTTP host overhead，不构成生产容量/SLO；12 个
+  receipts 与 12 个 Audit rows 在 replay 后不变。当前 role owner 已通过本地限定资格，
+  但不代表 full Identity、production/primary cutover 或 language replacement。管理员改密
+  的 42-case／420-package／467-architecture 证据及 Directory/Invitation 历史数字各按其
+  ADR 独立统计；全十模块／七门槛、Go 扩展与 provider replacement 仍未完成。详见
+  [ADR-0125](../adr/0125-independent-identity-platform-role-commands.md)。
+- 平台角色 slice 后，本轮当前实施的 Identity 写入范围是管理员暂停／恢复账号：
+  `POST /api/v1/users/{user_id}/deactivate` 与 `/reactivate`。该 slice 保留既有 inactive
+  early-return、project-admin scope 差异、credential retirement 与自助注销保留围栏；
+  这些入口不属于平台角色 owner。
+
+### Identity administrator suspension and reactivation owner (locally qualified slice)
+
+- 只迁移管理停用与恢复两项写入。两条 public `POST` route 保留路径、body、错误、
+  `UserOut` 与 SDK/Web 行为。Deactivate 继续用 string path、无 body 和 malformed UUID
+  404；reactivate 继续用 UUID path、可空 body、optional/null reason ≤500 与 extra-field
+  ignore behavior。两者只允许 current super-admin/project-admin，不新增 public CAS。
+- Private endpoint 为 `POST /v1/identity/suspensions/execute`，协议
+  `aap-identity-suspensions/v1`、operations `suspend_account`／`reactivate_account`。
+  Wire request 仅含 `schema/operation/operation_id/token/audit_context/payload`；Native
+  request 替换 raw token 为认证 Principal 和可选 key hash。Wire reactivation 保留原 reason
+  和 HMAC 输入；portable manager 只发送 `reason_present` strict boolean 给 Native，避免
+  把公共模型允许的 U+0000 放进 PostgreSQL JSONB。Migration 0246 创建
+  `aap_identity_suspensions_v1` 与 `public.identity_suspension_operation_receipts`；
+  `identity_suspension_client` 仅有 `suspension_policy()` 与
+  `execute_suspension_command(jsonb)` 函数执行权限。
+- 两操作都先共享 last-super-admin fence，再按 UUID 锁 actor/target User 并重验当前身份
+  与凭据。初次 public auth 对 inactive credential 仍返回 401；被 admission 接受后才
+  inactive 的 actor 由 owner 返回 private `user_inactive`，适配为旧 public 403。
+  Suspend 缺失目标与 self 错误在 inactive no-op 之前；已 inactive 目标立即返回
+  原 21 字段 User，不做 role/project scope check、不写 Audit、不退休凭据。真实 suspend
+  对 derived Projects 取 KEY SHARE NOWAIT；PA 仅限 employee target，全 derived set 必须
+  归其管理但空 set 可通过，不增加 ProjectMember 要求。其后才执行 last-unreserved-SA
+  围栏，停用字段与 retirement/Audit 一次提交。
+- Reactivate 的 missing target 404 先于 fresh actor manager check，再检查 self。PA 只可
+  恢复 employee；必须有非空 derived set 且全归其管理，仍只锁 actor-owned Project subset
+  FOR SHARE NOWAIT 后比较 coverage。SA 跳过 project scope 与 Project 锁。Scope 在 active/
+  kind checks 之前；只恢复 `suspended`／`emergency_suspended`。先退休凭据，再清停用 metadata
+  并保持 `status=offline`。暂停／恢复都不清已接受的 self-deactivation reservation，或写
+  Project/Member/Batch/Task/TaskLock。
+- Derived scope 保留 legacy 连接语义：owner、所有 memberships、TaskBatch 直接 annotator/
+  reviewer、Task 直接 assignee/reviewer、TaskLock→Task；all statuses、不用 batch fallback、
+  unbatched Task 可参与、通过 Project join 排除孤儿。Workspace typed helper
+  `lock_identity_suspension_scope(uuid,uuid,text)` 返回唯一一行
+  `(has_projects,all_projects_owned)` 并在内部复用 Labeling 已有 bulk project-ref reader；
+  不新增 Labeling protocol/grant 或 Labeling→Workspace 调用。Suspend 使用 KEY SHARE，PA
+  reactivate 使用 FOR SHARE owned subset；没有 generalized lock system。Batch clear/reassignment
+  没有锁旧 User 的历史 race 未被修复或视为资格通过。
+- Audit 仅由 typed capability 接受 `user.deactivate {email}` 和
+  `user.reactivate {reason_present}`；portable manager 用 Unicode `str.strip()` 计算 presence，
+  Native 仅接收 strict `reason_present` boolean，不让合法 U+0000 原因进入 PostgreSQL JSONB；原文
+  不保存。真实操作通过原 helper retirement generation +1、撤销当前 API keys、消费 unused
+  reset links；旧凭据不能复活。成功 receipts 也包含 inactive-suspend no-op；回放重验当前
+  manager 和 receipt binding，先校验 target generation/active flag，后续 lifecycle 变化先返回
+  `operation_conflict`；状态匹配后仍检查 PA-reactivate 当前 scope，才返回冻结 User 且不重复副作用。
+- 可选 API/runtime DSN 是 `IDENTITY_SUSPENSION_DATABASE_URL(_FILE)`，Compose host selector
+  是 `IDENTITY_RUNTIME_SUSPENSION_DATABASE_URL_FILE`。Blank selector 只关闭此 capability、
+  私有路由 503，不影响既有启动；explicit DSN 必须 readiness pass、失败不 fallback。
+- 本地验收以 Root source `f8704f059` 汇总 77 个 distinct DB/process cases，零跳过：73 个
+  唯一 database/restore cases 与 4 个 live cases。Aggregate 用最新 replay/role/suspension
+  restore cases 替换重叠运行；live 覆盖两个 owner cases 和两个 API binding（AUTH-only
+  remote Identity container、dedicated DSN），不是所有重跑的简单相加。Source 与 installed
+  portable-package suites 各 468 项通过，99 个 installed package 文件 hash 精确匹配；API
+  architecture 543 项通过并有 128 条 explicit deferred rules，Node 46、SDK user/CLI/OpenAPI
+  35 项通过。42 项 gateway suite 与 API assembly 有重叠，不另加到总数。四个 client 的
+  TEMP readiness matrix 包含本 owner；此前 Directory、admin-password、platform-role 资格仍按
+  各自 ADR 独立计算。
+- Nonroot、read-only Identity owner image
+  `sha256:b6973fcb4ee2be0612bc0bb6232827c07e1e53b60c9fb6cfadea49bd943d6fa7` 通过真实 remote
+  API binding，限制为 1 CPU/256 MiB。API cold image
+  `sha256:01b29d8617f104be76eac817b14803605e733747c1e202df97ea2d58d173c63f` 在 43.555 秒内通过，
+  使用禁网、只读文件系统及 1 CPU/512 MiB；核对 99 个 package files、96 个 API/native
+  inputs、migration head 0246、两个 suspend/reactivate routes、既有 route counts、当前
+  OpenAPI 与已退役 helper 缺席，随后移除临时容器。
+- 有限 host-process 样本使用 12 个 targets、并发 4。Suspend 为 36 attempts/24 busy retries，
+  共 1183.623 ms（p50 451.149 ms、p95 1180.700 ms）；replay 为 30 attempts/18 busy retries，
+  共 883.116 ms（p50 388.201 ms、p95 882.940 ms）。数字包含 Node/HTTP host overhead，不是
+  1 CPU 容器时延，也不构成生产容量或 SLO。确认后 12 个 receipts 和 12 条 Audit 不变，
+  新签发 keys 与 reset links 保持有效。上一 platform-role 56-case、admin-reset 42-case 与
+  Directory 38-case evidence 各属独立 slice，不合并计数。完整 Identity、十模块／七门槛、
+  production/primary cutover 与 provider replacement 仍未完成；详见
+  [ADR-0126](../adr/0126-independent-identity-suspension-commands.md)。
+
+- S/R 之后单独推进的最小 Identity 范围是 `DELETE /api/v1/users/{id}`，本计划下节记录其已通过的限定资格。现有 DELETE 不退休凭据，且可能转移 Task assignee、释放 TaskLock；offboarding pair、registration-status settings 和 dashboard hydration 仍是后续独立范围。
+
+### Identity account deletion owner (locally qualified slice)
+
+- 本 slice 仅迁移 `DELETE /api/v1/users/{user_id}`。保留字符串 path、malformed UUID 404、
+  可空 `DeleteUserPayload`／`transfer_to_user_id`、忽略 public extra fields、manager roles、
+  public errors 与 21-field `UserOut`；每次公开调用生成新 private UUID，不加 CAS/idempotency
+  header。HTTP composition 位于 `apps/api/app/api/v1/deletion_commands.py`，调用方选择器与
+  本地数据 adapter 为 `services/identity_deletion_commands.py` 和
+  `services/identity_deletion_data.py`，公开 route 仍在 `users.py`。
+- Private endpoint 是 `POST /v1/identity/deletions/execute`，wire schema
+  `aap-identity-deletions/v1`，native schema `aap-identity-deletions-native/v1`，policy schema/
+  value 为 `aap-identity-deletions-policy/v1`／`aap-identity-deletions/v1`，唯一 operation
+  `delete_account`。Wire payload 精确为 `{target_user_id,transfer_to_user_id}`，缺省 receiver
+  正规化为 null；HMAC 使用独立 `aap-identity-deletions/v1` domain、规范 UUID 和 operation
+  payload，不纳入 Audit context。Native/Wire reply 必须在事务内通过 closed-model validation。
+- 精确锁序是 shared last-super-admin fence → UUID 排序 actor/target/可选 receiver User
+  `FOR UPDATE NOWAIT` → current credential/manager。Current manager check 先于 target lookup；
+  missing target 返回 404，self-delete 返回 400。之后 inactive target 返回完整 no-op record，跳过
+  target role、project、receiver、work、Audit 和修改；要保存 receipt 以阻止旧重试后来变成新删除。
+  Active target 先对全部 derived Projects 取 `FOR KEY SHARE NOWAIT`；PA 仅可删除 employee，空
+  scope 允许，非空时全归 actor 管理，旧 active-employee manages-target helper 不增加成员关系要求。
+  Scope 后保留 last-unreserved-SA 条件。准入时已 inactive 仍为 401；admission 后 owner 检出 actor
+  inactive 映射为旧 public 403。
+- Work blocker 只数 direct `Task.assignee_id` 且状态在 pending/in_progress/review/rejected 的行，
+  不含 reviewer、TaskBatch fallback 或 finished work；target 的 TaskLocks 全计入，含 expired。
+  无 receiver 且任一计数非零时 409 `has_pending_tasks` 返回 count 与最多 5 个按
+  `created_at DESC` 排序的 sample UUID。Supplied receiver 即使计数为零也校验 active、not-target
+  和 employee/project_admin role；PA 还须覆盖每个 pending direct task 的 distinct 非空 project，
+  receiver 为 actor 时保留例外。只改 eligible Task assignee，并将 `assigned_at` 与 `updated_at` 设为当前时间（保留旧 ORM `onupdate`）；释放所有 target TaskLocks；不改 reviewer、TaskBatch 或 ProjectMember，不引入新 Task/Batch 锁序，excluded Task timestamps 保持不变。
+- Soft delete 写 inactive/offline/deleted metadata，与任务转交、TaskLock release、Audit 和 receipt
+  同事务提交；不退休凭据：generation、API-key `revoked_at`、reset-link `used_at` 与 JWT/JTI 均不变，
+  已受理 self-deactivation 字段也不变。Audit owner 先清 target 历史 `actor_email/actor_role` 并捕获
+  数量，再 INSERT 固定 `USER_DELETE` detail `email/role/transferred_to/transferred_count/released_locks`；
+  仅当数量非零时在同一 INSERT 中加入 `redacted_audit_rows`，不扩大 `detail_json` UPDATE 权限。旧
+  Audit 的 actor id、detail、IP 与 target 保留。该历史 actor redaction 是部分处理，不宣称完整擦除。
+- Receipt 冻结 actor／operation／target／optional receiver、fingerprint／derivation、User snapshot、
+  nullable Audit ID 和 post-target generation/active，不含凭据、hash、raw token、Principal 或 live
+  User FK。Replay 重验当前 manager，先查 receipt binding 与 target generation/active；不匹配返回
+  `operation_conflict`，匹配则因 target 已 inactive 返回冻结结果，不重做转交、释放锁、Audit 或脱敏，
+  也不处理 acceptance 后新增的工作／Audit／credential。
+- Migration 0247 建 `aap_identity_deletions_v1` 与
+  `public.identity_deletion_operation_receipts`；LOGIN `identity_deletion_client` 只可执行
+  `deletion_policy()` 后执行 `execute_deletion_command(jsonb)`。Owner-only typed helpers 为 Workspace
+  `lock_identity_deletion_scope(actor_uuid,target_uuid)`，返回 exactly one nonnull row
+  `(has_projects boolean,all_projects_owned boolean)`；Workspace
+  `identity_deletion_transfer_covered(receiver_uuid,project_uuids[])` 返回 nonnull boolean；Labeling
+  `identity_deletion_work(target_uuid)` 返回 exactly one nonnull row
+  `(pending_task_count bigint,locked_task_count bigint,sample_task_ids uuid[],pending_project_ids uuid[])`，
+  `transfer_identity_deletion_work(from_uuid,to_uuid)` 返回 nonnull bigint；Audit
+  `record_identity_deletion_event(actor_json,target_uuid,detail_json,context_json)` 返回 AuditID bigint。
+  无 raw cross-owner table grants；offboarding 的 lock release 由专用 Labeling capability 持有，旧 shared helper 已退役。
+- API/runtime optional DSN 为 `IDENTITY_DELETION_DATABASE_URL(_FILE)`，Compose host selector 为
+  `IDENTITY_RUNTIME_DELETION_DATABASE_URL_FILE`。Blank selector 仅关闭 DELETE capability 并返回
+  503，不影响现有 Identity startup；explicit DSN 必须通过 readiness，失败不 fallback。
+- Root final aggregate at source `edb213550c81439f5707f531f82bce31d236cbe2` passed 72 selected
+  acceptance cases with zero skips: 71 database/process cases plus one static-artifact case. The
+  aggregate uses the latest result per case; restore and dedicated-API passes replace earlier fixture
+  failures, and reruns are not additive. Migration 0247 downgrade to 0189, frozen-SQL rollback and
+  return to 0247 with grants passed; all owned resources were cleaned with no errors.
+- Portable source and installed package suites each passed 502 tests; 104 installed package hashes
+  match exactly. Installed Pydantic is 2.14.1 and the package has no API/SQLAlchemy/Celery/Boto3/Torch
+  dependency. API assembly passed 576 checks with 129 architecture rules explicitly deferred; Node 21
+  and SDK 35 checks passed. OpenAPI changed only the DELETE description; public paths/schemas/fields
+  are unchanged. Codegen/catalog/schema checks passed; environment docs contain 459 variables across
+  48 sections.
+- Identity owner image `sha256:4e4d71b3a573fba29758b6a4563ad18a97c25fec0b283a4d115df1c4423a73c0` passed
+  an actual remote API binding in a nonroot, read-only 1 CPU/256 MiB container. Cold API image
+  `sha256:82aa52c6c31721c449b7fe9bcc1046a47956250a83b8284c798f265799dae997` passed offline, read-only,
+  1 CPU/512 MiB verification: 104 package + 104 API/native hashes, migration head 0247, one DELETE
+  route plus prior owner route counts, current OpenAPI and retired-helper absence. The temporary
+  container was removed. Its 139.297 seconds are total build + offline verification, not startup.
+- A finite host-process sample used 12 targets/concurrency 4: 34 attempts, 22 busy retries, 861.920 ms
+  elapsed, p50 458.037 ms and p95 856.836 ms. It includes Node/HTTP host overhead and is not container
+  CPU timing, production capacity or an SLO. Confirmation left 12 receipts and 12 Audit rows unchanged;
+  work/locks/Audit/credentials added after acceptance remained untouched by replay. Details and the
+  full closed error table are in [ADR-0127](../adr/0127-independent-identity-deletion-commands.md).
+- DELETE 与 offboarding preview/commit owner 均已通过各自限定的本地资格；Registration-status settings、dashboard hydration 与其他跨 owner Identity lifecycle 仍是独立后续范围。十模块／七门槛目标保持 active；完整 Identity、生产切换／容量及 provider-language replacement 均未完成。
+
+### Identity administrator offboarding preview and commit owner (locally qualified slice)
+
+- 本 slice 仅迁移 `GET /api/v1/users/{user_id}/offboarding-preview` 与 `POST /api/v1/users/{user_id}/offboarding`，保留 UUID 422、public DTO／defaults／errors 和 callers。Preview 无 body；Commit 保留 required unbounded `preview_version`、reason 默认空/最大500、`mode=handoff|emergency_suspend` 默认 handoff、projects 默认空与 nullable role receiver mappings。No project-count cap；remote reader 不加 64 KiB body 上限。Duplicate project IDs 不能由 Pydantic 提前拒绝，仍在旧 scope/CAS/state 顺序后返回422。HTTP composition 为 `apps/api/app/api/v1/offboarding_commands.py`；caller port/data 是 `apps/api/app/services/identity_offboarding_commands.py` 和 `identity_offboarding_data.py`，public routes/DTO 继续留在 `users.py`/`schemas/user.py`。
+- Preview 暴露固定七项 `user/preview_version/generated_at/projects/api_keys/blockers/can_commit`。摘要继续使用 legacy Python `json.dumps(resource_state, sort_keys=True, default=str)` 的 SHA-256；保留 Python `ensure_ascii`、默认空格、UTC datetime 空格格式、列表顺序、UUID 小写和 null `task.project_id` 字符串 `None`。不改成 HMAC、SQL JSONB hash 或 SQL/Python替代排序。Digest 覆盖所有 target refs、API key metadata 与 receiver name/email/role；不包括 reason、mode、generated_at、Project/Batch name 和 key last-used。具体 resource_state keys、receivers/options、role flags、task counters 与 blocker order 见 ADR-0128。
+- Preview 为 advisory：current SA/PA、target存在、自身目标、last unreserved SA、PA employee/project ownership 及 inactive-empty scope 的旧顺序不变；active target 的 PA empty project set 可接受。三个 role option lists 即使 role absent 也计算；owner receiver 是所有 active global PA，annotator/reviewer receivers 是 matching ProjectMember active users，不按 global User role 限制，并由 SQL 当前 collation 按 name/email/id 排序。`can_commit` 不构成新的 commit gate。
+- Commit 先 shared last-SA fence，再锁 actor/target/receivers User，Projects（含所有 payload project IDs）、relevant members、target assigned Batches（包括 archived）、target related Tasks、per-task edit advisory locks 与 target TaskLocks。完成全部锁后重新读取 facts；current scope 在 raw digest CAS 前。然后依旧顺序检查 target state、duplicate project mapping、receiver 与 blockers。All status batch/task/lock references 可影响 derived scope；仅 active direct Tasks参与 four-category counts。Emergency仍执行scope/CAS/state/duplicate checks，但跳过receiver/blocker并不转交。
+- Handoff按原project order和owner→annotator→reviewer顺序；owner仅更新Project owner/updated_at；annotator/reviewer仅转移nonarchived target Batch与四种active-status direct Task。Annotator `assigned_at` 更新，reviewer保留；Task/Batch隐式 `updated_at` 变化和participant projection保持旧语义，完成Task与review evidence不改。Emergency每个present role返回固定 `emergency_suspension_requires_later_handoff`，unresolved计数使用旧scope/count规则。两模式均软停用为inactive/offline，disabled kind分别suspended/emergency_suspended，normalized reason写User，保留self-deactivation reservation；credentials retire发生在状态写之后，TaskLock释放在retirement之后。Audit只记 `mode/reason_present/transfers/unresolved/revoked_api_key_count`，不记raw reason。
+- Native boundary为 `/v1/identity/offboarding/execute`、wire `aap-identity-offboarding/v1`、native prepare/apply `aap-identity-offboarding-native/v1` 与 policy `aap-identity-offboarding-policy/v1`。Identity portable files为 `offboarding_contract.py`、`offboarding_manager.py`、`offboarding_postgres.py` 及两份 canonical schemas。One `OffboardingPostgresData.transaction()` holds a single connection/transaction across prepare→portable digest/scope/CAS→apply→strict wire/native validation→commit；no transaction crosses HTTP, prepare ledger or saga。Raw version/pre-CAS reason不进入prepare JSONB；HMAC包括wire raw version/reason和normal UUIDs，不包括token/Audit context。Migration0248的`identity_offboarding_client`仅执行apply/policy/prepare三函数，owner helpers只提供typed facts/locks/transfers，禁止raw cross-owner grants。Config为 `IDENTITY_OFFBOARDING_DATABASE_URL(_FILE)` 与 Compose `IDENTITY_RUNTIME_OFFBOARDING_DATABASE_URL_FILE`；API 空 selector 保留 caller-transaction 路径，独立 Identity runtime 空 selector 才停用该 runtime capability，显式 DSN readiness failure 不 fallback。
+- 最新 Root case union 包含 77 个 distinct selected cases：76 DB/process 与 1 static artifact，零跳过；其中 64 个 native/public cases（含两个 owner baseline fixture）和 13 个 live/restore cases。Focused reruns 覆盖了早先夹具失败的结果，不重复累加。Migration 0248 upgrade、frozen SQL install/rollback、downgrade 至 0189、runtime grants 与资源清理均通过，cleanup errors 为空。Source/installed suites 各 523 项通过、109 个安装文件 hash 精确匹配；API assembly 604 项通过、130 条 architecture rules 明确延期，Node 21、SDK 37 项通过。OpenAPI byte-identical；catalog 509 routes/93 modules、environment docs 462 variables/48 sections 通过。
+- Identity owner image `sha256:88d89236acbabc78b660ab5c232dbe4e6d046747af15799014755d45f63e9586` 通过实际 remote API binding（nonroot/read-only、1 CPU/256 MiB）。Cold API image `sha256:ab7d0a5b0e2fc672d0cc8800343f945cb5cb01b5b87455efad9411e4b5940e2b` 在 network-none/read-only、1 CPU/512 MiB 下通过；验证 109 package files 与 46 API/native inputs、2 offboarding routes、18 user routes 无 ORM hydration、migration 0248、当前 OpenAPI、隐藏 SQL 参数与旧路径移除，容器已清理。40.662 秒是 build+offline verification 总时长，不是启动时延。精确构建源、scope 与 hashes 见 [ADR-0128](../adr/0128-independent-identity-offboarding-commands.md)。
+- 两个相同场景形状、但独立生成 fixture 的样本将旧 API preview/commit 的 11/30 与 20/54 SQL calls 降为 owner 的 3/5 与 3/5。两轮 fixture 各自生成新 UUID、timestamps 和数据，因此 benchmark preview hashes 不作跨运行比较；两项固定 legacy state-vector hashes 已由 owner 在 source 与 installed-package tests 中按字节精确复现。单次 instrumented samples 的 peak Python bytes 与 host elapsed、固定 vectors 见 ADR-0128；host timings 不是容器 CPU 时延、生产容量或 SLO。删除、停用与 self-deactivation 仍保留不同副作用。Registration-status settings、dashboard hydration、other-user profile 与其他 Identity lifecycle 仍在后续范围；full Identity、ten modules/seven gates、Go provider、production cutover/capacity 均未完成。
+
+### Identity batched UserBrief reads owner (locally qualified slice)
+
+- 只抽取现有内部 helpers `app.services.user_brief.resolve_briefs` 与 `resolve_briefs_with_project_role`，保留所有 callers 的签名、返回 map 与公开 API 行为；不增加任意用户资料路由。每个 caller 仍先授权自己的 task/project/result rows，再批量获取显示用 UserBrief。
+- 输入省略 `None`、UUID string 规范化、重复合法、invalid UUID 在 owner call 前保持 ValueError、missing User 省略；空集合直接返回 `{}` 且无 SQL/HTTP。无数量上限，不增加 active/status/role 过滤或 name/avatar 规范化。六字段固定为 `id/name/email/role/avatar_initial/avatar_ref`；name/email/avatar/global role 原样投影，project truthy membership role 覆盖，否则回退全局 role。Owners 与历史 assignee 无 membership 时仍返回 brief。Python initial 保留空白及 Unicode 扩展行为。
+- 便携 Identity 包计划新增 `briefs_contract.py`、`briefs_manager.py`、`briefs_postgres.py` 及 wire/native schema；私有批量接口为 `POST /v1/identity/briefs/execute`，无用户 token、actor、nonce、operation ID 或 Audit context。Wire 按 UUID 排序，owner/user reply 必须是请求 ID 子集并且 project scope 精确；malformed/overbroad/wrong-scope reply 失败 closed，不返回 partial result。Native 只提供五个源字段，初始字母由 Python 计算。Existing runtime semaphore/timeout 沿用，不加 body-size cap。
+- Migration 0249 依赖 0248，无 receipt/outbox/audit state；`aap_identity_briefs_v1` 只开放 `briefs_policy()`、`execute_briefs_command(jsonb)`。Identity 专用 LOGIN `identity_briefs_client` 只有这两个函数权限，Workspace 仅以 `identity_brief_project_roles(project_id,user_ids)` 批量投影 `(user_id,role)`，不授予原表访问。原生读使用稳定安全函数；无逐用户 RPC 或 cache。
+- API optional DSN 为 `IDENTITY_BRIEFS_DATABASE_URL(_FILE)`，Compose selector 为 `IDENTITY_RUNTIME_BRIEFS_DATABASE_URL_FILE`。留空使用 caller Session，已有 `IDENTITY_URL` 时优先 private HTTP；独立 runtime 留空只停用 briefs capability。Embedded adapter 不提交/回滚调用方事务，并保留 SQLAlchemy autoflush 与 `no_autoflush` 行为；dedicated asyncpg 自有只读 transaction 并关闭连接，不在选定 remote/DSN 错误后回退。
+- Root 的 latest-case union 通过 64 个 distinct cases（59 DB/process、5 pure/static），零跳过；包括 11 Native、39 caller/API 与 14 live/restore cases。partial caller fixtures 被最终通过结果替换，reruns 不重复计数；live/restore 还覆盖两个 installed owner bindings、三个实际 API bindings、一个 briefs restore 和八个既有 Identity restore/challenge cases。迁移 0249、frozen SQL/grants、downgrade/restore 与 PostgreSQL/Redis/S3/host/container cleanup 均通过，cleanup errors 为空。Source 和 noneditable installed package 各 549 项通过，114 个 hash 精确匹配；API assembly 625 项通过、132 条 architecture rules 显式延期，Node 21、SDK 43 通过。OpenAPI byte-identical；codegen、catalog 509 routes/93 modules、environment docs 464 variables/48 sections 通过。
+- Identity owner image `sha256:c86eba7f5b49ef4424ba0a5eab9751d99f866b74e268f3190bfd06615dd89884` 通过实际 remote API binding（nonroot/read-only、1 CPU/256 MiB）。Cold API image `sha256:f7a80e3a2b41643d33044dfa5eff5fc49510f16fa3563241989262d5841652e7` 在 network-none/read-only、1 CPU/512 MiB 下通过，核对 114 package/45 API-native inputs、六字段 UserBrief、caller transaction 保留、native snapshot byte 相同、当前 OpenAPI/head0249、SQL params 隐藏；容器已清理。41.875 秒是 build+offline verification 总时长，不是启动 latency。Compose disabled/enabled selector 的 configuration-only checks 均通过且没有部署服务。精确 schema/image hashes、baseline 与边界见 [ADR-0129](../adr/0129-identity-batched-user-brief-reads.md)。
+- 旧 helper baseline 在 owned 0248 DB 上通过并清理无误：六用户 fixture 覆盖 global/project 与 1,201 IDs，legacy queries 为 empty=0、global=1、project=2、large=1，记录在 `apps/api/tests/fixtures/identity_briefs_legacy.json`。这些数字只描述旧 caller behavior 和单次样本，不是新的性能或容量结论。全 Identity、十模块／七门槛、另一语言 provider、production cutover 与生产容量仍未完成。
+
+### Projects member-list UserBrief consumer (locally qualified)
+
+- `projects.list_members` keeps Workspace as the authority for membership authorization, row selection, `assigned_at DESC` ordering, project duty and membership metadata. After ACL checks, it calls the existing global `resolve_briefs` once for selected user IDs and maps the global role to the existing required `platform_role`; it does not use the project-role overlay. The public ten-field member DTO is unchanged and does not expose `avatar_initial`.
+- Empty membership input does not call the profile owner. Missing UserBrief rows remain omitted to preserve the old inner-join result; inactive users are not filtered. Invalid historical global roles still fail the required four-value DTO validation, and `_member_out` retains its existing missing-target `ValidationError`. The single batch read replaces the former join; there is no per-member RPC. Embedded mode keeps the caller transaction, while remote Workspace and Identity reads do not share a snapshot.
+- The focused acceptance union passed 21 selected cases with zero skips (18 database/process and three pure/static), including existing Native/role-write cases and extended remote/dedicated API assertions. SDK serialization passed 44 checks, including two new member-response assertions; no SDK production code changed. Legacy output is captured in `apps/api/tests/fixtures/project_member_profiles_legacy.json`. These results are separate from, and not added to, the prior 64-case UserBrief owner qualification. The wider Identity and ten-module/seven-gate objective remains active.
+
+### Project-owner display UserBrief consumer (focused checks passed)
+
+- `projects._serialize_project` and `_serialize_project_list` call the existing global `resolve_briefs` owner for only `name` and `avatar_ref`. `ProjectOut.owner_name` and `owner_avatar_ref` remain nullable; `owner_id` remains the required Workspace UUID. Missing profiles keep both display fields null. Names and avatar references are returned raw, and inactive/historical owners remain eligible. No project-role overlay, DTO/OpenAPI change, or workflow change is introduced.
+- List/query routes complete existing authorization, filtering, ordering, count and pagination before sending the distinct non-null owner IDs on the returned page in one batch. Shared owners reuse one result, empty pages make no owner call, and a supplied empty lookup does not cause serializer fallback I/O. Single create/detail/patch/class-rename/transfer paths look up each non-null owner ID once at their existing authorization and commit/refresh positions. Dataset-linked `/datasets/{id}/projects` remains unchanged with null owner display defaults. Embedded reads retain their caller transaction; remote owners share no snapshot and selected failures do not fall back to local User reads.
+- The old HTTP baseline passed one owned-database case and cleaned up successfully. Captured output at `apps/api/tests/fixtures/project_owner_profiles_legacy.json` covers four projects and three owners; old owner query counts were four for list, two for a page and one for detail. The focused suite passed 56 checks and three existing remote/dedicated/disabled API cases passed; the latest union is 59 affected selected cases (53 DB/process and six pure/static), zero skips. Coverage includes one Native profile call per list/page/detail, exact decoded responses, ACL/pagination-before-lookup, empty/missing/null cases, write regressions and unchanged dataset-linked defaults. SDK projects passed 23 checks including two captured list/detail serialization cases, with no SDK production change. Existing Identity package/image artifacts are reused, not recounted. The fresh API image and Root-owned OpenAPI/codegen/catalog checks also passed; the 59 cases do not add to the prior member-consumer or 64-case UserBrief owner qualification. One batched owner read removes the owner lookup N+1, while other per-project counter SQL remains. Full Workspace/Identity/provider qualification, production capacity and primary cutover are still incomplete.
+
+### Identity post-admission actor context (locally qualified)
+
+- `deps.get_current_user` uses the existing AUTH owner after JWT/API-key admission to read only the current actor facts needed for request context. The private route is `POST /v1/identity/actor-context`, using strict `aap-identity-actor/v1` request/reply envelopes. The request carries the admitted actor UUID and modern role, not the credential or caller-supplied profile. The reply is bound to the same ID/role and active account; its fields are `id/name/email/role/is_active/weekly_target_default`, with nullable int32 weekly target and raw name/email.
+- Migration 0250 adds read-only `aap_identity_v1.read_actor_context(uuid,text)` to the existing `identity_auth_client` allowlist as its fifth function. The AUTH LOGIN gains no table, column or DDL privilege; only the NOLOGIN Identity owner adds SELECT on weekly_target_default. There is no new LOGIN, DSN, setting, dependency or public API/SDK schema. Remote AUTH runtime, explicit `IDENTITY_AUTH_DATABASE_URL(_FILE)` and caller-transaction bindings retain their existing selection and no-fallback behavior.
+- Missing/inactive/role-changed actors keep the prior HTTP 401/Bearer-challenge and principal-state clearing behavior; malformed/unavailable/binding-invalid owner responses keep 503. Admission still owns signature, expiry, generation/revocation, scope and API-key last-used checks. Write-time account locks, target User queries and ORM mutation synchronization remain in their current transactions; actor context is not a project capability or write authorization ticket.
+- The latest qualification union passed 114 distinct selected cases (92 database/process and 22 pure/static), with no skips. It covers the seven-scenario actual legacy HTTP baseline, account/role fences, retained caller work, immutable admitted scopes/last-used, actual fifth AUTH capability revocation/readiness, both Node/Python process directions, real remote-container/dedicated API bindings, eight existing Identity restores and malformed JSON against the final owner container. Focused retries replace fixture failures and are not added twice; the old capture itself is separate. Migration 0250, frozen SQL install/rollback, downgrade/upgrade, grants and owned resource cleanup passed. Source and noneditable installed packages each passed 579 checks with 117 exact installed-file hashes; the fresh restricted API image verifies those 117 package and 141 API/native files, public OpenAPI and migration head 0250. SDK auth/dashboard/projects passed 42 checks, Node self-checks 27, and architecture checks 316; 132 existing inapplicable architecture rules remain explicitly deferred. Public OpenAPI stays byte-identical; codegen and the 509-route/93-module catalog pass. The 97-file actor type migration retains executable AST/defaults. These counts are separate from prior UserBrief/member/owner-display qualifications. Full Identity/provider qualification, the ten-module/seven-gate target, production capacity and primary cutover remain unfinished.
+
+### Identity transactional account locks (locally qualified slice)
+
+- Identity provides only three typed Native account facts/lock functions: `aap_identity_v1.lock_accounts_share(uuid[],boolean)`, `lock_accounts_update(uuid[],boolean)` and `lock_accounts_key_share(uuid[],boolean)`. The portable `aap-identity-account-locks/v1` request contains UUIDs, lock mode and strict `nowait`; duplicate input is legal but the SQL lock/reply set is sorted and unique. Returned facts are only `id/name/email/role/is_active`; missing IDs are omitted, inactive accounts and historical role strings are not filtered. No HTTP lock endpoint, credential fields, operation ID, audit, direct table permission or artificial batch cap is added.
+- `IdentityAccountLockData` must execute through the same caller connection and transaction as the subsequent business write. Locks remain held through that commit; lock order remains sorted account IDs, Project, membership, then caller resource. SHARE/UPDATE/KEY SHARE and each `nowait` choice remain per-caller. `nowait=false` waits for the current row version. Native lock SQLSTATEs `55P03`, `40001` and `40P01` propagate so the transaction aborts; the shared data port does not catch, retry, use savepoints, commit or rollback.
+- Workspace owner may execute all three functions; Labeling and Learning use SHARE, Inference uses UPDATE, and the existing workflow LOGIN uses all three for same-transaction coordination. Grants add only required schema/function privileges. `application_role` receives EXECUTE only from the un-applied LAN production-grants source. AUTH and credential FENCE LOGIN permissions remain unchanged; the existing `read_actor_facts` function is reused for initial worker status checks where needed.
+- `project_write_guard.lock_actor_account_facts` becomes the SHARE value adapter; `lock_actor_account` remains a `None` wrapper. Single-account busy, account/project busy, and project_access account/project/member contention retain their existing mappings. `UserLifecycleService.lock_accounts` uses the existing UPDATE/KEY SHARE paths and explicitly rolls back every DBAPIError; other wrappers retain their own raw-SQL abort behavior. Target User queries and mutation synchronization remain in scope only for their existing writes, not replaced by returned read facts.
+- The cross-frame worker checks the job user's initial state through existing `read_actor_status`, then obtains fresh account facts for each eligible frame and rechecks current project/member/task authority. It retains per-frame transaction boundaries, cancellation, task locks, audit, result counts and failure states. Busy still means `permission_changed`; no new retry is added. Missing/deleted mid-job keeps `propagate_failed`, and inactive accounts keep `permission_changed`. Authority changes retain their existing phase-specific mappings, including `source_task_locked` and `target_task_locked`.
+- Root's pre-change baseline passed one owned-state case across 15 scenarios and was captured in `identity-write-fences-legacy.json` and `identity-write-fences-legacy-samples.json`. It remains separate compatibility evidence and must not be rerun against the new implementation or added to qualification counts. The actor-context slice's already-closed 114 selected cases also remain separate.
+- The latest union passed 231 distinct selected cases without effective skips: all three native lock modes, actual waiting/current row versions, raw SQLSTATE/explicit rollback differences, no-autoflush pending work, exact legacy outputs, execute-only Node consumption, both ownership-transfer/platform-role-change orders, eight Identity restores, current per-frame actor facts and error categories, registry-delete authority and rollback, and a fresh Celery process with exact source hashes and three real dispatches. Earlier harness failures/skips are retained and replaced by latest passes, not added again. Local compatibility runtime grants now include the three locks and existing actor status/context operations through the explicit worktree allowlist; AUTH/FENCE permissions remain unchanged.
+- Source and noneditable installed suites each passed 595 checks, with 119 exact package file hashes. A fresh standalone owner image verifies the same installed files without API/heavy runtime dependencies; a fresh network-disabled/read-only API image verifies those 119 package files plus 150 application/native files and migration head 0251. OpenAPI stays byte-identical, codegen and the 509-route/93-module catalog match, and architecture checks pass 316 cases with 132 existing inapplicable rules deferred. Migration/frozen SQL roundtrip, grants and owned-state cleanup passed. Build/offline verification timings are not startup or production capacity measurements.
+- Unlocked Workspace reads and bootstrap/import User writers remain future work. The full ten-module/seven-gate objective stays active, with no production/primary cutover or Go expansion claimed. See [ADR-0131](../adr/0131-identity-transactional-account-locks.md).
+
+### Identity operational provisioning and authority reuse (locally qualified)
+
+- The two mutable operational account operations move behind `aap-identity-provisioning/v1`: exact-email lookup and bootstrap/import create. `AccountProvisioningManager` returns UUID values, never User ORM rows or password hashes. Existing `application/bootstrap_admin.py` keeps its boolean result and caller-owned commit; `seed_pointcloud.py` and `import_nuscenes_scene.py` keep their import transaction. Invitation account construction remains within the Invitation owner and uses separate lifecycle policy.
+- Bootstrap is per email, not a global empty-roster guard. Existing same-email rows of any role/status/name/hash are reused without hashing or Audit; distinct emails may bootstrap separate super-admins. For a missing email, CLI-only trim/lowercase rules remain unchanged. The owner creates the legacy `super_admin`/online/active defaults, applies caller `now` to email verification, initializes generation/preferences/lifecycle defaults, and atomically writes the fixed `system.bootstrap_admin` Audit in the same transaction. Duplicate races remain raw `23505` aborts, with no conflict handler/retry/savepoint/rollback.
+- Import looks up exact `admin`, reuses any existing row untouched, and rejects a missing row only when `environment == "production"` exactly, before hashing. Other environments, including staging, keep the old admin/超级管理员/123456 offline-account defaults and no Audit. Import rollback removes a newly created account together with Assets, Workspace and Labeling rows.
+- Migration 0252 adds `read_provisioning_account(text)` and `create_provisioning_account(jsonb)`, plus only the narrow operational `identity_provisioning_client` grants and the fixed Audit capability. The reader respects autoflush/no_autoflush; creates explicitly flush pending caller work even under no_autoflush. There is no new HTTP operation, runtime DSN/setting, credential permission, receipt or schema artifact change outside the additive provisioning schema. The new native functions, narrow grants, frozen SQL roundtrip and migration head 0252 passed in owned disposable databases; no primary or production grants were applied.
+- Nonlocked `project_access.resolve_project_access` reads actor status through the existing `IdentityAccountLockData.read_actor_status`/`read_actor_facts` path; it preserves account → Project refresh → membership order, Project ORM refresh and existing status/error headers, adding no lock or role guard. `task_lock.py`, `batch.py` and `async_job_access.py` replace only authority-only User reads with existing status/lock capabilities, preserving their lock modes/waiting, missing/inactive semantics, return order and policy mapping. Active-only guards remain active-only without extra role checks. This adds no SQL or protocol capability and does not migrate member/task ownership.
+- The account-lock slice's 231 selected cases and actor-context slice's 114 selected cases remain closed, separate qualifications and are not counted for provisioning. The new slice passed 236 distinct selected cases with no effective skips, including restricted Node calls, actual CLI, a fresh Celery worker, eight restores, current authority and caller-transaction checks. A separate actual legacy capture on head 0251 covered ten scenarios before implementation; focused retries replace failed fixture/probe attempts rather than increasing the distinct count. Source and noneditable installed suites each passed 619 checks; owner and restricted API images verify 122 package files, and the API image verifies 61 current-slice application/native inputs and head 0252. Public OpenAPI is byte-identical, codegen and the 509-route/93-module catalog match, and architecture passes 316 cases with 132 existing inapplicable rules explicitly deferred. Audit rejection preserves raw 23514 and aborted transaction state until explicit caller rollback, including unrelated pending work. Full Workspace project/member lifecycle ownership, other Identity consumers, full Identity and the ten-module/seven-gate goal remain open; no production/primary cutover or Go expansion is claimed. See [ADR-0132](../adr/0132-identity-operational-provisioning-and-authority-reads.md).
+
+### Workspace project membership lifecycle owner (locally qualified slice)
+
+- Existing public member-add, role-preview/change, and remove routes/DTOs stay in place. Their internal command set is `add_member`, `preview_role_change`, `change_role`, and `remove_member` under the closed `aap-workspace-membership/v1` protocol. `apps/workspace` owns the portable Python policy; Native `aap_workspace_membership_v1` owns the database fences and atomic writes. This owner does not take over project creation/transfer/configuration/templates/listing/mentions.
+- Prepare → policy → apply shares one PostgreSQL transaction and retains current account → Project → membership → Labeling lock order, preview digest, blocker ordering, CAS, NOWAIT behavior and explicit rollback semantics. Native performs required Labeling responsibility handoff/release, member mutation, fixed Audit and immutable success receipt atomically. It returns contract values rather than API ORM objects; the public adapter keeps existing response hydration and commit ownership.
+- `workspace_membership_client` LOGIN is limited to `membership_policy()`, `prepare_membership_command(jsonb)` and `apply_membership_command(jsonb)`; cross-owner facts/effects use narrow Identity, Labeling and Audit functions. Invitation acceptance continues using its existing Identity owner. No raw cross-owner table grants, public API/SDK schema changes or new idempotency header are introduced.
+- API selection is optional `WORKSPACE_MEMBERSHIP_URL` plus `WORKSPACE_MEMBERSHIP_CONTROL_TOKEN(_FILE)`, optional caller data `WORKSPACE_MEMBERSHIP_DATABASE_URL(_FILE)`, or the default caller Session. The standalone runtime requires its membership database URL and control token. API timeout defaults to 30 seconds; runtime defaults to `0.0.0.0:8172`, 30 seconds and concurrency 8. Compose host selectors are `WORKSPACE_RUNTIME_MEMBERSHIP_DATABASE_URL_FILE` and `WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE`. Explicit URL/DSN failures do not silently fall back.
+- The captured pre-change legacy baseline passed 20 HTTP cases, eight frozen preview-digest vectors, and four Audit checks. It records the old behavior only and is separate from qualification of the new owner.
+- The latest union passes 119 distinct selected cases (96 database/process and 23 pure/static), with no effective failures or skips. Source and noneditable installed suites each pass 51 checks. The standalone owner image matches nine package files; the fresh restricted API probe verifies 131 installed files, 65 current-slice application/Native inputs, public OpenAPI and head 0253. Each actual public binding covers the 20 legacy cases plus four NUL conflicts, four business Audits and 22 HTTP access Audits. Member-list timestamp ordering is checked separately from normalized row equality because the legacy capture shares one transaction timestamp; ordered snapshots retain UUID ordering. Caller pending work, concurrent handoff, raw Audit failures, process crash/restart, replay, restore and downgrade protection pass. Eight existing Identity restores are separately retained; focused retries replace earlier failures and gated attempts.
+- Native `preview_token` and `reason` use canonical ASCII JSON string literals at the SQL boundary, preserving logical HTTP values and the legacy stale-version/snapshot-before-Audit precedence for NUL input. The required `opaque_text_codec` is checked in the execution transaction in both SQL adapters; missing metadata denies caller, dedicated and remote execution. Literal control/Unicode Audit values and receipt fingerprint binding pass. The Node consumer passes 37 self-checks including eight digest vectors and exercises one controlled native add; it is not an alternate provider. Architecture passes 318 cases with 133 inapplicable rules explicitly skipped, separate from the selected qualification. Local worktree grants now include the existing UserBrief schema and two RPCs so the default member-list path works under `legacy_runtime`.
+- The prior Identity provisioning and authority-reuse qualification remains separately closed and is not added here. The API remains a transitional assembly; only the member command owner has the three-function restricted qualification. Project creation/transfer/configuration/templates/listing/mentions, full Workspace and Identity ownership, other modules, the ten-module/seven-gate objective, provider replacement, production capacity and primary cutover remain unfinished; Go remains an architecture experiment.
+
+### Workspace project owner-transfer command (locally qualified slice)
+
+- The direct public transfer route keeps its admission, DTO, errors and route-owned commit/refresh. Native `aap_workspace_owner_transfer_v1` and the portable `aap-workspace-owner-transfer/v1` contract replace the old property writer; caller-session binding never commits. Current actor/target locks, Project exclusive lock, error precedence, transaction-time updated_at and same-owner no-op behavior remain required.
+- A separate exact-two-RPC LOGIN, immutable no-FK receipt, execution-time policy check and optional DSN/HTTP binding establish this single command's deployment boundary. Matching replay preserves accepted success after supersession without reapplying the owner write. The shared runtime supports membership-only, transfer-only or both; the separate Compose file reuses the control bearer without adding required membership secrets.
+- Before extraction, 17 actual legacy HTTP calls and four caller transaction probes were captured at commit `1a0526a4fc7a67f3867c999465b9623b3dc9094f`. This baseline remains frozen and is not new-implementation qualification. Client SQL statement counts exclude Native internal SQL and do not measure production capacity.
+- Source and noneditable installed suites each passed 85 cases; the installed 14 package files match source and import no API/ORM/Celery dependencies. All four public bindings match the 17 actual legacy responses; four caller transaction probes, restricted Native/role checks, replay/supersession, malformed replies, DML and deferred-commit errors, real transport-loss recovery, installed capability coexistence, and nine affected restore/migration checks have passed. The final union is 66 distinct selected cases (59 DB/process and seven pure/static), with no effective failures or skips; focused successful retries replace fixture/diagnostic failures rather than adding cases. Source and installed package suites remain separate from that union. Python and Node owner images passed actual restricted-role private/public round trips and restart replay. The Python image matches 14 package files; the Node image matches five runtime inputs, runs as UID 1000 and pins pg@8.16.3. A fresh API image matches 136 installed package files and 72 current application/Native inputs, public OpenAPI and head 0254. Its cold proof explicitly uses UID 10001, read-only filesystem, no network and fixed budgets; this does not change the API image default user. Architecture checks separately pass 318 cases with 133 existing inapplicable rules skipped. OpenAPI, codegen and the 509-route/93-module catalog remain unchanged. All three images are based on code commit `5c452b23508901b2317984da32b8d76c2897faab`. The Python owner image is `sha256:12c08b854e27db4ca54718774ea5d305b9b0440f85e94efe6f7b8ed55d4e1932`, Node owner is `sha256:8afc0d9d1b385856a040cb1c2a3c2213e0331d41b4f2ffb32320abe23ca93d67`, and API is `sha256:362072e714d44f69960c17027077a904258fe534f66adf5b0c1b1d4c64bfcd1b`. Node is a local single-command transport conformance provider; Native owns business policy. It is not a full Workspace replacement or production language decision. See [ADR-0134](../adr/0134-workspace-project-owner-transfer.md).
+- The repository migration validator separately passed fresh head 0254 (254 upgrades), the reversible 0173-to-base path, the 80-step 0254-to-0174 reversible suffix, forward upgrade across irreversible 0174, and backup restore. All four derived databases and dump files were cleaned, with no owned databases left over. This orchestration check is not added to the 66-case feature union.
+- Project creation/configuration/template mutations are the next coherent Workspace boundary because they share caller-owned transactions and template usage counters. Cross-owner authorization, linked dataset checks, Labeling/video blockers and configuration revisions must be captured before extraction. Lists, mentions, nuScenes project creation and remaining consumers follow. Full Workspace, Identity, all ten modules/seven gates, production capacity and primary cutover remain unfinished; Go stays optional experimentation.
+
+### Workspace configuration values and dependencies: local foundation
+
+- The full ten-module/seven-gate objective remains active. This checkpoint moves
+  configuration values/pure policy and dependencies; it does not close the
+  six-operation configuration mutation owner. Native wire/staged writes,
+  receipts, function-only LOGIN, runtime selectors and independent owner gates
+  remain next. Class rename, guide assets, nuScenes project creation, saved
+  pipeline persistence, lists/mentions and remaining consumers retain their
+  current boundaries. Go remains an optional local experiment.
+- Actual old commit `35b558e5` was captured before extraction:106 real HTTP observations
+  plus 17 caller success/error/atomicity records across three disposable runs.
+  Frozen fixtures under `apps/api/tests/fixtures/workspace_configuration_legacy/`
+  identify their original capture hashes. Current implementation matches all
+  requests, responses, semantic SQL/probe order, committed-null facts and caller
+  records. This preserves late source-backend authorization, constructor/setup
+  fail-open behavior, revision/visibility precedence, video blockers/current
+  media/sampling, JSON null committed before response 500, and deferred failure
+  atomicity. API client statement counts do not measure total Native SQL or
+  production capacity.
+- Workspace owns Project/Template config DTOs, attribute/tool/render/video/QC
+  values and pure kind/clone/template policy; API geometry/run/evaluation/read
+  DTOs remain in place. Inference owns preannotate/ModelCapability values,
+  registry, normalization and saved-pipeline validation. API callers import the
+  actual owners and explicitly inject tracker limits; old API implementations
+  and clone/preannotate/registry/normalization modules are removed. No old-symbol
+  compatibility facade is retained. HTTP boundaries restore the old errors.
+- Native 0255 adds typed Identity org visibility, Assets dataset kind/scene,
+  Labeling video blocker/source facts and Inference pool enablement. Each has
+  its domain NOLOGIN owner; only Workspace code can directly consume the helper
+  (besides its domain owner), with no foreign raw-table grant or application-role
+  execution. Missing pool is a no-DML sentinel pending coordinator error mapping.
+  Pool-before-association writes match actual old trigger observations; no-op
+  timestamps/generation and caller rollback are preserved.
+- Six Native/role cases passed. Two Workspace protected restores passed; the
+  seven initially skipped Identity restore cases were explicitly enabled and
+  passed separately, yielding nine affected restore checks with no effective
+  skip. The repository migration validator passed fresh 255, real 0173-to-base-to-
+  head, suffix 255-to 0174-to-head (81 downgrades), irreversible forward and backup
+  restore. All four derived DBs/dumps and verifier-owned resources were removed.
+- The affected API regression group passed 118 cases. Source pure checks passed
+  347; the policy/architecture suite passed 376 with 133 existing inapplicable
+  architecture parameter skips. Suites overlap and are not additive. An initial
+  overly broad pure selector included four DB cases without the owned launcher;
+  it failed before database access on the missing Alembic script location, then
+  exact pure selection and the owned full endpoint group passed. A pre-existing
+  stale smoke test imports a removed users constant; no compatibility constant
+  was reintroduced for it.
+- Noneditable isolated installs passed Workspace 100 and Inference 27 tests.
+  Nineteen and seven installed package files match source bytes; no API, SQLAlchemy,
+  Celery, Boto3 or Torch is installed in either artifact. Inference's existing
+  shared protocol dependency still brings FastAPI error helpers and lifecycle
+  crypto; that dependency is documented, not described as framework-free.
+  All three frozen Python locks use the API's existing Pydantic 2.13.3, preserving
+  saved-pipeline validation detail URLs without upgrading the API. The API and
+  Workspace Docker build inputs include their new local package dependencies.
+- OpenAPI and capability registry checks pass with unchanged snapshots. Their
+  pre-commit source matching now follows the portable owner paths. Image builds,
+  final documentation checks and cleanup are still in progress at this source
+  checkpoint; they must not be reported as completed until actual evidence is
+  collected. See ADR-0135 for the frozen baseline and exact remaining boundary.
+
+- Read-only final review caught a Root-only comment cleanup that swallowed the
+  top-level text-output union. The field was restored, all four comment-edited
+  module ASTs match the extracted implementation, and a standalone union
+  regression was added. The affected core/API capability subset passed 64; the
+  refreshed installed Inference suite passed 27 after this correction.
+
+- Final packaging is qualified from source checkpoint
+  `96a3c34a62a69aa43376cd7c8aaf08c5cf84ea70`. Workspace image
+  `sha256:3d737300668ccae90bd30889458a90653002bba886b4d605cad5514d421f8836`
+  passed an actual offline/read-only/nonroot 1 CPU/256 MiB proof: 19 package files,
+  strict existing protocols and shared template projection. API image
+  `sha256:8cb990e6d11d74db486444d019d346ac5ee0c127c9dd8e690f12b75b6816c40d`
+  passed explicit UID 10001, offline/read-only 1 CPU/512 MiB proof: 162 package files,
+  123 application/native inputs, unchanged OpenAPI and head 0255. Both proof
+  containers were removed. Build+probe durations are not startup latency or
+  production capacity. No new configuration runtime is claimed.
+- Direct artifact checks, normal commit hooks and documentation build pass.
+  Six clean patch-equivalent child worktrees/branches were removed; the primary
+  checkout remains clean at `856fa79c87ef2668d0ed74eb570df0a3e529d49f`, shared
+  dependency/configuration links are intact, and all four original containers
+  remain running. Images and local qualification artifacts are retained. There
+  was no push, release, remote CI, production deployment or primary cutover.
+  The full goal stays active; continue with the six-operation configuration
+  command owner using the frozen baseline and current transaction/IO contract.
+
+### Workspace configuration command owner: public callers and transport parity
+
+- The full ten-module objective remains active. This checkpoint implements six
+  project/template configuration commands; it does not complete Workspace,
+  another full-language provider, independent databases or production cutover.
+- `aap-workspace-configuration/v1` carries a strict envelope and canonical opaque
+  ASCII request JSON. Native owns fixed scoped steps, current authority fences,
+  typed column writes, unfinished-draft guards and immutable success receipts.
+  Workspace gets typed Identity/Assets/Labeling/Inference calls without foreign
+  raw grants; a separate LOGIN has only policy and step functions.
+- Six public callers now use the same portable owner through borrowed, dedicated
+  DSN or HTTP selection. Removed the API configuration workflow and its moved
+  ORM commands, with no compatibility facade. The API keeps commit, live raw-row
+  hydration and public response validation after commit. Adjacent point-cloud
+  quality promotion moved into its own API application function with identical
+  statement AST except for the Session receiver; other adjacent writers remain.
+- Default borrowed execution matches 106 frozen HTTP observations and 17 caller
+  records. Dedicated DSN and independent HTTP each match the same 106 responses,
+  external probe order and committed-null behavior. Caller probes are scoped to
+  the borrowed connection; no cross-connection rollback of unrelated API work is
+  claimed. The raw SQLAlchemy active flag on three conversion failures is not
+  an internal compatibility promise. Old SQLAlchemy client traces cannot see
+  Native SQL and are not reported as matched Native statement evidence.
+- The response comparison caught a missing-pool success/clear fallback; the
+  manager now restores the original ValueError for both create and patch.
+  Public API regression passed 57 cases. Actual Native tests check REAL versus
+  DOUBLE no-op/update counts with PostgreSQL NOTICE triggers, caller timestamps,
+  NOT NULL and lock-aborted transactions, pending-work/autoflush behavior, and
+  two real setup/revocation races with complete draft/pool/association rollback.
+  The races also caught and corrected whitespace in the creator error detail.
+- A valid nested configuration must not inherit the small envelope depth cap.
+  Facts now receive separate strict JSON checks; a real 150-level configuration
+  create/duplicate check passed. Video media reads keep 500-item batching and an
+  empty shortcut; missing source precedence is checked before pending metadata.
+- Actual DSN/HTTP process checks passed, including loss of a committed response,
+  same-private-UUID retry, provider restart/replay, one receipt/no drafts, and
+  unavailable-owner503 without local fallback. All owned resources were cleaned.
+  A remote harness trial omitted the parametrized supplement fixture; it was
+  not counted as remote proof. The corrected two-binding supplement run passed,
+  completing all 106 observations per binding without repeating closed cases.
+- Source/binding checkpoint ca23a7092f8b3a5220db6602056e811d3907f907 passed normal
+  commit hooks and a docs build. Four clean child worktrees were removed only
+  after exact-head and integrated patch-equivalence proof. The active test
+  worktree is retained. Primary source/shared links and original running
+  containers are preserved; no push, release or remote CI was requested.
+- Four failure/recovery cases pass with real conversion errors, forged-finish
+  rollback, the unfinished-command commit guard and receipt-preserving
+  backup/restore/current revocation. Nine protected Workspace/Identity restores
+  pass without skips. Full head0257 migration validation passes fresh creation,
+  the173-revision reversible path,83-revision suffix, forward migration and
+  restore; all four derived databases were cleaned without errors.
+- Final noneditable packages, constrained images and bounded local concurrency
+  evidence remain open. Public contracts and OpenAPI are unchanged. Current implementation
+  and scope are documented in [ADR-0136](../adr/0136-workspace-configuration-command-owner.md).
+
+### Workspace configuration command owner: bounded local qualification closed
+
+- The six-command slice is locally qualified at code checkpoint
+  `a82f83cc5cf9b02b3b62be4c16bcb2e1641b0565`. The full ten-module objective
+  remains active; this does not complete Workspace or another language provider.
+- Noneditable installation outside the source test tree passed132 Workspace and
+  27 Inference cases. Installed25/7 package files plus14 shared dependency files
+  match source, with no API/SQLAlchemy/Celery/Boto3/Torch installed. The standalone
+  owner image verifies all46 files; the API image verifies168 installed files,
+  131 application/Native inputs, unchanged public OpenAPI and migration head0257.
+- Actual prebuilt-image acceptance passed private and public API configuration
+  writes, restart/replay, deleted-template frozen replay without overwriting
+  later edits, and current actor revocation. The owner runs as UID10004 with a
+  read-only root, cap-drop ALL, no-new-privileges,64 PIDs,1 CPU,256 MiB,32 MiB
+  tmpfs and exactly two read-only secret mounts. All containers, secret files
+  and disposable database resources were cleaned. The API cold proof uses
+  UID10001, no network, a read-only root,1 CPU and512 MiB.
+- A bounded local profile completed16 updates to16 independent projects at
+  concurrency4:16 successes, zero failures/OOM,420 ms elapsed, p50 103 ms and
+  nearest-rank p95 114 ms. Shared PostgreSQL/caller resources are outside the
+  owner budget. This is not a production capacity/SLO result. Existing
+  shared-target NOWAIT conflicts are deliberately not replaced with retries.
+- Architecture checks pass322 cases with135 inapplicable parameter cases
+  explicitly skipped. Final read-only production review found no additional
+  actionable issue. Normal source commit hooks, documentation build and
+  whitespace checks pass. Earlier binding/oracle/transaction/restore/migration
+  evidence stays separate and is not added to the package or architecture counts.
+- Workspace image: `sha256:5de0eca63baa2109f8c0625f085ee73832b2d0c36189458420cfc11b758b0bba`.
+  API image: `sha256:9dc72f68e3d995daeaa217f6727f326c08901fcf204d0c9f07e63e980cfbb3f8`.
+  Primary source/shared links and its four original running containers remain
+  unchanged. No primary/production cutover, push, release or remote CI occurred.
+- The next coherent extraction is template list/detail and postcommit response
+  projection, followed by the larger project read model. Freeze current scope,
+  organization membership, creator display, filtering/ordering and committed-null
+  response behavior before moving ownership. Member display already uses the
+  separate Identity brief owner; it must not be described as an unmoved User JOIN.
+  Guide assets, class rename, named pipelines, import creation and adjacent writers
+  remain separate work. Full Workspace, Identity and all-module language replacement
+  stay unfinished. Go remains an optional experiment.
+
+### Workspace template query owner: frozen baseline and portable foundation
+
+- The full all-module objective remains active. Public template reads still use
+  the old API ORM path while this read/projection owner is being integrated.
+- Before extraction, actual owned-database capture passed40 HTTP observations,
+  two caller autoflush/no-autoflush probes and a caller-timezone probe. Runtime
+  inputs match pre-port commit `a0317013841ca3aaf1b53b06ce051c6eb07ac798`; the
+  capture itself ran at `bbfb47bf301a6390f788cc3edb736dad383fb71b` after test-only
+  commits. Fixtures are immutable under `workspace_template_queries_legacy`.
+- A separate actual scalar probe confirmed native JSON loses negative zero and
+  formats timestamp zones differently from asyncpg binary reads. The contract
+  now uses float text and fixed timestamp materialization, preserving UTC and
+  naive extrema for timestamp infinities without changing the caller GUC.
+- Portable list/detail/receipt-bound projection policy and strict wire/schema
+  landed with37 new pure cases; the complete Workspace source suite passes169.
+  Raw JSONB-null reaches the original postcommit public validation500. Actor
+  facts are the trusted API's admitted Identity snapshot, with no new active/role
+  recheck or caller-provided visibility booleans. Scope/filter/order/profile read
+  phases are preserved. Stored illegal scope/null-organization cases are excluded
+  because current CHECK constraints prevent them; no schema was weakened.
+- Identity now owns the narrow current organization-ID list fact in0258. Its
+  scoped native value/owner/privilege checks pass. The initial metadata assertion
+  required an explicit internal-character-to-text cast; the failed attempt is
+  retained and replaced only by its focused successful retry. All owned capture
+  and fact-verification resources were cleaned without errors.
+- Native query RPCs, independent/borrowed adapters and actual public routing
+  integration continue. No independent-query deployment, alternate-language
+  provider, production capacity or full-module qualification is claimed at this
+  checkpoint. See [ADR-0137](../adr/0137-workspace-template-query-owner.md).
+
+### Workspace template query owner: public integration
+
+- Public list/detail and postcommit template response projection now use the
+  portable owner. The old API template service was removed; actual named-pipeline
+  consumers use the typed Identity organization-ID capability. Public API and
+  SDK contracts are unchanged. The full all-module objective remains active.
+- Borrowed, dedicated DSN and independent HTTP bindings each match the40 frozen
+  HTTP observations and timezone probe. Borrowed execution also matches both
+  caller autoflush probes. Native checks pass4 cases; real data bindings pass3.
+  A caller `extra_float_digits=0` probe exposed rounding; function-local precision3
+  fixes it while retaining the caller setting. Both focused caller cases pass.
+- The affected public API suite passes43 cases, transport checks pass11, and the
+  configuration-response regression matches its106 frozen HTTP observations and
+  17 borrowed caller records. Architecture checks pass328 cases, with138
+  inapplicable parameter cases skipped. These overlapping groups are not summed.
+  OpenAPI is unchanged; final read-only integration review found no new issue.
+- Query-only and configuration/query coexistence fault/restart tests, backup
+  projection recovery and nine affected protected restore checks at0259 pass12
+  cases without skips. Grant-loss503/recovery and owner outage without fallback
+  pass; all disposable resources were removed without cleanup errors.
+  Installed package, restricted owner/API images and full migration qualification
+  remain open. No primary/production cutover, alternate-language provider,
+  push, release or remote CI is claimed.
+
+### Workspace template query owner: bounded local qualification closed
+
+- The full all-module objective remains active. Template list/detail and
+  receipt-bound response projection are locally qualified; Project reads and
+  the remaining adjacent Workspace owners are the next work. Go remains an
+  optional experiment, with no new language provider or production cutover.
+- Full migration validation passes at0259: fresh259,173down/base,85suffixdown,
+  forward and restore. All four derived databases were removed with no errors.
+  The12 process/recovery cases already include the nine protected restores;
+  no duplicate count is added for assertions within those tests.
+- Noneditable installed suites pass169 Workspace and27 Inference cases outside
+  source. Their29/7 runtime/schema files plus14 shared dependencies match source;
+  no API, SQLAlchemy, Celery, Boto3 or Torch package is installed. A source-path test
+  was corrected to use the installed schema resource; its earlier failure stays
+  retained separately.
+- The owner image matches50 runtime/schema files. Actual public creation uses
+  committed request sessions before remote projection; detail and post-restart
+  reads match. The first two test attempts exposed a missing type_key and an
+  external SAVEPOINT fixture that hid commits and blocked cleanup. Their failed
+  reports remain; the committed-session acceptance passes and all temporary
+  containers, secrets and database resources are removed without cleanup errors.
+- Restricted owner budget: UID10004/read-only/cap-drop ALL/no-new-privileges,
+  64 PIDs,1 CPU,256 MiB,32 MiB tmpfs and exactly two read-only secret mounts.
+  Sixteen detail reads at concurrency4 all succeed with no OOM: elapsed403 ms,
+  p50 99 ms and p95 108 ms. PostgreSQL/caller are outside budget; this is a
+  bounded local observation, not production capacity or an SLO.
+- The offline API image matches172 installed and139 application/Native files,
+  unchanged public OpenAPI and head0259 under UID10001/network-none/read-only,
+  1 CPU/512 MiB. Its container was removed. Runtime checkpoint5136a448b and
+  acceptance/API-image checkpoint6f0f44ceb differ only in acceptance tests;
+  runtime file hashes remain equal. Final documentation changes no runtime code.
+- Owner image: `sha256:0f5604c68b995d1e5da474bdfab9ac0e54bdfe4ab2b0aa9f23c70dd5f74d4eea`.
+  API image: `sha256:aa082f7ce387a7df96822962235c77eab327fa26f4f047d3287d51fe3129b350`.
+  Primary source, four shared links and four original running containers remain
+  preserved. Four clean modifier worktrees/branches were removed after exact
+  integrated-patch proof. No push, release, remote CI or primary/production
+  runtime cutover occurred. See [ADR-0137](../adr/0137-workspace-template-query-owner.md).
+
+### Project query foundation and portable Workspace access values
+
+- The full all-module objective remains active. Project list/query/detail/stats/
+  readiness/projection still execute their original API reads; no independent
+  Project query runtime or full Workspace qualification is claimed here.
+- Before moving authority values, actual committed-session capture freezes27
+  HTTP observations and2caller autoflush probes. The driver checks28 sources
+  against50fc1df9a, and a supplemental guard verifies1,100 existing runtime/schema/
+  SQL inputs. Actual capture atc50835877 precedes changes to those runtime files.
+  Far-past/future stats fixtures are stable; weekly boundaries have separate tests.
+  A real codec probe records43 Project columns, ISO/SQL DateStyle behavior and
+  binary date extrema versus native infinity strings. Immutable fixtures are
+  under workspace_project_queries_legacy.
+- Fixture attempts incorrectly assumed extra create fields were accepted and
+  chose an unsupported PATCH field for JSONB-null. The corrected capture preserves
+  actual ignored extras and supported rendering-config committed-null/public500.
+  Initial catalog preflight lacked a definitions map and stopped before creating
+  runtime resources. Failed attempts remain retained rather than counted green.
+- Native0260 publishes15 fixed read capabilities across Labeling, Assets, Jobs
+  and Inference. Workspace has14 executes; only Labeling can execute the Assets
+  dataset-item relation. Raw foreign-table grants are not widened to Workspace.
+  Captured dataset IDs survive later unlink, AI-cancelled count differences stay,
+  and12bucket results use the original one36/24-FILTER aggregate scan shape.
+  All6Native behavior/owner/grant cases pass, with scalar and legacy captures
+  passing separately; disposable resources were removed without cleanup errors.
+- Workspace access values/capabilities and scalar rules now live in the portable
+  package. Actual callers use the new owner; the old API module is removed and
+  the membership helper is canonicalized. Source checks pass519 cases (184
+  Workspace,10API pure,325architecture);137 architecture parameters are inapplicable.
+  The affected public/authority suite passes67 cases. OpenAPI remains unchanged.
+  These groups overlap and are not a global distinct-case sum.
+- Ten protected restore cases pass at0260, including the new counter capability
+  executed as Workspace before/after real backup restore. Full migration260
+  passes fresh260,173down/base,86suffixdown,forward and restore; its4derived
+  databases are removed without cleanup errors or leftovers.
+- Independent installation exposed a stale uv wheel; a warm-cache removal probe
+  then exposed deleted modules retained by setuptools staging. Workspace now
+  declares metadata/Python/schema cache keys and reuses the repository's
+  Hatchling backend. Five consecutive warm-cache phases pass: initial install,
+  Python addition/modification/removal and schema modification, with unchanged
+  metadata and no forced refresh. Copied source, environment and cache are removed.
+  Artifact gates now also reject unexpected Python/schema files.
+- Noneditable installed artifacts pass 184 Workspace and 27 Inference cases outside
+  the source tree; all 51 runtime/schema files match. Offline restricted Workspace
+  and API images verify 51 and 173 package files respectively; API also verifies 183
+  application/Native inputs, unchanged OpenAPI and head 0260. Proof containers are
+  removed and local review artifacts retained. The API cold probe's initial
+  argument-length failure is retained; stdin delivery passes on the same image.
+  These are artifact checks, not a new independent Project query provider.
+- Next: complete query wire/policy/data bindings with lazy Identity Briefs,
+  search Workspace facts and scoped configuration/transfer/class-rename readback
+  evidence, then perform provider/fault/package/image qualification. Current
+  shared PostgreSQL and trusted coordinator constraints remain explicit.
+  See [ADR-0138](../adr/0138-workspace-project-read-foundation.md).
+
+### Project query owner: selected local qualification closed
+
+- The complete ten-module/seven-gate objective remains active. Project list,
+  pagination, detail, statistics, readiness, accepted-write projection and Project
+  search now execute the Workspace query owner. The API's former serializers and
+  Project list/visibility SQL helpers are removed; actual callers select borrowed,
+  function-only DSN or HTTP bindings. Global Search still composes multiple domains.
+- The portable contract has seven operations and24 typed actions. Requests/facts
+  bind exact arguments; bigint facts are decimal strings, JSONB travels as raw
+  JSON text, and float4 fields promote to float8 text before Python decoding.
+  Date filters carry normalized exact epoch-microsecond bounds. Native0261 keeps
+  the38 Workspace plus5 raw Labeling Project fields in one statement snapshot.
+- Transfer retains BOTH original reads: the caller's no-autoflush precommit read
+  and decode, followed by postcommit current-row hydration through the accepted
+  receipt. The abandoned snapshot-forwarding path is removed. Receipt-backed
+  configuration and raw locked class-rename evidence preserve accepted authority;
+  missing/undecodable postcommit rows stay internal failures, not new denials.
+- Fifty immutable HTTP observations (original27, supplemental15 consumers and8
+  temporal cases) match each of the three bindings. Caller pending-work probes
+  use only the default borrowed binding. Defined Search ordering is retained;
+  tests normalize only seeded timestamp ties and unordered non-SA member groups.
+  Thirty-five Native/API regressions, two installed process fault cases and four
+  actual transfer-phase cases pass without skips. Source Workspace214 and
+  noneditable Workspace214/Inference27/Identity-Briefs-client16 cases pass.
+- Source manifests match Workspace36, Identity121, Inference7 and shared14 files.
+  Restricted owner/API cold images match178/180 package files; the API also checks
+  190 application/Native inputs, exact OpenAPI and head0261. Nonroot/read-only,
+  no-network and explicit capability/PID/CPU/memory restrictions are verified.
+  The live owner uses only3 read-only secret files and loopback publication;
+  public create/readback, restart and16 requests at concurrency4 pass at1CPU/256MiB.
+  The database/API caller are outside that budget; this is no production SLO.
+- A real backup restore preserves all seven Project query operations through
+  separate function-only Project and Identity Briefs credentials, readonly
+  transactions and accepted configuration projection after actor deactivation.
+  Full migration261 passes fresh261,173down/base/up,87suffixdown/up, authentic
+  historical forward conversion and pre-conversion restore. Four derived
+  databases/dump are removed; all owned acceptance resources are cleaned.
+- This closes only the selected Project query capability. Directory reads
+  (members/mention/access), class rename command ownership, guide assets, named
+  pipeline persistence, import/registry/promotion writes and other cross-domain
+  Project consumers remain. Full Workspace, other modules, provider replacement,
+  production capacity and primary cutover are unfinished; Go stays experimental.
+  See [ADR-0139](../adr/0139-workspace-project-query-owner.md).
+
+### Next Workspace boundary: directory reads
+
+- Proceed with member-list and mention-candidate owner projections. Preserve the
+  member order, one batched profile lookup, empty/missing profile behavior and
+  final public DTO validation. Capture actual mention groups/order/precedence,
+  duplicates, inactive users and early404 before extraction.
+- Active owner/superadmin/member user facts belong to Identity; expose narrow
+  owned facts instead of giving Workspace raw User access. Keep accepted current
+  visibility phases and caller transaction/I/O boundaries intact.
+- Project access response has repeated resolution phases and stays separate until
+  captured. Class usage belongs to Labeling; named pipeline persistence is already
+  Inference-owned and still needs its persistence boundary extracted. Do not hide
+  those remaining surfaces behind the completed query slice.
+
+### Directory owner implementation and current local checks
+
+- The actual member/mention baseline is frozen as13 HTTP responses and2 caller
+  autoflush probes. API directory selectors now invoke the existing Workspace
+  package through the closed `aap-workspace-directory-query/v1` protocol. Old
+  API member-list and mention SQL is removed; member write projections retain
+  their actual helper. Project and Directory share one current-authority helper.
+- Additive0262 fixes a verified omission: the legacy authority read decoded both
+  membership timestamps, while0261 accepted out-of-range values. Two failures
+  were reproduced first; all3 temporal cases now pass. Deployed ACL downgrade
+  and upgrade run twice, preserving owner, runtime/client EXECUTE and grant
+  options while hiding the private implementation. Historical0261 stays frozen.
+- Native0263 and its restricted Directory role expose exactly2 RPCs. The owned
+  native/migration/temporal union has10 passing cases; the first run's fixture
+  argument error is retained separately and its corrected case passes. Actual
+  inactive membership joins, closed operation/parameter bindings and no raw
+  User/Project/member or TEMP access are verified.
+- All13 HTTP samples match borrowed, dedicated DSN and installed HTTP bindings;
+  caller probes remain borrowed. The same run includes2 installed fault/restart
+  cases and existing member/mention API regressions:15 tests pass, no skips.
+  Missing profiles retain their503; mentions/empty sets remain usable without
+  Briefs. Explicit remote failures never invoke the local manager.
+- Workspace source and noneditable suites each pass226 cases; all42 Workspace
+  files and the Identity/Inference/shared manifests match installed bytes.
+  Nine transport cases, exact OpenAPI and documentation build pass. The initial
+  omitted route description was restored before the passing OpenAPI check.
+- Directory-specific restricted owner/API images and backup/restore remain next
+  gates. No primary cutover, production capacity, full Workspace, other-module
+  completion or another-language provider is claimed. Go remains experimental.
+  See [ADR-0140](../adr/0140-workspace-directory-query-owner.md).
+
+### Directory owner: selected local qualification closed
+
+- The complete ten-module/seven-gate goal remains active. Only member-list and
+  mention-candidate reads are qualified here. Their13 immutable HTTP samples
+  match each borrowed/DSN/installed-HTTP binding; the two default caller probes
+  keep their own transaction and autoflush semantics. The fixture hash remains
+  `a18b31c5a229b8d06690a7ef6788a5a036059974216097cf37059087f1562de0`.
+- The strengthened0262 migration test first reproduces failure for a valid
+  client grant-option chain. The correction copies every grantee's effective
+  privilege before revoking dependent old-function grants; wrapper access and
+  grant options survive, and no non-owner can execute the implementation.
+  Two downgrade/upgrade cycles now pass, without changing the frozen0261 body.
+- Owner image184 and API image186 package files match source; the API also
+  checks198 application/Native inputs, unchanged OpenAPI and head0263. Nonroot,
+  read-only, offline proof containers pass and are removed. A live Directory
+  image performs public reads,16 requests at concurrency4 and restart within
+  1CPU/256MiB. The first restart test used Docker's old ephemeral host port;
+  actual inspection confirms reassignment and refreshing the address passes.
+- Ten current-schema restore cases pass across Workspace/Identity. The
+  configuration restore additionally compares both Directory operations through
+  independent function-only Directory/Briefs credentials, readonly transactions
+  and subsequent inactive-actor denial. Seven initial opt-in skips are replaced
+  by seven explicit passing follow-ups. Initial cleanup refused; a verified
+  zero-session retry through the same ownership guard removes only that run's
+  database, Redis, buckets, container and temporary root. Failed and retry
+  reports remain separate.
+- Full263 migration validation passes fresh263,173down/base/up,89suffixdown/up,
+  authentic historical forward conversion and pre-conversion restore. Four
+  derived databases and the dump are removed. Five clean, patch-equivalent
+  Directory child worktrees/branches are removed after integration.
+- The final selected-check union has37 distinct passing cases, with all earlier
+  failures/skips covered by matching successful follow-ups. Source/installed
+  package suites and transport/OpenAPI evidence stay separate; repeated runs
+  are not accumulated. Aggregate evidence is
+  `.worktree/workspace-directory-owner-qualification.json`.
+- Remaining Workspace work includes the actual repeated-phase `/access` read,
+  Labeling-owned class usage, class rename, guide object I/O, Inference-owned
+  named pipeline persistence and other cross-owner writes/consumers. Next capture
+  targets `/access` without changing its production behavior. Full Workspace,
+  other modules, another-language provider, primary cutover and production
+  capacity remain open. Go stays experimental.
+
+### Project access response: implementation and current checks
+
+- Actual legacy capture freezes16 HTTP observations and2 direct resolver probes.
+  The first stale-role-token401 assumption is corrected to actual404 without
+  production edits. The fixture SHA is
+  `d5d579a4ac384bc04891d9d7378eebdf01a01397351c7aa2d33d23154270603d`.
+- `get_project_access` extends the existing Project Query owner and selectors;
+  there is no new secret/runtime family. The initial visibility phase and final
+  status/Project/member phase stay distinct. `access_member_rows` returns full9
+  scoped columns; final role/id/version come from the same final read. It never
+  initializes display profiles. Old actions and Directory behavior retain their
+  former read phases.
+- Manager/member policy is canonical in Workspace and reused by the API's
+  existing locked/nonlocked resolver. Old pure API manager construction is
+  removed; account/Project/member I/O, NOWAIT and lock order remain unchanged.
+  The complete member codec moves to a shared leaf with domain error translation.
+- Native0264 replaces the existing function body without changing signature,
+  OID, owner or privilege chains. Downgrade reuses the frozen0262 wrapper body.
+  Full facts, malformed binds and deployed-ACL cycles pass3 selected DB cases.
+  Paired real legacy/new phase changes and authority/lock regressions pass49.
+  Initial fault-test adapter argument errors are retained separately and fixed.
+- Project50 + Directory13 + Access16 frozen HTTP observations match every
+  borrowed/DSN/installed-HTTP binding. The19-test run also exercises four process
+  fault/restart cases; default resolver probes are separate. Source/installed
+  suites each pass239, all43 Workspace files match, and nine transport checks plus exact OpenAPI
+  remain green. Three private role/kind inconsistency failures are
+  reproduced and corrected before the passing source/installed suites.
+- Real restore preserves both manager/member access, member version37 and all
+  prior query/Directory operations; the old0262 grant-chain regression passes.
+  Full264 migration passes fresh264,173down/base/up,90suffixdown/up, authentic
+  conversion and pre-conversion restore; four derived databases and dump are
+  removed. Current restricted images and container execution remain next gates.
+  Complete Workspace, other modules, language replacement, primary
+  cutover and production capacity remain open; Go stays experimental.
+  See [ADR-0141](../adr/0141-workspace-project-access-query.md).
+
+### Project access response: selected local qualification closed
+
+- The selected-case union has 84 distinct passing cases, with no skips or
+  unresolved failures. Earlier adapter failures retain separate reports and
+  matching successful follow-ups. Source and noneditable suites each pass 239;
+  all 43 Workspace files match installed bytes. The three bindings each match 79
+  frozen HTTP observations; direct resolver/caller probes remain separate.
+- Current owner/API images match 185/187 package files and 201 API/Native inputs,
+  unchanged OpenAPI and head 0264. Restricted offline proofs pass. The live owner
+  needs two read-only secrets and no Briefs dependency; the API observes member
+  reviewer version37 changing to viewer version38, including after restart. Sixteen reads at
+  concurrency 4 pass within 1 CPU/256 MiB; API/database resources are outside that
+  budget. These are Mac ARM64/linux-arm64 checks, not production capacity.
+- Ten current-schema Workspace/Identity restore cases pass; full 264 migration
+  validation also passes. All owned databases, Redis, storage identities,
+  buckets, dump and containers are removed without cleanup errors. Aggregate
+  evidence is `.worktree/workspace-project-access-owner-qualification.json`.
+- The whole-module goal remains active. Next inspect Labeling-owned class usage
+  and freeze its existing authorization, aggregation and two-query visibility
+  before extraction. Class rename, guide object I/O, Inference-owned named
+  pipeline persistence, cross-owner consumers and remaining modules are still
+  open. No primary cutover or alternate-language provider is claimed; Go stays
+  experimental.
+
+### Labeling class usage: actual legacy baseline frozen
+
+- Freeze 16 actual HTTP responses from the unchanged `class-usage` route at
+  migration head 0264. The immutable fixture SHA is
+  `c2e4517d3f103156c20c0eda0f52f804601073bf3e73d0c91e62c8b7176e647e`.
+  Source guards include the route, current Workspace policy, dependencies,
+  models and database decoder configuration.
+- Both statements scope active Annotation.project_id, including canceled/AI
+  rows and a target Annotation attached to a foreign Task. Complete JSONB
+  attributes decode precedes Python top-level key counting; a stored 5000-digit
+  numeric actually fails the second read with plain 500. An independent commit
+  between the two reads is visible in the attribute map. Request-session DML
+  and commit remain absent throughout.
+- Manager/member/outsider, physical employee owners, inactive and stale-role
+  credentials, unknown roles, missing and empty projects retain their actual
+  status/response behavior. The owned capture passes and removes its database,
+  Redis, buckets and containers without cleanup errors.
+- API will remain the trusted coordinator: a single-phase manager-only
+  Workspace read precedes a Labeling-owned projection. This avoids a new
+  Labeling-to-Workspace runtime dependency and never trusts an `is_manager`
+  request flag. Isolated core/Native guard extensions are prepared; no public
+  route or production aggregation has switched yet. Full owner implementation,
+  three-path replay and runtime/artifact/recovery gates remain open.
+
+### Labeling class usage: portable owner implementation
+
+- API now coordinates one `require_project_manager` operation on the existing
+  Workspace Project Query owner, followed by Labeling's independent
+  `get_project_class_usage` projection. Native0265 keeps the existing function
+  signature/OID/ACL and extends its closed operation set; Native0266 exposes
+  exactly three Labeling read functions. Public route, DTO and OpenAPI remain
+  unchanged. Labeling does not import Workspace, Identity, API or ORM packages.
+- The portable manager retains two sequential active-only Annotation reads,
+  complete Python JSON decoding and plain500 on a stored oversized numeric.
+  No Task join, partial result, extra lock, cache or shared remote snapshot is
+  introduced. Borrowed adapters retain caller autoflush/no_autoflush and rollback;
+  explicit providers use read-only READ COMMITTED with fail-closed selection.
+  Empty selected secret files are rejected before a local fallback can occur.
+- Move the existing function-only credential verifier into the dependency-free
+  `aap-owner-data` leaf and remove its old private Workspace implementation.
+  Workspace callers use the leaf directly. Labeling receives its own package,
+  frozen lockfile, Dockerfile and optional localhost-only Compose entry; API
+  packaging includes both new local packages without editable source.
+- Source and noneditable installed Workspace/Labeling suites pass 244/27 cases,
+  with 42/8 package files and two neutral files byte-identical. All16 frozen HTTP
+  samples match borrowed/dedicated/installed-HTTP bindings. Three real gated
+  statement-gap cases observe old class counts and newly committed attributes;
+  semantic replay is reported separately. Nine existing selected cases, three
+  new narrow-role/codec cases and the borrowed transaction case pass on0266.
+- Full migration validation passes fresh266, the173-step reversible prefix,
+  the92-step suffix, authentic forward conversion and pre-conversion restoration;
+  cleanup reports no retained owned databases. Static API checks pass354
+  applicable cases, with143 inapplicable architecture rules recorded separately.
+  Initial schema-preflight, missing owner-column grants, codec-ordering and empty
+  selected-file failures retain their reports and passing focused follow-ups.
+- Current-schema restore passes all16 frozen samples through each binding on
+  both source and clone, preserving function ownership/ACLs and narrow-client
+  denial. Borrowed statement-gap probes agree; clone-only account deactivation
+  is denied while source remains active. Exact dump/clone cleanup passes. Initial
+  harness state/URL-selection errors are retained and corrected without weakening
+  safety guards or changing the baseline.
+- The updated Workspace package passes nine old Project/Directory/Access
+  compatibility cases, preserving79 frozen public observations per binding on
+  the current noneditable artifact. These are compatibility checks for the new
+  manager operation and shared utility move, not repeated qualification totals.
+- Current restricted Labeling/Workspace/API images qualify committed production
+  inputs `d3a3a25212f7ba9a87b0e24b3593ae85ec6b1576`, matching10/186/196 installed
+  package files and209 API/Native inputs. API retains exact public OpenAPI and
+  head0266. An initial cold probe compared different transport/row-set schemas;
+  corrected checks pass on the same image, with the failed attempt retained.
+- The actual nonroot, read-only Labeling container uses1CPU/256MiB, two read-only
+  secrets and its own temporary PG network. Both HTTP owners preserve16 frozen
+  public samples and raw500. New committed attributes are immediately visible;
+  16 requests at concurrency4 match, without OOM. Restart changes the ephemeral
+  port; the test discovers the new origin and verifies the same public result.
+  Database/API resources are outside the owner budget. The final union passes41
+  distinct selected database/process cases, including ten old current-schema
+  restores, with no unresolved failures/skips. Earlier attempts remain separate;
+  retry counts are not added twice. All task-owned live resources are removed
+  without cleanup errors. Aggregate evidence is
+  `.worktree/labeling-class-query-owner-qualification.json`.
+- This selected query owner does not close complete Labeling, Workspace, ten
+  modules/seven gates, another-language replacement or production capacity. Primary
+  runtime and Go experiment remain unchanged. Next freeze actual Project class
+  rename behavior before moving its Workspace configuration and Labeling writes
+  into a shared transactional command. Guide object I/O, named pipelines,
+  remaining cross-owner consumers and other modules remain open.
+
+### Project class rename: actual legacy baseline frozen
+
+- Freeze21 actual HTTP samples and one direct caller rollback probe before moving
+  the rename writer. Immutable SHA is
+  `976b5b1d7c0508c17e7102b0d712db8e8dacdacb0876a2189ca60d3055335ea7`;
+  fixture path is `apps/api/tests/fixtures/project_class_rename_legacy/samples.json`.
+  All31 guarded runtime files match the unchanged pre-extraction source.
+- A specified tool unit limits binding updates; Annotation class updates still
+  span every tool unit, active/inactive/canceled/AI row. Omitted unit selection
+  includes disabled stored bindings. Annotation version and timestamp remain
+  unchanged. Conflicts/missing/blank values and actual authority errors retain
+  their original phases. A valid stale JWT role claim uses current actor facts.
+- Trimmed equal names bypass old-class and unit existence checks, use the current
+  nonexclusive authority path and do not commit. A changed rename commits before
+  Project projection; actual connection failure produces503 with both domains
+  already changed. The direct workflow leaves a dirty Project until a caller
+  flush, preserves the open transaction, hides changes from another connection,
+  and permits rollback of binding and Annotation changes together.
+- Five additional real held-row-lock samples are frozen as `locks.json`, SHA
+  `6e7abbf1a55c48a8eab27e1ec864e9f63a9065c5b9fcd2779b9f05d4a6a763ef`.
+  User UPDATE rejects changed/no-op with409 account_busy; Project UPDATE or a
+  real rename's upgrade against held KEY SHARE returns409 project_busy. Four
+  actual55P03 errors commit nothing. KEY SHARE permits the equal-name no-op.
+  All snapshots remain unchanged, with no fake SQL or lock timing relaxation.
+- Both captures pass on owned0266 databases with exact resource cleanup. This is
+  old behavior evidence, separate from the class-query owner's closed41-case
+  qualification. No rename production implementation has moved yet. Extend the
+  existing Workspace configuration owner with a narrow Labeling write capability;
+  replay the frozen lock cases before qualification. Do not split writes across
+  independent HTTP transactions or add update-project side effects.
+
+### Project guide assets: actual object-I/O baseline frozen
+
+- Freeze11 actual HTTP/storage scenarios, SHA
+  `88c7a43398c5562d64ba081cf541dd36cb296135486737375c1100aa9039bb0d`, at
+  `apps/api/tests/fixtures/project_guide_assets_legacy/samples.json`. All19
+  affected source files match the unchanged route/workflow base. Presigned PUT,
+  HEAD, signing and deletion use real task-owned MinIO objects; signed query,
+  token and DSN secrets are excluded from the artifact.
+- Completion retains key/type validation and unlocked HEAD before current
+  authority/exclusive Project lock, metadata SQL and commit. Missing objects
+  fail before that exclusive lock. Wrong-project completion rejects before
+  HEAD; wrong-project deletion and an unregistered reference reject after the
+  Project lock but before storage. A visible member can sign a registered asset;
+  a nonowner project-admin member cannot delete it.
+- Deletion mutates the in-memory metadata under its current fence, performs S3
+  deletion, then flushes Project metadata and commits. A real MinIO AccessDenied
+  using the existing catalog GET-only identity still yields200 and commits the
+  metadata removal, leaving the object/version state intact. No credential or
+  policy privileges are expanded. Preserve this order and failure behavior during
+  extraction instead of silently substituting an outbox or earlier SQL commit.
+- The owned capture passes on0266 with a versioned bucket; exact row/key/version
+  cleanup and verifier resource/credential destruction report no errors. This is
+  separate legacy evidence, not an independent guide owner. Production guide code
+  remains unchanged while the class-rename command boundary is designed.
+
+### Project class rename: implementation boundary agreed
+
+- Extend the existing Workspace Configuration owner with a dedicated
+  `rename_project_class` branch, preserving the six old operation/reply shapes.
+  Do not use generic begin/finish or update_project: they add state/receipt writes
+  and unrelated validation. Stateless rename must disable the API selector's
+  automatic two-attempt HTTP retry; other operations keep receipt-backed retries.
+- Preserve account/project/member shares and the changed-only Project UPDATE
+  upgrade. Annotation mutation precedes Project metadata SQL in one caller
+  transaction. Pure binding policy and Native0267 Labeling effect are prepared;
+  public callers have not switched. Workspace receives typed EXECUTE rather than
+  raw Annotation UPDATE; Labeling's extra privilege is class_name UPDATE only.
+- In independent NoOp mode, return a fully bound Project Query reply generated
+  inside the Configuration transaction's lock span. A callback reuses the
+  already-assembled query manager/profiles (HTTP owner) or API query selector
+  (direct DSN). Missing capabilities fail closed; the gateway skips its second
+  unlocked query. Default borrowed NoOp keeps the caller's existing projection
+  and transaction ownership; changed operations retain commit-before-projection.
+  NoOp rolls back only an independent owner's own transaction.
+- Scope, data shape and remaining gates are in
+  [ADR-0143](../adr/0143-workspace-project-class-rename-owner.md). Native268,
+  Configuration/API integration, removal of the old writer, three bindings,
+  revocation/lock-duration checks and current artifact/recovery gates remain open.
+- Primitive local validation at head 0267: seven pure binding-policy source cases,
+  four actual Labeling effect/ACL/transaction/null-argument cases, and eleven old
+  Identity/Workspace/Labeling current-head restore cases passed. A PostgreSQL
+  internal `"char"` catalog comparison was corrected in the new test only, then
+  all four new cases were rerun successfully; failed-attempt evidence is retained.
+  Both disposable acceptance runs report empty cleanup errors. The API route and
+  the previously qualified head-0266 images have not switched to the new command.
+
+### Project class rename: command integrated, artifact/recovery gates pending
+
+- Native 0268, the stateless portable branch, strict bound NoOp projection callback,
+  existing API selector and public route are integrated. Removed the old API
+  workflow, binding helper and Annotation method; no forwarding facade remains.
+  Both business writes share the transaction and Labeling executes first.
+- The latest database/process union is 33 distinct selected passing cases. Each of
+  borrowed, dedicated and fresh installed HTTP modes matches the 21 frozen HTTP
+  responses and five actual competing locks. Actual blocked callback/revocation,
+  default caller rollback, Labeling-before-Project failure rollback, full-row
+  temporal precedence, OID/ACL replacement and original six-command regressions
+  pass. Both owned runs destroyed resources with empty cleanup errors.
+- The first run retained four successful Native cases and three failed test-driver
+  cases: temporal seeds required text-first casts, and internal annotation
+  snapshots required stable seed-alias sorting rather than random UUID order.
+  The latter changes no public response ordering or frozen fixture content.
+- Source Workspace and fresh noneditable installation each pass 273 tests with
+  exact installed bytes across eight packages. API pure/architecture/OpenAPI
+  checks have 364 passing cases and 143 existing inapplicable skips. The accidentally
+  selected DB autogeneration test failed on absent annotation_test in that static
+  command, then passed only in the owned DB runner and is counted there.
+- Current owner/API images, current-head restore and full 268 migration validation
+  remain pending. Earlier primitive and class-query evidence is separate; this
+  does not complete Workspace, Labeling or the ten-module/seven-gate objective.
+
+### Project class rename: selected local qualification closed
+
+- Current production inputs are committed at 54cd17288. Workspace source and fresh
+  noneditable installation each pass 273 tests; API pure/architecture/exact OpenAPI
+  checks have 364 passes and 143 existing inapplicable skips. No public DTO or SDK
+  change, production facade, push, release or primary cutover was introduced.
+- The latest selected database/process union is 47 distinct passing cases with no
+  unresolved failure/skip: the earlier 33 plus one full migration validator, eleven
+  existing current-head restores, one new source/clone restore and one current
+  restricted-container case. Earlier primitive 15 and class-query 41 counts remain
+  separate; the 21 HTTP samples/five lock scenarios are sample inventories inside
+  those cases, not extra test totals.
+- The source and restored clone each match 21 frozen HTTP responses through three
+  bindings, including borrowed rollback. Four Native function owner/ACL/security/
+  definition sets survive; the client retains exactly its two Configuration RPCs.
+  Clone-only disable returns 401 while source remains active and accepts NoOp.
+- Current Workspace/API linux/arm64 offline immutable non-root proofs match 187
+  Workspace files, 197 API package files and 214 API/Native inputs, exact OpenAPI and
+  head 0268. The real owner uses four read-only secrets, private PG + owner bridge, one CPU / 256 MiB,
+  capability drop / no new privileges / read-only root. Full 21 / five-lock replay, restart with freshly
+  inspected port (50309->50439), persisted rename and NoOp projection pass. Sixteen
+  distinct-project NoOps at concurrency four all succeed with zero API commits and no OOM; API
+  and PG are outside this budget, with no production capacity/SLO claim.
+- Full 268 migration validation passes fresh 268, 173-prefix down/base/up, 94-suffix
+  down/up, forward conversion and authentic preconversion restore; no owned derived
+  database remains. Both final actual tests passed after test-only corrections:
+  the profile wrongly omitted public DTO null defaults, and the clone name exceeded
+  PG's 63-byte identifier limit. Every concurrent request now settles before test
+  cleanup; the shorter clone retains an ownership comment and exact drop guard.
+  Images and production bytes were unchanged; failed attempts remain archived.
+- All owned acceptance runs report empty cleanup errors and destroyed runtime
+  resources. Canonical evidence is `.worktree/project-class-rename-owner-qualification.json`;
+  current artifact manifests and runtime observation are retained for inspection.
+  The full ten-module/seven-gate objective remains active. Guide Assets baseline 11
+  remains frozen for the next write/byte-owner slice; full Workspace/Labeling,
+  language replacement and production capacity are still incomplete. Go stays an
+  optional experiment, and the protected primary/shared runtime is unchanged.
+
+### Project guide assets: byte primitive qualified; Workspace command pending
+
+- The existing Assets Source binary now has a closed guide-object contract,
+  fixed-bucket storage adapter, bounded one-attempt client and optional
+  `guide-only` / `source-and-guide` modes. Guide-only starts without PostgreSQL
+  or source credentials. Workspace receives no raw S3 credentials; public Guide
+  routes still use their old workflow until command integration is complete.
+- Source checks pass 449 cases (439 Source plus ten Workspace pure-policy
+  cases); a fresh noneditable Source installation independently passes 439.
+  All fifteen package manifests match 154 source Python/JSON files, with no
+  API/ORM/Celery/Redis/ML dependencies. Source/API locks retain every prior
+  third-party version; only the new client-extra metadata is synchronized.
+- Two distinct selected actual runtime cases pass: installed processes and
+  restricted Source containers with real owned S3 operations, history preservation,
+  namespace/list/version denial and actual denied HEAD/DELETE error classification.
+  The first process driver incorrectly expected Guide HEAD access from the old
+  Catalog identity; the corrected test verifies denial without broadening it.
+  An initial isolated pytest collection failure was a sibling-test import path,
+  corrected without enabling imports from Source src. Failed evidence is kept.
+- The current linux/arm64 image matches the same 154 files in an offline,
+  network-disabled non-root proof. Real one-CPU/256-MiB containers use three
+  read-only secrets, read-only root, dropped capabilities and no database
+  credentials. Actual restart port 56903->56987 is re-inspected; uploaded content
+  survives. Sixteen parallel HEADs yield five successes/eleven expected busy
+  responses in 0.112 seconds, no other failure/OOM. This local bound excludes
+  the API/test driver and S3, with no production capacity/SLO claim.
+- Canonical evidence is `.worktree/project-guide-object-primitive-qualification.json`.
+  Runtime resources and exact object versions are removed; review artifacts remain.
+  The earlier eleven Guide HTTP samples remain immutable old-behavior evidence,
+  and the class-rename 47-case qualification is closed separately. Next are
+  Native/Workspace command integration, actual public callers/removal, three
+  bindings, revocation/lock/error-phase parity and command artifact/recovery
+  gates under [ADR-0144](../adr/0144-workspace-guide-assets-owner.md). Full module
+  extraction and the ten-module/seven-gate objective remain active; primary,
+  production and Go are unchanged.
+
+### Project guide assets: command integrated, owner qualification in progress
+
+- Native0269 extends the existing Configuration RPCs with stateless Guide phases,
+  two private unlocked full-row readers and only guide_assets UPDATE. Project
+  counters remain behind the typed Labeling capability. One-pass visible preflight
+  uses the existing Project Query protocol; both original query/client RPC sets
+  stay unchanged. The public API delegates to Workspace and the old Guide workflow,
+  ORM helpers, unused User read and constant file are removed without facades.
+- API/default DSN byte composition reuses the existing S3 client. An actual default
+  boto3 no-network check proves its legacy SigV2 presign query and GET alignment;
+  the independent Source runtime retains its explicit separate signer. Workspace
+  runtime consumes only the Guide HTTP bearer and no S3 credentials, through the
+  optional existing Configuration service override.
+- Workspace pure checks pass 314 cases. Four Native and 26 existing public Guide
+  cases pass on owned PostgreSQL; focused API transport, adapter and exact OpenAPI
+  checks pass 36 cases. Architecture checks pass with existing inapplicable skips.
+  Failed Native attempts were driver-only: a stale0268 verifier head pin, UUID
+  re-wrapping and an assertion against a nonexistent top-level Query operation
+  instead of its nested request. Failed evidence is retained; all owned resources
+  were destroyed with no cleanup errors, and no production SQL fix was needed.
+- Three-binding replay of the unchanged eleven-response/S3 oracle, actual
+  revocation/lock-duration checks, current installed/image artifacts and command
+  recovery/migration gates remain active under ADR0144. The byte primitive's two
+  cases and class-rename's closed47 remain separate, with no sample/request-count
+  inflation. This is not a full Workspace/Assets or ten-module/seven-gate finish;
+  primary, production and Go remain unchanged.
+
+### Project guide assets: selected local command owner qualification complete
+
+- The current command union has 53 distinct passing DB/process cases, including
+  twelve existing Identity/Workspace/Labeling restore compatibility cases. No
+  selected case remains skipped or unresolved. Each of three binding replay
+  cases matches the immutable eleven HTTP/S3 samples; sample and request counts
+  are not added as cases. The byte primitive's two cases and class rename's
+  closed 47 remain separate.
+- Five real PostgreSQL interleavings cover revocation after unlocked HEAD,
+  account/Project/member lock spans, read-only rollback, best-effort deletion and
+  a failed full-row refresh after committed metadata. Actual dump/restore starts
+  with nonempty Guide registration and object bytes: source/clone read through
+  all three bindings, clone-only write/delete cycles preserve source data and
+  versions, and clone-only deactivation leaves the source active. Definitions,
+  owners, ACLs, GUCs and each client's original two-RPC restriction survive.
+- Full migration validation at 0269 passes fresh, reversible prefix/suffix, authentic
+  forward conversion and pre-conversion snapshot restore; the frozen installer
+  now includes 0269 SQL/schema. Current-head assertions and test-driver installed
+  environment/source-clone switching were corrected without changing production
+  policy or SQL. All failed/incomplete evidence and exact cleanup results remain.
+- Workspace source and fresh noneditable suites each pass 314; thirteen packages
+  match 251 files without API/ORM/Celery/Redis/ML/boto3. Focused API checks pass 36.
+  Current Workspace and API images pass read-only, nonroot, network-disabled byte
+  proofs; API matches 261 package files and 1227 application/Native inputs. A live
+  Workspace using one CPU and 256 MiB plus separately restricted Source replays all
+  eleven samples, survives a real restart with re-inspected port, and returns 200
+  for all sixteen concurrent signs in 0.689s. API/DB/S3 remain outside the owner budget;
+  this is not production capacity, AMD64, browser/Vite/CORS or an SLO.
+- Canonical evidence: `.worktree/project-guide-owner-command-qualification.json`;
+  decision and limits: ADR0144. Source runtime bytes remain unchanged from its
+  qualified image; its older full build-input manifest has README-only drift.
+  Primary/production remain unchanged and Go remains an experiment. Complete
+  Workspace/Assets and non-Python provider replacement remain unfinished. The
+  next bounded slice freezes named-pipeline HTTP/data behavior before extracting
+  its Inference-owned persistence; Project embedded configuration stays Workspace.
+
+### Named pipelines: actual legacy lock baseline frozen
+
+- The existing eight public endpoint cases pass on owned PostgreSQL at current
+  Native head. Production pipeline code remains unchanged; the full six-entry
+  HTTP/data matrix is being captured before extraction. These are old-behavior
+  checks, not qualification of an independent Inference owner.
+- One additional actual HTTP/PostgreSQL capture contains two observations in
+  `apps/api/tests/fixtures/named_pipeline_legacy/locks.json`. While apply holds its
+  final Project fence, a separate FOR UPDATE NOWAIT fails with SQLSTATE 55P03, but an
+  ordinary counter UPDATE and source-pipeline deletion both commit. The original
+  request still returns 201 and copies its already-read source snapshot; the
+  source usage UPDATE matching zero rows does not reject that copy. A separate
+  insertion fault returns 500 and leaves the source usage, previous default and
+  copied-row set exactly unchanged. The two observations count as one test case.
+- Native 0192's older `lock_project_manager` uses Project SHARE, while this path
+  uses KEY SHARE and complete Project/member decoding. Reusing that function
+  unchanged would alter concurrency; the next owner must preserve the actual
+  lock/decode phases. `project_pipelines` stays Inference-owned, and embedded
+  `projects.preannotate_pipeline` stays Workspace-owned. No public API, worker,
+  production runtime or language provider has been switched by this baseline.
+
+### Named pipelines: full old HTTP/data matrix frozen and replayed
+
+- Seventy actual HTTP/database observations cover all six public entries,
+  private/organization/public visibility, create-only role restrictions, scope
+  and stage error precedence, explicit null versus omission, default moves,
+  same-value updates, source/copy independence, backend enablement and retained
+  inactive-creator names. They are preserved unchanged in
+  `apps/api/tests/fixtures/named_pipeline_legacy/samples.json`, SHA-256
+  `ad101350892c423af8041151bbab1b56a52e2023c088474761903f35e48a2db0`.
+  A fresh owned run independently replays all seventy. The existing lock oracle
+  remains unchanged at SHA-256
+  `4317025325d702dfa56bc0c1b07e359da325fc5f3844b71f82aab7d8cea0e511`.
+- Actual sampling corrected two driver assumptions without production changes:
+  a visible nonmanager needs a seeded Project membership to exercise 403, and
+  JSONB `stages=None` writes JSON null, commits and only then returns 500 from
+  response validation. Scalar name/default null failures roll back instead.
+  The fixture records the committed null before restoring only that seeded row
+  for the following independent cases. Future raw-row contracts must permit this
+  value through visibility and preserve the existing response/commit phases.
+- Diagnostic database snapshots use random UUID tie-breakers when equal names
+  are copied. Replay compares those snapshot rows by stable logical aliases;
+  public response array order remains exact. Frozen bytes are not rewritten.
+  The exact capture driver is retained separately at its recorded hash, and this
+  fixture directory joins the existing immutable-history formatter exclusions.
+- Eleven distinct selected old-behavior DB cases pass with no valid skips: eight
+  existing API cases, one lock capture, one seventy-sample capture and one
+  separate replay. The 72 observations are not 72 test cases, and no Guide cases
+  are added. Canonical evidence is
+  `.worktree/named-pipeline-legacy-baseline-qualification.json`; failed attempts
+  and cleanup reports remain. Inference runtime, new data capabilities,
+  independent artifacts, recovery and language replacement are still pending.
+
+### Named pipelines: shared access contracts and same-transaction facts
+
+- The byte-identical Workspace access policy, Project Query wire, complete
+  Project/member codecs and read-authority sequence now belong to the existing
+  `aap_workspace_contract` package. Actual consumers moved and the old module
+  paths were removed. The unchanged query schema is explicit package data;
+  there is no Inference-to-Workspace runtime dependency cycle.
+- Native0270 publishes only the three fixed locked-fact phases for Inference:
+  Account SHARE, Project KEY SHARE and optional Member SHARE. Workspace reuses
+  its private implementations internally. Inference gets no private-helper or
+  raw foreign-table privileges. The caller decodes each fact at the original
+  phase and keeps the same connection/transaction through its eventual write.
+- Fifteen distinct selected database cases pass without skips: ten compatibility
+  cases, three Native cases, one full migration-validation wrapper and one
+  nonempty source/clone dump-and-restore case. The seventy frozen HTTP samples
+  and two frozen lock observations remain byte-identical and are replayed as
+  observations within those cases, not counted again. All five migration phases
+  pass at 0270; recovery preserves function metadata/ACLs and clone-only account
+  or membership changes leave source facts unchanged. The initial recovery test
+  needed an internal-char-to-text catalog cast; its failed receipt and cleanup
+  remain separate from the successful run.
+- Workspace/shared source checks pass 299/21 cases; a fresh noneditable install
+  passes the same checks and matches thirteen packages/252 files. Cold imports
+  prove the shared contract does not import Workspace runtime, API or ORM and
+  can read the unchanged 49,025-byte schema resource. Focused API/architecture
+  checks separately pass 372 cases with 142 existing inapplicable-rule skips;
+  two verifier-selection checks pass. The corrected owned compatibility run
+  replaces the earlier mixed pure selection's unavailable-default-database error.
+- Canonical evidence is
+  `.worktree/workspace-project-access-facts-qualification.json`; design and exact
+  limitations are in [ADR-0145](../adr/0145-workspace-project-access-facts.md).
+  Existing Guide images remain historical artifacts at their qualification
+  commit, rather than current-image evidence after package relocation. The
+  independent named-pipeline manager, receipt/status protocol, Native writes,
+  private runtime, API assembly and complete three-binding qualification remain
+  the next coherent slice. Full ten-module/seven-gate completion, production
+  capacity and language replacement remain open; Go stays experimental.
+
+### Named pipelines: independent owner integrated, qualification in progress
+
+- All six public named-pipeline entries now use the portable Inference manager,
+  closed command/query/status contract and Native0271. The old ORM workflow and
+  application command module are removed, with no forwarding facade. Project
+  embedded pipeline configuration remains Workspace-owned. API admission and
+  creator-profile assembly retain their existing owners.
+- Borrowed caller transactions retain their commit boundary; dedicated DSN and
+  independent HTTP owners commit their own transaction. The public API commits
+  before reading the receipt-bound current row. A projection itself makes no
+  global-commit claim, so caller-owned outer transactions/savepoints still work.
+  Status excludes a receipt created in the same uncommitted transaction.
+- Final apply locks compose the published Workspace facts on the same connection.
+  Backend registry, first pool and project association remain separate statement
+  snapshots. JSONB null commits before public response validation; scalar SQL
+  constraint failures roll back. Concurrent disappearance after a visible DELETE
+  snapshot remains successful, while a dirty UPDATE still requires its row.
+- The three actual API bindings independently replay all seventy immutable old
+  HTTP/database observations. These are three selected cases, not 210 cases;
+  failed setup attempts and corrected test-only ORM-cache assumptions remain in
+  separate evidence. Native receipt/status and concurrent deletion cases pass.
+- A fresh noneditable Inference artifact passes ninety tests with no skips and
+  matches five packages/thirty-nine files. Its 37,887-byte wire schema is installed
+  as package data. A cold import first exposed stale uv wheel reuse after the
+  shared timestamp helper rename; explicit source/schema cache keys now rebuild
+  the shared contract. The current artifact has no API/ORM/Celery/Workspace-runtime
+  dependencies; the existing protocol package still brings FastAPI transitively.
+- Qualification is still in progress for real lock observations across bindings,
+  lost acknowledgments and restart, nonempty dump/restore, current restricted
+  containers and Native0271 full migration validation. No primary or production
+  runtime has been switched. Full ten-module/seven-gate work and replacement
+  language qualification remain open; Go stays an experiment.
+
+### Named pipelines: scoped local qualification closed
+
+- The final ledger selects 33 distinct passing DB/process cases: 24 owner
+  capability cases and nine existing API compatibility cases. Observations,
+  retries, source/installed repetitions and prior Guide/access-facts cases are
+  not added to this count. Mixed failed runs retain their failed status; only
+  explicitly named passing cases are selected, and the one failed compatibility
+  observer case has a later successful actual-SQL assertion.
+- All three bindings match the seventy immutable public HTTP/data observations.
+  Six frozen lock cases preserve KEY SHARE concurrency, deleted-source snapshot
+  copy and atomic insert failure; nine actual final authority conflicts retain
+  account/project/member-specific 409 outcomes, rollback and absence of receipts.
+- One nonempty dump/restore case compares data, all receipt/transient tables,
+  function definitions, ACLs and policy, then performs CRUD/status/replay through
+  all three bindings on source and clone. Clone-only mutation leaves the source
+  unchanged. One real HTTP case discards a successful response after commit,
+  recovers with one status request and no write repost, restarts the installed
+  owner and verifies exact replay plus conflicting request binding.
+- The current noneditable artifact passes ninety tests and matches five packages
+  and thirty-nine files, including the formatted 37,887-byte protocol resource.
+  Source Inference also passes ninety; Workspace/shared consumers separately
+  pass 320. API gateway checks pass twelve and focused architecture checks five;
+  public OpenAPI is unchanged. Source/cache qualification failures remain recorded.
+- Committed owner/API images use source revision 24c27bd452ca6bfbd98a971e9527de09629c87b9;
+  subsequent tracked changes are tests and documentation. The owner inventory
+  matches all thirty-nine package files. The offline, read-only, network-disabled
+  API image matches those files and 1,232 API/Native inputs, removed ORM paths,
+  current OpenAPI and head0271. Native full validation passes all five phases.
+- The actual owner container completes the frozen API replay and sixteen reads
+  at concurrency four under one CPU/256 MiB, no OOM, local p95 about120 ms.
+  Restart re-inspects Docker's ephemeral host port before checking committed
+  status, replay and a fresh projection reflecting a later update. Its first
+  attempt used the stale host port; that failed receipt remains, with owned
+  resources removed. API/PostgreSQL are outside this owner budget.
+- Canonical evidence is `.worktree/inference-pipeline-owner-qualification.json`;
+  scope and limitations are in ADR0146. This closes the named-pipeline slice,
+  not the full Inference module, independent database, non-Python replacement,
+  AMD64, production capacity/SLO, primary cutover or ten-module/seven-gate goal.
+  Go remains experimental. Registry/pool routing, GPU coordination and job
+  control still require their own owner boundaries and consumer qualification.
+
+### Next Inference boundary: complete Backend control ownership
+
+- The preceding goal turn made authoritative progress: the named-pipeline slice
+  closed at653b4e142 with33 distinct selected DB/process cases and scoped artifact,
+  migration, recovery and cleanup evidence. That does not close full Inference
+  or the ten-module/seven-gate objective. Primary/production and the Go experiment
+  remain unchanged.
+- Current-source audits reject a registry-query-only facade. The next coherent
+  owner covers registry and service-pool topology, project enablement, health and
+  capability coordination, routing/Redis leases, backend HTTP and credentials,
+  together with every actual consumer. Its four central tables are
+  ml_backend_registry, ml_backend_service_pools, ml_backend_pool_members and
+  project_ml_backend_pool; GPU lifecycle state is part of the remaining Inference
+  boundary, not a reason to publish backend credentials to other modules.
+- API keeps public admission, Project/Task authorization, frame/object preparation,
+  annotation/prediction persistence and response composition. Workspace retains
+  projects.ml_backend_pool_id. Jobs running-work counts, Learning evaluation and
+  deployment references, Identity current-admin locks, Workspace binding cleanup
+  and Audit append must use their owners' fixed capabilities, with the original
+  failure order and transaction boundary. The pipeline client's two existing RPC
+  permissions must not expand to backend administration.
+- A remote owner committing independently cannot silently replace transaction-
+  coupled model publication, project configuration or registry deletion. Those
+  workflows need a language-neutral owner contract that keeps their single
+  coordinator transaction or an explicitly qualified durable protocol. Reusing
+  private provider Python policy inside each consumer remains transitional;
+  moving DTOs or exposing raw SQL does not satisfy the final contract gate.
+- Before extraction, the existing registry/pool/admin/project binding suite passes
+  71 distinct selected database cases, no skips, against owned Native head0271.
+  Evidence is .worktree/inference-registry-pool-legacy-existing-first.json; this is
+  a pre-change baseline, not qualification of a new backend control runtime.
+- Fifteen actual legacy pool-capability normalization/fingerprint vectors and
+  five diff vectors are frozen from source653b4e142 in
+  apps/inference/tests/fixtures/pool_capability_legacy.json, SHA-256
+  730b35f389152f0cefab8871c2a6e6ab26170e694c3f86340fe4b2d645d62d6d.
+  Inputs cover persisted flat/modern snapshots, ordering, defaults, schema/variant
+  fields, presentation/runtime exclusions and established odd-input behavior.
+  The pure policy will move into the existing Inference package without an API
+  forwarding facade. This prerequisite does not replace the full control owner.
+- Actual HTTP/database/business-Audit capture is being implemented for registry
+  and project configuration plus the complete admin pool lifecycle. Probe timing,
+  live Redis quiescence, revocation, generation/lease completion and cross-owner
+  transaction producers remain separate gates. No new module completion or
+  language-replacement qualification is claimed by this baseline work.
+
+### Backend control: immutable legacy HTTP/data baseline
+
+- The old implementation now has two frozen corpora from source653b4e142: 58
+  registry/project observations and 38 pool/member observations. Both independently
+  replay against fresh owned PostgreSQL/Redis resources using real ASGI routes,
+  the verified legacy runtime role and separate owner-session data/Audit observers.
+  These are two selected replay cases, not 96 test cases. Public array order stays
+  significant. Only transport artifacts, exact synthetic identities and the three
+  generated missing-target UUIDs are normalized; missing-target responses must
+  remain404 and the UUID must be absent from both data snapshots.
+- Registry corpus SHA-256 is
+  5f3032f5212d8434078821e004cf802af77685ba67810b310f1efb6f548f93fd;
+  pool corpus SHA-256 is
+  fcb2381b82ce0f2cbebbf97aef501f34d770c01bf290ef4bcca7f753f01c29f7.
+  Accepted evidence is .worktree/inference-pool-replay-and-registry-capture.json
+  and .worktree/inference-registry-legacy-replay-missing-alias-fixed.json. Capture
+  retries and failed setup/normalization receipts remain separate and unchanged.
+- The pool baseline exposes an existing postcommit response defect: removing a
+  quiescent legacy member commits the deletion, generation and business Audit,
+  then returns500 while projecting an expired updated_at field. A fresh GET200
+  confirms the commit. The immutable sample preserves this behavior; the later
+  explicit fix must qualify the intended500-to200 response delta without changing
+  committed data/Audit or retrying an ambiguous write. Four member-mutation routes
+  share the missing-refresh risk.
+- Null registry updates also retain their actual failure phases: invalid SQL
+  constraints roll back, while nullable fields may commit before public DTO
+  validation returns500. Controlled health probes and synthetic GPU guard setup
+  are explicit fixture boundaries, not backend/GPU runtime qualification.
+
+### Backend control: policy and binding prerequisites qualified locally
+
+- Pure capability policy now belongs to `aap_inference.pool_capability`; the old
+  API module is removed and every live import uses the canonical owner. Original
+  function/class AST and the15 normalization/fingerprint plus five diff vectors
+  are unchanged. Source and fresh noneditable installation each pass92 tests.
+  Five packages/forty source and protocol files match the current source manifest;
+  API/ORM/Celery/Workspace runtime are absent from the installed owner. The existing
+  protocol dependency still brings FastAPI transitively.
+- Native0272 adds one fixed Workspace command to clear matching Project primary
+  backend-pool bindings in the caller transaction. It preserves transaction-time
+  timestamps, autoflush/no-autoflush and outer rollback. Workspace retains function
+  ownership; Inference gets only exact EXECUTE, with no Project raw grants. The
+  transitional API coordinator's actual role gets the same fixed execution right.
+  General Alembic remains deployment-role agnostic. No LOGIN, URL/DSN or pipeline
+  client permission was added. The old ORM cleanup implementation is removed.
+- Forty-two distinct selected acceptance cases pass:15 named cases from the mixed
+  prerequisite run,26 pool lifecycle/regression cases, and one full-migration
+  validator case. These include41 DB/process cases and one static schema case.
+  The first mixed run remains failed because pool removal returned
+  the success response instead of the frozen intermittent error; it is not relabeled
+  green. The later pool replay explicitly permits exactly the intended500-to200
+  response delta, retaining all38 old table/Audit/probe/lease observations. Registry
+  replay matches all58 old observations. Counts do not add observations, retries,
+  source/installed repetitions or older named-pipeline qualification.
+- The response defect is now fixed separately atafd864341: four member mutation
+  routes explicitly refresh the committed pool before projection. A retained
+  identity-map object reproduces MissingGreenlet before the fix and succeeds for
+  upsert/drain/resume/remove afterward. Each mutation has one business Audit and
+  one generation change; repeated removal returns404 without another mutation or
+  business Audit. Neither production write retries nor public idempotency were added.
+- Native match/no-match, owner/ACL/raw denial, caller rollback, real API deletion
+  compatibility and nonempty dump/restore pass. Migration0272 passes all five full
+  validation phases; temporary databases are removed. API policy/architecture has
+  34 passing selected cases; one parameterized lazy-root rule is structurally
+  inapplicable to this single-file adapter and is recorded separately.
+- New owner/API images are built fromafd864341, with40 package files in each and
+  1,235 API/Native inputs verified in the API image. Both pass offline, read-only,
+  no-network cold imports with exact UID/resource/security restrictions and removed
+  legacy paths; public OpenAPI remains unchanged. These are artifact checks, not
+  full Backend control runtime or load qualification. Earlier pipeline images
+  remain historical artifacts of their own closed slice.
+- Four clean patch-equivalent children are removed; their source branches remain.
+  Canonical current evidence is
+  `.worktree/inference-backend-prerequisites-qualification.json`; scope is ADR0147.
+  Complete registry/pool command ownership, health observations, routing/Redis leases,
+  GPU lifecycle and all actual consumers remain open. Do not count these prerequisites
+  as a completed Inference module or ten-module/seven-gate goal; primary/production
+  stay unchanged and Go remains experimental.
+
+### Backend control: real HTTP execution and cross-owner deletion reads
+
+- Previous goal turn changed authoritative state: policy and binding prerequisites
+  plus the explicit pool response fix were qualified at8993b28cb. The complete
+  ten-module/seven-gate objective remains active. This turn moves actual execution
+  code rather than exposing a registry query facade.
+- The full registered-client HTTP implementation now lives in
+  aap_inference.backend_transport.BackendTransport. API MLBackendClient contains
+  only its constructor and existing GPU dispatch/observer methods. Both GPU
+  methods retain the original AST; all23 existing result/constant/helper and
+  transport-test callers use the canonical owner definitions. Runtime timeouts,
+  metrics and framework errors are explicit injected ports. Missing GPU dispatch
+  callback is not silently bypassed. No public HTTP contract or new retry was added.
+- Native0273 replaces the real deletion caller's raw Learning evaluation/deployment
+  join and Jobs prediction-ID scan with two exact fixed owner reads. Their role
+  grants, SQL-null behavior, same-transaction reads/rollback and caller autoflush
+  are covered. Learning receives only its needed own columns; Inference gets no
+  foreign raw tables. Existing delete guard order, GPU/Redis quiescence, Workspace
+  cleanup, Audit and caller commit remain unchanged.
+- The pre-change archive and77 transport/GPU API tests are retained. Integrated
+  transport/GPU/interaction checks pass197. Inference source initially passes98;
+  later keyword-only error-factory contract verification covers the integration
+  change without adding another test case. Package installation, loopback HTTP,
+  current image manifests and final cleanup have their own qualification receipts.
+- The mixed119-case owned run remains failed because two pre-existing frame-wiring
+  tests patched removed raw-frame helpers. Both now exercise a real accepted-video
+  manifest and persistence/failure aggregation through the current worker. Targeted
+  later results, including the corrected factory identity observer, remain separate;
+  the original mixed receipt is not relabeled green. Frozen registry/pool corpora
+  retain58+38 observations and the previously declared pool response delta.
+- Nonempty restore seeds two real deployment-linked evaluation rows and nine Jobs
+  in a marked source clone, restores a second marked clone, compares function
+  definitions/ACL/owner/GUC/head and actual answers, then changes only the target
+  inside an outer transaction, rolls back and verifies both clones unchanged.
+  A test-only reserved SQL column required quoting; the failed receipt is retained.
+- The next complete boundary still includes registry/pool commands, health apply,
+  route acquire/heartbeat/finish/cancel and long-video ownership, GPU admission and
+  retirement, trained-model receipt/install/trial and all actual producers. Health
+  must preserve unlocked configuration/membership reads and external probes before
+  database observation time, registry/resource/promotion/membership locks and current
+  state/order rechecks. Canonical fingerprints cannot become jsonb text hashing or
+  an unchecked caller match flag.
+- Current Native closure has an additional credential dependency: Workspace create/
+  update receives URL/auth/token/extra_params only to GET setup and derive modalities.
+  Replace this with a credential-owning Inference probe keyed by registry ID, at both
+  API/borrowed/direct-DSN and standalone Workspace manager assembly, preserving each
+  configured timeout/CapabilityLimits and fail-open modality behavior. Do not keep
+  a credential fallback. Startup sync, capability catalog fallback, unregistered
+  admin probe/observe/smoke-test and stats publishing also have direct HTTP paths.
+- An independent service cannot silently split the transaction-coupled publication,
+  Workspace configuration and registry deletion workflows. The fixed Native phase
+  contract must preserve those boundaries and real observation provenance; a new
+  callback or DTO alone does not satisfy the final cross-language gate. Prediction
+  transport also has no single qualified body budget, so the pipeline16 MiB control
+  limit must not be reused blindly. Go remains experimental; primary/production
+  cutover and full module completion are not claimed.
+
+### Backend transport and deletion dependencies: scoped local qualification
+
+- Canonical current ledger is .worktree/inference-backend-transport-qualification.json.
+  It selects121 distinct passing acceptance cases from owned verifier runs. The
+  initial119-case mixed run stays failed;116 named passing cases are selected,
+  with the two stale frame cases and updated static schema case selected from
+  later targeted runs. One nonempty restore and one full migration validator
+  complete the count. Observations, retries, source/installed repetitions and
+  older named-pipeline/prerequisite cases are not added.
+- Source and fresh noneditable Inference each pass99, including one actual TCP
+  backend flow covering health challenge, no-cache setup, grant/auth headers,
+  bounded prediction, upstream503/Retry-After and no write repost. This controlled
+  server uses synthetic credentials/grants; it is not GPU or production capacity
+  qualification. API transport/GPU/interaction passes197. Focused architecture has
+  three selected passing cases; initial helper-root assertion failure is retained.
+- Five packages/forty-one files match current source, installation and new owner/
+  API images. Images are built fromf7713584f; the API additionally matches1,238
+  API/Native inputs, public OpenAPI and head0273. Both cold imports run offline,
+  without network/mounts, read-only, with exact UIDs and resource/security limits.
+  Inference has no API/ORM/Celery/Workspace runtime; the existing shared protocol
+  still retains transitive FastAPI. These artifacts supersede older file-count
+  manifests only for current code, not their separate historical qualification.
+- Twenty-two transport methods match the old AST after only the declared injected
+  port names/types and docstrings are normalized. PredictionResult and both GPU
+  assembly methods match the original AST exactly. Current API methods delegate
+  to the installed portable transport, with no duplicate HTTP implementation.
+- Native273 full validation passes allfive phases; nonempty restore compares
+  source/restored retained evaluations and Jobs, definitions/ACL/owner/GUCs and
+  answers, then verifies target-only changes roll back and source data is intact.
+  Owned DB/Redis/clones are removed. Four clean patch-equivalent child worktrees
+  are removed while source branches remain; primary checkout and shared runtime
+  are preserved. Documentation/OpenAPI/static and diff checks pass.
+- This closes the local transport/deletion-dependency work, not complete Backend
+  control, Inference, ten modules/seven gates, an independent database, non-Python
+  replacement, AMD64, production capacity or primary/production cutover. The next
+  work is the real credential-owning Workspace probe and full registry/pool/health/
+  routing/GPU/consumer contract closure described above. Go stays experimental.
+
+### Durable routing: API and local runtime checkpoint
+
+- The API now uses independent durable routing transactions for ordinary HTTP,
+  all three pool modes, and pinned video scopes. Public unload/reload and the
+  registered smoke flow obtain persistent management holds. Actual response
+  completion determines settlement; Redis hints never prove quiescence.
+- The runtime observation endpoint preserves unresolved counts after Redis reset
+  or outage and reports unknown when the selected owner fails. Its focused
+  endpoint/pipeline run passes48. The consumer run passes108 named cases; its one
+  response-only fixture failure is corrected and passes a separate targeted run.
+  These repetitions are not summed into a new whole-module qualification count.
+- Fresh noneditable Inference installation passes351, with72 package files
+  matching source. A stale shared-protocol wheel was caught and fixed with source
+  cache keys. The actual installed entrypoint survives stop/restart and replays
+  committed receipts; API selection does not fall back when it stops.
+- Sixteen admission/close commands at concurrency4 first exposed NOWAIT retry
+  exhaustion. Bounded250ms pool lock queues now preserve caller FK compatibility
+  and lock settings, with nine process/Native/pending-Prediction cases passing.
+  The sample measures control commands only, not inference or production capacity.
+- One real video case uses versioned source bytes, actual Media processes and
+  HTTP backend requests, authenticated binding, a pinned scope across windows,
+  durable heartbeat and cooperative cancellation. The backend is a deterministic
+  CPU fixture. Thirteen clean patch-equivalent child worktrees are removed;
+  their source branches and all failed acceptance receipts remain available.
+- This is a checkpoint, not full Inference or ten-module/seven-gate completion.
+  GPU eviction control and proven-not-sent settlement, durable video execution
+  handoff/window checkpoints, restore rebind, complete control/health/stats
+  consumers, current restricted images and cross-language qualification remain.
+  Primary/production cutover is not performed; Go remains a separate experiment.
+
+### GPU routing composition and unsent-request accounting checkpoint
+
+- The transport reports `not_sent` only when its final request admission hook
+  rejects before any send can start. A grant fences request start and cannot be
+  reused after start or settlement; redirect failure cannot erase an earlier
+  send. Public exceptions are preserved; ambiguous sends stay unresolved.
+  Bounded batch/interactive responses settle GPU work only after the body is
+  consumed; size-limit and interrupted-stream checks pass 73 plus2 positive
+  completion checks, with no release from response headers alone.
+- Resident leases release by exact lease/owner/generation after proven no-send.
+  Cold loading uses the existing exact reservation rollback, keeping grant
+  exposure and network-send facts distinct. The existing Redis CAS enforces
+  ownership; no SQL action or broader credential is added.
+- GPU eviction's explicit internal request marker obtains a separate
+  `gpu:unload` scope. The route controller requires the exact unload path, paired
+  GPU headers and zero other active requests; the real lifecycle still verifies
+  its signature, identity, generation, transition owner and drain state. It does
+  not acquire an administrative service-pool drain hold.
+- Eviction, busy-drain cancellation, membership activation and rollout clients
+  receive their explicit current session source. Tests retain the injected
+  one-argument client factory contract, and the default path is also exercised.
+- The combined API/Native/Redis/HTTP run passes227. Focused source transport and
+  controller checks pass33; later targeted cold, grant-reuse and default-client
+  checks pass 7/15/2. These overlapping runs are not added together. Fresh
+  noneditable Inference plus shared routing-protocol checks pass 375, with72
+  package files matching current source and API/ORM/Celery absent.
+- The actual TCP composition uses the real YOLO lifecycle with an in-memory
+  model and test-issued GPU signatures. A wrong signature cannot unload; a valid
+  one unloads while the service-pool member remains active and no admin unload
+  hold is invented. This does not qualify physical GPU, the full GPU arbiter
+  owner, production capacity, restricted images or a replacement language.
+- Persistent recovery after an eviction deadline is still open: the database
+  fence may already have advanced, so local rollback or budget clearing from a
+  no-send outcome is unsafe. Durable video handoff/window checkpoints, restore
+  rebind and the other ten-module/seven-gate requirements remain active. No
+  primary/production cutover, push or Go expansion is performed.
+- A follow-up removes the response-receipt prerequisite for fresh unload health
+  observation. Both lost replies can now converge through the existing strict
+  proof classifier; unavailable health still finalizes Unknown and retains the
+  budget. The91-case dispatch suite passes, including those positive/negative
+  regressions. This is live-call reconciliation, not expired-owner recovery; it
+  does not extend token deadlines, add sends or change frozen eviction branches.
+
+### Scoped route retirement: video handoff prerequisite
+
+- The full ten-module/seven-gate goal stays active. Current video execution still
+  lacks a durable Jobs claim, pre-acquire identity, private scope binding, window
+  checkpoints and generation checks on every Labeling writer. This change closes
+  the scoped retirement prerequisite and does not relabel the runner resumable.
+- Native0280 records exact admission-token exp high-water, conservatively bounds
+  pre-migration tokens and persists a realm/transport/epoch/incarnation-bound
+  retirement intent. It closes the old scope before external I/O; only the exact
+  backend retirement proof reconciles that scope's active/uncertain attempts.
+  Response history, other scopes, GPU allocations and budgets are preserved.
+- The existing backend controller counts requests and registered futures by
+  scope, rejects delayed old tokens and lets unrelated scopes continue. Observed
+  accounting violations block admission, retirement and global drain/status;
+  the original epoch protocol does not publish a false zero. Providers must
+  register background work before handler completion. Arbitrary unseen work is
+  not proved and disqualifies a provider; model-specific conformance remains a
+  separate gate.
+- One adjacent fixed RPC adds policy/prepare/status/finish to the same narrow
+  routing LOGIN; the two core functions and nineteen core actions retain their
+  contract. No raw-table permissions, new selector, public API/SDK change or
+  primary/production action is introduced. Private status has no context or
+  credentials; ambiguous commits recover through one status read without a
+  model repost.
+- Four real TCP cases cover handler/future lifetimes, two live scopes, expired
+  ordinary TTL, lost backend replies, delayed-token refusal and a replacement
+  scope while the unrelated request remains active. API embedded, dedicated DSN
+  and HTTP bindings each run that actual flow. A fresh installed entrypoint
+  stops/restarts and reads the same completed intent without another control.
+- Nonempty backup restores cover both the prior management hold and the new
+  prepared retirement; private row/function/ACL fingerprints survive, copied
+  capabilities are rejected and neither source nor clone is mutated. Owned
+  migration checks cover downgrade0189, frozen SQL install/rollback and head0280
+  upgrade/grants. No safe restore rebind is implied.
+- Fresh noneditable Inference passes413 checks with77 exact package files and
+  API/ORM/Celery absent. Focused source, backend and API checks are overlapping
+  receipts, not additive qualification counts. Early fixture/codec/head failures
+  remain retained; selected passing cases are identified in the current ledger.
+- The service-cycle check found authority/safety depending on each other's error
+  definitions. The unchanged error class and mapping now live in the existing
+  pure contracts module; consumers import that owner and no cycle exemption is
+  added. Complete control/health/stats ownership, GPU deadline recovery, Jobs
+  handoff, restore rebind, restricted images and language replacement still
+  require their own evidence. Go remains experimental and unchanged.
+
+### Video execution claims and atomic route binding
+
+- Native0281 adds a Jobs-owned logical run, rotating worker/generation/token and
+  immutable encrypted video-acquire intent. Reservation, current execution binding
+  and command receipt share one transaction. Current claim validation precedes
+  successful receipt replay; core routing actions and legacy acquire stay frozen.
+- The current runner checks execution authority in its business transaction before
+  start, progress, candidate staging, Mask-root registration and failure. Known
+  contention retries without discarding held output; stale workers stop writing.
+  The current cancelled worker can heartbeat/finalize partial results while new
+  model attempts are refused. Stable summaries project canonical terminal facts;
+  broker errors do not independently terminalize managed summaries.
+- The selected owned database run passes32 cases, including actual video through
+  embedded, dedicated DSN and HTTP owner bindings; replay creates no additional
+  scope/model request, cancellation retains the first window, and migration
+  roundtrip/grants plus exact LOGIN and transaction checks pass. Failed diagnostic
+  attempts remain separate evidence; owned resources are cleaned.
+- Portable frozen-plan/checkpoint values are available but are not persisted or
+  consumed by the runner. Recovery-required runs explicitly defer. Window
+  persistence, automatic retirement/rebind, model-context recovery, a separate
+  Labeling writer, restore epochs and the full ten-module/seven-gate goal remain
+  active. This is local ARM64/CPU fixture evidence, without a primary/production
+  cutover, push, replacement-language provider or Go expansion. See ADR-0157.
+
+### Video window journals and local process takeover
+
+- Native0282 adds a second fixed Jobs capability for immutable frozen plans,
+  generation-bound attempts, bounded result parts, atomic canonical windows and
+  independent context-span closure. Exact source versions and sampling facts come
+  from Assets; accepted request facts and Mask retention come from Labeling. The
+  execution LOGIN has exactly two functions, without raw private-table grants.
+- The real Python runner begins a window before model dispatch and seals held
+  results before advancing. Persistence contention retries the held bytes. A
+  replacement generation first obtains physical scoped retirement through its
+  configured Inference owner, then reuses stateless/closed spans or rebuilds an
+  open session from its original seed and verifies the completed prefix. Original
+  payloads remain immutable; replay observations are separate records.
+- Compatibility binds the actual registry/model/incarnation, explicit paired
+  weight release and SHA, capabilities, dispatch defaults and platform result
+  normalization. Builtin mock execution fingerprints its actual implementation.
+  Missing identity allows initial execution but refuses reuse; transient owner
+  identity reads defer rather than fail a job with saved results.
+- Writer finish joins the Labeling business transaction. Checkpoint Mask roots
+  remain pinned until finish, and inputs/source objects until exact retirement.
+  Successful completion requires every planned window and required session close;
+  cancellation alone does not prove partial staging has finished. Current tracker
+  actor/source checks remain in force, independently of accepted first-link jobs.
+- Two actual SIGKILL scenarios use versioned video bytes, a deterministic CPU bbox
+  artifact, a narrow Inference HTTP owner and compatibility-role workers. Both
+  prove no replacement model admission while the old request is active, then
+  preserve the original first-window bytes, replay or reuse it, stage six unique
+  candidates and retire both scopes. A separate five-case policy run covers a
+  transient runtime-identity outage and frozen outside-threshold consumers; all
+  pass with the migration roundtrip/head0282/grants and owned cleanup recorded.
+  Original failed and interrupted diagnostic receipts remain unchanged.
+- Independent review also found early task acknowledgement and ambiguous terminal
+  commit/renewal responses could drop the remaining delivery or skip retirement.
+  The actual registered Celery task now uses late acknowledgement and rejects a
+  lost worker; a real owned-broker prefork child SIGKILL proves redelivery while
+  replacing only the async business entry. The real window chain separately
+  proves successful final commit with a lost reply still retires exact scopes and
+  releases source pins. Ambiguous renewal stops writes and defers an active Job.
+- Retention regression preserves the existing auxiliary scene/video references
+  and cross-owner capability chain; no raw Learning grant is added. Native
+  autogeneration protects schema-qualified private relations while unrelated
+  control-table drops remain visible. The current ledger selects126 distinct
+  passing owned-environment cases, with prior failures/interruption retained.
+  API/pipeline/architecture source selection has432 passes and148 inapplicable
+  rule skips; scripts pass20. Fresh noneditable Inference/results installations
+  pass430/118 with78/23 exact package files and no API/ORM/Celery. These distinct
+  verification surfaces are not summed. Current evidence entry is
+  .worktree/video-window-checkpoint-qualification.json.
+- This closes a local window-recovery checkpoint, not the full ten-module/seven-
+  gate objective. The final Labeling writer still uses the API ORM. Crash recovery
+  with Mask/correction output, cancellation/revocation during takeover, nonempty
+  window-journal restore/rebind, restricted images, provider conformance and
+  capacity remain separate gates. Go stays experimental; no primary/production
+  cutover, push, GPU, AMD64 or replacement-language qualification is claimed.
+  See ADR-0158 and the current selected-case ledger for bounded evidence.
+
+### Labeling video worker publication owner checkpoint
+
+- Native0283 and `aap-labeling-video-writer/v1` move final success, cooperative
+  cancellation and failure publication to Labeling. The canonical Job state,
+  staged candidates, Mask roots, Jobs finish fact and immutable receipt share one
+  transaction. Human accept/decide/discard and intermediate start/progress remain
+  API ORM responsibilities; the whole-module goal stays active.
+- Completed output is reconstructed from the frozen plan and exact original
+  canonical window bytes. Ordinary cancellation requires an actual cancellation
+  marker and preserves sealed track rows plus only a valid current-generation
+  next-window tail. Empty recovery commands reconstruct the saved prefix.
+  Correction cancellation clears candidates without staging authorization;
+  failure cleanup uses claim authority and preserves an already cancelled payload.
+- A separate proof-only publication lookup finds a prior generation's immutable
+  receipt before a cancelled redelivery attempts any new publication. Exact
+  operation/digest status remains strict for an uncertain same-command commit.
+  Current actor/source/Task/segment authority remains enforced when staging rows.
+- The three actual bindings share the portable policy: borrowed Session, exact
+  one-function LOGIN DSN, and private HTTP process. Six bbox/Mask consumer cases
+  pass, including HTTP restart/status, byte-preserved numeric windows and logical
+  Mask pin-to-staged-root transition. A SIGKILL cancellation/repeated-delivery
+  case passes without new inference; the three existing SIGKILL recovery cases
+  also pass. Injected downstream finish refusal rolls back the Job and receipt
+  together. Existing notifications remain best effort rather than an outbox.
+- The selected local ledger contains 164 distinct passing checks across
+  consumer regressions, Native authority, pipeline validation and real processes;
+  it is not a count of new database cases. Reports and owned-resource cleanup are
+  recorded in `.worktree/labeling-video-writer-qualification.json`. Raw earlier
+  failed attempts are retained separately. Source and independent noneditable
+  Labeling suites each pass60 tests; the latter verifies148 installed file
+  hashes and absence of API/ORM/Celery/object-storage-SDK/ML dependencies.
+- Nonempty backup/restore, current restricted owner/API images and local capacity
+  are still separate pending gates. No primary or production runtime was switched,
+  no Go provider was expanded, and no GPU/AMD64/remote-CI qualification is claimed.
+  Next close those gates, then extract the remaining human candidate decisions and
+  intermediate writers before declaring the Labeling module complete.
+
+### Restricted video writer and restored-state checkpoint
+
+- Current Labeling owner image passes exact148-file installed-byte checks in an
+  offline, read-only, UID10006 container at1CPU/768MiB, without API/ORM/Celery/S3SDK/ML.
+  Two actual restricted-container consumers pass for bbox and Mask, including
+  readonly credential files, restart/rediscovered local endpoint, frozen windows,
+  Mask-root handoff, receipt recovery and physical scope retirement.
+- Each consumer completes16 exact receipt reads at observed concurrency4. Actual
+  NOWAIT refusals are retried with the same current proof/digest (14/9 retries in
+  the recorded bbox/Mask sample). These are bounded receipt-read samples, not
+  write-throughput, large-payload or production-capacity evidence.
+- The faster renewal test exposes and fixes a terminal cleanup race: a definite
+  Native `job_not_active` renewal reply follows current-proof/expiry validation.
+  Stop renewal without discarding that still-valid proof for physical retirement;
+  business writes remain rejected.19 execution-fence checks and the two real
+  container flows pass. Unknown renewal, replacement and expired proofs retain
+  their fail-closed behavior.
+- A fresh owned source database publishes nonempty mock-bbox canonical windows
+  and a real immutable receipt, then pg_dump/pg_restore preserves exact window
+  bytes (signed zero/scientific notation), source facts, functions, owners and
+  ACLs. Existing receipts prevent downgrade. The original remains unchanged; the
+  cloned realm correctly rejects source proofs and performs no business mutation.
+  This does not restore Mask objects or other S3 bytes.
+- The restore audit found no authorized authority rebind: initialization only
+  binds Jobs to the creating DB OID/name/cluster. A coordinated Jobs/Inference
+  restore capability must fence prior runtime/storage writers, rotate authority
+  and preserve immutable results before same-job resumption can be qualified.
+  No manual realm/secret rewrite or abandoned-job shortcut was introduced.
+- Evidence lives in `.worktree/labeling-video-writer-container-restore-qualification.json`.
+  The initial API cold image matches480 package and1278 API/native files at the
+  base commit; refresh it after the renewal fix before claiming current API-image
+  qualification. Source/image checks, retained restore data, operator rebind,
+  bounded write capacity and complete human/intermediate Labeling migration are
+  distinct gates. The ten-module/seven-gate objective remains active.
+
+### Finite video-owner write workload checkpoint
+
+- The restricted owner image runs two distinct sixteen-job cohorts through
+  direct PostgreSQL and HTTP. Each job publishes six canonical bbox rows from
+  three sealed windows at concurrency four. All32 immutable receipts,192 staged
+  rows, unchanged review revisions and exact accepted-input fingerprints pass.
+  The producer uses the existing Native mock-bbox fixture, with zero model calls.
+- Direct PostgreSQL performs96 Native function calls; HTTP sends16 requests.
+  Neither binding encounters execution_busy in this sample. Median latency is
+  169.48/178.93ms, nearest-rank p95 is186.75/184.55ms, elapsed703.73/735.12ms.
+  The shared1CPU/768MiB owner budget excludes PostgreSQL and the host HTTP caller;
+  direct PostgreSQL adds a second Python process inside that cgroup. End-of-sample
+  current memory87.08/60.30MiB is not peak memory or an equal-budget comparison.
+  This does not qualify maximum payloads, large Mask, inference, broker queues,
+  legacy-writer performance or production capacity.
+- The actual container test is registered in the module-data verifier. The first
+  two attempts exposed fixture field/timebase assumptions, corrected against the
+  real frozen plan without changing business guards. The third passes with zero
+  skipped cases and complete owned-resource cleanup. Raw attempts remain in
+  `.worktree/labeling-video-writer-capacity-{first,second,third}.json`; closed metrics
+  are in `.worktree/labeling-video-writer-write-samples.json`.
+- The API cold image was rebuilt at9eb499df9 after the terminal-proof fix. Exact
+  480-package/1278-API-native byte checks pass under network-none/read-only,
+  UID10001,1CPU/512MiB. The earlier pending-image gate is closed; no app source or
+  owner package changed in this workload checkpoint.
+- Restore rebind still needs prior process/storage fences, rotated authority,
+  proven backend retirement and exact input versions. Human candidate decisions,
+  intermediate writes and all ten-module/seven-gate requirements remain active;
+  Go stays an experiment and no primary or production cutover occurred.
+
+### Coordinated restore audit and next implementation boundary
+
+- Source review confirms two different realm bindings: Jobs pins DB OID/name and
+  cluster system_identifier in Native0281; Inference pins DB OID/name in0279.
+  Their ordinary recovery APIs cannot authorize a restored target. Rewriting
+  authority rows is not an implemented or qualified recovery procedure. A
+  same-identity PITR must rotate secrets and invalidate copied token hashes too.
+- The first restore implementation must coordinate an idempotent operator receipt
+  (restore ID, backup digest, source/target realm and retained job/run identities),
+  an externally established writer/credential fence, and current live backend
+  status. Native0279 ordinary prepare/finish_epoch rejects copied open scopes;
+  it cannot be reused as proof of restore safety without an owner transition.
+- Backend control must drain/rotate from the authenticated controller's actual
+  current epoch and exact incarnation, using predecessor CAS. A copied epoch or
+  a list of restored scopes cannot cover requests created after the backup. Any
+  active, unknown, foreign or conflicting transition keeps the target fenced.
+  A restore-specific owner transition must retain original scope/attempt facts
+  and record epoch-wide retirement provenance before Jobs recovery_ready can run.
+- Copied foreign-realm scopes must not receive ordinary capabilities. A narrow
+  status path may return scope:null only after verifying an exact completed
+  target-realm restore-retirement proof; existing retire_tracker_scope then skips
+  the per-scope RPC, while recovery_ready independently checks every old intent.
+  Until such proof exists, current Native realm refusals remain mandatory.
+- Jobs must rotate authority without losing the exact encrypted route command,
+  invalidate all old proofs within the changed authority scope, preserve run ID,
+  plan/windows/receipts, and issue a new generation only after proven retirement.
+  Existing per-generation route intents are additive; do not overwrite historical
+  plans or operation receipts to make replay succeed. The current runner's exact
+  model/capability/backend_incarnation check remains required; cold-restarted or
+  unavailable backends are refused for same-job resume.
+- Accepted input must already be READY and its exact VersionId/ETag/size/SHA and
+  restored bytes must verify. The ops runbook now includes accepted-inputs and
+  explains why current-object mirror/sync alone does not preserve this identity;
+  it also distinguishes the health-restart marker from an actual write fence.
+  The coordinated operator capability, exact object-storage restore and resumed
+  unfinished-job acceptance are still unimplemented, not passing gates.
+
+### Coordinated video restore implementation and consumer acceptance
+
+- Implemented the existing Inference artifact's offline `aap-video-restore/v1`
+  operator, a function-only LOGIN, Native0284 and its frozen schema. No normal
+  HTTP API, default runtime, or new deployment mode is introduced. External
+  source-process, DB/storage credential and in-flight writer fences remain an
+  operator prerequisite; the command only binds their evidence digest.
+- Jobs and Inference authority helpers share a transaction barrier with restore;
+  READ COMMITTED is required. Prepare waits for accepted Native writers and
+  fences both authorities. Actual authenticated backend status supplies the
+  predecessor epoch, including requests created after backup. Drain/bind retains
+  fixed control IDs and the exact incarnation. Finish atomically rotates both
+  secrets, invalidates copied proofs, rewraps identical command plaintext and
+  preserves run, generation, plans, canonical window bytes and old receipts.
+- Additive target-realm retirement proofs retain original scope facts and remain
+  valid after later ordinary epoch changes. Foreign scopes receive no ordinary
+  capabilities. Only exact proven retired status may return a null scope;
+  recovery_ready independently checks every historical intent. Uncertain or
+  active work stays prepared; incarnation changes refuse same-job continuation.
+- Five distinct selected Native/consumer scenarios pass across retained latest
+  reports: role/replay/conflict, same-identity rotation with an in-flight writer,
+  cold-backend refusal, late-fault rollback/replay with post-backup work, and the
+  actual interrupted runner. The intended offline deployment entry point is the
+  main runner acceptance: a noneditable CLI child reads only the restricted DSN
+  file, waits for old work, completes restore, and returns immutable status and
+  completed replay. The target reads the exact same versioned S3 source through
+  Assets Media, reuses the sealed prefix, computes the remaining two windows and
+  publishes six bbox rows through the Labeling owner. This reuses the same owned
+  S3 store and does not qualify object-storage backup/restore.
+- Source and noneditable Inference/shared-contract suites each pass420 cases;
+  six installed distributions and82 package files match source without API,
+  ORM, Celery, S3 SDK or ML packages. The51 affected existing routing, retirement,
+  execution-fence and final-writer cases pass. Full migration validation passes
+  fresh284,173-to-base,110-step suffix downgrade/upgrade, historical conversion
+  and preconversion restore. Four derived databases were removed without errors.
+  Native restore tables are also registered against ORM autogeneration.
+- Evidence: `.worktree/video-restore-worker-installed-cli.*`,
+  `video-restore-native-fourth.*`, `video-restore-live-fifth.*`,
+  `video-restore-consumers-eleventh.*`, `video-restore-existing-regressions.*`,
+  `video-restore-installed-inference.*` and
+  `video-restore-migration-validation.json`. Earlier failed reports remain
+  separate. Independent image qualification is the remaining slice checkpoint.
+- Execution strategy now finishes this restore milestone, then closes Identity
+  as a complete module before unrelated slices. Existing source/installed,
+  container, restore and migration evidence is reused unless a subsequent change
+  invalidates it. No percentage is used to estimate remaining time.
+
+### Coordinated restore milestone closed; Identity is next
+
+- Implementation commit: `968212e4e0a8c812fa5a8d79606d38fa0a58f953`.
+  The intended independent offline CLI path passes the actual runner/CPU backend,
+  Assets Media source-version and Labeling publication consumer. Five distinct
+  restore scenarios,51 existing consumer regressions and one real ORM
+  autogeneration guard pass; source/installed package suites each pass420.
+  Full migration and owned cleanup evidence is retained, not rerun for formatting.
+- Matching ARM64 images pass cold qualification: Inference `sha256:3a02a2c399cc688c1880439f46e76f9e2f38a28cc155b9c234e2df79a09bb2f3`
+  verifies82 installed package files at UID10008,network-none,read-only,1CPU/256MiB;
+  API `sha256:0951eca34a3f514434087cf9314464dfa90346b7cefef0403e4397a8fc9f4b9c` verifies484 installed package and1281 application/Native inputs,
+  current head and unchanged OpenAPI at UID10001,network-none,read-only,1CPU/512MiB.
+  Both proof containers were removed. The last formatting-only changes have
+  identical ASTs and refreshed installed-package hashes. Aggregate evidence is
+  `.worktree/video-restore-milestone-qualification.json`; this is a bounded local
+  restore capability, not object-storage restore, GPU capacity or module closure.
+- No primary/runtime cutover, push or production deployment occurred. The primary
+  checkout remains clean at856fa79c87ef2668d0ed74eb570df0a3e529d49f and the four
+  protected shared containers retain their original IDs and running state.
+- A read-only Identity difference audit identified the next bounded prerequisite:
+  `SqlTrainingAuthority.assert_authority` still reads User and locks ApiKey for
+  final persistence authorization. Move it behind a narrow same-transaction
+  Identity capability while preserving current account/project/key lock order,
+  expiry/revocation/scope checks and errors. Existing credential confirmation
+  requires a secret hash unavailable to these retained executions, so it cannot
+  be substituted blindly.
+- Identity module blockers are recorded only in the remaining-work ledger:
+  remaining current-authority and display User consumers; shared JWT/command
+  signing secret; registration-status/runtime Settings divergence; all-capability,
+  least-privilege independent assembly and recovery acceptance through the existing
+  deployment path. Partial capability selectors keep working; no new deployment
+  mode is required merely to make full-module acceptance fail when incomplete.
+  Complete Identity before unrelated slices. Go remains experimental.
+
+### Identity current-authority consumers and accepted-key fence
+
+- Native0285 adds the fixed Identity-owned accepted-key-ID final check. Account
+  SHARE/project KEY SHARE remain caller-owned; the key SHARE waits and checks
+  real-clock expiry after waiting. No credential/hash/authentication step,
+  arbitrary scope cap, commit/rollback, HTTP endpoint, DSN or LOGIN is introduced.
+  The portable schema generator supplies installed and frozen SQL descriptors.
+- Current single-account reads now use existing Identity facts/locks across
+  prediction/retry, scheduler/preannotation, tracker, Mask Repair, export,
+  WebSocket, job read/cancellation, legacy upload, bulk clear, event recovery and
+  discussion/comment/notification entry checks. Existence-only checks retain
+  their original absence of an active gate. Tracker NOWAIT, export lock order,
+  the second super-admin read, cancellation401/Bearer and caller transactions
+  remain explicit. ORM key and account table reads are removed from these paths.
+- Latest selected union passes406 distinct cases with no effective failures or
+  skips. Native/account-lock/key checks pass46 plus one additional restricted Learning owner-role case;
+  related learning/WS104,
+  execution-consumer136, read-tail53 and discussion/notification66 retain their
+  original cohort reports. Focused successful retries replace three failing
+  cases, not whole failed cohorts. Source adapter/schema47 and runtime grant18
+  checks are separate and not added to this union. The legacy-upload fixture
+  failure was reproduced with the exact old reader/fixture; its seed transaction
+  now commits before testing caller rollback. Production commit behavior is
+  unchanged. Earlier preflight/schema and fixture failures remain retained.
+- Evidence: `.worktree/identity-closure-current-authority-qualification.json`,
+  the original cohort JUnit files and cancellation/export/upload reproducer
+  reports. Implementation scope and pending gates are in ADR-0161. Cold install,
+  container, full migration and backup/restore qualification are intentionally
+  batched at the coherent complete-Identity milestone, not repeated per helper.
+- A deeper audit corrects the earlier shared-secret conclusion: remote Identity
+  already authenticates RPCs by control Bearer and decodes/rederives owned output
+  in the owner, so its private signing/derivation key can differ from API
+  SECRET_KEY. Existing live fixtures use a shared value and must prove the
+  distinct-key deployment path. No new secret abstraction/protocol is needed;
+  preserve existing issuer/receipt keys and rotation behavior.
+- Remaining actual reads need only the seven public account fields
+  id/name/email/role/is_active/status/avatar_ref and invitation id/project_id.
+  Existing catalog owner views provide a precedent for narrowly granted readonly
+  relations that preserve same-statement sets/joins/search/count/cursors. The
+  next bounded deliverable closes these remaining source consumers and their
+  private-table grants, then addresses registration policy and complete existing
+  runtime assembly. Only the module-deployment ledger tracks outstanding work.
+  Complete Identity before unrelated slices; no primary cutover/push/Go expansion.
+
+- Bounded final review found and closed the missing learning_owner EXECUTE on
+  read_actor_facts. One additional actual restricted-role probe confirms the
+  account SHARE/status/key sequence in the same transaction while raw User
+  SELECT remains denied. It passes separately and brings the selected union to406. No broader User
+  table grant or new client role was added. Architecture passes352 with148
+  existing inapplicable rules skipped; docs build passes.
+
+- Source integration commit: `48643cbdcaa93dcee0baa0409b45438932d7fa65`. Matching focused evidence is
+  `.worktree/identity-closure-current-authority-qualification.json`; it remains
+  an intentionally incomplete whole-Identity qualification. Independent module
+  cutover and broad cold/restore gates are pending the remaining owner relations,
+  private-table grant closure, registration policy and full existing assembly.
+
+### Identity set/display read relations and consumer ACL checkpoint (2026-10-22)
+
+- Migration0286 adds two Identity-owned security-barrier relations with exactly
+  seven account profile columns and two invitation target columns. Owner-generated
+  portable/package/frozen descriptors agree. Set/search/statistics/performance,
+  notification recipients, author projections and invitation audit scope retain
+  their same-statement filters, joins, counts, order, limits and snapshots. Core
+  adapters preserve autoflush/no-autoflush and caller transactions; unused
+  management scope SQL is removed instead of duplicated.
+- The existing remote API role can apply identity-consumer-grants.sql after owner
+  and legacy grants: no Identity private table/column privileges or credential
+  command functions, only two SELECT relations and five existing same-transaction
+  facts/lock/accepted-key capabilities. It reuses the existing role/bindings and
+  does not replace the compatible embedded/isolated seed profile. Legacy default
+  ACLs remain; grant refresh/migrations must reevaluate and apply this profile last.
+- Latest effective union passes172 distinct selected cases with no effective
+  failures/errors/skips, including17 Native/adapter/grant guard cases and6 actual
+  committed HTTP notification/Redis-failure/rollback cases. The additional commit
+  database is verified/marked/removed inside the owned verifier PostgreSQL; an
+  overlong initial fixture name was refused by the physical-name guard and fixed
+  before final acceptance. The three stale role/cache assertions reproduce with
+  their pre-slice readers; updated checks retain401/Bearer, current persisted
+  author/response names and exact notification payloads. Their baseline probes
+  are separate, not counted as new business coverage. Earlier failed reports are
+  retained and only matching successful cases supersede their effective status.
+- Runtime grant/selection unit checks pass20. Architecture passes355 with149
+  inapplicable rules; annotation_comment loses its private User import allowance
+  and the public relation adapter explicitly forbids app dependencies. The
+  RowMapping strict-validation and grant-guard CASE syntax defects were each
+  reproduced narrowly, fixed, then qualified with actual restricted roles.
+- Evidence: ADR-0162 and .worktree/identity-read-relations-qualification.json.
+  Whole Identity is still incomplete: the one module-deployment ledger records
+  the next registration-policy and existing full-assembly acceptance. Cold
+  installation/container/full migration/restore qualification remains batched at
+  that coherent milestone. No primary cutover, push, release or Go expansion.
+
+- Final privilege review removed speculative profile enumeration grants for other
+  owners: only Identity ownership and the actual API application/remote consumer
+  SELECT grants remain. A real ACL probe covers unused owners and function-only
+  clients, alongside the existing restricted API read/deny acceptance.
+
+- Source/documentation integration commit: `935aeca26af2cf31077f8c78a9208cfc068182ad`. The aggregate matches32
+  source/test/grant file fingerprints to that commit. Normal hooks, including
+  OpenAPI/routes regeneration, pass with unchanged public artifacts. Owned source
+  worktrees are removed after branch/HEAD/clean-state and derived-artifact checks;
+  branches remain. Root editable bindings, primary checkout and four shared
+  containers are preserved. Cleanup evidence is linked by the aggregate report.
+
+### Identity registration policy and owner-default checkpoint (2026-10-22)
+
+- Corrected the audit: registration already reads the Settings owner override
+  under its original SHARE fence. The actual mismatch was the public API status
+  cache/API fallback, and admin metadata/version/reset using the API default.
+- Added a closed read-only Recovery protocol and fourth native function, reusing
+  the existing Settings policy and existing HTTP/direct-DSN/embedded bindings.
+  Effective reads are fresh; default-only reads do not touch override rows and
+  remain supported by auth-only runtimes. No new secret/DSN/role/runtime mode.
+- The one owner default flows through management snapshots, HMAC version/CAS,
+  metadata, reset, conflict readback and accepted import-limit version. Historical
+  malformed values remain readable/fallbacked and repairable by same-value save.
+  Owner failure is503 before settings writes, without API fallback. Existing
+  email verification, CAPTCHA, registration receipts and commit boundaries stay.
+- Actual source owner/API processes use opposite defaults, distinct owner/edge/
+  control secrets, and the existing API consumer ACL with Identity private tables
+  denied. Settings GET/PATCH/reset, malformed-row repair, real registration and
+  owner loss pass; Node consumes both read operations. The token verifies only
+  under the owner secret. Full session/key/socket signer acceptance source is
+  prepared for coherent whole-Identity qualification, not counted as run yet.
+- Failed CAS fixture rollback and wrong JWT exception-class expectations were
+  isolated and corrected narrowly. Earlier failed reports remain. The import
+  version equality prerequisite and auth-only default-read compatibility were
+  verified separately; other modules' new capabilities remain out of scope.
+- Evidence and boundaries: ADR-0163 and the existing .worktree/identity-registration-\*
+  reports. The single module-deployment ledger retains the complete remaining
+  scope. Complete Identity assembly, cold install/container/full migration and
+  restore qualification next; preserve the primary runtime and Go experiment.
+
+- Latest effective selected API/database/process union passes113 distinct cases,
+  with no effective failure/skip, separately from658 passing owner-package source
+  cases. Runtime grant/selection checks pass20; architecture passes355 with149
+  inapplicable rules. The aggregate excludes superseded old three-function and
+  unparameterized budget-version names, retaining their failed reports and
+  linking the exact replacements. Whole Identity qualification remains open.
+
+- Source/documentation integration commit: `956f52fbec0f23e2c138d0961727c84c5a1ca041`. The aggregate matches34
+  source/test/grant fingerprints; normal hooks preserve public OpenAPI/routes.
+  Docs build passes. Three owned source worktrees are removed after exact
+  branch/HEAD/clean-state and derived-artifact checks, with branches retained.
+  Root editable bindings, primary checkout and four shared containers remain.
+
+### Identity complete-module private-network qualification (2026-10-22)
+
+- Reused the existing Identity Compose services: one HTTP owner with all 17
+  configured capability bindings, MailV1, MailV2 and notification publisher,
+  plus a separately built cold API image. Owned PostgreSQL/Redis attach only
+  to the verified task Compose network and detach before teardown. No new
+  production deployment mode or runtime source change was introduced here.
+- The verifier retains the compatible seed profile and provisions a separate
+  identity_api_consumer LOGIN. Existing application grants run before the
+  authoritative consumer-grants script. Readback verifies exactly two public
+  SELECT relations and five transactional functions; actual credential/private
+  receipt reads and User writes fail. API edge and owner signing secrets differ;
+  API receives no Identity command DSN, owner signing secret or mail key. Workers
+  retain their separate database/Redis/secret scopes.
+- Cold noneditable installation passes 658 owner-package checks. Installed and
+  owner/API images match 129 package files; API runtime probes additionally
+  match 1,294 application/Native/metadata inputs. Full head 0287 migration passes
+  all five fresh/upgrade/downgrade/re-upgrade/snapshot-restore phases. The prior
+  source 658 and operation-specific 113-case qualification remain separate and
+  are not added to these counts.
+- The complete actual-consumer case passes twice consecutively on the private
+  network, each recording 66 public requests plus private RPC/Node/Socket calls.
+  It covers distinct-signature sessions/registration, key management, settings,
+  groups/invitations, directory/Briefs, administrator lifecycle/offboarding,
+  due-deactivation, owner outage, immutable replay, actual V1/V2 mail, notification
+  backlog/restart and full pg_dump/restore. Restored JWT/revocation/receipts,
+  pending mail/notifications, consumer ACL and migration head are checked. Two
+  runs of one case count once. Stable signing/control/mail keys are retained.
+- Every process uses UID 10003, readonly root, capability drop, no-new-privileges,
+  one CPU and finite budgets: 256 MiB owner/workers and 512 MiB API. Each run samples
+  16 mixed reads at concurrency 4; observed p95 is 0.134/0.135 seconds. These are
+  finite local ARM64 observations, not production capacity or an SLA.
+- Acceptance defects were isolated before retrying: reuse the existing scoped
+  API bootstrap S3 identity; use a direct point-cloud Briefs fixture without
+  object reads; enqueue pending restore mail through the existing private
+  command because the public endpoint waits for delivery. Invitation restore
+  now compares the pre-downgrade head instead of a stale literal. That host-only
+  test correction does not invalidate runtime image inputs. Temporary diagnostic
+  entrypoints and private failure bundles were removed from the final fixture.
+- Earlier host-forwarded database experiments intermittently returned 503 during
+  invitation creation, restored actor-context and offboarding. Minimal clones,
+  mail cycles, connection probes and temporary tracing did not reproduce the
+  root cause. Private-network passes do not establish a fix for the old topology;
+  those failed reports remain retained with this limitation explicitly open.
+- Aggregate evidence: .worktree/identity-module-qualification.json. The only
+  remaining-work ledger is docs-site/dev/concepts/module-deployment.md. This
+  closes local complete-Identity functionality for the intended private-network
+  profile. Primary cutover, production/AMD64/remote-CI qualification and a complete
+  alternate-language provider are not claimed; Go remains experimental. Other
+  modules keep their existing blockers; Workspace is the next bounded module.
+
+- Complete-module fixture/documentation integration commit:
+  `8cd394eef201498a542d573af15b2b1055fdae33`; supporting fixture commits are
+  `7490c3bdf` and `bb19118f8`. Runtime source remains the qualified
+  `956f52fbec0f23e2c138d0961727c84c5a1ca041` checkpoint. The aggregate binds 46
+  source/test/grant/documentation fingerprints to the integration commit and
+  retains the two exact image IDs, source drift limited to documentation and
+  a host-only restore fixture, real exits and JUnit receipts. Ruff, selection
+  units, test collection, docs build and normal commit hooks pass. The two owned
+  source worktrees are removed only after exact branch/HEAD/clean-state and
+  patch-equivalence checks; one ignored Ruff cache was archived first. Branches
+  remain. Root editable bindings, the clean primary checkout and four shared
+  containers are preserved; no owned assembly container/network remains.
+
+### Workspace transactional adjacent project writes (2026-10-22)
+
+- The previous goal turn made concrete progress: complete Identity private-network
+  functionality and evidence were committed as `8cd394eef` / `55386aad6`.
+  The goal remains active for the full module scope. Read-only Workspace audits
+  identified two remaining production direct writers: nuScenes project import
+  and point-cloud quality configuration promotion. Labeling-owned Project counts
+  are explicitly excluded from this Workspace write group.
+- Added Native 0288 in the existing `aap_workspace_v1`: exact import reference
+  lookup, caller-specified import creation and quality configuration write.
+  The portable `aap-workspace-project-maintenance/v1` descriptor and strict
+  response decoders bind references/timestamps without carrying ORM objects.
+  No new service, runtime DSN selector, retry, CAS, authorization or receipt
+  ledger is introduced. Existing caller transactions and public APIs remain.
+- Import retains stable display IDs, legacy ORM defaults, read-then-create unique
+  errors, lookup autoflush/no_autoflush and explicit creation flush. The workflow
+  passes only UUIDs through existing Assets/Labeling/calibration operations.
+  Quality promotion retains Project FOR UPDATE/cached-read behavior, evaluation
+  gate/baseline/revision policy, Audit and commit; only the write moves to Native,
+  with set_committed_value synchronizing the caller's config/timestamp.
+- Privilege review rejected broadening the existing workflow role because it is
+  actually append_client. The existing function-only grant pattern instead
+  provisions workspace_project_maintenance_client for exactly three business
+  owner functions, with no table/column/sequence/DDL/TEMP rights. Public invoker
+  helpers are outside that business-capability count. Other module clients keep
+  their allowlists; application/runtime sources gain the explicit new functions.
+- Pre-change Identity-evidence HEAD passed 28 existing quality/import cases and
+  cleaned its isolated state. Current qualification passes 26 contract/adapter
+  cases, one real LOGIN/descriptor case and 38 Native/actual-consumer/regression
+  cases: 65 distinct cases, no failures/skips. The old 28 are not counted again.
+  Actual checks include full ORM-default comparison, stable/missing references,
+  same-value timestamps, match scope, SQLSTATE/aborted transactions, real lock
+  waits/retention, evaluation/config rollback after later failure or bad binding,
+  and a Node process consuming all three functions without Python/API proxying.
+  Frozen SQL install/rollback and owned resource cleanup pass.
+- Contract and caller worker source commits are `c987d6185` / `bcb836143`,
+  integrated as `96e7b6f37` / `cf44f8d4a`. Root owns Native/grant/verifier integration
+  and the final qualifications. Aggregate evidence is
+  .worktree/workspace-project-maintenance-qualification.json; ADR-0164 records
+  the operation boundary. Full cold artifact/migration/restore checks remain
+  batched at the coherent complete-Workspace milestone; prior valid checks stay
+  closed. The one module-deployment ledger retains every remaining blocker,
+  with project deletion provider/API binding as the next bounded deliverable.
+  No primary cutover, push, production deployment, release or Go expansion.
+
+- Source/Native/documentation integration commit:
+  `8481a33f76939cf0d810f68a70925482479b8e75`. The aggregate binds 25 source,
+  test, grant and documentation fingerprints to that commit. Normal hooks pass,
+  including OpenAPI regeneration with unchanged public artifacts. Runtime grant/
+  selection units pass 20; architecture passes 355 with 149 inapplicable rules.
+  The first unit command omitted its scripts import path; corrected execution
+  passes without source changes, and the failed command receipt is retained.
+  Docs build passes. Both owned source worktrees are removed after exact HEAD,
+  branch, clean-state and patch-equivalence checks; Ruff caches are archived,
+  branches retained. Twenty Root editable bindings still point to this checkout,
+  the clean primary stays at its original commit, and four shared containers
+  remain running. Complete-Workspace independent artifact/restore qualification
+  and primary cutover are not inferred from these focused checks.
+
+### Workspace caller-transaction project deletion (2026-10-22)
+
+- Moved the frozen four-field deletion command, receipt decoder and scope binding
+  into the existing Workspace package. API compatibility imports and the same
+  request Session remain; all pending work is flushed before the original Native
+  coordinator, with commit still owned by the public route. A separate HTTP or
+  autonomous DSN command would break the required outer rollback and failed-final-
+  commit semantics, so this capability instead borrows an active caller transaction.
+- Added the exact `workspace_project_deletion_client` LOGIN grant and verifier
+  support for its single business owner function. It has no private relation,
+  sequence, DDL, TEMP or constituent cleanup capability. The adapter explicitly
+  selects the role rather than deriving the generic Workspace role from the shared
+  schema. No new migration, service, runtime selector or public API is introduced.
+- Source workers committed `54b35d619` and `1b54f66df`; integrated as `66d1af7f4`
+  and `d9e1a3367`. Root owns the grant, actual-consumer and final integration checks.
+  The effective passing union contains 76 distinct selected cases with no failures,
+  errors or skips: contract/adapter, exact restricted LOGIN, rollback/commit/frozen
+  replay, failed outer commit, bad reply scope, Node transaction modes and integer
+  fidelity, actual public API and existing deletion/retention regressions.
+- Retained initial failures separately. A legacy cross-project annotation fixture
+  now disables only its two lineage triggers inside a savepoint on a verified owned
+  database, restores them and proves that fresh invalid writes are still rejected.
+  The first role inference failure was corrected and minimally reproduced before
+  rerunning the remaining consumer cases. Frozen Native SQL remains unchanged.
+- A separate diagnosis proves an unresolved safety defect: deleting the canonical
+  video Job fences further writes but can leave an unretired execution, retained
+  input and running detached summary. That diagnosis is excluded from passing
+  qualification. The project-deletion policy question remains unanswered; the
+  selected Assets auxiliary-reference 409 policy is distinct and already has a
+  Native guard; targeted camera/scene/execution deletion acceptance and unlink
+  availability still need verification. The deletion capability is not marked closed.
+- Evidence aggregate: `.worktree/workspace-project-deletion-qualification.json`.
+  ADR-0165 records the caller-transaction boundary. Full Workspace cold artifacts,
+  migration and restore remain batched at the coherent module milestone. Only
+  `docs-site/dev/concepts/module-deployment.md` holds remaining work. No primary
+  cutover, push, production deployment, release or Go expansion is claimed.
+
+- Source/grant/fixture/documentation integration commit:
+  `b625741383693930e267b0be407c008bb6103903`. The aggregate binds 26 files to
+  this checkpoint, records all 76 passing cases and explicitly excludes the video
+  defect diagnosis. Grant/selection units pass 20; architecture passes 355 with
+  149 inapplicable rules. Descriptor generation, Ruff, formatting, docs build,
+  final diff review and normal commit hooks pass; public OpenAPI is unchanged.
+  Both owned source worktrees were removed after clean-state, exact HEAD/branch
+  and patch-equivalence checks, with their Ruff caches archived first. Twenty
+  editable Root bindings still point here; the clean primary and four shared
+  containers are preserved, and all eight owned PostgreSQL containers from this
+  slice's checks and reproducers are confirmed absent. This closes the portable
+  invocation boundary only; the video deletion safety prerequisite stays open.
+
+### Assets auxiliary source-reference policy acceptance (2026-10-22)
+
+- The user confirmed 409 while camera links, scene tracks or video execution
+  references still retain a source. Source inspection found the existing Native
+  guard already implements this policy; production guard SQL and HTTP behavior
+  remain unchanged. Added actual Item/Dataset deletion regressions using existing
+  source and execution fixtures on a verified owned test database.
+- Source-only worker commit `8cc3bbb473` was integrated as `2499666b1`. Root
+  expanded both deletion scopes and replaced identity-map assertions with actual
+  relation checks, preserving primary Task sources in a separate Dataset. The
+  effective union is 11 distinct selected cases: ten Native and one existing
+  real HTTP conflict mapping. Unretired journals retain their source after
+  canonical Task/Job cascade; normally retired journals release their pin and
+  allow deletion when no other references remain. Active and retired SceneTrack
+  rows both block deletion. Rejections preserve graph/Audit/receipt/outbox.
+- Initial execution passed nine and failed two cases at an incorrect test-only
+  expectation on the Assets auxiliary guard. The execution-journal pin belongs
+  to the Labeling guard consumed by the coordinator. Root removed that unrelated
+  assertion, then passed the two smallest reproductions including actual deletion
+  rejection. The other nine valid passes are reused; no production logic changed.
+  Original failures, real exits and cleanup are retained in
+  `.worktree/assets-auxiliary-deletion-qualification.json`.
+- Source audits also identify the same unretired-execution loss in Workspace
+  Dataset unlink. This is not repaired by Assets correctly refusing deletion;
+  the shared prerequisite remains in the single module-deployment ledger.
+  Camera-only unlink intentionally preserves Tasks whose primary belongs to
+  another Dataset, and separate camera-link/scene-history removal is not added.
+  No primary cutover, push, release, production deployment or Go expansion.
+
+### Workspace locked authority snapshots (2026-10-22)
+
+- Previous goal turn completed and committed the project-deletion portable
+  boundary (`b62574138` / `ef8ef8af4`) and Assets retention policy acceptance
+  (`6e019b45a`), which is concrete progress. The full module goal remains active;
+  the unretired video deletion/unlink policy is still pending and independent
+  Workspace authority work can proceed.
+- Reused Native 0270 for the existing locked Project and ProjectMember path,
+  retaining Identity rich SHARE facts, Project KEY SHARE, membership SHARE,
+  NOWAIT, manager skip, no-autoflush and caller-owned commit/rollback. Existing
+  public helper tuples and all consumers stay unchanged. Production/local runtime
+  allowlists grant the existing function to the existing API application role;
+  append_client and deletion-only privileges do not grow. No migration or service.
+- Consumer review proved that the old discarded Project result also refreshed
+  business cache used by training freeze/status and annotation bindings. The
+  complete locked snapshot therefore hydrates the same Session identities via
+  fresh detached values and merge(load=False), with complete mapped-column
+  checks for Project43/Member9. This resets stale/dirty values without a second
+  SELECT or flushing unrelated work. The base Project materializer is factored
+  from the existing codec and keeps legacy JSON/scalar/temporal behavior.
+- Source commits `12a30d113` and `1120b2829` are integrated as `94872a563` and
+  `84e68b534`. Root owns grants, actual LOGIN/Node/transaction/cache acceptance
+  and documentation. A pre-change owned ORM baseline passed the exact dirty-cache
+  and pending-Task case, then the same case passed on the Native implementation.
+- Effective union: 163 distinct selected cases, zero failures/errors/skips.
+  Includes 23 shared contract cases, API adapter cases, nine new actual database
+  cases, real consumer regressions (permissions, labeling scope, frame persistence,
+  validation, feedback, training snapshot/study and secondary children), plus
+  frozen temporal HTTP comparison through borrowed/DSN/HTTP paths. The actual
+  API LOGIN works with private User/Project/Member SELECT denied; original ACLs
+  are restored. Locks retain the caller backend/transaction, ordinary counters
+  can update, bad reply scope rolls back prior writes, and Node calls Native
+  capabilities directly without a Python API proxy.
+- Initial unit failure omitted the actor event in the expected sequence; its pure
+  fake-session repro passes with conftest disabled. The HTTP temporal fixture
+  initially lacked its provider interpreter; supplying the existing test selector
+  passed that one case in a separate current-source Workspace process. Other
+  valid passes are reused, and original failures/cleanup are retained. This does
+  not add noneditable/cold complete-Workspace artifact or restore qualification.
+- ADR-0166 and `.worktree/workspace-authority-locks-qualification.json` record the
+  boundary. The only remaining-work ledger is module-deployment.md. Non-locking
+  authority reads, exclusive configuration/data paths and whole-module assembly
+  are not closed. Root has no persistent API/Celery runtime to refresh; qualifier
+  processes import current source. The primary runtime, production, release and
+  Go experiment are not changed.
+
+- Source/grant/fixture/documentation integration commit:
+  `7306823c252178c37b3ece7477aaaa0ac871cfd0`. The aggregate binds 15 changed
+  files to this checkpoint. Grant/selection units pass 20; architecture passes
+  355 with 149 inapplicable rules. Ruff, formatting, docs build, final diff review
+  and normal applicable commit hooks pass; public API artifacts are unchanged.
+  The owned source worktree is removed after exact branch/HEAD, clean-state and
+  both patch-equivalence checks; its Ruff cache is archived and branch retained.
+  Twenty editable bindings still point to Root, the clean primary and four shared
+  containers are preserved, and all five owned PostgreSQL containers from the
+  baseline, checks and reproducers are confirmed absent. This closes the current
+  locked read operation's selected source/Native boundary, not the full Workspace
+  module or its cold assembly and restore qualification.
+
+## Workspace unlocked authority snapshots checkpoint
+
+- Initial by-id Project reads now use one new no-lock `read_project_row` phase
+  on the existing access-step capability. Migration 0289 adds a real read mode
+  to the existing full Project serializer; frozen 0268/0270 artifacts stay intact
+  and downgrade restores their exact prior definitions. No actor lookup, policy
+  decision, row/advisory lock, role, service, DSN or protocol is added for this phase.
+- After actual Identity status, both helpers reuse borrowed ProjectQueryData with
+  the truthful actor role, get_row and manager-deferred access_member_rows. Full
+  Project43/Member9 snapshots merge into the original Session identities. The
+  original autoflush/no_autoflush and initial Project-before-actor error order
+  remain; public GET access keeps its separate second complete authority round.
+  The unused private-member SELECT fallback is removed. Existing application
+  grants now include the existing query schema/policy/step; narrow clients do not grow.
+- Source-only commits 37e6be5ef and 3c4a72109 are integrated as 1fcbdae00 and
+  fa80895f4. Root owns grants, verifier wiring, real LOGIN/Node/transaction/cache
+  checks and documentation. Two actual old-source autoflush/cache baselines pass
+  at source 53e18c637; the same two cases pass after integration and baseline
+  executions are excluded from qualification counts.
+- Effective union: 180 distinct selected cases, zero failures/errors/skips, from
+  24 critical cases and 156 consumer cases. Eleven new actual database cases
+  cover denied private reads, READ ONLY, absent authority row locks, caller
+  backend/transaction identity, cache/autoflush, phase freshness and error order,
+  malformed scope rollback and a direct Node peer. Nine original locked Native
+  cases continue passing. Frozen public GET phases, temporal borrowed/DSN/HTTP,
+  permissions, labeling scope, frame persistence, pipeline, feedback and training
+  consumers pass. All selected batches pass on their first run.
+- SQL artifact installation/rollback and the 0189-to-0289 roundtrip pass in owned
+  disposable resources; this is not fresh/full migration or whole-module cold
+  artifact qualification. HTTP uses a separate current-source Workspace process,
+  not a newly installed artifact. ADR-0167 and the local aggregate
+  `.worktree/workspace-access-unlocked-qualification.json` record this boundary.
+- The only remaining-work ledger is module-deployment.md. Next bounded work is
+  exclusive configuration locks and other remaining Project consumers, followed
+  by coherent whole-Workspace credentials/artifact/restore acceptance. Project
+  deletion and dataset unlink still have the separately pending unretired-video
+  safety policy; the accepted Assets auxiliary-reference 409 policy does not
+  decide that separate question. Primary runtime, production, release and Go
+  experiment remain unchanged.
+
+- Final source review finds no blocking issue. Grant/selection units pass 20;
+  architecture passes 355 with 149 inapplicable rules. Ruff, format, docs build
+  and diff checks pass. No public API schema/export input changed. Normal
+  applicable commit hooks and final preservation receipts are recorded with
+  the source/evidence checkpoint below.
+
+- Source/grant/fixture/documentation checkpoint:
+  `199785602523223d9fc54baa218147e86910f15a`. The aggregate binds all 16 changed
+  files to that source commit. Normal applicable commit hooks pass; API snapshot
+  and registry generation hooks naturally skip because no export inputs changed.
+  Final current-source docs build and diff checks pass. Both owned source worktrees
+  are removed after clean-state, exact branch/HEAD, patch and scoped-tree equivalence
+  checks; Ruff caches are archived and branches retained. Twenty editable bindings
+  still point to Root, the clean primary and all four shared containers are preserved,
+  and all three owned PostgreSQL containers are confirmed absent. Root has no
+  persistent API/Celery/Workspace provider process requiring refresh. A read-only
+  process inventory initially encountered non-UTF-8 process arguments; decoding
+  with replacement passes without rerunning application acceptance. The retained
+  receipt distinguishes that probe from the 180 passing application cases.
+
+## Workspace exclusive Project snapshots checkpoint
+
+- The two existing exclusive Project consumers now use an actor-free owner
+  capability in the caller transaction. Cleanup retains NOWAIT, no_autoflush,
+  full refresh, manager fences, 409 project_busy and missing 404. Point-cloud
+  promotion retains waiting, original autoflush, non-populate-existing cache
+  semantics, evaluation-before-missing checks, writes, Audit and commit order.
+- One thin lock_project_row(uuid,boolean) returns the strict versioned Project
+  identity/wait/row envelope. A real waiting probe first found new Project data
+  mixed with old STABLE Labeling counters. The fixed waiting mode locks first,
+  returns null on missing, then reuses the read serializer under a fresh statement
+  snapshot. Its minimal same-case recheck passes. Old key_share/update/read
+  branches and frozen artifacts remain unchanged; downgrade restores 0289.
+- The shared codec binds schema/UUID/strict boolean/text. The API decodes all
+  Project columns even on cache hits, merges complete refreshes via the existing
+  helper, and fills only expired/unloaded columns on ordinary cached queries.
+  The merge helper moves once to the Workspace binding; old access alias remains.
+  No fake actor/rename, arbitrary lock modes, DSN, role or service is introduced.
+- Native source 2b533fa57 and API source e6ad749b6 are integrated as 13e63edb9
+  and 54bc64eff. Root owns the waiting fix, strict codec, application grants,
+  owner transfer, verifier head/artifacts, actual acceptance and documentation.
+- Pre-change source 13d60a0c2 passes one cleanup cache baseline and eight actual
+  promotion cache/autoflush baselines. The new implementation passes the same
+  cases; old-source executions remain excluded. Effective union is 245 distinct
+  selected cases: 63 contract/adapter/Native cases plus 182 consumer regressions,
+  with zero effective failures/errors/skips. There are 24 new actual Native/API/
+  Node cases, including explicit ACLs, same caller transaction, missing behavior,
+  RR/Serializable 40001, raw wait timeout, NOWAIT mapping and prior-write rollback.
+- Initial critical execution retains 23 valid passes and three fixture failures:
+  a mock omitted candidate revision and two API tests borrowed AUTH privileges
+  from a restricted API login. Dedicated AUTH credentials fix real admission.
+  Teardown then correctly hits immutable Audit DELETE/UPDATE guards; audited
+  fixtures are retained until verified owned database disposal, without disabling
+  guards. The mock and two API reproducers pass; only the unrun cases continue.
+  Original failures/JUnit/real exits are retained in the local aggregate.
+- Frozen Native installation/rollback and the owned 0189-to-head-0290 roundtrip
+  pass. Temporal HTTP uses a separate current-source provider. New cold install,
+  image, full fresh migration and backup/restore work remains batched at the
+  coherent complete-Workspace milestone. ADR-0168 and
+  `.worktree/workspace-exclusive-qualification.json` record the bounded evidence.
+- The sole remaining ledger is module-deployment.md. Next are remaining single
+  Project business snapshots and membership lock/set query consumers, preserving
+  bulk joins and ordered atomic locks. The separate unretired-video deletion/
+  unlink policy remains pending; Assets auxiliary 409 does not decide it. No
+  primary runtime cutover, push, release, production or Go expansion occurs.
+
+- Source/grant/fixture/documentation checkpoint:
+  `d49f502278777d8993b5b194a920e467cebbe750`. The aggregate binds 24 files
+  to this source commit. Grant/selection units pass 20; architecture passes
+  355 with 149 inapplicable rules. Ruff, format, docs build, final diff review
+  and normal applicable commit hooks pass. Public API export inputs are unchanged;
+  generation hooks naturally skip. Both clean owned source worktrees are removed
+  after exact branch/HEAD, patch and scoped-tree equivalence checks; caches are
+  archived and branches retained. All nine owned PostgreSQL containers are absent,
+  twenty editable bindings still point to Root, and the clean primary and four
+  shared containers are preserved. No persistent Root API/Celery/Workspace provider
+  needs refresh; acceptance processes imported current source. This closes the two
+  exclusive snapshot consumers, not complete Workspace assembly or the full goal.
+
+## Task and Training Project snapshots checkpoint
+
+- Eight selected Project gets now use existing read_project_row facts with real
+  actor UUIDs. Ordinary identity hits (including partial expiry) skip SQL/flush;
+  refresh, full expiry, dirty-PK preflush and deleted-identity state preserve the
+  installed Session.get behavior. Forty real pre-change cases at a6ebe369b are
+  frozen without overwriting capture; all replay successfully after migration.
+- Training reference fences are a genuine prerequisite: the old scalar private
+  Project.id lock moves to the existing blocking owner function and one fixed
+  NOWAIT companion. No actor, role or JSON protocol is invented. Null/missing/
+  inactive actor semantics, null/missing Project and invalid Project dates preserve
+  sixteen old-source baseline cases. SQLSTATE mapping and caller transaction
+  remain; the new scalar is UUID/target checked and accepts asyncpg UUID subclasses.
+- Native/guard source c143ec3cc is integrated as a35ec81b6; getter/consumer source
+  3d210b8c8 as feb3df90b. Root owns strict driver-type correction, owner/grants,
+  verifier, actual golden/LOGIN/Node/ACL/rollback checks and documentation. No
+  new role, DSN, service, provider selector or autonomous transaction is added.
+- Effective union: 329 distinct selected cases, zero failures/errors/skips.
+  Includes 40 getter replays, 16 reference cases, 2 restricted reference LOGIN
+  cases, 2 actual Task/Training consumers, 16 focused adapter cases, 2 ACL/rollback
+  cases and 251 selected business/Node regressions. Old 56 baseline executions
+  are excluded. A first adapter batch had 3 fixture failures (missing mock actor
+  events and FK cleanup order); only those were rechecked and the remaining
+  case continued. Valid passing evidence is retained, not rerun for counts.
+- READ ONLY Task access and Training authority succeed with private User/Project/
+  Member reads denied; original backend/transaction and authority locks remain.
+  Node directly calls both reference modes and existing snapshot Native phases.
+  Caller prior writes roll back on scope corruption, ACLs remain exact, and
+  frozen artifact/0189-to-head-0291 roundtrip qualification passes in owned PG.
+- Full cold install, image, fresh migration and restore stay batched at a coherent
+  complete-Workspace milestone; source HTTP temporal comparison is not new cold
+  artifact acceptance. ADR-0169 and the local project-get aggregate retain this
+  evidence. Only module-deployment.md maintains remaining work: other/actorless
+  business snapshots, membership locks/set reads and complete module assembly.
+  Unretired-video project deletion/unlink policy is still separately pending.
+  Primary runtime, production, push/release and the Go experiment are unchanged.
+
+- Source/grant/fixture/documentation checkpoint:
+  `e37d9406f400b310c658386a24cceddf15e2241f`. The aggregate binds 25 files
+  to this source commit. Grant/selection units pass 20; architecture passes
+  355 with 149 inapplicable rules. Ruff, format, docs build, final diff review
+  and normal applicable commit hooks pass; public API generation inputs are
+  unchanged and generation hooks naturally skip. Both clean owned source
+  worktrees are removed after exact branch/HEAD, patch and scoped-tree checks;
+  caches are archived and branches retained. All seven owned PostgreSQL
+  containers are absent. Twenty editable bindings still point to Root; the
+  clean primary and four shared containers are preserved. No persistent Root
+  API/Celery/Workspace provider needs refresh; acceptance processes imported
+  current source. This closes the selected Task/Training getters and scalar
+  reference prerequisite, not complete Workspace assembly or the full goal.
+
+## Workspace transactional member locks checkpoint
+
+- Both remaining live private ProjectMember lock reads now use Workspace Native:
+  scalar SHARE NOWAIT/wait reference fences and one sorted blocking full-row set
+  for Batch assignment. Account/Project order, complete nine-column cache merge,
+  current role/account policy and the caller transaction remain unchanged.
+- The real pre-change 025b801e6 consumer baseline freezes 22 cases. Its twelve
+  cache/autoflush cases and ten scalar null/missing/invalid-time cases replay;
+  capture refuses overwrites. The old executions are excluded from new counts.
+- Source-only worker 3f207bcc1 integrates as 6d5f149db. Review caught Identity's
+  earlier autoflush: the unlocked expired-dirty primer now runs before account
+  locks, then the original flush and sorted SHARE set. Root's trace fence rejects
+  private member SELECTs. The stale top-level schema signature is corrected and
+  the actual function inventory/ACL check reads both artifact declarations.
+- Effective union: 224 distinct selected cases, zero effective failures/errors/
+  skips. Includes 38 member-lock cases, 19 Identity adapter cases and 167 actual
+  assignment/final-write consumers. A first critical batch had three timestamp
+  seed failures because asyncpg expected datetime values; an explicit text cast
+  fixes the fixture. Only failed/changed cases were rechecked and unrun cases
+  continued; valid passing results and original failures/JUnit/exits are retained.
+- Restricted API and direct Node, waiting sorted sets, two scalar modes, strict
+  malformed reply rollback, exact owner/application grants, cache/history and
+  temporal parity pass. Three unused task membership helpers and their stale
+  Markdown symbol reference are removed/updated. Seven export-cache AsyncMock
+  warnings remain in the original consumer log; they are not effective failures.
+- Frozen Native install/rollback and the owned 0189-to-head-0292 roundtrip pass.
+  Cold install, images, fresh migration and backup/restore remain batched for
+  complete Workspace assembly. Only module-deployment.md maintains remaining
+  work: other business/actorless snapshots, member set filters/projections and
+  coherent module assembly. Unretired-video deletion/unlink policy is pending.
+  No primary cutover, push, release, production or Go expansion occurs.
+
+- Source/grant/fixture/documentation checkpoint:
+  `97d99a63e536353c9fbca8fb89ba9fc774f99349`. The aggregate binds 22 changed
+  files to this source commit. Grant/selection units pass 20; architecture passes
+  355 with 149 inapplicable rules. Ruff, format, explicit OpenAPI consistency,
+  docs build, final diff and normal applicable hooks pass. OpenAPI and tracked
+  documentation generation hooks run successfully without export changes.
+  The owned source worktree is removed after exact branch/HEAD, patch and scoped
+  tree equivalence checks; its Ruff cache is archived and branch retained.
+  All four owned PostgreSQL containers are absent. Twenty editable bindings
+  still point to Root; the clean primary and four shared containers are preserved.
+  No persistent Root API/Celery/Workspace provider needs refresh. This closes the
+  two selected live member-lock consumers, not member set queries, complete
+  Workspace assembly, primary cutover or the full goal.
+
+## Workspace ordinary business Project snapshots checkpoint
+
+- Actor-free read_project_row(uuid) reuses the frozen 43-column serializer and
+  typed Labeling counters. The existing getter keeps shared cache, autoflush and
+  deleted-state behavior; actor-aware fact phases remain. NULL targets use the
+  STRICT scalar after original autoflush, regardless of actor presence.
+- Complete AST inventory at f0bbbb4: 88 production Project gets plus three test
+  seeds. Two are Labeling counter writers. All 86 ordinary read-only gets across
+  52 files migrate; all 10 explicit refreshes, session expressions, targets and
+  scopes match the baseline AST. Only the two writers and three seeds remain raw
+  gets. Set/scalar queries and Batch's sorted exclusive lock remain separate.
+- Native source bb4ea14aa integrates as 9fd3ca46d; API source 6eb4a21e6 (26 calls)
+  as ddf6c2c73; service/application/worker source d214d4868 (60 calls) as 808573d58.
+  Root owns grants, verifier, nullable-target correction, replay/LOGIN/Node/
+  rollback/actual relay checks, fixture alignment and documentation. No new
+  service, credential, selector, serializer or autonomous transaction is added.
+- Effective union: 957 distinct selected cases, zero effective failures/errors/
+  skips. Includes 80 replays of 40 pre-change ORM scenarios through two bindings,
+  explicit NULL/actor/autoflush parity and 785 selected consumer cases. Existing
+  golden data is reused, never recaptured. Earlier passing evidence is retained.
+- First adapter failure was a mock patched at the wrong lookup site. Three broad
+  consumer failures were fixtures: post-registration file_size invalidates image
+  dimensions, and an unload stub lacked expected_topology. Minimal failed/changed
+  cases pass after stable source seeding and matching the real signature. One
+  remaining old pool-generation assertion expected 2 instead of 3; AST proves
+  create/singleton/enable bodies unchanged and the frozen routing trigger hash
+  matches f0. Pool activation and project association each advance the existing
+  fence. The exact assertion is corrected; no policy or trigger is relaxed.
+- The full 56-file collection contains 785 cases. 714 first ran; the 71 unrun cases
+  continue by exact node ID after the fixture repro. Only failed/changed cases
+  are repeated. Original JUnit/logs/real exits and AsyncMock fixture warnings are
+  retained in .worktree/workspace-project-read-qualification.json.
+- Frozen Native install/rollback and the owned 0189-to-head-0293 roundtrip pass.
+  Full cold install/images/fresh migration/backup-restore remain batched for
+  coherent Workspace assembly. Only module-deployment.md maintains the remaining
+  ledger: Project/member set and scalar reads, sorted reference locks, Labeling
+  counter-write prerequisites, unlink binding and unretired-video delete policy.
+  No primary cutover, push, release, production or Go expansion occurs.
+
+- Source/grant/fixture/documentation checkpoint:
+  `9f47a64123a9e376a2ae2ed479eb310bbd5b600d`. The aggregate binds 77 changed
+  files to this source commit. Grant/selection units pass 20; architecture passes
+  355 with 149 inapplicable rules. Ruff, format, explicit OpenAPI consistency,
+  docs build, final diff and normal applicable commit hooks pass. Documentation
+  prebuild regenerates route index/hotkeys/settings with unchanged tracked output;
+  public generator commit hooks naturally skip at Root because the API lane was
+  already integrated. Three owned source worktrees are removed after exact clean
+  branch/HEAD, patch and scoped-tree equivalence checks; caches are archived and
+  branches retained. All six owned PostgreSQL containers are absent. Twenty
+  editable bindings still point to Root; the clean primary and four shared
+  containers are preserved. No persistent Root API/Celery/Workspace provider
+  needs refresh. This closes the ordinary read-only Project getter operation,
+  not set/scalar reads, counter writes, complete Workspace assembly or the goal.
+
+## Workspace Project set locks and Labeling counters checkpoint
+
+- Workspace now owns the one-statement sorted Project FOR UPDATE NOWAIT set.
+  Batch decisions retain actor/project/member/batch/task order, authority checks,
+  missing-project behavior, SQLSTATE mapping and caller rollback.
+- Labeling owns changed-column counter projection writes. Two live consumers keep
+  their Task/Batch aggregates, assignments and original autoflush/flush boundaries.
+  A scoped Project mapper bridge writes through the mapper connection inside the
+  same UoW, preserves explicit/implicit updated_at, stale cache and no-op masks,
+  and leaves unrelated ORM histories alone. No global flush hook, service, DSN or
+  transaction coordinator is introduced. Mixed unrelated metadata may still use
+  an ordinary ORM UPDATE; this is not a generic ORM persistence replacement.
+- Source workers: 41f45df326250f0384cbc5af8955e10d0dc4921e and
+  1e3091dbedf7ead350a7e794357f2014f271086e, based on 9e37fe5b. Root integrates
+  both, owns grants, 32 old baselines, consumer/Native/Node acceptance and docs.
+- Effective union: 244 selected cases, 243 passed, zero failures/errors and one
+  pre-existing inapplicable permission edge skipped (its positive case passes):
+  32 frozen ORM replays, 23 restricted Native cases, 15 adapter checks and
+  173 passed actual consumer cases. Original baseline execution is not counted again.
+  Unordered legacy batch iteration is normalized only across durable + pending
+  projections and pending count; the original golden is retained unchanged.
+- Actual implementation defects fixed from minimal reproductions: abandoned
+  Session.close retained opt-in IDs, and the local legacy runtime grant omitted
+  both new functions. Remaining failures were fixtures: catalog char bytes,
+  wrong decision-call argument order, unchanged deleted target, textual JSON wire
+  field expectation, and an unbound colon in a SQLAlchemy text JSON literal.
+  Original failures and real exits remain; only failed/changed cases rerun, and
+  the exact 199 unrun cases continue after the first stopped core batch.
+- The shared physical PostgreSQL owner boundary is locally qualified for these
+  operations. Complete Workspace credentials/cold artifacts/restore remain a
+  coherent later gate. No primary API/Celery runtime uses this source checkout.
+- Read-only inventory identifies actor-visible Project scope queries as the next
+  bounded delivery. Reuse the existing project_search_scope relation within the
+  original caller SQL, preserving active Identity profile, valid role/viewer
+  pairing, owner branches, unrestricted super-admin and pre-pagination filtering.
+  Other sets, arbitrary notification recipient pairs, directory/performance,
+  correlated membership checks and actorless enumeration stay in the one ledger.
+- Aggregate: .worktree/project-owner-persistence-qualification.json; ADR-0172.
+  No push, release, production/cutover or Go expansion is authorized or performed.
+
+- Integrated implementation and documentation commit:
+  `584d3d543f4ec5fb7864262ed783aa2074ac6ad4`. The aggregate binds all 27 changed
+  files to this source. Architecture passes 355 with 149 inapplicable rules;
+  grant/selection units pass 20. Ruff/format, OpenAPI consistency, docs build,
+  diff and normal applicable source hooks pass. The first unit launcher lacked
+  the scripts PYTHONPATH; its original failure and corrected 20-case run remain.
+- Preservation is reverified: all 10 owned PostgreSQL containers are absent,
+  verifier local resources are destroyed, 20 editable AAP bindings and shared
+  symlinks are unchanged, and the clean primary plus four shared containers stay
+  intact. Root has no persistent API/Celery/provider process to refresh. The two
+  clean committed source worktrees are retained for review; they have no runtime.
+  Final remaining work stays solely in module-deployment.md. The active overall
+  goal is not complete; next is the actor-visible Project scope query slice.
+
+## Workspace actor scope and list reads checkpoint
+
+- Reuse the existing Project search relation for owner/candidate metadata and
+  publish actor_project_memberships(uuid) for raw Project ID/role facts. The old
+  helper needs only actor ID, including an existing ID-only caller; introducing
+  a role requirement or fake role would change its contract. The strict NULL
+  actor yields zero rows; no time fields, locks or transaction ownership exist.
+- Membership retains Identity active/known roles/viewer pairing plus requested
+  role filtering in the same caller SQL. Owner and super-admin branches retain
+  their original snapshot/None semantics. Async-job existence is final-result
+  equivalent together with its membership/owner/export predicates, not alone.
+- Reviewer/annotator dashboards, aggregate helpers, async-job lists and actor
+  notification reads migrate. Claims, collaborative video, owner overrides,
+  actual-resource-over-payload scope, retained/global/deleted jobs, count/page
+  and statement ordering remain. Arbitrary notification recipient pairs stay
+  unchanged. The sole remaining-work ledger remains module-deployment.md.
+- Source commits: 9bfeff3669be29a3ceceb72539ec53201d535fa1,
+  2ae41177a05176161eeaa987945fe64c32bb4a00,
+  e531cd3255d7e91af37f3f18e2ff2b1139ec4b7f and
+  fc7964008bc132b3923db6f881eadb20cd19ccb0. All workers used isolated worktrees
+  based on a6ddf032 and ran source-only static checks. Root owns integration,
+  owner/app/runtime grants, verifier, fixtures, Native/HTTP/Node checks and docs.
+- Root freezes 126 old scenarios with autoflush on/off; both owner and API
+  bindings replay against the same unchanged values. Implementation defects
+  caught and fixed: missing application search-function EXECUTE, new unwanted
+  role dependency, and standalone Core Select losing ORM autoflush. Narrow ORM
+  column aliases restore flush behavior without loading full member/date rows.
+- Read factories move into a provider-independent client module, preserving all
+  three function AST bodies and the old query-data import path. A subprocess
+  denies aap_workspace provider imports while exercising the client factories.
+  No new service, DSN, selector, broad private-table grant or global hook exists.
+- The initial restricted HTTP harness used embedded authentication/profile
+  commands under the API role and returned 503. Existing AUTH and Briefs owner
+  credentials resolve the harness; the API keeps private User/Project/Member
+  SELECT denied. Read-only/same-transaction/unlocked reads, committed membership
+  revocation, Node and actual HTTP flows are covered. Original failed receipts
+  remain, and only failed/changed/binding cases are repeated.
+- Effective union: 415 distinct passing cases, zero failures/errors/skips;
+  exact category/overlap and execution ordering are in
+  .worktree/workspace-actor-scope-qualification.json. Legacy capture executions
+  are not added to this union. New ORM alias behavior justifies the later
+  two-binding replay; AST-only client-factory movement does not repeat it.
+- Whole Workspace credentials, cold artifacts, restore and capacity remain
+  batched. Source integration does not cut over the primary runtime. Go remains
+  experimental; no push, release or production action occurs. ADR-0173 records
+  the precise boundary and the sole ledger identifies the next coherent scope.
+
+- Integrated implementation/documentation commit:
+  `f4532f6c4afce406f240755e9b698ba5775e659b`. The aggregate binds 27 changed
+  files to this source. Architecture passes 355 with 149 inapplicable rules;
+  grant/selection units pass 20. Ruff/format, explicit OpenAPI check, docs build,
+  diff and all applicable normal commit hooks pass. OpenAPI and tracked-doc
+  generators run in the source commit and leave tracked outputs unchanged.
+- Preservation reverified: 13 owned PostgreSQL containers are absent and owned
+  local resources are destroyed; 20 editable AAP bindings, the clean primary,
+  shared symlinks and four shared containers remain unchanged. Root has no
+  persistent API/Celery/provider runtime. Six clean task-owned source worktrees
+  (including the preceding counter/set-lock pair) are removed after archiving
+  ignored caches and verifying an incremental Git bundle; all branches remain.
+  Root's corrective deltas are documented and original source commits remain
+  restorable. This is operation-level local qualification; the full goal remains
+  active and the next coherent scope is nonlocking membership set/projection
+  facts, with all remaining items kept solely in module-deployment.md.
+
+### Workspace nonlocking membership facts qualification
+
+- Root starts at f109006597df34af5af632439d91698e76e6b5f0. Three isolated,
+  source-only workers provide 14dfdca412435d59fe72bc107abee2e826114063,
+  367a3f9d53affc073dd7c61a80955eb30e4cae7f and
+  cc0b761e131def314e29a32ecd4f7da21a80b4fc. Root integrates their disjoint
+  changes and owns grants, schema regeneration, tests and documentation.
+- Revision 0297 adds a Workspace-owned security-barrier view with the nine
+  native ProjectMember columns, no joins, filters, ordering, casts or locks.
+  The portable row reuses ProjectMemberRow/PROJECT_MEMBER_COLUMNS; client
+  construction remains independent of the Workspace provider runtime.
+- All remaining application nonlocking ProjectMember reads use ORM aliases.
+  Caller-specific policies, full entity cache/dirty/expired/autoflush semantics,
+  partial date decoding, four notification statement snapshots and correlated
+  Task UPDATE membership checks remain. No service, connection or commit point
+  is added. Existing actor-only and locking capabilities remain unchanged.
+- Root captures 30 cases against the old source, then replays unchanged golden
+  values. Two new harness defects (missing generated schema titles and an
+  incorrect positional getter argument) are fixed; the three failed cases
+  pass a minimal rerun before the exact unrun continuation. Original failure,
+  JUnit, logs and real exit receipts are retained, not counted as new passes.
+- Effective union is 130 distinct passing cases with no failures/errors/skips:
+  30 legacy replays, 12 Native/restricted HTTP/Node cases, 16 SQL/client checks
+  and 72 actual consumer cases. Evidence is bound by
+  .worktree/workspace-member-facts-qualification.json and ADR-0174.
+- The API fixture loses private membership SELECT. Operations still containing
+  independent Project SQL retain Project SELECT. The broad default application
+  credential is an explicit compatibility boundary, not a least-privilege
+  production claim. Full Workspace credential/cold image/restore/capacity
+  qualification remains batched. No primary cutover, push, release, production
+  deployment or Go expansion is authorized or performed. Remaining operations
+  stay only in docs-site/dev/concepts/module-deployment.md.
+
+- Focused final checks pass: 20 grant/selection units, Ruff/format, explicit
+  OpenAPI snapshot check, docs build and diff. Architecture initially found the
+  comment service's missing read-client dependency declaration. The narrow
+  declaration and a SQLAlchemy-only/no-app dependency rule for the client are
+  added; only the failed rule and new cases run next. The effective architecture
+  union is 358 passes with 150 explicitly inapplicable rules, with the original
+  failed report retained. Business acceptance is not repeated for this static
+  dependency declaration or formatting-only changes.
+
+- Integrated source/documentation commit:
+  `dfb2d1a2b8b150bc984424358fcbbf0cd98114f3`. All 31 changed files match the
+  aggregate's source manifest. Normal commit hooks pass, including actual
+  OpenAPI and tracked-doc regeneration; tracked generated outputs are unchanged.
+- Preservation reverified: all five owned PostgreSQL containers are absent,
+  owned test resources are destroyed with no cleanup errors, all 20 editable
+  AAP bindings and shared symlinks match the previous milestone, and the clean
+  primary HEAD plus four shared running containers are unchanged. Root has no
+  persistent API/Celery/provider process. Exactly three clean source worktrees
+  are removed after semantic integration checks, verified cache archives and
+  an incremental Git bundle; original branch refs remain. JSON schema field
+  titles are Root's documented source correction. The Docker absence checker
+  is corrected to match the lowercase error plus exit code and empty JSON;
+  the five containers were already absent. No deployment state is changed.
+
+### Workspace Project set and projection facts qualification
+
+- Root starts at 22fba052f23a83d7c7acdd10ae8c044e8a20d825. Source-only workers
+  provide 2e8cc321834854f130200a323a6f30f4948f64fb,
+  a4ee4de5acc97f47fe19fccc3aa9c001497373f7,
+  e9374c685cd237540be943a0a3efa47b6cb8396e,
+  7b04699556d01e751752fe1ca1b8de36cd28d80f and
+  c4f4a97e2e31816d6da273f9c2b02fdaabbc92f5 in three isolated worktrees.
+  Root owns integration, grants, exact types, regression capture and acceptance.
+- Revision 0298 adds only a native 38-column Workspace Project view. A source
+  and actual-database audit proves all five Labeling counter columns NOT NULL,
+  so Root removes the proposed duplicate raw counter view and reuses existing
+  project_catalog_counters; COALESCE is inert under the supported constraints.
+  Complete ORM rows join the two owner relations in the same statement and
+  canonical 43-column order; partial reads avoid counter joins and full JSON
+  or date decoding. A new Project DTO is unnecessary and is not introduced.
+- All remaining application readonly Project set/scalar/join/owner-scope reads
+  migrate. Permission predicates, outer joins, correlations, ordering/pages,
+  cache/dirty/expired/deferred state and the single streamed labeling query
+  remain. Three lifecycle/review Project counter UPDATE methods remain DML and
+  are the next independent work, not included in this read closure.
+- Forty baseline cases are captured before integration. Independent audit finds
+  an untested super-admin Core-only COUNT losing ORM autoflush. Two additional
+  cases execute exact immutable base function AST without route decorators;
+  the candidate returns total=1 with two page rows. An ORM alias at the original
+  count statement restores flush, and its smallest failed case passes before
+  the final replay. Golden values are never overwritten or counted twice.
+- Root corrects empty-defs preflight metadata, Native mirror descriptions and
+  two threshold types (actual PostgreSQL real), parameterizes a JSON fixture,
+  extends provider rejection to the Labeling relation and changes a Node view
+  ACL probe to an updatable key column. All original failure logs, command
+  exits and JUnit (when tests started) are retained; minimal repros precede the
+  remaining unrun or implementation-changed acceptance.
+- Effective business union: 125 distinct passes, zero effective failures/errors/
+  skips: 42 old-behavior replays, 15 Native/real HTTP/Node cases, four related
+  contracts/client checks and 64 existing consumers. Mocked export notification
+  cases emit existing AsyncMock RuntimeWarnings; warning-path production ASTs
+  match the base, actual restricted notification checks pass and logs remain.
+- No new DSN, service, connection or commit point exists. Full Project reads
+  add one in-database primary-key join. Actual API LOGIN loses User/Project/
+  Member private SELECT; the default broad compatibility application role is
+  explicitly deferred. Full Workspace credentials/cold artifacts/restore/
+  capacity are still batched. No primary cutover, push, release, production
+  deployment or Go expansion occurs. ADR-0175 and the sole module ledger keep
+  source integration, operation-level qualification and full-module status
+  separate. Aggregate: .worktree/workspace-project-facts-qualification.json.
+
+- Focused final checks pass: 358 applicable architecture cases (150 explicitly
+  inapplicable rules), 20 grant/selection units, pinned Ruff/format, explicit
+  OpenAPI snapshot check, docs build and diff. No business test rerun follows
+  formatting or receipt-only documentation changes.
+
+- Integrated source/documentation commit:
+  `23c15e6973890b6fa29aa80e615deaa8a8d68955`. All 37 files match the aggregate's
+  source manifest. Normal hooks pass, including actual OpenAPI and tracked-doc
+  regeneration, with tracked generated outputs unchanged.
+- Preservation reverified: all 12 owned PostgreSQL containers are absent and
+  owned test resources destroyed; the preflight-only failure created no
+  backend. All 20 editable AAP bindings, shared symlinks, clean protected
+  primary HEAD and four running shared containers match the prior milestone.
+  Root has no persistent API/Celery/provider process. Exactly three clean
+  source worktrees are removed after verified cache archives and an incremental
+  Git bundle; original branch refs remain. Every Root correction is retained
+  as a reviewable patch alongside equivalent-source checks. This remains
+  operation-level local qualification, with the full goal active.
+
+### Labeling lifecycle and review counter delta qualification
+
+- Root starts at af9c604f015f98f22020661c4df5f8d7c561fdd3. Isolated source
+  workers provide 68ddbeef1a2de6adcf6f6de0a15ff7c561388518,
+  ff672d26cdb5c9bd619c68338917681b9504777b and
+  03a172dfc009802c9ddb96e0c180f5c88f018ad3. Root owns frozen behavior capture,
+  integration, grants, final Native/Node tests, corrections and all runtime work.
+- Revision 0299 adds three fixed Labeling-owned SQL UPDATE functions for review
+  decrement, completed decrement and approval. No generic dispatcher, new DSN,
+  service, table privilege or commit point is introduced. Normal UPDATE waiting,
+  int32 behavior and transaction-time updated_at match the old ORM operations.
+  ORM from_statement preserves autoflush; only the original returned counters
+  are synchronized to the existing mapper cache.
+- All 69 old non-NULL cases replay after integration. A separate immutable-base
+  method AST comparison finds STRICT skipping the write for NULL IDs in READ
+  ONLY transactions. CALLED ON NULL INPUT restores the original 25006 attempt,
+  scalar NULL and approval zero-row behavior. Its three-case minimal replay
+  passes; non-NULL SQL bodies are unchanged, so the 69-case replay is reused.
+- Restricted API LOGIN has no private Project SELECT or UPDATE. Thirty Native
+  cases cover exact ACL/owner, function metadata, NULL/missing/read-only, cache,
+  autoflush, timestamp, same transaction, overflow rollback and four explicit
+  concurrent wait schedules. A direct Node pg client exercises all three
+  operations without a Python provider and rolls back its original transaction.
+- Four actual HTTP flows preserve Task/counter/Audit outcomes with real Identity
+  AUTH/Briefs bindings. Fixture corrections use actual review routes, assign an
+  unbatched reviewer after submission clears it, and bind middleware audit to
+  the function-scoped test connection. An existing counted-auth wrapper also
+  forwards its now-required Identity gateway dependency. Business auth is not
+  mocked or changed. Original failed logs/JUnit/exits remain; smallest repros
+  pass before remaining acceptance. Immutable Audit fixtures leave with the
+  owned disposable database.
+- Effective union: 139 distinct passes, no effective failures/errors/skips:
+  69 legacy replays, 30 Native/Node, four real HTTP and 36 existing consumers,
+  including authority/evidence/QC and actual concurrent task approval. Capture
+  and repeated cases are not added. Full migration roundtrip passes on owned
+  resources. Aggregate: .worktree/labeling-counter-deltas-qualification.json.
+- This closes only these lifecycle/review counter operations. Full-module
+  credentials/cold artifacts/restore/capacity remain batched. ADR-0176 and the
+  sole module ledger track the next portable dataset-unlink binding and pending
+  video-deletion policy separately. No primary cutover, push, release, production
+  deployment or expansion of the Go experiment occurs.
+
+- Final focused checks pass: 358 applicable architecture cases (150 rules are
+  explicitly inapplicable), 20 grant/selection units, pinned Ruff/format, Node
+  syntax, explicit OpenAPI, docs build and diff. Docs retain existing syntax
+  fallback and large-chunk warnings. No business replay follows formatting.
+
+- Integrated source/documentation commit: `1a7219007afe8923a0f880fa50a69510ac134756`. All 22 source files
+  match the aggregate manifest; normal commit hooks pass. API snapshot hooks
+  are inapplicable to these paths; the explicit OpenAPI check passed separately.
+- Final preservation verifies the clean protected primary, four shared running
+  containers, all 20 editable bindings and shared symlink targets. Nine owned
+  PostgreSQL containers are absent; each new verifier resource cleanup passes.
+  Exactly two clean source worktrees are removed after verified incremental
+  bundle/cache archives, retaining branch refs and reviewable Root corrections.
+- The broader final runtime inventory finds two media probes from the October19
+  retry-media acceptance (PIDs94541/94573), missed by prior narrower inventories.
+  Exact command/cwd/start-time/deleted-fixture-log and original receipt prove
+  ownership. Both exit on SIGTERM; no shared service is stopped. Original failed
+  evidence is unchanged, with supplemental cleanup and inventory receipts.
+  Root now has no persistent backend runtime process. Aggregate and preservation
+  remain .worktree/labeling-counter-deltas-qualification.json and
+  .worktree/labeling-counter-deltas-preservation.json. The full goal stays active.
+
+### Workspace caller-transaction Dataset unlink qualification
+
+- Root starts at 17992f64cd97bdd1af322066d5d41c0bdae9ec99. Isolated source-only
+  workers provide c19bf038c9759ef9249e410f91e2c57ed54f8d93 and
+  5ff17ef52ad9ffc6f8730e9124fde5651c3fa93c. Root owns integration, strict role
+  grants, offline lock update, generated descriptor, Native/HTTP/Node tests and
+  all runtime execution. The pre-integration23-case baseline passes.
+- Existing unlink/preview values move unchanged to Workspace with a portable
+  manager and borrowed asyncpg data binding. API compatibility imports and
+  public adapter methods preserve exact SQL/parameters, explicit unlink flush,
+  preview without explicit flush, cache invalidation and caller commit. Frozen
+  Native0205, migrations and existing authorization/replay rules are unchanged.
+- New workspace_dataset_unlink_client has only the two existing functions, no
+  private table/column, sequence, DDL or TEMP capabilities. The existing verifier
+  guards the exact role/capability set before execution; excess privilege also
+  refuses mutation. Both functions retain their original VOLATILE authority
+  locks, including preview; READ ONLY transactions are rejected. No new service,
+  application DSN, generic dispatcher or independent commit is introduced.
+- Reusing Assets CleanupBucket requires only declaring that existing lightweight
+  core dependency. Offline API lock changes two dependency entries; no install
+  or editable-binding change occurs. Root generates the portable descriptor.
+- The first JSON-roundtrip decoder rejects Python UUID/tuple values previously
+  accepted by the model/old reply function. Two minimal failures execute the
+  immutable base reply AST before the candidate. Root mirrors the established
+  project-deletion codec: strict JSON parsing applies only to bytes/strings;
+  mappings use original model validation. The smallest corrected four cases
+  pass, then all34 package cases replay after that implementation change.
+  Frozen schemas/defaults remain exact. Original logs/JUnit/exits are retained.
+- Native fixture corrections use ORM Sessions for reused graph assertions,
+  compare deterministic UUID identities, ignore display-only preview schema
+  titles, and expect the existing FunctionRoleUnavailable exception. The
+  one-case preview/count/authority-lock fix passes before remaining acceptance.
+- Effective union:72 distinct passes, zero effective failures/errors/skips:
+  34 package contract/manager/connection,23 existing binding/coordinator/HTTP
+  replays,15 restricted Native/Node/actual-HTTP cases. Tests cover no private
+  Project access, same transaction, outer rollback, failed deferred commit,
+  retained evidence, audit-lock rollback/recovery, bad-reply rollback, fresh
+  connection replay preserving a new association, and Node audit IDs >2\*\*53.
+  The baseline/repeated cases are not added. Owned frozen SQL/upgrade/downgrade
+  qualification passes at unchanged head0299. Aggregate:
+  .worktree/workspace-dataset-unlink-qualification.json.
+- ADR-0177 and the single module ledger close this calling boundary only.
+  Unretired-video deletion safety remains unresolved; it is not bypassed by
+  this migration. Whole Workspace credentials/artifacts/restore/capacity remain
+  coherent milestones. No primary cutover, push, release, production deployment
+  or expansion of Go occurs. Read-only source audit reports no concrete
+  regressions; it is not counted as runtime evidence.
+
+- User confirms the pending video policy: both project deletion and Dataset
+  unlink must return409 while a selected task has unretired video execution;
+  callers must cancel and finish retirement before retry. This policy is now
+  decided but the guards are not yet implemented. That safety fix is the next
+  bounded deliverable before complete Workspace assembly qualification.
+
+- Final focused checks pass:358 applicable architecture cases,150 explicitly
+  inapplicable rules,20 grant/selection units, pinned Ruff/format, Node syntax,
+  explicit OpenAPI, docs build and diff. Existing docs syntax fallback and
+  large-chunk warnings remain. No business tests rerun after formatting.
+
+- Integrated source/documentation commit: `921df0cae16854199f07676b54729efc9da8f5f7`. All24 files match the
+  aggregate manifest; normal hooks pass, including actual OpenAPI regeneration
+  with unchanged snapshot. Evidence is local operation-level qualification.
+- Preservation verifies all20 editable bindings, shared symlinks, clean protected
+  primary and four running shared containers. All four owned PostgreSQL test
+  containers are absent and each verifier cleanup succeeds. Root has no
+  persistent backend runtime process. Two clean source worktrees are removed
+  after verified incremental bundle/cache archives; branch refs and Root
+  correction patches remain. The full goal stays active. Next deliverable is
+  the user-confirmed unretired-video409 safety fence for deletion and unlink.
+
+### Video execution retirement fences for destructive Workspace operations
+
+- Root starts at e1c744dd1cc4cab8c66806a98e8158a77227559c. User explicitly
+  chooses409 until cancellation and retirement for both Project delete and
+  Dataset unlink. Source-only isolated commits:48fc6c23ef67663d2d1f5aa18e1cac119abf1f85,
+  a5d673edde390599a0ab58de3f8d82c49263e7c5,
+  4e4a33b00a8500e3ce6d8e4be7ff598837e34957 and
+  c1ddac8fbd81cbb86db8ade54b30b8b943106cef. Root owns source integration,
+  grants/verifier, all actual imports/runtime, regression reproduction, expanded
+  acceptance and final corrections. Read-only design/source review is separate
+  from runtime evidence.
+- Original real PostgreSQL repro: both old coordinators return success and
+  cascade Task/canonical Job while a cancelled execution remains bound and its
+  journal has execution_retired=false. Two failing logs/JUnit/real exits remain.
+  Revision0300 adds three fixed Labeling/Jobs guards; static comparison proves
+  existing coordinator code is retained with only declaration/guard insertions.
+  Frozen SQL, original authority/retention priority, receipts and caller commit
+  remain. Scope locks cover exact Task/Annotation deletion and source sidecars;
+  retained input scopes/current-run journals locate earlier orphan executions.
+- Current and historical runner source confirms terminal commits precede route
+  cleanup/retirement. Every started legacy/no-ledger Job blocks regardless of
+  completed/failed/cancelled/review status; unknown scope-only orphans also
+  block. Existing current-run retired proof plus terminal/missing canonical Job
+  allows deletion even with a live lease. Missing/mismatched journal never does.
+- Strict unknown-orphan blocking initially poisons later deletion after a valid
+  never-started Job unlink. Two additional failing lifecycle cases demonstrate
+  this. Jobs now stores a private no-FK never-started clearance only after the
+  entire group passes, under held locks, in the caller transaction. It never
+  replaces an execution journal. Rejected groups write nothing; rollback and
+  failed operations retain no partial proof. Downgrade refuses nonempty proof
+  tables with55000 before any changes. No synthetic execution retirement exists.
+- Root grants Jobs only additional started_at SELECT and private table ownership;
+  fixed execute chain is Workspace->Labeling->Jobs. App and independent command
+  accounts gain no private/helper access. API maps the stable code to the same
+  409 object for both operations. No service, DSN, auto-cancel/delete dispatcher,
+  storage IO, new worker payload or publication authority is introduced.
+- Effective union:226 distinct passes, zero effective failures/errors/skips:
+  98 Native/concurrency/independent-client,8 actual HTTP,2 mapping and118 existing
+  consumers, including40 pipeline-validation cases. Replays/initial failures are
+  not added. Tests include current and legacy status matrices, pre-journal and
+  wrong-run cases, unrelated scope, annotation/sidecar edges, old orphan scopes,
+  current claim/FK admission races, contention, native retire with live lease,
+  proof rollback/precedence, downgrade evidence retention, real HTTP cancel ->
+  still409 -> native retirement -> success, function-only Python and Node failure
+  envelopes, and Node COMMIT leaving no partial graph/audit/outbox changes.
+  Head0300 owned migration/frozen-install/downgrade roundtrip passes before data;
+  used-proof downgrade refusal is exercised through the actual revision method.
+- Root corrects the test-only cancellation/retirement fixture to use no bound
+  physical route for successful no-scope retirement, then expands it to call the
+  real cancel endpoint; unretired bound routes remain negative cases. Existing
+  consumer tests pass unchanged. Aggregate:
+  .worktree/video-deletion-retirement-qualification.json.
+- ADR-0178 and the sole module ledger close the deletion gate only. Started legacy
+  jobs without durable execution evidence and old unknown orphans still require
+  an explicit reliable drain/repair path; that is the next recovery deliverable.
+  Full Workspace/Jobs credentials/cold artifacts/restore/capacity remain batched.
+  Primary runtime is not cut over; no push/release/production/Go expansion occurs.
+
+- Final focused checks pass:358 applicable architecture cases and150 explicitly
+  inapplicable rules,20 grant/selection units, pinned Ruff/format, Node syntax,
+  explicit unchanged OpenAPI snapshot, documentation build and diff checks.
+  Existing syntax-highlighter fallback and large-chunk warnings remain. No
+  business cases are rerun after formatting and documentation-only changes.
+
+- Integrated source/documentation commit:
+  `b897a9a3766b4056ee6f831b6c8f850dbdbc705d`. All24 files match the
+  recorded SHA256 manifest after normal commit hooks. Explicit OpenAPI checking
+  passes with the unchanged snapshot; no hook skips were overridden.
+- Preservation verifies all20 editable bindings, protected primary HEAD/clean
+  status, both shared symlinks and four running shared containers unchanged.
+  All six owned PostgreSQL test containers are absent; every verifier cleanup
+  succeeds. No persistent Root backend process remains. Three clean source
+  worktrees are removed only after verified incremental bundle/cache archives
+  and integration comparisons; original branch refs and Root correction patches
+  remain. The aggregate records hashes of original failure and passing receipts:
+  .worktree/video-deletion-retirement-qualification.json. Preservation and worker
+  cleanup receipts use the same prefix.
+- This closes the chosen deletion/retirement gate, not historical no-proof
+  recovery or complete Workspace deployment. The active goal remains unchanged.
+  Next bounded deliverable is a reliable legacy drain/repair evidence path;
+  unrelated independent module assembly may proceed where prerequisites allow.
+
+### Workspace ordinary-consumer credential closure
+
+- Previous goal turn is concrete progress: retirement deletion gate source
+  b897a9a3766b4056ee6f831b6c8f850dbdbc705d and evidence
+  64c8c22b804859c1d76e5b3f56b814c1a85653e4. Root starts this slice clean.
+- Source-only legacy recovery audit distinguishes current proof-bound recovery,
+  old durable tracker scopes without a complete per-job coordinator/worker fence,
+  and earlier/off/observe requests without a durable physical identity. Existing
+  global restore requires externally fenced source actors/credentials and actual
+  original backend retirement responses; its fence hash is a reference, not a
+  Native machine verification. No status flip, absent-row inference, synthetic
+  journal or operator assertion is accepted as retirement. Old no-proof records
+  remain409. Receipt: .worktree/legacy-video-retirement-feasibility.json. This
+  analysis is not runtime qualification. Independent Workspace assembly continues.
+- Read-only source audit inventories32 ordinary Workspace calls, two Workspace
+  facts views and the separate Labeling counter relation. Production raw
+  Project/ProjectMember/ProjectTemplate access is absent from ordinary consumers;
+  explicit seed/screenshot operators remain separate. Root adds an opt-in
+  consumer ACL profile on the existing LOGIN/transaction, with no new service,
+  DSN or runtime variable. It removes private tables/column ACLs, receipts,
+  sequences, helpers, schema CREATE and future public relation broad defaults.
+  Fixed function ownership/security and view layouts are checked. Effective
+  PUBLIC/ownership leaks reject the whole transaction. Existing migration-owner
+  inheritance of a runtime role is permitted; the runtime cannot inherit others.
+- Minimal1-case verification first fails on a test-only nonexistent helper name;
+  corrected fixture then exposes an actual SQL evaluation issue: planner calls
+  has_sequence_privilege for an index despite a relkind AND filter. CASE guards
+  the function's argument. The minimal corrected case passes before expansion.
+- Expanded11 cases yield10 passes and a Node fixture dependency-resolution
+  failure. Root uses the existing conformance package's pg dependency rather
+  than installing one; the one Node case then passes. Existing deployment grants
+  also omit embedded configuration/template/directory and member search. A
+  new minimal case actually fails42501 before the grant change. Root adds three
+  schema USAGE grants, six policy/step functions and the member-search TVF; the
+  one failure replays successfully. Original logs/JUnit/real exits remain.
+- Effective union:13 distinct passes, zero effective failures/errors/skips:
+  11 Native/profile/transaction/worker/legacy,1 real HTTP lifecycle/search,1 Node.
+  The closed profile always revokes and regrants the same fixed32 functions, so
+  adding those already-allowed7 legacy grants does not invalidate its passing
+  cases. No completed business checks are repeated for counts. Frozen SQL and
+  migration head0300 remain unchanged; owned verifier roundtrips pass. Aggregate:
+  .worktree/workspace-consumer-profile-qualification.json.
+- ADR-0179 and the sole ledger close only this local ordinary-consumer SQL
+  credential boundary. Whole Workspace cold artifacts, combined owner/API
+  assembly, backup/restore and bounded capacity qualification are the next
+  coherent milestone. The historical no-proof physical-drain prerequisite stays
+  explicit. Primary is not cut over; no push/release/production/Go expansion.
+
+- Final integration review finds that running the legacy grant script inside a
+  fixture transfers maintenance partition/materialized-view ownership. Root
+  snapshots/restores those owners, removes temporary LOGINs/ACLs and future test
+  relations, and preserves audited data. Minimal profile plus append role pass.
+  All13 profile cases pass again; extended role checks uncover cleanup privileges
+  missing. A separate temporary cleanup LOGIN does not remove the failure; the
+  existing cleanup case also fails alone in a fresh verifier before any Workspace
+  fixture. This proves a pre-existing deployment-order defect rather than merely
+  fixture pollution: the final API-consumer legacy-grant phase truncates the
+  actual Cleanup role to2 functions while its current worker requires8.
+- Legacy grant installation now retains exactly the existing8 Cleanup capabilities,
+  checks all8 are present, and rejects any extra function. No private table or
+  other-domain privilege is added. Minimal profile plus the original Cleanup
+  case pass. The final effective union is21 distinct passes:13 Workspace and8
+  existing role cases, zero effective failures/errors/skips. Other passing cases
+  remain applicable: the unused temporary cleanup identity only isolates setup,
+  and the Cleanup grant correction leaves the fixed32 Workspace profile unchanged.
+  Original failures and real exits are retained. The profile/worker docs state
+  the extra existing-role regression scope separately.
+- Focused checks pass: pinned Ruff/format, Prettier, Node syntax,20 grant/selection
+  units,358 applicable architecture cases plus150 explicitly inapplicable rules,
+  unchanged OpenAPI, docs build and diff. The first unit invocation omitted the
+  scripts PYTHONPATH; its original import failure remains and the corrected20-unit
+  invocation passes. Later fixture/grant/doc corrections do not change package
+  architecture or public OpenAPI; formatting/docs/diff are checked after them.
+
+- Final delta Ruff/format, Prettier, docs build and diff pass after fixture and
+  Cleanup grant corrections. Architecture remains358+150 and explicit OpenAPI
+  unchanged; completed package/architecture checks are reused. No cold install
+  or image rebuild is claimed for this SQL deployment-profile milestone.
+
+- Integrated source/documentation commit:
+  `4bd5ddca1557e83549fdbec42c6d1ecbf311c418`. All15 files match the
+  recorded SHA256 manifest after normal hooks. Final qualification remains local
+  SQL/API/independent-client evidence, with all failures and setup corrections
+  retained. Source-only audits are not counted as runtime evidence.
+- Preservation verifies all20 editable bindings, both shared symlinks, protected
+  primary HEAD/clean state and all four shared running containers unchanged. All
+  eleven task-owned PostgreSQL containers are absent and verifier cleanup has no
+  errors. No persistent Root backend process remains. No modifying source
+  worktree was created in this slice. Receipt:
+  .worktree/workspace-consumer-profile-preservation.json.
+- The full goal stays active. Next bounded deliverable is coherent complete
+  Workspace cold artifacts, combined owner/API credential assembly and recovery
+  qualification. Legacy no-proof drain still needs machine-verifiable external
+  fencing evidence; no unsafe clearance is introduced. No primary cutover, push,
+  release, production deployment or expansion of the Go experiment occurs.
+
+### Complete Workspace artifact and assembly qualification prerequisites
+
+- Previous goal turn is progress: source4bd5ddca1557e83549fdbec42c6d1ecbf311c418
+  and evidence66f83e499018bfa796be71431b78af9e8293b529 close the local ordinary
+  consumer SQL credential boundary, with21 distinct effective passes and preserved
+  shared resources. The full goal stays active; Root starts clean at66f83e499.
+- Source-only assembly audit inventories the existing six Compose services and
+  API selectors, borrowed Native worker/deletion/unlink/maintenance paths and
+  lazy Identity Briefs/Inference Probe/Guide Objects dependencies. No worker URL
+  selector is needed at callsites that intentionally use Native transactions.
+  The source image healthcheck is fixed to8172 despite transfer/config running
+  on8173/8174; that remains an actual artifact prerequisite to reproduce/fix.
+  LAN-production network wiring is distinct from the intended local private
+  Compose qualification and is not claimed by it.
+- A minimal offline Workspace lock check fails at the unchanged base. A fresh
+  noneditable core+test install from that frozen lock installs successfully, then
+  actual Dataset unlink import fails with ModuleNotFoundError:aap_assets_cleanup.
+  The core pyproject already declares this dependency, but Workspace's lock
+  metadata omits its direct edge. Runtime extras had masked the missing edge.
+- Root refreshes only the existing Workspace lock: two direct dependency/metadata
+  lines, with no package-version change. API lock check passes and remains
+  unchanged. A fresh noneditable core+test environment imports Dataset unlink and
+  CleanupBucket successfully, both from that environment, without app/SQLAlchemy/
+  Celery. Original lock/core failure logs and real exits remain under
+  .worktree/workspace-module-lock-repro and workspace-module-core-repro; fixed
+  receipts use workspace-module-lock-fixed and workspace-module-core-fixed.
+- This is a verified prerequisite, not complete Workspace qualification. An
+  isolated source-only worker based at66f83e499 is implementing combined assembly
+  helpers/tests in two disjoint new files; Root owns all installs/builds/imports/
+  DB/runtime and the upcoming healthcheck repro. No primary cutover, push,
+  release, production deployment or Go expansion occurs.
+
+- Core dependency lock fix is committed as59f22bbecb74716ac727c92d90e3c71308a445fa.
+  Noneditable build created13 untracked setuptools staging files in shared
+  workspace_contract; each exactly matches current src. Root archives/verifies
+  them before removing only that generated directory. Receipt:
+  .worktree/workspace-module-generated-staging-cleanup.json. API bindings remain
+  local to Root; no install targets the API environment.
+- Baseline owner image from that clean commit builds successfully with all copied
+  package/schema/input hashes recorded. Image:
+  sha256:ded01d5e0721c8eaf4c1f7d15a35d88a415c0663dd0e59678bd24d80a78d42a0.
+  Actual configuration service runs on8174, serves ready200 over its published
+  local port, and uses a private owned network for PostgreSQL. The unchanged
+  image health command still connects to8172 and returns1; the minimal case fails
+  while preserving Docker health logs and cleanup. Receipt:
+  .worktree/workspace-module-health-repro.json.
+- Root fixes the image probe at the common Dockerfile to read the existing
+  WORKSPACE_PORT (default8172), preserving all six service ports and entrypoints.
+  New actual-image regression covers each port; scheduling is accelerated only
+  for the owned fixture, with the actual image command unchanged. The complete
+  Workspace artifact/assembly/restore qualification remains open.
+
+- Rechecking grant/selection units after the actual Cleanup grants correction
+  exposes two static false positives: their regex starts at a Cleanup GRANT and
+  crosses semicolons until the next application-role grant. Root confines all
+  four application-role extractors to one statement, retaining every existing
+  capability/exclusion assertion. The prior real database role evidence remains
+  valid; this follow-up corrects the static checker. Original failing unit log
+  and the attempted empty commit (no source change) are retained separately.
+
+- Corrected owner image builds from9d975baa0151139f6561e63ce7476f67cf518d4a as
+  sha256:6999548343ea1dfae4d2a1589539da7f16549d0d9f7fc3d6aaaa1e3147ff554f.
+  Minimal config-port replay passes first, then the other five service ports pass
+  on private owned PostgreSQL networks. The six real image probes retain the
+  actual image command and remove only owned container/network fixtures.
+- Noneditable runtime install qualifies439 distinct applicable cases:402 Workspace,
+  35 shared Workspace contract and2 Audit contract. Initial Workspace run has400
+  passes and2 missing frozen-schema fixture paths after relocation; preserving
+  original repository-relative topology and copying the2 frozen JSON artifacts
+  lets only those2 failures replay successfully. A harness directory guess for
+  owner_data/tests is corrected; no such suite exists or is claimed. All323
+  installed Python/schema files across14 namespaces match current src exactly,
+  and API/SQLAlchemy/Celery/boto3/torch are absent. Original logs/JUnit retained.
+- Isolated source worker006e829ec618036afae4fc46832012b1be2106be supplies two
+  combined Workspace test/helper files. Root integrates them and owns actual
+  imports/runtime. Root wires selected assembly tests to API startup-scoped S3
+  credentials and applies Workspace consumer fence after the existing Identity
+  fence. Static integration fixes use current successor authority after transfer,
+  validate the full owned-resource manifest before seed/grant changes, separate
+  surviving-project read proof from deleted-project receipt proof on restore,
+  and derive a Video Job project through Task rather than a nonexistent column.
+  This support is not yet runtime qualification or whole-module closure.
+
+- The combined cold API, Inference and Assets Source images build successfully.
+  The API artifact probe matches1,270 application/package files across34 installed
+  namespaces. A source review fixes service identity refresh after Compose creates
+  the containers, before readiness indexes their IDs.
+- First private assembly run reaches all eight owner/dependency health probes but
+  the API exits during startup. Its fixture incorrectly includes a URL scheme in
+  MINIO_ENDPOINT; the actual StorageService then constructs a double-scheme URL.
+  A network-disabled cold-image reproducer proves both the broken endpoint and
+  the corrected authority-only setting. Full migrations through0300 pass and
+  the failed run removes all owned resources with no cleanup errors. Original
+  logs/JUnit and the endpoint reproducer are retained in.worktree.
+- The restore acceptance now keeps the marked clone alive while restarting the
+  actual owner/API stack against it. All six Workspace, Identity Auth/Briefs,
+  Inference Probe and API DSNs are retargeted together. The pending runtime run
+  must prove authenticated reads, saved-command replay, and the legacy started
+  video409 with intact Project/Job and no deletion receipt. This closes a test
+  coverage gap; it does not yet claim a passing assembled restore.
+- Second assembly starts the API and all six owners. Actual API component probes
+  show DB/Redis/MinIO healthy; the aggregate health response remains503 because
+  this assembly does not include a Celery worker. The fixture now reuses the
+  existing Identity assembly's API database readiness route; its Docker health
+  command checks all three available dependencies. Aggregate Celery health is
+  not relaxed or replaced, and a real worker startup/task/restart remains a
+  separate missing qualification. Original failed evidence and clean teardown
+  are retained.
+- Third assembly passes startup, template writes/reads and the selected-owner
+  outage response. On restart, the template owner is healthy but Docker assigns
+  a new ephemeral host port and the fixture keeps polling the old origin. An
+  isolated image/transport reproducer confirms59461 ->59482, HTTP200 at the new
+  endpoint, and clean owned-container/network removal. Both start/restart now
+  refresh published origins before readiness, matching the existing Identity
+  helper pattern. The original failure and migration/cleanup results remain.
+- Fourth assembly passes template restart, project/class/member operations,
+  current/stale/revoked previews and ownership transfer with outage fencing.
+  Backend-enabled project creation then exposes an incomplete fixture: the
+  registry row has no singleton service pool. The existing owner rejects this
+  invalid registry as designed. The seed now follows the existing Native
+  dependency test's registry/pool/active-member shape; no production behavior or
+  credentials change. The original500 and clean teardown remain recorded.
+- Fifth assembly passes backend probing, real Guide object operations, receipt
+  replay after restart, selected-owner outages/no-fallback, all-owners-stopped
+  Native access/maintenance/unlink/delete, and the started legacy video's409.
+  The nonempty snapshot restores its receipts and restricted consumer ACLs.
+  Actual restored-stack startup then reaches an existing0444 secret file and
+  cannot rewrite its clone DSN. A minimal actual-helper/filesystem reproducer
+  confirms PermissionError. Reusing Identity's unchanged-value/read-only-secret
+  rewrite pattern passes changed/unchanged writes, final0444 mode and symlink
+  rejection. Runtime restore must still complete before claiming qualification.
+- Sixth assembly restarts all nine services healthy against the restored clone.
+  The next assertion incorrectly uses auth/me, which requires an Identity Account
+  provider absent from this Workspace assembly and correctly returns503. The
+  restored authentication proof now uses the actual Workspace project/detail
+  and access routes plus invalid-token401, retaining only the existing Auth and
+  Briefs credentials. Original response and clean teardown remain recorded.
+- Isolated source helper492f908e6 adds the missing cold point-quality maintenance
+  scenario. Root integrates it and calls the real public API while all six HTTP
+  Workspace owners are stopped, using the ordinary Native consumer closure.
+  The pending run covers an exact-evaluation Audit failure rollback, successful
+  three-state commit and stale baseline409. No new owner selector or grants are
+  introduced. The build manifest now discovers all tracked COPY inputs so new
+  test helpers participate in the matching API image identity.
+- Seventh assembled case passes on clean sourcebb4b15c7c: all six owners and the
+  cold API, probe/Guide peers, real public operations and selected-owner failure
+  fencing; Native transactions while all six HTTP owners are stopped; quality
+  promotion's forced Audit rollback and successful/stale commits; and full clone
+  restore with all nine processes healthy, project/access authentication,
+  invalid-token401, receipt replay and legacy video409 with intact evidence.
+  This is one integrated acceptance case, not hundreds of individual tests.
+  The16-request/concurrency4 local sample takes1.180s, observed p95.335s. All
+  migrations/artifact rollback/upgrade checks through0300 and owned cleanup pass.
+  Receipt: .worktree/workspace-module-assembly-seventh.json and sibling JUnit/log.
+- Source worker3f9b890854ce1a478d0fd562b7ab51ad4396d171 supplies a real Celery
+  retry/start/ack/restart acceptance. Root integrates it, keeps the ordinary API
+  consumer fence gated to this explicit test selection, and retains all seeded
+  rows until the verifier destroys its unique owned DB. Source review fixes a
+  missing ownership-check method and captures stderr logs as well as stdout.
+  Actual dialect and image reproducers prove that application_name is not an
+  asyncpg kwarg and manual Docker restart leaves RestartCount0. Identity checks
+  instead match the owned container's network address at PostgreSQL, and restart
+  checks require changed StartedAt on the same container/image. Delivery proof
+  requires live inspect replies, empty queue and zero Redis unacknowledged
+  messages. The real worker qualification remains pending execution.
+- First worker run fails before container startup because the fixture queues the
+  Task and its FailedPrediction without flushing the Task FK first. Root adds
+  the missing flush, retaining the original failed log/JUnit and real exit. All
+  migrations and owned cleanup pass with no errors; no worker task is claimed
+  as executed by this attempt.
+- Second worker run starts the actual cold prefork process, receives a broker
+  delivery, observes its real API-consumer PostgreSQL connection, calls the
+  deterministic backend and stores a SUCCESS result. The acknowledgement
+  fixture then calls values() on its tuple of active/reserved replies. Root
+  fixes the flattening expression; the actual task and its original diagnostics
+  remain recorded, but terminal-row/restart acceptance is not yet claimed.
+- Third real-worker case passes on clean sourceb54a782ef. The cold prefork process
+  uses the restricted API LOGIN observed at its owned container address; both
+  broker retries complete around a physical restart on the same container/image.
+  Prediction and partition-bound PredictionMeta preserve the model version,
+  inference time and token cost; FailedPrediction is removed and AsyncJob metadata
+  and terminal summary match. Both live inspect rounds answer, ready queue and
+  Redis unacked hash are zero, and a fresh result object reads the first persisted
+  result after restart. One integrated case passes with no effective skips.
+  Receipt: .worktree/workspace-worker-assembly-third.json, sibling JUnit/log.
+  Migrations through0300 and cleanup pass with no errors. The worker is ordinary
+  UID/read-only,1CPU/512MiB/pids64; no source mount or owner/admin DB credentials.
+  Public admission/dispatcher, pool routing, source-object retrieval and real ML
+  remain outside this deterministic legacy retry qualification.
+- Final rendered documentation build passes. Grant/resource and module-data
+  selection units have20 effective passes: an initial runner omits scripts from
+  PYTHONPATH and cannot import the resource module; its2 selection cases already
+  pass, then only the18 resource cases replay successfully with the intended
+  import path. Original runner error is retained separately from application
+  acceptance. Ruff/format/diff checks and normal applicable commit hooks pass.
+  Both new source worktrees are removed after clean HEAD/branch, exact integrated
+  patch and verified incremental bundle/cache archive checks; their unmerged
+  source branches remain. The sole ledger records assembled/worker evidence and
+  still leaves cold operator paths, legacy retirement repair and capacity open.
+
+- Source/documentation checkpoint:0248da8f6a42d6ee16f333a24ab5daefa88e3403.
+  Aggregate:.worktree/workspace-module-qualification.json; SHA256:64523f542eaec356d7a3f2adb81acad8b12420fe728ad2ec30869f57b0de7564.
+  It binds the439 installed cases, six actual image health ports, two distinct
+  integrated assembly/worker cases,20 units, documentation build and original
+  failed attempts without counting repeated deliveries/reruns as new cases.
+  All four current image COPY manifests still match source; no runtime source
+  changed after the corresponding passing image qualifications.
+- Final preservation passes:20 editable API bindings and both shared symlinks
+  unchanged; clean protected primary remains856fa79c87ef2668d0ed74eb570df0a3e529d49f;
+  all four shared container identities/running states unchanged;24 known owned
+  PostgreSQL containers confirmed absent; no owned acceptance networks/containers
+  or persistent Root API/Celery/owner process remain. Three source worktrees have
+  verified archives and are removed with branches retained. Receipt:
+  .worktree/workspace-module-preservation.json. No push, release, production,
+  primary-runtime cutover or Go expansion occurred. The full goal stays active.
+
+## Workspace cold operational importer qualification
+
+- Previous goal turn is verified progress: the private Workspace assembly/restore
+  and selected cold Celery worker pass, with source/evidence checkpoint94d0d4ae1.
+  Root rechecks that checkpoint and the clean integration branch before starting
+  the next ledger item. The full cross-module goal remains unchanged and active.
+- The actual nuScenes CLI provisions its import administrator, writes Assets
+  source/Scene data, creates or reuses its Workspace Project, associates the
+  dataset and creates Labeling Tasks in one caller transaction. The new bounded
+  qualification uses the existing API cold image, synthetic filesystem input and
+  real S3, with no source mounts or alternate deployment mode.
+- The caller is the existing trusted operational legacy_runtime profile. The
+  verifier applies the existing Identity and Workspace consumer fences only to
+  this selected case, then restores only its two published provisioning functions
+  so the existing empty-development-DB fallback stays in that transaction. User
+  and Workspace private data remain denied; ordinary identity_api_consumer is
+  unchanged. Worktree runtime setup already grants the six Assets operator
+  functions; the separate ordinary LAN API profile is not the import operator.
+- Planned actual-process checks cover missing Workspace capability/no private
+  fallback, a late Labeling failure rolling back SQL account/source/project/task
+  state, successful two-scene import and state-idempotent replay. Existing Scene
+  replay may re-PUT objects and append operation receipts; failed imports retain
+  uncertain external bytes until owned-bucket teardown. No S3 transaction or
+  real nuScenes dataset/ML/capacity qualification is inferred from this fixture.
+- One isolated source-only worker is based at94d0d4ae1 and writes only the two new
+  importer test/helper files. Root owns verifier/docs integration and all imports,
+  dependency operations, builds, DB, Docker and runtime checks. The fixture and
+  grant setup are not yet executed or claimed qualified.
+
+- Source-only worker commit f165e6848 is integrated as 6ab5509b5; Root verifier
+  fence source 90fc18f85 and ordering correction d86ea287a preserve the actual final
+  launcher profile. First actual attempt fails the strict ACL preflight because
+  run_processes prepares/regrants legacy_runtime; no CLI runs in that attempt.
+  The selected verifier now keeps real resource preparation and applies the two
+  existing fences afterward. The second attempt passes the five-stage baseline.
+- Cancellation source a034b467e initially uses a 120-second artificial task trigger.
+  The actual owned container stops with exit 137, but default PostgreSQL does not
+  release that in-flight sleeping query within the 15-second assertion. Original
+  failed log/JUnit and successful resource teardown remain preserved; no SQL
+  client is forcibly terminated or runtime setting changed to manufacture proof.
+- Source 3ea9d4b21 bounds only the artificial query to 10 seconds and matches the
+  actual PostgreSQL client address to the verified CLI container endpoint. Fourth
+  attempt passes one distinct integrated case with six real CLI executions:
+  missing capability, late task failure, physical cancellation, same-name recovery,
+  replay and source drift. Cancellation is not a promise of immediate interruption
+  of arbitrary long SQL. Actual exit 137 is externally stopped, not timed out;
+  account/source/project/task/receipt rows roll back after connection release.
+- Latest report: .worktree/workspace-import-cli-fourth.json and sibling JUnit/log;
+  source_commit 3ea9d4b21, verifier elapsed 65.303 seconds. Cold API image verifies
+  1,271 files including the actual CLI entrypoint. Application/owner source is
+  unchanged, so the prior 439 installed checks, nine-process restore and selected
+  Celery worker evidence are reused rather than rerun or added to a new count.
+- Worker exact patch, verified Git bundle and Ruff cache archive are preserved in
+  .worktree/workspace-import-cli-source-worker-preservation/receipt.json. The
+  clean integrated source-only worktree is removed; its branch remains retained.
+- Focused verifier selection units pass 2/2 with the actual Root interpreter and
+  repository PYTHONPATH; documentation build passes in 16.717 seconds. The unchanged
+  18 resource units retain their previous milestone result rather than rerunning.
+- Final preservation at documentation commit b35cb04c6 confirms 20 editable Root
+  bindings, unchanged clean primary HEAD 856fa79c8, four unchanged shared container
+  IDs/names/running states, 28 known owned PostgreSQL containers absent, no owned
+  module/worker/import fixture container or network, and no persistent Root runtime.
+  All four current cold image COPY manifests still match source. Receipt:
+  .worktree/workspace-import-cli-preservation.json.
+- Aggregate qualification receipt: .worktree/workspace-import-cli-qualification.json,
+  SHA256 5926aedce74dfd29dc0e24999f47afb161e33e2a4f4b2302b12fc6b6877fde1c.
+  Failed first/third attempts remain retained; effective qualification is one
+  distinct integrated case with six CLI processes, not six independent tests.
+  The full-module goal stays active; remaining scope is only tracked in the
+  rendered module-deployment ledger. No primary cutover, push, release, production
+  deployment, or expansion of the Go experiment occurred.
+
+## Workspace bounded independent-load qualification
+
+- Previous goal turn is verified progress: cold operational CLI source 3ea9d4b21,
+  documentation b35cb04c6 and evidence 563efb855. Root starts clean at 563efb855;
+  no live execution handle remains. The full cross-module objective stays active.
+- Rechecked legacy no-proof feasibility against authoritative current source:
+  all eight source anchors in .worktree/legacy-video-retirement-feasibility.json
+  have no diff from its 64c8c22b8 base. Current proof-bound recovery, old durable
+  scopes without a complete worker fence, and older/off/observe requests lacking
+  durable physical identity remain distinct. No absent-row inference, synthetic
+  journal, status flip or operator assertion is accepted. This is reuse of the
+  existing source audit, not a new runtime retirement qualification.
+- Next independent deliverable is a bounded mixed-load correctness/capacity
+  profile on the existing nine-process private Workspace assembly. Reuse the
+  current six Workspace owner images and API/Inference/Guide artifacts, fixed
+  roles, network isolation and Compose fragments; no new deployment mode.
+  API has 768 MiB and the other eight services 256 MiB each, all 1 CPU and 64 PIDs.
+- Freeze before execution: concurrency 1, 4, 8 phases run 15 seconds each over up to
+  eight independent projects. Real public API calls mix configuration name writes,
+  project reads, private template reads, membership writes/directory reads and
+  owner transfer; the mixed traffic uses a super-admin JWT and explicitly says
+  so. Under independent-project traffic, ordinary employee membership is removed,
+  and fresh requests plus the previously admitted role preview must stay denied.
+  Last acknowledged names/owners and membership absence are checked against owner SQL.
+- Record operation/status counts, actual wall time/throughput, latency quantiles,
+  and current exact-ID resource/health/restart samples plus DB connection usage.
+  Preserve failures and actual exits. No unexpected 5xx/timeouts/OOM/restarts or
+  unauthorized/resurrected state are accepted. Sampling is bounded observation,
+  not continuous high-water accounting, container CPU timing, an invented SLO or
+  production capacity. Existing restore/worker/importer checks are not repeated
+  merely for a larger count.
+- One isolated source-only worker based at 563efb855 writes only the new capacity
+  test. Root changes shared sampling helper, verifier selection and documentation,
+  and owns every import, test, install, build, DB, Docker and runtime operation.
+  A tiny owned Docker-only stats schema probe passes and cleans up; runtime
+  qualification has not yet run. A separate read-only audit is making remaining
+  operator/worker entrypoints concrete without treating every migrated getter as
+  a new unqualified operation. The sole rendered ledger remains authoritative.
+- Source worker a70d9c210 is integrated as d571cff35. Root reuses existing
+  actors/token/restricted-credential helpers, adds during-load exact-ID resource
+  and DB connection samples, and checks immutable configuration/transfer/member
+  receipt counts against acknowledged cycles, retained membership Audit IDs,
+  final names/owners and empty transient command state. Samples carry active-lane
+  counts and phase monotonic bounds; failures preserve partial metrics. Static
+  Ruff/format/whitespace checks pass; no load acceptance has run yet.
+- The read-only operation inventory finds no additional ordinary production
+  Project table access or missing Workspace operation. Concrete remaining
+  consumers are development seed_pointcloud's direct Project creation/mutation
+  and export/cross_frame_job/video_tracker cold worker coverage of the existing
+  snapshot capability. Other explicit seed/demo operators remain separately
+  classified; source inspection is not cold runtime evidence.
+- A genuine replacement-boundary prerequisite is found before the next batched
+  cold qualification: Workspace configuration imports validate_saved_pipeline
+  from aap-inference. Its Stage/Preannotate models, task normalization, tree and
+  key-conflict checks are pure structural contract rules, not dynamic Inference
+  authority. Existing named-pipeline CRUD adds scope/persistence and is not an
+  equivalent operation. Publish the unchanged models/rules in the existing
+  aap-inference-contract package, retain old Inference re-exports, and let
+  Workspace depend on the public contract. Keep exact normalized JSON,422 detail,
+  validation phase, flush order and rollback. No validation HTTP endpoint or new
+  contract package is needed. Batch matching owner/API/Inference artifacts and
+  the fixed load case after this prerequisite rather than rerunning cold images.
+- Central frozen SQL migration assembly remains the documented ADR-0092 path;
+  no new migration framework is introduced. Identity Briefs' DSN client binding
+  and its explicit HTTP alternative are distinguished from the structural
+  Inference-provider import. Full remaining scope stays in the sole ledger.
+- Structural source worker ba9929658 is integrated as e5f288e18. Before its
+  integration Root captures 26 old vectors (11 accepted, 15 rejected), both complete
+  model schemas and a request example at aa9cd59ea. Original receipt:
+  .worktree/workspace-pipeline-structural-legacy.json, SHA256
+  1bb80d5362c7750caca74dc80fbe69ab2f77416125d33fbb61ec873e7cd2acfa.
+  Immediate post-move replay matches all outcomes, exact details and complete
+  schemas; old provider import identities are preserved. Executable ASTs of both
+  models, validator and error class are unchanged (only Stage description excluded).
+- Root then corrects only the historical Stage description to current nonzero
+  root/depth-three semantics and publishes generated preannotate.schema.json.
+  Public OpenAPI recursive comparison changes exactly
+  /components/schemas/PipelineStage/description; paths/fields are unchanged.
+  Codegen and SDK OpenAPI-contract checks pass; no SDK coverage/version changes.
+- Shared contract/compatibility/config-policy source suite passes 193 cases,
+  no failures/errors/skips. Root adds a cold Node.js producer to save a canonical
+  pipeline through the actual API, followed by 422 plus unchanged state for an
+  invalid pipeline; these cold consumer checks remain unexecuted until images
+  match the new dependency graph. The fixed timed load profile is unchanged.
+- Offline minimal installation first fails solely on an uncached Pydantic-core
+  wheel. The pinned online install succeeds but reveals an editable task-source
+  path and duplicate source metadata; its count assertion failure and small
+  reproduction are retained. Fresh wheel build/install uses publishable metadata
+  with --no-sources: exactly seven packages, both local contracts noneditable,
+  no repository source in sys.path and no Inference/API/FastAPI/ORM/Celery/HTTP/ML
+  provider modules. The same 26 vectors and all schema fields pass; only the
+  intentionally corrected description differs. Qualification:
+  .worktree/workspace-pipeline-contract-wheel-install/qualification.json.
+- Offline lock refresh updates only API, Inference and Workspace locks. Workspace
+  removes aap-inference, aap-protocol-v2 and PyJWT; runtime Pydantic/core pins stay
+  aligned. Its Dockerfile drops the two unused provider/protocol builder inputs,
+  and package/readme/runtime guidance reflects the public structural contract.
+  Matching cold images and the load case are still required before this slice
+  is called independently qualified. Full goal and sole remaining ledger persist.
+- API/pipeline input regressions pass 103 selected cases on a fresh owned verifier
+  DB, including bulk/workbench scope, saved stages, staged endpoint and frame
+  planning. Full roundtrip/frozen checks and all owned cleanup pass; current
+  migration head stays 0300. SDK contract suite passes 14; source suite stays 193.
+  Architecture guard passes with its existing explicitly inapplicable lazy-root
+  exclusions; exact JUnit remains in .worktree/workspace-pipeline-architecture.\*.
+- The official OpenAPI commit hook is run with UV_NO_SYNC=1 so it executes the
+  real current exporter without rewriting Root's existing editable bindings;
+  all newly declared dependencies already exist in that interpreter, and the
+  separate wheel-only environment proves fresh publishable dependency metadata.
+  Root's normal commit hooks still run. Generated Task build output is verified
+  in an archive before removal; no unknown source cache is deleted.
+- Integration source d08e82380 publishes the contract/schema/legacy corpus and
+  current metadata. Matching owner image verifies 274 files/12 namespaces, with no
+  Inference/protocol provider, API, SQLAlchemy, Celery, boto3 or torch. Matching
+  Inference image verifies 88 files/6 namespaces; the API verifies 1,273 files across
+  34 namespaces (767 app + 506 package). Exact image records/probe logs stay under
+  .worktree/workspace-pipeline-_ and workspace-module-_-image.json.
+- First actual load case fails before startup because the new selection was not
+  included in the existing restricted API bootstrap-S3 setup. Source f6e3f6ac0
+  reuses that setup and keeps setup diagnostics from masking the original error.
+  Second attempt passes actual Node/API save, 422 rollback and c1, then observes
+  the existing 409 account-busy gate: membership and transfer take account UPDATE
+  NOWAIT locks while all lanes reuse one actor set. This is expected policy,
+  not an implementation defect. Both failure logs/JUnit/cleanup remain retained.
+- Source 2addc9fe6 isolates the principal/account set per load lane and keeps a
+  separate controlled account-lock probe under traffic: public 409 with unchanged
+  membership/receipt/actor-Audit state. No hidden retries or policy relaxation.
+  Third attempt passes one integrated case, not three cases or 581 tests. The
+  three 15-second admission windows finish in 15.080/16.360/16.806 seconds, recording
+  77/224/280 successful calls (581 total), p95=318.85/452.01/698.38ms, plus the
+  explicit 409/404 revocation probes. The Node producer passes against the actual
+  no-Inference-provider Workspace image, and the invalid command changes no state.
+- Sixteen runtime snapshots keep nine exact IDs/StartedAt values stable, no OOM
+  or restart. API observed CPU max 97.63%, memory max 53.76% of 768 MiB, observed service
+  DB connections max 12; after stop service connections drain to 0. Final canonical
+  names/owners/memberships, acknowledged command receipts and retained Audit IDs
+  agree; configuration transient state/attempt tables are empty. These are local
+  sparse samples, not continuous peaks, production throughput or an SLO.
+- A fresh isolated noneditable owner environment installs from mirrored current
+  inputs using publishable metadata (--no-sources), verifies all 274 source files
+  and provider absence, and passes 402 Workspace + 35 workspace-contract + 2 Audit
+  cases (the same 439-case scope). Source and test inputs use copied topology plus
+  the two actual frozen-schema fixtures; no API package/runtime is installed.
+  Receipt: .worktree/workspace-pipeline-installed.json. Minimal wheel 26-vector
+  evidence and previous restore/worker/import qualifications are not double-counted.
+- Architecture result is 358 passed with 150 existing explicit inapplicable cases,
+  not 508 applicable successes. Both source-only worker branches remain retained
+  after verified exact patch/Git bundle/cache archive and clean checkout removal.
+  Full remaining scope stays in the sole ledger; no primary cutover, push,
+  release, production deployment or Go expansion occurred.
+- Final focused selection units pass 2/2; docs build passes 17.297 seconds. Normal
+  source/doc commit hooks pass, including the explicit current OpenAPI exporter;
+  no required validation is replaced by the source-only worker hook limits.
+- Preservation at documentation commit c5cf5f296 confirms 20 unchanged editable
+  bindings, clean unchanged protected primary HEAD 856fa79c8, four exact shared
+  container IDs/names/running states, 32 known owned PG containers absent, no owned
+  assembly/probe fixture container or network, and no persistent Root runtime.
+  All four current image COPY manifests still match source. Receipt:
+  .worktree/workspace-pipeline-preservation.json.
+- Aggregate .worktree/workspace-pipeline-qualification.json records source,
+  installation, API/SDK/architecture, cold consumer/load, original failures,
+  resource cleanup, image and worker archive hashes. SHA256
+  2869649d3697dfbdd8dd4d05958fc505f79d6008007b74776b8f945a33a448e0.
+  This closes the public structural-contract dependency and fixed local-load
+  capability; it does not close full Workspace or the cross-module goal. Next
+  bounded work remains the named development operator/worker consumers in the
+  sole ledger, with historical no-proof drain still requiring genuine evidence.
+
+### Workspace point-cloud seed Project boundary
+
+- Capture the original seed behavior at 939338495 before replacing its Project
+  accesses: one actual tiny directory/nuScenes workflow case plus six isolated
+  post-import changed/equal/missing cases under both autoflush settings. Retain
+  the immutable original driver/hash and seven receipts under .worktree; publish
+  the normalized oracle in tests/fixtures/workspace_seed_operator_legacy.json.
+- Add two fixed SQL capabilities in migration 0301, with a separate closed seed
+  descriptor. Keep frozen 0288 functions/schema unchanged: directory defaults are
+  non-scene while nuScenes import defaults remain scene-enabled. The setter only
+  reasserts name/bindings/the two true flags; equal values preserve updated_at and
+  a missing row is a no-op. No generic patch, new service, authorization or commit.
+- Move all seed_pointcloud.py Project access through Workspace, including legacy
+  validation and post-import cache synchronization. A source review found that a
+  plain Session.get-compatible reader would leave partially expired name/owner
+  fields unloaded. The bounded import reader now hydrates only unloaded fields
+  through the owner, preserving loaded dirty values and avoiding an ORM fallback.
+- Keep normal Workspace consumer profile at 32 functions/two facts. Trusted
+  maintenance profile intentionally grows from three to five functions; an
+  explicit seed-only composition adds only the two new writes to a fenced
+  operational connection. Existing compatibility bindings retain their previous
+  broad other-domain rights; this does not qualify Assets seed/reset ownership.
+- Fifteen different selected PostgreSQL cases pass across the retained native
+  attempts, including exact old behavior, restricted Project credentials, Native
+  SQLSTATE/rollback, Node producer, partial expiration and post-commit cleanup.
+  Source contract/binding/architecture checks pass 390 with 150 existing explicit
+  inapplicable rules. Original failures are retained: a resolved interpreter path
+  outside the venv, a too-long fixture display ID, missing function ownership,
+  missing operator Assets ACL in a fixture, an unfenced ordinary-role fixture,
+  and JSONB REAL shortest decimal vs exact ORM binary32 representation. The last
+  uses lossless binary32 decoding of the frozen storage oracle, not a tolerance.
+- Cold installed consumer and real S3 acceptance are pending at this checkpoint.
+  The sole remaining-work ledger continues to define all broader scope; no
+  primary cutover, push, release, production deployment or Go expansion occurred.
+- A second source review identified a reverse role-membership leak in the new
+  explicit operator grant profile. Reject child roles that inherit the operator,
+  retaining only the existing migration-owner membership. The owned negative case
+  passes and confirms no seed write is granted on rejection. Migration-policy
+  and verifier-selection units also pass 40 cases plus three subtests.
+
+- Cold acceptance passes at source b358fbc0d: one integrated case with five owned
+  one-shot containers, not five tests. The actual installed script entrypoints
+  cover directory creation, a late missing-setter failure, explicit outer
+  rollback, legacy replacement/post-commit cleanup, and drift/idempotent replay.
+  Private Project/Identity SQL is denied to the operator; the normal API keeps
+  its old 32 Workspace functions. S3 is real and confined to the owned dataset
+  bucket. Failure/rollback preserves original rows and source bytes; success
+  deletes the old current object only after caller commit and explicit cleanup.
+- The current owner image (276 files/12 namespaces) loads the added pure contract
+  with no API, ORM, Celery or Inference provider installed. The API image exactly
+  matches 767 application files, 508 installed-package files and all three real
+  seed/import/cache scripts (1,278 total). Unchanged prior owner installation,
+  restore and load evidence is reused; no new 439-case installed-suite claim.
+  Full fresh head/0189 frozen-SQL rollback/reupgrade reaches 0301, and cleanup
+  reports all owned resources destroyed with no error. Receipt and JUnit:
+  .worktree/workspace-seed-cold-first.{json,log,junit.xml,command.json}; five-call
+  summary: .worktree/workspace-seed-cold-first-summary.json.
+- Both source-only workers are integrated by patch equivalence; their exact
+  incremental Git bundles, full patches and ignored Ruff caches were archived
+  and verified before removing the clean checkouts. Original branches remain.
+  Receipts: .worktree/workspace-seed-contract-worker-preservation/receipt.json
+  and .worktree/workspace-seed-live-worker-preservation/receipt.json.
+- Final documentation build passes in 16.692 seconds; the public OpenAPI and
+  frozen 0288 SQL/schema remain byte-identical to the pre-seed source. All normal
+  local commit hooks pass, with a real explicit OpenAPI export verified earlier.
+- Preservation at documentation commit 5dbb0eb12 confirms 20 unchanged editable
+  bindings, clean protected primary HEAD 856fa79c8, four shared running container
+  identities, 43 known owned PG containers absent, no fixture runtime/network or
+  persistent Root runtime, and matching current COPY manifests for all four
+  images. Receipt: .worktree/workspace-seed-preservation.json.
+- Aggregate .worktree/workspace-seed-qualification.json records the original
+  failures, immutable baseline, 15-case Native union, one five-call cold case,
+  package/image hashes, owned cleanup and worker archives. SHA256
+  ad23720a189c44a7825b1be29fd231d5a844cfd0a6609b5d5ac042c1b9627f66.
+  The bounded seed Project capability is closed; the overall goal remains
+  active. Other development seed consumers, the named remaining cold workers
+  and genuine historical video-retirement evidence remain in the sole ledger.
+
+### Parent seed Identity and Workspace operations
+
+- Migration 0302 adds two closed Native contracts, separately from frozen 0252
+  and 0288 artifacts. Identity inserts missing development personas only;
+  Workspace accepts ordered membership inserts and exact dirty-column updates.
+  Neither capability authorizes end users, commits, deduplicates or retries.
+- The actual seed.py parent helpers use owner capabilities and public facts.
+  Preserve existing accounts, nullable Chinese group names, caller work,
+  autoflush/no_autoflush, duplicate SQLSTATE, cached dirty values, timestamps,
+  member version/target/assignment time, and changed-only membership commits.
+  A failed bridge flush rolls back even when the caller catches and commits.
+- Immutable original baseline driver SHA256 is
+  6f85d77cd829368cb9d5c426b454e8bcfa69b7ad918a986e6341933c6650816e.
+  The checked-in oracle contains 22 cases and 23 snapshots. Its capture failures
+  and fixture corrections remain in seed-parent-baseline-\* receipts.
+- All 22 old cases replay under User/Project/Member private-table-denied roles.
+  Four additional atomic cases cover stale/malformed replies at commit and
+  before-read flush; a Node producer directly composes both owner protocols and
+  rolls back. Native third/fourth, atomic, peer, profiles-fixed and read-phase
+  receipts preserve individual results rather than adding repeated counts.
+- Source contract/binding/architecture checks pass 420 cases with 150 existing
+  inapplicable architecture rules skipped. No changed public REST contract.
+  Cold test source is integrated but has not yet received runtime qualification.
+  It invokes installed parent helpers only; media children and the full parent
+  CLI are outside this bounded qualification. The sole ledger records closure.
+
+- The final cold parent case passes at source aa05c202e6e41681b9d27cb70669d8fdcc6863c6.
+  Nine separate ordinary-UID/read-only/1 CPU/512 MiB containers execute the real
+  installed helpers, without media-child stubs. Create/reuse, missing capability,
+  late failure, physical cancellation, 25-row recovery, no-op, role repair and
+  final replay reach their expected outcomes. The cancellation exits 137 without
+  timeout, correlates application tag, verified container IP and PostgreSQL PID,
+  then waits for that exact backend to disappear before checking rollback.
+  The ten-second SQL gate proves eventual rollback, not immediate cancellation
+  of arbitrary long statements. The isolated dataset bucket remains unchanged.
+- First through fourth cold failures were test-fixture defects: counting only
+  one Workspace schema; inspecting a created-but-not-started Docker container
+  and then racing its lifecycle cleanup; PostgreSQL inet text retaining /32;
+  and indexing SQLAlchemy tuple rows by string. Preserve all raw failures and
+  JUnit. Native behavior was not relaxed. The final case uses all Workspace
+  schemas, waits for the real SQL gate, uses host(client_addr), joins the pending
+  lifecycle before closing, checks backend PID and reads named row mappings.
+- The selected Native union has 37 distinct latest passing cases: 22 original
+  replay cases, four atomic cases, a joint-owner Node producer and ten existing
+  regressions. The previous commit-phase atomic IDs are normalized to their
+  later parametrized names; no repeated run contributes an additional case.
+  Script/policy/verifier checks separately pass 58 tests. An explicit OpenAPI
+  generation comparison matches; frozen provisioning/project-maintenance SQL
+  and schema are unchanged.
+- A matching Workspace image verifies 280 package files across 12 namespaces,
+  with no API, SQLAlchemy, Celery or Inference provider. The API artifact verifies
+  768 application, 512 installed-package and 32 script files (1,312 total).
+  Existing Inference and Assets-source COPY manifests are unchanged and reused.
+  No fresh whole-module installed-suite, restore, production or AMD64 claim.
+- All three source-only workers were integrated by patch equivalence. Exact
+  incremental Git bundles, source patches and ignored Ruff caches were archived
+  and verified before removing the clean checkouts; their branches remain.
+  Receipts: .worktree/seed-parent-{identity,workspace,cold}-worker-preservation/receipt.json.
+
+- Documentation builds successfully in 16.953 seconds. Preservation at
+  documentation commit 124372ce9 confirms 20 unchanged editable bindings,
+  protected clean primary HEAD 856fa79c8, the same four shared running container
+  identities, 59 known owned PostgreSQL containers absent, no fixture runtime
+  or network, no persistent Root runtime, and matching COPY manifests for all
+  four images. The first preservation pass found the second failed fixture's
+  empty network; its exact labels and diagnostic ownership were verified before
+  removing only that network. Receipt:
+  .worktree/seed-parent-owned-network-remediation.json. Final preservation:
+  .worktree/seed-parent-preservation.json.
+- Aggregate .worktree/seed-parent-qualification.json has SHA256
+  40d8cf3d565f49e2aa9e6207be74ad56f5771bdd7b717b6203ff56360c8fd44d.
+  This closes the bounded parent account/membership capability. The overall goal
+  remains active. The sole ledger explicitly tracks remaining Identity media
+  seed consumers before their Workspace Project operations, named cold workers
+  and genuine historical video-retirement evidence. No primary cutover, push,
+  release, production deployment or Go expansion occurred.
+
+### Media seed Identity consumers
+
+- Capture the old six-consumer behavior at 790d4c229 before source edits. The
+  immutable driver SHA256 is
+  9d28ab50e77e51bb7c27f5512990f030cbf2cf94a6e4f9a45d0eb578fd7e56c3.
+  All 54 baseline cases pass. The first attempt used overlong fixture display
+  IDs; the second passes all tests but its local-resource cleanup reports
+  an unclassified WorktreeError. Later inspection finds no connections and
+  the existing guarded destruction succeeds; no unknown client is terminated.
+  Preserve both failed receipts and the separate successful cleanup receipt.
+- Reuse the existing persona capability for COCO8/video/OCR admins, including
+  OCR's Admin name, caller commit/rollback and original environment behavior.
+  Screenshot preparation and catalog use the existing public account profile
+  relation, retain cached fields and their distinct role/active rules, and pass
+  UUIDs downstream. Large-image graph creation only changes owner lookup.
+  There is no new protocol, migration, credential selector or domain dependency.
+- Replay all 54 baseline cases with private User table/column access denied.
+  Existing catalog (19) and large-image (4) checks also pass, 77 distinct cases
+  total, with owned resources fully destroyed and no cleanup errors. Source-only
+  review finds no confirmed regression. The cold source worker is integrated as
+  717495514 (original b72353bf0); actual cold qualification remains pending.
+- A wider read-only audit finds more operational Identity consumers, now in the
+  sole ledger: import_images, created_at-ordered seed_scale selection, legacy
+  role audit compatibility, recording recovery/reject tools and test/e2e-only
+  preference restoration. Do not infer whole Identity closure from this slice.
+
+- Implementation 147b65b7756e3268f62c748aa2f0bf9ccb569e8d passes first cold
+  qualification: one integrated case, eighteen real container calls. All three
+  account factories, existing-account reuse, missing capability, late User
+  insert failure, physical cancellation, same-email recovery/reuse, screenshot
+  profile/catalog validation and large-image owner graph create/repeat/missing
+  behavior reach their expected outcomes. The explicit nonzero exits are
+  expected refusals; cancellation exits 137, externally stopped and not timed
+  out. The actual SQL, application tag, verified container IP and PostgreSQL PID
+  are correlated before stopping; the exact backend disappears before rollback
+  assertions. The ten-second gate proves eventual, not instantaneous, rollback.
+- The cold role has only five ordinary Identity functions plus fixed lookup and
+  persona create, no User table/column permissions, while other domains retain
+  trusted operator grants. The isolated bucket's version collection remains
+  empty. All owned runtime/storage resources are destroyed without cleanup error.
+  Receipt: .worktree/media-seed-identity-cold-first.{json,log,junit.xml,command.json};
+  eighteen-call summary: .worktree/media-seed-identity-cold-first-summary.json.
+- Matching API artifact verifies 768 app files, 512 installed package files and
+  32 actual scripts, 1,312 total. Unchanged owner/Inference/Assets-source COPY
+  manifests and prior acceptance are reused. New source/architecture checks pass
+  377 cases with 150 existing inapplicable rules skipped; tools/policy checks pass
+  58 tests. OpenAPI generation comparison passes. The source-only cold worker's
+  exact bundle, patch and ignored Ruff cache were verified and archived before
+  removing its clean checkout; its original branch remains.
+
+- Documentation builds in 16.304 seconds. Preservation at 7575adea3 verifies
+  20 unchanged editable bindings, protected clean primary HEAD 856fa79c8, the same
+  four shared running container identities, 63 known owned PostgreSQL containers
+  absent, no fixture containers/networks or persistent Root runtime, and matching
+  COPY manifests for all four images. All normal commit hooks pass.
+  Receipt: .worktree/media-seed-identity-preservation.json.
+- Aggregate .worktree/media-seed-identity-qualification.json has SHA256
+  ccdc4fb05f54cc006f949f5b080dfdfd4bd3fa1856bf9792c6a9be28e409e303.
+  This closes the six consumers' bounded Identity operations, not the whole
+  Identity module or media/catalog workflows. The full goal remains active;
+  proceed next to import_images and created_at-ordered seed_scale actor selection,
+  then remaining historical audit and guarded recording/fixture operations from
+  the sole ledger. No primary runtime cutover, push, release, production work or
+  Go expansion occurred.
+
+### Operational image import and scale-seed Identity selection
+
+- Capture twelve actual old-consumer cases at 44171ef27 before source edits.
+  Immutable driver SHA256:
+  3c32e9651225d8b9182adaf3e4242f4a29d87e25b57ca5e3338c5893bb550fe5.
+  All twelve pass with owned cleanup. Scale cases execute full tiny seed(4,2,1),
+  preserving original commit stages, filters, cross-project/duplicate candidates,
+  unspecified ties and negative-infinity created_at; import uses real database
+  operations and a controlled object sink. Actual cold S3 remains a separate gate.
+- Add two fixed read-only Identity functions in 0303, separate from frozen
+  provisioning/persona contracts. JSON replies bind schema/kind/nullable UUID.
+  Admin selection includes inactive super_admin; active annotator candidate
+  selection has no platform-role filter. Created_at never crosses the boundary.
+  SQL STABLE functions use caller-statement snapshots. The API passes the
+  Workspace member candidate array within that same SQL statement; admin and
+  annotator remain two ordered calls even when the first returns null.
+- Source owner worker ffac2f794 is integrated as 20ded2970. Root binds the two
+  real script consumers, extends only trusted legacy grants and adds an explicit
+  fenced scale-seed reader profile; ordinary Identity stays five functions and
+  two views. Image import still chooses an unordered first account and permits
+  inactive/viewer ownership, preserving its existing workflow and error order.
+- First Native attempt passes the empty-user import but stops three nonempty
+  imports because the LAN-profile fixture lacks existing Assets operator grants.
+  Match the actual worktree CLI's two required Assets functions in the fixture,
+  without changing production grants; the three imports and eight scale cases
+  then pass. Latest unique baseline replay is twelve; no repeated case is added.
+- Two further Native cases pass: a real Node read-only, User-private-denied
+  consumer and deterministic statement-start snapshot behavior. The latter
+  pauses the actual combined selector using a MATERIALIZED advisory-lock CTE,
+  commits both member-duty and active-state changes elsewhere, then proves old
+  state for that statement and new state for the next. No fake selector replies.
+  The selected Native union is fourteen; cold qualification remains pending.
+- Focused contract, adapter, architecture and fresh-process guard checks pass
+  393 cases, with 150 existing inapplicable architecture rules skipped. Tooling
+  and migration policy checks pass 58 tests; OpenAPI comparison is unchanged.
+  Keep the new command-service import inside seed(): a production invocation
+  must refuse before importing any path that constructs the application engine.
+  The fresh-process guard test traps engine construction and verifies exit 2.
+- Integrate cold source worker 8d7ec0882 as 0888ee335. Before executing cold
+  acceptance, correct its result parser assertions: the CLI prints project_id,
+  not owner_id. Compare that ID to the persisted project and separately verify
+  project owner and dataset creator, preserving actual command output.
+- Implementation dce7d425a88fe41f62083ee85439cf7d1bb7d735 passes first cold
+  qualification: one integrated case with eleven real container calls. Actual
+  image imports create two distinct datasets with four items and four object
+  versions; production guard exits 2 in its child process. Tiny scale seed
+  preserves inactive-admin and active-viewer-duty selection, committed purge,
+  staged writes, late-failure recovery and cancellation recovery. Ordinary
+  Identity remains five functions; the trusted role adds only two selectors
+  and has no User table/column access. Other domains retain trusted permissions.
+- Physical cancellation exits 137, externally stopped and not timed out. The
+  real SQL selector, role, application tag, container IP and PostgreSQL PID are
+  correlated before stopping; the exact backend disappears before persisted
+  state assertions. The ten-second SQL gate proves eventual release, not
+  instantaneous cancellation. Migration downgrade, frozen SQL install/rollback,
+  head 0303 re-upgrade and owned cleanup all pass. Receipts:
+  .worktree/identity-seed-selection-cold-first.{json,log,junit.xml,command.json}
+  and .worktree/identity-seed-selection-cold-first-summary.json.
+- New owner artifact verifies 282 files across twelve package namespaces and
+  excludes API/ORM/Celery/Inference provider dependencies. New API artifact
+  verifies 768 app, 514 package and 32 script files, 1,314 total. Existing
+  Inference/Assets-source source manifests and acceptance are reused. Both
+  clean source workers have verified incremental bundles, patches and ignored
+  Ruff-cache archives before removal; original branches remain available.
+  This closes only the two consumers' Identity operations. Continue with the
+  historical audit and guarded recording/fixture rows; whole Identity and the
+  full goal remain active. No primary cutover, push, release, production work
+  or Go expansion is authorized by this evidence.
+- Documentation builds in 16.784 seconds; documentation commit 3a1861611
+  records the bounded result in the sole ledger. Preservation verifies all
+  twenty editable bindings, protected clean primary HEAD 856fa79c8, the same
+  four shared running containers, 68 known owned PostgreSQL containers absent,
+  no fixture runtime/network or persistent Root runtime, and matching source
+  manifests for all four images. The first ignored preservation driver stopped
+  before checking resources because its prior-input path had been replaced by
+  its output path; the corrected check passes. A first aggregate assertion
+  compared the oracle's short source SHA literally to the full SHA; resolving
+  it through Git fixes the receipt tool without changing the immutable oracle.
+  Both failed receipt attempts remain available alongside successful results.
+- Aggregate .worktree/identity-seed-selection-qualification.json has SHA256
+  ca8f2f418d7b1bc7443a6a9361009c0bf132b0e0f03a215095120437b06ce90b.
+  Reuse this acceptance unless related source changes invalidate it. The next
+  bounded operation is historical audit compatibility, followed by guarded
+  recording/recovery/preference fixtures; whole Identity remains open.
+
+### Historical project-role audit Identity boundary
+
+- Previous goal turn is verified progress: operational image import and scale
+  seed Identity selection is implemented and independently qualified; preserve
+  dce7d425a, 3a1861611 and 18865c060 evidence. Whole goal remains active.
+- Inspect every actual audit query before binding the owner. In addition to
+  User id/role/active joins and counts, the report reads invitation values and
+  optional-column metadata. Close both Identity sources in this operation; keep
+  other domains' explicit read-only scope separate.
+- Capture six actual current-schema reports and four existing behavior checks
+  before consumer edits at 18865c060; all ten pass with owned cleanup. Freeze
+  deterministic fixture round UUIDs as well as row UUIDs, retain the first
+  reports/driver, then capture six current reports plus two actual 0171 reports.
+  All eight pass; both historical databases are genuinely migrated from empty,
+  without aap_identity_v1 or avatar_ref, rather than dropping 0173 columns on a
+  modern schema. Original production SQL is unchanged during both captures.
+- Existing 0286 account_profiles cannot satisfy actual 0171 compatibility,
+  because its avatar_ref column appears in 0172 and its schema appears later.
+  Use an explicit audit-only installer and three fixed relations under the
+  existing Identity owner, outside both the read-only CLI and Alembic graph.
+  This avoids bootstrapping a future application schema ahead of its migration.
+  No role, DSN, transport or deployment mode is implicitly created.
+- Account rows retain nullable/unknown role and activity diagnostics. Invitation
+  project_role uses a single-key whole-row JSON projection, NULL before the
+  additive column and automatically visible afterward; only the eight actual
+  report fields cross the boundary. Owner metadata reports column presence.
+  Every original SQL scope, count, ordering and RR/RO transaction is retained.
+  The ordinary five-function/two-view Identity profile remains unchanged.
+
+- Integrate owner source bebe40cb4 as 8ef1d7efc and cold source 9c36230ff as
+  1860299b0. Root corrects the cold test's function comparison to use qualified
+  names before execution; no production function or CLI output is changed.
+- First Native attempt stops three report cases before any query because the
+  fresh fixture LOGIN lacks CONNECT on the managed database. Add only that
+  prerequisite to the fixture; the empty report reproducer then passes. The
+  remaining thirteen report/snapshot/existing cases pass. The transition/Node
+  case reaches successful 0171-to-0173 consumption without reinstall, but its
+  restore into an already initialized target fails while dropping old partition
+  constraints. Use a newly reserved empty owned restore target; the targeted
+  transition/Node/full-backup/restore case then passes. All failed receipts and
+  cleanup outcomes remain available. Latest unique Native union is fifteen,
+  including eight immutable report replays and five existing audit regressions.
+- The standalone installer uses fixed temporary reference views to compare
+  existing view definitions, rather than brittle SQL-text normalization. Repeat
+  preserves OIDs; wrong API-role composition is rejected. Actual private User
+  and invitation access is denied, RR snapshots stay stable across external
+  account/invitation writes, and ordinary API remains exactly five functions
+  and two views. Frozen descriptors are shipped in the owner package and beside
+  the operator installer. Source, architecture and cold checks follow next.
+
+- Focused contract, source and architecture checks pass 379 cases, with 150
+  existing inapplicable rules skipped. Tooling/migration policy checks pass
+  58 tests; OpenAPI comparison is unchanged. Native union fifteen and all
+  successful/failed owned cleanup receipts are retained without rerunning
+  passing cases for counts. Matching owner/API artifacts and real cold CLI
+  acceptance are the remaining gates for this bounded operation.
+
+- Implementation 980576b7a41471536bb57f1ed45adce25621461e passes first cold
+  qualification: one actual 0171 case and seven real container calls. Missing
+  views and revoked SELECT return 2 with sanitized errors; compact/pretty reports
+  match their expected data and revision remains 0171. A fresh non-admin,
+  non-inheriting audit LOGIN reads only six non-Identity business tables plus
+  Alembic metadata and the three views; private User/invitation table and column
+  access is denied. The original legacy LOGIN is restored after all owned
+  one-shot connections close, while ordinary API stays five functions/two views.
+- Physical cancellation exits 137, externally stopped and not timed out. Actual
+  account_roles SQL, role, application tag, container IP and PostgreSQL PID are
+  correlated; exact backend absence and unchanged source data precede successful
+  re-execution. Ten-second SQL gating proves eventual release, not instantaneous
+  cancellation. Modern downgrade/frozen-SQL rollback/head0303 re-upgrade and all
+  historical/current owned cleanup pass. The backup is 406787 bytes, SHA256
+  f01bb3bc8ab5436e1508766039f42da233fb38a45091b1d4e0b9e68911d2ee7d;
+  restored 0173 rows, ACLs, metadata and Node reads match the source.
+- New owner artifact verifies 284 package files in twelve namespaces without
+  API/ORM/Celery/Inference-provider dependencies. Matching API verifies 768 app,
+  516 package and 32 actual script files, 1316 total. Reuse unchanged Inference
+  and Assets-source manifests/evidence. Both source workers have verified exact
+  incremental bundles, patches and ignored Ruff archives before clean checkout
+  removal; source branches remain available. This closes the audit's Identity
+  operations, not whole Identity. Next are recording/recovery and guarded
+  preference fixtures. Local-only boundaries and the full goal remain active.
+- Documentation builds in 16.340 seconds; commit 2aab824b0 updates the sole
+  ledger and current operational instructions. Preservation confirms twenty
+  unchanged editable bindings, protected clean primary HEAD 856fa79c8, the same
+  four shared running containers, 75 known owned PostgreSQL containers absent,
+  no fixture runtime/network or persistent Root runtime, matching four-image
+  source manifests and both verified worker archives. Normal commit hooks pass.
+- Aggregate .worktree/identity-role-audit-qualification.json has SHA256
+  fcc15631dc1d3136071e03fd166e7ad767c14fdcc6d1c5cd36f37a1ea19da396.
+  Reuse this bounded acceptance unless related changes invalidate it. Remaining
+  Identity operations are recording job/reject fixture lookups and guarded
+  screenshot preference replacement; the full module and goal remain active.
+
+### Screenshot fixture Identity consumer boundary
+
+- Scope is the Identity operations in the original job-recovery fixture,
+  review-reject fixture and screenshot-preference restore CLI. It does not qualify
+  their other domain writes, browser recordings or real ML inference.
+- Before changing consumers, captured 37 cases from adbc84451ae6877193ca58195c6d02affbd7edfd,
+  including the actual cached-email entity behavior. Immutable snapshots retain
+  their source hashes. All 37 replay under credentials denied private User access.
+- Exact email lookup uses the existing public account relation and returns only
+  UUID. A single scalar entity lookup retains the old Session identity-map behavior;
+  rebuilding an email-keyed result map would reject a row whose cached email is old.
+- The fixed aap-identity-fixture-preferences/v1 capability replaces arbitrary JSON
+  objects for the exact supplied ID, returning integer zero or one. Same-value
+  updates count as one; NULL/missing IDs count as zero. It preserves caller-owned
+  transactions, normal row-lock waiting, inactive accounts and unknown nested keys.
+  There is no added auth, journal, retry, hidden commit or public REST endpoint.
+- Migration 0304 owns the hardened SECURITY DEFINER function. Both the physical
+  database guard and trusted grant profile require the case-sensitive \_test/\_e2e
+  suffix. Ordinary API credentials retain five functions/two views. The trusted
+  recording profile appends one EXECUTE and retains private table/column denial.
+- Five extra Native cases cover Node, borrowed rollback, a real conflicting User
+  row lock, and actual \_e2e, \_dev and \_TEST databases. The first run passed the three
+  suffix cases but had two missing-fixture setup errors. After fixture registration,
+  only those two cases were rerun and passed. All failed receipts are retained.
+- Implementation c59ea11a024521820e736499690db79965428643 integrates owner source
+  882a3fa3dd8b0587731a6a0f9ccd63566bc4ab0e as c3d020f2e, and cold source
+  7abd647570863126d4c13bcaef64c33e0d6150c8 as bd37b8b55. Root corrected the
+  physical suffix guard, descriptor $defs, fixture registration, qualified
+  function comparisons, synchronous file calls and the cold grant selection.
+- Source checks passed 392 with 150 existing architecture deferrals; tool checks
+  passed 58 and OpenAPI remained unchanged. Owner and API installed artifacts
+  matched 286 and 1,318 files respectively. Unchanged Inference/Assets-source
+  artifacts were reused, rather than rebuilt for counts.
+- One cold installed-image case passed 23 actual original-CLI container calls.
+  Scope/user failures, repeat operations and capability revocation preserved the
+  prior state. Restoring EXECUTE recovered the write. Physical cancellation was
+  correlated with the exact Native query, legacy_runtime role, container IP and
+  PostgreSQL PID; exit 137 released the backend, rolled back the new preferences,
+  and a later execution recovered. The verifier removed every owned resource,
+  and full migrations plus frozen SQL installation/rollback passed at head 0304.
+- The first Native attempt failed descriptor preflight before resource allocation
+  because $defs was absent. Its original receipt is retained; no test pass is
+  attributed to it. The extra Native setup failure is retained separately above.
+- Root archived verified incremental Git bundles, binary patches and ignored Ruff
+  caches for both clean source workers before removing only those two owned
+  checkouts. Their branches remain. Shared infrastructure, editable bindings and
+  the protected primary must match the final preservation receipt.
+- The documentation build passed in 17.244 seconds. This qualifies only the three
+  consumers' Identity operations on local ARM64, not their other domain writes,
+  browser media, real ML, the full recording workflow, production capacity, remote
+  CI or primary runtime cutover. Existing media provenance/review hashes remain
+  unchanged; no recording was regenerated. The next concrete Identity prerequisite
+  is the gated `_test_seed`/`_test_seed_filters` runtime routes that still
+  create/delete users and invitations through `tests.factory`.
+- Qualification documentation commit c5fc1be9ffcd427e963f4ee99af5bf6b24a15587
+  records the bounded cold acceptance and sole remaining-work ledger. Final
+  preservation confirms twenty unchanged editable bindings, four unchanged shared
+  running containers, protected clean primary HEAD 856fa79c8, 81 known owned
+  PostgreSQL containers absent, no persistent Root/fixture runtime or network,
+  matching manifests for all four images and both verified worker archives.
+- Aggregate `.worktree/identity-recording-qualification.json` has SHA256
+  `27f19a8ffa561f865d6049f5b054644fae856a74af826412d09b84ae609c4d89`.
+  Captured values exactly match all 37 original per-case artifacts; existing
+  protocol/OpenAPI/media-review artifacts retain their earlier byte hashes.
+  Reuse the passing acceptance unless related changes invalidate it. The full
+  module goal remains active; no push, production deployment or primary cutover.
+- Next-slice audit confirms the guarded E2E router has exact namespace cleanup,
+  complete UserOut login, account creation, invitation fixtures and peek ordering.
+  Its existing physical database check lowercases the name before the suffix test;
+  preserve that established route behavior rather than copying the screenshot
+  restore CLI's case-sensitive rule into this separate consumer.
+
+### Guarded E2E Identity fixture boundary
+
+- Preserve the full module goal; the preceding screenshot milestone was verified
+  progress. This slice covers every Identity operation in the actual gated E2E
+  runtime routes, including organization membership deletion discovered during
+  restricted execution. Other domains retain their existing trusted fixture scope.
+- Starting at f7fb219abe41788a7356910aedfc973b1b241f59, all 64 existing route/owned
+  cases passed. Six frozen actual behavior captures cover full UserOut, missing
+  email, real cached email/role/preferences drift, peek precedence and exact/shared
+  cleanup including password-reset tokens and invitations. The first custom fixture
+  used an invalid non-hex token hash and stopped before consumer execution; its
+  receipt and driver remain. Corrected single-case and remaining captures passed.
+- Source owner commits b9eb2546386bab6e2271f90863da5109c654af77 and
+  764692cab1a7e32a223e783bc542e5f0b851eb5d integrate as fae65434e and 4845fad2f.
+  Consumer 26c10d0c77f60e7f1d7d10d9005f91eb2202749c integrates as 818be2d9f;
+  cold source 8dd168a5e1c45781ae457dc96183cb09bf62fb5d integrates as 4cab172c6.
+- Root corrected the consumer's initial seven-column view reference to the new
+  21-field fixture relation, retained exact cached ORM values, and limited INSERT
+  to the actual factory-assigned columns so existing Identity column privileges
+  suffice. Seven Native writes preserve caller transactions, normal row waiting,
+  raw errors, inactive accounts, legacy roles and fixed cleanup predicates. The
+  actual database guard lowercases the name as the old E2E route did; this is
+  intentionally different from screenshot preference restore's case-sensitive rule.
+- Restricted execution exposed a real prerequisite: the old invoker registry
+  trigger issues a fence DELETE even with zero rows, while ordinary runtime ACLs
+  correctly deny tombstone deletion. Source c33a2bc136cf8201e6667ba01dff14ff84e31f85
+  integrates as e491563bf; migration 0306 wraps only that DELETE in an existence
+  check and preserves the membership predicate, invoker mode and exact 0278 search
+  path. Real existing fences remain blocked with 42501; managed GPU history with
+  nonzero runtime epoch remains 23514. No proof, journal or retirement is fabricated.
+- Root isolated fixture defects from implementation: original shared-savepoint
+  scenarios cannot supply uncommitted setup to a separate LOGIN; the Native harness
+  now uses committed metadata and per-request restricted sessions. Its three
+  spatial capabilities exactly match existing worktree operator grants. Product
+  cleanup still proves keeper data survives, then the test owner removes only
+  newly created row IDs to prevent later duplicate-key fixture failures.
+- Qualification so far: 27 distinct selected cases (including one GPU prerequisite),
+  all 64 existing route/owned cases, 393 source checks with 150 existing architecture
+  deferrals, 58 tooling checks and unchanged OpenAPI. Failing receipts are retained;
+  passing cases are reused and de-duplicated rather than counted repeatedly.
+- Filtering's checkout-relative video path was not installable. Root packages the
+  exact existing smart-point.webm in the API image and retains the source checkout
+  fallback. The Docker context permits only that one document media file. Original
+  media bytes/provenance/review records stay unchanged; no browser recording or
+  model inference is claimed.
+- The cold test uses original installed API routes over real Uvicorn/TCP, not SQL
+  mocks or disabled lifespan. A verifier-only extension of the existing bootstrap
+  IAM profile permits four E2E dataset prefixes and the mask content prefix in this
+  run's exclusive owned buckets. Other assemblies keep the default metadata-only
+  object policy. No shared administrator credential enters the API container.
+- Root implementation commit 3cde5b95e00220a64926e0ccdcd146f92e2c879c passed normal
+  hooks and includes the pre-cold ledger, operational docs and prerequisites.
+- New owner/API/Inference/Assets-source images matched 288/1322/88/154 installed
+  files respectively. The narrow Docker context change affects every image input
+  manifest, so all four coherent images were rebuilt; unchanged dependency/source
+  layers were reused from cache. API totals include the exact original video asset.
+- First cold attempt completed disabled routes, missing-capability failure,
+  correlated physical cancellation/recovery and normal HTTP operations, then failed
+  while serializing a neighboring HTTP Response as a dict. The original receipt is
+  retained. A minimal evaluation of the actual probe expression with a Response
+  verified the corrected access; correction commit 3799e37e3ea011a06c941edae708856d19d00d57
+  changed only that fixture result access and passed normal hooks.
+- The second full cold case passed eight actual installed-image container runs:
+  real Uvicorn/TCP, the full application lifespan, original owned/login/peek/roles/
+  filtering/lidar/tracker/raster/advance/cleanup routes, complete inactive UserOut,
+  invitation/reset-token dependency cleanup, neighbor preservation and exact newly
+  created mask/dataset versions. A revoked create capability failed and rolled back;
+  restore recovered it. Physical exit137 was correlated with the exact Native call,
+  LOGIN, container IP and PostgreSQL PID; the backend disappeared, the uncommitted
+  namespace remained absent and the original route recovered. All owned resources
+  were removed; frozen SQL installation/rollback and migrations passed at head0306.
+- The four clean integrated workers have verified incremental Git bundles, exact
+  source patches and ignored Ruff-cache archives before checkout removal. Branches
+  remain. The read-only closure inventory found no further runtime private Identity
+  table operations, but legacy/default roles still receive broad public-table CRUD.
+  That existing binding's private-table privileges and compatibility need isolated
+  local qualification next; do not equate the five-function/two-view module
+  consumer's qualification with default-runtime closure. No primary cutover, push,
+  release, production deployment, remote CI or Go expansion occurred.
+- Qualification documentation commit a3f8764a08a75a5c7896f45962f8031c29f9f92d
+  updates the sole ledger and operational commands. Documentation build passed in
+  16.816 seconds. Final preservation confirms twenty unchanged editable bindings,
+  protected clean primary HEAD856fa79c8, the same four shared running containers,
+  97 known owned PostgreSQL containers absent, no persistent Root/fixture runtime
+  or network, all four exact image input manifests and four verified worker archives.
+- Aggregate `.worktree/identity-e2e-qualification.json` has SHA256
+  `24acfc4ba8833cf8d5aa4562362ce4115e3c376d868a88eb83d40bfad2827534`.
+  It de-duplicates 27 selected boundary cases and 64 original regressions, preserves
+  every failed receipt, validates all six original captured values and earlier
+  frozen protocol/OpenAPI/media bytes, and links the eight-container cold case.
+  Reuse this acceptance unless related changes invalidate it. The full goal remains
+  active. Next is existing default-runtime Identity private-table permission and
+  binding qualification in isolated local development; production and primary
+  cutover remain outside this delivery.
+
+### Embedded Identity private-storage ACL closure
+
+- Continue from clean Root c8f92da1c9aa72fce9ef2887f7376e7df279f354. The next
+  bounded delivery preserves existing embedded Native bindings and closes private
+  table/column access for distinct application LOGINs in both existing worktree
+  and LAN grant entrypoints. No new runtime role or deployment mode is introduced.
+- A read-only source audit confirmed no remaining production API private Identity
+  ORM/table operations. It found six missing worktree schemas and thirteen typed
+  functions compared with the LAN profile; restore those existing capabilities.
+- The first worktree private-ACL and full HTTP scenario passed. The next run exposed
+  a real NOINHERIT gap: membership still permits SET ROLE even without effective
+  inherited table privileges. Both grant transactions now reject application role
+  memberships. Retain the failing receipt; do not infer isolation from NOINHERIT.
+- Two negative-fixture assumptions were corrected: verifier default privileges grant
+  newly created probe tables, so revoke that direct ACL before testing rollback;
+  LAN's existing Assets guard can reject PUBLIC user access before the new Identity
+  guard. Either owned transaction must fail closed without widening shared ACLs.
+- Final Native qualification passed fourteen cases across both grant profiles:
+  direct/table-column denial, repeated grants, PUBLIC/membership refusal and atomic
+  rollback, borrowed fixture transaction rollback, actual embedded HTTP login and
+  account commands plus directory/admin-password/platform-role/suspension/deletion/
+  offboarding/logout, and four existing ordinary-consumer ownership failures.
+- Single-owner development compatibility remains explicitly outside storage-fence
+  qualification. It returns without modifying owner ACLs; do not silently label it
+  isolated or switch the protected primary. Default ACLs are not rewritten, so
+  repeat deployment grants after migrations/new relations/wide-grant refreshes.
+- Cold installed API qualification is pending. Its existing COPY includes API test
+  inputs, so rebuild only the API image for the changed fixtures; the other three
+  image input manifests are unchanged. Reuse unrelated qualified evidence.
+
+- Implementation ae2401897a8723f913704afa463e1344fa710102 passed normal hooks.
+  The initial hook invocation only formatted two Markdown files; the successful
+  retry is retained separately. Twenty focused tooling checks passed.
+- API image aap-api:workspace-module-0900776093ec has immutable image ID
+  sha256:e6b65861bb5be072e106d1fe6109bd76fe553cf1ff3e833a7073177ec2149a58,
+  identity 0900776093ec02ee7ab3dd68 and source ae2401897. Only its three API test
+  COPY inputs changed; the other three qualified image manifests remain unchanged.
+  The offline probe matched 769 API and 520 package files across 34 packages.
+- Both actual installed API cold cases passed on the first attempt, one per grant
+  profile, with full Uvicorn lifespan/TCP, unset Identity selectors, disabled E2E
+  routes and the distinct legacy_runtime LOGIN. Each real API container is nonroot,
+  read-only, one CPU and 512 MiB. Fourteen Native and two cold cases are distinct;
+  repeat observations are not counted twice. Full migration and frozen SQL rollback
+  passed at head0306; owned resources and storage principals were removed.
+- The remaining single-owner compatibility branch cannot provide a storage ACL
+  fence and remains explicitly unqualified. Credential separation for that branch
+  is the next bounded Identity delivery. The protected primary and production stay
+  unchanged; old host-forwarded intermittent 503 remains unconfirmed. Keep the
+  complete goal active and use the sole module-deployment ledger for remaining work.
+
+- Documentation qualification commit 2b399d681cb5c93c01f7619b84197ca699502919
+  passed normal hooks; the documentation build passed in 16.597 seconds. Final
+  preservation verifies twenty unchanged editable bindings, protected clean primary
+  HEAD856fa79c8, the same four shared running containers, 101 known owned PostgreSQL
+  containers absent, no persistent Root/fixture process or network, unchanged
+  non-API image inputs and the matching rebuilt API input manifest.
+- Aggregate `.worktree/identity-embedded-acl-qualification.json` has SHA256
+  `68d1a3cfd1bc691898aa49c57b4bbab0b7894909939108d69625d773e4cd98b3`.
+  It includes sixteen distinct Native/cold cases, twenty focused tooling checks,
+  immutable image and source hashes, migration/cleanup facts and the retained
+  failed acceptance receipt. No push, production deployment, primary cutover,
+  remote CI or Go expansion occurred. This bounded capability is locally qualified;
+  the full goal remains active, with the next delivery recorded in the sole ledger.
+
+### Worktree-owned Identity runtime LOGIN
+
+- Continue from clean Root ffce5e81f1159dbcc0add9af3d18951d4430d585. The previous
+  goal turn was progress: it qualified distinct-role embedded ACL closure. This
+  bounded continuation closes the actual worktree branch whose configured runtime
+  and migration URLs share the same owner username; do not relabel that branch as
+  isolated while still passing owner credentials to application processes.
+- Reuse LocalResources, mode identity, atomic_json and the existing grant/worker
+  lifecycle. Generate one ordinary NOINHERIT LOGIN per mode, with an exact resource
+  ownership comment and a stable random secret in a 0600 sidecar bound to the
+  migration identity and server target. Existing distinct configured roles remain.
+  Insufficient CREATEROLE fails before infrastructure writes and requires a
+  preprovisioned distinct application URL. Never fall back to owner.
+- Creation and comment share a PostgreSQL transaction; saved credentials survive
+  interruption, prepare/reconstruction/stop do not rotate them, and exact ownership,
+  attributes, both membership directions, sessions and foreign dependencies gate
+  cleanup. Only the creator's PostgreSQL ADMIN-only edge is accepted. State stays
+  until all owned cleanup succeeds. No cross-database DROP OWNED is introduced.
+- A source audit found a genuine prerequisite: newer Identity capability database
+  selectors were still inherited from shared settings. The worktree child env now
+  clears every current Identity and notification-publisher database URL/file pair;
+  a Settings-AST regression enforces the complete list without importing the app.
+- Fast worktree regressions passed 57 cases. A subsequent full preparation probe
+  exposed a real reordered-inventory defect: input-bucket upgrade created the new
+  bucket but a stale inventory attempted creation again. Refresh and validate the
+  inventory after upgrades; its smallest regression passed separately. The first
+  unit run's fixture-only incomplete backend stub is retained and corrected.
+- Two actual PostgreSQL role lifecycle probes passed (superuser and non-superuser
+  CREATEROLE migrators). The first attempt failed before module code because Unix
+  socket readiness saw the temporary init server; TCP readiness corrected it.
+- The full existing maintenance verifier now uses the same configured owner URL
+  to exercise automatic role separation. Its genuine presence task is gated by an
+  owner row lock, and pg_stat_activity confirms the generated LOGIN and exact PID
+  at the Identity Native call. The ordinary role cannot access private users or
+  perform DDL; the maintenance worker completes five existing tasks, including real
+  partition create/drop and view refresh. Both workers exit without DB sessions;
+  reconstruction preserves the 0600 secret, and final DB/role/secret cleanup passes.
+- The successful worker receipt is `.worktree/identity-runtime-role-workers-fourth.command.json`.
+  Earlier receipts remain: one syntax error in the test driver and a fixture-only
+  interval codec error before task dispatch. An actual execution of the same INSERT
+  with timedelta values verified the smallest correction before repeating workers.
+- Native negative/lifecycle cases are source-only delegated in a fresh isolated
+  worktree based on this starting HEAD; Root owns all imports, tests, DB and runtime.
+  Complete Native and matching installed API acceptance remain pending. No primary
+  cutover, push, release, production deployment or Go expansion is authorized here.
+
+- Source worker 6214f5e74 integrates as 61f84732feb8198b938737d31d8c7431248da435.
+  Its eighteen actual Native cases first passed sixteen; strict-0600 validation
+  incorrectly allowed owner execute bits, and the missing-owned-DB dependency
+  predicate let NULL suppress a foreign database grant. Fix both guards, then pass
+  precisely those two reproductions. Retain every failure and reuse passed cases.
+- Root reuses the role catalog/ownership validation inside the generated-role grant
+  transaction; a foreign incoming membership now rolls back the whole grant batch.
+  The generic distinct/LAN profile keeps its accepted migration inheritance policy.
+  The full prepare/HTTP/lifecycle case passes again with this transactional guard.
+- Reuse the existing b23a36307378f7f40cea0a2095561a614daeb5dc fix rather than
+  reimplement it: worktree and migration client counts exclude only autovacuum.
+  Its existing SQL regression injects a maintenance row and retains a real client
+  blocker. Root wraps it in the allowed verifier test directory; it passes along
+  with the new transactional membership case. The latest unique Native union is
+  twenty, not the sum of all attempts. No actual autovacuum scheduling is claimed
+  by the injected-row regression in this run.
+- Final focused tooling passes 58 worktree and 40 selection/migration-policy Python
+  cases plus eleven Node supervisor cases. The cold installed API case is ready,
+  uses only the generated per-mode LOGIN, and remains pending at this checkpoint.
+- Read-only historical forwarding audit narrows the remaining issue: API-to-owner
+  HTTP was on the Compose network; owner/API-to-PostgreSQL used host.docker.internal.
+  Unexplained 503s occurred at invitation, restored /auth/me, and offboarding.
+  /auth/me cannot be attributed to actor-context from preserved evidence; auth and
+  account RPCs need separate diagnostics. Direct SELECT route probes and traced
+  passing assemblies do not close this failure. Reproduce those actual RPC consumers
+  with sanitized phase/status/SQLSTATE evidence as the next bounded Identity item.
+
+- Implementation 600556197530225c4dcb6d09d5f88c582d8bee67 passed normal hooks.
+  Before cold installation, extend the existing full Native case with real custom
+  pg_dump/pg_restore of the same owned database while preserving its global LOGIN
+  and sidecar. The extension passes: actual account state and durable revocations
+  match, the role still authenticates and cannot read private tables, and real HTTP
+  login/profile succeeds after restore. Record the backup SHA, do not fabricate
+  recovery rows or rotate credentials, and keep the unique case union at twenty.
+
+- The first installed API run completed the embedded Identity HTTP probe, then
+  failed fixture cleanup because AsyncConnection has no bind attribute. Use the
+  owning AsyncEngine dialect for identifier quoting; verify that exact expression
+  with actual SQLAlchemy objects before repeating cold acceptance. Preserve
+  `.worktree/identity-runtime-role-cold-first.*` and its real exit 1. Parent-owned
+  cleanup still removed its resources, bootstrap principal and PostgreSQL container.
+
+- Fixture correction 2c05d717888e70dd68e0c1f648b2b5fdd4e8eb2a passed normal
+  hooks. Its exact SQLAlchemy object reproduction passed without a DB connection.
+  Matching API cold acceptance then passed in 47.200 seconds: actual Uvicorn/TCP,
+  generated LOGIN, no Identity DSN selectors or migration/test owner in the API,
+  and the complete embedded HTTP lifecycle. Image sha256:214f38980b12d4a3c2557966e46153f67a24c9d6041fc640872c65c8780abd8d
+  matches 1,289 application/package files; the other three image inputs are reused.
+  Migration head 0306, frozen SQL install/rollback, full re-upgrade and all owned
+  cleanup pass. The first failed receipt remains immutable; no suite is rerun for
+  counts. Native union remains twenty and the cold case adds one distinct case.
+
+- Documentation qualification e4968da310487993f8c43dec29b85d467675d024 passed
+  normal hooks; the documentation build passed in 16.706 seconds. Final
+  preservation confirms twenty unchanged editable bindings, protected clean primary
+  HEAD 856fa79c87ef2668d0ed74eb570df0a3e529d49f, four unchanged shared containers,
+  112 known owned PostgreSQL containers absent, no persistent Root/fixture runtime,
+  and matching input manifests for all four images. The one source worker is clean,
+  patch-equivalent, bundle/cache archived and removed; its branch is retained.
+- Aggregate `.worktree/identity-runtime-role-qualification.json` has SHA256
+  `a3101c779fde4f7814c9431af98e3a572f732f8d345c9df509c889db6e19d318`.
+  It records the twenty-case incremental Native union with per-case receipts,
+  one cold API case, real worker and backup/restore evidence, 98 Python tooling
+  checks, eleven Node checks, immutable failure receipts, source/image hashes and
+  cleanup/preservation facts. This closes the bounded worktree credential branch
+  locally; it does not close the entire Identity module or the overall goal.
+  The next bounded delivery remains actual invitation, restored /auth/me and
+  offboarding RPC diagnostics on the old host-forwarded PostgreSQL path. No push,
+  release, production deployment, primary cutover, remote CI or Go expansion occurred.
+
+### Original host-forwarded Identity RPC diagnostics
+
+- Continue from clean Root 6be92a3b87bb535cedf1ca17cdc0aec72c8d68ea. The previous
+  turn completed bounded credential isolation and is progress. The whole goal and
+  the unexplained original forwarding failures remain open.
+- Reuse IdentityModuleStack and the exact ordinary API consumer; a test-only
+  subclass restores host.docker.internal PostgreSQL routing without weakening any
+  ownership, image, runtime, signer or capability checks. Installed-package command
+  wrappers record only RPC paths, phases, elapsed time, status, error type, SQLSTATE,
+  function name and PostgreSQL identity. No payload, token, password or arbitrary
+  SQL is logged. This instrumentation is diagnosis, not an asserted source fix.
+- A bounded actual consumer case exercises invitation and offboarding repeatedly,
+  performs a real complete backup/restore and probes restored /auth/me separately.
+  It retains all observations before asserting, without retrying ambiguous writes.
+  Matching current images and the first diagnostic run are pending.
+
+- Diagnostic source dc37e9df2ecf08b6c5b3cae9c40c8adf9cc0cd5d passed normal
+  hooks. Current owner/API images match 139 and 1,289 installed/application files.
+  The first owned run passed 65 real calls: eight invitations, eight offboarding
+  previews/commits, eight original profiles, login and 32 restored profiles.
+  Both RPC layers returned 200 and all 270 observed database connects succeeded.
+  This did not reproduce or repair the original defect. The next bounded check
+  pairs the same case without instrumentation and adds a controlled connection
+  denial/recovery, proving that a real failure is visible to the diagnostic path.
+
+- Before the full failure control, a disposable PostgreSQL primitive probe proved
+  ordinary LOGIN rejection at connection limit zero (actual SQLSTATE 53300), then
+  successful login after restoring the original limit; its container was removed.
+  Source 3dbff02e73aedfabc95258b25465019380113a25 passed normal hooks.
+- The traced control case passed in 84.198 seconds; its untraced counterpart reused
+  the exact current images on a different fresh database and passed in 84.080
+  seconds. Each records 67 public calls, including one expected 503 and subsequent 201. The traced refusal is TooManyConnectionsError/53300 at connect, followed by
+  raw owner/API 503; no invitation was written during refusal. Both full restores,
+  migration head 0306/frozen SQL rollback and all owned cleanup pass.
+- Six original auth/users route and gateway/account/invitation/offboarding adapter
+  hashes match the old failing image. Neither current variant reproduced the
+  historical intermittent failure. No business fix is inferred from this evidence.
+  Keep the overall goal and Identity blocker open; the next bounded diagnostic is
+  the original full business sequence on that host-forwarded path, preserving the
+  same safe tracing and comparing authentication and account-read RPCs separately.
+
+- Documentation checkpoint 00825d63b083fd0e361958dda11876137118b99c passed normal
+  hooks and the documentation build in 16.654 seconds. Remove two obsolete ledger
+  next-item references to the already qualified E2E slice; this final wording-only
+  cleanup uses normal formatting checks rather than repeating acceptance.
+- Final preservation confirms twenty unchanged editable bindings, protected clean
+  primary HEAD 856fa79c87ef2668d0ed74eb570df0a3e529d49f, four unchanged shared
+  containers, 116 known owned PostgreSQL containers absent and no Root/fixture
+  runtime. All five images used by this checkpoint match current inputs. The older
+  Workspace API image remains preserved; its only drift is the two host diagnostic
+  test inputs, not runtime application/package source. Earlier worker archives and
+  retained branches are unchanged.
+- Aggregate `.worktree/identity-forwarding-diagnostics.json` has SHA256
+  `b9367f9427a1f1df1351eda405c322607b21dd3a047ecd4e6d1a8e9d05c5b2e0`.
+  It records two different cold runtime cases and their actual public-call/trace
+  receipts, the native failure control, image/source identities, backup hashes,
+  migration/cleanup/preservation facts and retained original failures. Its status
+  is diagnostics_verified, explicitly not a historical repair or complete module.
+  No primary cutover, push, release, production deployment, remote CI or Go expansion.
+
+### Original full forwarding sequence
+
+- Continue from clean Root 64039945b1ceca08a8aba12d4d23a75e6b32ea69. The prior
+  turn added verified RPC diagnostics and negative controls, so it is progress;
+  neither the historical failure nor the full Identity goal is closed.
+- Reuse the original complete consumer test unchanged, including its original
+  operation order, mail, notifications, outages, replay and full restore. A small
+  test wrapper supplies the same ForwardedIdentityStack and preserves sanitized
+  traces before containers are stopped or recreated. Each variant gets a fresh
+  verifier database. This is a test binding, not a new deployment mode.
+- Extend only the test API command wrapper to observe body-read failures and the
+  context where IdentityGatewayUnavailable is created. Record error types and
+  source frame names, never exception messages, request bodies or secrets. Keep
+  the untraced variant on the existing original startup command. Compile the
+  embedded commands before actual current-image execution; no source fix is claimed.
+
+- Source 102b031a770a713a096455f0c1964397e3524cbc passed normal hooks. The
+  original full traced and untraced consumers pass in 113.639 and 106.449 seconds,
+  each preserving the original 66-entry public call ledger, real Node/Socket,
+  MailV1/V2, notifications, outages/replay and complete restore. Both use current
+  0306/frozen SQL and remove all registered owned resources. The API image matches
+  1,289 files; the unchanged 139-file Identity owner is reused.
+- Crucially, passing HTTP did not mean error-free transport: the traced restored
+  owner logged a real five-second invitation LOGIN connect timeout inside /ready.
+  No application SQL was reached; readiness retried and recovered. Preserve this
+  observation rather than treating the passing whole case as absence of failure.
+- Two owned transport probes omit Identity business code and compare private vs
+  host-forwarded routes with default and disabled SSL, four ordinary LOGINs and
+  1,024 attempts per arm. In the first probe, forwarded-disabled has sixteen actual
+  TimeoutError/CancelledError stacks ending in selector_events.sock_connect; its
+  other three arms pass. All four arms of the independent second probe pass.
+  Private routes total 4,096 attempts with no failures. These are connection
+  observations, not capacity benchmarks or independent business test cases.
+- The sixteen failures occur before TLS/authentication or business SQL, rejecting
+  a TLS-negotiation explanation for this reproduced fault. This local hairpin TCP
+  issue is proven; attribution of each historical business 503 remains unproven.
+  Do not add speculative transaction retries or change business timeouts.
+- The first probe's anonymous data volume was linked by fresh create and exclusive
+  mount/unmount events to that exact owned PostgreSQL ID, verified unreferenced and
+  removed. Its immutable initial receipt remains; a companion cleanup receipt
+  preserves the proof. The second probe uses tmpfs and verified volume-aware removal.
+- Extend the existing error-only trace metadata with cancellation traceback frame
+  names/lines. A framework-free check executes the actual emitter from source,
+  retains TimeoutError/CancelledError frames, excludes a known exception secret,
+  and compiles both command wrappers. This does not alter runtime business code.
+
+- A simultaneous comparison strengthens the isolation: the same installed client
+  process/server/four roles use default SSL on both routes. Private succeeds for
+  all 4,096 attempts; forwarding has 112 connect timeouts in 4,096 attempts. Each
+  captured cancellation ends at sock_connect to IPv4 192.168.65.254 and the owned
+  published port, before TLS or authentication. The private resolved peer is its
+  Docker network address. No DNS/IPv6/TLS explanation fits these observed failures.
+  This extra run changes the next action from generic RPC diagnosis to local
+  forwarding transport/assembly handling and the final Identity gate audit.
+
+### Final Identity consumer and local module gate
+
+- The final read-only consumer audit found one genuine remaining CLI path:
+  worktree_filtering counted private User rows under the generated ordinary E2E
+  LOGIN. Replace that count with the existing public account_profiles relation,
+  including inactive accounts. The actual seed then exposed a stale positional
+  call after seed_filtering gained a payload argument; pass db by keyword.
+- The same real CLI acceptance retains an exact old-source red result (SHA256
+  901975ed7ddbd5461f81bd6edbc48f9c85e5f516a48763c80af43d3877d35195),
+  initial fixture failures, and the signature failure. A small framework-free
+  error-handler check fixed only the copied test harness before repeating cold
+  acceptance; a separate signature probe reproduced the second defect without DB.
+  Final acceptance passes in 53.832 seconds: inactive-account refusal, full fresh
+  seed and resume preserving user changes, counts, credentials and original media.
+  Private Identity access remains denied. Migration 0306/frozen SQL and every
+  registered cleanup pass. Five existing CLI unit checks also pass.
+- Review all nine Identity operation groups against source, consumer migration,
+  independent installed artifacts, restricted credentials and recovery evidence.
+  No further private consumer gap was found. This closes the local module gate on
+  the intended private Compose database route. It does not assert another-language
+  full provider, primary cutover, production capacity or overall goal completion.
+  Central global migrations remain an explicit Runtime assembly responsibility;
+  no runtime DDL privilege is added. The proven old hairpin TCP defect remains in
+  the sole Runtime assembly ledger, without claiming individual historical 503
+  attribution or a transport repair. Next delivery: media seed Project operations.
+
+- Implementation b1f165f5822c7f04146c369026e493b2633542d5 passed normal
+  commit hooks. The final API image is
+  sha256:a3381f9aae6149e3ab8b242eea5630fcf2e985a49be6a8f620d9427a772acf93;
+  its isolated artifact probe matches 1,289 files in 34 package namespaces
+  (769 application and 520 installed package files). The 139-file Identity owner
+  is unchanged and reused. Relative to the full original consumer image, only
+  three test inputs changed; production application/package/build inputs match,
+  so the completed business acceptance is retained rather than repeated.
+- Documentation build passed in 17.013 seconds. Final preservation confirms twenty
+  unchanged editable bindings, protected clean primary HEAD
+  856fa79c87ef2668d0ed74eb570df0a3e529d49f, four unchanged shared containers,
+  126 known owned PostgreSQL containers absent and no Root runtime. All five
+  current images match their source manifests; earlier worker archives, retained
+  branches and the older Workspace API image are preserved. Exact first-probe
+  anonymous-volume ownership and removal evidence remains in its companion receipt.
+- Final aggregate `.worktree/identity-forwarding-original-qualification.json`
+  SHA256 is f9fc30f61ed158a3d0217b1337578bf84f3a30a6fb3d4eae8a3cafac3c774cdc.
+  It retains the original full traced/untraced consumer receipts, all three
+  transport comparisons, the exact old CLI red source, failed fixture/signature
+  attempts, passing real CLI and five unit checks, image/source hashes and final
+  cleanup facts. `.worktree/identity-module-completion-audit.json` SHA256 is
+  8eeb7dc0fe24c76d0eaa81bf89db388b32d45a360a57594a9764605d3eb45a1a.
+  It records nine qualified operation groups and the local module gates, with
+  explicit Runtime assembly and global-goal limitations. No primary cutover,
+  push, release, production deployment, remote CI or Go expansion occurred.
+
+### Workspace media and screenshot Project consumer migration
+
+- Continue from clean Root 4f9e0d97bb59a299451764787126692fcd968059 after the
+  completed Identity local gate. The full goal remains active. The bounded next
+  delivery is media/screenshot Project and member operations, with other-domain
+  writes retained under their existing ownership and Go kept experimental.
+- Read-only audit identified four media creators plus COCO8's add-only tool merge,
+  screenshot Project metadata/timestamps/member assignment, catalog reads and two
+  backend Project fields. Reuse public one-statement Project/member aliases,
+  existing deletion coordination and the Labeling counter bridge. Add only fixed
+  media creation, closed seed metadata projection and fixed member assignment.
+- Source worker commits d680b785bb9332b5a043bf85d6fd74c2a851c44a and
+  3e56e4e28c58fea33ff1cae141de816693d72b40 are integrated with Root's adapters,
+  consumers, grants and verifier. The new 0307/0308 artifacts leave older frozen
+  SQL/schemas unchanged. Root corrected a nonexistent PostgreSQL JSON function,
+  verified with an owned primitive before native acceptance. The verifier's stale
+  0306 guard was reproduced using the real migration graph and updated to 0308.
+- Before implementation, 25 existing screenshot/large-image checks and seven new
+  actual original media workflow/transaction goldens passed. Root's first native
+  cohort passed 60 cases; screenshot fixture setup and fixed-ID cleanup failures
+  were retained. The cleanup was isolated and fixed using the existing deletion
+  owner. The no-autoflush staged member flush now occurs at the original explicit
+  batch flush. Backend field projection is re-registered after its intermediate
+  service autoflush. Focused screenshot/backend checks pass 7; an independent Node
+  caller passes all three new capabilities, rejects private tables/Labeling fields
+  and proves rollback. The native union is 68 distinct cases, not repeated-run sum.
+  New closed-contract checks pass 37. All owned verifier cleanup and 0308 frozen SQL
+  roundtrips pass; original failed receipts remain under .worktree/workspace-media-\*.
+- Cold test/probe source 96008d825c38fdac92479ca578cc3c3b77d5374d is integrated.
+  Root shortened its test-only Dataset IDs to stay within varchar(20), and wired
+  the existing consumer/operator profile order into the verifier. Matching cold
+  images, non-editable installation and actual S3 execution are the next gate;
+  no complete Workspace, primary cutover, production or foreign-language provider
+  qualification is claimed at this source checkpoint.
+
+- Implementation a1a17f2a2b9ed2eacf3af61b89084c7d7c23cc08 passed normal
+  hooks, including OpenAPI export. The first commit attempt only reformatted two
+  new JSON schemas; both parsed values remain identical and the second normal
+  hook pass succeeded. Source Workspace suite passes 488. API architecture checks
+  pass 358 with 150 existing deferred rules; do not count skips as qualified gates.
+- Current non-editable Workspace image
+  sha256:8299b47a8ce170ac289d6a2151801336ff22560284b547fa366f75bcb0a4c81e
+  matches 292 installed files in 12 namespaces; forbidden API/ORM/ML dependencies
+  remain absent. Current API image
+  sha256:ca74251106d1b38e7495568164c05cf5ef2008aa9b95604b3c5166065b270987
+  matches 1326 files (770 app, 524 installed package, 32 CLI) in 34 namespaces. Both
+  installed new resource schemas equal actual runtime generation. Images build
+  in 6.147/34.058 seconds; unchanged Inference and Assets images are reused.
+- Cold acceptance passes in 57.878 seconds: six installed-image commands form one
+  integrated case. Revoking create prevents Project/Dataset commit and object
+  upload, then the same flow recovers after grant restoration. Four actual media
+  workflows/graphs, replay IDs/counts, custom COCO bindings and four S3 object
+  hashes match their readonly fixtures. Two original screenshot reconcile/backend
+  none/finalize sequences validate Project/member metadata through the private
+  fence in the same cold image. This is DB fixture qualification, not a complete
+  screenshot recording or ML inference. All 0308/frozen-SQL and registered cleanup
+  pass. Original production and fixture failures remain immutable.
+- Three clean source worker checkouts are bundle/cache archived, integration
+  differences checked (verified SQL correction, JSON formatting, grants and Root
+  screenshot test extensions), then removed. Their branches remain retained;
+  receipts are indexed by .worktree/workspace-media-workers.json.
+- A final read-only Workspace audit found further executable consumers beyond the
+  old ledger: guarded E2E Project/member/template fixtures plus worktree_filtering,
+  seed_scale Project/membership and Labeling counters, two screenshot support
+  readers, and the explicitly privileged pre-0173 read-only role audit. The sole
+  module ledger now lists these separately. Next delivery is the coherent guarded
+  E2E fixture/CLI boundary; export/cross-frame/video-tracker cold qualification and
+  legacy video retirement proof also remain. No overall Workspace completion or
+  primary/production cutover is claimed.
+
+- Final preservation passes with twenty unchanged editable bindings, protected
+  clean primary HEAD 856fa79c87ef2668d0ed74eb570df0a3e529d49f and four unchanged
+  shared containers. All 138 known owned PostgreSQL containers are absent; no
+  Root runtime remains. All five current image COPY input sets and hashes match,
+  including detection of newly added source files, and eight earlier/current
+  worker archive receipts and retained branches are unchanged. Documentation
+  build passes in 16.944 seconds.
+- Aggregate `.worktree/workspace-media-seed-qualification.json` SHA256 is
+  1853ab13cfde10b471f481385a98842325fac029b78704d842182cf196ad111c.
+  It records the 68-case Native union with exact receipts, source/architecture
+  counts and deferred skips, original baselines, retained failures and smallest
+  reproducers, non-editable artifact hashes, all six cold command results and
+  actual DB/S3 state, migrations, cleanup and preservation. This closes this
+  bounded Workspace consumer group locally; the full goal remains active.
+
+### Guarded Workspace E2E fixture boundary
+
+- Owner source 2a14f9d88db1a5525dbb878b8a1d09f48ca8cf55 is integrated as
+  909609d1bac23ea23e5a324a3e14c890c1eaaa14. Migration 0309 adds five closed
+  fixture capabilities plus a guarded two-column template fact relation. All
+  writes require a \_test/\_e2e database and an explicitly granted trusted operator;
+  normal Workspace API credentials retain the ordinary boundary.
+- Root migrates Project/member/template creates, scoped cleanup, metadata edits,
+  Session.get reads and the filtering CLI. Existing member and metadata writers
+  retain the original flush points. Shared reset selectors are unchanged; its
+  overbroad convergence documentation is corrected to require owned cleanup first.
+- Four actual route baselines capture complete Project/member/template fields
+  before migration at 968c1df40101f3b5b330af4030da479676db48f5. Native replays
+  match all four. Ninety-five distinct database/consumer cases now pass: original
+  HTTP semantics, explicit transaction/cache cases, genuine unretired denial,
+  controlled final-guard/lock denial with child rollback, renamed Project and
+  template residuals, Lidar transaction abort, five-function Node peer and the
+  actual ordinary E2E LOGIN filtering CLI. Never-started proof is produced only
+  by the existing owner guard; no retirement evidence is fabricated.
+- Focused attempt second retains 88 passing cases and one ACL-test failure: resolving
+  an object name without schema USAGE was correctly denied. The test now uses OIDs
+  obtained by its owner, and focused attempt third passes that case plus two final
+  refusal branches. Earlier immutable baseline/native/failure receipts remain in
+  .worktree/workspace-e2e-\*. Workspace source suite passes 498. Migration 0309,
+  frozen SQL rollback/re-upgrade and owned resource cleanup pass.
+- Matching non-editable owner/API artifacts and installed cold HTTP qualification
+  remain the next gate. The whole Workspace module and active full goal remain
+  open; primary, Go experiment, production and release boundaries are unchanged.
+
+- Root implementation and documentation commit
+  7a7ba7983aa2198b8fd1eecc863143587ddaa367 passes normal hooks, including OpenAPI
+  and tracked documentation generation. API architecture passes 358 with 150
+  existing deferred rules. No skip is counted as qualified acceptance.
+- Matching non-editable Workspace artifact
+  sha256:8e4ac33820383ffc4f8258fc526129ab9a6de828dd1ec81de692e6744b6e663f
+  matches 295 files in 12 namespaces; API artifact
+  sha256:4509888aa06417a7821d3d0f8e832698fc7dae2daa5914e1c782e94de08db940
+  matches 1330 files (771 app, 527 package, 32 CLI) plus two actual runtime
+  fixtures. All three new/current resource schemas equal runtime generation.
+  The owner contains no API, SQLAlchemy, Celery, boto3 or torch runtime.
+- Cold first attempt passes in 151.569 seconds, one integrated case with ten
+  installed-process commands. Nine commands exit zero; the physical cancellation
+  command exits 137 as intended. Workspace create revocation rolls back already
+  created accounts without object upload, then restored permissions recover.
+  Actual guarded routes, peer namespace preservation, repeated cleanup and process
+  recovery run with private Identity/Workspace relations denied. Migration 0309,
+  frozen SQL roundtrip and all registered cleanup pass. This closes the bounded
+  E2E Workspace consumer group locally, not the full Workspace module.
+- The clean owner worker is integration-checked and bundle/cache archived, then
+  removed. Its branch remains retained. Root's only owner-file differences are
+  generated protocol schemas and normalized descriptor signature spacing.
+  Receipt index: .worktree/workspace-e2e-workers.json.
+
+- Final documentation build passes in 16.491 seconds. Preservation verifies twenty
+  unchanged editable bindings, the protected clean primary at
+  856fa79c87ef2668d0ed74eb570df0a3e529d49f, four unchanged shared containers,
+  all 143 known owned PostgreSQL containers absent, no Root runtime, all five
+  current image COPY input sets/hashes and nine retained worker archive receipts.
+- Aggregate .worktree/workspace-e2e-qualification.json SHA256 is
+  1a9e2b0cdd0321ae035de954a1612b9059093ec3a3817a05d733da71802e7529.
+  It records the exact 95-case union, original baseline, retained failures and
+  focused correction, source/architecture/deferred counts, ten cold commands,
+  artifact identities, migration roundtrips and cleanup/preservation. The sole
+  ledger advances the next bounded delivery to scale seed and the two remaining
+  screenshot support readers. Legacy migration audit, cold worker consumers and
+  actual old video-retirement evidence remain open; no proof is fabricated.
+
+### Workspace scale seed and screenshot support readers
+
+- Owner source 78a794341b0ae07efd4d8eea85c196aa8d9e98b3 integrates as
+  50c551347a2f0e74cf92637c0b5c233973cfc977. Migration 0310 adds four fixed
+  Workspace scale operations plus one necessary Assets guard-only prerequisite.
+  The latter owns the private Dataset/Scene/Item lock and existing Jobs, Learning,
+  Assets and post-task Labeling retention calls; no private helper is granted.
+- Root preserves raw PostgreSQL defaults, display sequences, ON CONFLICT DO NOTHING,
+  exact marker scopes and the four original commits. Labeling owns total_tasks.
+  The two screenshot support readers reuse Session.get-compatible Workspace reads.
+  Production refusal precedes owner binding imports and engine creation.
+- Five original full-field/staging cases were captured at 560f701ca on 0309. The
+  migrated consumer matches all five; thirteen new scale cases pass including
+  unretired video, Learning policy, camera link/chapter retention, Dataset/Project
+  busy refusal, exact rollback, Node's five capabilities and sequence/conflict
+  behavior. Fourteen existing selection/import cases and twenty-three screenshot
+  reader cases plus the production guard pass: fifty-one distinct consumer cases.
+- Root removes the worker's unrequested test-database suffix restriction and
+  exclusive-role policy, retains additive profile composition, corrects eight SQL
+  JSON operator groupings, and preserves ordinary Workspace denial including the
+  cross-owner scale guard. Original failures remain immutable under
+  .worktree/workspace-scale-\*. A repeated unmodified attempt was interrupted during
+  cleanup; its exact scoped users/policies and database/container were recovered
+  and independently verified, with receipt workspace-scale-interrupted-recovery.json.
+- The screenshot happy case passed alone but failed after an image-import case.
+  Full field comparison proves the only difference is one unrelated retained User;
+  separate verifier-owned fixture databases pass all twenty-three screenshot cases.
+  No golden was changed. The owner suite has 504 distinct passing cases after
+  removing a free-text wording assertion; its contract and sidecars still match.
+  API architecture passes 358 with 150 existing deferred rules.
+- Matching cold artifacts and actual installed CLI acceptance are the next gate.
+  This is the Workspace consumer boundary; raw other-domain bulk DML, full module
+  closure, primary cutover, production, release and Go expansion are not claimed.
+
+- Root implementation/documentation commit
+  0a06b54735d3fa93d610ad8d2ffd70cace789c4d passes normal hooks, including
+  OpenAPI export. Matching non-editable Workspace image
+  sha256:961caf7098ac506911de5bca5142545c535db0ba91676b57074109485efd4645
+  matches 298 files in twelve namespaces; API image
+  sha256:5fe13f7c84af87fcce537cb54f032a8a5f1c8f8872ba283ede60b129080b6168
+  matches 1334 files (772 app, 530 package, 32 CLI) plus two runtime fixtures.
+  Four resource schemas match runtime generation; the owner still excludes API,
+  SQLAlchemy, Celery, boto3 and torch. Unchanged dependent images are reused.
+- Two separate cold cases pass: selection/scale in 70.245 seconds and recording
+  in 96.834 seconds. Eleven and twenty-three actual installed commands include
+  expected nonzero refusal/failure exits and physical cancellation 137. Recording
+  has twenty-one explicit command receipts plus two asserted successful preference
+  resets; do not count those calls as separate test cases. Both Role/Workspace
+  fences, real CLI behavior, rollback/retained phases, recovery and cleanup pass.
+  These are small fixtures, not default 100000-task or production capacity proof.
+- The source worker is integration-checked, bundle and ignored-artifact archived
+  (including hook-created virtualenv symlinks without following shared targets),
+  then removed. Its branch remains retained; partial archive attempt is preserved.
+  Root's exact owner edits are reviewed and recorded in workspace-scale-workers.json.
+- Preservation verifies twenty unchanged Root editable bindings, four unchanged
+  shared containers, all 155 known full owned PostgreSQL IDs absent plus the
+  independently verified interrupted-run prefix, all five current image COPY
+  path sets/hashes and ten retained worker receipts. The protected clean primary
+  stays at 856fa79c87ef2668d0ed74eb570df0a3e529d49f; no Root runtime remains.
+  This closes only this bounded Workspace consumer group locally. The sole ledger
+  advances to the privileged legacy Workspace audit; worker cold paths and actual
+  old video-retirement evidence remain, and the full active goal is unchanged.
+
+- Documentation build passes in 16.356 seconds. Aggregate
+  .worktree/workspace-scale-qualification.json SHA256 is
+  aad82f39949007876ff3da845a34e4e0c4f243f87a6f76fe9d37ff025d1214c4.
+  It binds the exact 51-case union, original baseline, 504 source cases, 358
+  architecture passes and 150 deferred rules, retained failures and recovery,
+  both cold cases/34 commands, artifact identities and final preservation.
+
+### Workspace historical role-audit owner boundary
+
+The historical audit now reads Project and ProjectMember through three fixed
+Workspace audit relations. The explicit installer composes with the existing
+Identity installer on actual revision 0171 without advancing Alembic. Ordinary
+Workspace deployment revokes this privileged audit surface. No new runtime,
+credential selector, Identity join, filter, role mapping, or transaction is added.
+
+The audit preserves the existing report version, fields, SQL NULL semantics,
+manager predicates, limits and privacy. Optional member preparation metadata uses
+pg_attribute under the owner rather than privilege-filtered information_schema.
+The fixed views see additive revision 0173 without reinstallation.
+
+The first owned-database acceptance passed 22 cases, including eight unchanged
+full report goldens, actual historical schemas, Node consumption, backup/restore,
+repeatable snapshots, nullable diagnostics and atomic installer rejection. All
+513 Workspace source cases passed, alongside 358 architecture and nine report
+contract checks; 150 existing deferred architecture rules are not qualification.
+
+Implementation commit 8109a369c passed matching cold artifact checks (300 owner
+package files, 1,336 API/package/CLI files, five schema resources). Two cold cases
+executed 11 real CLI commands against actual 0171 and current databases, proving
+missing-profile/SELECT denial, unchanged complete reports, recovery, physical
+process cancellation/backend release, and unchanged historical rows/revision.
+Full migration roundtrip and owned-resource cleanup passed. Evidence is retained
+in .worktree/workspace-role-audit-qualification.json. This closes only the local
+Workspace historical-audit operation; production capacity and primary cutover
+are not qualified. The sole current remaining-work ledger
+is docs-site/dev/concepts/module-deployment.md; the whole module remains open.
+
+The aggregate evidence SHA256 is
+c69f2fb2427fdf570f503e26ec148a789893feec710816edcd2d26d51e2b6fd9.
+It binds the unchanged oracle, all 22 database cases, source check counts,
+11 cold commands, exact artifact identities, installer contract, worker cleanup,
+and preservation of the primary checkout, shared services and editable bindings.
+
+### Workspace cross-frame cold worker acceptance
+
+The cross-frame consumer already uses fixed Workspace project/read/access/member
+lock capabilities. This slice adds the missing actual cold worker evidence under
+the ordinary restricted API credential, using an employee annotator membership
+rather than an administrator fast path. Existing native behavior and task
+registration/queue contracts remain unchanged; there is no new business protocol,
+owner runtime, selector, migration, or production implementation.
+
+All 16 existing cross-frame behavior cases passed in an owned disposable database.
+The cold worker case is being integrated for membership revocation, bounded lock
+contention/retry, stale source, pending cancellation and process restart. The
+installed worker artifact may be reused only if every Docker COPY path and hash
+matches current source. Final scope and evidence remain in the sole ledger.
+
+A separate read-only export audit found a concrete recovery qualification gap at
+9271a2b09. The six-hour Redis build lock is released only in finally, while
+ExportBuildInProgress retries are bounded to roughly ten minutes. Running-job
+reentry with a different Celery task ID returns early; same-ID reentry can reach
+the abandoned lock. Export is not supported by the current cancellation port.
+No physical worker-loss test was run in this audit, so broker redelivery and
+actual task_failure terminalization remain unproven. After the cross-frame gate,
+the smallest required next experiment is an owned export paused after lock
+acquisition, actual worker loss, and inspection of job, lock, broker, object and
+same/new-ID replay behavior. Do not infer signal failure from source alone.
+
+The first cold attempt reached the real restricted Workspace lock call, then the
+actual propagator failed with SQLSTATE 42501 on read_spatial_items. The default
+LAN application grant composition omitted the existing Spatial native contract,
+although module-data workflow grants already included it. The ordinary default
+profile now composes the same 22 published Spatial functions; no owner protocol
+or business implementation changed. A focused actual-role item/pose read passed
+before repeating cold execution. The original failed receipt and redacted worker
+diagnostics are retained, and all owned resources were removed. Existing local
+resource/deployment-grant unit checks also passed.
+
+The second cold attempt proved ordinary-member propagation, existing-track skip,
+real Workspace DB identity, restart and duplicate delivery without extra labels.
+Its revocation fixture was correctly rejected by member_removal_blocked because
+unfinished assigned work had no receiver. The fixture now uses the real member
+add/role-preview/confirmed-handover/remove commands, transferring tasks to an
+eligible annotator before removing membership. A focused actual-database check
+passed with both assignments transferred and the historical annotation author
+preserved. The preview's requires_handoff flag describes unresolved blockers;
+assertions now verify concrete task scope and successful handover instead.
+Owned Celery result handles are explicitly forgotten during final cleanup.
+
+The third cold attempt additionally proved queued-member revocation and NOWAIT
+membership failure, then the retry API returned an Identity admission 503. The
+fixture had explicitly constructed a gateway without the existing dedicated
+auth datasource, causing it to borrow the fenced business session. The fixture
+now validates and uses identity_auth_client on the same owned database, while
+business requests continue through identity_api_consumer. The focused real-role
+prerequisite case passed token authentication, current actor context, Spatial
+reads and valid work handover. No Identity credential grant was widened.
+
+The fourth cold attempt reached retry admission and exposed another default-role
+composition omission: the two published spatial reference views were absent,
+although embedded workflow grants already provided them. The default profile
+now grants SELECT on those exact narrow owner views alongside the existing
+Spatial functions. Focused admission validates both references, resolves current
+non-manager ProjectAccess, and executes the real \_create_job preparation through
+the restricted API role before rolling back the candidate. The latest focused
+case passed Spatial reads, token/current-context admission, candidate creation,
+work handover and preserved annotation authorship. The earlier prerequisite
+attempt without ProjectAccess correctly failed closed and is retained.
+
+Final cross-frame cold acceptance passed at source 709ff1b34 in 62.935 seconds.
+One integrated case contains seven actual acknowledged deliveries: success/skip,
+duplicate after restart without extra annotations, member revocation after valid
+handover, membership contention, real retry dispatch, stale source, and pending
+API cancellation before delivery. The retry/cancel ASGI routes use the ordinary
+business credential and separate verified Identity admission datasource; only
+the task's queue is bridged to the private broker. No worker code is patched.
+
+There are 17 unique native/prerequisite cases (16 original regressions plus the
+latest one-case admission/read/handover check), and 21 local resource unit cases.
+The API artifact was rebuilt for copied fixture changes and matches 1,336 app,
+package and CLI files plus four fixture files. The other four image COPY input
+sets remain unchanged and are reused. Earlier failed native/cold attempts are
+retained and not counted as passing qualification. Full module closure, export
+worker-loss recovery, video-tracker cold acceptance and genuine old retirement
+proof remain governed only by the sole current ledger.
+
+Final evidence review caught an acceptance wiring omission: the database gate
+helper was defined but the positive case still called the ordinary dispatcher.
+Earlier wording about an observed worker database wait described the intended
+gate, not an executed observation. The first five cold attempts prove only their
+actual recorded stages and configured runtime identity. The positive dispatch
+now invokes the gate and records sanitized PID, user, database, private client
+address, wait event and matched Workspace capability. The complete seven-delivery
+case must pass again before that observed-session claim is qualified.
+
+The wired gate reached the real restricted worker session and matching Workspace
+lock wait, then its exact-address assertion exposed PostgreSQL inet::text's /32
+suffix. Observation now uses pg_catalog.host(client_addr), retaining the exact
+worker-address predicate and every user/database/capability/wait assertion. This
+is an evidence-format correction; it does not change worker execution or ACLs.
+The failed wired-gate receipt is retained with successful resource cleanup.
+
+Authoritative final qualification is the seventh cold attempt at source
+3692d02ea, passed in 62.836 seconds. Its retained database observation records
+identity_api_consumer in the owned database, the verified worker private address,
+a relation-lock wait and lock_project_reference_nowait. It then completes all
+seven acknowledged deliveries. This final receipt supersedes earlier cold
+attempts for the complete observed-session qualification; the fifth receipt is
+retained as earlier business-matrix evidence only. Current artifacts are bound
+by .worktree/workspace-cross-frame-seventh-images.json and the matching complete
+COPY-input verification. No further execution or implementation changes are
+needed for this bounded Workspace operation; the overall goal remains open.
+
+Aggregate evidence .worktree/workspace-cross-frame-qualification.json has SHA256
+72628c8e5dd170a3fba346ba6b3e8ecd2bee4138c83d0fe3b94fbe8cdc8e2a60.
+It binds the 17-case native union, 21 resource unit checks, the final observed
+worker identity and seven acknowledgements, exact artifacts, retained failures,
+worker archive, migration roundtrip and preserved primary/shared environment.
+
+### Export hard-loss reproduction and recovery source checkpoint
+
+- The immutable export fixture was integrated as f05c3735642f7e84c488949b585db61048eefc08. First execution proved restricted-role Predictions query gating and SIGKILL exit 137, but its wait-for-backend-death order was wrong: PostgreSQL may not detect a dead client while its query waits on the fixture table lock. Correction 41d2f5b7df5777b72d6134ee588e4a4a8176e752 records the gate-held state, releases the gate, then waits for the actual old backend to disappear.
+- The corrected cold red run `.worktree/workspace-export-loss-cold-red-second.json` and its JUnit prove the old worker leaves the same Redis lock owner with 21,599,462 ms remaining. A new Celery delivery returns SUCCESS while the durable job remains running at 10 percent. Original-ID and fresh same-scope deliveries return RETRY; no artifact or export notification is written. All owned resources were removed, and the complete migration roundtrip retained head 0310. This is a demonstrated recovery defect, not a successful qualification.
+- Recovery source now uses one checked-out NullPool PostgreSQL connection for the AsyncSession, job then cache session advisory locks, and original-backend-PID checks. Invalidation or replacement permanently revokes that attempt's writes and is retryable; a new task ID can bind only after the job lock. Every upload has a distinct attempt key. A disconnected/uncertain commit preserves its object to avoid deleting an artifact a successor may already reference; unpublished objects expire under the existing export bucket lifecycle. Task-local late acknowledgement and worker-loss rejection retain the original broker delivery. No schema, dependency, public API or owner capability is added.
+- Nineteen pure regression cases passed first; the owned-database verifier then passed all 22 selected cases, including the real PostgreSQL lock lifecycle and two unchanged final-authority regressions, with zero skips. Its complete migration roundtrip retained head 0310 and all owned resources were removed. Evidence is `.worktree/workspace-export-loss-native-first.json`, its JUnit, and the input-hash command receipt. Cold recovery acceptance remains pending at this source checkpoint. Old export workers must be drained before changing lock mechanisms. Whole-parent Redis redelivery timing still depends on broker visibility settings; local qualification will distinguish exact owned-message restoration from automatic prefork child-loss requeue. Go and primary/production cutover remain outside this work.
+
+### Export cold recovery qualification
+
+- Recovery implementation cde81715d and fixture integration 2ffdcabe9 retain the existing Workspace access and final signing boundary. The first green execution already proved queued revocation and actual new-ID takeover/completion, then failed on the fixture's immediate Redis index-removal assertion: a live consumer can restore the same delivery tag while the test reads it. Fixture correction d8c21999f makes that state observational and verifies eventual broker acknowledgement instead. It also retains final worker diagnostics. No runtime fix was needed for this fixture race.
+- Matching cold execution `.worktree/workspace-export-loss-cold-green-second.json` passed the single composite case in 65.713 seconds. Logs prove five task IDs and seven actual receives: queued revoked reviewer refusal, killed original delivery, new-ID durable-job takeover, exact restored original broker delivery, fresh same-scope cache hit, killed prefork child, and automatic same-ID child-loss redelivery. The original Redis message is validated by task ID, task name, anonymous exchange, owned routing key, unique unacked tag and index before Kombu restoration; no synthetic old-ID message, global restore, purge or visibility-timeout change is used.
+- The actual worker holds two granted PostgreSQL advisory locks at the Predictions gate, with no Redis export-build key. pg_stat_activity proves the private worker IP, identity_api_consumer LOGIN, owned test database, exact backend PID and relation-lock wait. The whole owned container exits 137; the old backend genuinely disappears after gate release; the same immutable container restarts and a new ID completes the durable row. The original message then replays without another artifact/notice. A separately killed prefork child completes the original task ID with only one dispatch, unchanged parent container, exactly one child artifact and notification; WorkerLostError is present in retained logs.
+- ZIP and its source-image manifest URL both return HTTP 200 with expected content. The two successful builds leave exactly two attempt objects, no duplicate artifacts or notifications, and queue size and unacked count both end at zero. Cold and Native runs both pass the complete migration roundtrip at head 0310; all owned containers, networks, queues, results, storage principals and objects are removed.
+- API image sha256:edf86c782fd9453a511b67d4efbde12910461482e2e074d24cb5c5d3234215e9 matches 772 app files, 532 installed-package files, 32 CLI files and four runtime fixture inputs. Full COPY path sets and hashes of all five image manifests match; four existing images are reused. Native qualification is 22 selected cases with zero skips, including the earlier 19 pure cases, plus one distinct cold composite case. The only Native-to-final export module difference is its corrected module docstring; saved tested source and current executable AST are equal, and the Native test hashes match.
+- Canonical runtime evidence: `.worktree/workspace-export-loss-qualification.json`, SHA-256 eadb3df1d922370fca25f0e1bfb2b7d5de4d94ff8381e168744eb1e06af88dea. The two isolated fixture commits are patch-equivalent to their integrations; both branches and a verified Git bundle remain, all three ignored worker files are archived, and only that clean integrated worktree was removed. Preservation receipt `.worktree/workspace-export-loss-worker-preservation.json` has SHA-256 4c3d51923bd83bfaff9867cee69b90a105c0e7f803490f1f0b091763923bb170.
+- Scope remains local ARM64 image AAP JSON under 1 CPU/512 MiB. Whole-parent automatic restoration latency, all export formats, mixed old/new workers, full Workspace/Jobs, AMD64, remote CI and production capacity are not qualified. Old workers must be drained before adopting the lock change. Primary checkout and Go remain unchanged. Next bounded Workspace delivery is video-tracker cold execution, followed by the genuine legacy-video retirement entry; the separately reproduced host-gateway TCP issue remains in Runtime assembly.
+- Documentation now shows PostgreSQL session ownership instead of the Redis lock. The obsolete editable SVG has no remaining references and is removed together with its Mermaid replacement; the strict diagram inventory caught this during the first docs build. Runtime evidence is unaffected.
+
+### Runtime host forwarding: deterministic close/reuse diagnosis, not repaired
+
+- The user explicitly elevated Runtime host forwarding repair ahead of the next video-tracker slice. Keep the existing local-only boundary, protected primary checkout, four shared containers, no host installs, no global Docker settings/restart, no push/release or Go expansion. Export recovery remains qualified at dc2eccd19; the overall goal stays active.
+- The original actual asyncpg concurrent transport probe on the current Docker Desktop 4.96.0/Engine 29.9.1 reproduces 92 timeouts among 4,096 forwarded attempts; direct private routing is 4,096/4,096. Receipt `.worktree/identity-forwarding-transport-runtime-baseline.json` retains roles, stages, socket addresses and cleanup.
+- A framework-free raw TCP comparison removes PostgreSQL, TLS and business logic. Direct private is 4,096/4,096; auto-published, explicitly published and native-host-listener forwarding fail 39, 33 and 27 times respectively, all at connect. Host-origin controls to each endpoint pass 1,174/1,174. The client has at most 15 FDs against 1,048,576 and about 1,889 TIME_WAIT entries inside a 28k ephemeral range. This rules out a PG-specific/random-published-port-only explanation and general client FD exhaustion. Receipt `.worktree/runtime-host-forwarding-raw-first.json`.
+- A matched native-listener source-port discriminator records all source-port history: kernel-selected ports fail 96/4,096, and all 96 have an earlier use of that source port to the same endpoint. Explicit unique source ports pass 4,096/4,096, private routing passes 4,096/4,096, and 3,255 host controls have no failures. This unique-port mode is diagnosis, not a proposed allocator/workaround. Receipt `.worktree/runtime-host-forwarding-raw-reuse.json`.
+- Four deterministic FIN-close pairs isolate the lifecycle: first host connections pass, peer FIN is read, local TCP entries disappear, then same-four-tuple SYN retries receive no SYN-ACK and all four second connections time out. The private route immediately reuses the same tuples successfully (8/8). Only 68 SYN/FIN/RST-bearing TCP headers are retained, no payload; pure ACKs were excluded, so absence of every response is not established. NET_RAW/root was confined to that one disposable diagnostic client namespace. Receipt `.worktree/runtime-host-forwarding-raw-packets.json`.
+- A container-local tcp_timestamps=0 control has the same four failures and is not adopted. An RST-close control passes 8/8 on both routes and captures 15 reset headers, supporting close-state dependence, but abortive close is not equivalent to graceful database/API shutdown and is not promoted into product code. Receipts `.worktree/runtime-host-forwarding-raw-no-timestamps.json` and `.worktree/runtime-host-forwarding-raw-reset-control.json`. Every owned client/server/network and temporary native listener is removed.
+- The retained state could still belong to Docker Desktop's relay, host TCP state, or a process-aware filter; do not name VPNKit/gVisor or attribute individual historical 503s. Official Docker networking documents com.docker.backend as the host-side outgoing process, so successful host-Python controls alone cannot exclude per-process filtering. Current 4.96.1 through 4.96.3 release notes do not document this TCP/SYN repair; do not promise that an update fixes it.
+- Plain tcpdump fails to open /dev/bpf0 with Permission denied; noninteractive sudo requires a password. The next lower-layer observation needs a local user-authorized, exact-owned-port host trace. Prepare the persistent stdlib verifier and validate its normal red/positive controls, safe preflight, and unavailable-privilege branch before requesting that local authorization. No business retries, timeout changes, pooling, source-port allocator, abortive-close behavior or global network workaround has been applied.
+- Persistent verifier source 4fb84f00625401cfc2ba97f27c191efb6603eda0 passes five pure input/ownership/trace guards. The actual ordinary-UID, cap-dropped, read-only no-trace run returns diagnosed_not_repaired with private 8/8, host first 4/4, host second four qualified connect timeouts, sixteen healthy host controls, and complete owned cleanup. The unavailable-sudo branch returns failed_prerequisite, retains only the password-required error, and removes every owned resource. The exact stock-Perl watchdog passes early-exit (0) and timeout (124) checks. Canonical `.worktree/runtime-host-forwarding-diagnosis.json` SHA-256 is a7db60a026d2fc3f6510647f733a9c4767bb0b4efec6b7c1ef090767f82a0df2. This is progress in diagnosis and a reviewable prerequisite, not a claimed transport repair.
+
+### Workspace video tracker: cold fixture prepared, not qualified
+
+- While the exact local Terminal/sudo authorization process remains live and the host BPF receipt is absent, an isolated worker prepared the next bounded Workspace consumer fixture. Source 42f14cb39b5d5b9b528bf07af4ea455016f6f6e8 is integrated as bdfc33cbb; no production implementation or deployment mode changes.
+- The fixture reuses the immutable Celery worker, complete Workspace API-consumer ACL closure, accepted-video inputs, deterministic CPU window backend, function-only Inference Routing and separate Labeling video-writer credentials. It includes actual HTTP cancellation, member removal and account deactivation, committed-prefix preservation, and original-ID prefork-loss replay with genuine retirement. Exact old-claim expiry controls fixture timing only; default production recovery latency is not qualified.
+- Static review corrected enqueue/gate order, async resource lifetime, checkpoint arguments, canonical access phases, ordinary annotator assignment, bootstrap network vantage, event-loop blocking and replay-result observation. Cleanup failures must fail qualification. Media/backend peers retain the explicit unresolved host-forwarding dependency; PG/Redis use verified private container aliases.
+- Root correction 90814d9a0 passes pinned Ruff and normal hooks. The cold API artifact built at that source matches all 772 app, 532 installed-package and 32 CLI files plus the current fixture; the existing owner images remain unchanged. Root queues only the exact owned unprivileged Terminal launcher during each validation phase, checks PID birth/command identity, and resumes it in finally. The sudo prompt remains interactive; no privileged capture starts concurrently with a validation phase. Phase receipts are retained under `.worktree/runtime-phase-fence-*.json`.
+- The first cold attempt fails during collection because the fixture imports ProjectMLBackendPool from the wrong module, before worker execution. Receipt `.worktree/workspace-video-tracker-cold-first.json` records zero passed cases, successful migration roundtrip at 0310, the installed Workspace fence and complete owned cleanup. The corrected canonical model import passes a focused collection-only check with a deliberately nonconnecting test DSN; `.worktree/workspace-video-tracker-collect-first.json` records one collected case and no database execution.
+- Cold execution and local runtime cutover remain pending. The API artifact must be refreshed for the corrected fixture before another cold attempt; reuse the passing migration diagnosis and unchanged owner inputs. Existing export, cross-frame, Identity and video-restore evidence is retained; this fixture does not close Workspace or Runtime.
+
+### Runtime host forwarding: local authorization resolved, vendor-level defect remains
+
+- The user completed local sudo authorization. The exact queued launcher resumed after its current validation phase and completed the bounded host trace, with 200 metadata-only packet records, no truncation/kernel drops and complete owned cleanup. The sixteen native controls and four first forwarded connections account for all twenty host-side SYNs; no packet appears inside any of the four failed reconnect intervals. Receipt `.worktree/runtime-host-forwarding-host-trace-first.json`, SHA-256 1ef6b13297645def2a7c0fe67eb01531198732715b98a462c5a71d8ccbd892e0.
+- The unchanged three ordinary-user Docker backend processes have no FD for the diagnostic destination during the 39 socket snapshots. Backend listening FD visibility has a positive control. Host netstat yields no lines even for a positive owned listener and must not be used to infer absent kernel TCP state. These samples also cannot rule out very short socket attempts.
+- BuildInfo pins gvisor.dev/gvisor to v0.0.0-20260430062247-6520f0ab6e7a, and the active gVisor logger adds/deletes the exact temporary subnet during these probes. Without changing timers, the same tuple succeeds initially, fails immediately and at 35 seconds, then succeeds at 65 seconds. That is consistent with the upstream tcp.Forwarder TIME_WAIT reopen defect, not an internal-function trace. Sources: https://github.com/google/gvisor/issues/15013 and https://github.com/google/gvisor/pull/15019. The latter is still open. Current Docker release notes do not establish a fix-containing build; no blind upgrade, unsupported setting, global Docker restart or binary patch is adopted.
+- Canonical updated diagnosis `.worktree/runtime-host-forwarding-host-trace-diagnosis.json` SHA-256 4472b6f773e9f27edafb1ec961eee4c5806f600552897d4c0c29e3b978a8091d binds the host capture, ordinary socket samples, timing control and component evidence. Primary HEAD/clean state, all twenty editable bindings, four shared symlinks and the same four running shared containers are preserved. Authorization is resolved; Runtime repair requires qualification of a fix-containing Docker component/build, and remains open. The broader goal remains active; no Go experiment expansion or runtime cutover.
+- The second video cold attempt reached actual worker execution and broker completion but failed a fixture observation placed after task completion: the task disposes its engine in finally, so an open PG session is not expected after ACK. Move that existing server-side identity assertion into the first gated model request while the task is live; do not relax the ordinary-role requirement or change production pool behavior. Receipt `.worktree/workspace-video-tracker-cold-second.json` retains the failure and complete owned cleanup. Other video cases remain unqualified.
+- The third cold attempt passed the actual success path, active ordinary-role observation, cancellation with committed-prefix preservation and nonempty genuine retirement assertions, then failed because the fixture used a user UUID where the member endpoint requires the ProjectMember UUID. It remains zero passed cases with complete owned cleanup. The correction retains the seeded membership ID and follows the existing preview/explicit annotator handover/role-change/delete HTTP sequence before queued revocation. The real account-suspension handler is also bound to the verifier's existing function-only suspension credential for this API context and restored afterward; no user/assignment/cancellation state is forged by SQL.
+- The fourth cold attempt at 1677614e7 passed the handover preview, then stopped at the role-change response because its real UserBrief serializer lacked an owned Identity binding. Receipt `.worktree/workspace-video-tracker-cold-fourth.json` records zero passed cases and complete cleanup. Bind the existing function-only Briefs and suspension clients, and the already validated auth client, only within the fixture API context; restore all selectors afterward. No production permissions or behavior change.
+- Before another cold rebuild, the extracted real preview/handover/delete/deactivate sequence passed the focused owned-database HTTP prerequisite: one case, zero skips, complete migration roundtrip and cleanup. Receipt `.worktree/workspace-tracker-revocation-first.json` and its command receipt bind test source SHA-256 38ea571bb3e4262f5fdc73889c28282fb2227fb516c4e0581338576d91f00f11. This closes the fixture binding reproducer only; the complete cold tracker case remains pending.
+
+### Workspace video tracker: bounded cold qualification completed
+
+- Source 4671a56ba binds the actual Identity Briefs, auth and suspension clients in the fixture and shares the real revocation HTTP sequence with its passing one-case prerequisite. The matching fifth API image passes all 1,336 application/package/CLI file checks, four fixture checks, noneditable installation and five schema-resource comparisons. All five image COPY input sets and hashes match current source; four unchanged owner images are reused.
+- The fifth cold attempt passes one composite case at 4671a56ba: five task IDs and six actual receives, all final broker acknowledgements empty. It proves normal six-frame completion; actual HTTP cancellation retaining the first two committed frames; real member handover/removal and account suspension rejecting queued work before inference; and a single-dispatch prefork SIGKILL with automatic same-ID replay, unchanged parent, new generation, unchanged first-window parts and genuine retirement of both scopes. Live server-side PG identity and complete Workspace consumer ACL closure remain mandatory assertions. Full migration roundtrip retains 0310, and every owned resource is removed.
+- Canonical evidence `.worktree/workspace-video-tracker-qualification.json`, SHA-256 c8978e1f78d3889000ae360d1d7b796ad460ed51900e51a27bcfde8baa7ff2c4, binds the cold receipt/JUnit/worker diagnostics, one distinct HTTP prerequisite, current artifacts, four retained failed attempts and source-worker preservation. Primary HEAD/clean state, twenty editable bindings, four shared links and four shared running containers remain unchanged. This closes only the Workspace tracker consumer. Media/backend peers retain host forwarding; exact fixture lease expiry does not qualify default recovery latency. Full Workspace, GPU, alternate-language provider and production capacity remain open.
+- The user now authorizes merging each independently accepted module into the primary worktree. Treat source adoption separately from runtime cutover; do not merge the entire partial integration history based on one module's gate. Identity source adoption needs a coherent dependency review. Workspace still requires a genuine legacy-video operator drain/retirement entry and final module audit. A read-only source audit confirms current off/observe runs may already have PG execution/scope identity; classify persisted facts and actual old-worker/backend identity rather than mode names. Cancellation, status or lease expiry alone cannot clear legacy deletion guards.
+
+### Identity primary adoption: dependency and live-reload audit
+
+- A delegated read-only audit confirms primary feat/backend-opt remains clean at 856fa79c87, with the live annotation database at 0234 and a primary-tree Uvicorn reload process. Primary Compose has PostgreSQL, Redis and MinIO, without an Identity service or Celery worker. Updating the watched API tree would reload it before the accepted Identity schema and runtime are present; no source merge, migration or service change was performed.
+- Identity source is spread across the integration history; 8cd394eef is a qualification fixture commit and 55386aad6/4f9e0d97b record evidence, not self-contained implementation ranges. The core module evidence used migration head 0287. The later accepted seed/scale/screenshot/E2E consumers extend prerequisites through 0306, including the shared Identity/Workspace 0302 and Inference E2E cleanup 0306. Keep the linear migration chain intact; selecting only Identity-numbered migrations would create a different, unqualified schema.
+- Prepare a curated adoption checkpoint from 856fa79c87 containing the accepted Identity implementation/consumers and their actual owner/schema prerequisites, then qualify that exact checkpoint against a disposable 0234 database copy. Source adoption, migration application, owner-service/secret provisioning and API/issuer cutover remain separate recorded steps. The user's module-merge authorization persists; no new approval is requested before preparing and validating a concrete checkpoint. This audit is a prerequisite to adoption, not a regression in the completed local Identity functional gate.
+
+### Identity exact-checkpoint qualification and primary adoption
+
+- The curated adoption worktree selected Identity from 4f9e0d97b, retained legacy Workspace bindings and the complete required 0235-through-0306 SQL tail. Implementation commits a98de8e625, 08b0c997d0 and bb4b0c4540 plus evidence d2ea90f3f pass 268 unique focused cases and one complete cold module case: 66 public requests, actual Socket/Node/mail/notification consumers, restricted credentials, distinct signer, outage refusal, replay and full dump/restore. Earlier fixture failures and the corrected owner-default consumer omission are retained separately. Canonical adoption-worktree receipt SHA-256 is 7c7a3739e540e6f1de389f3b5667c8afc573865e0c6c37ceac3486a769aa19d3.
+- The verified primary LaunchAgent was coordinated before touching the watched tree. A new private full database dump and cluster globals are retained with restrictive permissions; the exact dump restores and matches original data in an owned disposable PostgreSQL that was then removed. Primary fast-forwarded 856fa79c87-to-d2ea90f3f, locked sync installed only Identity/mail transport, and the actual annotation database upgraded 0234-to-0306. All 171 original business relations and the one real business row are preserved; no fixture was seeded. The unchanged LaunchAgent now serves healthy DB/Redis/MinIO, registration status and unauthenticated refusal; OpenAPI equals the tracked snapshot, and source touch starts a fresh healthy child under the same new reloader.
+- Adoption receipt .worktree/identity-primary-adoption-delivery.json in the adoption worktree has SHA-256 5bc31b3fa2b4d3e5f95001f6d19707a73ec1acce250d3a5724bfc245fd5d1cd2. Source adoption and existing embedded runtime refresh are complete; independent daily owner topology is not cut over. Celery remains disabled and old worker images need refreshing before enabling. Other modules, the host-forwarding defect, alternate-language provider, production, push and Go are not qualified by adoption.
+- The user now explicitly authorizes independent subagent work and asks to slow Learning/training and Assets datasets/storage until latest feature integration. Two isolated worktrees based on this integration HEAD take disjoint bounded work: Notifications preferences owner read/merge/mute capability (0311 reserved), and existing proof-bound video cancellation/re-drive (no migration reserved). Neither may claim full-module closure; truly unbound legacy jobs/scope orphans still need an actual verifiable worker/backend fence and must retain deletion 409. The single module-deployment ledger remains authoritative.
+
+### Proof-bound cancellation re-drive integration
+
+- Integrate worker source 4f5dd10c04b6cc36cb559b5b59b72fa3c1dfc8c1. Existing cancellation authorization and cancel/audit transaction remain; only after commit dispatch the same canonical ID. Ambiguous broker acknowledgement returns documented retryable 503; replay never changes cancelled back to queued or duplicates audit. Do not claim physical retirement from an HTTP cancellation result.
+- Inspect the actual final JUnit and receipt: two cold cohort cases (one revocation prerequisite plus one real worker composite) pass, with current-source host ASGI cancellation, explicitly owned broker/gpu queue, actual prefork child loss, same-ID recovery, durable journal retirement, completed scope and empty acknowledgements. Two distinct project/unlink HTTP gate cases pass and continue 409 until actual retirement. Both receipts retain zero cleanup errors. Worker runtime inputs remain identical to its accepted 4671a56 image; exact-current API image qualification is deferred to one coherent integration artifact.
+- A separate read-only prerequisite audit and owned red regressions demonstrate a real retention hole: at head0310 a previously started legacy job, orphan input scope or current execution before journal still blocks project deletion, but the existing Labeling retention fact returns false and the real Assets sweep expires the input/queues delayed deletion. The 24-hour garbage grace delays rather than proves safety. A separate isolated Jobs/Labeling-only correction is reserved for0312 after the Notifications0311 ancestor. Do not alter Assets/Learning implementation, fabricate journals or clearances, or infer full legacy retirement from this fix.
+- User-guide advice now matches the actual UI: refresh status and ask an administrator to check queue/retirement; no new retry button is claimed. README, API guide, snapshot and Unreleased record the new error/replay contract. Only the integration source changes here; primary Identity runtime, production, push and Go remain unchanged.
+
+### Notifications preferences owner integration
+
+- Integrate source36a4ab0d407f3ca1438500792ea47088f8b88c69 after the independent video-redrive merge. The minimal installable package uses the existing notifications_code/aap_notifications_v1 owner, a closed language-neutral command/reply/policy schema, and one borrowed-session capability. REST GET/PUT and mute consumers migrate; old API-local policy/writer are removed. No new service, environment variable, or general delivery abstraction.
+- Inspect the actual immutable source manifest and receipt/JUnit: 36 focused API cases pass with zero skips/failures; exact API/function-only LOGIN grants, direct-table denial and real Node client pass. Complete0311-to0189-and-back upgrade/frozen SQL verification and owned cleanup pass. Package contract suite has five passes. Receipt SHA-256164ebafc20bccc3bbb003a17a748507f69d626c81d6ceb8b8191a4f36eaddc8c and source-manifest SHA-256ec57e124341487c0369f792dcd086740eb5dc0d4e7e891c1c210ed4c52b332e8 remain in the child evidence directory. Earlier role-fixture failures are not converted to passing gates.
+- Parent adds only missing autoflush/flush Protocol declarations and corrects the comment to state that the API publishes sync after commit; no runtime algorithm changes. Five package cases and the combined API snapshot check pass in the integration checkout. Locked sync adds Notifications; four unchanged local packages are rebuilt as metadata refresh, with no remote dependency version change.
+- Two independent worktrees reached late verifier failures because the new Node peer dependency was missing. Add a bounded peer self-check before any Docker/DB provisioning; a pure test covers missing Node and missing dependency, proves no container/database was created and cleanup has no error. The actual locked local peer self-check also passes. Keep this verifier prerequisite separate from owner runtime acceptance.
+- Strict grants revoke private preference-table privileges from API/PUBLIC; rollout must drain old ORM readers and install current API/worker source before granting this profile. Primary remains the accepted Identity-only checkout/schema0306. Full Notifications delivery/channels, the missing legacy retirement operator and combined current-image qualification remain open in the unique ledger. Batch a coherent API/worker artifact after0312 mandatory input-retention repair, rather than rebuilding once per parallel source slice.
+
+### Tracker input retention and historical garbage gap
+
+- Integrate sourcec24635241dc71c9816cb4f7002b3d221552fc530 as the prevention of future unsafe expiry, not a full repair of historical cleanup state.0312 adds a Jobs-owned exact input/job fact and replaces Labeling reference projection; no frozenSQL or Assets/Learning implementation changes. Current-run retired proof, never-started clearance, pins/review grace and owner boundaries stay mandatory. Missing/nonready damaged identity fails closed and remains backlog.
+- Actual owned failure at0310 proves deletion409 then referenced=false, ready-to-expired transition and queued input_expired prefix. Green0312 receipt SHA-25634cbaa2f235e95f4b148646ec77c5b10620e40ec83d6f1fc288e24be3022f559 has23 different passing native/GC/locking/role cases, zero failure/skip, full migration roundtrip and cleanup. A post-refactor single nonready case also passes; do not count it twice. The genuine first Labeling failure was an SQL operator precedence error when subtracting keys before extracting JSON data; a constant read-only reproducer identified it, and the smallest actual owner case passed before the broader cohort.
+- Independent source/caller review finds a separate concrete historical queue gap:0225 garbage claim first runs the manifest sweep then leases every due video prefix without rechecking Labeling retention; tracker sweep excludes already-expired inputs. Thus0312 does not stop old tombstones or an already-issued storage delete lease. Reserve0313 as a narrow owner-native claim-time guard/regression, not Assets/storage feature refactoring. Require real cleanup-worker stop/drain or credential fence and inspect leases before activation; lease expiry alone is not physical proof. Downgrade restores the old0282 logic and has the same stop/inspection requirement.
+- The primary checkout/runtime remains the adopted Identity checkpoint at schema0306; no active production or main cleanup worker is changed. Delay the one combined API/worker cold build until the mandatory historical-queue guard is coherent. Full Workspace and legacy drain/repair operator remain unclosed in the single ledger.
+
+### Existing role baseline and official Runtime candidate evidence
+
+- Reconcile two stale tracker-role assertions with the already-accepted Native Labeling video writer: status UPDATE and event_channel SELECT have been explicit owner grants since 10a6a82999 and are used by 0283 final publication. No runtime privilege is added. Keep broker task IDs private and assert created_by UPDATE is denied. The actual owned verifier passes all four cases in test_video_tracker_input_roles.py at head 0312, with the new Node preflight passing and all resources cleaned. Receipt .worktree/tracker-input-role-current-baseline-first.json, SHA-256 d17b347b9dc2aa730d7db8259a1d6b425888d79c53ea0c99bd40431ae3252827, records this distinct cohort.
+- Inspect one current official ARM64 Docker Desktop4.96.3 candidate without installing or executing it. The598494719-byte official DMG matches published SHA-256a3ac78b7de67af169ca58f33a4fa4c26007840870574c80c59a7ab0c7f68d954. Read-only embedded backend build information still pins gVisor6520f0ab6e7a like active4.96.0 and reports no replacement. The vendor pinata build is dirty/private, so metadata cannot exclude undocumented patching and does not prove repaired behavior. No supported fix-containing candidate is identified.
+- Candidate receipt .worktree/runtime-docker-desktop-candidate-4.96.3-arm64.json SHA-25693c3a6f2641a996e1becf363a9495b97849b1cf15298d4afa0c62ffb02b8b847 records backend hash/version and exact mount cleanup. The task-owned read-only mount is detached, downloaded artifacts removed; /Applications, active Docker, shared containers, API, Go experiment, production and push are unchanged. Runtime repair remains an external-component qualification gap, not an application retry/timeout workaround.
+
+### Historical tracker garbage claim integration
+
+- Integrate source 25cb6e4809281650c215d85c6bc0bee1d4f824d0 after independent source/caller/ACL review. Migration 0313 maps due garbage prefixes to immutable source/frame roots and monotonic attempt generations, asks the existing Labeling retention projection for current tracker roots, defers held/unprovable roots by the current claim lease, and lets proven superseded attempts progress. Jobs status checks now match the deletion guard. No new owner capability, table grant, deployment mode, or Learning/storage feature expansion.
+- Inspect the actual final receipt and JUnit: ten distinct focused cases pass with zero failure/error/skip, a full0313-to0189-and-back migration/frozen SQL roundtrip and zero cleanup errors. Receipt SHA-256245e262d3c25219cfa244b77869c9d35994fde9d846daa80f2d168954ce8af47. The old0312 red case uses the real collector and a recording storage implementation: it proves the deletion call/ack path, not actual production object deletion. The separate one-case shutdown test exercises in-process cancellation with a blocked fake S3 request; it is not a deployed-process or credential-fence qualification.
+- Preserve root's early Node-peer preflight and current tracker role assertions. Archive ten original0312/0313 evidence files under .worktree/legacy-input-retention-evidence; archive-manifest SHA-256644c2e85f3da352da7a4e6faa0f659a3c81368059430dd99fffb219664600664. Existing Workspace/Inference/AssetsSource image source manifests still match all513/133/161 inputs, so retain those artifacts and rebuild only the current API/worker artifact for the coherent milestone.
+- Before actual adoption, stop all cleanup processes, confirm exit and outstanding request completion, inspect leases, and fence object delete credentials if physical completion cannot be proven. Wait out remaining leases after confirmed stop. Downgrade reopens the old path. Historical expired logical inputs and physically deleted versions require separate recovery; genuine unbound legacy retirement remains open. Primary remains adopted Identity/schema0306 with no cleanup worker activated.
+- The independent video-redrive managed test environment97d3 was owner-checked and destroyed by its agent after draining exactly37 queued audit inserts into that owned test database. The branch/worktree and receipts remain; parent .worktree/video-redrive-managed-test-cleanup-97d3.json records the agent transcript boundary rather than claiming an independent rerun. Notifications remaining-consumer audit continues separately; broad Learning and Assets work remains deferred as requested.
+
+### Coherent0313 artifact and current worker milestone
+
+- At clean source736bb07aba42b8e02ae3e92eac6a122581f94cdc, strict source preflight correctly rejects the old Workspace owner because its COPY inputs include the new cleanup shutdown test. Keep a failed-before-build receipt, then rebuild both Workspace owner and API instead of weakening the fingerprint. Reuse unchanged Inference133 and AssetsSource161 input manifests. New immutable owner imagee9f85d685e38163a0a20617486c2b8a5ef8cd18ba79746e2ec02414bdd8396b9 and API image5f32269dce3b4c4e92b50d740b53f9a4472407dbde6d8a0c55121ac89154f5b3 match all current copied inputs.
+- Offline nonroot/read-only artifact probes pass: Workspace300 installed files; API/Alembic1375 files,541 installed files across35 packages,32 CLI inputs and4 runtime fixture files. A separate unconditional API probe confirms noneditable Notifications and all3 required resource files; the prototype builder's app-detection branch under Python isolated mode did not run that assertion, so do not credit the skipped branch as evidence.
+- One real immutable-image worker composite passes with ordinary restricted LOGIN, UID10003, readonly root,1CPU/512MiB. Five canonical task IDs cover success, committed cancellation/redrive, cancel-time prefork loss, current membership/account revocation and completed-window replay after a second prefork loss. Current success/cancel/recovery journals and all relevant backend scopes genuinely retire; acknowledgements drain. The case uses host current-source ASGI for cancellation requests, not a separate new-image HTTP server, and exact fixture lease expiry does not qualify default recovery latency. Full0313-to0189-and-back/frozenSQL migration, ordinary role/Notifications Node checks and all owned cleanup pass.
+- .worktree/coherent-module-artifact-0313-qualification.json SHA-25638860759288ab5822aa213170749537c732ee9d758baedb40356c61b3ce5c0b5 binds the artifacts and evidence. Runtime receipt SHA-256a9441673ecd9a142aa54688aa228c7222292a6b7211981d58ebe78619477bf54 and one-case JUnit SHA-2564abe7962d9d8d51dc18b424d50264bf66fca3fd61b3d6590346698226ac5abf6 retain the actual bounds. Docs build at the same source passes. No full module, GPU, production, remoteCI, primary adoption or Runtime forwarding repair is inferred.
+- The read-only legacy operator audit confirms the precise remaining prerequisite: every old late-acked/redeliverable worker and its shared database write credential need an authoritative physical stop/in-flight-write/credential fence. Existing per-scope backend retirement and the global restore's external digest do not certify the old caller stopped writing. No current operator can create truthful evidence for a started unbound Job or scope-only orphan; keep0300 conflict and require a separate genuine legacy receipt once the external fact source exists. Do not fabricate current-run journal or never-started clearance.
+- Parallel Notifications append implementation is delegated in its own clean worktree based on736bb07ab, migration0314 reserved. Keep original notify/notify_many signatures, flush/session/rollback, mute/fan-out and publication behavior; restrict changes to the owner append capability and adapter, leaving inbox/WS/replay and Assets/Learning expansion deferred. Its implementation and acceptance are not counted yet.
+
+### Parallel owner writes and local fence prerequisite
+
+- Freeze Audit's full denominator into seven operation families in the unique ledger: business append, HTTP metadata, query/export, domain facts, analysis projections, partition/archive lifecycle, and complete artifact/credential/recovery assembly. The read-only audit is source evidence, not runtime qualification. Its ordinary constructor inventory includes AuditService, middleware fallback, Celery persistence and two gated filter fixtures. Delegate only the central append family, metadata and those constructors to an isolated current-HEAD worktree; reserve0315 after Notifications0314, defer migration acceptance until the genuine314 ancestor exists. Preserve native typed and frozen owner functions. Do not broaden Learning, Assets, archive or the Go experiment.
+- Parent flush-order review uses a minimal mapping-equivalent SQLite reproducer only to isolate the suspected ordering defect; the Notifications worker then confirms the actual PostgreSQL legacy baseline in its ownedb727 database. Under no_autoflush, pending-new-recipient insertion is unsupported (23503), while a pending recipient delete and one original ORM flush succeeds and CASCADE removes the notification. Change the new adapter to preference preflight, native append in the pre-flush DB view, clean ORM hydration, then the original full caller flush. No partial User/new/dirty flush or second policy evaluation. The57 focused actual cases pass; the final reply correlation and timestamp checks are still undergoing their focused acceptance. Audit must independently baseline its SET NULL case before claiming parity.
+- Local legacy-fence feasibility has a precise scope: the verifier owns a unique labelled PostgreSQL container and random per-run credentials, while the exact worker and scoped storage identity can be observed and revoked. The tracker subclass overrides its queue to gpu; retract any generic-base unique-queue assumption. An isolated new test fixture may prove exact worker exit, all observed DB write identities fenced, sessions drained and stale credentials/S3 access denied, without purging or claiming broker-wide isolation. It cannot qualify arbitrary older deployments lacking a complete credential inventory. Implement that real local prerequisite first, then review its exact owned command before live acceptance; do not fabricate a journal, clearance or product retirement receipt.
+
+### Notifications append source integration
+
+- Integrate reviewed sourceca6617abc11c66709d860108eb4be50201f7582d. The persistence-only capability composes the accepted preference owner; no second mute decision, partial flush, new service, config or outbox abstraction. The caller's original pending state, ORM identity map, record timestamp, recipient order/dedup and publication/rollback remain. Manager validates reply correlation and UTC timestamp before hydration. API worktree grants now include both311 preference and314 append capabilities; this also fixes the prior missing preference capability in generated ordinary LOGIN grants.
+- Parent independently inspects the55-case final JUnit (zero failures/errors/skips), all8 live-source hashes, the real23503/delete-cascade old UOW baseline and source/grant/Node transaction checks. Final source-bound live receipt SHA-256be056a3d717abd891b5b97a2a643ded85a77e47073c5dfbb16c95ee42fb87e8a; JUnit SHA-25625bb72b1e9590e0f196e59a94a655e6c8388b89472f7efa3781e1cf42adb066c. Parent's package11, Node self-check and early-prerequisite test also pass. Counts describe the final selected cohort, not the sum of interim runs.
+- Final live API/Node checks use the explicitly ownedb727 managed database at314; they are not the verifier's fresh private PostgreSQL container qualification. An attempted raw pytest runtime-role fixture cannot INSERT users under the accepted Identity boundary; the actual service is separately exercised through the runtime LOGIN with owner-prepared users. Do not convert the fixture error into a business defect or count it as a passing test.
+- Source review catches verifier's stale required head313 after adding314 artifacts. Parent corrects it to314 and keeps both early Node preflights. Audit writer may now include genuine314 source, preserve its pending code and make315 the single head before owned migration acceptance. Full migration/immutable-image qualification remains batched for the coherent314+315 milestone; main runtime stays Identity-only. Remaining Notifications reads, WS, job dedupe, durable delivery and publisher ownership are not closed by append.
+
+### Audit append and physical-fence candidate integration
+
+- Integrate reviewed48381f6ac9a8b9c85c963d5286ca55296b4fcf3f and854c1585ae4b9d912f13ff36991a992c6dd84456, preserving the genuine314 ancestor and sole315 head. Remove the initial append-after-write private SELECT: the compatibility adapter hydrates from the original event plus bounded receipt, merges clean state under no_autoflush, and performs the original full flush. Keep partial/frozen typed writers untouched; raw fixture cleanup DELETE, query/facts and maintenance/archives remain outside append. Latest child12 PG cases and20 pure cases (including11 package cases) pass, with temporary restricted-owner/Node ACL smoke; the actual whole module-data install and immutable artifact remain pending.
+- Parent fixes necessary existing bindings: lan-production-grants explicitly gives only Audit schema USAGE and audit append plus311/314 Notifications function access. Do not transfer current API-owned Audit partitions, mutate schema-wide default grants, or claim the LAN strict profile can apply. Parent also pins the Audit definer namespace to pg_catalog,pg_temp and adds a fresh-backend temp-type shadow case; malformed Notification payload values now fail instead of Pydantic silently changing nonfinite values to null. Existing private-role ownership and future-partition gaps remain in the one ledger.
+- Integrate e6a498061f1d92da5c7ef0b21ce02a73aa844c26 andfe807848d local-only fence fixture after source review. The initial parent pure run had one missing postcondition in the test vector; the live producer already supplied it. Child fixes that vector, not the fence. Parent removes unused sync/async dispatch flexibility, handles both raw asyncpg and wrapped auth denials without accepting timeouts, and ties retry completion to the exact fresh worker's task log so a post-start counter race cannot falsely time out. Historical started state is seeded; this demonstrates physical credential fencing, not execution of an actual pre-ledger binary or a product Jobs legacy receipt.
+- Parent packages26 and pure adapter/fence37 cases pass at this candidate; the latter contains31 fence cases and6 Audit adapter/metadata cases. Alembic graph has sole315 head. Duplicate test basenames required standard pytest importlib mode for the combined package invocation; the earlier collection failure ran no tests. Locked API sync adds only Audit and rebuilds local Notifications metadata, without remote dependency version changes; Node dependencies stay in the independent peer folder. Full migration, real restricted owner roles, current image execution and the opt-in physical fence remain a coherent qualification milestone, not yet completed here.
+- Archive Notifications managedb727 cleanup and sanitized incident proofs under .worktree/notifications-append-evidence; cleanup-manifest SHA-256e34c21772f221c78134318ec62ac551bfae66dd8b814afc795fabced268efe40. The272 audit messages drain successfully before exact-confirm destruction, all owned DB/Redis/buckets/runtime/client roles disappear and task-only credential files are removed. A diagnostic search exposed only the two temporary Node passwords; both principals are now absent, no API runtime/shared migration/primary credential was exposed. Keep no secret values in provenance. Source worktree remains intact; primary stays Identity-only.
+
+- Independent pre-run review finds and closes three fixture defects: S3 revocation now repeats an exact successful object write rather than an unauthorized HeadBucket; diagnostics redact all tracker credentials (isolated source402f2d6e); failed startup still cleans its network and cleanup failures are reported. Parent43 pure safety/adapter cases pass. Audit review also adds explicit append-client CONNECT and qualifies the adapter jsonb cast; the fresh-backend shadow test exercises that adapter. None of these pure checks substitutes for the upcoming immutable315/coherent private-runtime acceptance.
+
+- Coherent315 first owned cohort passes9 of10 actual cases: four Audit PG cases, four Notification PG cases and the real immutable video worker composite including three Audit deliveries. Full315-to0189-to315/frozenSQL and cleanup pass. The final local-fence case fails before destructive mutation because it queried worker signature before starting its container; move both contract probes after ready. Retain the failed full receipt and reuse its nine valid cases rather than rerunning them. Audit child cleanup receipt SHA-2563c36f6ea60f4d52a0f52baa87b8659401cc419b4d395774549404f0bb6e0c38c confirms owned32ecec64d87e1d97 test DB/runtime role/Redis/ten buckets absent and shared owners preserved.
+
+### Coherent315 local physical-fence closure
+
+- Keep every raw failed receipt. Targeted fixture runs expose setup-only issues: signature before start, blocking/container-localhost bootstrap, current tracker admission correctly rejecting an unbound scope, SQLAlchemy Redis database representation, and Python base-image public GPG metadata. Reuse the existing owner seed helper for an explicitly historical Job/scope shape, retain the production permit, reread the actual capability and verify no attempt/permit/current admission. Host health/reconcile uses the real local backend. Add focused Redis/GPG positive and refusal cases; final pure cohort has51 cases with no failure/skip.
+- The seventh live test body passes all actual physical postconditions, but normal worktree cleanup cannot authenticate the now-disabled ordinary LOGIN. Preserve its failed overall receipt. Reconstruct only the exact labelled private PG owner, verify cluster/database/ownership and non-owner LOGIN zero, then use existing LocalResources ownership/destruction checks to remove all resources without re-enabling a role. Recovery receipt SHA-256fb3c416738e1fcb61364ffd604267253483723df2addbb39fdbf129b4836ea79 records complete removal. Add this owner-only cleanup binding solely for the explicitly selected local-fence verifier, not the managed runtime launcher.
+- The eighth live run passes end-to-end with1 case, full315 roundtrip/frozenSQL, old credential refusals, exact stale redelivery failure, unchanged business guard and zero cleanup errors. Final live receipt SHA-25634ff7d36158b58993105aa8452053afc0d4fa07fa263f44f34d1207c7a960dc9 and JUnit4541eb9696e39986d0b3b4c989abded404982a296cd923a0a8cbeb160c3de28f. No Jobs receipt/journal/clearance, real pre-ledger binary, effective old admission or global broker isolation is manufactured.
+- Qualification .worktree/coherent-owner-315-qualification.json SHA-2565b935661f921b04ccd177507984c4ba0746250945c8aa4e4155dae4ef2cb0fb4 binds the nine valid first-cohort cases plus this single fence. The accepted1c9abf956 API image verifies1965 installed files/four runtime fixtures; unchanged owner/inference/assets-source image COPY sets remain513/133/161. Three host-only fence files and the verifier have separate actual source hashes; do not claim an exact-current-all-COPY API artifact. Strict Audit profile is legacy_runtime; cold identity_api_consumer retains LAN Audit partition ownership and qualifies only functionality. No main runtime, production, Go, Learning or Assets feature expansion.
+- Independently delegate only Notifications mark-read/read-all to a separate child rooted at1c9abf956 with0316 reserved. Source/pure21 and real owned runtime/Node rollback, caller timestamp, count and direct UPDATE denial pass in childbe2c99accb8eb119; fresh whole-grant/migration acceptance and commit remain the child milestone. Do not integrate partial source or count full Notifications closure.
+
+### Notifications read-state source integration
+
+- Integrate real commits28dba4993ce3adc18ba2ec0fc39f3527fe1504ff anddabaae028a320ba980290c985c9261b6ea1843ac after parent source/caller/grant review. The two public handlers retain auth,404/count, caller timestamp and postcommit sync; the borrowed owner returns exact updated IDs. Actual old ORM comparisons preserve pending-new/delete/dirty payload and expired field behavior; inspect identity state without loading attributes. Parent catches caller temporary-type shadowing and false receipt with multiple IDs; a one-nodeid PG case and pure contract validation close those exact gaps.
+- Inspect final7-case JUnit12435d745e1e401d7b8fd969e6972c92ad4c151420088aa71d7c2e76908bf5db and one-case shadow JUnitaaac5bd9bcd20842cecdee460d723996187f6e21237eba6ee3a1248a096d172c, both zero failure/error/skip. Receipts0969b7caca45f2620ba7b7c0f9512f6aead261e2b92381f81d393a47cd76def1 and0c01b64c34f52173591f1abc861fac36f793b4a32c9894a9a09ab97cd0ca1dce have true API/Node/direct-UPDATE-denial, full316-to0189/frozenSQL/upgrade and zero cleanup flags. Verify all27 original +4 followup source hashes against exact commits. The actual shadow-run overlay matches integrated source except the explicitly later pure-only decoder/test change. Archive seven sanitized evidence files; manifest SHA-2569af8b0269821329ac210f0351dc45f100f51e21ac19fda348f3fb40ce0420a1b. Do not reclassify previous preflight/Node fixture/cache failures as passes.
+- Parent integration has sole316 head;20 package tests, one cache pure test, all three Node self-checks and the early verifier prerequisite case pass. Keep2f's exact private owner cleanup for the legacy-fence fixture when merging the verifier changes. Runtime grants deny direct notifications UPDATE and preserve remaining SELECT/DELETE; no global migration or main environment change. Current immutable315 image is not re-labelled316; batch the next coherent artifact after the independently reserved Audit global query317 source is complete. No full Notifications module closure.
+- Audit global SA query/list/export is delegated into its own current2f worktree; actual316 ancestors are supplied before317 migration work. PA historical scope/Labeling facts, archives, other Audit readers and Assets/Learning remain outside that slice. Runtime official status refreshed2026-10-24: Docker latest still4.96.3, gVisor15013/15019 remain open and no supported ARM64 fix/backport is confirmed; no downloads, runtime changes or repeated transport probes. Primary sources: https://docs.docker.com/desktop/release-notes/ and https://github.com/google/gvisor/pull/15019 .
+
+### Read-state legacy cache correction
+
+- Actual deletion baseline in an independently owned316 test DB reveals the legacy ORM evaluate cache can differ from SQL row matches under no_autoflush. One direct old UPDATE/current read-state control proves a real316 regression: DB user differs from dirty in-memory user, both report zero updated, but old cache receives the timestamp while the ID-intersection adapter does not. Preserve every original acceptance receipt; this new concern justifies a bounded followup, not repeating owner grants, Node, migrations or cold artifacts.
+- Integratee1a71a62e16511832e147e40cdb2e01a27c48b98 andc75e136fb18b14ef0b202af89da5ecfbf296be3e. API compiles the exact former UPDATE locally and reuses the pinned SQLAlchemy2.0.49 post-evaluate hook after the owner call, including unmodified/present values, dirty expiration, predicate short-circuit order and \_register_altered savepoint bookkeeping. No second SQL UPDATE/SELECT or protocol/SQL/grant/migration change. A minimal compatibility comment states the pinned internal-hook limit. The former owner-only pending-cache assertion is corrected to the actual pre-refactor baseline; omitted read_at stays unset while the database updates.
+- Parent verifies all3 source hashes against each exact commit and the final6-case JUnit SHA-2565248d00515aab68e828b767c1b113c3840510a138356dd1fb74607166d3e9d04 (zero failure/error/skip). These six include previously accepted cases and a cache pure test, not six additional PG cases. Retain the intermediate5-case receipt and first inconsistent-test failure/source-binding limitation. Archive manifest .worktree/notification-read-state-evidence/cache-followup-archive-manifest.json SHA-256b0a5433597744af1c9552705daa04e875cd2db4bec2e81d1b58f9c2ee922169e binds both source manifests/JUnits. Notifications delete/clear remains separate tentative318 WIP; genuine317 prerequisite still pending. No main runtime or other module boundary changes.
+
+### Audit global query source integration
+
+- Integrate only commit d1da388c9e3ebcaf47c60910ae5dfef4f722d685 into the current parent; preserve the accepted Notifications read-state cache correction and physical-fence verifier cleanup. The fixed global query contract migrates super-admin list/export only. Project-admin scope, domain facts, analytics, archive and full Audit assembly remain in the unique ledger.
+- Verify all27 changed files against raw Git bytes and child sources, including package/migration SQL SHA-2568aebc5a1fd1c255f674a5bbbc1e25445aa8ff3585e4f24e8545143e0384ff65e and installed/source body SHA-2567b3e22ebcd98ebb64fb6449c8d598990fdca4f9b39bc6d326e1577022612ee2a. A prior parent hash assertion used transformed command output; raw committed bytes match the untouched original receipt. Do not rerun the database to resolve an output-format discrepancy.
+- Archive12 credential-URI-free receipt/runner files, including the original TEMP/TEMPORARY harness failure. Manifest .worktree/audit-query-evidence/archive-manifest.json SHA-25669d303f3a6f1b9657d498e85cfb88800b8e22ac115048f9e896b981299a39b63 verifies the20-case postroundtrip JUnit with zero failures/errors/skips. Child acceptance is0317->0316->0317 plus query-only Node/grants; full0189 roundtrip and current immutable artifact remain batched with0318.
+- Parent adds only malformed-list reply rejection when returned rows exceed total, with Python and Node pure checks; no SQL/grant change or new DB claim. Notifications deletion/clear-read proceeds independently on its genuine0317 prerequisite. Main runtime stays Identity-only; Go experimental, Learning and Assets datasets/storage held for feature merge.
+- Parent45 package/pure-route cases,21 mock resource cases, Node append/query self-checks, pinned Ruff and sole0317 migration graph pass. Qualification .worktree/audit-query-integration-qualification.json SHA-256365e6d15871d94e7ef7208cc20938c48ec5a086240509bccd95b5013dc87762f records exact source overlays. After archive acknowledgement, child09a223212d6deb86:test is owner-checked and destroyed; actual cleanup receipt SHA-256aa8f30848cfc4dc527c2450da8ce7118b24a6211e647fdfa0cc10b4f4a6e9905 confirms DB/runtime LOGIN/Redis/ten buckets absent, shared owners and source preserved. Parent archives the two sanitized cleanup reports without claiming a second runtime run.
+- Independent read-only review finds one base-package import regression: the top-level query adapter forces the optional SQLAlchemy dependency on pure contract users. Reproduce it with SQLAlchemy import blocked, then keep the existing append pattern of explicit adapter-module imports in API and tests. Final46 package/pure-route cases pass, including the missing-extra subprocess check. No native SQL or grants change; final overlay qualification .worktree/audit-query-integration-qualification-final.json SHA-2562dccb448c75d6b72b2f1422a9926e977f474361546220245887bf346ce1ce62a preserves the original45-case receipt rather than replacing it.
+
+### Notifications deletion source integration
+
+- Integrate only c14747420f9fee250684bc225ce1172de06afc5c, preserving the accepted read-state cache descriptions and parent pinned-ORM comment; the service AST matches the child. Verify all27 committed files against raw Git and the child tree. Fixed0318 owner commands retain current-user predicates, bool/count, original transaction/autoflush, cache delete synchronization, delivery-outbox cascade, target retention and commit-before-sync behavior. Strict API direct DELETE is denied; peer composes four fixed capabilities.
+- The16-case focused group passes14 database/API plus2 pure cache cases; pure7 includes those two. Do not call all16 PG cases or add overlapping totals. Private attempt2 passes0318->0189->0318/frozenSQL, installed317/318 bodies, grants and direct DELETE denial, then fails before pytest because Node markRead calls delete_command. Preserve the failed aggregate and missing-JUnit reason. Correct only that peer helper/cast and run the final provider in the existing owned test DB; final Node passes, no full cohort repeat. Independent read-only review finds no additional definite defect.
+- Archive8 original receipts/JUnits, manifest SHA-256f409ac59e6d41721dbd8842799b3c2c5eeb8d4447180a4f341544ccb4503e749. Source-freshness supplement SHA-256c813bf873bd6aebb4e7056074b2e9482d1db847146ab263229148815153f4397 and retrospective diagnostic runner are archived separately, manifest SHA-256e1ec0f0c634d72092cdeadd1c831056d2fa290e2a3ab740b68aec9a06509e411. Original focused shell command/full executed-source manifest were not captured; preserve that limit. Schema JSON and Node AST formatter equivalence are recorded. Audit317 raw-body hash5deba099 and earlier stripped-body7b3e22 are normalization differences; full SQL remains8aebc5a1. The318 raw bodyfb70df0e matches the actual private verifier source.
+- Parent54 package/pure-route/cache cases,21 mocked resource cases, four Notifications Node self-checks, pinned Ruff12 and sole0318 graph pass. Qualification .worktree/notification-delete-integration-qualification.json SHA-2560ac0766f643d37c94e46a521002aab83b927374984056cf9326b5b38892c5cb4 records exact source overlays and live evidence limits. No current immutable image or complete-module claim; primary remains unchanged.
+- Freeze Notifications denominator at nine operation groups plus module lifecycle in the unique ledger. Next bounded deliverable is a public notification read relation for service, async-job notification and WebSocket consumers, preserving current API authorization. Jobs has no generic public retained-project/kind fact; do not move private AsyncJob reads into the Notifications owner. Training and Assets datasets/storage remain deferred until latest feature merge; Go stays experimental.
+
+### Notifications and Audit published-read milestone
+
+- Integrate Notifications0319 from599b4de908c23c25cc7ac1f1f49974efe816ee18, Audit0320 delta fromd945b73d708e3586684aeebfd608bf24fccc7e6b, and verifier26ff91988ef131cafd356ffcba16b52edcd20c8e. Preserve prior append/read-state/delete semantics, API authorization and caller UOW. Public security-barrier views retain eight/fourteen native columns; Audit physical identity is(id,created_at), while legacy ORM identity remains id-only.
+- Parent closes ordinary worktree/LAN table and column ACLs on all three Notifications private tables, grants only fact-view SELECT, transfers both views to their correct code owners and adds eight unsafe-permission mock subcases. Audit residual monthly/DuckDB/performance/active-learning/partition/archive readers remain explicit; no blanket Audit private SELECT revocation.
+- Child Notifications34-case acceptance and7 overlapping cache cases are archived without summing. Its15 original evidence/runner files and21 raw committed sources are verified; exact5d36 cleanup receipt77db0c3c confirms owned resources absent and shared NOLOGIN owners preserved. Audit27 sanitized files and24 raw Git sources are archived under audit-read-relations-evidence; manifestccede7304070dd3dc25a9a1f7db981f2b6545e8ad622a35b6e7c80dc19697457. Its failed aggregate remains failed; do not count the claimed70-plus other cases as a passing suite. Corrected immutable-row test and bounded API/read-role/Node checks are separate evidence. After archive acknowledgement, exact9d52 destruction and guarded removal of two task-created/no-dependency roles pass; final cleanupef319f29ebbf55c56ad8e5c5e746a70cc4d380b9918a52091e0e88d1c7d35df5 preserves source/identity/locks.
+- The first coherent320 attempt passed migration/frozenSQL/owner/Node phases then failed on the verifier publisher password-map key before pytest; its failed receipt and successful cleanup are retained. Fix only the role-key mapping. Fresh unique second run passes26 selected mixed cases with no skips, full0320->0189->0320, frozenSQL, API/LAN/independent readLOGIN ACLs, publisher calls and exact cleanup. Receipt40e63aee78e2f9ef3e88ca52dc3492726cb1aa79cb99e6af7a01cb3cb42b92c8, JUnitc4cc89f9ecaa275a54b7db45ca4d2a9cbb5466eb2766d1d04e3d7137e805906a, pre-execution3775-file input snapshota1d2c87754e98b26443f54c9c9515c1039da1e7343d3ca9f06aa48f4069baab4. Inputs remain unchanged during the actual cohort. Canonical pg_get_viewdef hashes and SQL input hashes are distinct and stable across four phases.
+- Actual native duplicate-id rows exposed the global query client's id-only reply rejection; fix Python and Node composite-key checks and verify1-microsecond differences natively. Add a real review-round snapshot consumer case for successful project/round/action selection and retained fallback. Independent final review then catches timezone-equivalent duplicate strings; normalize instants while retaining microseconds. This later change touches only three pure-contract files, SQL/schema/adapter/grants unchanged. Final67 pure cases and Node self-check pass;21 current-source resource mock cases and32-file pinned Ruff are separate. The first final pure invocation omitted PYTHONPATH and failed collection; corrected unique JUnit668cfd056bb8501d150c9c629d339582a2024428c2572bc308de6565081bba54 is the passing result. Do not relabel prior DB bytes or add overlapping counts.
+- Qualification.worktree/read-relations-320-qualification.json SHA-25635ac78b53852a9bc0cdf8c71086ddb330690037ecf953770550320a5e1028d57 binds both actual receipt and pure-only source overlay. Current cold API artifact, complete Notifications publication/terminal atomic dedupe/WS/outbox, remaining Audit readers and complete-module recovery remain open in the unique ledger. No repeated video matrix, no primary change(5421fa1), production/push/release, Go expansion, Learning or Assets dataset/storage work. Next coherent artifact work must use current source rather than the historical315 image.
+
+### Current read-relations API artifact and next parallel slices
+
+- Parent commits the read milestone as1b18a40b572b92ef007e5ff41dd9df28459d1a6b; integration tree is clean, primary remains5421fa1. Reuse the existing ignored image builder with unique read-relations-320 attempt. Workspace/Inference/Assets-source COPY sets513/133/161 exactly match and their immutable images are reused, only current API is rebuilt. Its3699 COPY inputs bind source1b18 and image sha256:7e68655ba4d5abe7d14d2cd333a7b71bd862547f39b0b86778278879d642ec12. Offline user10003/read-only/network-none/512MiB checks2003 files(573 installed,1398 application/migration,32 CLI),36 Python packages, four runtime fixtures and noneditable Audit/Notifications. Supplementary exact-image probe compares2 new read schemas to runtime generators and compiles2 installed API aliases; no DB IO. Qualification10b4158e0c7688e17f0c9f59280796ecf8cf08fbc5517253138ff97fbf17f896 binds original manifests/commands/probe/source hashes. The prior26 database cases were host-executed, not cold-image runtime evidence; do not conflate them or repeat the video/migration matrices.
+- User-authorized independent implementation resumes in fresh1b18 worktrees: Notifications delivery owner extraction with Identity compatibility/dependency/COPY bindings, and a no-migration Audit raw-event reader slice(monthly tail, Audit DuckDB sync, annotation project performance). The latter leaves the MV path/refresh ownership and Learning/active-learning/Assets/archive untouched. Both are work in progress until real commits and consumer acceptance; parent retains ledger/globalgrants/verifier/artifact ownership. No main-runtime cutover, push/release/production or Go expansion.
+
+### Notifications delivery extraction and Audit analytics source integration
+
+- Integrate Notifications0b6beeb2845870148f793fed0b71fde5ff33f3bd and Audit4f762fb9182bfa401b69ad93cad0cb728f9eb758 plus99589119a3671ce21ddf2f8bf6288728315fe3d5. Notifications now owns delivery protocol/client/config/worker, locked standalone runtime definition and independent wheel; Identity retains compatibility imports/errors/CLI and existing Compose. API owner failures remain Notifications-specific inside the executor and map back to Identity at the outward task boundary. The intermediate finish-after-Redis error regression was caught and corrected; no frozenSQL/protocol/selectors/lease or ACK changes. Independent review finds no further concrete defect.
+- Notifications source/wheel/CLI evidence is archived under.notifications-delivery-owner-evidence, manifest2749ea518476e22d11d4a6b73ec148e9f4195c95738b748f9e052d6da85a6ab2. Verify all27 raw Git blob hashes against parent source. Child40/26/5 checks overlap; only bounded ack-failure summary exists, no original JUnit/output. No child live image/PG/Redis/Celery run. Three locked manifests and isolated runtime/test installs passed; actual standalone-image publish/retry/recovery remains upcoming.
+- Audit reads(monthly raw tail, Audit DuckDB source and annotation project performance) now use0320 facts, retaining raw SQL no-autoflush and ORM autoflush/UOW. Monthly MV/refresh ownership, other DuckDB domains, Learning/active-learning, Assets/archive and grants are untouched. Source-bound26 PG/API,8 DuckDB target and15 pure checks pass independently. The0320 MissingAudit fake lacked autoflush; follow-up995891 addsFalse and passes the failed node without production fallback. Original failed JUnits remain. Archive21 sanitized receipts/snapshots/runners, manifestcfacebe42f905881df07bf39829fdd23475758f1d264b8abad9a43f516a6d695; verify all8 raw Git sources. Exactfef02b98f0d1cbc6:test cleanup verifies DB/runtimeLOGIN/Redis/ten buckets absent and preserves identity/locks/source; receiptfec3b1fd7c4b0f36c5b943f85ae8f82daccfa1e8232ce14400148206f0a2d8e8.
+- Parent locked API sync rebuilds only local Identity/Notifications editable metadata, shared Node/environment links untouched. Combined117 package/compatibility/API-boundary/performance/DuckDB tests pass with zero skips; do not sum overlapping child counts or relabel host/fake-source checks as cold-image PG execution. Source integration/public docs precede the coherent three-image and actual standalone publisher gate; prior read API image remains explicitly the1b18 checkpoint. No main runtime/primary/push/release/production or Go expansion. Overall goal remains active.
+
+### Notifications standalone and Identity compatibility artifacts
+
+- Parent source milestone89b51f43e431035a0d39c92d7cb182775bd28058 is clean after integrating all35 exact leaf source files and shared documentation. Integration qualification0a7ed6fed87937b6d6f6889b1ec7399e06cf611f4a9cf65dbd1da1a89d27d81f binds117-case JUnit5cc6d3952c2d9fb3235e0e0711296565ddcca7595b86ae30945df3e7677eaf43 and the original archives. Its40-file source map is explicitly post-run committed evidence, not a separately captured pre-run snapshot.
+- Reuse the existing offline package-hash probe for two current local LinuxARM64 images. Notifications image sha256:7986eaf585a8e308bde737ef7a6cc0b98f8286ccce84901dd82aadda1d29cb53 binds36 COPY inputs and32 installed files, runs as10004, and contains no Identity/app/SQLAlchemy/FastAPI/Celery. Identity compatibility image sha256:e1156539dcb2e55a0f20c5554469647e857c10da8f62edcbfd6ec1b63f23587c binds178 inputs/171 files, runs as10003, and retains old CLI/import aliases. Both pass noneditable/resource/schema/help checks under networknone/read-only/capdrop/1CPU/512MiB. Qualificationdefa0b090f53dfddefd0f775eee497cd5d0e87161f15ec502ebe344e4028772b records original build/probe/runner hashes. No actual delivery, complete module, primary, AMD64/production capacity or language-replacement claim.
+- Delegate the new standalone-image live case to a fresh89b worktree. Root pre-live review catches host Redis probes using private DNS and Docker CMD replacement; independent review adds immutable network IDs, uncertain ACL-create cleanup and explicit secret-file removal. These are fixture defects, not observed runtime regressions; preserve original37bfd87 and successive follow-up commits rather than relabel. The broker parking step must claim only death after committed lease before ACK; no RESP simulation or false PUBLISH-inflight claim. Parent will select this case alone on a fresh exclusive verifier DB, reuse existing producer/native grants and batch current API artifact, without old17-capability/video matrices per leaf.
+
+### Workspace transitive dependency prerequisite
+
+- Parent image-reuse preflight finds the historical Workspace owner513-file COPY set includes changed Identity inputs; Inference133 and Assets-source161 remain exact. Repo Dockerfile/lock inventory shows only API, Identity and Workspace consume aap-identity. Workspace uv lock --check genuinely fails after the new base Notifications dependency; this is a dependent-artifact prerequisite, not a new Workspace business slice.
+- Add only Notifications pyproject/src COPY lines to apps/workspace/Dockerfile and refresh apps/workspace/uv.lock. The existing nested local source resolves ../notifications, so no extra pyproject source selector is needed; no external pinned versions change. Workspace46-package and API132-package lock checks pass. Workspace image must be rebuilt and fingerprinted with this graph; old source receipts remain historical, no primary or runtime cutover.
+
+### Standalone publisher focused live gate source
+
+- Integrate37bfd87e81ec49c0df863ec216a4e6109baf29b3,0fd430d26603bf40281808bf7cc386c1e1e7c35b,e0145db27d0441bb0d033bde0d89feb3312f7692 from the isolated89b worktree. Keep original review/fix commits. Test-only helper binds immutable image/network IDs, verifies dependency ownership, routes host ACL proof to loopback and mounted publisher URLs to private aliases, uses actual CLI CMD and captures both log streams. ACL attempts are registered before mutation and cleaned idempotently; exact URL secret files are removed after all owned containers are gone. Cleanup errors propagate. Independent follow-up review finds no remaining concrete listed blocker.
+- Parent14 pure guards pass after source integration; no native test run yet. Gate selectors are explicitly test-only; existing verifier accepts valid --test-file paths and inherits them, so no global verifier/production selector change is needed. Run this live case alone on a fresh owned private PostgreSQL instance, with empty pending outbox and no existing publisher sessions. The parked broker verifies death after committed lease during handshake(before PUBLISH), not uncertain accepted broker publication. No new generic deployment framework/RESP simulator, no old17-capability/video matrix, primary or production action.
+
+### First standalone live attempt and lifecycle correction
+
+- Current4d844 checkpoint builds the dependency-correct Workspace image332 installed files and API image2008 files(578 packages,1398 app/migration,32CLI), preserving unchanged Inference133/Assets-source161 input proofs. All four Notifications/Identity/Workspace/API images pass pip dependency checks. Qualification55c4b09672a2140fcaab1f2de5653bd7b1698398be5726f3d7c91a4567fe0cf6 binds original build/probes/dependency receipt and first actual run, without live-success claim.
+- First exclusive new-image live run fails before publisher START: Docker CREATE returns State.created/Pid0 and correct immutable HostConfig.NetworkMode, with empty endpoint IDs until START. Original receipt7671de537345a69d4cbc0d86c84b8a7a69bccc41d10df03e7b3733d399c31628 remains failed, JUnit1failure/0pass, source snapshot0f3e37c58a940186f2b4d35f001e7de7a1ee0212528a5427e9290a445ea7e7b7 binds3786 unchanged inputs. Migration/frozenSQL/API+Node/ACL phases pass separately. Standard verifier cleanup succeeds; custom created-container cleanup fails because it incorrectly requires live endpoint IDs, and pytest.fail BaseException escapes exceptException. Parent proves exact owner/image/name/createdPid0/network-mode and removes only failed run7036606cb940484e9da28b7b containerfa9db7/networkfa8693; tmp root and secret dirs already absent. Recoverybb4edd85d6ba6403aa5f22e0acc06caf2e131cc09965392d2c973af68d8b0e59. No legacy producer remains.
+- A tiny real same-image Docker lifecycle probe(noPG/Redis/credentials) confirms created(empty IDs), running(both IDs), exited(NetworkID retained/EndpointID empty); cleanuppasses, receiptd32cbe0d290c03efb75e9afcab3abc565f7ccada558d5770e29a33dbb60a801f. Integrate child2d2048645ac84c44ffa879b1122d438b1023c04a: created profile checks immutable intent/full labels/security/mounts, afterSTART accepts verified running or fast-exited without sleeps, cleanup allows verified never-started containers and full IDs, attempts every cleanup even for pytest BaseException and preserves primary/cancellation. Parent19 pure guards pass. No product behavior changed; current app/package inputs remain exact while three later host-test files are separately source-bound, so do not rebuild/relabel app artifacts solely for these helper bytes. Retry only the new live gate with unique receipt/snapshot; no pretense the first attempt passed.
+
+### Standalone publisher local live gate passed
+
+- Corrected host source checkpointd9112d62820b82228dff31092699903d3e3939d5 runs only the new composite on a fresh exclusive verifier DB; it passes1case/0failure/error/skip in10.953s. Actual pinned Notifications image7986eaf... contains no Identity/app and uses only function-only PG/PUBLISH-scoped Redis secrets. Real Identity request produces2 pending rows; denied-PUBLISH keeps retry/redis_error/no message, allowed retry publishes stable IDs/done, empty new --once is idle, actual cold process is killed after committed claim while handshake blocks, then controlled expired lease replay publishes original IDs with increased attempts. Six inspected containers/network IDs are recorded. No PUBLISH-inflight ambiguity or production recovery-SLA claim.
+- Receipt674a586aa8d60215a378f45fe60f5748d4c79e484fc0337c2bf8d3b399e4735e, JUnitd5dbfe216cd7b3424b8a1cd105615b52f4b58588c45f6ddf31d1e15f6e7f0783, before-source snapshot9d1c0bfc6a168907a77c1a5d97a2508b689102135520d199c04b009b8e687919 bind3786 unchanged inputs. Overall original first receipt stays failed; its valid preparation phases are retained, not counted as new cases. Standard DB/LOGIN/Redis/buckets/privatePG cleanup passes; exact label queries confirm no custom publisher containers/networks remain, secret files are removed after container cleanup. Pytest record_property xunit warning remains but all IDs are present in actual XML.
+- Qualificationa3f4a57dc8be575d2abb292aa23377549b2e8d9d5a9202f277d5b46d4e8f1159 joins source/image/dependency/live/failure/recovery proofs. This closes the selected deactivation-request independent publisher local gate only, not complete Notifications or all event variants; completion-event current-image execution remains explicit. Four images preserve runtime app/native/package bytes, while3 corrected host-test files have separate actual-run hashes. No repeat of old17-capability/video suites, primary/runtime cutover, push/release/production, AMD64/capacity or alternate-provider claim. Next same-module work is completion-event cold coverage and atomic terminal append, preserving the existing57 caller surface and held Learning/Assets code.
+
+### Standalone publisher completed-event gate passed
+
+- Integrate test-only child1cc1a354c653fcbceee941cc3bf6c564186055be as7b971a880. Pinned Ruff,19 existing helper guards and collection pass in the child; no child live resources. Parent runs only the new completed-event case on a fresh exclusive verifier DB, reusing the immutable7986eaf publisher image. Genuine Identity request notifications are drained; only the owned actor and matching pending reservation timestamps advance together, then the real due operator creates the completion event. Persisted inactive/offline/deleted state, sole active-admin recipient, exact non-private payload, stable ID, done/attempt1 and empty fresh restart pass in5.545s.
+- Receipt1824dbca4b3713629a0d87228b4279eb22fe0f5eeac3d0a4152d3458f794031b, JUnit111f4f1bf9e45a7f50eecac1884af11c2eb73abd043735f2ed5e81682040c477 and before-snapshotbc8bf968fcfb8148d69974a526a9e82ad980bc8fe742754125dd3db188f300e4 bind3786 unchanged source inputs. Standard cleanup succeeds; exact three publisher containers/private PG/network IDs are independently confirmed absent. Qualification91fea004354a4523cc0bb2c6e9fca7b23fded8090259aa62f107a018f01817c7 joins this result to the existing request/ACL/process-death gate without rerunning it or rewriting its original failure.
+- This closes the current-image local gate for both actual Identity event variants, not complete Notifications. Atomic terminal append is independently progressing in its own current2d5e worktree with0321 reserved; ordinary transport and WS/Jobs scope remain separate. No production timing/SLA, primary adoption, runtime cutover, alternate-provider, Learning/Assets or Go expansion.
+
+### Immediate Redis transport owner extraction
+
+- Integrate isolated child16465cd6449b5356f4b9e5b5970b02fe16602237 as8568f9445. Only raw channel/Redis transport moves to Notifications; API message construction, authorization, `_publish` compatibility seam and best-effort/propagating policies remain. Default JSON bytes, per-message client construction, finally-close exception precedence and cancellation are preserved. Durable codec and lease logic are untouched; no migration, selector, dependency or RPC is introduced. Correct the existing test callback's self-comparison so it checks the actual recipient.
+- Parent13 package/durable/API pure checks pass, with pinned Ruff0.15.22 check/format and diff check. Seven source hashes are unchanged across the run; snapshot992296ed9270e372f7887365e324f5aa8794d6e475511e08d89853951b1d8419 and JUnit3fe361b4eb64df2f1131602b54cdb797d23d9aa5cbe3159013e2f7226ce9f369 are bound by qualification08219cb6b22be12eaa63311ca8dd64ce1cc6de3a47d434473e0b5c1a4392666a. Child used isolated Ruff0.15.17 and an existing Prettier binary after its first hook lacked Node dependencies; parent pinned checks supply the required version evidence. No child DB/image/runtime run.
+- Ordinary publish wire/service contract, current cold artifact and WS/Jobs scope still remain. Batch artifact qualification after the separate0321 terminal append integration; retain old publisher event evidence at its actual source checkpoint. Learning/Assets remain held and Go stays experimental.
+
+### Terminal job notification atomic append source integration
+
+- Integrate child0627a3b68a9e7ca30e35b617d3cd5e474c94ad59 as6b86bef95. Resolve only the adjacent Notifications imports by retaining both accepted Redis transport and terminal owner imports. The fixed0321 function returns created/snapshot, shares0214 advisory namespace/seed, rejects unsupported isolation and reads no Jobs/Identity tables. API preserves57 call sites, whitelist/payload/mute, original autoflush and created-only precommit best-effort publish. One borrowed-connection savepoint encloses existence/preference/SQL/decode without Session.begin_nested's forced flush; original SQL error silently losing the job transition is reproduced and fixed. No historical duplicate deletion/unique index or frozen0214 change.
+- Archive15 sanitized child files with original failures; manifest61caabc6c93d983ea9654e8f498320a7ff968354a25f6816bd2bc38d21e7641a. Verify all19 raw Git hashes;17 equal parent and2 contain the reviewed transport overlay, receipt38a2303a3b6f54d49567c6b91c09a7f2e9f735c060e15d1e397f46b546aaf306. Child27 mixed PG/caller cases plus1 extra identity/rollback case pass;56 package cases, Node self-check, locks and wheel-resource checks pass separately. Final source map is post-run; schema/Node formatting followed its PG cohort, so do not claim a separately captured final pre-run source snapshot. Parent actual gate will bind its own clean pre-run snapshot.
+- Parent locked API sync refreshes only local Notifications metadata. Parent65 package/durable/API/script pure cases, Node peer self-check, pinned Ruff and Notifications lock pass;21 resource mocks include missing terminal privilege rejection. Add the fifth fixed function to append/LAN/worktree grants and verifier head/resources/body/Node/API probes; do not widen private-table rights. Source, DEV, user notification documentation and changelog precede the fresh restricted-role/migration gate. Current cold artifact, ordinary wire/WS/Jobs facts and complete Notifications remain open. No primary/runtime/production/Go or held Learning/Assets expansion.
+
+### Terminal owner restricted-role and migration gate passed
+
+- Clean parent8d8c4a387 runs one fresh exclusive verifier gate with28 selected terminal/caller cases, zero failure/error/skip; real legacy_runtime function call and function-only Node created/existing/rollback/private-table-denial checks pass. Full0321-to0189-to0321 migration/frozenSQL rollback, installed function body equality, read relation owner transfer and exact grant guards pass. Source-before4eb57df9286e2efe7b6e0405f81c1728fcd23f027926d637d880e20c466af8fe binds3799 unchanged inputs; receipt3e6e5032161568d07cce977b5be59978391c0f545cb6eb8122b30c134c07e83d and JUnitd7028331cb041d600cec5758a14cc8b843ebba64cbbac3c9ce69141bc3b0313a remain original.
+- Parent65 pure checks also have pre-run unchanged source and JUnit693296fa2128202681813a1f37b0bd0094f3a93e1955511b56a5f5d1bd579a17. Qualificationfaef9987490ca16d13e574c45fc2b03e4a6408b71afc6abea9722b9099f0a9a3 joins original archives, transport and event gates with explicit overlap/limits. Standard parent resources are destroyed with zero cleanup errors. Child1451c3649b053bcf:test is independently doctor-checked at zero sessions, stopped/destroyed by exact confirmation after archive acknowledgement; cleanup06c0510eaef3373de5a8268bed6239f5a3470336bc3cd9f3cbabd5bbea6373b4 is archived. No role re-enable, unknown-session kill or shared cleanup.
+- This closes the atomic terminal append operation and existing caller local gate, not the complete module. Legacy precommit best-effort timing and its rollback-visible hint remain deliberate compatibility limits. Batch current Notifications/API/Identity/Workspace cold artifacts next, then ordinary publish wire and WS/Jobs scope; no repetition of old video matrices, primary/runtime cutover, push/release/production, Go or held Learning/Assets work.
+
+### Current terminal and transport artifacts
+
+- Clean4f4d07abe builds four local LinuxARM64 images using the existing builders and immutable-ID probes. Notifications/Identity compatibility/Workspace/API verify38/177/338/2017 installed/app/CLI files plus four API runtime fixtures; COPY inputs42/184/549/3724 remain exact. Terminal schema/portable manager, raw transport imports/channel, CLI, noneditable provenance and compatibility imports pass. Unchanged Inference133 and Assets-source161 source proofs are reused; no feature or runtime work there.
+- New image IDs are4cdfd4bf7006(Notifications),682c3732a760(Identity),1d509620f084(Workspace),2c2fcb3818b2(API). All offline probes use explicit nonroot UID, readonly/networknone/capdrop/no-new-privileges/1CPU/512MiB. The initial dependency collector fails on absent API Config.User after three printed successful pip exits; preserve original failureafd56e74ffceef6f135596385cbed6c97adc5f20cc1654c2c589d08038b13cbb. API Dockerfile is unchanged and has no default USER; record launcher UID requirement and run only its missing pip check. First three pip streams were not independently retained, so do not invent raw output. No product change/rebuild follows that collector assumption.
+- Qualification78b687b9d43e1fab848268d93ebf7d87ce1c0efd0262116b464f8f073b3ac49e binds exact build/probe/dependency/runner and321-source proofs. Current images have only offline qualification; older requested/completed/ACL/death runtime proof stays bound to its actual89b publisher. No new cold API/PG/Redis business case, whole-module closure, primary/runtime cutover, production or language-provider claim.
+- Begin the independent Audit daily aggregate/refresh slice in a fresh4f4d07abe worktree, with0322 reserved. Existing Audit owner SELECT already covers every MV source column; transfer only the MV ownership, publish read-only aggregate facts and fixed concurrent-refresh capability, keeping read and refresh rights separate. Parent holds global grants/verifier/docs; child owns package/native/callers/focused evidence. No base partition ownership change, new DSN/service, archive/storage, Learning/active-learning, Assets or Go expansion. This is unmerged work, not an accepted Audit capability.
+
+### Independent Audit daily and Jobs notification-scope source integration
+
+- Integrate Audit child dbcec594fb5df664259ca50be40e405250ddecdd as 05dd3e683 and Jobs child 09172f914a2adb52149d6731d860176e9b9de81e as fdd0ae476. Genuine Alembic ancestry is 0322 then 0323. Keep native DATE, VARCHAR, SMALLINT and BIGINT semantics; JSON counts remain canonical lossless decimal strings. API authorization, default/no-autoflush and caller transactions remain intact. No Learning/active-learning, Assets/storage, Go or runtime cutover expansion.
+- Audit child restricted-owner refresh first fails without TEMP, then succeeds with TEMP only on the code owner. The attempted direct probe DELETE is correctly rejected by the immutable audit trigger; retain the original partial-failure receipt and recovered read/rollback proof. Remove the committed probe only with the exact disposable DB. Parent transfers MV ownership with bounded public CREATE, grants owner TEMP, separates read from fixed refresh and preserves the existing maintenance migration-login EXECUTE. Private MV table and column privileges are revoked after broad LAN/worktree grants. No base partition ownership or new source SELECT is introduced.
+- Preserve 28 Audit and 12 Jobs original archive files. Archive manifests are a5ce3f1ccc75fbcf2c40d2bceae0e8b76d43a15ef039785fccad42623c15fe2e and 3dee4fdce579012070de52c0ff514af7cbad7b18c6a2a092b5e952d416c209c2. Raw17/19 source files match integrated bytes except the two reviewed parent Node overlays. The Jobs prerequisite is not full-tree-equivalent to the Audit child: all17 Audit source files match, while two inherited documentation files differ; retain original receipt plus correction 0a348dbb3fb5f8e0cb888ea7fdfb34fc619d241ab6fdd52b2025d789bcf3e1a2.
+- Child evidence is scoped: Audit pure/type and PG cases, Jobs29 mixed/2 contract cases, and Jobs Node SET ROLE do not establish a real separate LOGIN or current cold images. Parent records the actual pre-fix installed-pg DATE parser reproduction (Asia/Shanghai shifts day), preserves raw DATE text and code-point lengths, and checks actual Jobs session_user with a 40-code-point kind. No widening API async_jobs revocation; other consumers remain.
+- After archive acknowledgement, exact child test modes 64edd8f3defa64cd:test and ce83d5c525434df4:test are destroyed at zero sessions; DB/runtime LOGIN/Redis/ten buckets and three/two task-owned NOLOGIN roles are absent. No DROP OWNED, unknown-session termination, shared cleanup or fixed global owner mutation. Cleanup receipts 24223d29fe729a95b65acba3e95e83675e5cb02b33461941b951f87e3506d703 and 95e6657e1cfc69c8c1b446d0d690ef8e2e90513d594614e156c148a72ddf68e4 are archived. Source/identity/locks remain.
+- Read-only parent review finds no concrete grant ordering, authorization or UOW defect; it ran no tests. Commit shared grants/verifier/docs before one coherent independent-LOGIN/Node/full0323 migration gate, then batch changed API/Workspace artifacts and reuse unchanged owner proofs. Source integration is not whole-module acceptance, primary adoption or production qualification.
+
+### Audit daily and Jobs facts local operation qualification
+
+- Clean parent b482d3210632d5c82a3afe63a46dfe814c48ec18 passes27 selected DB/API cases with no skips. Actual function-only refresh LOGIN commits the tagged append-only daily projection; API and read LOGIN cannot access private MV or refresh. Jobs actual LOGIN/session_user Node verifies native3 fields and40 Unicode-code-point kind; Audit Node runs in Asia/Shanghai. Full0323->0189->0323, frozen SQL rollback, installed function body equality and post-broad-grant ACL checks pass. Source-before c0a23795a12bbd3e02d06f2a39484da260a42357689ef8ddca683ec9df0e9a9f binds3819 unchanged inputs. Original receipt384021bfe58c496f0ceef936c900fcb770fb0a36166e1ba0dc70bb30480d1719 and JUnit4e64ea8b86661bbbd8c9f212f99bb3cea11468ee5b90dd172d68869f6b098e71 remain exact; parent cleanup has no errors. Earlier10 package and17 API pure cases are separate overlapping cohorts, not additive case counts.
+- Current LinuxARM64 API image11af6667ab0fcb5ca21794f81a0261682662cacb879999240eb24f189740ade6 binds3744 COPY inputs,2031 installed/app/CLI files and4 runtime fixtures. Noneditable Audit/Jobs schema/native resources, API relation imports, compatibility aliases and dependencies pass under explicit UID10003/read-only/networknone/capdrop/1CPU/512MiB. This is offline qualification; current-image PG/Redis business execution remains open.
+- Correct the parent artifact scope assumption: Workspace does not install Audit or Jobs, and its549 COPY inputs are unchanged. First shared probe successfully checks338 files and terminal/transport before an irrelevant new Audit import fails. Preserve that failure; no product fallback or repeated338-file suite. Rebuilding the same content tag with new revision metadata makes the prior manifest-list ID no longer resolvable; initial collector writes no success. Bind actual rebuilt Workspace5f7849de176b4298f48972beb998ccea40ba4e42906b212df69aa9e796f7715b to retained partial proof plus only missing dependency/import checks. Original builder collection is unchanged, corrected qualification names the real ID. Notifications42/Identity184/Inference133/Assets-source161 inputs and historical qualification are reused without business expansion.
+- The child ancestry correction sidecar was absent from the initial parent archive; copy it after verifying original0a348dbb3fb5f8e0cb888ea7fdfb34fc619d241ab6fdd52b2025d789bcf3e1a2, retaining manifests unchanged. Qualificationfc9b5aa30109f91365c3fb120033a15d3bdcba79f14a31a74f355dddbeb02414 joins all original source, live, pure, artifact, failure, correction and cleanup proofs. This closes only the two operation boundaries. No complete Audit/Jobs/Notifications, independent maintenance credentials, cold business/recovery, primary/runtime cutover, push/release/production, capacity or alternate-language claim. Learning/active-learning/Assets held, Go experimental.
+- Read-only next-slice inventory recommends Notifications ordinary event/sync wire contract before a separate WS lifecycle boundary. Reuse existing package/schema/Node/transport; keep open event types, sync extensions, existing best-effort versus propagating errors, precommit terminal versus postcommit ordinary ordering, four150ms visibility retries and cancellation cleanup. No new runtime or migration has been started for that next slice.
+
+### Notifications realtime wire and socket lifecycle source integration
+
+- Integrate independent wire child f43e1c3e0, b8ca616ca and becdd1349 as ae2e11061,339d2c3c2,478df3d63; browser child4849922,b51abf2 as32ce7a0ad,163a872e8. API/durable constructors share the six-field owner contract while retaining encoding/timestamp/transaction/error policy and old \_publish seam. Sync stays open, ping stays in WS, and no version envelope/dependency/service/migration is added.
+- Preserve original child evidence and review corrections. Initial dict-only payload would drop native JSONB scalar/list/null; retain all native JSON shapes and depth350 without a recursive validator cap. Python metadata-only format validation differed from Node; actual same-format checks now preserve strings and reject bad calendar/UUID/timezone. A final real reproducer shows Python normalizes offset minute60/99; shared pattern bounds remove this mismatch. All11 final raw source files match parent; archive495b7dc745f7eb44c337cb157742ebc0ff99d3759933e93f00bc226640b79959 retains29 originals rather than rewriting success.
+- Browser23 source checks were recorded post-run without raw JUnit or pre-run map; receipt says so. Archivee7c750c194e8523062e8e0cdf867ef807b70ed1b7f3b3c623e8815e1eca652f7 retains exact5 sources, config hashes and final SVG render; parent full lint/tsc passes after integration, unrelated5 ESLint/3 style suggestions remain. Parent adds native-payload cases: first raw-array Vitest.each fixture unintentionally spread the sample; retain its28-pass narrower record, use named cases with actual28-pass JUnit/source map. Only new tests justify this rerun. Diagram caption/embedded scene move12px fixes the observed dashed-line collision.
+- Parent reproduces2 PubSub release failures, then protects subscribe with try and always closes after unsubscribe failure/cancellation. Original failing JUnit remains; 10 selected lifecycle/relay/auth checks pass. New live case uses real API/auth restricted logins, scoped subscribe-only Redis, Node stdio bytes and actual loopback ASGI WS. Read-only review resolves exact fixture cleanup, auth current_user and cross-channel denial before live run. No trigger bypass, credentials in Node, fake admission result or stale-producer takeover.
+- Parent50 package/13 API pure checks and Node self-check pass with pre-run2476-source map. Commit source/docs before one fresh owned real-socket/migration gate with selected notification caller checks. Keep new image qualification for the coherent next runtime boundary instead of rebuilding four consumers per protocol leaf. Complete WS policy/runtime ownership and complete Notifications remain open; no primary/runtime/push/release/production, held Learning/Assets or Go expansion.
+
+### Notifications wire/current-gateway local gate passed
+
+- Clean parentb23eaa0749031e49552aab2891f746b133ce34ff passes8 selected actual socket/caller cases, zero failure/error/skip in6.122s. Source-before57d482710d5c3c71c4e2f795a61b440d6306a6bbe4b7a5edc31e65bfab55ccd8 binds3826 unchanged backend inputs; receipt18bd3ec7a89e709fb62db8cceaaab53d22849780bbc3a0f1bbd4661d5c35389b and JUniteebc252ff172a2c544f86d2709d7db79ecbf306d9de53398381d9c892723ddc3 stay original. Actual XML property retains both restricted current_users, subscribe-only one-channel ACL, Node stdio bytes,5 legacy payload variants, precommit visibility, revocation/disable,4 missing-row looks and disconnect/handler-cancel release. Keep xunit2 property warning, no false clean-output claim.
+- Full0323->0189->0323/frozen rollback/installed bodies and standard owned DB/LOGIN/Redis/buckets/privatePG cleanup pass with no cleanup error. Committed fixture rows are deleted by exact project/user IDs with normal FK cascades. Qualification4aa99bc5fd6d7a667b71117b71ae099db736f0d5ded7a23f75e0074842e35cda joins child archives, original regressions, parent50/13/28 cohorts and source maps; do not add overlap counts. Parent final commit hook only wraps the new Vitest callback after its run; reviewed formatting-only delta and normal required checks pass, no claimed new post-format test run.
+- After exact clean/cherry-equivalence verification, preserve both child tips/5 commits in a verified bundle and all29 wire evidence files, web receipt/original temp configs/final render. Remove only the two current-task clean worktrees without force; delete only owned equivalent local branches after verified backup. Cleanup31534cc9767fccad580080dc7fb3d96140c6a952d05d2b9b7fb78e82d06596fa records exact scope. No runtime identity/resources were provisioned in either child; other worktrees remain untouched.
+- The message contract and existing gateway consumer local gate are now closed. Complete Notifications remains active: inbox/delivery policy and current-scope data still belong to API, with WS/runtime ownership and coherent current cold artifacts/recovery pending. Retain historical artifact proof at its real source rather than rebuild four images per leaf. Next bounded owner-policy inventory is read-only. No primary/runtime cutover, push/release/production, capacity/AMD64/provider replacement, held Learning/Assets or Go expansion.
+
+### Notifications inbox owner source and permission integration
+
+- Integrate isolated child487ca8f321aa9648db548b1cddf214159f2de994 andab671bcab34b70743bf6bed10193c0fb92a5af55 as0ffabae8c/cbd74d73a. Three STABLE SECURITY DEFINER fixed reads share a private helper; existing status->page->total->unread statement order, trusted Identity role snapshot, native eight-field rows/JSONB and caller Session/UOW remain. Delivery's distinct Python dict policy, by-id and WS stay in the API. An actual SQLAlchemy SQLite reproducer caught the original unlabeled count NoSuchColumnError; preserve failing source/JUnit and the separate labeled fix. Do not treat SQLite as native PG proof.
+- Read-only semantic review finds no concrete policy mismatch. Parent grants only published Identity/Workspace/Jobs facts/capabilities to Notifications; no foreign private tables. Permission review catches incoming owner membership and missing direct PUBLIC ACL proof; reject untrusted members except the verified migration role and explicitly revoke/assert PUBLIC EXECUTE on all four functions. Transactional negative probes execute the real guard/verify blocks, require exact errors, roll back and assert no probe role/ACL residue. Independent narrow rereview finds both defects closed; native execution remains pending.
+- Archive11 original child evidence files with final17 source hashes; manifest7af82a3414ce6032028e0059375f59136ade070c96cfabda6d8a62012a57d34b. Child's initial full Node check lacked nested pg, so retain only its direct self-check claim; parent full Node check passes using existing isolated dependencies. Parent8 package/6 API pure and23 script tests plus19 subtests pass, pinned Ruff and locked API environment pass. New named-function body extractor has a focused regression for multi-function SQL resources. No prior suites repeated without changed concerns.
+- Commit shared verifier/grants/current-system docs before one fresh native0324->0189->0324 and selected inbox/caller gate. Current images intentionally retain their real prior source qualification until coherent cold-runtime work. No primary adoption, daily cutover, push/release/production, capacity/provider, held Learning/Assets or Go expansion.
+
+### Inbox native cast failure and focused correction
+
+- First clean parentb27cf89ce native gate stops on3 selected page failures before any passed pytest case: PostgreSQL rejects schema-qualified keyword aliases pg_catalog.boolean/integer. Original receipt/JUnit/log and unchanged3837-source snapshot remain failed; actual function-only LOGIN/Node, API/LAN, helper denial,3 transactional ACL guard probes and full0324->0189->0324/frozen-body phases passed separately. Cleanup has no errors. Do not claim the entire first gate passed.
+- Correct only the shared adapter casts to canonical pg_catalog.bool/int4, without frozen SQL/ABI/grant changes. A tiny owned network-none PostgreSQL container executes PREPARE/EXECUTE using SQL generated by the actual adapter: before42704, after one row; both invalid aliases are explicitly rejected. Before/after receiptsd33ae66790420c4a065a60e82d3961442aea8c71eb6dbf49ef76cef87cc9c5a4 and623f25e966fcc4a73beb22d99e16e3e8d2ba11c274113e56a063cd5354842f13 retain raw psql output and exact source hashes; containers are removed by verified exact IDs/labels. Two tiny-probe fixture failures (temporary init-server readiness and lowercase Docker absent diagnostic) are separately archived; they made no application change and are not success cases. Retry only the same selected native cohort with a fresh attempt and clean source.
+
+### Inbox owner local operation gate passed
+
+- Clean parent0cc417c604413814f0669461c6e9a9a5610b6597 passes19 selected native DB/API cases,0 failure/error/skip,4.686s summed case time. Explicit selectors include test_notification_read_relations_baseline.py (not in default TEST_FILES), actual restricted relation API, member/owner consumer and deleted/unresolved/removed-member scopes plus HTTP own inbox. Pending/dirty autoflush/no_autoflush, identity/counts/caller rollback and seven native JSONB shapes pass. Original first3 failures remain failed; no count addition across earlier cohorts.
+- Actual function-only current_user/session_user, Node native rows/bigint strings, API/LAN calls, private helper denial and3 real transactional ACL negative probes pass. Full0324->0189->0324/frozen rollback and8 installed function body hashes pass;3837 inputs remain unchanged. All owned DB/LOGIN/Redis/storage identities/private PG resources clean up without error. Receipt59d8eed074a765a50e540640af392a23a1750366b01062db0854bf830262152b, JUnitaa2728c4b24932df12add2b2ffae617710a350413d739040974e15e7a548244a, source-before7a4936a287c2fa2d21b08a48fa30512b2266d520866e711d319986229107ab58 are retained. Qualification73a47226a9c64c47d0edc57a766a2a7a066ba6e9d3b3c2fc9d89a2976fc0194d binds26 original files and the exact limits; current cold artifacts remain pending, historical images keep original source boundaries.
+- Preserve both child tips in verified bundlef8d6979898784d1505555ccbc21ebe678f12f34d5ba2b754e0f1b55f7a709134;2 stable patch IDs match integrated parents,11 original ignored evidence files reverify. Remove only the exact clean inbox worktree without force and its backed-up owned local branch. Shared target inodes remain and shared env bytes are unchanged; no child runtime was provisioned. Cleanup54e377ca1ae8a340ccaacedb0376718ecc794abd5e023aea683abe734b74d9b2 is separate from immutable qualification.
+- Read-only next inventory identifies one coherent delivery-read/authorization boundary: by-id reads, batch current-scope decisions and existing publish/WS/dataset-import consumers. Preserve distinct inbox SQL versus delivery Python JSON semantics, cached/expired identity, UOW and publish/socket ordering. Existing atomic terminal append does not justify deleting its precheck without actual old/new autoflush/identity parity; route it through owner otherwise. Revoke API fact SELECT only after every remaining reader migrates. No generic new mode or repeated per-leaf multi-image rebuild; full independent WS/ordinary publish/cold credentials/recovery remains explicit. This closes an operation, not the module; primary/daily runtime/push/release/production, held Learning/Assets and Go remain unchanged.
+
+### Notifications delivery reads and authorization source integration
+
+- Integrate isolated owner7c47080a7d19c6359ff42cb46e9be29e7d70edd6 and904de2f7717fa0d8685fd18beea8e4fc3a773c4e as9a8406185/9d92ea697. Seven fixed STABLE SECDEF capabilities and owner pure policy replace API direct by-id/terminal/fact-scope/pair authorization reads. Preserve raw native JSONB, dict/key-presence/stdlib UUID parsing and existing global kinds; optional Jobs then4 separate pair statements retain snapshot/autoflush order. By-id ORM cache/expiry cleanup, terminal existing savepoint/short-circuit, publication errors/cancellation and WS lookup/retry sequencing remain.
+- Parent native tiny probes catch2 pre-integration defects without a full migration run: nonexistent jsonb_object_length42883 (replacement exact-key subtraction passes) and named pg_get_function_identity_arguments output (use existing helper's type-only oidvectortypes). Exact owned network-none containers clean up; receipts796251856cbdf2bbce1588c56caed7d38407af3e956b3712726f5145e73f3b3f and612eb1704bfcee9c66f01ad854f2ceb3ec9e5b38804ef0c178ac7e654ccf2af8 bind native output. Original child commit/failed receipts stay intact, followup fixes both. Archive95bb08321f7f9680afe979a5e80b5892d1a17140e7d5d05270ca487f92634d65 binds28 raw files/final14source paths; root adds adapter/tests/grants and later current-system README correction.
+- Parent40 API pure cases including actual SQLAlchemy SQLite UUID scalar/pair/entity mapping/dirty identity/no_autoflush and14 package cases pass; full Node self-check and locked133 package sync pass. These are not native PG/cold or alternate-language provider proof. Script guard first has22 pass/1 stale positive SELECT assertion failure; update only that expectation to deny and retain REVOKE, failed receipt remains; corrected1 case plus21 subtests passes; final23 case/21 subtest cohort passes after final grant-query wiring. No repeated baseline suites only to recover output.
+- Strict delivery API/function-only LOGIN profile and worktree/LAN/inbox sources remove API fact SELECT at table/column level. Dedicated notification_read_client still reads the published view and has no function EXECUTE. Initial and post-broad-grant reapplication ordering reviewed;3 old raw API probes use read_notification and direct view denial. Native new tests cover4phase external committed revocation/read-only same transaction and cross-pair rejection. Repair old Identity read-role assertions to require exact existing Audit(id,email)/Notifications(id,role,is_active) public columns, while forbidding table/other-column enumeration; no new foreign grants.
+- Commit coherent source/current-system docs before one selected native325->0189->325/API/Node/socket/cache/terminal/UOW gate. Batch current cold artifacts at full runtime boundary, preserve primary/runtime/push/release/production limits and held Learning/Assets/Go constraints. This is the complete delivery-read operation boundary in progress, not whole Notifications closure.
+
+### Delivery-read/current-scope operation qualified locally
+
+- Clean parente274922e9 passes27 selected PG/API/socket cases,0failure/error/skip,4.045s summed case time. Actual legacy API and LAN use7fixed functions without fact-view/table/column SELECT; dedicated relation reader retains SELECT and0functions. New Node function-only LOGIN verifies native8field row,40Unicode-kind Jobs fact, exact reviewer/member pairs, empty nonmanager/nonsuper branches, invalid-input22023 and foreign/private reads/write denial. Positive manager/super semantics and deleted/unknown scopes are covered by native service cases.
+- Real external owner transaction deletes membership after member read but before reviewer read; original ordinary-row snapshot remains allowed, export is denied, next call denies both. All4calls preserve order, read-only PID/txid remain unchanged and input pairs cannot cross-match. Native cache/partial/full expiry/missing identity, terminal race/short circuit/precommit publication/savepoint/UOW and SQL-failure job-state preservation plus actual socket/revocation/cancellation pass. Keep existing xunit2 record_property warning; actual notification_socket_live XML property is present.
+- Full0325->0189->0325/frozen rollback/15installed bodies and owned resources cleanup pass. Source-before5fcfba2c5bd9584b9ee8329c854986e93839ff61b536ccc7f00dbbabfb370409 binds3851 unchanged backend inputs. Receipt676a1344bb8e2c4342811401eac832b536e97db97b3f1f1147a47eae29ff111e and JUnit0ff16c585edbb6a99be0f31bef922368cf78ccc5d18f6ed5aa6086600302474b remain original. Qualification7e1d9d9481876945f4c84362c50adc37e49b9c8adc6611f19ffbd57149ea6b22 binds19 parent evidence files and original child archive; do not add overlapping prior/pure counts. Pure orchestration's editable metadata-only sync overlap is explicitly recorded, source stayed fixed and the native process started after stable locked sync.
+- Exact child cleanup preserves both original commits in verified bundlec64da77f60f79932e531a7c8d2e80c97d82ada4d8640987af527e820d40a866b,2stable patch IDs and all28raw ignored evidence files; source worktree removed without force, owned backed-up branch deleted, shared target inodes/env hashes unchanged. Cleanupd86a117d9c4068f02f192045abfc77970be44cf04412a7f6e277c786c9702794 is separate from immutable qualification; no child runtime was provisioned, other worktrees untouched.
+- This closes the complete selected delivery-read/current-authorization operation, not full Notifications, current cold artifacts or alternate-language provider. Next coherent runtime work extracts the actual notifications WebSocket/gate into owner runtime with existing API compatibility; reuse Identity admission/public client and existing transport/Compose contracts, preserve transaction/visibility/error/cancellation behavior, then batch affected cold artifacts and recovery. Current read-only inventory is in progress. Primary/daily topology not adopted/switched; no push/release/production/capacity, held Learning/Assets or Go expansion.
+
+### Independent Notifications socket source checkpoint
+
+- Integrate isolated owner7018ffccc as1bcbe860f and Identity prerequisitef25529ae0 as85edf8352. Notifications owns admission/current activity, per-frame gates, native read-only delivery checks, relay/heartbeat/cleanup and its own optional ASGI artifact. API retains the public path, embedded owner compatibility and an explicit private-owner raw-frame bridge; selected failures never fall back. Publisher timing/reliability remains unchanged.
+- Extract the exact original Identity contract into the cycle-free admission package, preserve all compatibility object identities, and add a distinct scoped bearer plus optional single-function actor-status datasource. Parent corrects runtime exception names and retains existing API base-path support; standalone origin remains root-only. Shared protocol artifacts use the existing schema exporter. Four locks and five Docker COPY sets are updated without existing registry version upgrades; newly added socket dependencies align with the API lock.
+- Parent focused raw JUnit passes30 API/17 shared-client/38 owner cases with212 unchanged code/lock inputs. Prior10 loopback/7 facade cases overlap and are not added. Archive6 original owner receipts and verify10 committed source hashes, manifeste11a83c2a75a66a615852d10a81eb6c0db8444de3f64fa01cbb66ae701c21a17. Identity child emitted no original JUnit/source map; retain this evidence limit and do not promote its reported91/14 counts into parent evidence. No rerun solely to reconstruct missing receipts.
+- Cold artifacts and the actual independent Identity/PG/Redis/API bridge/cancellation/restart gate remain unqualified. Keep old17-capability Identity assembly denominator exact; the new optional status endpoint does not inherit that proof. Independent read-only Jobs query and Audit HTTP-metadata scope assessments can proceed in parallel; do not expand held Learning/training, active-learning, Assets dataset/storage, production, primary cutover or Go.
+
+### Parallel source progress and socket gate prerequisites
+
+- User-authorized isolated Jobs-list, Audit HTTP-metadata and Notifications cold-fixture work proceeds without expanding held Learning/training, active-learning, Assets dataset/storage or Go. Jobs c3a5bff5f stays unmerged until its separate owner/grant/native gate; the socket fixture is in progress, so no cold qualification is claimed.
+- Integrate Audit metadata2705ecf53 as5e52bcf14: only omit optional overlength metadata request IDs, retaining request/response/context, actors, best-effort fallback and cancellation. Archive5 original receipts,11 passing focused cases, and3 matching tested Python files; manifest2185ed5201d844183bbabe74a25b330f6f34cdefc9b86bd22f08e7d9b8a741de. README changed after the pre-run map and is explicitly outside that execution-byte claim. Adjacent business-audit context limits remain open; no DB/broker/cold gate inherited.
+- Root adds the dedicated ACTOR_STATUS role to existing verifier-owned creation/cleanup/export, applies and reapplies its exact single-function grants, and passes the existing notification delivery-read DSN to the new fixture. Managed worktree environment clears inherited socket URLs (including lowercase aliases) instead of redirecting to a shared owner.10 script tests and4 subtests pass with unchanged5-input snapshot; this does not execute SQL grants or independent services.
+
+### First cold socket gate stopped at fixture resource selection
+
+- At source292effa1e, reuse socket/Identity/publisher artifacts built at7a144fcdd after69/213/69 current COPY-input matches; API is built at292effa1e. Offline read-only/nonroot checks verify61/200/53/2061 installed/package/application files respectively, with5 explicit API runtime fixture hashes. These are packaging/import checks only. The later payload contract adds raw JSON values to API/SDK and widens Web manual types with guarded field access; original archives retain7 API/76 SDK/27 focused Web cases and9 fixture cases, with matching15/15/1637/2 source maps. No counts added across repeated cohorts.
+- First actual selected cold case fails in stack file preparation before any stack starts: the verifier omitted the new test from its existing API-bootstrap S3 metadata identity selector. Original JSON/JUnit/log/source4172-input snapshots are retained failed; source stayed unchanged and all owned resources clean up without error. Earlier role setup/probes do not turn this failed cohort into a passing runtime gate. The secondary incomplete-Compose diagnostic also throws, while the JUnit chain still retains the primary missing-input error.
+- Add only the new file to the existing bootstrap selector. Execute the actual before/after selector condition in a tiny no-resource reproducer (false then true), retaining its receipt. Child0f86b1bc8 makes diagnostics skip Compose when config files are missing, preserving ownership checks when prepared;12 pure cases including3 missing-file layouts pass with matching source. Reuse unchanged owner artifacts, refresh only API COPY inputs affected by the fixture, then retry the same selected cold scenario. No old27-case repetition, no module closure, primary/daily cutover, production, held Learning/Assets or Go expansion.
+
+### Independent Notifications socket local runtime boundary qualified
+
+- Preserve all three failed native attempts. The second reaches actual services but fails on a lazy WebSocket exception import; explicit exception imports and pre-stop diagnostics fix the fixture after a fresh-interpreter reproducer. The third passes all business assertions but fails teardown because deleting an audited actor would update immutable Audit history. Child729a98f52, integrated asbfeb76a9a, retains those actors until disposable database destruction and deletes only unaudited fixture users through the public Audit relation. One pure SQL compilation case and a tiny owned PostgreSQL before/after probe with the actual0032 triggers pass; no trigger bypass, Audit erasure or assertion weakening. Root pinned Ruff0.15.22 passes, superseding the child's documented installed-tool mismatch without rerunning its test just for counts.
+- Reuse source-matched socket/Identity/publisher images at7a144fcdd, with69/213/69 COPY inputs. Refresh only API after fixture changes: current image55b8201de19c077022d66675b258f29fccc9792c8c9313a4f7f86e8232eeda80 binds3803 inputs. Offline nonroot/read-only/network-none checks cover61/200/53/2061 installed/application files plus5 API fixture hashes; these remain artifact evidence, not business execution.
+- Cleanbfeb76a9a passes the same single actual cold scenario with0failure/error/skip in66.624s,4173 unchanged source inputs and no cleanup errors. Actual public API bridge, scoped Identity authentication/current status, single-function status/seven-function notification credentials, actor Redis ACL, revoked/disabled actors, role drift,4reads/3waits, postcommit visibility,30.005s heartbeat and owner restart/inbox reconciliation pass. Node echoes five native payload shapes byte-identically; actual source SDK lists those shapes and consumes notification/sync frames. Source import is not wheel qualification. Qualification78faf170cd9b2dbd5b1824f6bc49ac2e9be395b73fb035c9f4655fe69a2fb6d3 binds32 original evidence files; repeated attempts are one scenario, not additive cases.
+- This closes the limited independent socket/API-compatibility runtime boundary. Complete Notifications still requires ordinary publishing assembly, whole-operation cold composition and full database backup/restore. No complete alternate-language provider, primary/daily topology cutover, AMD64, remote CI, production/capacity, push or release claim. Jobs continues independently in its isolated worktree, with native/Node acceptance unrun; Audit remaining assembly was read-only scoped. Learning/training, active-learning and Assets dataset/storage expansion remain held; Go stays experimental.
+- Archive142 original ignored evidence files and all13 exact patch-equivalent commits from the five clean integrated socket/Identity-prerequisite/native-fixture/payload/Audit-metadata worktrees. Verified bundle9e388c105e3b84ee9b0e600992ea380c06c424cd745a86677af2a241361d3533 preserves their branch heads; remove only those worktrees and backed-up branches after qualification. Cleanup7db90a3ed67df7303b6f1b93e63bf558a3db576f8c8ee0cfd9d9e4fce238d18b confirms four shared targets and primary HEAD/status unchanged. Unmerged Jobs and all unrelated worktrees remain. Documentation build and final diff checks pass; no native baseline rerun for documentation or cleanup.
+
+### Jobs list-query coherent source integration
+
+- Integrate isolatedc3a5bff5/80da05eb asc34d98882/a29224582 and Node786647b3/6e657a0e asea279cf32/a24a4bcf0. Jobs owns page and total as separate native SQL statements with an explicit15-column public result; API preserves preflight Identity status, same-statement membership facts, current/retained scopes, export/global/search rules, ORM cache/autoflush/UOW and Workspace enrichment. The original stale-Identity regression is corrected before runtime acceptance.
+- Parent wires ordinary owner ownership/cross-capabilities, worktree/LAN API grants, exact function-only LOGIN provisioning/cleanup and migration0326/frozen bodies. Add one actual restricted API plus independent Node acceptance to the existing native file, using committed disposable fixtures and actual JWT authentication. Do not revoke API private Jobs access still needed by other operations. Node OID-id and catalog-signature whitespace defects are minimally reproduced before any expensive gate; corrected self-check validates the schema/OID column set. Install only the local conformance pg8.16.3 graph with its own frozen lock, without touching shared Node targets.
+- Parent passes5 API/package cases and3 script cases with24subtests, plus Node self-check. Keep original child and failure receipts; source snapshots remain unchanged. Native DB/API/Node, full migration roundtrip and current artifact acceptance remain pending. This is one operation boundary in progress, not the complete Jobs module; primary/daily runtime and held Learning/Assets/Go boundaries remain unchanged.
+
+### Jobs list-query native operation qualified locally
+
+- At e888f17,13 of14 native/legacy API cases pass. Preserve its failed cohort and repair only the new combined fixture: token subject must be a string (d7e42cc), Identity authentication must use the existing dedicated auth DSN rather than borrow the deliberately restricted data session (b1707bb), and the Node peer must avoid resolving unreadable Identity schema names in redundant ACL probes (child479ea169, integratedbe5a12442). Tiny actual token and gateway selectors plus native owned-PG before/after probes confirm each cause before selected retries; retain all failures and cleanup proofs. No grant is widened. OID-based all-relation/column and exact AAP function checks plus the actual Identity denial probe remain.
+- Finalbe5a12442 passes the corrected case,0failure/error/skip,3855 unchanged inputs. Actual JWT/auth datasource, restricted API HTTP response/project enrichment, exact one page then total call, independent Node LOGIN/native15-column types/order/bigint and private/helper rejection pass. Reuse original13 passing cases: only that fixture function and its Node peer differ;12 other fixture functions and3853 other inputs are identical. Full0326->0189->0326,18 installed function bodies/frozen rollback, grant reapplication and all owned-resource cleanup pass. Qualification3bd897aaa24a0897710776267be73bdfe190e5e999b5d25cf0dd4e29c97816ee binds33 receipts; report14 distinct cases, not repeated attempts or a rewritten all-green first cohort.
+- API offline imagefa63cc0965c82c668fac43b15b4f4ded13d4a32d6cc97228795f11e878c98f01 at e888f17 verifies2068 installed/application/migration/CLI files and current Jobs package/import resources. Those runtime inputs remain exact; two corrected QA COPY inputs differ, so no current full-COPY or cold API business claim. Collector initially includes two CLI SQL files outside the original probe; retain its correction sidecar and align its scope without repeating successful tests or images.
+- This closes the limited list-query native operation and real API/Node consumer boundary. Complete Jobs still needs remaining reads/controls/execution/recovery and coherent cold API business. No whole module, alternate-language provider, primary/daily adoption, production/capacity, remote CI, push/release or held Learning/Assets/Go expansion. Notifications whole-module remaining-work inventory proceeds read-only in parallel.
+- Preserve115 original child evidence files and all5 patch-equivalent commits in verified incremental bundle5ec5060d8b7fb7ae686f89f3be16045eafa0a3eade173e73560ad001535c2b17, requiring the integration's existing06dabdcec base. Remove only the clean integrated Jobs worktree/branch. Cleanupcfe2662bcd167cf9c355e5641b2f6f42df2dd7c4769187a27d6660cf9986c00b confirms four shared target identities and primary HEAD/status unchanged. Docs build and final diff checks pass; do not repeat native/image gates for documentation or archival.
+
+### Notifications ordinary publication and whole-module composition in progress
+
+- Parallel isolated owner and recovery workers implement disjoint source and fixture scopes; root owns API adapters, configuration, locks, assembly, docs and native execution. Keep Learning/training/active-learning and Assets dataset/storage expansion held for the latest feature merge; Go remains experimental. No new unrelated implementation slice is opened before this coherent milestone.
+- Integrate the existing publisher optional HTTP publication contract and owner manager, retaining borrowed Session lookup/cache/autoflush and ordered scope/member/reviewer/owner/super facts. Preserve ordinary best effort, terminal precommit timing, by-ID errors and the existing durable lease/ack path separately. No new SQL, migration or ordinary outbox.
+- Bound streamed HTTP replies and close resources on oversize/timeout/cancellation; freeze the conditional schema so null authorization requires sync while open business event types remain valid. Root adds optional API binding, scoped API Redis assembly and the verifier selection prerequisite. Pinned lock resolution retains registry versions without adding registry packages.
+- Existing focused receipts are preserved, with overlapping cohorts not added. One actual whole-operation cold composition and full database restore is pending; Node HTTP consumer evidence will not be described as an alternate-language provider. Current primary checkout and daily runtime remain unchanged.
+
+### Notifications publication and whole-composition recovery qualified locally
+
+- At43468b130, one actual current-artifact cold scenario passes with0failures/errors/skips in74.328s and4236 unchanged source inputs. Current API image binds3834 COPY inputs and verifies2074 installed/application/migration/CLI files; unchanged publisher/socket/Identity artifacts retain74/74/218 COPY input matches and58/66/205 installed package files. Preserve all original receipts; Node is an HTTP consumer using an SDK-free byte bridge, not an alternate-language owner provider.
+- Actual REST plus same-origin socket, trusted original-Session authorization facts, notification-channel-denied API Redis with real cache/Kombu uses, current revocation, read/delete/preferences, ordinary best effort without new outbox, by-ID failure without lease acknowledgment, precommit terminal delivery and rollback suppression pass. Full PG dump/restore preserves data and pending leases; a new process takes both durable IDs over at attempt2, actor and two admin inboxes remain isolated, and a new ordinary notification delivers after restore. Full0326->0189->0326,18 frozen installed function bodies/grant reapplication and cleanup errors[] pass. Qualification2e897bcd9bc34343468a1859e0550bb838120449f61e54e0aee207210ac84caf binds62 original receipts.
+- Retain all six failed attempts and their unchanged-source/cleanup records. Correct actual fixture/driver contracts narrowly: pinned image IDs, assigned task visibility, no notifications for project-only discussion, protected history retained until owned DB destruction, actual super-admin recipient selection without elevating the employee actor, native UUID normalization and reuse of the existing typed lease decoder. Do not change product authorization or notification delivery semantics. Pure helper cohorts overlap; do not add repeated counts.
+- This closes the limited Python publication/composition/full-database-recovery boundary. Complete alternate-language provider substitution, primary/daily adoption, AMD64/remote CI and production capacity remain unqualified. No push/release or Go expansion. Held Learning/training/active-learning and Assets dataset/storage remain deferred until the feature merge. Read-only Jobs inventory identifies common lifecycle and queue handoff as the next coherent scope; do not conflate that plan with implementation or validation.
+
+- Archive242 original ignored child receipts and all patch-equivalent owner/recovery commits in verified incremental bundled6d2c76d66d398fbfd200ab7fb42860d570f1877e2ddc1fdcba0cb4a1254b3ae, requiring existingd81b65a68. Remove only the two clean integrated worktrees/branches after source equivalence, archive and native success. Cleanup9b59f314c9183be6316d83bf4bd3f63c0c8c8bd6f11f61261ad65e11f6f2b5b5 proves primary HEAD/status and four shared targets unchanged. Root keeps its two additional fixture fixes in2007c5224/43468b130; current cold evidence binds those exact inputs. Unrelated worktrees remain; no image/native repetition for docs or cleanup.
+
+### Jobs lifecycle and queue handoff source integration
+
+- Integrate isolated lifecycle4ade8a5 as0ea7fd30c, queue241367388 as53ff73e6e, cross-frame58a6567d2 as5bb709bb9, and assembly7e2cf5a92 as1f489c623. Keep held Learning/training/active-learning and Assets dataset/storage expansion deferred; no primary/runtime cutover or Go expansion.
+- Pinned SQLAlchemy mapper experiments show partial update interception reorders mixed rows; all-row handling preserves mapper order, partial flush, one update per row and failed-Session rollback. A disposable native PG creation-view probe proves original defaults/RETURNING/upsert/native JSON and failed-flush behavior. The root adapter keeps physical table/FKs/triggers, actual net masks, borrowed Sessions, flush phases, cache synchronization and legacy invoker authority.
+- First0327 native cohort:13 original service cases,11pass/2projection failures. Preserve original receipt/JUnit/log and3898 unchanged inputs. The two failed result/payload paths pass their focused second native gate after final projections are included. Retain the correction of a mistaken creation invariant:0200 preserves project scope on detach, while INSERT requires retained_project_id NULL. Independent review also fixes final caller edit precedence and guards explicit timestamps with original private rights, avoiding silent capability expansion.
+- Add strict lifecycle LOGIN/profile and frozen11 function bodies (8public/3private). API compatibility retains private access for unmigrated consumers. Queue owner has no DB/Identity/API credentials, uses the existing Celery routes/default publish retry, and exposes only the first cross-frame dispatch/revoke shape. The commit/publish gap, canvases/custom options/other producers, cancellation completion and domain recovery remain open. Current cold images, actual broker, restricted LOGIN/Node and whole composition/restore are not yet qualified.
+
+### Jobs lifecycle native capability qualified locally
+
+- Current core passes22 PG cases at79e489cf1 plus the explicitly captured root working sources,0failures/errors/skips,3902 unchanged inputs. All9 new native/Node/actual-consumer cases and13 original service cases run together after normalizing successful Python scalar conversions and removing unreached optional arguments from partial-write envelopes. Fullwidth numeric inputs and a non-JSON object conversion failure retain original behavior; payload/result themselves receive no automatic UUID/datetime conversion. Native Node still bypasses Python policy and directly validates the8public capabilities/15columns/private-denial boundary.
+- Preserve first/third failed cohorts and every focused retry. The third cohort's cache assertion incorrectly expected an unloaded nullable error field to be populated; actual locked-SQLAlchemy and PG legacy fetch-sync oracles show None remains cached until refresh. Correct only the fixture, prove database content through the owner read, and retain product cache behavior. Current22-case qualification12c18e60f8653a2e39708835ac88e7f9bc7f56fe0972dd2d81430c9c8822dc51 supersedes partial source claims without adding repeated counts. Migration0327->0189->0327, frozen installed bodies/SQL rollback, grants reapplication and cleanup pass.
+- Cold Jobs fixture8f8dbe35d integrates as79e489cf1. Root fixes two obvious fixture issues before any cold run: stop is synchronous, and restored worker starts only after the stable pending/default-queue assertion. Add only the new scenario to existing API-bootstrap/Workspace-consumer selectors, with two actual selector tests. Current source-bound API/queue artifacts and real-broker/full-restore acceptance remain pending; this is limited lifecycle capability qualification, not complete Jobs or primary/daily adoption.
+
+### First Jobs cold gate stopped at collection
+
+- Source3e150e12a has22 passing current native cases and a clean normal commit. Explicit OpenAPI export is unchanged and docs build passes. Source-bound API and queue images build successfully; API offline verifies2090 installed/application/CLI files, queue verifies17 package files after correcting only an offline probe's nonexistent schema-factory import. Preserve that original failed probe, reuse the exact image without rebuild, and distinguish this packaging proof from live operation.
+- First cold gate binds4267 unchanged inputs and API/Identity/publisher/queue COPY counts3864/218/74/21, but no live business case runs: collection fails because the new fixture imported tests.test_identity_recovery_live_helpers instead of the existing tests.identity_recovery_live_helpers. Preserve JSON/JUnit/log and owned cleanup. Root corrects only that import and runs full selected-module collect-only before retry; no product, grants or lifecycle implementation change. Refresh only API COPY inputs and retain unchanged owner images.
+
+### Jobs cold constructor prerequisite corrected
+
+- The selected live module collects after the SMTP import correction. Its second cold attempt retains4267 unchanged inputs and clean owned teardown, then stops before stack startup because a new fixture-only guard incorrectly requires a broker password. The repository's verifier-owned Redis and documented local broker are password-free; the product runtime already accepts that URL.
+- Keep the exact owned driver/host/port/DB and distinct-bearer checks, extract the existing broker selector for a bounded pure reproducer, and accept the existing authenticated or password-free owned target. Fifteen fixture cases pass, including foreign endpoint/DB and reused-bearer rejection. No product, role grant, schema or private-access expansion. Reuse the queue/Identity/publisher images; only API runtime-fixture COPY bytes require refresh. Another read-only source audit checks real API prerequisites before the next cold attempt.
+
+### Jobs cold worker and restore fixture prerequisites
+
+- Third cold attempt starts the real stack and proves source-bound broker-only Jobs service, owner outage503 without local fallback, then accepted stable-ID delivery into default. It stops at the preexisting worker image-purpose label guard; retain the failed receipt and all clean teardown. Do not weaken the guard. Build a same-source API worker artifact labeled workspace-module-api, keep the API identity-admission label, verify3864 identical COPY inputs and the actual existing worker guard before retry. This is packaging, not a product or schema change.
+- Fourth cold attempt executes the first actual cross-frame job successfully, performs the full PG clone, and reaches restored worker construction. It fails because only role URLs switch to the clone while test_module_data_roles.\_role_url still compares TEST_DATABASE_URL to the source DB. A no-resource before/after test executes that actual guard: fail before, pass after including the reference URL in the same scoped context. Sixteen fixture cases pass; restore the original environment on exit. Product code/grants remain unchanged; full restored consumer and cancellation/replay still await successful cold qualification.
+
+### Jobs lifecycle and representative queue composition qualified locally
+
+- Source104082104 passes one complete selected cold case,0failures/errors/skips,70.136s,4267 unchanged inputs. Source-bound API/worker artifacts each match3864 COPY inputs and2090 installed/application/migration/CLI files; Jobs queue matches21 inputs and17 package files. Reused Identity/publisher match218/74 COPY inputs. The worker retains its original purpose label; no image guard is weakened.
+- Real API -> broker-only private HTTP Jobs owner -> default queue -> independent installed worker completes the frame operation. Owner outage503 has no embedded broker fallback; accepted execution IDs are already durable. Full PG dump/restore, fresh restored-database operation, HTTP cooperative revoke without worker termination and cancelled-terminal late replay preserve annotation counts. Full0327->0189->0327,29 installed function bodies/frozen rollback and cleanup errors[] pass. Current focused source passes100 cases plus24subchecks; Native lifecycle remains22 distinct cases, not repeated counts.
+- Qualification9e7883229f75d64d864b9c8459e76a29b7cab71a7bd0966b980037f562228ed7 binds53 raw receipts. Retain all4 failed cold attempts and the failed offline probe. The final correction scopes TEST_DATABASE_URL with cloned role URLs; before/after actual guard reproducer passes without bypassing ownership. Do not repeat successful native/image/cold gates for docs or cleanup.
+- Close only the limited lifecycle/representative cross-frame queue boundary. Whole Jobs still needs unmigrated detail/cancel/retry/private ORM reads, remaining producers/options/canvases, domain-specific authority/crash recovery, compatibility credential retirement and complete replacement evidence. No new outbox/exactly-once or cancellation-completion guarantee. Primary/daily topology remains unchanged; held Learning/training/active-learning and Assets dataset/storage remain deferred; no Go expansion, push/release, AMD64/remote CI or production/capacity claim.
+
+- Preserve98 original ignored child receipts and all7 original/integrated stable patch-ID pairs in verified incremental source bundle88d5940b62bf7b13177d049b257e3a0eec872a1b08127ca5cb801af16b640943 (base317182637). Node/cold workers emitted no filesystem raw-check artifacts; their claimed counts are not added, and root's actual Node/native/cold receipts remain authoritative. Remove only7 clean integrated task worktrees/branches without force or broad prune. Cleanup9139da1dee4b943b31cbd9b61d6e18da0839300caa626b56cea6a64bf475b0d5 verifies primary5421fa1af0a2130406db21338bc9753c51aecb64/status and4 shared env/Node targets unchanged. All temporary runtime resources were already cleaned by the passing verifier.
+
+### Jobs central API single-row reads qualified locally
+
+- Root migrates detail, current job authorization, cancellation, failed-item retry and terminal notification to the existing `get_job` owner binding. Preserve both forced detail/auth refreshes, ordinary cancellation/retry/notification identity-map shortcuts, actor/project decisions, held-domain cancellation policies, caller UOW and notification publication timing. No new protocol, migration, service or permanent grant. Keep Learning/training/active-learning and Assets dataset/storage implementation expansion held.
+- Integrate isolated test commit25ff686a2 as435a2a0fc. Root extends its four cases with actual private SELECT revocation and SQLSTATE42501 probes in the owned disposable API role; ACL and seeds roll back in the same outer test transaction. Detail, cancellation with terminal notice, retry scope denial and uncached terminal notification use `read_job` without direct private-table reads. Existing actor freshness, deleted/retained project scope, notification autoflush and original API behavior join the31-case native cohort,0failures/errors/skips,3903 unchanged inputs. Full0327->0189->0327,29 installed function bodies/frozen SQL rollback, grant reapplication and owned cleanup pass. Qualificationd8176b8702a4031e3de220658a36586df183e5ebbc742f8dfb41fbdd15faf0ce binds10 raw records, including the child archive manifest.
+- Pure checks pass32 cases after a preexisting batch fixture failure is reproduced at untouchedff738d92 child baseline. That fake still modeled a removed project-lock SQL call; repair only its existing owner-lock seam and assertion. Preserve the initial and baseline failed JUnits, do not change production batch behavior or add repeated case counts.
+- Read-only parallel audits identify remaining explicit Jobs aggregate/filter/locking/field-loader consumers. Keep updated_at expiration: blindly caching the returned timestamp would change later concurrent refresh behavior. An ORM column-load redirect needs its own bounded qualification. Workspace has no safe standalone implementation shortcut for started legacy video runs without execution journals; keep deletion/unlink409 until coordinated same-run retirement and credential proofs exist. Do not manufacture retirement evidence or expand held Assets work.
+- This closes only these central single-row consumer reads. No global API/worker private SELECT retirement, current cold artifact/runtime qualification, whole Jobs/Workspace closure, primary/daily cutover, alternative-language provider, production/capacity or remote CI claim. Reuse unaffected lifecycle/queue cold evidence at its original exact checkpoint; changed API/notification source means it is not a current whole-artifact claim. Archive15 original child evidence/patch/bundle files; verified incremental bundle74115972ca9e168ee67d7dcac1be05a63f6bf2cd8deddcb99bd895ac292c088c retains the child commit against existingff738d92. No push/release or Go expansion.
+
+### Jobs nonheld row-access capability qualified locally
+
+- Parallel isolated domain, loader and native-acceptance workers commit0b1e3af63/7c6b75014/a0f16d122, integrated as568c128de/e4870633c/808a8b6b2. Twenty-one ordinary reads in the retained preannotation/retry/export/frame/cross-frame API consumers use existing Jobs reads with original force/default flags. Keep both default-get then refresh phases. Root replaces nine existing PK lock statements with a fixed native query binding, preserving scalar-one cardinality, query autoflush and populate flags; domain guards and UOW remain unchanged.
+- New0328 and packaged `aap-jobs-row-locks/v1` retain the15-column ABI, waiting FOR UPDATE and FOR SHARE NOWAIT, caller transaction lifetime and native SQLSTATE. Jobs owns the two fixed definer functions; ordinary runtime profiles receive them while strict lifecycle LOGIN remains exactly8capabilities. No new role/service/selector/dependency or global private-ACL revocation. Supported unlocked ORM column loads route through read_job with original refresh projection/options; explicit locks and unsupported shapes keep their existing path. Updated_at stays expired, preserving newer concurrent timestamps rather than caching the preceding write time.
+- First owned PG cohort passes112/114 with3912 unchanged inputs and clean teardown. Preserve both failures. The new missing-row test accidentally included a fresh Session.get fallback outside column-refresh scope; pinned SQLAlchemy SQLite characterization confirms refresh raises InvalidRequestError and retains an expired identity. Correct the assertion to exercise refresh, then the existing Jobs get facade. The old cross-frame queue fake replaces the entire module and lacks the existing execution-control builder; an actual no-resource before/after import/dispatch probe fails then passes when only dispatch is patched. Re-run that full16-case file plus the corrected refresh case:17pass,0failure/error/skip, unchanged products and3912 inputs. Exactly114 distinct cases are qualified; duplicate passes are not added. Partial dirty cache/no-autoflush, current concurrent timestamp, strict private SELECT denial, missing refresh, row-lock wait/current row, share compatibility/55P03, savepoint release, read-only rejection, frame retry persistence, actor/task/source fences and original APIs are covered. Full0328->0189->0328,31 installed frozen bodies, grants reapplication and cleanup errors[] pass. Qualification06d27c085ff97509e105942d10e3eccf6cf067f8e5e00a8d14c35b703d654f56 binds23 raw records and proves the two changed fixture files and single changed lifecycle test function.
+- Parent current pure cohort passes117 cases plus24subchecks; do not add earlier overlapping31/41/76/33 runs. Retain an earlier selection error: DB-backed worker tests were mistakenly run as pure checks against missing annotation_test; migrations/business writes did not execute. All affected DB cases then run in the owned verifier cohort. Root first queue reproducer also needs explicit apps/api import path; corrected no-resource probe passes. No product guard or grant is weakened.
+- Build the wheel offline with pinneduv0.11.29 using cached isolated build dependencies. All20 packaged source/resource files match; unpacked isolated-directory import validates both functions/15columns and JSON/SQL resources. Wheel SHA-256d29d9d865ce9c4c276bb440750379f7908fec7519f8abc7b03fd45e10ef27083. This is wheel content/import evidence, not a current noneditable API/worker cold-runtime or restore claim. Existing older cold artifacts remain qualified only at their original source checkpoint.
+- Archive61 original child evidence/patch/bundle files with3 stable patch-equivalent pairs in verified incremental bundleb4cf1d48c6ebb6080541e4bd5fb0be36089ad1bdf25d4e78bfc79c20cd3ee3c4 against545913761. Whole Jobs still needs remaining filtered/aggregate queries and domain readers, unsupported locked/column reloads, lifecycle compatibility rights, producer/options/canvas migration and coherent runtime/recovery/alternate-provider evidence. Next batch must refresh the changed API/worker artifacts before claiming current cold qualification. No whole module or primary/daily cutover, production/capacity, AMD64/remote CI, push/release or Go expansion. Held Learning/training/active-learning and Assets dataset/storage remain deferred until feature merge.
+
+- Final formatting changes only two generated JSON schema byte layouts; reconstruct and hash the exact native inputs from the unchanged generator and prove equal parsed values. Remaining3910 inputs and every runtime/frozen SQL implementation remain unchanged. Preserve the earlier wheel; refresh only the cheap wheel artifact at the final text layout. Current20-file wheel0057d6ec634f2aaad27a9914bdbccd69437ba39cf950e7accff7aa1d0bff13c5 passes the same byte/unpacked-import checks. Do not rerun successful native gates for JSON whitespace.
+
+- Normal commit hooks trim one terminal blank line in both new SQL copies. Compare with the retained pre-native wheel bytes: only the terminal newline run changes, and all function definitions remain exact. Preserve both earlier wheels and format receipts; current20-file wheel6e7fc991982cfff00644407e907543a62179cfd06af435f0bfa6cf6eaaa118be passes the byte/unpacked-import probe. The final proof binds23 records; remaining3908 inputs, runtime behavior and SQL function definitions match native qualification. No native rerun for these four whitespace-only artifacts.
+
+### Current Jobs row-access cold artifacts and full-restore composition qualified locally
+
+- Parallel readonly preflight finds no drift in the old cold fixture/helpers and confirms0328/grants/artifact lists; it correctly notes the old cross-frame scenario never invokes the new PK row locks. Isolated fixture6a12859a2 integrates asa3c881afe. Root review fixes its initial full-getter refresh to actual `db.refresh(... attribute_names=[updated_at])`, retains loaded result/progress/ORM identity, and pins the installed venv interpreter; commitc339d8d68. Only two QA files change after922754626; runtime implementations and the previously qualified114-case native matrix remain unchanged. Nineteen parent pure fixture checks, embedded-code compile and selected live collection pass before building. No owner credentials, new selector/role/service or business write is added to the probe.
+- Reuse existing standard Dockerfiles/builders. Compile adapted offline probes before any artifact action; fix one nested newline-literal syntax issue before building. Queue reuses the previous corrected static queue schema probe instead of the known nonexistent factory. Current API and same-source worker have3874 exact COPY inputs each,2096 installed/application/migration/CLI files and5 runtime fixtures; the installed owners are noneditable. Queue has24 COPY inputs/20 package files and no API/SQLAlchemy/asyncpg/Identity/storage packages or credentials. Purpose labels remain identity-admission/workspace-module-api/jobs-queue-runtime; no label or ownership guard is weakened. Immutable reused Identity/publisher retain218/74 current COPY matches.
+- Sourcec339d8d68 passes the first actual selected cold case with0failures/errors/skips in73.066s;4277 inputs remain unchanged. Actual installed API ordinary role/current database invokes one SHARE NOWAIT, one field-refresh read_job and one waiting UPDATE capability, preserving ORM identity/result/progress and zero private table FROM. Real authenticated HTTP GET sees completed job and actual annotation count. Repeat both installed capability and HTTP checks after full PG dump/restore and fresh restored worker operation. Original private owner outage503/no embedded fallback, durable prepublished ID/default queue, fresh installed worker signature, actual annotation, cooperative request-only revoke and cancelled-terminal replay behavior remain mandatory and pass. Full0328->0189->0328,31 installed frozen function bodies/grant reapplication and cleanup errors[] pass. This is one combined case, not separate case counts for each phase.
+- API image1ade0b81c849b19d6f89a62cc4be1b9898e4c4c4e08568c4bf749de807c3b214, worker9af9448297843a4852fe58f107035b584c027e698e71c41ffb2c07425b071931 and queue7818b4737873e00b8f2e59506e8cb0b72d5b53ada0b9014df4998da8a1abc0b2 are source-bound. Qualification0c3698bbbb432d09af69e91d6d2ee851cdf07f8568d8ce23bf13a57f400e9591 binds27 original records including source snapshots, builders/build logs/offline probes, reusable-owner checks, parent fixture JUnit and the child archive manifest. Preserve13 child check/patch/bundle files; incremental bundlee3fcb6e4f67df5b2cece207698658ff58f126618ba635ca2de5496b0b9b2504a retains the patch-equivalent original/integrated fixture pair against922754626. No failed real cold run or repeated native matrix for this source.
+- Root doctor confirms the integration dev mode is stopped/unprovisioned, so no resident integration worker is refreshed; the verifier creates and destroys the intended independent current-artifact workers. Daily primary services/resources and shared targets remain untouched. Limit qualification to current row-access plus representative queue composition/recovery. Remaining actual PK reads are20 (12 clearly nonheld;4Learning/training;4data/storage-adjacent), plus specialized query/locking and legacy invoker-right checks. Next coherent nonheld batch covers cross-frame/QC/Repair/video-quality and specialized read consumers before another artifact milestone. Hold Learning/training/active-learning and Assets dataset/storage for the feature merge. No whole Jobs/Workspace closure, global ACL retirement, all producers/options/canvases, alternative provider, primary/daily adoption, AMD64/remote CI, production capacity, push/release or Go expansion.
+
+### Jobs fixed domain queries and nonheld consumer batch
+
+- Three isolated workers commit3d0fa7131/cf45c36d8/04a5ca6f9, integrated as43cb7c20f/02150edb0/38e62456f. Twelve ordinary getters in cross-frame worker, video quality, Mask QC and mask repair use the existing Jobs read binding with original force/default and following refresh behavior. Hold Learning/training/active-learning and Assets dataset/storage expansion until feature merge.
+- Root adds0329 and packaged aap-jobs-domain-queries/v1: fixed actor/key advisory transaction lock, active cross-frame lookup, actor/scene page and independent count, and current-project latest batch_predict times. Preserve lock-before-autoflush, caller UOW/ORM identity, original predicates/order and no retained-project aggregate. Ordinary API/worker profiles gain five EXECUTE capabilities; strict lifecycle LOGIN remains eight. No new service/role/selector/dependency or blanket private ACL removal.
+- Parent pure suite passes30cases+24subchecks. First native run stops after5executed(2pass,3fail): two actual pagination casts use nonexistent qualified pg_catalog.integer, and catalog fixture calls mappings before awaiting. Preserve the complete failed receipt/cleanup. A private disposable PostgreSQL16 reproducer proves integer fails and int4 succeeds; retain initial stop-inspect race receipt and final exact-handle removal proof. Fix adapter and Node to pg_catalog.int4, fix fixture await precedence, then rerun the full67-case selected matrix:67pass,0failures/errors/skips,13.277s,3922 unchanged inputs, owned cleanup errors[]. No repeated pass counts. Existing retained-project INSERT guard is respected by fixture detach/refresh; private-ACL denial uses committed REVOKE/restore only in the verified disposable DB.
+- Current artifact/cold composition remains pending until coherent source freeze. Extend the existing installed API probe to invoke all five domain capabilities before/after full PG restore, verify positive HTTP singleflight reuse before starting the worker and actual HTTP history. Preserve existing outage503/no broker fallback, durable execution/default route, annotation, cooperative revoke and terminal replay. No whole Jobs/Workspace closure, primary/daily cutover, alternative provider, production/capacity, remote CI or Go expansion claim.
+
+### Current Jobs domain-query artifacts and restore qualified locally
+
+- Root source commitdd6894a24 includes implementation, contracts, callers, migration/grants, native fixtures and installed cold extension. Explicit OpenAPI export succeeds with no semantic change; normal commit hooks pass. Independent read-only review finds no concrete ABI/UOW/grant regression. Current pure cold fixture19pass and embedded-code compile/selected live collection pass.
+- Current API and worker each match3884 COPY inputs and2103 runtime files(638 installed package,1433 application/migration,32CLI), plus5 runtime fixtures;38 owner packages install noneditable. APIsha256:291c3cdb19c7b559cd23a2c146c1593b6ca4cace001bdf57f1285eff10337bea, workersha256:1938bf96b7f86b3bc8c1cfc9f0c866d8785f16c2ceba4a3ee41bf42f271734c1 retain their distinct required purpose labels. Queue27 COPY inputs/23package files, sha256:5e80219d7f2449e2184faff584922c18f13c84a0ebbd09400524e49c328225c1 retains UID10005/no API/SQLAlchemy/asyncpg/Identity/storage dependencies. Offline schema/SQL/import/hash checks pass. Reused Identity/publisher218/74 inputs remain exact. No source mounts, owner credentials or weakened image guard.
+- First current cold attempt passes one combined case,0failures/errors/skips,73.179s,4287 unchanged source inputs. Ordinary installed API invokes allfive0329 capabilities plus SHARE NOWAIT/partial expired updated_at refresh/UPDATE row locks before and after full PG restore, preserving ORM identity/result/progress with zero private table FROM. Latest prediction projection is empty in this cold fixture; native/admin tests qualify its nonempty maxima/filter semantics. Real HTTP detail/history find completed work; repeated pre-worker POST reuses the same job/execution without another broker message. Keep original owner outage503/no embedded fallback,durable IDs/default route,installed worker signature/annotation,full restore/new operation,cooperative revoke and cancelled-terminal replay. Full0329->0189->0329,36 frozen function bodies/rollback,grant reapplication and cleanup errors[] pass. Do not sum cold phases as separate test cases.
+- Qualification5c7a94434ca80e9fb5d1bb79368bb1096850f3af4c9e28f6b83629305ff11192 binds62 raw records including failed native attempt/minimal int4 reproducer, successful67-case cohort,30pure+24subchecks,19cold pure,builders/offline/logs,source freezes and cleanup. Runtime/native input equivalence proves only two cold QA files changed after the native freeze; do not repeat qualified67 for this QA-only extension. Archive22 raw/patch files plus verified source bundlef3004d1d6b88d2afecb13c5060c27b91bf12e99e0f8a938df040d9d6f70eccb0 against95cbaa76b,then remove exact three clean patch-equivalent children/refs. Cleanup0c0d8bf0d54f46cd62d936f603e7a2902eb3aecbb6459818043f86a8aef5f282 proves primary HEAD/status and four shared targets/inodes unchanged. Doctor confirms stopped/unprovisioned integration dev; no resident worker refresh is applicable, and independent current workers are verifier-owned and destroyed.
+- Close this fixed-query/nonheld-consumer/current-artifact recovery boundary only. Eight ordinary reads remain held(four Learning/training/active-learning,four data/storage-adjacent), plus specialized DataManager lock and point-cloud cancel projection,unsupported locked field refresh,legacy private invoker rights,remaining queue producers/options/canvases and domain execution/recovery. Audit inventory before the next bounded Jobs deliverable; do not expand held Assets/Learning or manufacture legacy video retirement proofs. No whole Jobs/Workspace closure,primary/daily adoption,full alternative provider,AMD64/remote CI,production/capacity,push/release or Go expansion.
+
+- Final documentation build (`pnpm docs:build`) passes once in 16.230 seconds; retain `.worktree/jobs-domain-query-docs-build.{json,log}` separately from the immutable 62-record qualification. Final AST inventory confirms exactly eight ordinary `AsyncJob` getters remain in the held paths; `.worktree/jobs-domain-query-held-read-inventory.json` SHA-256 is `56e1f5869838f62d01e246ea3e1783885a5363211474a8f5a838b25060c69b06`. This inventory does not count specialized queries or imply that all other private dependencies are closed.
+
+### Jobs annotation-export producer batch
+
+- Previous goal turn made concrete progress: fixed-domain-query source, independent current artifacts, real queue/worker/full restore and child cleanup qualified and committed. Continue the full goal without redefining module completion. Keep held Learning/training/active-learning and Assets dataset/storage expansion deferred until feature merge.
+- Parallel readonly inventories select the coherent project, batch and selected-task annotation-export producers. Shared queue protocol already supports their native kwargs and export route; no options/canvas contract is needed. The export decorator contains worker execution settings only; application eager mode is not enabled. Preserve original differences: project/batch commit audit+job then publish, worker claims/binds ID; Data Manager commits pending then audit, publishes, binds returned ID and commits, or marks failed/commits/rethrows. Existing pending idempotency redrive gets a new publish ID. No new export cancellation.
+- Isolated production commit `bb0b03c45` integrates as `d3dc96617`; isolated tests `79a9a54a2` integrate as `535397709`. Changes are exactly three producer routes, bounded Jobs README, four existing test mocks and one new boundary fixture. Parent first executes all six new pure tests: six failures expose missing fake-session job reference and a SimpleNamespace row incompatible with real lifecycle inspection. Retain first JUnit; fix fixture only to construct real AsyncJob and set db.job. The complete pure cohort passes33 distinct cases(6routes,8queue assembly,19cold fixture). No production change for this fixture correction. Explicit OpenAPI export succeeds with no tracked snapshot change.
+- Parent extends the existing owned cold composition to exercise all three real HTTP exports before and after full PG restore, existing static export queue/header/body and original binding times, scoped installed export worker and actual ZIP annotation content, original outage500/pending-versus-failed behavior with no broker fallback, and restored completed rows. Extend only the fixture's explicit queue allowlist to export alongside default; require verified owned Redis and empty export queue before subscribing. Database39 cases/current artifacts/cold qualification remain pending at this checkpoint. Original row access/cross-frame queue guards remain intact.
+- Readonly permission audit confirms ordinary runtime private Jobs table rights still exist. Do not remove legacy privilege validation: retirement of INSERT requires confirming every production initializer plus test-only completed-job fixture handling; UPDATE/DELETE and held callers require their own proof. Close a complete operation behind real runtime LOGIN before withdrawing each compatibility right. No API owner credentials, broadened grants or fictitious whole Jobs closure.
+
+- First parent owned PostgreSQL cohort passes all39 selected existing cases, 0 failures/errors/skips, 6.005 seconds, 3923 unchanged source inputs; complete0329->0189->0329,36 frozen function bodies/rollback, grant reapplication and cleanup errors[] pass. The only subsequent build-input edit is Jobs README wording to distinguish a per-publication selected ID from cross-frame pre-persistence and Data Manager's original new-ID retry; runtime/native inputs remain unchanged. Current artifacts/cold are still pending.
+
+### Current Jobs annotation-export composition qualified locally
+
+- Source checkpoint `9fc1b69c9` passes the first complete current cold case: 1 case, 0 failures/errors/skips, 104.642 seconds, 4288 unchanged source inputs. Three real HTTP export endpoints publish their original native kwargs through the private Jobs owner onto static export. Inspect actual broker envelopes and original producer binding times before worker start. Fresh installed scoped export workers before/after restore complete six new jobs; all six ZIP downloads return200 and contain the expected project/task/manual annotation. After full PostgreSQL restore, the original three completed jobs retain status and execution IDs; new exports succeed. Do not claim independent object-store backup or continued validity of old signed URLs after fixture credentials retire.
+- Owner outage preserves original500 responses, project/batch pending versus selected failed, no execution binding and zero export messages/no embedded broker fallback. Existing cross-frame503/no fallback, positive singleflight, installed five domain capabilities/two row locks/partial refresh with zero private FROM, real detail/history, default worker/annotation, full restore/new operation, cooperative revoke and cancelled-terminal replay all still pass. Preserve these as phases of one combined case. Full0329->0189->0329,36 frozen function bodies/rollback, grant reapplication and cleanup errors[] pass.
+- API/worker each match3885 COPY inputs and2103 runtime files(638 installed package,1433 app/migration,32CLI), plus5 fixture files;38 packages noneditable. API image `sha256:5eb97be914b343bd9e5d2053c023db3b8d438e67efe69645c7d61c553623c209`, worker `sha256:1520bb1e2c66fae5c20a29293ed30ce930131a4b4ea2e25ffc3b98202062a1eb`; retain distinct purpose-label guards. Queue27 COPY inputs/23 package files, image `sha256:33d9c62cda6e80a7ebf691c062f31037f38508b0c81636be094d9d7bef0349ec`, remains UID10005/broker+bearer only with no API/SQLAlchemy/asyncpg/Identity/storage packages. Source-bound offline imports/hashes/export route pass. Identity/publisher218/74 inputs are unchanged.
+- Qualification `ea25a1d8091b42e7bf73eb5f6845c4dd548a62b31df9a5cdcd130c4ca896a476` binds41 raw records: initial6 pure fixture failures/fix+33 pure,39 native and current cold/build/offline/log/source/cleanup. Post-commit proof `52ff6abf093bcd24e160e104a184beae58aafb0d3334a34c3b2caae1e72b2d50` confirms all3923 native inputs unchanged. First child archive preflight assumed a nonexistent test-child raw directory; preserve its failure receipt and already prepared files, then resume without fabricating stdout. Archive6 available raw/patch files and verified incremental source bundle `0e4b9613fc77e47214ce784cb6273d9dc854ca84b9cfbfa01e87851c401cfb1a` against055d06d9b. Exact two clean patch-equivalent child worktrees/refs are removed. Cleanup `7109b576a549de04e7bce3050adadfc54c36ecc69ad78098846adde674571e70` proves primary HEAD/status and four shared targets/inodes unchanged. Parent actual behavioral receipts, not absent child stdout, establish final qualification.
+- Readonly inventory plus root source inspection finds only the production JobsLifecyclePostgresData constructor and two test-only terminal constructors in `_test_seed_filters`. The mapper's SQL INSERT match is an existing retarget, not a second production INSERT. Next bounded capability: preserve those seed rows via existing lifecycle/UOW, prove ordinary runtime LOGIN denies private INSERT while creation/view/summary and real test fixture remain functional, then revoke INSERT after broad LAN/worktree grants. Do not remove UPDATE/DELETE or invoker checks without their own consumer proof; no API owner credentials or new fixture service/role is justified. Continue held Learning/Assets expansion deferral. Whole Jobs/Workspace, all producer options/canvases/domain recovery, alternate provider, daily/primary adoption and production capacity remain open; no push/release or Go expansion.
+
+- Final `pnpm docs:build` passes once in 16.821 seconds; its JSON/log receipts remain separate from the immutable 41-record qualification. Final diff and source/input hashes are checked before the evidence-only commit. No resident primary/integration runtime or shared dependency target was changed.
+
+### Jobs ordinary creation credential boundary
+
+- Previous goal turn closed the current annotation-export queue/worker/recovery capability and preserved the full active goal. Next real dependency is ordinary runtime private INSERT, not a new owner service. Keep held Learning/training/active-learning and Assets dataset/storage expansion deferred.
+- Isolated filtering prerequisite `7b5878c7c` integrates as `4ca1d5acb`: two fixture Jobs rows enter the existing pending ORM view path, then receive original terminal status/progress/result/error fields in the same UOW before audit logging. Preserve null start/completion timestamps, payloads/manifests, Identity invitation full flush and audit origins. Isolated native tests `a06f69e0e` integrate as `37df0e638`; root review fixes the fixture's mistaken payload-UUID/generated-row-ID assumption before live execution, narrows temporary writer cleanup to exact membership/INSERT, asserts no preexisting generated credentials and adds PUBLIC-column reapplication with exact finally cleanup.
+- Root installs byte-identical jobs_creation_acl DO blocks in LAN and LocalResources after broad/capability grants: reject ownership/membership in private table or creation-view authority, revoke table/all current column INSERT from runtime and PUBLIC, fail if effective/inherited INSERT remains, require both creation-view SELECT and INSERT. Other private SELECT/UPDATE/DELETE and strict lifecycle validation remain. LAN block precedes Identity membership guard, so the inherited Jobs bypass is classified accurately. No new schema/migration/protocol/service/runtime selector/owner credential; head remains0329.
+- Pure27+24subchecks pass. First owned PostgreSQL cohort7pass,0failures/errors/skips,22.048s,3924 unchanged inputs; complete0329->0189->0329,36 frozen function bodies/rollback, grant reapplication and cleanup errors[] pass. Cases cover actual ordinary LAN LOGIN/view/facade/commit/rollback/raw42501/terminal44000/video-summary, inherited writer-role rejection/restoration, generated runtime reapplication removing own and PUBLIC INSERT(id), original3 filter-seed cases and one actual generated-role filtering CLI. Do not count CLI internal invocations as additional cases.
+- Only after native source freeze completes, apply two staged cold QA changes. Installed API probe checks ordinary role table/column INSERT false and view grants true, creates pending through the real facade, proves raw private INSERT42501 inside savepoint and caller rollback via view read. Repeat before/after full PG restore, keeping the old exact row-access/domain-query SQL counts and all real cross-frame/export/fault/cancel phases. Host refuses private INSERT proof; two new rejection parameters extend cold pure to21pass. Explicit OpenAPI export succeeds with no snapshot change. Current artifacts/cold still pending; reuse unchanged queue/Identity/publisher inputs when exact, rather than rebuilding unaffected runtimes.
+
+### Ordinary Jobs creation and current restore qualified locally
+
+- Source `9841890b8` passes first current cold case,1 case/0 failures/errors/skips,106.804 seconds,4289 unchanged inputs. Actual ordinary installed API before/after full restore observes private table/column INSERT false and creation-view SELECT/INSERT true, creates a real pending facade row, receives42501 for raw private INSERT inside savepoint and proves caller rollback via view read. Existing SHARE NOWAIT/partial refresh/UPDATE and five domain queries retain exact SQL counts/zero private FROM. All real cross-frame/default/durable ID/history/annotation and three export routes/scoped worker/six ZIP downloads/old completed rows/outage500-versus503/no fallback/cooperative cancel/terminal replay remain. Complete0329->0189->0329,36 frozen function bodies/rollback,grant reapplication and cleanup errors[] pass; one combined case, not phase counts.
+- API/worker each match3886 COPY inputs and2103 runtime files(638 package,1433 app/migration,32CLI),plus5 runtime fixtures/38 noneditable packages. API `sha256:dc4e6a85fb5956444604ad5404bda68e289f8f3ca246593e65f8d0766ab02e98`, worker `sha256:f1b9ba66030c8abce00c908abb1dc717667ca6dd1a88aed1f9e71878ec4bf6c9`, correct distinct purpose labels; current creation/filtering imports pass offline. Reuse unchanged queue27/Identity218/publisher74 input artifacts at their original exact revisions; no unnecessary rebuild. Independent readonly review finds no concrete ACL/UOW/probe defect.
+- Qualification `b1882efe803f197730281395f8838809ce97f71ee4da60e4ed5408f4d0749f9b` binds59 raw records:7 native,27 pure+24subchecks,21cold pure,current/reused image evidence,staged/compiled probe/source freezes and child cleanup. Native-to-current proof changes only two cold QA files,leaving3922 runtime/native inputs exact. Archive17 original static/collect/patch files,including first missing-tool-path attempt,plus verified incremental bundle `972e1021cabf77ae154169f36038ee7402a5d006b700bded70cbc3a336ce1195` against01d49c1c2. Exact two clean patch-equivalent child worktrees/refs removed; cleanup `38dffe691a989a974bc960fa212fb48f2a6d4510528a4ab14228d22394272fc4` preserves primary HEAD/status and four shared link targets/inodes.
+- Close ordinary creation INSERT and this current artifact/recovery capability only. Next audited dependency is guarded `_test_seed` Jobs DELETE by fixture project IDs. Existing batch-only deletion/terminal-age retention cannot preserve that exact predicate, and Workspace project deletion deliberately retains job history through SET NULL/retained scope. A test-database-only Jobs owner operation using the existing owner/API roles is justified before private DELETE retirement; preserve original Workspace/video-retirement guards and delete triggers. No new service/credential/role or broader deletion. UPDATE remains a separate compatibility lane including direct fixture terminal fields; do not infer closure from mapper interception. Whole Jobs/Workspace,all providers/options/canvases/domain recovery,primary/daily adoption,production/capacity and remote CI remain open;held Learning/Assets stay deferred and Go experimental.
+
+- Final `pnpm docs:build` passes once in16.521 seconds; retain separate JSON/log receipts outside the immutable59-record qualification. Final diff, source/installed artifact manifests, raw records and primary/shared targets are checked before the evidence-only commit. No primary/integration resident runtime cutover, push or release.
+
+### Jobs fixture cleanup caller moved behind owner capability
+
+- The test-only seed cleanup now calls the fixed `aap_jobs_v1.delete_fixture_project_jobs(uuid[])` capability for the exact fixture project IDs. It retains the preceding Workspace project/video guard, delete order, nested savepoint, and caller-owned transaction. The API validates the returned nonnegative row count; an unavailable or malformed Jobs operation fails with 503 instead of being skipped before project deletion. Existing video-retirement and NOWAIT conflicts remain 409, while unrelated legacy cleanup failures keep their prior skip behavior.
+- Pure caller-boundary tests cover count decoding, guard errors, unavailable owner behavior, savepoint rollback, unchanged call parameters, and unrelated cleanup skip behavior. The owner function, role grants, trigger behavior, and disposable-database acceptance are a separate integration scope; this caller-only change does not claim that database-backed acceptance or close Jobs or Workspace.
+
+### Jobs scoped fixture deletion and ordinary DELETE boundary
+
+- Added the fixed test-database-only `aap-jobs-fixture-cleanup/v1` native capability and packaged schema/SQL. Its exact current-project predicate preserves all kinds/statuses, retained scope, triggers, caller transaction, Workspace NOWAIT locking and video retirement guard.
+- Integrated isolated caller and native-test commits; the caller preserves fixture gates, namespace/project selection, savepoint and commit order. Guard conflicts remain 409; missing or malformed Jobs replies stop cleanup with 503. No service, runtime role, credential selector or arbitrary delete operation was added.
+- Ordinary LAN and generated worktree grants remove private DELETE after broad grants and reject inherited rights. Existing production batch/retention capabilities remain. Schema-owner screenshot tools keep their multi-domain fixture rights; the required isolated owner connection is documented.
+- Focused qualification is recorded in the single module ledger. Full Jobs, remaining private SELECT/UPDATE, primary/daily adoption and production are still open. Learning/training and Assets datasets/storage expansion remain deferred until the feature merge.
+
+- Qualified source `6d3aedfdd`: 19 distinct native cases, 62 pure top-level checks plus 24 subchecks, Node self-check, unchanged OpenAPI and documentation build. Reused ten successful native cases and reran only nine affected/unexecuted cases after correcting video fixture isolation; runtime inputs and successful function bodies stayed unchanged. Original native and pytest-configuration failures remain in the evidence.
+- Rebuilt API/worker/queue artifacts match 3896/3896/30 COPY inputs and pass non-editable offline checks; unchanged Identity/publisher artifacts match 218/74 inputs. The current cold combined case passed on its first run in 106.730 seconds with 4299 inputs unchanged, before/after restore owner-delete and caller-rollback proofs, six real export downloads, existing row/domain/cancel/outage checks, full 0330/0189 migration roundtrip and 37 frozen function bodies.
+- Canonical local receipt `.worktree/jobs-delete-qualification.json` SHA-256 `db6de07b3dc6c6bfc15ebbee370de335ce53958a8938935d35a29145ee339a1b` binds 90 raw records. Two child worktrees and refs were removed after verifying 32 original check files, patch equivalence and an incremental source bundle; primary checkout and four shared targets are unchanged. All verifier resources were destroyed without cleanup errors. Direct invocation in a non-test database was not qualified; the test-only grant and actual-name guards were reviewed in source. This closes only ordinary DELETE and its bounded local artifact/restore behavior, not complete Jobs or primary/daily adoption.
+
+- Closed the previously explicit non-test guard gap with one additional verifier-owned case: exact frozen SQL installed in a uniquely marked `_dev` probe database returns 42501 with the expected database guard message before any Workspace/job relation exists. The probe OID/owner/comment and zero sessions were checked before removal; all verifier resources were destroyed without errors. Receipt `.worktree/jobs-delete-non-test-guard.json` SHA-256 `eb9c2e6b2b86dc633e7177976b6327531dbfb33a5deb082bd805331093776944`. Only QA changed; existing runtime SQL/grants/bindings/artifacts and nineteen-case/cold qualification remain pinned and unchanged, so no repeated artifact or restore run was needed.
+
+### Jobs filter fixture outcomes moved behind the Jobs owner
+
+- The filtering seed now applies its two fixed terminal outcomes through `aap_jobs_v1.set_filter_fixture_job_outcomes` after the existing invitation flush and before the existing full flush/audit sequence. It requires the exact integer count `2`, propagates owner failures, keeps the caller transaction, preserves both NULL lifecycle timestamps, synchronizes the existing ORM rows as committed state, and expires `updated_at` after the owner update.
+- Seven pure caller-binding checks cover the exact function call and IDs, field/cache synchronization, timestamp expiry, malformed counts, and propagated owner errors. Database-backed function/privilege acceptance belongs to the parent Jobs slice; this caller commit does not claim it.
+
+### Ordinary Jobs UPDATE local qualification
+
+- Source `b0b4aad25` closes ordinary table/current-column UPDATE and inherited/PUBLIC bypasses while retaining existing owner lifecycle and invoker checks. The only runtime fixture blocker moved to a fixed, test-database-only two-row capability; no general record editor, role, selector or held-domain implementation was added.
+- Twenty native cases passed on the first run (26.453 seconds, 3944 inputs unchanged), including real LOGIN/Node, legacy/raw write denial, original UPDATE OF masks and UUID order, fixture atomicity/UOW, actual non-test database guards and ordinary CLI/seed behavior. Pure checks passed 62 top-level cases plus 24 subchecks; Node self-check, unchanged OpenAPI and docs build passed.
+- Current API/worker/queue artifacts match 3906/3906/33 COPY inputs with non-editable offline proof; unchanged Identity/publisher artifacts match 218/74. The cold combined case passed first run in 105.753 seconds with 4309 inputs unchanged: update rights false and real owner/fixture writes before/after full restore, original row restored on caller rollback, six export downloads and prior row/domain/outage/cancel checks. Full 0331/0189 migration roundtrip, 38 frozen functions and all owned cleanup passed.
+- Canonical receipt `.worktree/jobs-update-qualification.json` SHA-256 `318f13c36e3e7e9bba48236507b3a4546e3bde2a9122556472e9a54167cb008b` binds 56 records. Native child original checks (eight files), both source patches and bundle were verified before removing two clean worktrees/refs; caller child original stdout/hashes were missing, so parent actual acceptance is authoritative. Primary checkout and four shared targets are unchanged. No production, daily cutover, full Jobs or alternate provider claim.
+- Together with prior creation/delete qualifications, ordinary private write rights are closed. SELECT, remaining producer/message shapes and domain execution/recovery remain open; defer Learning/training/active-learning and Assets dataset/storage implementation expansion until feature merge.
+
+### Action idempotency and point-cloud Jobs reads
+
+- The previous UPDATE closure missed a filtered `FOR UPDATE` read in the shared action helper; PostgreSQL requires UPDATE even when SELECT is available. The prior unkeyed export sample did not exercise it. Added fixed Jobs advisory/lookup capabilities rather than restoring private write rights, preserving the legacy prefix/hash, nullable predicates, all-row locking/no LIMIT, sorting, cached identity, autoflush and existing digest/auth/UOW.
+- Migrated only the shared preannotation/export Jobs binding and point-cloud quality Jobs projection/getter; no dataset/storage, training or active-learning implementation expansion. Point-cloud cancellation retains its non-hydrating two-column database snapshot and dirty/no-autoflush cache behavior.
+- Three isolated workers supplied disjoint caller and native/Node changes. Parent review corrected fixture initialization under the pending-only creation view, the privilege baseline ordering and dirty-cancel command, and required observed PostgreSQL lock wait. Eleven distinct native cases and pure66 plus24subchecks pass; the one original fixture-name failure remains recorded and only that failed case reran. Current artifact/restore qualification is pending in the single ledger.
+
+- Qualified source `6629016ff`: eleven distinct native cases (ten first-pass cases retained and one fixture-name-only correction), 66 pure checks plus 24 subchecks, Node native conformance, unchanged OpenAPI and docs build. Actual API LOGIN proves the old `FOR UPDATE` fails with SELECT but without UPDATE, and the fixed capabilities work without either private SELECT/UPDATE. All duplicate locks, observed PG waiting, null selectors, cache/digest/UOW and original API behavior are covered. Runtime source plus 3954 other inputs stayed unchanged across the one fixture recovery.
+- Rebuilt API/worker/queue artifacts match 3917/3917/36 COPY inputs and non-editable offline proof; Identity/publisher218/74 inputs are unchanged. The current cold case passed first run in 109.264 seconds with 4,320 inputs unchanged, both new capabilities and narrow point-cloud lookup in the installed ordinary API, actual keyed export202/conflict409/completed replay202 with same job/no new message before/after restore, six ZIPs and prior write/row/domain/outage/cancel/replay. Full 0332/0189 migration roundtrip, 40 frozen functions and cleanup passed.
+- Canonical `.worktree/jobs-action-qualification.json` SHA-256 `c00da86b4539ad8a70ae0786ac0079c8ea081e6f2c9b53c2e73fc316eb4a1436` binds 69 records. Three clean children/refs removed after source patch/bundle and nine original files verified; common-helper child original stdout was missing, so parent actual receipts are authoritative. Primary and four shared targets unchanged. No full Jobs/global SELECT/primary-daily/production claim; held training/active-learning and Assets datasets/storage implementation expansion remains deferred.
+
+### Quality dispatch transport local qualification
+
+- Three isolated workers supplied the bounded synchronous queue client, the existing quality-port binding, and cold acceptance helpers. Source `77bbdcec9` selects the original embedded adapter for a blank queue URL and otherwise uses the existing JSON owner contract, six static media routes, lazy credentials, persisted run IDs and generated repair/import publication IDs. No domain transaction, cancellation or held Assets/Learning business implementation changed.
+- Ten native cases and 78 distinct pure checks passed; the 29 fixture recovery checks are an overlapping subset. The first cold case recorded twelve real probe envelopes, two actual point-cloud HTTP/media-worker executions with restricted PCD reads and three findings, outage failure/singleflight, six ZIP exports, installed API write/row/domain guards, old completed quality readback and full PG restore. It then FAILED on the fixture sixth login 429; the original failed receipt is retained. Only these recorded completed properties are reused, not an overall passing-case claim.
+- Reused the real pre-backup quality session without recording credentials, and extracted the existing cancellation operation for bounded recovery. The first narrow run passed the business assertions but FAILED on a missing queue argument in the final drain assertion; that receipt also remains. The corrected narrow case passed in 31.238 seconds. No completed quality/export/restore scenario was repeated. Final source `97d60bfe9` changes only two host test inputs relative to the first artifact snapshot; all runtime files remain byte-identical. API/worker match 3,920 COPY inputs and verify 2,121 installed/app/CLI files plus 5 fixtures; queue 36 inputs/32 package files, Identity 218/publisher 74 reused unchanged. Each cold run kept 4,323 inputs unchanged. Full 0332/0189 migration roundtrips, forty frozen functions and owned cleanup passed.
+- Canonical `.worktree/jobs-quality-qualification.json` SHA-256 `024ca7d2aaa20312384d4abe984a67e1402bfa5bb4ea828c5be829efc3fe5d9a` binds 90 records. Seventeen original child files, source patch equivalence and incremental bundle were verified before removing only the three clean task worktrees/refs. Primary checkout and four shared targets are unchanged. Worker role evidence validates container configuration, not a live task session. Six-task transport and representative point-cloud local boundaries are qualified; other five domain lifecycles, commit/publish and ID-binding windows, other producers/options/canvas, global SELECT and full Jobs remain in the sole ledger. No primary/daily/production cutover, push or expanded Go experiment.
+
+### Module-first implementation checkpoint
+
+- The user explicitly reset execution: finish independent module implementation before concentrated qualification, avoid per-edit test expansion, and do not keep repairing adjacent issues to grow acceptance prerequisites. Preserve permission, data-integrity and existing-behavior guards; retain prior passing evidence and keep unfinished acceptance pending. Held Learning/training/active-learning and Assets dataset/storage expansion remain held until the feature merge. The sole remaining-work ledger remains authoritative.
+- Tracker queue binding integrates as `bb49293e9`; the real dispatch-failure path exposed expired ORM task access in two API audit details, fixed in `890c972ff`. Current implementation checkpoint `fb85886b6` adds only host qualification setup for the existing fenced restore coordinator; it does not change the restore authority protocol or relax quarantine. Stale cross-frame-only qualification metadata was removed from the queue schema without changing standard request/response/options/routes.
+- Fourteen distinct Native cases and 68 pure cases passed. Source private-queue/worker execution, six staged frames, exact scope retirement, owner-down create/cancel, audit-once same-job redrive, both cancellation acknowledgements and no cancelled execution authority passed. Full PG restore old tracker/summary/retained-input readback passed. All eight combined cold failures remain failures; the latest stopped before fresh clone registry/consumer execution because the intended routing authority handoff had not run. A narrow clone case proves quarantine then zero-context activation and new registry insertion. Current one-ready-peer handoff plus fresh clone consumer is implemented but deliberately left for module-level batched acceptance rather than another fixture loop.
+- Canonical local implementation checkpoint `.worktree/jobs-tracker-implementation-checkpoint.json` SHA-256 `46a3ef5f7bcdf7b116046fc68c120cb1a3859057181911ebd776528f4b78a598` binds 333 records. Final installed snapshot `a85f38380` matches 3,925 COPY inputs per API/worker, 2,121 runtime files and 5 installed fixtures; queue 36 inputs/32 package files. Current host QA differs in exactly 3 files; runtime inputs remain exact. Three clean integrated task children/refs were removed after 73 original files, stable patch pairs and 2 incremental bundles verified. Primary HEAD `5421fa1af` and four shared link identities/targets remain unchanged. All verifier resources were removed without cleanup errors.
+- This closes an implementation checkpoint and scoped source/readback evidence, not complete Jobs or the full new-consumer restore case. No new cold/current-QA image build or full documentation build was run after the user reset. No primary/daily cutover, push, release, production or expanded Go experiment.
+
+- Notifications implementation gap review found no concrete missing code preventing the current Python owner from independent build/deployment with language-neutral capabilities. Freeze the complete package/native operations, transaction adapters, publisher/socket artifacts and existing API/worker bindings; retain prior qualification evidence. Shared Identity/Workspace/Jobs dependencies already use explicit capabilities. Receipt `.worktree/notifications-implementation-freeze.json` records a source-only audit, not new module qualification. No new CRUD service layer or tests were added; module-wide qualification and adoption remain separate ledger states.
+
+### Notifications primary adoption implementation candidate
+
+- Saved the complete primary-based owner/API/worker bindings in `7af05ae77` and dependency closure in `e19247554`, on `worktree-agent-notifications-primary-adoption` based on primary `5421fa1af`. Added the existing shared admission/data packages, scoped Identity actor-status dependency, minimal build/lock/grant wiring, SDK native JSON payload model, and deployment/current-symbol documentation. Read-only composition review found no remaining operational wiring gap. Primary source/runtime/database remain unchanged.
+- Preserve exact frozen migrations 0307 through 0325: all 57 files match accepted source `43468b130`; do not pull unfinished Jobs 0326+ or rewrite history. The linear chain includes Assets garbage-claim behavior in 0313 and requires scope accounting with the held feature merge before adoption. Do not apply it to the everyday database or expand Assets implementation to clear this checkpoint.
+- Reused the accepted Notifications module proof after verifying all 62 record hashes. Candidate runtime package bytes match that source; only an existing dependency-resource assertion changed. The basic batch passed all 224 distinct package cases through 223 original passes plus one corrected-case rerun, 48 Identity admission cases, 50 SDK/CLI/OpenAPI cases, and local import/type identity, lock, migration-graph and grant-structure checks. Notifications-only API architecture passed two cases with one retired-module skip. Preserve the initial cwd setup errors and the corrected broad architecture failure at the unchanged primary Workspace import boundary; do not repair that adjacent issue as part of this module.
+- Canonical local checkpoint `.worktree/notifications-primary-adoption-checkpoint.json` SHA-256 `0801ea51768914f39d25b18dc064baa69794cef0af1f40240e167c1b7e37bfbb` pins 231 source differences and raw check records. Implementation candidate is complete; module-wide concentrated acceptance, primary adoption, migration activation and independent topology cutover remain separate pending states. No new cold/container/restore cycle, push, release, production or expanded Go experiment.
+
+### Audit implementation assembly checkpoint
+
+- Source `3c5d4b5c6` assembles the current unheld Audit implementation: fixed `aap-audit-maintenance/v1`/0333 capability, caller-transaction partition/archive manager and legacy adapters, standalone one-shot runtime/artifact, scoped owner/LOGIN grants, ordinary Audit private-write fences, and separate archive write/read credentials. Existing append/query/event/daily contracts are reused; no HTTP service, queue, outbox, or held-domain implementation was added.
+- Four isolated commits (`7dce87e84`, `4ff85de3b`, `26a95facf`, `3eb239897`) integrate as `b9d499122`, `b99142105`, `da5c86a10`, and `4f92fd037`. Parent completed frozen SQL/schema, the real refresh consumer, file-secret mounts, and late-owner-regrant correction. Retained Predictions/user-performance schema CREATE/TEMP rights remain unchanged; Audit-specific ownership and private writes are fenced separately. Partition snapshots use an exclusive relation lock plus a transaction snapshot marker before upload/drop/event ordering.
+- One concentrated basic batch passed 39 package cases, 2 archive-reader bindings, and 22 resource checks. Built wheel/sdist; all 10 wheel resources match source/frozen copies; non-editable runtime-only installation and outside-checkout CLI/import smoke have no API/Celery/SQLAlchemy dependency. OpenAPI export is unchanged. Pglast syntax checks passed for the maintenance function and grant blocks; they do not prove catalog privileges or execution. The new native lock/identity/bigint/rollback case is saved but not run. No database, container, cold or backup/restore gate was started.
+- Canonical `.worktree/audit-implementation-checkpoint.json` SHA-256 `cfbd793e6f0f2ae4364e00a5cdd8f158144bff67fdd973d5b76c5cb8e4513766` pins 39 source differences and actual check/artifact hashes. Four clean task worktrees/refs were removed after stable patch equivalence, raw evidence preservation and a verified incremental bundle. Primary `5421fa1af` remains clean; no daily cutover/push/release/production/Go expansion. Learning private parent SELECT remains explicitly held pending feature merge; source implementation, concentrated native/module qualification, primary adoption and runtime cutover remain distinct states.

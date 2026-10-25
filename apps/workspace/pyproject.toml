@@ -1,0 +1,56 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aap-workspace"
+version = "0.1.0"
+description = "Portable Workspace membership, owner-transfer and configuration values/policy"
+requires-python = ">=3.11"
+dependencies = [
+    "aap-assets-cleanup",
+    "aap-audit-contract",
+    "aap-inference-contract",
+    "aap-owner-data",
+    "aap-workspace-contract",
+    "pydantic>=2.10",
+]
+
+[tool.uv.sources]
+aap-inference-contract = { path = "../_shared/inference_contract", editable = true }
+aap-owner-data = { path = "../_shared/owner_data", editable = true }
+aap-workspace-contract = { path = "../_shared/workspace_contract", editable = true }
+aap-identity = { path = "../identity", editable = true }
+aap-assets-source = { path = "../assets-source", editable = true }
+aap-assets-cleanup = { path = "../assets-cleanup", editable = true }
+aap-audit-contract = { path = "../_shared/audit_contract", editable = true }
+
+[tool.uv]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "README.md" },
+    { file = "src/**/*.py" },
+    { file = "src/**/*.json" },
+]
+
+[project.optional-dependencies]
+postgres = ["asyncpg>=0.29", "httpx>=0.28"]
+runtime = [
+    "aap-identity[postgres]",
+    "aap-assets-source[client]",
+    "asyncpg>=0.29",
+    "fastapi>=0.115",
+    "httpx>=0.28",
+    "pydantic-settings>=2.6",
+    "uvicorn>=0.30",
+]
+client = ["httpx>=0.27"]
+test = ["pytest>=8.3", "pytest-asyncio>=0.24", "httpx>=0.27"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aap_workspace"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+asyncio_mode = "auto"

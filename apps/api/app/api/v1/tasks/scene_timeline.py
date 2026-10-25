@@ -1,15 +1,12 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import task_access
 from app.api.v1.tasks._shared import (
     _load_task_or_404,
 )
-from app.db.models.project import Project
-from app.db.models.scene_track import SceneTrack, SceneTrackInterval
 from app.deps import get_current_user, get_db
 from app.schemas.scene import (
     SceneTimelineFrameSummary,
@@ -20,6 +17,8 @@ from app.services.labeling_scene import (
     get_scene_timeline_annotation_summaries,
     get_scene_timeline_window,
 )
+from app.services.labeling_scene_read import read_scene_data
+from app.services.project_access import get_workspace_project
 from app.services.identity_contracts import IdentityActorFacts
 
 
@@ -59,7 +58,7 @@ async def get_task_scene_timeline(
     if window is None:
         return SceneTimelineResponse()
 
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, actor_id=None, project_id=task.project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Task not found")
     all_task_ids = {entry.task_id for entry in window.frame_tasks.values()}
@@ -69,27 +68,17 @@ async def get_task_scene_timeline(
     annotation_summaries = await get_scene_timeline_annotation_summaries(
         db, task_ids=visible_task_ids, track_id=track_id
     )
-    selected_intervals: list[SceneTrackInterval] = []
+    selected_intervals = []
     if track_id:
-        scene_track = (
-            await db.execute(
-                select(SceneTrack)
-                .where(SceneTrack.project_id == task.project_id)
-                .where(SceneTrack.scene_id == window.scene_id)
-                .where(SceneTrack.track_id == track_id)
-                .where(SceneTrack.retired_at.is_(None))
-            )
-        ).scalar_one_or_none()
-        if scene_track is not None:
-            selected_intervals = list(
-                (
-                    await db.execute(
-                        select(SceneTrackInterval)
-                        .where(SceneTrackInterval.scene_track_id == scene_track.id)
-                        .order_by(SceneTrackInterval.start_frame)
-                    )
-                ).scalars()
-            )
+        track_data = await read_scene_data(
+            db,
+            "load_timeline_track",
+            project_id=task.project_id,
+            scene_id=window.scene_id,
+            track_id=track_id,
+        )
+        if track_data.track is not None:
+            selected_intervals = track_data.intervals
 
     frames: list[SceneTimelineFrameSummary] = []
     for frame_index in range(start_frame, end_frame + 1):

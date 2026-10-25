@@ -145,8 +145,12 @@ BEGIN
         WHERE nspname ~ '^aap_workspace(_[a-z0-9]+)*_v[0-9]+$'
     LOOP
         EXECUTE format('REVOKE ALL ON ALL FUNCTIONS IN SCHEMA %I FROM %I',v_schema.nspname,v_consumer);
+        IF v_schema.nspname = 'aap_workspace_fixture_v1' THEN
+            EXECUTE format('REVOKE ALL ON ALL TABLES IN SCHEMA %I FROM %I',v_schema.nspname,v_consumer);
+        END IF;
         EXECUTE format('REVOKE ALL ON SCHEMA %I FROM %I',v_schema.nspname,v_consumer);
     END LOOP;
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION aap_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean) FROM %I', v_consumer);
     FOR v_schema IN
         SELECT DISTINCT n.nspname FROM pg_namespace n JOIN pg_proc p ON p.pronamespace=n.oid
         WHERE p.oid=ANY(v_allowed)

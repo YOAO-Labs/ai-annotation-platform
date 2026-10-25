@@ -105,7 +105,7 @@ async def prepare_filtering(resources: dict, manifest_path: Path) -> dict:
     from app.config import settings
     from app.db.models.dataset import Dataset
     from app.db.models.prediction import Prediction
-    from app.db.models.project import Project
+    from app.services.workspace_seed_data import seed_projects
     from app.services.identity_read_relations import account_profiles
     from app.services.predictions_import import internal_geometry_to_ls_shape
 
@@ -147,7 +147,9 @@ async def prepare_filtering(resources: dict, manifest_path: Path) -> dict:
                 present = set(
                     (
                         await db.scalars(
-                            select(Project.id).where(Project.id.in_(project_ids))
+                            select(seed_projects.id).where(
+                                seed_projects.id.in_(project_ids)
+                            )
                         )
                     ).all()
                 )
@@ -157,7 +159,7 @@ async def prepare_filtering(resources: dict, manifest_path: Path) -> dict:
                     )
                 print("[dev:worktree] 复用筛选验收数据，保留已有操作", flush=True)
             else:
-                for model in (account_profiles, Project, Dataset):
+                for model in (account_profiles, seed_projects, Dataset):
                     if await db.scalar(select(func.count()).select_from(model)):
                         raise WorktreeError(
                             "e2e 库已有数据但没有手动验收记录；请先确认并 reset --mode e2e"

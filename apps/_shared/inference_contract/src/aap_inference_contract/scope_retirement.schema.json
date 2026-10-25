@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-inference-scope-retirement/v1",
+  "title": "Inference scope retirement wire",
+  "oneOf": [
+    { "$ref": "#/$defs/ScopeRetirementRequest" },
+    { "$ref": "#/$defs/ScopeRetirementResult" }
+  ],
+  "$defs": {
+    "CanonicalUuid": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "ScopeRetirementRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "retirement_id", "scope_id", "capability"],
+      "properties": {
+        "schema": { "const": "aap-inference-scope-retirement/v1" },
+        "retirement_id": { "$ref": "#/$defs/CanonicalUuid" },
+        "scope_id": { "$ref": "#/$defs/CanonicalUuid" },
+        "capability": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
+          "writeOnly": true
+        }
+      }
+    },
+    "ScopeRetirementView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "retirement_id",
+        "scope_id",
+        "registry_id",
+        "authority_epoch",
+        "backend_incarnation",
+        "phase",
+        "closed"
+      ],
+      "properties": {
+        "retirement_id": { "$ref": "#/$defs/CanonicalUuid" },
+        "scope_id": { "$ref": "#/$defs/CanonicalUuid" },
+        "registry_id": { "$ref": "#/$defs/CanonicalUuid" },
+        "authority_epoch": { "$ref": "#/$defs/CanonicalUuid" },
+        "backend_incarnation": { "$ref": "#/$defs/CanonicalUuid" },
+        "phase": { "enum": ["prepared", "draining", "completed"] },
+        "closed": { "const": true }
+      }
+    },
+    "ScopeRetirementRejected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason"],
+      "properties": {
+        "reason": {
+          "enum": [
+            "scope_unavailable",
+            "backend_not_ready",
+            "transport_changed",
+            "management_busy",
+            "invalid_command",
+            "retirement_conflict"
+          ]
+        }
+      }
+    },
+    "ScopeRetirementResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "retirement_id", "scope_id", "state", "result"],
+      "properties": {
+        "schema": {
+          "const": "aap-inference-scope-retirement-result/v1"
+        },
+        "retirement_id": { "$ref": "#/$defs/CanonicalUuid" },
+        "scope_id": { "$ref": "#/$defs/CanonicalUuid" },
+        "state": { "enum": ["committed", "unknown"] },
+        "result": {
+          "oneOf": [
+            { "$ref": "#/$defs/ScopeRetirementView" },
+            { "$ref": "#/$defs/ScopeRetirementRejected" },
+            { "type": "null" }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "state": { "const": "unknown" } } },
+          "then": { "properties": { "result": { "type": "null" } } },
+          "else": {
+            "properties": {
+              "result": {
+                "oneOf": [
+                  { "$ref": "#/$defs/ScopeRetirementView" },
+                  { "$ref": "#/$defs/ScopeRetirementRejected" }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "x-request-max-bytes": 65536,
+  "x-reply-max-bytes": 65536
+}

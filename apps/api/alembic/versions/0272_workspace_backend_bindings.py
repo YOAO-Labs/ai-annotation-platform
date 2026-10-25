@@ -12,7 +12,9 @@ down_revision = "0271"
 branch_labels = depends_on = None
 
 _SQL_PATH = (
-    Path(__file__).resolve().parents[1] / "sql" / "0272_workspace_backend_bindings.sql"
+    Path(__file__).resolve().parents[1]
+    / "sql"
+    / "0272_workspace_backend_bindings.sql"
 )
 _FUNCTION = "aap_workspace_v1.clear_primary_backend_bindings(uuid)"
 

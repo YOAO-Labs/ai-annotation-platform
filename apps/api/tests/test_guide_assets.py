@@ -19,10 +19,11 @@ import pytest
 from sqlalchemy import event, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aap_assets_source.guide_object_contract import GuideObjectFailure
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.user import User
-from app.services.guide_asset_contracts import MAX_GUIDE_ASSET_SIZE_BYTES
+from aap_workspace.guide_asset_policy import MAX_GUIDE_ASSET_SIZE_BYTES
 from tests.factory import create_membership
 
 
@@ -67,29 +68,29 @@ async def _add_member(
 
 
 def _patch_storage(monkeypatch, *, upload_present=True, content_length=1024):
-    """统一 mock storage_service 三个 IO 方法, 默认 head_object 返回有效尺寸."""
+    """Mock the narrow guide-object capability instead of API-wide storage."""
+
+    class GuideObjectPort:
+        def __init__(self):
+            self.deleted: list[str] = []
+
+        async def generate_upload_url(self, project_id, key, *, content_type):
+            return f"http://storage.local/put/{key}"
+
+        async def verify_upload(self, project_id, key):
+            return content_length if upload_present else None
+
+        async def delete_object(self, project_id, key):
+            self.deleted.append(key)
+
+        async def generate_download_url(self, project_id, key):
+            return f"http://storage.local/get/{key}"
+
+    port = GuideObjectPort()
     monkeypatch.setattr(
-        "app.services.storage.storage_service.generate_upload_url",
-        lambda key, content_type="application/octet-stream", expires_in=900, bucket=None: (
-            f"http://storage.local/put/{key}"
-        ),
+        "app.services.workspace_configuration._guide_objects", lambda: port
     )
-    monkeypatch.setattr(
-        "app.services.storage.storage_service.generate_download_url",
-        lambda key, expires_in=3600, bucket=None: f"http://storage.local/get/{key}",
-    )
-    monkeypatch.setattr(
-        "app.services.storage.storage_service.verify_upload",
-        lambda key, bucket=None: (
-            {"ContentLength": content_length} if upload_present else None
-        ),
-    )
-    deleted: list[str] = []
-    monkeypatch.setattr(
-        "app.services.storage.storage_service.delete_object",
-        lambda key, bucket=None: deleted.append(key),
-    )
-    return deleted
+    return port
 
 
 async def test_upload_init_returns_project_scoped_key(
@@ -278,7 +279,7 @@ async def test_delete_asset_removes_registered_metadata(
 async def test_delete_asset_removes_entry_when_storage_delete_fails(
     httpx_client, super_admin, db_session, monkeypatch
 ):
-    _patch_storage(monkeypatch)
+    storage = _patch_storage(monkeypatch)
     user, token = super_admin
     proj = await _seed_project(db_session, user.id)
     existing_key = f"projects/{proj.id}/guide/{uuid.uuid4()}-old.png"
@@ -293,13 +294,10 @@ async def test_delete_asset_removes_entry_when_storage_delete_fails(
     ]
     await db_session.commit()
 
-    def fail_delete(key: str, bucket=None):
-        raise RuntimeError("storage unavailable")
+    async def fail_delete(project_id: uuid.UUID, key: str):
+        raise GuideObjectFailure("storage_error")
 
-    monkeypatch.setattr(
-        "app.services.storage.storage_service.delete_object",
-        fail_delete,
-    )
+    monkeypatch.setattr(storage, "delete_object", fail_delete)
     response = await httpx_client.request(
         "DELETE",
         f"/api/v1/projects/{proj.id}/guide-assets",
@@ -446,7 +444,7 @@ async def test_member_cannot_sign_unregistered_or_foreign_guide_keys(
 async def test_project_member_cannot_modify_guide_assets(
     httpx_client, project_admin, annotator, db_session, monkeypatch, operation
 ):
-    deleted = _patch_storage(monkeypatch)
+    storage = _patch_storage(monkeypatch)
     owner, _ = project_admin
     user, token = annotator
     proj = await _seed_project(db_session, owner.id)
@@ -468,7 +466,7 @@ async def test_project_member_cannot_modify_guide_assets(
             f"{endpoint}/{operation}", json=payload, headers=headers
         )
     assert resp.status_code == 403, resp.text
-    assert deleted == []
+    assert storage.deleted == []
     detail = await httpx_client.get(f"/api/v1/projects/{proj.id}", headers=headers)
     assert detail.status_code == 200, detail.text
     assert [asset["key"] for asset in detail.json()["guide_assets"]] == [key]
@@ -489,12 +487,12 @@ async def test_patch_project_annotation_guide(httpx_client, super_admin, db_sess
     assert resp.json()["annotation_guide"].startswith("# 项目标注指引")
 
 
-def _inject_change_after_head(monkeypatch, test_engine, mutation):
+def _inject_change_after_head(monkeypatch, test_engine, mutation, storage):
     boundary = {"verified": False, "changed": False}
 
-    def verify_upload(key, bucket=None):
+    async def verify_upload(project_id: uuid.UUID, key: str):
         boundary["verified"] = True
-        return {"ContentLength": 1024}
+        return 1024
 
     def change_before_next_query(
         connection, cursor, statement, parameters, context, executemany
@@ -503,9 +501,7 @@ def _inject_change_after_head(monkeypatch, test_engine, mutation):
             boundary["changed"] = True
             connection.execute(mutation)
 
-    monkeypatch.setattr(
-        "app.services.storage.storage_service.verify_upload", verify_upload
-    )
+    monkeypatch.setattr(storage, "verify_upload", verify_upload)
     event.listen(
         test_engine.sync_engine, "before_cursor_execute", change_before_next_query
     )
@@ -525,7 +521,7 @@ async def test_guide_completion_rechecks_authority_after_storage_head(
     change,
     expected_status,
 ):
-    _patch_storage(monkeypatch)
+    storage = _patch_storage(monkeypatch)
     owner, token = project_admin
     successor, _ = super_admin
     project = await _seed_project(db_session, owner.id)
@@ -536,7 +532,7 @@ async def test_guide_completion_rechecks_authority_after_storage_head(
         if change == "owner_transferred"
         else update(User).where(User.id == owner.id).values(is_active=False)
     )
-    listener = _inject_change_after_head(monkeypatch, test_engine, mutation)
+    listener = _inject_change_after_head(monkeypatch, test_engine, mutation, storage)
     try:
         response = await httpx_client.post(
             f"/api/v1/projects/{project.id}/guide-assets/upload-complete",
@@ -555,7 +551,7 @@ async def test_guide_completion_rechecks_authority_after_storage_head(
 async def test_guide_completion_preserves_asset_added_during_storage_head(
     httpx_client, db_session, test_engine, super_admin, monkeypatch
 ):
-    _patch_storage(monkeypatch)
+    storage = _patch_storage(monkeypatch)
     owner, token = super_admin
     project = await _seed_project(db_session, owner.id)
     await db_session.commit()
@@ -572,6 +568,7 @@ async def test_guide_completion_preserves_asset_added_during_storage_head(
         monkeypatch,
         test_engine,
         update(Project).where(Project.id == project.id).values(guide_assets=[entry]),
+        storage,
     )
     try:
         response = await httpx_client.post(

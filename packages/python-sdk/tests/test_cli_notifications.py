@@ -111,6 +111,33 @@ def test_notification_cli_json_commands(
         assert route.calls.last.request.url.params["unread_only"] == "true"
 
 
+def test_notification_cli_json_preserves_native_payload_values(cli_client, respx_mock):
+    payload = ["legacy", None, 2**100, {"label": "雪"}]
+    item = {
+        "id": NOTICE_ID,
+        "type": "legacy.notification",
+        "target_type": "task",
+        "target_id": NOTICE_ID,
+        "payload": payload,
+        "created_at": "2026-10-17T00:00:00Z",
+    }
+    respx_mock.get(f"{API}/notifications").mock(
+        return_value=httpx.Response(
+            200,
+            json={"items": [item], "total": 1, "unread": 1},
+        )
+    )
+
+    result = runner.invoke(
+        notification_cli.app,
+        ["list", "--json"],
+        env=ENV,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["items"][0]["payload"] == payload
+
+
 @pytest.mark.parametrize(
     "args",
     [

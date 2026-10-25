@@ -34,6 +34,13 @@ last_reviewed: 2026-09-19
 
 审计在 `0173` 存在**之前**也可运行，缺失的加性列按 `NULL` / “未知”报告，不会虚构完整性。
 
+先由维护者使用迁移凭据运行仓库的 `infra/docker/identity-role-audit-grants.sql`，将
+现有 Identity 非 LOGIN owner 与专用审计 LOGIN 绑定到目标数据库。它显式安装三个
+固定审计关系，撤销该 LOGIN 对 User／邀请私表及列的权限，不修改业务数据或 Alembic
+revision；审计 CLI 本身不会安装或自动回退。其余领域的只读权限和 Alembic 元数据
+读取仍须显式提供。将本次审计的 `DATABASE_URL` 指向该 LOGIN，安装步骤见仓库
+`DEV.md` 的“历史角色审计的 Identity 读取”。
+
 ```bash
 cd apps/api
 uv run python scripts/audit_project_roles.py --pretty

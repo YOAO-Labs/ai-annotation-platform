@@ -14,8 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.config import settings
 from app.application.annotation_cross_frame import bind_cross_frame_batch_stager
 from app.db.enums import ProjectRole
-from app.db.models.annotation import Annotation
-from app.db.models.async_job import AsyncJob, AsyncJobStatus
+from app.db.models.async_job import AsyncJobStatus
 from app.db.models.task import Task
 from app.services.identity_contracts import IdentityActorFacts
 from app.services import task_access
@@ -23,6 +22,12 @@ from app.services import async_job as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
 from app.services.annotation_mutation_contract import AnnotationMutationError
 from app.services.cross_frame_job import JOB_KIND, summarize_items
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    lock_annotation_rows_for_core_read,
+    lock_task_rows_for_core_read,
+    task_row,
+)
 from app.workers.celery_app import celery_app
 
 
@@ -33,10 +38,11 @@ async def _resolve_task_access(
     db: AsyncSession, task: Task, actor: IdentityActorFacts, *, lock: bool = False
 ):
     """Resolve current project access for a task's actual project, fail closed."""
-    from app.db.models.project import Project
+    from app.services.project_access import get_workspace_project
+
     from app.services.project_access import resolve_project_access
 
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, project_id=task.project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="task_missing")
     try:
@@ -118,7 +124,7 @@ def _failure_reason(exc: Exception) -> str:
 
 
 async def _cancel_requested(db: AsyncSession, job_id: uuid.UUID) -> bool:
-    job = await db.get(AsyncJob, job_id)
+    job = await async_job_svc.get_job(db, job_id)
     if job is None:
         return True
     await db.refresh(job)
@@ -136,7 +142,7 @@ async def _persist_progress(
 ) -> None:
     result = summarize_items(ordered_items)
     pct = round((len(ordered_items) / max(1, total)) * 100)
-    job = await db.get(AsyncJob, job_id)
+    job = await async_job_svc.get_job(db, job_id)
     if job is None:
         return
     if job.status != AsyncJobStatus.CANCELLED.value:
@@ -169,9 +175,20 @@ async def execute_cross_frame_job(
     job_id: uuid.UUID,
     celery_task_id: str | None = None,
 ) -> None:
+    job = await async_job_svc.get_job(db, job_id, populate_existing=True)
+    if (
+        job is None
+        or job.kind != JOB_KIND
+        or job.status
+        not in {
+            AsyncJobStatus.PENDING.value,
+            AsyncJobStatus.RUNNING.value,
+        }
+    ):
+        return
     await async_job_svc.mark_running(db, job_id, celery_task_id=celery_task_id)
     await db.commit()
-    job = await db.get(AsyncJob, job_id)
+    job = await async_job_svc.get_job(db, job_id)
     if job is None or job.kind != JOB_KIND:
         return
     payload = job.payload or {}
@@ -281,22 +298,14 @@ async def execute_cross_frame_job(
             member_project_ids = set(
                 (
                     await db.execute(
-                        select(Task.project_id).where(Task.id.in_(lock_ids))
+                        select(task_row.project_id).where(task_row.id.in_(lock_ids))
                     )
                 ).scalars()
             )
             for member_project_id in member_project_ids:
                 await lock_actor_scope(db, actor.id, member_project_id)
-            locked_tasks = list(
-                (
-                    await db.execute(
-                        select(Task)
-                        .where(Task.id.in_(lock_ids))
-                        .order_by(Task.id)
-                        .with_for_update(nowait=True)
-                        .execution_options(populate_existing=True)
-                    )
-                ).scalars()
+            locked_tasks = await lock_task_rows_for_core_read(
+                db, lock_ids, populate_existing=True
             )
             tasks_by_id = {row.id: row for row in locked_tasks}
             source_task = tasks_by_id.get(source_task_id)
@@ -335,13 +344,13 @@ async def execute_cross_frame_job(
 
             source_rows = list(
                 (
-                    await db.execute(
-                        select(Annotation)
-                        .where(Annotation.id.in_(source_ids))
-                        .order_by(Annotation.id)
-                        .with_for_update()
+                    await lock_annotation_rows_for_core_read(
+                        db,
+                        source_ids,
+                        task_id=source_task_id,
+                        lock_mode="update",
                     )
-                ).scalars()
+                )
             )
             source_by_id = {row.id: row for row in source_rows}
             stale_ids = [
@@ -367,11 +376,13 @@ async def execute_cross_frame_job(
                     existing_tracks = set(
                         (
                             await db.execute(
-                                select(Annotation.track_id)
-                                .where(Annotation.task_id == target_task_id)
-                                .where(Annotation.is_active.is_(True))
-                                .where(Annotation.geometry["type"].astext == "box_3d")
-                                .where(Annotation.track_id.in_(track_ids))
+                                select(annotation_row.track_id)
+                                .where(annotation_row.task_id == target_task_id)
+                                .where(annotation_row.is_active.is_(True))
+                                .where(
+                                    annotation_row.geometry["type"].astext == "box_3d"
+                                )
+                                .where(annotation_row.track_id.in_(track_ids))
                             )
                         ).scalars()
                     )

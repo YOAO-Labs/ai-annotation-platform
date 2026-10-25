@@ -23,6 +23,7 @@ from app.services.labeling_prediction_contract import (
     ApplyPredictionResultPort,
     ApplyPredictionResultRequest,
 )
+from app.services.jobs_lifecycle_data import job_lock_statement
 from app.workers.celery_app import celery_app
 
 _WRITE_ATTEMPTS = 5
@@ -509,18 +510,13 @@ def _defer_frame_segment(
 
 
 async def _fail_frame_job_in_session(db, job_id: str, project_id: str, error: str):
-    from sqlalchemy import select
 
-    from app.db.models.async_job import AsyncJob
     from app.services import async_job as async_job_svc
     from app.services.async_job_notify import notify_job_terminal
 
     await db.rollback()
     job = await db.scalar(
-        select(AsyncJob)
-        .where(AsyncJob.id == uuid.UUID(job_id))
-        .with_for_update()
-        .execution_options(populate_existing=True)
+        job_lock_statement(uuid.UUID(job_id), mode="update", populate_existing=True)
     )
     if job is not None and job.status in {"pending", "running"}:
         await async_job_svc.mark_failed(db, job.id, error=error)
@@ -537,7 +533,7 @@ async def _fail_legacy_frame_job(job_id: str, error: str) -> None:
         create_async_engine,
     )
 
-    from app.db.models.async_job import AsyncJob
+    from app.services import async_job as async_job_svc
 
     try:
         parsed_job_id = uuid.UUID(job_id)
@@ -549,7 +545,7 @@ async def _fail_legacy_frame_job(job_id: str, error: str) -> None:
     )
     try:
         async with SessionLocal() as db:
-            job = await db.get(AsyncJob, parsed_job_id)
+            job = await async_job_svc.get_job(db, parsed_job_id)
             if job is not None:
                 await _fail_frame_job_in_session(db, job_id, str(job.project_id), error)
     finally:
@@ -577,8 +573,8 @@ async def _run_segment(
     )
 
     from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
-    from app.db.models.task import Task
-    from app.db.models.async_job import AsyncJob
+    from app.services.labeling_core_read_relations import get_core_row, task_row
+    from app.services import async_job as async_job_svc
     from app.services.gpu_arbitration.dispatch import (
         build_gpu_dispatch_context_factory,
     )
@@ -637,8 +633,8 @@ async def _run_segment(
             )
     try:
         async with SessionLocal() as db:
-            async_job = await db.get(
-                AsyncJob, uuid.UUID(job_id), populate_existing=True
+            async_job = await async_job_svc.get_job(
+                db, uuid.UUID(job_id), populate_existing=True
             )
             if await _job_cancelled(db, job_id):
                 stats["skipped"] += len(frame_ordinals)
@@ -698,7 +694,7 @@ async def _run_segment(
                 )
                 return stats
 
-            task = await db.get(Task, task_uuid, populate_existing=True)
+            task = await get_core_row(db, task_row, task_uuid, populate_existing=True)
             selected_task_ids = selection.get("task_ids")
             selected_batch_id = selection.get("batch_id")
             if (
@@ -1425,14 +1421,12 @@ async def _write_job_progress(
     segment_stats: dict,
 ) -> dict:
     """Publish completed segment progress while fencing terminal transitions."""
-    from sqlalchemy import select
     from sqlalchemy.ext.asyncio import (
         AsyncSession,
         async_sessionmaker,
         create_async_engine,
     )
 
-    from app.db.models.async_job import AsyncJob
     from app.services import async_job as async_job_svc
 
     engine = create_async_engine(settings.database_url, echo=False)
@@ -1442,10 +1436,9 @@ async def _write_job_progress(
     try:
         async with SessionLocal() as db:
             job = await db.scalar(
-                select(AsyncJob)
-                .where(AsyncJob.id == uuid.UUID(job_id))
-                .with_for_update()
-                .execution_options(populate_existing=True)
+                job_lock_statement(
+                    uuid.UUID(job_id), mode="update", populate_existing=True
+                )
             )
             active = job is not None and job.status in {"pending", "running"}
             done, total, canonical = _bump_segment_progress(
@@ -1469,9 +1462,10 @@ async def _write_job_progress(
 
 async def _job_cancelled(db, job_id: str) -> bool:
     """Stop queued segments when their job is missing, terminal or cancelling."""
-    from app.db.models.async_job import AsyncJob, AsyncJobStatus
+    from app.db.models.async_job import AsyncJobStatus
+    from app.services import async_job as async_job_svc
 
-    job = await db.get(AsyncJob, uuid.UUID(job_id))
+    job = await async_job_svc.get_job(db, uuid.UUID(job_id))
     if job is None:
         return True
     await db.refresh(job)
@@ -1491,21 +1485,27 @@ async def _existing_video_frame_ordinals(
     """Find completed frames by actual Job and retained plan, including empty results."""
     from sqlalchemy import select
 
-    from app.db.models.prediction import Prediction, PredictionMeta
+    from app.services.labeling_core_read_relations import (
+        prediction_meta_row,
+        prediction_row,
+    )
 
-    accepted_video = PredictionMeta.extra["accepted_video_input"]
+    accepted_video = prediction_meta_row.extra["accepted_video_input"]
     ordinal = accepted_video["entry"]["ordinal"].as_string()
     values = (
         await db.execute(
             select(ordinal)
             .join(
-                Prediction,
-                (Prediction.id == PredictionMeta.prediction_id)
-                & (Prediction.created_at == PredictionMeta.prediction_created_at),
+                prediction_row,
+                (prediction_row.id == prediction_meta_row.prediction_id)
+                & (
+                    prediction_row.created_at
+                    == prediction_meta_row.prediction_created_at
+                ),
             )
             .where(
-                Prediction.task_id == task_id,
-                PredictionMeta.extra["accepted_video_execution_job_id"].as_string()
+                prediction_row.task_id == task_id,
+                prediction_meta_row.extra["accepted_video_execution_job_id"].as_string()
                 == str(execution_job_id),
                 accepted_video["input_id"].as_string() == str(input_id),
                 accepted_video["plan_digest"].as_string() == plan_digest,
@@ -1542,14 +1542,12 @@ def finalize_frame_job(
 
 
 async def _finalize(segment_stats: list[dict], *, project_id: str, job_id: str) -> None:
-    from sqlalchemy import select
     from sqlalchemy.ext.asyncio import (
         AsyncSession,
         async_sessionmaker,
         create_async_engine,
     )
 
-    from app.db.models.async_job import AsyncJob
     from app.services import async_job as async_job_svc
     from app.services.gpu_arbitration.contracts import summarize_gpu_arbiter_failures
 
@@ -1577,10 +1575,9 @@ async def _finalize(segment_stats: list[dict], *, project_id: str, job_id: str) 
     try:
         async with SessionLocal() as db:
             job = await db.scalar(
-                select(AsyncJob)
-                .where(AsyncJob.id == uuid.UUID(job_id))
-                .with_for_update()
-                .execution_options(populate_existing=True)
+                job_lock_statement(
+                    uuid.UUID(job_id), mode="update", populate_existing=True
+                )
             )
             if job is None or job.status not in {"pending", "running"}:
                 return

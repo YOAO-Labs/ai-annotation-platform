@@ -7,18 +7,19 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import delete, or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.sql.selectable import Select
+from sqlalchemy.orm import make_transient_to_detached
+from sqlalchemy.orm.attributes import set_committed_value
 
 from aap_assets_video_inputs.evidence import VideoInputEvidence
+from aap_workspace.configuration_values import TOOL_UNIT_IDS as _SCHEMA_TOOL_UNIT_IDS
 
 from app.db.enums import UserRole
-from app.db.models.project import Project
-from app.db.models.prediction import Prediction, PredictionMeta, FailedPrediction
+from app.services.project_access import get_workspace_project
+from app.db.models.prediction import Prediction, FailedPrediction
 from app.db.models.task import Task
-from app.schemas._jsonb_types import TOOL_UNIT_IDS as _SCHEMA_TOOL_UNIT_IDS
 from app.services.annotation_propagation import _new_track_id
 from app.services.labeling_write_scope import LabelingWriteScope
 from app.services.labeling_write_guard import lock_labeling_write
@@ -36,6 +37,26 @@ from app.services.raster_mask_storage import (
     RasterMaskContractError,
     prepare_mask_payload_for_write,
     preflight_mask_payload_for_write,
+)
+from aap_labeling.prediction_record_contract import (
+    InsertPredictionResult,
+    InsertPredictionResultData,
+    InsertTestSeedPrediction,
+    InsertTestSeedPredictionData,
+    PREDICTION_RECORDS_PROTOCOL,
+)
+from app.services.labeling_prediction_records import (
+    create_prediction_record_failed_state,
+    delete_prediction_records_for_batch,
+    delete_prediction_records_for_tasks,
+    prediction_record_command,
+    set_failed_prediction_dismissed,
+)
+from app.services.labeling_core_read_relations import (
+    get_core_row,
+    prediction_meta_row,
+    prediction_row,
+    task_row,
 )
 
 logger = logging.getLogger("app.services.prediction")
@@ -132,7 +153,7 @@ async def assert_can_manage_failed_prediction(
             )
         if actor.is_active and actor.role == UserRole.SUPER_ADMIN.value:
             return
-    project = await db.get(Project, fp.project_id)
+    project = await get_workspace_project(db, project_id=fp.project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
     access = await resolve_project_access(db, actor_id=actor.id, project=project)
@@ -602,49 +623,45 @@ class PredictionService:
     ) -> Prediction | None:
         """Find the completed frame result for this exact execution and plan entry."""
         statement = (
-            select(Prediction)
-            .join(PredictionMeta, PredictionMeta.prediction_id == Prediction.id)
+            select(prediction_row)
+            .join(
+                prediction_meta_row,
+                prediction_meta_row.prediction_id == prediction_row.id,
+            )
             .where(
-                Prediction.task_id == task_id,
-                PredictionMeta.extra["accepted_video_execution_job_id"].as_string()
+                prediction_row.task_id == task_id,
+                prediction_meta_row.extra["accepted_video_execution_job_id"].as_string()
                 == str(execution_job_id),
-                PredictionMeta.extra["accepted_video_input"]["input_id"].as_string()
+                prediction_meta_row.extra["accepted_video_input"][
+                    "input_id"
+                ].as_string()
                 == str(evidence.input_id),
-                PredictionMeta.extra["accepted_video_input"]["plan_digest"].as_string()
+                prediction_meta_row.extra["accepted_video_input"][
+                    "plan_digest"
+                ].as_string()
                 == evidence.plan_digest,
-                PredictionMeta.extra["accepted_video_input"]["entry"][
+                prediction_meta_row.extra["accepted_video_input"]["entry"][
                     "ordinal"
                 ].as_string()
                 == str(evidence.entry.ordinal),
             )
-            .order_by(Prediction.created_at.asc())
+            .order_by(prediction_row.created_at.asc())
             .limit(1)
         )
         return (await self.db.execute(statement)).scalars().first()
 
-    async def delete_for_tasks(self, task_id_select: Select) -> dict[str, int]:
-        """Delete predictions and metadata for task IDs, preserving FK order."""
-        pred_ids = select(Prediction.id).where(Prediction.task_id.in_(task_id_select))
-        failed_ids = select(FailedPrediction.id).where(
-            FailedPrediction.task_id.in_(task_id_select)
-        )
-        await self.db.execute(
-            delete(PredictionMeta).where(
-                or_(
-                    PredictionMeta.prediction_id.in_(pred_ids),
-                    PredictionMeta.failed_prediction_id.in_(failed_ids),
-                )
-            )
-        )
-        prediction_result = await self.db.execute(
-            delete(Prediction).where(Prediction.task_id.in_(task_id_select))
-        )
-        failed_result = await self.db.execute(
-            delete(FailedPrediction).where(FailedPrediction.task_id.in_(task_id_select))
-        )
+    async def delete_for_tasks(self, task_ids: list[uuid.UUID]) -> dict[str, int]:
+        data = await delete_prediction_records_for_tasks(self.db, task_ids=task_ids)
         return {
-            "predictions": prediction_result.rowcount or 0,
-            "failed_predictions": failed_result.rowcount or 0,
+            "predictions": data.predictions,
+            "failed_predictions": data.failed_predictions,
+        }
+
+    async def delete_for_batch(self, batch_id: uuid.UUID) -> dict[str, int]:
+        data = await delete_prediction_records_for_batch(self.db, batch_id=batch_id)
+        return {
+            "predictions": data.predictions,
+            "failed_predictions": data.failed_predictions,
         }
 
     async def apply_prediction_result(
@@ -658,8 +675,8 @@ class PredictionService:
         ):
             raise ValueError("prediction write scope does not match its target")
         result = _prediction_result_for_write(request)
-        preflight_task = await self.db.get(
-            Task, request.task_id, populate_existing=True
+        preflight_task = await get_core_row(
+            self.db, task_row, request.task_id, populate_existing=True
         )
         try:
             verified_content = await preflight_mask_payload_for_write(
@@ -726,7 +743,9 @@ class PredictionService:
             raise ValueError("prediction write scope does not match its target")
         if accepted_video_input is not None and len(requests) != 1:
             raise ValueError("retained video frames must be written individually")
-        preflight_task = await self.db.get(Task, first.task_id, populate_existing=True)
+        preflight_task = await get_core_row(
+            self.db, task_row, first.task_id, populate_existing=True
+        )
         normalized_results = [
             _prediction_result_for_write(request) for request in requests
         ]
@@ -790,83 +809,96 @@ class PredictionService:
     async def _persist_prediction_result(
         self, request: ApplyPredictionResultRequest, task: Task, result: list[dict]
     ) -> ApplyPredictionResultReceipt:
-        prediction = Prediction(
-            id=(
-                request.batch_result_identity.prediction_id
-                if request.batch_result_identity is not None
-                else uuid.uuid4()
-            ),
+        prediction_id = (
+            request.batch_result_identity.prediction_id
+            if request.batch_result_identity is not None
+            else uuid.uuid4()
+        )
+        token_meta = request.token_meta or {}
+        extra = {
+            **(request.pipeline_extra or {}),
             **(
-                {"created_at": request.batch_result_identity.prediction_created_at}
-                if request.batch_result_identity is not None
+                {"trained_model": request.model_provenance}
+                if request.model_provenance
                 else {}
             ),
+            **(
+                {
+                    "accepted_video_input": request.accepted_video_input.model_dump(
+                        mode="json", by_alias=True
+                    ),
+                    "accepted_video_execution_job_id": str(request.write_scope.job_id),
+                }
+                if request.accepted_video_input is not None
+                else {}
+            ),
+        }
+        command = InsertPredictionResult(
+            schema=PREDICTION_RECORDS_PROTOCOL,
+            operation="insert_result",
+            prediction_id=prediction_id,
+            prediction_created_at=(
+                request.batch_result_identity.prediction_created_at
+                if request.batch_result_identity is not None
+                else None
+            ),
+            prediction_meta_id=uuid.uuid4(),
             task_id=request.task_id,
             project_id=request.project_id,
             ml_backend_id=request.ml_backend_id,
-            # v0.23.3 ADR-0050 §5.4 · requested pool (单阶段 = 请求的池; 多阶段 = root stage pool)。
             ml_backend_pool_id=request.ml_backend_pool_id,
             model_version=request.model_version,
             score=request.score,
-            # v0.10.17 · 按 result[0].type 派生 tool_unit_id.
             tool_unit_id=derive_tool_unit_from_result(result),
             result=result,
             source=request.source,
+            inference_time_ms=request.inference_time_ms,
+            prompt_tokens=token_meta.get("prompt_tokens"),
+            completion_tokens=token_meta.get("completion_tokens"),
+            total_tokens=token_meta.get("total_tokens"),
+            prompt_cost=token_meta.get("prompt_cost"),
+            completion_cost=token_meta.get("completion_cost"),
+            total_cost=token_meta.get("total_cost"),
+            extra=extra,
         )
-        self.db.add(prediction)
         try:
+            # Match the former first flush: pending application writes reach this
+            # transaction before the Prediction/metadata pair is inserted.
             await self.db.flush()
+            data = await prediction_record_command(self.db, command)
+        except HTTPException as exc:
+            raise _apply_prediction_error(exc) from exc
         except SQLAlchemyError as exc:
             rejection = mask_fence_error(exc)
             if rejection is None:
                 raise
             raise _apply_prediction_error(rejection) from None
-
-        meta_data = request.token_meta or {}
-        meta = PredictionMeta(
-            id=uuid.uuid4(),
-            prediction_id=prediction.id,
-            # v0.10.25 · 复合 FK 冗余分区键；flush 后 prediction.created_at 已由 RETURNING 回写。
-            prediction_created_at=prediction.created_at,
-            inference_time_ms=request.inference_time_ms,
-            prompt_tokens=meta_data.get("prompt_tokens"),
-            completion_tokens=meta_data.get("completion_tokens"),
-            total_tokens=meta_data.get("total_tokens"),
-            prompt_cost=meta_data.get("prompt_cost"),
-            completion_cost=meta_data.get("completion_cost"),
-            total_cost=meta_data.get("total_cost"),
-            # v0.18.1 · 多阶段预标注阶段元信息 (stage_count / enriched_attr_keys),
-            # 追溯「哪个属性来自哪个阶段」; MVP 暂存 extra JSONB 不改表。
-            extra={
-                **(request.pipeline_extra or {}),
-                **(
-                    {"trained_model": request.model_provenance}
-                    if request.model_provenance
-                    else {}
-                ),
-                **(
-                    {
-                        "accepted_video_input": request.accepted_video_input.model_dump(
-                            mode="json", by_alias=True
-                        ),
-                        "accepted_video_execution_job_id": str(
-                            request.write_scope.job_id
-                        ),
-                    }
-                    if request.accepted_video_input is not None
-                    else {}
-                ),
-            },
+        assert isinstance(data, InsertPredictionResultData)
+        prediction = Prediction(
+            id=data.prediction_id,
+            created_at=data.created_at,
+            task_id=request.task_id,
+            project_id=request.project_id,
+            ml_backend_id=request.ml_backend_id,
+            ml_backend_pool_id=request.ml_backend_pool_id,
+            model_version=request.model_version,
+            score=request.score,
+            tool_unit_id=data.tool_unit_id,
+            result=result,
+            source=request.source,
+            rejected_shape_indexes=[],
         )
-        self.db.add(meta)
-
-        task.total_predictions = (task.total_predictions or 0) + 1
-
+        prediction.cluster = None
+        prediction.mislabeling = None
+        make_transient_to_detached(prediction)
+        self.db.add(prediction)
+        set_committed_value(task, "total_predictions", data.total_predictions)
+        set_committed_value(task, "updated_at", data.task_updated_at)
         await self.db.flush()
         return ApplyPredictionResultReceipt(
-            id=prediction.id,
-            created_at=prediction.created_at,
-            tool_unit_id=prediction.tool_unit_id,
+            id=data.prediction_id,
+            created_at=data.created_at,
+            tool_unit_id=data.tool_unit_id,
         )
 
     async def create_test_seed_prediction(
@@ -889,26 +921,37 @@ class PredictionService:
         if write_scope.task_id != task_id or write_scope.project_id != project_id:
             raise ValueError("prediction write scope does not match its target")
         await assert_isolated_test_seed_database(self.db)
-        task = (
-            await self.db.execute(
-                select(Task)
-                .where(Task.id == task_id, Task.project_id == project_id)
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            )
-        ).scalar_one_or_none()
-        if task is None:
-            raise HTTPException(status_code=404, detail="Task not found")
+        # Preserve pending Task edits before the native owner locks/inserts.
+        await self.db.flush()
+        command = InsertTestSeedPrediction(
+            schema=PREDICTION_RECORDS_PROTOCOL,
+            operation="insert_test_seed",
+            prediction_id=uuid.uuid4(),
+            task_id=task_id,
+            project_id=project_id,
+            result=result,
+            score=score,
+            model_version=model_version,
+            tool_unit_id=tool_unit_id,
+            rejected_shape_indexes=rejected_shape_indexes,
+        )
+        data = await prediction_record_command(self.db, command)
+        assert isinstance(data, InsertTestSeedPredictionData)
         prediction = Prediction(
+            id=data.prediction_id,
+            created_at=data.created_at,
             task_id=task_id,
             project_id=project_id,
             score=score,
             model_version=model_version,
+            source="ml_backend",
+            tool_unit_id=data.tool_unit_id,
             result=result,
-            **({"tool_unit_id": tool_unit_id} if tool_unit_id is not None else {}),
+            rejected_shape_indexes=rejected_shape_indexes or [],
         )
-        if rejected_shape_indexes is not None:
-            prediction.rejected_shape_indexes = rejected_shape_indexes
+        prediction.cluster = None
+        prediction.mislabeling = None
+        make_transient_to_detached(prediction)
         self.db.add(prediction)
         await self.db.flush()
         return prediction
@@ -925,18 +968,37 @@ class PredictionService:
         ml_backend_pool_id: uuid.UUID | None = None,
         failure_id: uuid.UUID | None = None,
     ) -> FailedPrediction:
-        failed = FailedPrediction(
-            id=failure_id if failure_id is not None else uuid.uuid4(),
+        resolved_failure_id = failure_id if failure_id is not None else uuid.uuid4()
+        # Keep pending Task counter changes ahead of the native failure insert.
+        await self.db.flush()
+        created_at = await create_prediction_record_failed_state(
+            self.db,
+            failure_id=resolved_failure_id,
             task_id=task_id,
             project_id=project_id,
             ml_backend_id=ml_backend_id,
-            # v0.23.3 ADR-0050 §5.4 · 失败所在的 requested pool; 选择前失败 instance id 可为 null。
             ml_backend_pool_id=ml_backend_pool_id,
             model_version=model_version,
             error_type=error_type,
             message=message,
             extra=extra or {},
         )
+        failed = FailedPrediction(
+            id=resolved_failure_id,
+            task_id=task_id,
+            project_id=project_id,
+            ml_backend_id=ml_backend_id,
+            ml_backend_pool_id=ml_backend_pool_id,
+            model_version=model_version,
+            error_type=error_type,
+            message=message,
+            extra=extra or {},
+            retry_count=0,
+            dismissed_at=None,
+            created_at=created_at,
+        )
+        failed.last_retry_at = None
+        make_transient_to_detached(failed)
         self.db.add(failed)
         await self.db.flush()
         return failed
@@ -945,31 +1007,37 @@ class PredictionService:
         """Dismiss one failed prediction without committing its caller's transaction."""
         if failed.dismissed_at is not None:
             return False
-        failed.dismissed_at = datetime.now(timezone.utc)
-        return True
+        return await set_failed_prediction_dismissed(
+            self.db,
+            failure_id=failed.id,
+            dismissed_at=datetime.now(timezone.utc),
+        )
 
     async def restore_failed_prediction(self, failed: FailedPrediction) -> bool:
         """Restore one dismissed failed prediction without committing."""
         if failed.dismissed_at is None:
             return False
-        failed.dismissed_at = None
-        return True
+        return await set_failed_prediction_dismissed(
+            self.db,
+            failure_id=failed.id,
+            dismissed_at=None,
+        )
 
     async def list_by_task(
         self, task_id: uuid.UUID, model_version: str | None = None
     ) -> list[Prediction]:
-        q = select(Prediction).where(Prediction.task_id == task_id)
+        q = select(prediction_row).where(prediction_row.task_id == task_id)
         if model_version:
-            q = q.where(Prediction.model_version == model_version)
-        q = q.order_by(Prediction.created_at.desc())
+            q = q.where(prediction_row.model_version == model_version)
+        q = q.order_by(prediction_row.created_at.desc())
         result = await self.db.execute(q)
         return list(result.scalars().all())
 
     async def get_latest_for_task(self, task_id: uuid.UUID) -> Prediction | None:
         result = await self.db.execute(
-            select(Prediction)
-            .where(Prediction.task_id == task_id)
-            .order_by(Prediction.created_at.desc())
+            select(prediction_row)
+            .where(prediction_row.task_id == task_id)
+            .order_by(prediction_row.created_at.desc())
             .limit(1)
         )
         return result.scalar_one_or_none()

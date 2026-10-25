@@ -12,7 +12,7 @@ last_reviewed: 2026-10-18
 代码真值源：
 
 - `apps/api/app/services/project_access.py`
-- `apps/api/app/services/workspace_contract.py`
+- `apps/_shared/workspace_contract/src/aap_workspace_contract/access.py`
 - `apps/api/app/deps.py`
 - `apps/api/app/services/scheduler.py`
 - `apps/api/app/api/v1/tasks/_shared.py`
@@ -48,11 +48,11 @@ last_reviewed: 2026-10-18
 
 项目解析器、`deps.assert_project_visible`、任务准入/可见集合和调度 helper 的主体输入统一为 `actor_id` UUID。当前账号、项目和成员仍由原 SQL 所有者在原位置读取；改传 ID 不会让缓存身份成为许可，也不会把同事务行锁变成可跨进程传递的能力。
 
-上下文类型 `ProjectAccess`、`ProjectCapability` 与标量角色/能力规则由 `services/workspace_contract.py` 持有，仅依赖标准库与既有纯角色枚举。schema 和消费者读取这些值不再载入 SQL/FastAPI；解析、HTTP 错误映射和事务锁仍留在 `project_access.py`。
+上下文类型 `ProjectAccess`、`ProjectCapability` 与标量角色/能力规则由独立共享包的 `aap_workspace_contract.access` 持有，实现仅使用标准库，并与成员生命周期复用同一角色兼容规则。原 Workspace 值模块已删除，API、Workspace、服务与 worker 直接导入共享所有者；读取这些值不装配 Workspace、API、SQL 或 FastAPI。当前权限解析、HTTP 错误映射和事务锁仍留在 `project_access.py`，这些本地值不代替远程授权证明。
 
 项目访问还有两个**纯函数**真值，供已持有 ORM 行的调用方复用，避免各处自行拼装 owner / 平台角色判断：
 
-- `workspace_contract.platform_role_is_manager(platform_role)`：平台角色是否属于管理角色（`super_admin` / `project_admin`），只描述“需要配合所有权”。
+- `aap_workspace_contract.access.platform_role_is_manager(platform_role)`：平台角色是否属于管理角色（`super_admin` / `project_admin`），只描述“需要配合所有权”。
 - `project_access.is_privileged_for_project(user, project)`：活跃账号且是超管，或**该项目的 owner 且平台角色为管理角色**。它等价于 `resolve_project_access()` 的 `ACCESS_KIND_SUPER_ADMIN` / `ACCESS_KIND_OWNER`，被 scheduler、worker、批次状态机、成员变更与聚合读取共用；所有权本身不授权，`annotator` / `reviewer` 历史账号值也不是授权来源。该本地谓词继续消费已加载行，不属于纯值接口。
 
 这两者与 `resolve_project_access()` 是同一套规则的不同入口：请求路径需要每次重读当前账号 / 项目状态（撤权、转移后立即失效），因此用 async 解析器；worker 与聚合已经锁定或加载了行，则用纯函数复用同一判定。

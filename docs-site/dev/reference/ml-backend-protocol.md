@@ -648,6 +648,16 @@ token 不存在、绑定不匹配或 state 已释放时返回 `409` 和 `{ "reas
 tracker job 失败并从 job 起点重试，不能在同一个结果中静默回退到逐窗 seed continuation。`none` backend 和 context
 span 边界继续使用上一窗末帧 geometry 续种。
 
+需要支持进程接管后恢复的 model，应在 `/setup.models[]` 同时声明非空的
+`weights_release_id` 和小写 64 位十六进制 `weights_sha256`，分别标识实际加载的权重发布和工件字节。
+只有一项、无效摘要或旧 `version` 标签都不能证明权重身份；缺少这对字段仍可首次执行，但不能自动复用已封存窗口。
+平台还核验实际 registry、模型、运行实例、能力、默认参数和结果处理策略，并固定已接受的分窗计划。
+变更权重、默认阈值、变体或 dispatch 参数会阻止旧结果自动续跑，不能用稳定的发布名称掩盖内容变化。
+
+进程接管先确认旧范围的实际工作已退役。已关闭的 span 直接复用原窗口；未关闭的 session 使用原种子创建新 token，
+重放已封存前缀，并比对规范化候选和后续状态。重放不覆盖原始窗口。提供方无法重建相同输出、身份不完整或退役状态
+未知时，恢复暂缓。此过程不保存旧 token，也不把 session 丢失响应视作可以静默降级的许可。
+
 ### 2.3 检测式视频追踪（批量 `/predict`）
 
 **与 §2.2 的 `type=video_tracker` 是两条不同的链**。§2.2 是「人在环、单对象、种子传播」的交互式追踪（SAM2/SAM3，`predict_interactive`，平台分窗续追）；这里的**检测式追踪**（detect-then-track）是「无种子、多对象、全自动、离线批量」：检测器逐帧出框 + 内建关联算法（ByteTrack / BoT-SORT），**时间关联全在 backend 内**，平台只投整段视频、收已聚合的轨迹，自己不做任何时间编排。它走**标准批量 `/predict`**（复数 `tasks` wire），不进交互式那条链。
@@ -789,7 +799,7 @@ span 边界继续使用上一窗末帧 geometry 续种。
 
 > **`supported_prompts`**：枚举 `point | interactive_box | text | exemplar | sketch | scribble | mask | correction_frame | …`。**交互式用户 prompt**，前端 ToolDock 据此置灰不支持的工具。`correction_frame` 是视频局部纠错种子，不进入单帧图片工具路由。（`bbox` 已退出交互 prompt 命名空间，仅保留为几何形状名。）
 >
-> **`supported_inputs`**（一等输入契约）：枚举 `full_image | crop | bbox_prompt | point_prompt | mask_prompt | scribble_prompt | video`，声明本 model 能吃哪些**投递形态**，与 `supported_prompts`（交互 prompt）**解耦**——纯分类器 `supported_prompts=[]` 但 `supported_inputs=["full_image","crop"]`；box-seg `supported_inputs=["bbox_prompt","full_image"]`；视频 tracker 必须显式含 `video`。多阶段编排据此判定父子可达性（产几何的子须含 `bbox_prompt` 或 `crop`）并选择投递方式（见 §2.1.1 判别器）；模型市场「可接受输入」行也由它驱动。**老 backend 缺字段时平台合成兼容默认**：含 `interactive_box`（或历史 `bbox`）prompt → 加 `bbox_prompt`；含 `point` → 加 `point_prompt`；含 `mask` / `correction_frame` → 加 `mask_prompt`；含 `scribble` → 加 `scribble_prompt`；任何模型都含 `full_image`，非交互模型额外含 `crop`。平台不会替老 backend 猜测 `video`（见 services/ml_capabilities.py `_synthesize_supported_inputs`）。
+> **`supported_inputs`**（一等输入契约）：枚举 `full_image | crop | bbox_prompt | point_prompt | mask_prompt | scribble_prompt | video`，声明本 model 能吃哪些**投递形态**，与 `supported_prompts`（交互 prompt）**解耦**——纯分类器 `supported_prompts=[]` 但 `supported_inputs=["full_image","crop"]`；box-seg `supported_inputs=["bbox_prompt","full_image"]`；视频 tracker 必须显式含 `video`。多阶段编排据此判定父子可达性（产几何的子须含 `bbox_prompt` 或 `crop`）并选择投递方式（见 §2.1.1 判别器）；模型市场「可接受输入」行也由它驱动。**老 backend 缺字段时平台合成兼容默认**：含 `interactive_box`（或历史 `bbox`）prompt → 加 `bbox_prompt`；含 `point` → 加 `point_prompt`；含 `mask` / `correction_frame` → 加 `mask_prompt`；含 `scribble` → 加 `scribble_prompt`；任何模型都含 `full_image`，非交互模型额外含 `crop`。平台不会替老 backend 猜测 `video`（见 aap_inference.capabilities `_synthesize_supported_inputs`）。
 >
 > **`supported_text_outputs`**：text 路径支持的 `Context.output` 取值。
 >
@@ -801,7 +811,7 @@ span 边界继续使用上一窗末帧 geometry 续种。
 
 **前端兜底**：返回体缺 `supported_prompts` 时前端回落 `["point","interactive_box","text"]` 并 `console.warn` 提示升级 backend。`/setup` 502 时整套 AI 工具置灰。
 
-> **能力快照持久化**：除上述代理端点的实时拉取外，平台在 `check_health`（services/ml_backend.py）拉完 `/health` 后会 best-effort 再探一次 `/setup`，把能力快照（`models[]`、`supported_prompts`、`supported_inputs`、`supported_trackers`、`supported_text_outputs`、`supported_geometric_outputs`、`warnings` + 平台派生的 `modalities`）落进 `ml_backend_registry.health_meta["capabilities"]`，供「按模态分流 / 绑定校验 / 列表只读展示」消费（无需每处实时拉 `/setup`）。模态派生规则：`supported_prompts` 非空 ⇒ image、`supported_trackers` 非空 ⇒ video（见 services/ml_capabilities.py）。
+> **能力快照持久化**：除上述代理端点的实时拉取外，平台在 `check_health`（services/ml_backend.py）拉完 `/health` 后会 best-effort 再探一次 `/setup`，把能力快照（`models[]`、`supported_prompts`、`supported_inputs`、`supported_trackers`、`supported_text_outputs`、`supported_geometric_outputs`、`warnings` + 平台派生的 `modalities`）落进 `ml_backend_registry.health_meta["capabilities"]`，供「按模态分流 / 绑定校验 / 列表只读展示」消费（无需每处实时拉 `/setup`）。模态派生规则：`supported_prompts` 非空 ⇒ image、`supported_trackers` 非空 ⇒ video（见 aap_inference.capabilities）。
 >
 > **`is_interactive` 改派生**：`is_interactive` 不再由注册表单手填，而是以 backend `/setup.is_interactive` 自报为真值，在 `check_health` 时回写 `MLBackend.is_interactive`。backend 必须在 `/setup` 如实声明该位。
 >
@@ -936,7 +946,7 @@ span 边界继续使用上一窗末帧 geometry 续种。
 
 #### 4.1.4 平台派生形态（health_meta）
 
-`extract_capabilities(setup)`（`services/ml_capabilities.py`）遍历 `models[]` 派生 model 列表，落进 `ml_backend_registry.health_meta["capabilities"]`：
+`extract_capabilities(setup)`（`aap_inference.capabilities`）遍历 `models[]` 派生 model 列表，落进 `ml_backend_registry.health_meta["capabilities"]`：
 
 ```jsonc
 {
@@ -1284,7 +1294,7 @@ POST /projects/{pid}/ml-backends/{bid}/capabilities/refresh  # 强制重探 /set
 GET /api/v1/ml-capabilities/protocol
 ```
 
-- **数据源**：`apps/api/app/services/capability_registry.py`（SSOT），与 `services/ml_capabilities.py` 的受控词表同源（后者改为 re-export）。
+- **数据源**：`apps/inference/src/aap_inference/capability_registry.py`（SSOT），与 `aap_inference.capabilities` 的受控词表同源（归一化层显式消费同一词表）。
 - **鉴权**：登录用户即可访问；不暴露任何 backend 实例信息，无需 super_admin。
 - **缓存**：`Cache-Control: private, max-age=300` + ETag；二次请求带 `If-None-Match` 返回 304。
 
@@ -1756,7 +1766,7 @@ v0.14.15 是 protocol v2.1 minor bump，不是 v3。平台与内置 backend 保�
 
 ## 全局注册表与项目启用
 
-ML Backend 走全局注册表模型（ADR-0044）：一个物理 backend = 全局 `ml_backend_registry` 一行 = 一份能力快照和一份 `max_concurrency` 配置；项目侧只做「启用」。本地 semaphore 在所有模式下提供单进程背压；当 `ML_BACKEND_ROUTER_MODE=enforce` 时，路由 ledger 使用同一上限发放 Redis route lease，把 API 与多个 Celery worker 收口到跨进程实例上限。GPU 仲裁的 effective mode、request lease、release latch 与逐资源 rollout 另行负责显存准入和驱逐（[ADR-0049](/dev/adr/archive/0049-cross-backend-gpu-memory-arbitration)），不能与请求路由模式互相替代。两层职责：
+ML Backend 走全局注册表模型（ADR-0044）：一个物理 backend = 全局 `ml_backend_registry` 一行 = 一份能力快照和一份 `max_concurrency` 配置；项目侧只做「启用」。本地 semaphore 在所有模式下提供单进程背压；当 `ML_BACKEND_ROUTER_MODE=enforce` 时，持久路由 owner 使用同一上限限制跨进程实例准入。GPU 仲裁的 effective mode、request lease、release latch 与逐资源 rollout 另行负责显存准入和驱逐（[ADR-0049](/dev/adr/archive/0049-cross-backend-gpu-memory-arbitration)），不能与请求路由模式互相替代。两层职责：
 
 - **全局层（超管）**：`ml_backend_registry`。URL / 鉴权 / `auth_method` / `auth_token` / `extra_params`（含 `max_concurrency`）/ `is_interactive` / `state` 等端点固有属性写在这里，所有启用该 backend 的项目共享。env 配置的 backend 启动时自动 upsert 为 `source=env` 注册项；env 删项时对应行置 `disconnected` 而非删除，保留历史 prediction 溯源。
 - **项目层（项目管理员）**：`project_ml_backend_pool` 关联表，仅记「启用 / 停用」+ 项目级变体覆盖（`default_variants`，pool 级）。多阶段编排里选不同 backend 跑不同阶段时，先在「管理 backend」面板里勾选启用，再到编排卡里选用即可。
@@ -1768,13 +1778,30 @@ ML Backend 走全局注册表模型（ADR-0044）：一个物理 backend = 全�
 - **一个 registry 实例同时最多属于一个服务池**。每个现有 registry 经迁移自动得到一个 singleton 服务池（`legacy_instance_id` 指向该 registry，off mode 下解析回原实例，行为与之前完全一致）。
 - **身份边界**：项目启用、项目主绑定和请求 lineage 使用 pool id；`preannotate_pipeline` 、`projects.default_variants` 以及 `users.preferences.ai` 中按 backend 分桶的公共配置仍使用 registry id，与当前 API schema 和前端注册表索引一致。派发时由 registry 的唯一成员关系解析所属 pool，不会在这两种 UUID 之间猜测或混用。
 - **能力等价合同**：指纹以 `/setup` 派生的真实 `models[]` 目录为主，包含协议/模型/权重版本、task、modality、请求合法性参数、variant 轴与组合、tracker 及 batchable 等稳定合同字段，列表按确定规则排序后计算 SHA-256。URL、展示名、GPU / VRAM / residency、动态类别等实例态字段不参与。singleton 在首次有效探活时建立指纹；后续漂移的成员自动 disabled。
-- **跨进程原子路由 ledger**（Redis namespace `ml-router:v1`，独立于 GPU 仲裁 `gpu-arbiter:v1`）：平滑加权轮询（SWRR）+ per-instance 并发上限 + 被动熔断（仅 transport failure 触发）+ route lease acquire/heartbeat/finish/cancel。
+- **持久路由 owner**：PostgreSQL 保存平滑加权轮询状态、执行 scope、真实 HTTP attempt、管理占用和后端连续性。Redis 仅提供非权威诊断，不作为真实工作已结束的证据，见 [ADR-0155](/dev/adr/0155-durable-inference-routing-authority)。
 - **双 ID 溯源**：`Prediction` / `FailedPrediction` 同时记录 `ml_backend_id`（实际执行的 selected instance）和 `ml_backend_pool_id`（requested pool）。多阶段聚合的 stage-level lineage 存 `PredictionMeta.extra.pipeline`。
-- **灰度**：`ML_BACKEND_ROUTER_MODE=off|observe|enforce`。off/observe 保持 legacy 实例派发（observe 额外记录 would-select 诊断，不门控）；enforce 用 router 选中实例并在 Redis / topology 不确定时 fail-closed。
+- **模式**：`ML_BACKEND_ROUTER_MODE=off|observe|enforce`。off/observe 保持 legacy 实例选择，observe 另记 would-select 诊断；enforce 执行选择与并发准入。三种模式均保留持久执行计数和管理安全检查，选定 owner 或拓扑不可确认时拒绝执行。
 - **管理 API**：项目池绑定 `GET /projects/:id/ml-backends/pools/available` + `PUT /pools/:pool_id/enablement`；超管 pool/member CRUD + drain/resume `/admin/ml-integrations/service-pools/*`；读模型 `GET /admin/ml-integrations/{topology,runtime-snapshot}`。详见 [ADR-0050](/dev/adr/archive/0050-ml-backend-service-pools-and-request-routing)。
-- **破坏性操作门禁**：纳管实例只有在 `router_mode=enforce`、成员精确为 `draining`、Redis 路由账本可用且清理过期 lease 后的 exact `route_inflight=0` 时，才允许卸载、移除成员或物理删除 registry。缺失、过期或不可读值都是未知，不能当作零。
+- **管理操作门禁**：管理员卸载／重载、移除成员或删除实例要求精确停流状态、持久账本、后端连续性与控制状态复核。Redis 清空、超时或租约过期都不能代替真实工作完成证明；未决工作保持阻塞。GPU 自动驻留驱逐另用 GPU 授权与专用执行 scope，不要求手动停流服务池。
 
-**没有项目级数量上限**。旧的 `max_ml_backends_per_project` 与多阶段 DAG 需 ≥2 backend 直接冲突，已退役；全局行的 `max_concurrency` 同时作为本地 semaphore 配置与 `ML_BACKEND_ROUTER_MODE=enforce` 的 Redis route lease 上限。路由模式为 off/observe 时 API 与多个 Celery worker 的并发仍会叠加；路由 enforce 时才由 route ledger 收口为真正的跨进程实例上限。新建项目不再有「复用 backend = 克隆一行」语义，统一走「在新项目里勾选启用某个已注册 backend」。
+**没有项目级数量上限**。全局行的 `max_concurrency` 同时作为本地 semaphore 配置与 `ML_BACKEND_ROUTER_MODE=enforce` 的持久准入上限。off/observe 的本地并发仍可能跨进程叠加；enforce 才收口实例并发。项目复用同一注册项，不复制物理实例记录。
+
+### 后端执行范围的定向退役
+
+受管后端通过 `POST /v1/aap-routing/retire-scope` 接收定向退役，沿用管理 bearer。
+请求 schema 为 `aap-backend-scope-retirement/v1`，精确包含退役 ID、registry ID、scope ID、
+authority epoch、backend incarnation、challenge 与 `fence_until`。UUID 必须是规范小写，
+challenge 为64位小写十六进制；不接受重复或额外字段，消息上限8192字节。
+
+后端先屏蔽该 scope 的新准入及延迟 token，再返回 `draining` 与正活动数，或 `retired`
+与零活动数。回包 schema 为 `aap-backend-scope-retirement-reply/v1`，带回同一完整身份和
+challenge。其他 scope 继续运行。屏蔽记录覆盖 Native 记录的实际 token exp 上界及保留
+余量，不能按普通租约 TTL 提前移除；新的进程身份不能证明旧进程已经停止。
+
+提供方必须在 handler 完成前登记所有继续运行的 future，路由 middleware 会等待这些
+工作真正结束。退役／epoch 屏障后的迟到登记会封锁准入及后续静默证明；该保护不能
+追溯撤销旧证明。任意未登记工作不在协议可证明范围内，这类实现不能通过提供方资格。
+协议与当前本地验证边界见 [ADR-0156](/dev/adr/0156-scoped-inference-retirement)。
 
 平台 API 与 worker 直接消费共享 `aap-protocol-v2` lifecycle wire。`MLBackendClient` 已把 predict、交互预测、warmup、reload 与 unload 收口到同一个派发 context：预测先取得当前 event loop 的本地 semaphore，再进入 context，context 退出后才释放本地许可；health/setup 保持只读，不进入该边界。
 
@@ -1796,7 +1823,8 @@ victim 驱逐均已接入惰性 authority。cold 请求收到完整响应后会�
 并按优先级、LRU 与 backend id 稳定排序。一个或多个 victim 依次完成受签 `/drain`、
 严格 ACK + 新鲜空闲证明、受签 `/unload` 与全空驻留证明后，才释放预算并以新
 challenge 重读 target cold subject。任一 phase 不确定即保守收口 Unknown 并停止继续驱逐；
-同路由响应丢失只做 exact owner/generation/phase/token 重放。FIFO 已接入；新 residency 只在首次可信
+同路由响应丢失只做 exact owner/generation/phase/token 重放。卸载回包丢失后仍获取新鲜
+健康证据，只有严格匹配的已卸载状态才能回收预算。FIFO 已接入；新 residency 只在首次可信
 Loading→Resident CAS 中按 Redis `TIME` 写入 `not_evict_before_ms`；proof reset 重建 Resident 时以固定
 `prepared_at_ms + cooldown` 保守恢复窗口。Python 快照选择与 Lua 原子选择都会排除未到期 victim，
 以上精确重放和 Resident 快路均不续期。cold authority 会继续持有 exact card ticket，

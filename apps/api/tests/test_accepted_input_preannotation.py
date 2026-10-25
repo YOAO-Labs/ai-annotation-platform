@@ -3,11 +3,13 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 import uuid
+from unittest.mock import AsyncMock
 
 import pytest
 
 from aap_assets_inputs import contract as c
 from app.application.preannotation_contract import BatchPredictionRequest
+from app.db.models.async_job import AsyncJob
 from app.application.preannotation_execution import (
     PreannotationInputDeferred,
     _apply_prediction_result_bundle_with_retries,
@@ -16,6 +18,15 @@ from app.application.preannotation_execution import (
     _prepare_accepted_input_manifest,
 )
 from app.services.labeling_prediction_contract import ApplyPredictionResultError
+from app.services import async_job as async_job_svc
+
+
+@pytest.fixture(autouse=True)
+def _bind_jobs_read_to_fake_session(monkeypatch):
+    async def get_job(db, job_id, *, populate_existing=False):
+        return await db.get(AsyncJob, job_id, populate_existing=populate_existing)
+
+    monkeypatch.setattr(async_job_svc, "get_job", get_job)
 
 
 class _Session:
@@ -84,7 +95,7 @@ def _session_factory(job, task):
 @pytest.mark.parametrize("with_job_id", [False, True])
 @pytest.mark.parametrize("scene_mode", [False, True])
 async def test_bulk_image_without_manifest_identity_fails_closed(
-    with_job_id, scene_mode
+    with_job_id, scene_mode, monkeypatch
 ):
     from app.db.models.async_job import AsyncJobStatus
 
@@ -92,6 +103,10 @@ async def test_bulk_image_without_manifest_identity_fails_closed(
     job_id = uuid.uuid4() if with_job_id else None
     actor_id = uuid.uuid4()
     project = SimpleNamespace(data_type="image", scene_mode=scene_mode)
+    monkeypatch.setattr(
+        "app.application.preannotation_execution.get_workspace_project",
+        AsyncMock(return_value=project),
+    )
     job = SimpleNamespace(
         kind="batch_predict",
         project_id=project_id,
@@ -131,7 +146,11 @@ async def test_bulk_image_without_manifest_identity_fails_closed(
 async def test_running_legacy_bulk_image_job_is_drained(monkeypatch, scene_mode):
     project_id, job_id, actor_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     project = SimpleNamespace(data_type="image", scene_mode=scene_mode)
-    job = SimpleNamespace(
+    monkeypatch.setattr(
+        "app.application.preannotation_execution.get_workspace_project",
+        AsyncMock(return_value=project),
+    )
+    job = AsyncJob(
         id=job_id,
         kind="batch_predict",
         project_id=project_id,

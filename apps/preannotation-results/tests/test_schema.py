@@ -1,17 +1,12 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from importlib.resources import files
 
 from aap_preannotation_results.contract import OPERATION, SCHEMA, contract_document
 
 
-SCHEMA_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "src"
-    / "aap_preannotation_results"
-    / "protocol.schema.json"
-)
+SCHEMA_PATH = files("aap_preannotation_results").joinpath("protocol.schema.json")
 
 
 def test_schema_snapshot_matches_public_contract_and_native_allowlist():

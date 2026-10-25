@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aap-inference"
+version = "0.1.0"
+description = "Portable inference values, pipeline ownership and standalone runtime"
+requires-python = ">=3.11"
+dependencies = ["aap-inference-contract", "aap-task-contract", "aap-protocol-v2", "aap-owner-data", "aap-workspace-contract", "pydantic>=2.10.0"]
+
+[project.scripts]
+aap-video-restore = "aap_inference.restore_cli:main"
+
+[project.optional-dependencies]
+probe = ["httpx>=0.28.0"]
+postgres = ["asyncpg>=0.29"]
+client = ["httpx>=0.28.0"]
+runtime = ["asyncpg>=0.29", "httpx>=0.28.0"]
+video-restore = ["asyncpg>=0.29", "httpx>=0.28.0"]
+test = ["pytest>=8.3.0", "pytest-asyncio>=0.24", "httpx>=0.28.0"]
+
+[tool.uv.sources]
+aap-inference-contract = { path = "../_shared/inference_contract", editable = true }
+aap-task-contract = { path = "../_shared/task_contract", editable = true }
+aap-protocol-v2 = { path = "../_shared/protocol_v2", editable = true }
+aap-owner-data = { path = "../_shared/owner_data", editable = true }
+aap-workspace-contract = { path = "../_shared/workspace_contract", editable = true }
+
+[tool.uv]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "README.md" },
+    { file = "src/**/*.py" },
+    { file = "src/**/*.json" },
+    { file = "src/**/*.sql" },
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+aap_inference = ["*.json", "sql/*.sql", "sql/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

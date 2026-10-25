@@ -1,0 +1,1053 @@
+{
+  "$defs": {
+    "CreateFailedPrediction": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-prediction-records/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "create_failed",
+          "title": "Operation",
+          "type": "string"
+        },
+        "failure_id": {
+          "format": "uuid",
+          "title": "Failure Id",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Id"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "ml_backend_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ml Backend Id"
+        },
+        "ml_backend_pool_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ml Backend Pool Id"
+        },
+        "model_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Model Version"
+        },
+        "error_type": {
+          "title": "Error Type",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "extra": {
+          "additionalProperties": true,
+          "title": "Extra",
+          "type": "object"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "failure_id",
+        "task_id",
+        "project_id",
+        "ml_backend_id",
+        "ml_backend_pool_id",
+        "model_version",
+        "error_type",
+        "message",
+        "extra"
+      ],
+      "title": "CreateFailedPrediction",
+      "type": "object"
+    },
+    "CreateFailedPredictionData": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "create_failed",
+          "title": "Operation",
+          "type": "string"
+        },
+        "failure_id": {
+          "format": "uuid",
+          "title": "Failure Id",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": ["operation", "failure_id", "created_at"],
+      "title": "CreateFailedPredictionData",
+      "type": "object"
+    },
+    "DeletePredictionData": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "enum": ["delete_for_tasks", "delete_for_batch"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "predictions": {
+          "title": "Predictions",
+          "type": "integer"
+        },
+        "failed_predictions": {
+          "title": "Failed Predictions",
+          "type": "integer"
+        },
+        "deleted_predictions": {
+          "items": {
+            "$ref": "#/$defs/PredictionIdentity"
+          },
+          "title": "Deleted Predictions",
+          "type": "array"
+        },
+        "deleted_failed_prediction_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Deleted Failed Prediction Ids",
+          "type": "array"
+        },
+        "deleted_prediction_meta_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Deleted Prediction Meta Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "operation",
+        "predictions",
+        "failed_predictions",
+        "deleted_predictions",
+        "deleted_failed_prediction_ids",
+        "deleted_prediction_meta_ids"
+      ],
+      "title": "DeletePredictionData",
+      "type": "object"
+    },
+    "DeletePredictionsForBatch": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-prediction-records/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "delete_for_batch",
+          "title": "Operation",
+          "type": "string"
+        },
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "batch_id"],
+      "title": "DeletePredictionsForBatch",
+      "type": "object"
+    },
+    "DeletePredictionsForTasks": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-prediction-records/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "delete_for_tasks",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Task Ids",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "task_ids"],
+      "title": "DeletePredictionsForTasks",
+      "type": "object"
+    },
+    "DismissFailedPrediction": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-prediction-records/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "dismiss_failed",
+          "title": "Operation",
+          "type": "string"
+        },
+        "failure_id": {
+          "format": "uuid",
+          "title": "Failure Id",
+          "type": "string"
+        },
+        "dismissed_at": {
+          "format": "date-time",
+          "title": "Dismissed At",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "failure_id", "dismissed_at"],
+      "title": "DismissFailedPrediction",
+      "type": "object"
+    },
+    "FailedPredictionStateData": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "enum": ["dismiss_failed", "restore_failed"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "failure_id": {
+          "format": "uuid",
+          "title": "Failure Id",
+          "type": "string"
+        },
+        "changed": {
+          "title": "Changed",
+          "type": "boolean"
+        },
+        "dismissed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Dismissed At"
+        }
+      },
+      "required": ["operation", "failure_id", "changed", "dismissed_at"],
+      "title": "FailedPredictionStateData",
+      "type": "object"
+    },
+    "InsertPredictionResult": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-prediction-records/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "insert_result",
+          "title": "Operation",
+          "type": "string"
+        },
+        "prediction_id": {
+          "format": "uuid",
+          "title": "Prediction Id",
+          "type": "string"
+        },
+        "prediction_created_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Prediction Created At"
+        },
+        "prediction_meta_id": {
+          "format": "uuid",
+          "title": "Prediction Meta Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "ml_backend_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ml Backend Id"
+        },
+        "ml_backend_pool_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ml Backend Pool Id"
+        },
+        "model_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Model Version"
+        },
+        "score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Score"
+        },
+        "tool_unit_id": {
+          "title": "Tool Unit Id",
+          "type": "string"
+        },
+        "result": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Result",
+          "type": "array"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "inference_time_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Inference Time Ms"
+        },
+        "prompt_tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Prompt Tokens"
+        },
+        "completion_tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Completion Tokens"
+        },
+        "total_tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Total Tokens"
+        },
+        "prompt_cost": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Prompt Cost"
+        },
+        "completion_cost": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Completion Cost"
+        },
+        "total_cost": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Total Cost"
+        },
+        "extra": {
+          "additionalProperties": true,
+          "title": "Extra",
+          "type": "object"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "prediction_id",
+        "prediction_created_at",
+        "prediction_meta_id",
+        "task_id",
+        "project_id",
+        "ml_backend_id",
+        "ml_backend_pool_id",
+        "model_version",
+        "score",
+        "tool_unit_id",
+        "result",
+        "source",
+        "inference_time_ms",
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+        "prompt_cost",
+        "completion_cost",
+        "total_cost",
+        "extra"
+      ],
+      "title": "InsertPredictionResult",
+      "type": "object"
+    },
+    "InsertPredictionResultData": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "insert_result",
+          "title": "Operation",
+          "type": "string"
+        },
+        "prediction_id": {
+          "format": "uuid",
+          "title": "Prediction Id",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "tool_unit_id": {
+          "title": "Tool Unit Id",
+          "type": "string"
+        },
+        "total_predictions": {
+          "title": "Total Predictions",
+          "type": "integer"
+        },
+        "task_updated_at": {
+          "format": "date-time",
+          "title": "Task Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation",
+        "prediction_id",
+        "created_at",
+        "tool_unit_id",
+        "total_predictions",
+        "task_updated_at"
+      ],
+      "title": "InsertPredictionResultData",
+      "type": "object"
+    },
+    "InsertTestSeedPrediction": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-prediction-records/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "insert_test_seed",
+          "title": "Operation",
+          "type": "string"
+        },
+        "prediction_id": {
+          "format": "uuid",
+          "title": "Prediction Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "result": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Result",
+          "type": "array"
+        },
+        "score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Score"
+        },
+        "model_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Model Version"
+        },
+        "tool_unit_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Tool Unit Id"
+        },
+        "rejected_shape_indexes": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Rejected Shape Indexes"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "prediction_id",
+        "task_id",
+        "project_id",
+        "result",
+        "score",
+        "model_version",
+        "tool_unit_id",
+        "rejected_shape_indexes"
+      ],
+      "title": "InsertTestSeedPrediction",
+      "type": "object"
+    },
+    "InsertTestSeedPredictionData": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "insert_test_seed",
+          "title": "Operation",
+          "type": "string"
+        },
+        "prediction_id": {
+          "format": "uuid",
+          "title": "Prediction Id",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "tool_unit_id": {
+          "title": "Tool Unit Id",
+          "type": "string"
+        }
+      },
+      "required": ["operation", "prediction_id", "created_at", "tool_unit_id"],
+      "title": "InsertTestSeedPredictionData",
+      "type": "object"
+    },
+    "PredictionIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": ["id", "created_at"],
+      "title": "PredictionIdentity",
+      "type": "object"
+    },
+    "PredictionRecordError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "details": {
+          "additionalProperties": true,
+          "title": "Details",
+          "type": "object"
+        }
+      },
+      "required": ["code", "details"],
+      "title": "PredictionRecordError",
+      "type": "object"
+    },
+    "PurgeImportedPredictions": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-prediction-records/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "purge_import_predictions",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "task_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Ids"
+        },
+        "source_scope": {
+          "enum": ["ml_backend", "external_import", "all"],
+          "title": "Source Scope",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "project_id", "task_ids", "source_scope"],
+      "title": "PurgeImportedPredictions",
+      "type": "object"
+    },
+    "PurgeImportedPredictionsData": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "purge_import_predictions",
+          "title": "Operation",
+          "type": "string"
+        },
+        "ml_backend": {
+          "title": "Ml Backend",
+          "type": "integer"
+        },
+        "external_import": {
+          "title": "External Import",
+          "type": "integer"
+        },
+        "unknown": {
+          "title": "Unknown",
+          "type": "integer"
+        },
+        "total": {
+          "title": "Total",
+          "type": "integer"
+        },
+        "deleted_predictions": {
+          "items": {
+            "$ref": "#/$defs/PredictionIdentity"
+          },
+          "title": "Deleted Predictions",
+          "type": "array"
+        },
+        "deleted_prediction_meta_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Deleted Prediction Meta Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "operation",
+        "ml_backend",
+        "external_import",
+        "unknown",
+        "total",
+        "deleted_predictions",
+        "deleted_prediction_meta_ids"
+      ],
+      "title": "PurgeImportedPredictionsData",
+      "type": "object"
+    },
+    "RejectPredictionCandidate": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-prediction-records/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "reject_candidate",
+          "title": "Operation",
+          "type": "string"
+        },
+        "prediction_id": {
+          "format": "uuid",
+          "title": "Prediction Id",
+          "type": "string"
+        },
+        "prediction_created_at": {
+          "format": "date-time",
+          "title": "Prediction Created At",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "shape_index": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Shape Index"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "prediction_id",
+        "prediction_created_at",
+        "task_id",
+        "project_id",
+        "shape_index"
+      ],
+      "title": "RejectPredictionCandidate",
+      "type": "object"
+    },
+    "RejectPredictionCandidateData": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "reject_candidate",
+          "title": "Operation",
+          "type": "string"
+        },
+        "prediction_id": {
+          "format": "uuid",
+          "title": "Prediction Id",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "rejected_shape_indexes": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Rejected Shape Indexes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "operation",
+        "prediction_id",
+        "created_at",
+        "task_id",
+        "project_id",
+        "rejected_shape_indexes"
+      ],
+      "title": "RejectPredictionCandidateData",
+      "type": "object"
+    },
+    "RestoreFailedPrediction": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-prediction-records/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "restore_failed",
+          "title": "Operation",
+          "type": "string"
+        },
+        "failure_id": {
+          "format": "uuid",
+          "title": "Failure Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "failure_id"],
+      "title": "RestoreFailedPrediction",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "aap-labeling-prediction-records/v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "request": {
+      "discriminator": {
+        "mapping": {
+          "create_failed": "#/$defs/CreateFailedPrediction",
+          "delete_for_batch": "#/$defs/DeletePredictionsForBatch",
+          "delete_for_tasks": "#/$defs/DeletePredictionsForTasks",
+          "dismiss_failed": "#/$defs/DismissFailedPrediction",
+          "insert_result": "#/$defs/InsertPredictionResult",
+          "insert_test_seed": "#/$defs/InsertTestSeedPrediction",
+          "purge_import_predictions": "#/$defs/PurgeImportedPredictions",
+          "reject_candidate": "#/$defs/RejectPredictionCandidate",
+          "restore_failed": "#/$defs/RestoreFailedPrediction"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/InsertPredictionResult"
+        },
+        {
+          "$ref": "#/$defs/InsertTestSeedPrediction"
+        },
+        {
+          "$ref": "#/$defs/CreateFailedPrediction"
+        },
+        {
+          "$ref": "#/$defs/DismissFailedPrediction"
+        },
+        {
+          "$ref": "#/$defs/RestoreFailedPrediction"
+        },
+        {
+          "$ref": "#/$defs/DeletePredictionsForTasks"
+        },
+        {
+          "$ref": "#/$defs/DeletePredictionsForBatch"
+        },
+        {
+          "$ref": "#/$defs/PurgeImportedPredictions"
+        },
+        {
+          "$ref": "#/$defs/RejectPredictionCandidate"
+        }
+      ],
+      "title": "Request"
+    },
+    "data": {
+      "anyOf": [
+        {
+          "discriminator": {
+            "mapping": {
+              "create_failed": "#/$defs/CreateFailedPredictionData",
+              "delete_for_batch": "#/$defs/DeletePredictionData",
+              "delete_for_tasks": "#/$defs/DeletePredictionData",
+              "dismiss_failed": "#/$defs/FailedPredictionStateData",
+              "insert_result": "#/$defs/InsertPredictionResultData",
+              "insert_test_seed": "#/$defs/InsertTestSeedPredictionData",
+              "purge_import_predictions": "#/$defs/PurgeImportedPredictionsData",
+              "reject_candidate": "#/$defs/RejectPredictionCandidateData",
+              "restore_failed": "#/$defs/FailedPredictionStateData"
+            },
+            "propertyName": "operation"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/InsertPredictionResultData"
+            },
+            {
+              "$ref": "#/$defs/InsertTestSeedPredictionData"
+            },
+            {
+              "$ref": "#/$defs/CreateFailedPredictionData"
+            },
+            {
+              "$ref": "#/$defs/FailedPredictionStateData"
+            },
+            {
+              "$ref": "#/$defs/DeletePredictionData"
+            },
+            {
+              "$ref": "#/$defs/PurgeImportedPredictionsData"
+            },
+            {
+              "$ref": "#/$defs/RejectPredictionCandidateData"
+            }
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Data"
+    },
+    "error": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PredictionRecordError"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": ["schema", "ok", "request", "data", "error"],
+  "title": "PredictionRecordReply",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-labeling-prediction-records/v1",
+  "x-postgresql-functions": ["aap_labeling_v1.prediction_record_command(jsonb)"]
+}

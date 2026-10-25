@@ -1,11 +1,12 @@
 from aap_task_contract import normalize_task_fields
-from app.services.ml_capabilities import resolve_model_task
+from aap_inference import resolve_model_task
 from app.application.preannotation_contract import (
     BatchPredictionRequest,
     FramePreannotationDispatchRequest,
     FramePreannotationDispatcher,
     VideoFrameTaskPlan,
 )
+from app.services.project_access import get_workspace_project
 from app.services import prediction_context, prediction_progress
 import asyncio
 import logging
@@ -18,6 +19,7 @@ from pathlib import Path
 
 from app.config import settings
 from app.services import prediction_retry
+from app.services.jobs_lifecycle_data import job_lock_statement
 from app.services.labeling_prediction_contract import (
     ApplyPredictionResultError,
     ApplyPredictionResultPort,
@@ -30,12 +32,13 @@ _WRITE_ATTEMPTS = 3
 
 async def _preannotation_actor_revoked(db, actor_id, project_uuid) -> bool:
     """Read current initiating-account and project authority without holding ML locks."""
-    from app.db.models.project import Project
     from app.services.identity_account_lock_data import IdentityAccountLockData
     from app.services.project_access import is_privileged_for_project
 
     actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
-    project = await db.get(Project, project_uuid, populate_existing=True)
+    project = await get_workspace_project(
+        db, project_id=project_uuid, populate_existing=True
+    )
     return (
         actor is None
         or not actor.is_active
@@ -302,7 +305,8 @@ async def _prepare_accepted_input_manifest(
 ):
     """Validate the durable selection and seal it before the existing Job claim."""
     from aap_assets_input_manifests import contract as c
-    from app.db.models.async_job import AsyncJob, AsyncJobStatus
+    from app.db.models.async_job import AsyncJobStatus
+    from app.services import async_job as async_job_svc
 
     fields = (
         request.accepted_input_manifest_protocol,
@@ -311,8 +315,6 @@ async def _prepare_accepted_input_manifest(
     )
     if all(value is None for value in fields):
         if _bulk_image_manifest_candidate(request):
-            from app.db.models.project import Project
-
             try:
                 project_id = uuid.UUID(request.project_id)
                 job_id = (
@@ -327,10 +329,12 @@ async def _prepare_accepted_input_manifest(
                 raise ValueError("legacy bulk Job identity is malformed") from exc
             already_claimed = False
             async with SessionLocal() as db:
-                project = await db.get(Project, project_id, populate_existing=True)
+                project = await get_workspace_project(
+                    db, project_id=project_id, populate_existing=True
+                )
                 if project is not None and project.data_type == "image":
                     job = (
-                        await db.get(AsyncJob, job_id, populate_existing=True)
+                        await async_job_svc.get_job(db, job_id, populate_existing=True)
                         if job_id is not None
                         else None
                     )
@@ -419,7 +423,7 @@ async def _prepare_accepted_input_manifest(
 
     already_claimed = False
     async with SessionLocal() as db:
-        job = await db.get(AsyncJob, job_id, populate_existing=True)
+        job = await async_job_svc.get_job(db, job_id, populate_existing=True)
         if (
             job is None
             or job.kind != "batch_predict"
@@ -474,7 +478,7 @@ async def _prepare_accepted_input_manifest(
         ):
             raise ValueError("sealed manifest receipt differs from durable Job facts")
         async with SessionLocal() as db:
-            job = await db.get(AsyncJob, job_id, populate_existing=True)
+            job = await async_job_svc.get_job(db, job_id, populate_existing=True)
             payload = (
                 job.payload if job is not None and isinstance(job.payload, dict) else {}
             )
@@ -504,7 +508,8 @@ async def _prepare_accepted_video_manifest(
     from aap_assets_video_inputs import authority as authority_contract
     from aap_assets_video_inputs import execution as execution_contract
     from aap_assets_video_inputs.execution import VideoInputFailure
-    from app.db.models.async_job import AsyncJob, AsyncJobStatus
+    from app.db.models.async_job import AsyncJobStatus
+    from app.services import async_job as async_job_svc
 
     fields = (
         request.accepted_video_inputs_protocol,
@@ -565,7 +570,7 @@ async def _prepare_accepted_video_manifest(
 
     already_claimed = False
     async with SessionLocal() as db:
-        job = await db.get(AsyncJob, job_id, populate_existing=True)
+        job = await async_job_svc.get_job(db, job_id, populate_existing=True)
         if (
             job is None
             or job.kind != "batch_predict"
@@ -630,7 +635,7 @@ async def _prepare_accepted_video_manifest(
         ):
             raise ValueError("sealed video manifest differs from durable Job facts")
         async with SessionLocal() as db:
-            job = await db.get(AsyncJob, job_id, populate_existing=True)
+            job = await async_job_svc.get_job(db, job_id, populate_existing=True)
             payload = (
                 job.payload if job is not None and isinstance(job.payload, dict) else {}
             )
@@ -827,8 +832,9 @@ def _canonical_input_id_map(value, task_id: uuid.UUID) -> dict[str, str]:
 async def _prepare_accepted_input(request: BatchPredictionRequest, SessionLocal):
     """Check durable identity and readiness before any job claim or overwrite."""
     from aap_assets_inputs import contract as c
-    from app.db.models.async_job import AsyncJob, AsyncJobStatus
-    from app.db.models.task import Task
+    from app.db.models.async_job import AsyncJobStatus
+    from app.services.labeling_core_read_relations import get_core_row, task_row
+    from app.services import async_job as async_job_svc
     from app.services.accepted_inputs import input_gateway
 
     protocol = request.accepted_inputs_protocol
@@ -856,8 +862,8 @@ async def _prepare_accepted_input(request: BatchPredictionRequest, SessionLocal)
             except (TypeError, ValueError, AttributeError, IndexError) as exc:
                 raise ValueError("legacy Workbench task identity is malformed") from exc
             async with SessionLocal() as db:
-                candidate_task = await db.get(
-                    Task, candidate_task_id, populate_existing=True
+                candidate_task = await get_core_row(
+                    db, task_row, candidate_task_id, populate_existing=True
                 )
                 if (
                     candidate_task is not None
@@ -890,10 +896,10 @@ async def _prepare_accepted_input(request: BatchPredictionRequest, SessionLocal)
     input_ids: dict[str, str] | None = None
     input_id: uuid.UUID | None = None
     async with SessionLocal() as db:
-        job = await db.get(AsyncJob, job_id, populate_existing=True)
+        job = await async_job_svc.get_job(db, job_id, populate_existing=True)
         if job is None:
             if candidate and task_id is not None:
-                task = await db.get(Task, task_id, populate_existing=True)
+                task = await get_core_row(db, task_row, task_id, populate_existing=True)
                 task_is_image = bool(
                     task is not None
                     and task.project_id == project_id
@@ -906,7 +912,7 @@ async def _prepare_accepted_input(request: BatchPredictionRequest, SessionLocal)
             # check. Do not consult an expired receipt for already-claimed work.
             already_claimed = True
         elif candidate and task_id is not None:
-            task = await db.get(Task, task_id, populate_existing=True)
+            task = await get_core_row(db, task_row, task_id, populate_existing=True)
             task_is_image = bool(
                 task is not None
                 and task.project_id == project_id
@@ -1407,7 +1413,6 @@ async def run_preannotation(
             batch_result_execution,
             preannotation_request_digest,
         )
-        from app.db.models.async_job import AsyncJob
         from app.services import async_job as jobs
 
         executor_session_factory = None
@@ -1486,7 +1491,7 @@ async def run_preannotation(
                 await db.commit()
                 request = replace(request, async_job_id=str(job.id))
             else:
-                job = await db.get(AsyncJob, uuid.UUID(request.async_job_id))
+                job = await jobs.get_job(db, uuid.UUID(request.async_job_id))
                 if job is not None and (
                     job.project_id != uuid.UUID(request.project_id)
                     or job.user_id != uuid.UUID(request.user_id)
@@ -1522,8 +1527,10 @@ async def run_preannotation(
                 ):
                     raise PreannotationResultDeferred("storage_unavailable") from None
                 async with session_factory() as db:
-                    job = await db.get(
-                        AsyncJob, batch_results.scope["job_id"], populate_existing=True
+                    job = await jobs.get_job(
+                        db,
+                        batch_results.scope["job_id"],
+                        populate_existing=True,
                     )
                     if job is not None and job.status not in {"pending", "running"}:
                         return
@@ -1536,8 +1543,10 @@ async def run_preannotation(
                     )
                     from app.services.async_job_notify import notify_job_terminal
 
-                    await db.get(
-                        AsyncJob, batch_results.scope["job_id"], populate_existing=True
+                    await jobs.get_job(
+                        db,
+                        batch_results.scope["job_id"],
+                        populate_existing=True,
                     )
                     await notify_job_terminal(db, job_id=batch_results.scope["job_id"])
                     try:
@@ -1618,9 +1627,12 @@ async def _execute_preannotation(
     from app.db.enums import WORKBENCH_AI_EDITABLE_TASK_STATUSES
     from app.db.models.async_job import AsyncJob, AsyncJobStatus
     from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
-    from app.db.models.project import Project
-    from app.db.models.task import Task
-    from app.db.models.task_batch import TaskBatch
+    from app.services.labeling_core_read_relations import (
+        batch_row as batch_core_row,
+        execute_core_read,
+        get_core_row,
+        task_row as task_core_row,
+    )
     from app.services.identity_account_lock_data import IdentityAccountLockData
     from app.services.identity_contracts import IdentityActorStatus
     from app.services import async_job as async_job_svc
@@ -1676,7 +1688,7 @@ async def _execute_preannotation(
 
         # Build /predict context (flat text vs structured v2).
         # DINO thresholds come from project overrides.
-        project = await db.get(Project, uuid.UUID(project_id))
+        project = await get_workspace_project(db, project_id=uuid.UUID(project_id))
         if project is not None:
             project_name = project.name
         project_uuid = uuid.UUID(project_id)
@@ -1708,11 +1720,7 @@ async def _execute_preannotation(
             except (TypeError, ValueError) as exc:
                 raise ValueError("preannotation async job id is invalid") from exc
             precreated_job = (
-                await db.execute(
-                    select(AsyncJob)
-                    .where(AsyncJob.id == precreated_job_id)
-                    .with_for_update()
-                )
+                await db.execute(job_lock_statement(precreated_job_id, mode="update"))
             ).scalar_one_or_none()
             if (
                 precreated_job is None
@@ -1781,7 +1789,7 @@ async def _execute_preannotation(
             # timebase paging. The video Job is claimed only after that barrier.
             await db.commit()
         if batch_id and not resuming_results:
-            selected_batch = await db.get(TaskBatch, uuid.UUID(batch_id))
+            selected_batch = await get_core_row(db, batch_core_row, uuid.UUID(batch_id))
             if (
                 selected_batch is None
                 or selected_batch.project_id != project_uuid
@@ -1795,13 +1803,17 @@ async def _execute_preannotation(
         workbench_scope = execution_scope == "workbench"
         if requested_task_ids is not None and not resuming_results:
             scope_rows = (
-                await db.execute(
-                    select(Task, TaskBatch)
-                    .outerjoin(TaskBatch, TaskBatch.id == Task.batch_id)
-                    .where(
-                        Task.project_id == project_uuid,
-                        Task.id.in_(requested_task_ids),
+                await execute_core_read(
+                    db,
+                    select(task_core_row, batch_core_row)
+                    .outerjoin(
+                        batch_core_row,
+                        batch_core_row.id == task_core_row.batch_id,
                     )
+                    .where(
+                        task_core_row.project_id == project_uuid,
+                        task_core_row.id.in_(requested_task_ids),
+                    ),
                 )
             ).all()
             if len(scope_rows) != len(requested_task_ids):
@@ -1907,26 +1919,26 @@ async def _execute_preannotation(
         # base_conds 不含预标过滤, 供 total==0 时回数候选区分「批次本就空」vs「全已预标被跳过」。
         if requested_task_ids is not None:
             base_conds = [
-                Task.project_id == project_uuid,
-                Task.id.in_(requested_task_ids),
+                task_core_row.project_id == project_uuid,
+                task_core_row.id.in_(requested_task_ids),
             ]
             # 工作台单题交互可对 in_progress 任务运行; bulk 仍只捞 pending。
             if not workbench_scope:
-                base_conds.append(Task.status == "pending")
+                base_conds.append(task_core_row.status == "pending")
         elif batch_id:
             # v0.9.5 · 指定 batch 时仅捞 batch 内 pending tasks
             base_conds = [
-                Task.batch_id == uuid.UUID(batch_id),
-                Task.status == "pending",
+                task_core_row.batch_id == uuid.UUID(batch_id),
+                task_core_row.status == "pending",
             ]
         else:
             base_conds = [
-                Task.project_id == uuid.UUID(project_id),
-                Task.status == "pending",
+                task_core_row.project_id == uuid.UUID(project_id),
+                task_core_row.status == "pending",
             ]
-        sel = select(Task).where(*base_conds)
+        sel = select(task_core_row).where(*base_conds)
         if skip_predicted:
-            sel = sel.where(Task.total_predictions == 0)
+            sel = sel.where(task_core_row.total_predictions == 0)
         video_task_plans = []
         video_plan_records = {}
         video_fixed_failures: list[dict] = []
@@ -1956,7 +1968,7 @@ async def _execute_preannotation(
             tasks = []
             total = accepted_manifest.header.selected_count
         else:
-            result = await db.execute(sel)
+            result = await execute_core_read(db, sel)
             tasks = list(result.scalars().all())
             total = len(tasks)
 
@@ -1966,12 +1978,12 @@ async def _execute_preannotation(
             actor_uuid = actor.id if actor is not None else None
             for member in video_members:
                 member_task_id = member.task.task_id
-                task = await db.get(Task, member_task_id, populate_existing=True)
-                batch_row = (
-                    await db.get(
-                        TaskBatch,
-                        task.batch_id,
-                        populate_existing=True,
+                task = await get_core_row(
+                    db, task_core_row, member_task_id, populate_existing=True
+                )
+                task_batch = (
+                    await get_core_row(
+                        db, batch_core_row, task.batch_id, populate_existing=True
                     )
                     if task is not None and task.batch_id is not None
                     else None
@@ -1980,13 +1992,15 @@ async def _execute_preannotation(
                     task is None
                     or task.project_id != project_uuid
                     or (batch_id is not None and task.batch_id != uuid.UUID(batch_id))
-                    or (task.batch_id is not None and batch_row is None)
-                    or (batch_row is not None and batch_row.project_id != project_uuid)
-                    or (batch_row is not None and batch_row.admin_locked)
+                    or (task.batch_id is not None and task_batch is None)
                     or (
-                        batch_row is not None
+                        task_batch is not None and task_batch.project_id != project_uuid
+                    )
+                    or (task_batch is not None and task_batch.admin_locked)
+                    or (
+                        task_batch is not None
                         and not workbench_scope
-                        and not allows_bulk_preannotation(batch_row)
+                        and not allows_bulk_preannotation(task_batch)
                     )
                     or (
                         not workbench_scope
@@ -2090,7 +2104,9 @@ async def _execute_preannotation(
                     )
                     continue
 
-                task = await db.get(Task, member_task_id, populate_existing=True)
+                task = await get_core_row(
+                    db, task_core_row, member_task_id, populate_existing=True
+                )
                 if task is None or not _video_input_task_source_matches(
                     task, plan.input.task
                 ):
@@ -2106,22 +2122,20 @@ async def _execute_preannotation(
                     continue
                 # Recheck mutable workflow eligibility after the owner call and before
                 # overwrite. The final Labeling write repeats these checks atomically.
-                batch_row = (
-                    await db.get(
-                        TaskBatch,
-                        task.batch_id,
-                        populate_existing=True,
+                task_batch = (
+                    await get_core_row(
+                        db, batch_core_row, task.batch_id, populate_existing=True
                     )
                     if task.batch_id is not None
                     else None
                 )
                 if (
                     (batch_id is not None and task.batch_id != uuid.UUID(batch_id))
-                    or (batch_row is not None and batch_row.admin_locked)
+                    or (task_batch is not None and task_batch.admin_locked)
                     or (
-                        batch_row is not None
+                        task_batch is not None
                         and not workbench_scope
-                        and not allows_bulk_preannotation(batch_row)
+                        and not allows_bulk_preannotation(task_batch)
                     )
                     or (not workbench_scope and task.status != "pending")
                     or (
@@ -2216,7 +2230,11 @@ async def _execute_preannotation(
 
         # v0.10.49 · async_jobs 单一真值：建 batch_predict 行 (status=running)。
         # domain 字段（batch_id / ml_backend / prompt / total_tasks）进 payload。
-        batch = await db.get(TaskBatch, uuid.UUID(batch_id)) if batch_id else None
+        batch = (
+            await get_core_row(db, batch_core_row, uuid.UUID(batch_id))
+            if batch_id
+            else None
+        )
         # v0.14.18 · payload 记实际模型路由 (溯源 + 任务页展示用了哪个模型)。
         # output_mode is recorded only for the text-prompt path that consumes it (see build_predict_context);
         # geometry/YOLO paths do not read it, so recording it would imply an unused mask output.
@@ -2322,10 +2340,9 @@ async def _execute_preannotation(
             if precreated_job is None:
                 raise ValueError("retained video execution requires a durable Job")
             locked_job = await db.scalar(
-                select(AsyncJob)
-                .where(AsyncJob.id == precreated_job.id)
-                .with_for_update()
-                .execution_options(populate_existing=True)
+                job_lock_statement(
+                    precreated_job.id, mode="update", populate_existing=True
+                )
             )
             if locked_job is None or locked_job.status != AsyncJobStatus.PENDING.value:
                 await db.rollback()
@@ -2433,7 +2450,7 @@ async def _execute_preannotation(
         )
 
         async def _cancel_requested() -> bool:
-            job_for_cancel = await db.get(AsyncJob, async_job_id)
+            job_for_cancel = await async_job_svc.get_job(db, async_job_id)
             if job_for_cancel is None:
                 return False
             await db.refresh(job_for_cancel)
@@ -2516,8 +2533,9 @@ async def _execute_preannotation(
             elif skip_predicted:
                 from sqlalchemy import func
 
-                cnt = await db.execute(
-                    select(func.count()).select_from(Task).where(*base_conds)
+                cnt = await execute_core_read(
+                    db,
+                    select(func.count()).select_from(task_core_row).where(*base_conds),
                 )
                 skipped_n = int(cnt.scalar_one() or 0)
                 if skipped_n > 0:
@@ -2816,17 +2834,23 @@ async def _execute_preannotation(
                 for member in page.members:
                     # A prior member can roll back and expire ORM rows. Load
                     # current eligibility at each boundary, including its batch.
-                    task_row = await db.get(
-                        Task, member.task_id, populate_existing=True
+                    task_row = await get_core_row(
+                        db,
+                        task_core_row,
+                        member.task_id,
+                        populate_existing=True,
                     )
-                    batch_row = (
-                        await db.get(
-                            TaskBatch, task_row.batch_id, populate_existing=True
+                    task_batch = (
+                        await get_core_row(
+                            db,
+                            batch_core_row,
+                            task_row.batch_id,
+                            populate_existing=True,
                         )
                         if task_row is not None and task_row.batch_id is not None
                         else None
                     )
-                    yield member.ordinal - 1, task_row, member, batch_row
+                    yield member.ordinal - 1, task_row, member, task_batch
                 cursor = (
                     page.next_cursor
                     if page.next_cursor is not None
@@ -3158,7 +3182,9 @@ async def _execute_preannotation(
                 )
                 continue
             if inspect(task).expired:
-                await db.refresh(task)
+                task = await get_core_row(
+                    db, task_core_row, task.id, populate_existing=True
+                )
             if inspect(backend).expired:
                 await db.refresh(backend)
 

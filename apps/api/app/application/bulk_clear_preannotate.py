@@ -9,8 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import UserRole
 from app.db.models.project import Project
-from app.db.models.task import Task
-from app.db.models.task_batch import TaskBatch
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
 from app.services.annotation_cleanup import detach_prediction_parents_for_tasks
@@ -20,6 +18,10 @@ from app.services.audit_origin_contract import AuditOriginContext
 from app.services.batch import BatchService
 from app.services.prediction import PredictionService
 from app.services.project_access import lock_current_project_rows
+from app.services.labeling_core_read_relations import (
+    batch_row,
+    execute_core_read,
+)
 
 
 async def bulk_clear_preannotate(
@@ -32,8 +34,8 @@ async def bulk_clear_preannotate(
     origin: AuditOriginContext,
 ) -> dict[str, Any]:
     """Clear preannotation results within the selected mode's lifecycle boundary."""
-    batches_result = await db.execute(
-        select(TaskBatch).where(TaskBatch.id.in_(batch_ids))
+    batches_result = await execute_core_read(
+        db, select(batch_row).where(batch_row.id.in_(batch_ids))
     )
     batches_by_id = {batch.id: batch for batch in batches_result.scalars().all()}
 
@@ -87,13 +89,14 @@ async def bulk_clear_preannotate(
                     batch_id, actor_id=actor_id
                 )
             else:
-                task_id_select = select(Task.id).where(Task.batch_id == batch_id)
-                await detach_prediction_parents_for_tasks(db, task_id_select)
-                cascade = await PredictionService(db).delete_for_tasks(task_id_select)
+                await detach_prediction_parents_for_tasks(db, batch_id=batch_id)
+                cascade = await PredictionService(db).delete_for_batch(batch_id)
                 cascade["prediction_jobs"] = await delete_batch_predict_jobs(
                     db, batch_id
                 )
-                batch_service.reactivate_preannotated_after_prediction_clear(batch)
+                await batch_service.reactivate_preannotated_after_prediction_clear(
+                    batch
+                )
 
             await db.flush()
             for key in aggregate_cascade:

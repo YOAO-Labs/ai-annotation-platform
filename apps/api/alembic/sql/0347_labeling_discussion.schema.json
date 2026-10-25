@@ -1,0 +1,1388 @@
+{
+  "$defs": {
+    "AnnotationCommentRow": {
+      "additionalProperties": false,
+      "properties": {
+        "anchor": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Anchor"
+        },
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "attachments": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Attachments",
+          "type": "array"
+        },
+        "author_id": {
+          "format": "uuid",
+          "title": "Author Id",
+          "type": "string"
+        },
+        "body": {
+          "title": "Body",
+          "type": "string"
+        },
+        "canvas_drawing": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Canvas Drawing"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "is_active": {
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "is_resolved": {
+          "title": "Is Resolved",
+          "type": "boolean"
+        },
+        "mentions": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Mentions",
+          "type": "array"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "annotation_id",
+        "project_id",
+        "author_id",
+        "body",
+        "is_resolved",
+        "is_active",
+        "mentions",
+        "attachments",
+        "canvas_drawing",
+        "anchor",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "AnnotationCommentRow",
+      "type": "object"
+    },
+    "AnnotationFeedbackRow": {
+      "additionalProperties": false,
+      "properties": {
+        "anchor_position": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Anchor Position"
+        },
+        "anchor_type": {
+          "title": "Anchor Type",
+          "type": "string"
+        },
+        "annotation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Annotation Id"
+        },
+        "attachments": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Attachments",
+          "type": "array"
+        },
+        "author_id": {
+          "format": "uuid",
+          "title": "Author Id",
+          "type": "string"
+        },
+        "body": {
+          "title": "Body",
+          "type": "string"
+        },
+        "canvas_drawing": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Canvas Drawing"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "is_active": {
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "mentions": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Mentions",
+          "type": "array"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "resolved_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Resolved At"
+        },
+        "resolved_by_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Resolved By Id"
+        },
+        "severity": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Severity"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Id"
+        },
+        "thread_parent_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Thread Parent Id"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Title"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "anchor_type",
+        "project_id",
+        "task_id",
+        "annotation_id",
+        "anchor_position",
+        "status",
+        "severity",
+        "title",
+        "body",
+        "author_id",
+        "attachments",
+        "mentions",
+        "canvas_drawing",
+        "thread_parent_id",
+        "is_active",
+        "resolved_at",
+        "resolved_by_id",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "AnnotationFeedbackRow",
+      "type": "object"
+    },
+    "ClearAnnotationCommentAttachments": {
+      "additionalProperties": false,
+      "properties": {
+        "comment_id": {
+          "format": "uuid",
+          "title": "Comment Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "clear_comment_attachments",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-discussion/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "comment_id"],
+      "title": "ClearAnnotationCommentAttachments",
+      "type": "object"
+    },
+    "CreateAnnotationComment": {
+      "additionalProperties": false,
+      "properties": {
+        "anchor": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Anchor"
+        },
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "attachments": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Attachments",
+          "type": "array"
+        },
+        "author_id": {
+          "format": "uuid",
+          "title": "Author Id",
+          "type": "string"
+        },
+        "body": {
+          "maxLength": 4000,
+          "title": "Body",
+          "type": "string"
+        },
+        "canvas_drawing": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Canvas Drawing"
+        },
+        "comment_id": {
+          "format": "uuid",
+          "title": "Comment Id",
+          "type": "string"
+        },
+        "mentions": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Mentions",
+          "type": "array"
+        },
+        "operation": {
+          "const": "create_comment",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-discussion/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "comment_id",
+        "annotation_id",
+        "project_id",
+        "author_id",
+        "body",
+        "mentions",
+        "attachments",
+        "canvas_drawing",
+        "anchor"
+      ],
+      "title": "CreateAnnotationComment",
+      "type": "object"
+    },
+    "CreateAnnotationFeedback": {
+      "additionalProperties": false,
+      "properties": {
+        "anchor_position": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Anchor Position"
+        },
+        "anchor_type": {
+          "enum": ["project", "task", "annotation", "pixel", "point_cloud"],
+          "title": "Anchor Type",
+          "type": "string"
+        },
+        "annotation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Annotation Id"
+        },
+        "attachments": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Attachments",
+          "type": "array"
+        },
+        "author_id": {
+          "format": "uuid",
+          "title": "Author Id",
+          "type": "string"
+        },
+        "body": {
+          "title": "Body",
+          "type": "string"
+        },
+        "canvas_drawing": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Canvas Drawing"
+        },
+        "feedback_id": {
+          "format": "uuid",
+          "title": "Feedback Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": ["issue", "comment", "reject", "bug"],
+          "title": "Kind",
+          "type": "string"
+        },
+        "mentions": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Mentions",
+          "type": "array"
+        },
+        "operation": {
+          "const": "create_feedback",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-discussion/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "severity": {
+          "anyOf": [
+            {
+              "maxLength": 16,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Severity"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Id"
+        },
+        "thread_parent_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Thread Parent Id"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Title"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "feedback_id",
+        "author_id",
+        "kind",
+        "anchor_type",
+        "project_id",
+        "task_id",
+        "annotation_id",
+        "anchor_position",
+        "severity",
+        "title",
+        "body",
+        "attachments",
+        "thread_parent_id",
+        "canvas_drawing",
+        "mentions"
+      ],
+      "title": "CreateAnnotationFeedback",
+      "type": "object"
+    },
+    "DeleteCommentsForTasks": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "delete_comments_for_tasks",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-discussion/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Task Ids",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "task_ids"],
+      "title": "DeleteCommentsForTasks",
+      "type": "object"
+    },
+    "DiscussionData": {
+      "additionalProperties": false,
+      "properties": {
+        "comment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AnnotationCommentRow"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "conflicts": {
+          "anyOf": [
+            {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Conflicts"
+        },
+        "deleted_comments": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deleted Comments"
+        },
+        "event_rows": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/TaskEventRow"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Event Rows"
+        },
+        "feedback": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AnnotationFeedbackRow"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "feedbacks": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/AnnotationFeedbackRow"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Feedbacks"
+        },
+        "inserted": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inserted"
+        }
+      },
+      "title": "DiscussionData",
+      "type": "object"
+    },
+    "LockAnnotationComment": {
+      "additionalProperties": false,
+      "properties": {
+        "comment_id": {
+          "format": "uuid",
+          "title": "Comment Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "lock_comment",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-discussion/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "comment_id"],
+      "title": "LockAnnotationComment",
+      "type": "object"
+    },
+    "LockAnnotationFeedbackLineage": {
+      "additionalProperties": false,
+      "properties": {
+        "feedback_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Feedback Ids",
+          "type": "array"
+        },
+        "operation": {
+          "const": "lock_feedback_lineage",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-discussion/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "feedback_ids"],
+      "title": "LockAnnotationFeedbackLineage",
+      "type": "object"
+    },
+    "MirrorAnnotationCommentFeedback": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "attachments": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Attachments",
+          "type": "array"
+        },
+        "author_id": {
+          "format": "uuid",
+          "title": "Author Id",
+          "type": "string"
+        },
+        "body": {
+          "title": "Body",
+          "type": "string"
+        },
+        "comment_id": {
+          "format": "uuid",
+          "title": "Comment Id",
+          "type": "string"
+        },
+        "feedback_id": {
+          "format": "uuid",
+          "title": "Feedback Id",
+          "type": "string"
+        },
+        "mentions": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Mentions",
+          "type": "array"
+        },
+        "operation": {
+          "const": "mirror_annotation_comment",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-discussion/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "feedback_id",
+        "comment_id",
+        "annotation_id",
+        "task_id",
+        "project_id",
+        "author_id",
+        "body",
+        "attachments",
+        "mentions"
+      ],
+      "title": "MirrorAnnotationCommentFeedback",
+      "type": "object"
+    },
+    "MirrorBugReportFeedback": {
+      "additionalProperties": false,
+      "properties": {
+        "author_id": {
+          "format": "uuid",
+          "title": "Author Id",
+          "type": "string"
+        },
+        "body": {
+          "title": "Body",
+          "type": "string"
+        },
+        "feedback_id": {
+          "format": "uuid",
+          "title": "Feedback Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "mirror_bug_report",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-discussion/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "severity": {
+          "anyOf": [
+            {
+              "maxLength": 16,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Severity"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Id"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Title"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "feedback_id",
+        "project_id",
+        "task_id",
+        "author_id",
+        "severity",
+        "title",
+        "body"
+      ],
+      "title": "MirrorBugReportFeedback",
+      "type": "object"
+    },
+    "MirrorTaskRejectFeedback": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "title": "Body",
+          "type": "string"
+        },
+        "feedback_id": {
+          "format": "uuid",
+          "title": "Feedback Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "mirror_task_reject",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "reviewer_id": {
+          "format": "uuid",
+          "title": "Reviewer Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-discussion/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "severity": {
+          "anyOf": [
+            {
+              "maxLength": 16,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Severity"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "feedback_id",
+        "task_id",
+        "project_id",
+        "reviewer_id",
+        "severity",
+        "body"
+      ],
+      "title": "MirrorTaskRejectFeedback",
+      "type": "object"
+    },
+    "PatchAnnotationFeedback": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "body": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Body"
+        },
+        "feedback_id": {
+          "format": "uuid",
+          "title": "Feedback Id",
+          "type": "string"
+        },
+        "mentions": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mentions"
+        },
+        "operation": {
+          "const": "patch_feedback",
+          "title": "Operation",
+          "type": "string"
+        },
+        "resolved_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resolved At"
+        },
+        "schema": {
+          "const": "aap-labeling-discussion/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "severity": {
+          "anyOf": [
+            {
+              "maxLength": 16,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Severity"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "enum": ["open", "resolved", "wont_fix"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        }
+      },
+      "required": ["schema", "operation", "feedback_id", "actor_id"],
+      "title": "PatchAnnotationFeedback",
+      "type": "object"
+    },
+    "SoftDeleteAnnotationComment": {
+      "additionalProperties": false,
+      "properties": {
+        "comment_id": {
+          "format": "uuid",
+          "title": "Comment Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "soft_delete_comment",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-discussion/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "comment_id"],
+      "title": "SoftDeleteAnnotationComment",
+      "type": "object"
+    },
+    "SoftDeleteAnnotationFeedback": {
+      "additionalProperties": false,
+      "properties": {
+        "feedback_id": {
+          "format": "uuid",
+          "title": "Feedback Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "soft_delete_feedback",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-discussion/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "feedback_id"],
+      "title": "SoftDeleteAnnotationFeedback",
+      "type": "object"
+    },
+    "TaskEventRow": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_count": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "title": "Annotation Count",
+          "type": "integer"
+        },
+        "collection_coverage": {
+          "enum": ["qualified", "partial", "unverified_collection"],
+          "title": "Collection Coverage",
+          "type": "string"
+        },
+        "collection_source": {
+          "enum": ["session", "legacy"],
+          "title": "Collection Source",
+          "type": "string"
+        },
+        "collector_version": {
+          "anyOf": [
+            {
+              "maxLength": 32,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Collector Version"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "duration_ms": {
+          "maximum": 14400000,
+          "minimum": 0,
+          "title": "Duration Ms",
+          "type": "integer"
+        },
+        "ended_at": {
+          "format": "date-time",
+          "title": "Ended At",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": ["annotate", "review"],
+          "title": "Kind",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "reject_reason_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reject Reason Type"
+        },
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "was_rejected": {
+          "title": "Was Rejected",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "task_id",
+        "user_id",
+        "project_id",
+        "kind",
+        "started_at",
+        "ended_at",
+        "duration_ms",
+        "annotation_count",
+        "was_rejected",
+        "collector_version",
+        "collection_source",
+        "collection_coverage",
+        "created_at"
+      ],
+      "title": "TaskEventRow",
+      "type": "object"
+    },
+    "UpdateAnnotationComment": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "anyOf": [
+            {
+              "maxLength": 4000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Body"
+        },
+        "comment_id": {
+          "format": "uuid",
+          "title": "Comment Id",
+          "type": "string"
+        },
+        "is_resolved": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Is Resolved"
+        },
+        "operation": {
+          "const": "update_comment",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-discussion/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "comment_id"],
+      "title": "UpdateAnnotationComment",
+      "type": "object"
+    }
+  },
+  "$id": "aap-labeling-discussion/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "data": {
+      "$ref": "#/$defs/DiscussionData"
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "request": {
+      "discriminator": {
+        "mapping": {
+          "clear_comment_attachments": "#/$defs/ClearAnnotationCommentAttachments",
+          "create_comment": "#/$defs/CreateAnnotationComment",
+          "create_feedback": "#/$defs/CreateAnnotationFeedback",
+          "delete_comments_for_tasks": "#/$defs/DeleteCommentsForTasks",
+          "lock_comment": "#/$defs/LockAnnotationComment",
+          "lock_feedback_lineage": "#/$defs/LockAnnotationFeedbackLineage",
+          "mirror_annotation_comment": "#/$defs/MirrorAnnotationCommentFeedback",
+          "mirror_bug_report": "#/$defs/MirrorBugReportFeedback",
+          "mirror_task_reject": "#/$defs/MirrorTaskRejectFeedback",
+          "patch_feedback": "#/$defs/PatchAnnotationFeedback",
+          "soft_delete_comment": "#/$defs/SoftDeleteAnnotationComment",
+          "soft_delete_feedback": "#/$defs/SoftDeleteAnnotationFeedback",
+          "update_comment": "#/$defs/UpdateAnnotationComment"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/CreateAnnotationComment"
+        },
+        {
+          "$ref": "#/$defs/LockAnnotationComment"
+        },
+        {
+          "$ref": "#/$defs/UpdateAnnotationComment"
+        },
+        {
+          "$ref": "#/$defs/SoftDeleteAnnotationComment"
+        },
+        {
+          "$ref": "#/$defs/ClearAnnotationCommentAttachments"
+        },
+        {
+          "$ref": "#/$defs/DeleteCommentsForTasks"
+        },
+        {
+          "$ref": "#/$defs/CreateAnnotationFeedback"
+        },
+        {
+          "$ref": "#/$defs/PatchAnnotationFeedback"
+        },
+        {
+          "$ref": "#/$defs/LockAnnotationFeedbackLineage"
+        },
+        {
+          "$ref": "#/$defs/SoftDeleteAnnotationFeedback"
+        },
+        {
+          "$ref": "#/$defs/MirrorBugReportFeedback"
+        },
+        {
+          "$ref": "#/$defs/MirrorAnnotationCommentFeedback"
+        },
+        {
+          "$ref": "#/$defs/MirrorTaskRejectFeedback"
+        }
+      ],
+      "title": "Request"
+    },
+    "schema": {
+      "const": "aap-labeling-discussion/v1",
+      "title": "Schema",
+      "type": "string"
+    }
+  },
+  "required": ["schema", "ok", "request", "data"],
+  "title": "_DiscussionReply",
+  "type": "object",
+  "x-postgresql-functions": ["aap_labeling_v1.discussion_command(jsonb)"],
+  "x-postgresql-relations": [
+    "aap_labeling_v1.annotation_comment_facts",
+    "aap_labeling_v1.annotation_feedback_facts",
+    "aap_labeling_v1.task_event_facts",
+    "public.v_annotation_feedback_unified"
+  ]
+}

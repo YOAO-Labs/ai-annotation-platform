@@ -1,0 +1,89 @@
+{
+  "$comment": "Read-only daily aggregate of completed UTC days. The caller retains its existing authorization, month boundaries, raw-tail mixing and transaction. Event counts use canonical decimal strings in JSON.",
+  "$defs": {
+    "AuditDailyFact": {
+      "additionalProperties": false,
+      "description": "Lossless JSON representation of a row in ``audit_daily_facts``.",
+      "properties": {
+        "action": {
+          "maxLength": 64,
+          "title": "Action",
+          "type": "string"
+        },
+        "actor_role": {
+          "maxLength": 32,
+          "title": "Actor Role",
+          "type": "string"
+        },
+        "day": {
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "title": "Day",
+          "type": "string"
+        },
+        "event_count": {
+          "format": "int64-decimal",
+          "maxLength": 19,
+          "pattern": "^(?:0|[1-9][0-9]*)$",
+          "title": "Event Count",
+          "type": "string"
+        },
+        "status_family": {
+          "maximum": 32767,
+          "minimum": -32768,
+          "title": "Status Family",
+          "type": "integer"
+        },
+        "target_type": {
+          "maxLength": 32,
+          "title": "Target Type",
+          "type": "string"
+        }
+      },
+      "required": ["day", "action", "target_type", "actor_role", "status_family", "event_count"],
+      "title": "AuditDailyFact",
+      "type": "object"
+    }
+  },
+  "$id": "aap-audit-daily-projection/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/AuditDailyFact"
+    }
+  ],
+  "title": "Audit daily aggregate projection",
+  "x-postgresql-functions": {
+    "aap_audit_v1.refresh_audit_bi_mv()": {
+      "argument_types": [],
+      "caller_commit_required": true,
+      "concurrent": true,
+      "fixed_target": "public.mv_audit_bi_daily",
+      "owner": "audit",
+      "required_owner_database_privileges": ["TEMPORARY"],
+      "returns": "void",
+      "security_definer": true
+    }
+  },
+  "x-postgresql-relations": {
+    "aap_audit_v1.audit_daily_facts": {
+      "column_types": {
+        "action": "character varying(64)",
+        "actor_role": "character varying",
+        "day": "date",
+        "event_count": "bigint",
+        "status_family": "smallint",
+        "target_type": "character varying"
+      },
+      "columns": ["day", "action", "target_type", "actor_role", "status_family", "event_count"],
+      "nullable_columns": [],
+      "owner": "audit",
+      "read_only": true,
+      "row": {
+        "$ref": "#/$defs/AuditDailyFact"
+      },
+      "row_key": ["day", "action", "target_type", "actor_role", "status_family"],
+      "security_barrier": true
+    }
+  }
+}

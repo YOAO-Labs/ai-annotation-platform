@@ -93,35 +93,21 @@ async def seed_pointcloud(
     调用方负责最终 commit(task creation workflow 已完成 calibration/task commits)。
     返回 {"project": display_id, "files": n, "tasks": result} 或 None(已存在)。
     """
-    from sqlalchemy import select
-
     from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
-    from app.db.models.project import Project
     from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
+    from app.services.project_workspace import (
+        create_point_cloud_seed_project,
+        find_import_project,
+    )
     from app.services.storage import storage_service
     from aap_assets_catalog.spatial_contract import SetDatasetAxisRequest
     from app.services.assets_spatial import AssetsSpatialGateway
 
-    existing = await db.scalar(
-        select(Project).where(Project.display_id == project_display_id)
-    )
-    if existing:
+    if await find_import_project(db, project_display_id) is not None:
         return None
 
     if not fixture.exists():
         raise FileNotFoundError(f"点云夹具缺失: {fixture}")
-
-    project = Project(
-        display_id=project_display_id,
-        name=project_name,
-        type_label="点云检测",
-        type_key="lidar",
-        data_type="lidar",
-        owner_id=owner_id,
-        tool_bindings=POINTCLOUD_TOOL_BINDINGS,
-        ai_enabled=False,
-    )
-    db.add(project)
 
     # 不同点云来源显式传自己的轴向约定，前端统一归一到 ISO 8855。
     ds = Dataset(
@@ -131,7 +117,13 @@ async def seed_pointcloud(
         created_by=owner_id,
     )
     db.add(ds)
-    await db.flush()
+    project_id = await create_point_cloud_seed_project(
+        db,
+        display_id=project_display_id,
+        name=project_name,
+        owner_id=owner_id,
+        tool_bindings=POINTCLOUD_TOOL_BINDINGS,
+    )
     await AssetsSpatialGateway(db).set_dataset_axis(
         SetDatasetAxisRequest(
             operation_id=uuid.uuid4(),
@@ -185,11 +177,11 @@ async def seed_pointcloud(
 
     ds.file_count = n
 
-    db.add(ProjectDataset(project_id=project.id, dataset_id=ds.id))
+    db.add(ProjectDataset(project_id=project_id, dataset_id=ds.id))
     await db.flush()
 
     result = await DatasetTaskCreationWorkflow(db).create_tasks_for_linked_dataset(
-        dataset_id=ds.id, project_id=project.id, actor_id=owner_id
+        dataset_id=ds.id, project_id=project_id, actor_id=owner_id
     )
     return {"project": project_display_id, "files": n, "tasks": result}
 
@@ -199,14 +191,12 @@ async def _remove_legacy_dev_seed(db, *, owner_id: uuid.UUID) -> list[str]:
     from sqlalchemy import select
 
     from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
-    from app.db.models.project import Project
+    from app.services.project_workspace import read_import_project
     from app.application.project_deletion import (
         delete_project as delete_project_transaction,
     )
 
-    project = await db.scalar(
-        select(Project).where(Project.display_id == PROJECT_DISPLAY_ID)
-    )
+    project = await read_import_project(db, PROJECT_DISPLAY_ID)
     dataset = await db.scalar(
         select(Dataset).where(Dataset.display_id == DATASET_DISPLAY_ID)
     )
@@ -321,17 +311,20 @@ async def seed_nuscenes_scene(
     )
 
     from app.db.models.dataset import Dataset
-    from app.db.models.project import Project
+    from app.services.project_access import get_workspace_project
+    from app.services.project_workspace import set_nuscenes_seed_defaults
 
-    project = await db.get(Project, info["project_id"])
+    project = await get_workspace_project(db, project_id=info["project_id"])
     dataset = await db.get(Dataset, info["dataset_id"])
-    if project is not None:
-        project.name = NUSCENES_PROJECT_NAME
-        project.scene_mode = True
-        project.prefer_same_scene_continuation = True
-        project.tool_bindings = POINTCLOUD_TOOL_BINDINGS
     if dataset is not None:
         dataset.name = NUSCENES_DATASET_NAME
+    if project is not None:
+        await set_nuscenes_seed_defaults(
+            db,
+            project=project,
+            name=NUSCENES_PROJECT_NAME,
+            tool_bindings=POINTCLOUD_TOOL_BINDINGS,
+        )
     await db.flush()
 
     if create_batch:

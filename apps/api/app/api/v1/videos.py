@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from aap_assets_media.contract import MediaFailure, SamplesRequest, TimetableRequest
 
 from app.services import task_access
-from app.services.workspace_contract import ProjectAccess
+from aap_workspace_contract.access import ProjectAccess
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.db.models.video_chapter import VideoChapter
@@ -56,6 +56,8 @@ from app.services.video_frame_service import (
 from app.services.video_segment_service import list_segments as list_video_segments
 from app.services.identity_contracts import IdentityActorFacts
 
+from app.services.labeling_core_read_relations import task_row
+
 router = APIRouter(dependencies=[Depends(require_active_task_actor)])
 
 
@@ -81,9 +83,9 @@ async def _visible_video_task_for_item(
 ) -> Task:
     tasks = (
         await db.execute(
-            select(Task).where(
-                Task.dataset_item_id == dataset_item_id,
-                Task.file_type == "video",
+            select(task_row).where(
+                task_row.dataset_item_id == dataset_item_id,
+                task_row.file_type == "video",
             )
         )
     ).scalars()
@@ -122,7 +124,7 @@ async def get_video_manifest(
         task_id=task.id,
         project_id=task.project_id,
     )
-    return await build_video_manifest_v2(db, ctx, str(request.base_url))
+    return await build_video_manifest_v2(db, ctx, str(request.base_url), task=task)
 
 
 @router.get("/{dataset_item_id}/segments", response_model=VideoSegmentsResponse)
@@ -138,7 +140,7 @@ async def get_video_segments(
         task_id=task.id,
         project_id=task.project_id,
     )
-    return await list_video_segments(db, ctx)
+    return await list_video_segments(db, ctx, task=task)
 
 
 @router.get(

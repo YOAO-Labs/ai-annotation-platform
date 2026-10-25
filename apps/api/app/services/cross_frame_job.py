@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
+from app.services.labeling_core_read_relations import annotation_row
 
 
 CONTRACT_VERSION = 1
@@ -29,17 +30,17 @@ async def load_source_annotations(
     annotation_ids: list[uuid.UUID],
 ) -> list[Annotation]:
     stmt = (
-        select(Annotation)
-        .where(Annotation.task_id == source_task_id)
-        .where(Annotation.is_active.is_(True))
-        .where(Annotation.geometry["type"].astext == "box_3d")
+        select(annotation_row)
+        .where(annotation_row.task_id == source_task_id)
+        .where(annotation_row.is_active.is_(True))
+        .where(annotation_row.geometry["type"].astext == "box_3d")
     )
     if scope == "selected":
-        stmt = stmt.where(Annotation.id.in_(annotation_ids))
+        stmt = stmt.where(annotation_row.id.in_(annotation_ids))
     rows = list(
         (
             await db.execute(
-                stmt.order_by(Annotation.created_at, Annotation.id).limit(
+                stmt.order_by(annotation_row.created_at, annotation_row.id).limit(
                     MAX_SOURCE_ANNOTATIONS + 1
                 )
             )

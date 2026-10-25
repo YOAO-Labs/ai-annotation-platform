@@ -13,6 +13,13 @@ from app.db.models.task import Task
 from app.db.models.user import User
 from app.schemas.annotation import AnnotationBulkUpdateResponse, AnnotationOut
 from app.services import task_access
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    execute_core_read,
+    get_core_row,
+    lock_annotation_rows_for_core_read,
+    lock_task_for_core_read,
+)
 from app.services.annotation import (
     AnnotationService,
     validate_geometry_type_transition,
@@ -36,7 +43,7 @@ from app.services.video_collaboration import (
     assert_video_annotation_write_scope,
     heartbeat_task_lock_for_legacy_video,
 )
-from app.services.workspace_contract import ProjectAccess
+from aap_workspace_contract.access import ProjectAccess
 from app.services.identity_contracts import IdentityActorFacts
 
 
@@ -100,8 +107,11 @@ async def _load_single_task_for_ids(
     if not ids:
         raise HTTPException(status_code=422, detail="ids must not be empty")
     rows = (
-        await db.execute(
-            select(Annotation.id, Annotation.task_id).where(Annotation.id.in_(ids))
+        await execute_core_read(
+            db,
+            select(annotation_row.id, annotation_row.task_id).where(
+                annotation_row.id.in_(ids)
+            ),
         )
     ).all()
     if len(rows) != len(ids):
@@ -120,14 +130,9 @@ async def _load_single_task_for_ids(
     # Lock the task row before any capability/evidence check so the decision is
     # made on the current row and concurrent writers are serialized (the bulk
     # UPDATE itself also takes this lock later).
-    task = (
-        await db.execute(
-            select(Task)
-            .where(Task.id == task_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
+    task = await lock_task_for_core_read(
+        db, task_id, lock_mode="update", populate_existing=True
+    )
     if task is None:
         raise HTTPException(status_code=404, detail=f"task {task_id} not found")
     return task
@@ -179,6 +184,9 @@ class _AnnotationBulkUpdateSqlAdapter(AnnotationBulkUpdatePort):
             z_order=payload.patch.z_order,
             is_locked=payload.patch.is_locked,
             is_hidden=payload.patch.is_hidden,
+            actor_id=self._actor.id,
+            task_id=task.id,
+            project_id=task.project_id,
         )
         await AuditService.log(
             self._db,
@@ -251,8 +259,11 @@ class _AnnotationMutationSqlAdapter(AnnotationMutationPort):
 
         # The task lock was acquired by HTTP before this initial annotation read.
         existing = (
-            await self._db.execute(
-                select(Annotation).where(Annotation.id == command.annotation_id)
+            await execute_core_read(
+                self._db,
+                select(annotation_row).where(
+                    annotation_row.id == command.annotation_id
+                ),
             )
         ).scalar_one_or_none()
         if existing is None or not existing.is_active:
@@ -292,14 +303,13 @@ class _AnnotationMutationSqlAdapter(AnnotationMutationPort):
             )
             mask_payload_prepared = True
 
-        existing = (
-            await self._db.execute(
-                select(Annotation)
-                .where(Annotation.id == command.annotation_id)
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            )
-        ).scalar_one_or_none()
+        locked_annotations = await lock_annotation_rows_for_core_read(
+            self._db,
+            [command.annotation_id],
+            lock_mode="update",
+            populate_existing=True,
+        )
+        existing = locked_annotations[0] if locked_annotations else None
         if (
             existing is None
             or not existing.is_active
@@ -327,6 +337,7 @@ class _AnnotationMutationSqlAdapter(AnnotationMutationPort):
         annotation = await self._annotations.update(
             command.annotation_id,
             mask_payload_prepared=mask_payload_prepared,
+            actor_id=actor.id,
             **fields,
         )
         if annotation is None:
@@ -381,7 +392,8 @@ class _AnnotationMutationSqlAdapter(AnnotationMutationPort):
                     items=change_items,
                 )
         await self._db.commit()
-        await self._db.refresh(annotation)
+        self._db.expire(annotation)
+        await get_core_row(self._db, annotation_row, annotation.id)
         return AnnotationOut.model_validate(annotation)
 
     async def delete(self, command: AnnotationDeleteCommand) -> bool:
@@ -389,7 +401,7 @@ class _AnnotationMutationSqlAdapter(AnnotationMutationPort):
         try:
             task = self._task
             actor = self._actor
-            pre = await self._db.get(Annotation, command.annotation_id)
+            pre = await get_core_row(self._db, annotation_row, command.annotation_id)
             if pre is None or pre.task_id != command.task_id or not pre.is_active:
                 raise HTTPException(status_code=404, detail="Annotation not found")
             if pre.is_locked:
@@ -405,7 +417,9 @@ class _AnnotationMutationSqlAdapter(AnnotationMutationPort):
                 geometry=pre.geometry,
             )
             pre_class = pre.class_name
-            deleted = await self._annotations.delete(command.annotation_id)
+            deleted = await self._annotations.delete(
+                command.annotation_id, actor_id=actor.id
+            )
             if not deleted:
                 return False
             await record_annotation_actor(self._db, task, actor.id)

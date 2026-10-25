@@ -4,8 +4,12 @@ import logging
 
 from aap_labeling_mask_gc import contract as c
 
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from aap_labeling.quality_data_contract import (
+    CheckRasterMaskReference,
+    QUALITY_DATA_PROTOCOL,
+    ReadRasterMaskReferences,
+)
 
 from app.observability.raster_mask import (
     refresh_raster_mask_active_geometries_safely,
@@ -14,229 +18,33 @@ from app.services import ai_mask_accept, annotation_conversion
 from app.services.mask_slice_restore import expire_mask_annotation_revisions
 from app.services.mask_gc_collection import collect_raster_masks
 from app.services.video_tracking.jobs import expire_stale_tracker_candidates
+from app.services.labeling_quality_data import quality_data_command
 
 log = logging.getLogger(__name__)
-
-_TRACKER_SCOPE_MASK_REFERENCES_SQL = """
-    SELECT value #>> '{}' AS object_key
-    FROM video_tracker_input_scopes AS scope
-    CROSS JOIN LATERAL (
-        SELECT aap_labeling_v1.video_tracker_input_referenced(scope.input_id) AS reply
-        OFFSET 0
-    ) AS retention
-    CROSS JOIN LATERAL jsonb_path_query(scope.scope, '$.**.object_key') AS value
-    WHERE retention.reply->>'schema' IS DISTINCT FROM 'aap-labeling-video-tracker-inputs/v1'
-       OR retention.reply->'ok' IS DISTINCT FROM 'true'::jsonb
-       OR retention.reply #>> '{data,input_id}' IS DISTINCT FROM scope.input_id::text
-       OR retention.reply #> '{data,referenced}' IS DISTINCT FROM 'false'::jsonb
-"""
-
-_MASK_REFERENCE_QUERIES = (
-    """
-    SELECT DISTINCT value #>> '{}' AS object_key
-    FROM annotations, LATERAL jsonb_path_query(geometry, '$.**.object_key') value
-    WHERE is_active IS TRUE AND value #>> '{}' LIKE 'raster-masks/sha256/%'
-    """,
-    """
-    SELECT DISTINCT value #>> '{}' AS object_key
-    FROM predictions, LATERAL jsonb_path_query(result, '$.**.object_key') value
-    WHERE value #>> '{}' LIKE 'raster-masks/sha256/%'
-    """,
-    """
-    SELECT DISTINCT value #>> '{}' AS object_key
-    FROM batch_result_payloads,
-         LATERAL jsonb_path_query(body, '$.**.object_key') value
-    WHERE complete IS TRUE AND body IS NOT NULL
-      AND value #>> '{}' LIKE 'raster-masks/sha256/%'
-    """,
-    """
-    SELECT DISTINCT root.object_key
-    FROM mask_gc_roots AS root
-    JOIN video_tracker_jobs AS job ON job.id::text = root.root_id
-    WHERE root.root_kind = 'video_tracker_running_outputs'
-      AND job.status = 'running'
-    """,
-    """
-    SELECT DISTINCT value #>> '{}' AS object_key
-    FROM video_tracker_jobs,
-         LATERAL jsonb_path_query(staged_result, '$.**.object_key') value
-    WHERE staged_result IS NOT NULL
-      AND status IN ('pending_review', 'partially_reviewed', 'cancelled')
-      AND value #>> '{}' LIKE 'raster-masks/sha256/%'
-    """,
-    """
-    SELECT DISTINCT value #>> '{}' AS object_key
-    FROM ai_mask_accept_decisions,
-         LATERAL jsonb_path_query(response_json, '$.**.object_key') value
-    WHERE expires_at > now()
-      AND value #>> '{}' LIKE 'raster-masks/sha256/%'
-    """,
-    """
-    SELECT DISTINCT value #>> '{}' AS object_key
-    FROM mask_annotation_revisions,
-         LATERAL jsonb_path_query(geometry, '$.**.object_key') value
-    WHERE expires_at > now()
-      AND value #>> '{}' LIKE 'raster-masks/sha256/%'
-    """,
-    """
-    SELECT DISTINCT value #>> '{}' AS object_key
-    FROM mask_qc_runs,
-         LATERAL jsonb_path_query(source_snapshot, '$.**.object_key') value
-    WHERE status IN ('pending', 'running')
-      AND value #>> '{}' LIKE 'raster-masks/sha256/%'
-    """,
-    """
-    SELECT DISTINCT region_mask_ref->>'object_key' AS object_key
-    FROM mask_qc_issues
-    WHERE region_mask_ref->>'object_key' LIKE 'raster-masks/sha256/%'
-    """,
-    """
-    SELECT DISTINCT region_mask_ref->>'object_key' AS object_key
-    FROM mask_review_scopes
-    WHERE region_mask_ref->>'object_key' LIKE 'raster-masks/sha256/%'
-    """,
-    f"""
-    SELECT DISTINCT object_key FROM ({_TRACKER_SCOPE_MASK_REFERENCES_SQL}) AS roots
-    WHERE object_key LIKE 'raster-masks/sha256/%'
-    """,
-    """
-    SELECT DISTINCT value #>> '{}' AS object_key
-    FROM mask_repair_batches,
-         LATERAL jsonb_path_query(plan_json, '$.**.object_key') value
-    WHERE (
-        (status = 'planned' AND receipt_expires_at > now())
-        OR status IN ('pending', 'running', 'rolling_back')
-        OR (
-            status IN ('completed', 'partial', 'rollback_failed')
-            AND rollback_expires_at > now()
-        )
-      )
-      AND value #>> '{}' LIKE 'raster-masks/sha256/%'
-    """,
-)
-
-_MASK_REFERENCE_EXISTS_QUERIES = (
-    """
-    SELECT EXISTS (
-        SELECT 1
-        FROM annotations, LATERAL jsonb_path_query(geometry, '$.**.object_key') value
-        WHERE is_active IS TRUE AND value #>> '{}' = :key
-    )
-    """,
-    """
-    SELECT EXISTS (
-        SELECT 1
-        FROM predictions, LATERAL jsonb_path_query(result, '$.**.object_key') value
-        WHERE value #>> '{}' = :key
-    )
-    """,
-    """
-    SELECT EXISTS (
-        SELECT 1 FROM batch_result_payloads,
-             LATERAL jsonb_path_query(body, '$.**.object_key') value
-        WHERE complete IS TRUE AND body IS NOT NULL
-          AND value #>> '{}' = :key
-    )
-    """,
-    """
-    SELECT EXISTS (
-        SELECT 1
-        FROM mask_gc_roots AS root
-        JOIN video_tracker_jobs AS job ON job.id::text = root.root_id
-        WHERE root.root_kind = 'video_tracker_running_outputs'
-          AND job.status = 'running'
-          AND root.object_key = :key
-    )
-    """,
-    """
-    SELECT EXISTS (
-        SELECT 1
-        FROM video_tracker_jobs,
-             LATERAL jsonb_path_query(staged_result, '$.**.object_key') value
-        WHERE staged_result IS NOT NULL
-          AND status IN ('pending_review', 'partially_reviewed', 'cancelled')
-          AND value #>> '{}' = :key
-    )
-    """,
-    """
-    SELECT EXISTS (
-        SELECT 1
-        FROM ai_mask_accept_decisions,
-             LATERAL jsonb_path_query(response_json, '$.**.object_key') value
-        WHERE expires_at > now()
-          AND value #>> '{}' = :key
-    )
-    """,
-    """
-    SELECT EXISTS (
-        SELECT 1
-        FROM mask_annotation_revisions,
-             LATERAL jsonb_path_query(geometry, '$.**.object_key') value
-        WHERE expires_at > now()
-          AND value #>> '{}' = :key
-    )
-    """,
-    """
-    SELECT EXISTS (
-        SELECT 1
-        FROM mask_qc_runs,
-             LATERAL jsonb_path_query(source_snapshot, '$.**.object_key') value
-        WHERE status IN ('pending', 'running')
-          AND value #>> '{}' = :key
-    )
-    """,
-    """
-    SELECT EXISTS (
-        SELECT 1
-        FROM mask_qc_issues
-        WHERE region_mask_ref->>'object_key' = :key
-    )
-    """,
-    """
-    SELECT EXISTS (
-        SELECT 1 FROM mask_review_scopes
-        WHERE region_mask_ref->>'object_key' = :key
-    )
-    """,
-    f"""
-    SELECT EXISTS (
-        SELECT 1 FROM ({_TRACKER_SCOPE_MASK_REFERENCES_SQL}) AS roots
-        WHERE object_key = :key
-    )
-    """,
-    """
-    SELECT EXISTS (
-        SELECT 1
-        FROM mask_repair_batches,
-             LATERAL jsonb_path_query(plan_json, '$.**.object_key') value
-        WHERE (
-            (status = 'planned' AND receipt_expires_at > now())
-            OR status IN ('pending', 'running', 'rolling_back')
-            OR (
-                status IN ('completed', 'partial', 'rollback_failed')
-                AND rollback_expires_at > now()
-            )
-          )
-          AND value #>> '{}' = :key
-    )
-    """,
-)
 
 
 async def referenced_raster_mask_keys(db: AsyncSession) -> set[str]:
     """Return the complete live cross-domain root set for content-addressed masks."""
-    referenced: set[str] = set()
-    for query in _MASK_REFERENCE_QUERIES:
-        rows = (await db.execute(text(query))).scalars().all()
-        referenced.update(str(key) for key in rows if key)
-    return referenced
+    rows = await quality_data_command(
+        db,
+        ReadRasterMaskReferences(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="read_all_references",
+        ),
+    )
+    return {str(key) for key in rows if key} if isinstance(rows, list) else set()
 
 
 async def is_raster_mask_key_referenced(db: AsyncSession, key: str) -> bool:
-    for query in _MASK_REFERENCE_EXISTS_QUERIES:
-        if bool((await db.execute(text(query), {"key": key})).scalar()):
-            return True
-    return False
+    value = await quality_data_command(
+        db,
+        CheckRasterMaskReference(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="check_reference",
+            object_key=key,
+        ),
+    )
+    return value is True
 
 
 class RasterMaskRetentionWorkflow:

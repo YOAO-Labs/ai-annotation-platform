@@ -31,7 +31,7 @@ from PIL import Image
 from app.db.models.ml_backend_registry import ProjectMLBackendPool
 from app.db.models.project import Project
 from app.db.models.task import Task
-from app.services.ml_client import PredictionResult
+from aap_inference.backend_transport import PredictionResult
 from tests.conftest import create_registry_with_pool
 
 FRAME_URL = "http://minio/import/frame-interactive/x/7.jpg"

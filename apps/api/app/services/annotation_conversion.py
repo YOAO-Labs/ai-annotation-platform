@@ -8,18 +8,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import Request
-from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
-from app.db.models.annotation_conversion_plan import AnnotationConversionPlan
-from app.db.models.annotation_operation import (
-    AnnotationLineageEdge,
-    AnnotationOperation,
-)
-from app.db.models.dataset import VideoSegment
+from app.services.project_access import get_workspace_project
 from app.db.models.project import Project
 from app.db.models.task import Task
+from app.services.labeling_core_read_relations import lock_task_for_core_read
 from app.db.models.user import User
 from app.schemas.annotation import AnnotationOut
 from app.schemas.annotation_conversion import (
@@ -68,6 +63,24 @@ from app.services.video_tracks import (
     sorted_keyframes,
 )
 from app.utils.raster_mask_rle import MAX_DENSE_MASK_PIXELS
+from aap_labeling.annotation_transfer_contract import (
+    ANNOTATION_TRANSFER_PROTOCOL,
+    ApplyConversion,
+    ConversionAction,
+    ConversionSourceFence,
+    CreateConversionPlan,
+    ExpireConversionPlans,
+    FinalizeConversion,
+    LockConversionPlan,
+    ReadConversionPlan,
+    ReadConversionReplay,
+    ReadConversionSources,
+    ReadConversionVideoSegments,
+)
+from app.services.labeling_annotation_transfer import (
+    AnnotationTransferRejected,
+    annotation_transfer_command,
+)
 
 CONVERSION_PLAN_TTL_SECONDS = 600
 MAX_CONVERSION_MASK_OBJECTS_PER_TASK = 256
@@ -78,14 +91,16 @@ async def expire_conversion_plans(
     db: AsyncSession, *, now: datetime | None = None
 ) -> int:
     """Delete conversion plans whose own expiration deadline has elapsed."""
-    result = await db.execute(
-        delete(AnnotationConversionPlan)
-        .where(
-            AnnotationConversionPlan.expires_at <= (now or datetime.now(timezone.utc))
-        )
-        .returning(AnnotationConversionPlan.id)
+    data = await annotation_transfer_command(
+        db,
+        ExpireConversionPlans(
+            schema=ANNOTATION_TRANSFER_PROTOCOL,
+            operation="expire_conversion_plans",
+            now=now or datetime.now(timezone.utc),
+        ),
     )
-    return len(result.scalars().all())
+    assert data.expired_count is not None
+    return data.expired_count
 
 
 class AnnotationConversionError(RuntimeError):
@@ -286,6 +301,18 @@ class AnnotationConversionService:
         self.db = db
         self._generated_rles: dict[str, dict[str, Any]] = {}
 
+    async def _transfer_command(self, command):
+        try:
+            return await annotation_transfer_command(self.db, command)
+        except AnnotationTransferRejected as exc:
+            detail = exc.detail if isinstance(exc.detail, dict) else {}
+            raise AnnotationConversionError(
+                status_code=exc.status_code,
+                reason=exc.reason,
+                message=str(detail.get("message") or exc.reason),
+                **{key: value for key, value in detail.items() if key != "message"},
+            ) from exc
+
     async def _task_item_and_dimensions(self, task: Task) -> tuple[None, int, int, str]:
         if task.dataset_item_id is None:
             raise AnnotationConversionError(
@@ -327,19 +354,19 @@ class AnnotationConversionService:
     async def _load_sources(
         self, task_id: uuid.UUID, annotation_ids: list[uuid.UUID], *, lock: bool
     ) -> list[Annotation]:
-        query = (
-            select(Annotation)
-            .where(
-                Annotation.task_id == task_id,
-                Annotation.id.in_(annotation_ids),
-                Annotation.is_active.is_(True),
-                Annotation.was_cancelled.is_(False),
+        data = await self._transfer_command(
+            ReadConversionSources(
+                schema=ANNOTATION_TRANSFER_PROTOCOL,
+                operation="read_conversion_sources",
+                task_id=task_id,
+                annotation_ids=annotation_ids,
+                lock=lock,
             )
-            .order_by(Annotation.id.asc())
         )
-        if lock:
-            query = query.with_for_update().execution_options(populate_existing=True)
-        sources = list((await self.db.execute(query)).scalars().all())
+        sources = [
+            Annotation(**snapshot.model_dump(mode="python"))
+            for snapshot in data.conversion_sources
+        ]
         if len(sources) != len(annotation_ids):
             raise AnnotationConversionError(
                 status_code=404,
@@ -894,7 +921,7 @@ class AnnotationConversionService:
                 message="conversion scope does not match task media",
             )
         sources = await self._load_sources(task.id, payload.annotation_ids, lock=False)
-        project = await self.db.get(Project, task.project_id)
+        project = await get_workspace_project(self.db, project_id=task.project_id)
         if media == "image" and payload.target == "mask":
             assert_raster_mask_write_enabled(project)
         if media == "video":
@@ -932,6 +959,10 @@ class AnnotationConversionService:
         request_json = payload.model_dump(mode="json")
         plan_json = {
             "sources": source_records,
+            "source_snapshots": [
+                {"id": str(source.id), "snapshot": _annotation_snapshot(source)}
+                for source in sources
+            ],
             "actions": actions,
             "items": [item.model_dump(mode="json") for item in reports],
             "summary": summary.model_dump(mode="json"),
@@ -942,18 +973,21 @@ class AnnotationConversionService:
         expires_at = datetime.now(timezone.utc) + timedelta(
             seconds=CONVERSION_PLAN_TTL_SECONDS
         )
-        plan = AnnotationConversionPlan(
-            token_hash=_token_hash(token),
-            task_id=task.id,
-            actor_id=actor.id,
-            request_digest=_canonical_digest(request_json),
-            snapshot_digest=_canonical_digest(source_records),
-            request_json=request_json,
-            plan_json=plan_json,
-            expires_at=expires_at,
+        await self._transfer_command(
+            CreateConversionPlan(
+                schema=ANNOTATION_TRANSFER_PROTOCOL,
+                operation="create_conversion_plan",
+                plan_id=uuid.uuid4(),
+                token_hash=_token_hash(token),
+                task_id=task.id,
+                actor_id=actor.id,
+                request_digest=_canonical_digest(request_json),
+                snapshot_digest=_canonical_digest(source_records),
+                request_json=request_json,
+                plan_json=plan_json,
+                expires_at=expires_at,
+            )
         )
-        self.db.add(plan)
-        await self.db.flush()
         return AnnotationConversionDryRunResponse(
             plan_token=token,
             expires_at=expires_at,
@@ -973,24 +1007,20 @@ class AnnotationConversionService:
     ) -> None:
         if not frame_indexes:
             return
-        segments = list(
-            (
-                await self.db.execute(
-                    select(VideoSegment)
-                    .where(VideoSegment.dataset_item_id == task.dataset_item_id)
-                    .order_by(VideoSegment.segment_index.asc())
-                    .with_for_update()
-                )
+        segment_data = await self._transfer_command(
+            ReadConversionVideoSegments(
+                schema=ANNOTATION_TRANSFER_PROTOCOL,
+                operation="read_conversion_video_segments",
+                dataset_item_id=task.dataset_item_id,
             )
-            .scalars()
-            .all()
         )
+        segments = segment_data.video_segments
         now = datetime.now(timezone.utc)
         privileged = project is not None and is_privileged_for_project(actor, project)
         config = collaboration_config(project)
         frame_count = max((segment.end_frame for segment in segments), default=0) + 1
 
-        def contains_frame(segment: VideoSegment, frame_index: int) -> bool:
+        def contains_frame(segment, frame_index: int) -> bool:
             work_start, work_end = segment_work_bounds(
                 start_frame=segment.start_frame,
                 end_frame=segment.end_frame,
@@ -1027,14 +1057,15 @@ class AnnotationConversionService:
                     frame_index=frame_index,
                 )
 
-    async def _load_plan(self, token: str) -> AnnotationConversionPlan | None:
-        return (
-            await self.db.execute(
-                select(AnnotationConversionPlan).where(
-                    AnnotationConversionPlan.token_hash == _token_hash(token)
-                )
+    async def _load_plan(self, token: str):
+        data = await self._transfer_command(
+            ReadConversionPlan(
+                schema=ANNOTATION_TRANSFER_PROTOCOL,
+                operation="read_conversion_plan",
+                token_hash=_token_hash(token),
             )
-        ).scalar_one_or_none()
+        )
+        return data.plan
 
     async def _replay_existing_operation(
         self,
@@ -1044,15 +1075,16 @@ class AnnotationConversionService:
         idempotency_key: str,
         execution_digest: str,
     ) -> AnnotationConversionExecuteResponse | None:
-        existing_operation = (
-            await self.db.execute(
-                select(AnnotationOperation).where(
-                    AnnotationOperation.task_id == task_id,
-                    AnnotationOperation.actor_id == actor_id,
-                    AnnotationOperation.idempotency_key == idempotency_key,
-                )
+        data = await self._transfer_command(
+            ReadConversionReplay(
+                schema=ANNOTATION_TRANSFER_PROTOCOL,
+                operation="read_conversion_replay",
+                task_id=task_id,
+                actor_id=actor_id,
+                idempotency_key=idempotency_key,
             )
-        ).scalar_one_or_none()
+        )
+        existing_operation = data.replay
         if existing_operation is None:
             return None
         if existing_operation.request_digest != execution_digest:
@@ -1060,7 +1092,7 @@ class AnnotationConversionService:
                 status_code=409,
                 reason="idempotency_conflict",
                 message="idempotency key was already used by another operation",
-                operation_id=str(existing_operation.id),
+                operation_id=str(existing_operation.operation_id),
             )
         replay = dict(existing_operation.response_json)
         replay["idempotent_replay"] = True
@@ -1106,14 +1138,7 @@ class AnnotationConversionService:
                 message="conversion plan belongs to another user",
             )
 
-        task = (
-            await self.db.execute(
-                select(Task)
-                .where(Task.id == task_id)
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            )
-        ).scalar_one_or_none()
+        task = await lock_task_for_core_read(self.db, task_id, populate_existing=True)
         if task is None:
             raise AnnotationConversionError(
                 status_code=404, reason="task_not_found", message="Task not found"
@@ -1159,20 +1184,17 @@ class AnnotationConversionService:
         if replay is not None:
             return replay
 
-        plan = (
-            await self.db.execute(
-                select(AnnotationConversionPlan)
-                .where(AnnotationConversionPlan.id == initial_plan.id)
-                .with_for_update()
-                .execution_options(populate_existing=True)
+        locked_plan = await self._transfer_command(
+            LockConversionPlan(
+                schema=ANNOTATION_TRANSFER_PROTOCOL,
+                operation="lock_conversion_plan",
+                token_hash=_token_hash(payload.plan_token),
+                task_id=task_id,
+                actor_id=actor.id,
             )
-        ).scalar_one_or_none()
-        if plan is None:
-            raise AnnotationConversionError(
-                status_code=404,
-                reason="plan_token_invalid",
-                message="conversion plan token is invalid",
-            )
+        )
+        plan = locked_plan.plan
+        assert plan is not None
         if plan.executed_operation_id is not None:
             raise AnnotationConversionError(
                 status_code=409,
@@ -1206,7 +1228,7 @@ class AnnotationConversionService:
 
         source_records = plan.plan_json.get("sources") or []
         source_ids = [uuid.UUID(item["id"]) for item in source_records]
-        project = await self.db.get(Project, task.project_id)
+        project = await get_workspace_project(self.db, project_id=task.project_id)
         frame_indexes = sorted(
             {
                 int(frame_index)
@@ -1278,10 +1300,7 @@ class AnnotationConversionService:
                 required_upload_keys=upload_keys,
             )
 
-        updated: list[Annotation] = []
-        created: list[Annotation] = []
-        deleted: list[Annotation] = []
-        action_results: list[tuple[dict[str, Any], Annotation | None]] = []
+        command_actions: list[ConversionAction] = []
         for action in actions:
             source = source_by_id[action["source_id"]]
             if action["kind"] == "update":
@@ -1291,104 +1310,98 @@ class AnnotationConversionService:
                     reject_identity_change=False,
                 )
                 await self._validate_target_class(source, geometry)
-                source.geometry = geometry
-                source.track_id = track_id
-                source.annotation_type = action["annotation_type"]
-                source.tool_unit_id = action["tool_unit_id"]
-                source.user_id = actor.id
-                source.version = int(source.version or 1) + 1
-                updated.append(source)
-                action_results.append((action, source))
+                command_actions.append(
+                    ConversionAction(
+                        kind="update",
+                        source_id=source.id,
+                        result_id=None,
+                        geometry=geometry,
+                        annotation_type=action["annotation_type"],
+                        tool_unit_id=action["tool_unit_id"],
+                        track_id=track_id,
+                        frame_index=action.get("frame_index"),
+                    )
+                )
             elif action["kind"] == "create":
                 geometry, track_id = prepare_compact_track_identity(action["geometry"])
                 await self._validate_target_class(source, geometry)
-                result = Annotation(
-                    id=uuid.uuid4(),
-                    task_id=task.id,
-                    project_id=task.project_id,
-                    video_segment_id=source.video_segment_id,
-                    user_id=actor.id,
-                    source="manual",
-                    annotation_type=action["annotation_type"],
-                    tool_unit_id=action["tool_unit_id"],
-                    class_name=source.class_name,
-                    geometry=geometry,
-                    track_id=track_id,
-                    confidence=None,
-                    parent_annotation_id=source.id,
-                    attributes=dict(source.attributes or {}),
-                    attributes_meta=dict(source.attributes_meta or {}),
-                    z_order=source.z_order,
+                command_actions.append(
+                    ConversionAction(
+                        kind="create",
+                        source_id=source.id,
+                        result_id=uuid.uuid4(),
+                        geometry=geometry,
+                        annotation_type=action["annotation_type"],
+                        tool_unit_id=action["tool_unit_id"],
+                        track_id=track_id,
+                        frame_index=action.get("frame_index"),
+                    )
                 )
-                self.db.add(result)
-                created.append(result)
-                action_results.append((action, result))
             else:
-                source.is_active = False
-                source.user_id = actor.id
-                source.version = int(source.version or 1) + 1
-                deleted.append(source)
-                action_results.append((action, None))
+                command_actions.append(
+                    ConversionAction(
+                        kind="deactivate",
+                        source_id=source.id,
+                        result_id=None,
+                        geometry=None,
+                        annotation_type=None,
+                        tool_unit_id=None,
+                        track_id=None,
+                        frame_index=action.get("frame_index"),
+                    )
+                )
 
-        await self.db.flush()
+        operation_id = uuid.uuid4()
+        conversion_data = await self._transfer_command(
+            ApplyConversion(
+                schema=ANNOTATION_TRANSFER_PROTOCOL,
+                operation="apply_conversion",
+                plan_token_hash=_token_hash(payload.plan_token),
+                plan_id=plan.id,
+                task_id=task_id,
+                project_id=task.project_id,
+                actor_id=actor.id,
+                expected_batch_id=task.batch_id,
+                expected_status=task.status,
+                expected_review_round_id=task.review_round_id,
+                execution_id=operation_id,
+                idempotency_key=payload.idempotency_key,
+                execution_digest=execution_digest,
+                scope_fingerprint=plan.snapshot_digest,
+                source_fences=[
+                    ConversionSourceFence(
+                        annotation_id=uuid.UUID(item["id"]),
+                        version=int(item["version"]),
+                        digest=item["digest"],
+                    )
+                    for item in source_records
+                ],
+                actions=command_actions,
+                report=summary.model_dump(mode="json"),
+            )
+        )
+        assert conversion_data.conversion is not None
+        conversion = conversion_data.conversion
         await record_annotation_actor(self.db, task, actor.id)
         await AnnotationService(self.db)._update_task_stats(task_id)
         await heartbeat_task_lock_for_legacy_video(self.db, task, actor.id)
 
-        operation_id = uuid.uuid4()
-        result_versions = {
-            str(annotation.id): int(annotation.version or 1)
-            for annotation in [*updated, *created, *deleted]
-        }
-        lineage: list[AnnotationLineageEdge] = []
+        source_versions = {item["id"]: int(item["version"]) for item in source_records}
         lineage_out: list[AnnotationConversionLineageOut] = []
-        for action, result in action_results:
-            source = source_by_id[action["source_id"]]
-            if result is None:
+        for action in command_actions:
+            if action.kind == "deactivate":
                 continue
-            edge = AnnotationLineageEdge(
-                operation_id=operation_id,
-                source_annotation_id=source.id,
-                result_annotation_id=result.id,
-                relation="converted",
-                source_version=next(
-                    int(item["version"])
-                    for item in source_records
-                    if item["id"] == str(source.id)
-                ),
-                result_version=int(result.version or 1),
-                frame_index=action.get("frame_index"),
-            )
-            lineage.append(edge)
             lineage_out.append(
                 AnnotationConversionLineageOut(
-                    source_annotation_id=edge.source_annotation_id,
-                    result_annotation_id=edge.result_annotation_id,
-                    source_version=edge.source_version,
-                    result_version=edge.result_version,
-                    frame_index=edge.frame_index,
+                    source_annotation_id=action.source_id,
+                    result_annotation_id=action.result_id or action.source_id,
+                    source_version=source_versions[str(action.source_id)],
+                    result_version=conversion.result_versions[
+                        str(action.result_id or action.source_id)
+                    ],
+                    frame_index=action.frame_index,
                 )
             )
-
-        operation = AnnotationOperation(
-            id=operation_id,
-            task_id=task_id,
-            actor_id=actor.id,
-            kind="convert_annotations",
-            idempotency_key=payload.idempotency_key,
-            request_digest=execution_digest,
-            scope_fingerprint=plan.snapshot_digest,
-            source_versions={
-                item["id"]: int(item["version"]) for item in source_records
-            },
-            result_versions=result_versions,
-            report=summary.model_dump(mode="json"),
-            status="committed",
-            response_json={},
-        )
-        self.db.add(operation)
-        await self.db.flush([operation])
-        self.db.add_all(lineage)
         await AuditService.log(
             self.db,
             actor=actor,
@@ -1407,27 +1420,32 @@ class AnnotationConversionService:
                 "lossy_count": summary.lossy_count,
             },
         )
-        for annotation in [*updated, *created]:
-            await self.db.refresh(annotation)
         response = AnnotationConversionExecuteResponse(
             operation_id=operation_id,
             updated_annotations=[
-                AnnotationOut.model_validate(item, from_attributes=True)
-                for item in updated
-                if item not in deleted
+                AnnotationOut.model_validate(item.model_dump(mode="python"))
+                for item in conversion.updated_annotations
             ],
             created_annotations=[
-                AnnotationOut.model_validate(item, from_attributes=True)
-                for item in created
+                AnnotationOut.model_validate(item.model_dump(mode="python"))
+                for item in conversion.created_annotations
             ],
-            deleted_annotation_ids=[item.id for item in deleted],
+            deleted_annotation_ids=conversion.deleted_annotation_ids,
             lineage_edges=lineage_out,
             report=summary,
         )
-        operation.response_json = response.model_dump(mode="json")
-        plan.executed_operation_id = operation_id
-        plan.executed_idempotency_key = payload.idempotency_key
-        await self.db.flush()
+        await self._transfer_command(
+            FinalizeConversion(
+                schema=ANNOTATION_TRANSFER_PROTOCOL,
+                operation="finalize_conversion",
+                plan_token_hash=_token_hash(payload.plan_token),
+                task_id=task_id,
+                actor_id=actor.id,
+                idempotency_key=payload.idempotency_key,
+                operation_id=operation_id,
+                response_json=response.model_dump(mode="json"),
+            )
+        )
         return response
 
 

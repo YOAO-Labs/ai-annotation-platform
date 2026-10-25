@@ -6,7 +6,6 @@ import re
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,8 +18,8 @@ from aap_assets_video_inputs.execution import (
 from aap_assets_video_inputs.values import VIDEO_INPUT_SCHEMA
 
 from app.db.enums import WORKBENCH_AI_EDITABLE_TASK_STATUSES
-from app.db.models.annotation import Annotation
-from app.db.models.async_job import AsyncJob, AsyncJobKind
+from app.db.models.async_job import AsyncJobKind
+from app.services.jobs_lifecycle_data import job_lock_statement
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User
@@ -31,9 +30,14 @@ from app.services.labeling_write_scope import (
     LabelingWriteOperation,
     LabelingWriteScope,
 )
-from app.services.workspace_contract import ProjectAccess
+from aap_workspace_contract.access import ProjectAccess
 from app.services.project_access import lock_current_project_access
 from app.services.task_lock import TaskLockService
+from app.services.labeling_core_read_relations import (
+    lock_annotation_rows_for_core_read,
+    lock_batch_rows_for_core_read,
+    lock_task_for_core_read,
+)
 
 _MANAGER_OPERATIONS = frozenset(
     {"preannotation", "prediction_import", "prediction_retry"}
@@ -189,6 +193,19 @@ async def _locked_row(db: AsyncSession, statement, *, reason: str):
         raise
 
 
+async def _locked_core_row(db: AsyncSession, operation, *, reason: str):
+    """Map contention from a fixed Labeling row-lock capability."""
+    try:
+        return await operation()
+    except DBAPIError as exc:
+        sqlstate = getattr(exc.orig, "sqlstate", None) or getattr(
+            exc.orig, "pgcode", None
+        )
+        if sqlstate in {"55P03", "40001", "40P01"}:
+            raise _conflict(reason) from exc
+        raise
+
+
 async def _assert_execution_current(
     db: AsyncSession,
     scope: LabelingWriteScope | LabelingBatchWriteScope,
@@ -203,10 +220,7 @@ async def _assert_execution_current(
         return
     job = await _locked_row(
         db,
-        select(AsyncJob)
-        .where(AsyncJob.id == scope.job_id)
-        .with_for_update(read=True, nowait=True)
-        .execution_options(populate_existing=True),
+        job_lock_statement(scope.job_id, mode="share_nowait", populate_existing=True),
         reason="job_busy",
     )
     if (
@@ -358,25 +372,31 @@ async def lock_labeling_write(
             raise HTTPException(status_code=403, detail="项目管理权限已变化")
         batch = None
         if scope.expected_batch_id is not None:
-            batch = await _locked_row(
+            batches = await _locked_core_row(
                 db,
-                select(TaskBatch)
-                .where(
-                    TaskBatch.id == scope.expected_batch_id,
-                    TaskBatch.project_id == scope.project_id,
-                )
-                .with_for_update(read=True, nowait=True)
-                .execution_options(populate_existing=True),
+                lambda: lock_batch_rows_for_core_read(
+                    db,
+                    [scope.expected_batch_id],
+                    project_id=scope.project_id,
+                    lock_mode="share",
+                    nowait=True,
+                    populate_existing=True,
+                ),
                 reason="batch_busy",
             )
+            batch = batches[0] if batches else None
             if batch is None:
                 raise _conflict("prediction_task_scope_changed")
-        task = await _locked_row(
+        task = await _locked_core_row(
             db,
-            select(Task)
-            .where(Task.id == scope.task_id, Task.project_id == scope.project_id)
-            .with_for_update(nowait=True)
-            .execution_options(populate_existing=True),
+            lambda: lock_task_for_core_read(
+                db,
+                scope.task_id,
+                project_id=scope.project_id,
+                lock_mode="update",
+                nowait=True,
+                populate_existing=True,
+            ),
             reason="task_busy",
         )
         if task is None:
@@ -443,18 +463,20 @@ async def lock_labeling_write(
                 or scope.source_annotation_version is None
             ):
                 raise _conflict("labeling_write_scope_unknown")
-            source = await _locked_row(
+            sources = await _locked_core_row(
                 db,
-                select(Annotation)
-                .where(
-                    Annotation.id == scope.source_annotation_id,
-                    Annotation.task_id == task.id,
-                    Annotation.project_id == task.project_id,
-                )
-                .with_for_update(nowait=True)
-                .execution_options(populate_existing=True),
+                lambda: lock_annotation_rows_for_core_read(
+                    db,
+                    [scope.source_annotation_id],
+                    task_id=task.id,
+                    project_id=task.project_id,
+                    lock_mode="update",
+                    nowait=True,
+                    populate_existing=True,
+                ),
                 reason="annotation_busy",
             )
+            source = sources[0] if sources else None
             if source is None or not source.is_active or source.was_cancelled:
                 raise HTTPException(status_code=404, detail="annotation not found")
             if source.version != scope.source_annotation_version:
@@ -505,17 +527,19 @@ async def lock_labeling_batch_write(
         )
         if not access.is_manager:
             raise HTTPException(status_code=403, detail="项目管理权限已变化")
-        batch = await _locked_row(
+        batches = await _locked_core_row(
             db,
-            select(TaskBatch)
-            .where(
-                TaskBatch.id == scope.batch_id,
-                TaskBatch.project_id == scope.project_id,
-            )
-            .with_for_update(nowait=True)
-            .execution_options(populate_existing=True),
+            lambda: lock_batch_rows_for_core_read(
+                db,
+                [scope.batch_id],
+                project_id=scope.project_id,
+                lock_mode="update",
+                nowait=True,
+                populate_existing=True,
+            ),
             reason="batch_busy",
         )
+        batch = batches[0] if batches else None
         if batch is None:
             raise HTTPException(status_code=404, detail="Batch not found")
         await _assert_execution_current(db, scope, task_id=None, batch_id=batch.id)

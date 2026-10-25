@@ -1,0 +1,767 @@
+{
+  "$defs": {
+    "AggregateBBoxes": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-video-bbox-editing/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "aggregate_bboxes",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "source_fences": {
+          "items": {
+            "$ref": "#/$defs/AnnotationFence"
+          },
+          "title": "Source Fences",
+          "type": "array"
+        },
+        "created_annotation_id": {
+          "format": "uuid",
+          "title": "Created Annotation Id",
+          "type": "string"
+        },
+        "created_track_id": {
+          "title": "Created Track Id",
+          "type": "string"
+        },
+        "created_geometry": {
+          "additionalProperties": true,
+          "title": "Created Geometry",
+          "type": "object"
+        },
+        "delete_sources": {
+          "title": "Delete Sources",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "batch_id",
+        "expected_status",
+        "expected_review_round_id",
+        "source_fences",
+        "created_annotation_id",
+        "created_track_id",
+        "created_geometry",
+        "delete_sources"
+      ],
+      "title": "AggregateBBoxes",
+      "type": "object"
+    },
+    "AnnotationFence": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "expected_version": {
+          "minimum": 1,
+          "title": "Expected Version",
+          "type": "integer"
+        }
+      },
+      "required": ["annotation_id", "expected_version"],
+      "title": "AnnotationFence",
+      "type": "object"
+    },
+    "ConvertTrack": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-video-bbox-editing/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "convert_track",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "source_fences": {
+          "items": {
+            "$ref": "#/$defs/AnnotationFence"
+          },
+          "title": "Source Fences",
+          "type": "array"
+        },
+        "conversion_operation": {
+          "enum": ["copy", "split"],
+          "title": "Conversion Operation",
+          "type": "string"
+        },
+        "scope": {
+          "enum": ["frame", "track"],
+          "title": "Scope",
+          "type": "string"
+        },
+        "frame_index": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Frame Index"
+        },
+        "frame_mode": {
+          "enum": ["keyframes", "all_frames"],
+          "title": "Frame Mode",
+          "type": "string"
+        },
+        "frame_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Frame Count"
+        },
+        "max_created": {
+          "minimum": 1,
+          "title": "Max Created",
+          "type": "integer"
+        },
+        "created_frames": {
+          "items": {
+            "$ref": "#/$defs/VideoBBoxFrame"
+          },
+          "title": "Created Frames",
+          "type": "array"
+        },
+        "removed_frame_indexes": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Removed Frame Indexes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "batch_id",
+        "expected_status",
+        "expected_review_round_id",
+        "source_fences",
+        "conversion_operation",
+        "scope",
+        "frame_index",
+        "frame_mode",
+        "frame_count",
+        "max_created",
+        "created_frames",
+        "removed_frame_indexes"
+      ],
+      "title": "ConvertTrack",
+      "type": "object"
+    },
+    "JoinTracks": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-video-bbox-editing/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "join_tracks",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "source_fences": {
+          "items": {
+            "$ref": "#/$defs/AnnotationFence"
+          },
+          "title": "Source Fences",
+          "type": "array"
+        },
+        "gap_mode": {
+          "enum": ["interpolate", "outside"],
+          "title": "Gap Mode",
+          "type": "string"
+        },
+        "survivor_id": {
+          "format": "uuid",
+          "title": "Survivor Id",
+          "type": "string"
+        },
+        "survivor_track_id": {
+          "title": "Survivor Track Id",
+          "type": "string"
+        },
+        "survivor_geometry": {
+          "additionalProperties": true,
+          "title": "Survivor Geometry",
+          "type": "object"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "batch_id",
+        "expected_status",
+        "expected_review_round_id",
+        "source_fences",
+        "gap_mode",
+        "survivor_id",
+        "survivor_track_id",
+        "survivor_geometry"
+      ],
+      "title": "JoinTracks",
+      "type": "object"
+    },
+    "MergeTracks": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-video-bbox-editing/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "merge_tracks",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "source_fences": {
+          "items": {
+            "$ref": "#/$defs/AnnotationFence"
+          },
+          "title": "Source Fences",
+          "type": "array"
+        },
+        "survivor_id": {
+          "format": "uuid",
+          "title": "Survivor Id",
+          "type": "string"
+        },
+        "survivor_track_id": {
+          "title": "Survivor Track Id",
+          "type": "string"
+        },
+        "survivor_geometry": {
+          "additionalProperties": true,
+          "title": "Survivor Geometry",
+          "type": "object"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "batch_id",
+        "expected_status",
+        "expected_review_round_id",
+        "source_fences",
+        "survivor_id",
+        "survivor_track_id",
+        "survivor_geometry"
+      ],
+      "title": "MergeTracks",
+      "type": "object"
+    },
+    "SplitTrack": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-video-bbox-editing/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "split_track",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "source_fences": {
+          "items": {
+            "$ref": "#/$defs/AnnotationFence"
+          },
+          "title": "Source Fences",
+          "type": "array"
+        },
+        "frame_index": {
+          "title": "Frame Index",
+          "type": "integer"
+        },
+        "created_annotation_id": {
+          "format": "uuid",
+          "title": "Created Annotation Id",
+          "type": "string"
+        },
+        "created_track_id": {
+          "title": "Created Track Id",
+          "type": "string"
+        },
+        "updated_geometry": {
+          "additionalProperties": true,
+          "title": "Updated Geometry",
+          "type": "object"
+        },
+        "created_geometry": {
+          "additionalProperties": true,
+          "title": "Created Geometry",
+          "type": "object"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "batch_id",
+        "expected_status",
+        "expected_review_round_id",
+        "source_fences",
+        "frame_index",
+        "created_annotation_id",
+        "created_track_id",
+        "updated_geometry",
+        "created_geometry"
+      ],
+      "title": "SplitTrack",
+      "type": "object"
+    },
+    "VideoBBoxEditingData": {
+      "additionalProperties": false,
+      "properties": {
+        "updated_annotation_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Updated Annotation Ids",
+          "type": "array"
+        },
+        "created_annotation_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Created Annotation Ids",
+          "type": "array"
+        },
+        "deleted_annotation_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Deleted Annotation Ids",
+          "type": "array"
+        },
+        "removed_frame_indexes": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Removed Frame Indexes",
+          "type": "array"
+        },
+        "deleted_source": {
+          "title": "Deleted Source",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "updated_annotation_ids",
+        "created_annotation_ids",
+        "deleted_annotation_ids",
+        "removed_frame_indexes",
+        "deleted_source"
+      ],
+      "title": "VideoBBoxEditingData",
+      "type": "object"
+    },
+    "VideoBBoxEditingError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "status_code": {
+          "maximum": 599,
+          "minimum": 400,
+          "title": "Status Code",
+          "type": "integer"
+        },
+        "detail": {
+          "title": "Detail"
+        }
+      },
+      "required": ["code", "status_code", "detail"],
+      "title": "VideoBBoxEditingError",
+      "type": "object"
+    },
+    "VideoBBoxFrame": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "frame_index": {
+          "title": "Frame Index",
+          "type": "integer"
+        },
+        "x": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "X"
+        },
+        "y": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Y"
+        },
+        "w": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "W"
+        },
+        "h": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "H"
+        }
+      },
+      "required": ["annotation_id", "frame_index", "x", "y", "w", "h"],
+      "title": "VideoBBoxFrame",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "aap-labeling-video-bbox-editing/v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "request": {
+      "discriminator": {
+        "mapping": {
+          "aggregate_bboxes": "#/$defs/AggregateBBoxes",
+          "convert_track": "#/$defs/ConvertTrack",
+          "join_tracks": "#/$defs/JoinTracks",
+          "merge_tracks": "#/$defs/MergeTracks",
+          "split_track": "#/$defs/SplitTrack"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ConvertTrack"
+        },
+        {
+          "$ref": "#/$defs/AggregateBBoxes"
+        },
+        {
+          "$ref": "#/$defs/SplitTrack"
+        },
+        {
+          "$ref": "#/$defs/MergeTracks"
+        },
+        {
+          "$ref": "#/$defs/JoinTracks"
+        }
+      ],
+      "title": "Request"
+    },
+    "data": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/VideoBBoxEditingData"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "error": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/VideoBBoxEditingError"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": ["schema", "ok", "request"],
+  "title": "VideoBBoxEditingReply",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-labeling-video-bbox-editing/v1",
+  "x-postgresql-functions": ["aap_labeling_v1.video_bbox_editing_command(jsonb)"]
+}

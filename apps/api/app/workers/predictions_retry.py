@@ -12,6 +12,7 @@ from app.application.durable_prediction_retry import (
     read_retry_attempt,
     run_durable_prediction_retry,
 )
+from app.services.project_access import get_workspace_project
 from app.application.preannotation_results import PreannotationResultDeferred
 from app.application.prediction_retry_inputs import (
     FrozenInputRetryDeferred as FrozenInputRetryDeferred,
@@ -135,12 +136,14 @@ async def _retry_job_metadata(
     db: AsyncSession, fid: uuid.UUID
 ) -> tuple[uuid.UUID | None, dict]:
     from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
-    from app.db.models.prediction import FailedPrediction
-    from app.db.models.project import Project
-    from app.db.models.task import Task
+    from app.services.labeling_core_read_relations import (
+        failed_prediction_row,
+        get_core_row,
+        task_row,
+    )
 
     payload: dict = {"failed_prediction_id": str(fid)}
-    fp = await db.get(FailedPrediction, fid)
+    fp = await get_core_row(db, failed_prediction_row, fid)
     if not fp:
         return None, payload
 
@@ -153,10 +156,10 @@ async def _retry_job_metadata(
             "message": (fp.message or "")[:200],
         }
     )
-    task = await db.get(Task, fp.task_id) if fp.task_id else None
+    task = await get_core_row(db, task_row, fp.task_id) if fp.task_id else None
     if task is not None:
         payload["task_display_id"] = task.display_id
-    project = await db.get(Project, fp.project_id)
+    project = await get_workspace_project(db, project_id=fp.project_id)
     if project is not None:
         payload["project_display_id"] = project.display_id
         payload["project_name"] = project.name

@@ -1,0 +1,685 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-jobs-lifecycle/v1",
+  "title": "AAP Jobs lifecycle and row capabilities",
+  "description": "Caller-owned Jobs operations and fixed async_jobs row projection. The API retains the borrowed transaction and ORM identity.",
+  "$defs": {
+    "LifecycleCommand": {
+      "additionalProperties": false,
+      "description": "One operation's observed reads and writes against the caller's row.",
+      "properties": {
+        "operation": {
+          "enum": [
+            "mark_running",
+            "bind_execution_id",
+            "update_payload",
+            "update_progress",
+            "replace_result",
+            "mark_complete",
+            "mark_failed",
+            "mark_cancelled",
+            "request_cancel"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "reads": {
+          "additionalProperties": true,
+          "propertyNames": {
+            "enum": [
+              "id",
+              "kind",
+              "project_id",
+              "retained_project_id",
+              "user_id",
+              "status",
+              "progress_pct",
+              "payload",
+              "result",
+              "error_message",
+              "celery_task_id",
+              "started_at",
+              "completed_at",
+              "created_at",
+              "updated_at"
+            ]
+          },
+          "title": "Reads",
+          "type": "object"
+        },
+        "values": {
+          "additionalProperties": true,
+          "propertyNames": {
+            "enum": [
+              "id",
+              "kind",
+              "project_id",
+              "retained_project_id",
+              "user_id",
+              "status",
+              "progress_pct",
+              "payload",
+              "result",
+              "error_message",
+              "celery_task_id",
+              "started_at",
+              "completed_at",
+              "created_at",
+              "updated_at"
+            ]
+          },
+          "title": "Values",
+          "type": "object"
+        },
+        "written_fields": {
+          "items": {
+            "enum": [
+              "id",
+              "kind",
+              "project_id",
+              "retained_project_id",
+              "user_id",
+              "status",
+              "progress_pct",
+              "payload",
+              "result",
+              "error_message",
+              "celery_task_id",
+              "started_at",
+              "completed_at",
+              "created_at",
+              "updated_at"
+            ],
+            "type": "string"
+          },
+          "title": "Written Fields",
+          "type": "array"
+        },
+        "arguments": {
+          "additionalProperties": true,
+          "title": "Arguments",
+          "type": "object"
+        }
+      },
+      "required": ["operation", "reads", "values", "written_fields", "arguments"],
+      "title": "LifecycleCommand",
+      "type": "object"
+    },
+    "LifecycleApplyRequest": {
+      "additionalProperties": false,
+      "description": "Closed envelope passed once per dirty row from the mapper flush hook.",
+      "properties": {
+        "schema": {
+          "const": "aap-jobs-lifecycle/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "commands": {
+          "items": {
+            "$ref": "#/$defs/LifecycleCommand"
+          },
+          "title": "Commands",
+          "type": "array"
+        },
+        "projection_changes": {
+          "additionalProperties": true,
+          "propertyNames": {
+            "enum": ["payload", "result"]
+          },
+          "title": "Projection Changes",
+          "type": "object"
+        },
+        "changed_fields": {
+          "items": {
+            "enum": [
+              "id",
+              "kind",
+              "project_id",
+              "retained_project_id",
+              "user_id",
+              "status",
+              "progress_pct",
+              "payload",
+              "result",
+              "error_message",
+              "celery_task_id",
+              "started_at",
+              "completed_at",
+              "created_at",
+              "updated_at"
+            ],
+            "type": "string"
+          },
+          "title": "Changed Fields",
+          "type": "array"
+        },
+        "updated_at_override_present": {
+          "title": "Updated At Override Present",
+          "type": "boolean"
+        },
+        "updated_at_override": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "format": "date-time",
+          "title": "Updated At Override"
+        },
+        "legacy_changes": {
+          "additionalProperties": true,
+          "propertyNames": {
+            "enum": [
+              "id",
+              "kind",
+              "project_id",
+              "retained_project_id",
+              "user_id",
+              "status",
+              "progress_pct",
+              "payload",
+              "result",
+              "error_message",
+              "celery_task_id",
+              "started_at",
+              "completed_at",
+              "created_at",
+              "updated_at"
+            ]
+          },
+          "title": "Legacy Changes",
+          "type": "object"
+        }
+      },
+      "required": [
+        "schema",
+        "commands",
+        "projection_changes",
+        "changed_fields",
+        "updated_at_override_present",
+        "updated_at_override",
+        "legacy_changes"
+      ],
+      "title": "LifecycleApplyRequest",
+      "type": "object"
+    },
+    "LifecycleApplyReply": {
+      "additionalProperties": false,
+      "properties": {
+        "applied": {
+          "title": "Applied",
+          "type": "boolean"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Updated At"
+        }
+      },
+      "required": ["applied", "updated_at"],
+      "title": "LifecycleApplyReply",
+      "type": "object"
+    },
+    "AsyncJobLifecycleRow": {
+      "additionalProperties": false,
+      "description": "Fixed public row used to refresh the existing API ORM identity.",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "maxLength": 40,
+          "title": "Kind",
+          "type": "string"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "retained_project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Retained Project Id"
+        },
+        "user_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "User Id"
+        },
+        "status": {
+          "maxLength": 20,
+          "title": "Status",
+          "type": "string"
+        },
+        "progress_pct": {
+          "title": "Progress Pct",
+          "type": "integer"
+        },
+        "payload": {
+          "title": "Payload"
+        },
+        "result": {
+          "title": "Result"
+        },
+        "error_message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error Message"
+        },
+        "celery_task_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Celery Task Id"
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Started At"
+        },
+        "completed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Completed At"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "project_id",
+        "retained_project_id",
+        "user_id",
+        "status",
+        "progress_pct",
+        "payload",
+        "result",
+        "error_message",
+        "celery_task_id",
+        "started_at",
+        "completed_at",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "AsyncJobLifecycleRow",
+      "type": "object"
+    },
+    "JobIdRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        }
+      },
+      "required": ["job_id"],
+      "title": "JobIdRequest",
+      "type": "object"
+    },
+    "ExecutionIdRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "execution_id": {
+          "title": "Execution Id",
+          "type": "string"
+        }
+      },
+      "required": ["execution_id"],
+      "title": "ExecutionIdRequest",
+      "type": "object"
+    },
+    "VideoSummaryInsertRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "tracker_job_id": {
+          "format": "uuid",
+          "title": "Tracker Job Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": ["video_tracker", "video_correction"],
+          "title": "Kind",
+          "type": "string"
+        },
+        "user_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "User Id"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "payload": {
+          "additionalProperties": true,
+          "title": "Payload",
+          "type": "object"
+        },
+        "celery_task_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Celery Task Id"
+        }
+      },
+      "required": ["tracker_job_id", "kind", "user_id", "project_id", "payload", "celery_task_id"],
+      "title": "VideoSummaryInsertRequest",
+      "type": "object"
+    },
+    "DispatchFailureRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "failed_at": {
+          "format": "date-time",
+          "title": "Failed At",
+          "type": "string"
+        },
+        "error": {
+          "title": "Error",
+          "type": "string"
+        }
+      },
+      "required": ["job_id", "failed_at", "error"],
+      "title": "DispatchFailureRequest",
+      "type": "object"
+    },
+    "BatchPredictCancelRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "completed_at": {
+          "format": "date-time",
+          "title": "Completed At",
+          "type": "string"
+        }
+      },
+      "required": ["batch_id", "completed_at"],
+      "title": "BatchPredictCancelRequest",
+      "type": "object"
+    },
+    "BatchPredictDeleteRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        }
+      },
+      "required": ["batch_id"],
+      "title": "BatchPredictDeleteRequest",
+      "type": "object"
+    },
+    "TerminalDeleteRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "cutoff": {
+          "format": "date-time",
+          "title": "Cutoff",
+          "type": "string"
+        },
+        "statuses": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Statuses",
+          "type": "array"
+        }
+      },
+      "required": ["cutoff", "statuses"],
+      "title": "TerminalDeleteRequest",
+      "type": "object"
+    }
+  },
+  "x-postgresql-functions": {
+    "aap_jobs_v1.read_job": {
+      "arguments": "uuid",
+      "returns": "TABLE(id uuid, kind character varying, project_id uuid, retained_project_id uuid, user_id uuid, status character varying, progress_pct integer, payload jsonb, result jsonb, error_message text, celery_task_id character varying, started_at timestamp with time zone, completed_at timestamp with time zone, created_at timestamp with time zone, updated_at timestamp with time zone)"
+    },
+    "aap_jobs_v1.jobs_by_execution_id": {
+      "arguments": "text",
+      "returns": "TABLE(id uuid, kind character varying, project_id uuid, retained_project_id uuid, user_id uuid, status character varying, progress_pct integer, payload jsonb, result jsonb, error_message text, celery_task_id character varying, started_at timestamp with time zone, completed_at timestamp with time zone, created_at timestamp with time zone, updated_at timestamp with time zone)"
+    },
+    "aap_jobs_v1.insert_video_summary": {
+      "arguments": "uuid, text, uuid, uuid, jsonb, text",
+      "returns": "boolean"
+    },
+    "aap_jobs_v1.apply_lifecycle": {
+      "arguments": "uuid, jsonb",
+      "returns": "TABLE(applied boolean, updated_at timestamp with time zone)"
+    },
+    "aap_jobs_v1.mark_dispatch_failed": {
+      "arguments": "uuid, timestamp with time zone, text",
+      "returns": "boolean"
+    },
+    "aap_jobs_v1.cancel_batch_predict_jobs": {
+      "arguments": "uuid, timestamp with time zone",
+      "returns": "uuid[]"
+    },
+    "aap_jobs_v1.delete_batch_predict_jobs": {
+      "arguments": "uuid",
+      "returns": "uuid[]"
+    },
+    "aap_jobs_v1.delete_terminal_jobs_before": {
+      "arguments": "timestamp with time zone, text[]",
+      "returns": "uuid[]"
+    }
+  },
+  "x-creation-relation": {
+    "name": "aap_jobs_v1.async_job_creation",
+    "auto_updatable": true,
+    "columns": [
+      "id",
+      "kind",
+      "project_id",
+      "retained_project_id",
+      "user_id",
+      "status",
+      "progress_pct",
+      "payload",
+      "result",
+      "error_message",
+      "celery_task_id",
+      "started_at",
+      "completed_at",
+      "created_at",
+      "updated_at"
+    ],
+    "check_option": "strict inserts require pending status, zero progress, empty result, no terminal fields, and retained_project_id NULL",
+    "legacy_insert_bypass": "preserves the original initializer behavior only for callers that already have async_jobs table INSERT privilege",
+    "initialization": {
+      "status": "pending",
+      "progress_pct": 0,
+      "result": {},
+      "started_at": null,
+      "completed_at": null,
+      "error_message": null,
+      "retained_project_id": "NULL (database-managed)"
+    }
+  },
+  "x-row-columns": [
+    "id",
+    "kind",
+    "project_id",
+    "retained_project_id",
+    "user_id",
+    "status",
+    "progress_pct",
+    "payload",
+    "result",
+    "error_message",
+    "celery_task_id",
+    "started_at",
+    "completed_at",
+    "created_at",
+    "updated_at"
+  ],
+  "x-row-types": {
+    "id": "uuid",
+    "kind": "character varying(40)",
+    "project_id": "uuid",
+    "retained_project_id": "uuid",
+    "user_id": "uuid",
+    "status": "character varying(20)",
+    "progress_pct": "integer",
+    "payload": "jsonb",
+    "result": "jsonb",
+    "error_message": "text",
+    "celery_task_id": "character varying(64)",
+    "started_at": "timestamp with time zone",
+    "completed_at": "timestamp with time zone",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone"
+  },
+  "x-row-key": ["id"],
+  "x-lifecycle": {
+    "flush_envelope": {
+      "required_fields": [
+        "schema",
+        "commands",
+        "projection_changes",
+        "changed_fields",
+        "updated_at_override_present",
+        "updated_at_override",
+        "legacy_changes"
+      ],
+      "command_fields": ["operation", "reads", "values", "written_fields", "arguments"],
+      "operations": [
+        "mark_running",
+        "bind_execution_id",
+        "update_payload",
+        "update_progress",
+        "replace_result",
+        "mark_complete",
+        "mark_failed",
+        "mark_cancelled",
+        "request_cancel"
+      ],
+      "projection_fields": ["payload", "result"],
+      "changed_fields": "net ORM field history, in stable mapper order",
+      "updated_at": "database now(); explicit override requires original private column UPDATE and primary-key SELECT",
+      "partial_write_prefixes": true,
+      "arguments": "successful Python scalar conversions are normalized; unreached optional arguments are null",
+      "jsonb_null": "preserve JSON null separately from SQL NULL"
+    },
+    "status_guards": {
+      "mark_running": "cached pending only; execution ID fills if truthy and empty",
+      "mark_complete": "skip cached cancelled/failed",
+      "mark_failed": "skip cached completed/cancelled",
+      "mark_cancelled": "caller-supplied allowed_statuses; null means unconditional",
+      "request_cancel": "cached pending/running only; shallow payload merge"
+    },
+    "transactions": {
+      "commit": false,
+      "rollback": false,
+      "flush": "caller controlled except original create/track flush phases",
+      "state_source": "caller ORM snapshots; no fresh status re-read"
+    },
+    "legacy_changes": "requires original invoker primary-key SELECT and UPDATE on every changed column; never authorizes through client JSON"
+  },
+  "x-security": {
+    "functions": "security_definer with fixed search_path and PUBLIC revoked",
+    "read_projection": "explicit 15-column row, never async_jobs composite ABI",
+    "creation": "strict profile plus preexisting table-INSERT compatibility",
+    "private_table_rights": "no blanket revocation in this capability slice"
+  }
+}

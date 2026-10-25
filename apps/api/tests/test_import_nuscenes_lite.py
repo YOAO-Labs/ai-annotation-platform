@@ -1323,12 +1323,16 @@ async def test_existing_ascii_scene_is_upgraded_in_place(
             "frames": 1,
             "skipped": True,
             "upgraded_point_clouds": 1,
+            "backfilled_camera_dimensions": 1,
         }
     ]
     assert b"DATA binary\n" in upgraded[:200]
     await db_session.refresh(item_orm)
     assert item_orm.file_size == len(upgraded)
     assert item_orm.content_hash == hashlib.sha256(upgraded).hexdigest()
+    camera_item = next(row for row in dataset_items if row.file_type == "image")
+    await db_session.refresh(camera_item)
+    assert (camera_item.width, camera_item.height) == (1, 1)
     await db_session.refresh(dataset, attribute_names=["metadata_"])
     assert dataset.metadata_["source"]["pcd_encoding"] == "binary_xyz_f32"
     assert dataset.metadata_["source"]["storage_layout"] == "legacy_name"

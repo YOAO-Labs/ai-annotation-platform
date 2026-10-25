@@ -62,7 +62,7 @@ Ultralytics YOLO11 的配置页可生成原生增强预览，对照冻结原图�
 
 「主动学习人工选样」固定模型、未标注候选池和显式预算，保留检测启发式建议与等量随机对照。负责人选择子集后创建普通人工批次，继续分派、标注和审核；反馈只记录实际审核与部分会话时间，缺失的纠正次数和完整工时保持未知，不自动发布或宣称效率提升。
 
-Identity 可通过 `docker-compose.identity.yml` 独立运行，认证、会话、API key、账户、邀请和生命周期由版本化 owner 能力处理。原公开 API 与本地绑定保留；配置远程服务后，故障不会退回本地写入者。协议和最小权限见[Identity 运行时](./docs-site/api/guides/identity-runtime.md)，本地配置见 [DEV.md](./DEV.md#独立-identity-运行时)。源码合并、数据库迁移和运行环境切换分别验收。
+Audit 提供独立分区维护、归档和日聚合刷新命令，使用固定数据库能力及归档桶专用凭据。公开审计查询和归档管理接口保留原有权限与响应；配置和采用范围见 [Audit 运行时](./docs-site/api/guides/audit-runtime.md)。
 
 ## 工作台 AI 案例
 
@@ -160,9 +160,17 @@ Identity 可通过 `docker-compose.identity.yml` 独立运行，认证、会话�
 
 视频媒体切片的语言无关合同、控制进程和执行入口位于 `apps/assets-media`，覆盖元信息、时间表、海报、播放副本和帧／分块的作业围栏，并已通过隔离本地进程与容器联调。部署入口见 [DEV.md](./DEV.md#视频媒体的独立控制与执行)，当前全模块状态及剩余边界见[独立部署台账](./docs-site/dev/concepts/module-deployment.md)。Go 继续作为单独实验。
 
+隔离测试的 E2E 项目、成员及模板通过 Workspace 固定能力写入，清理保留调用方事务并保护未退役视频；见[测试夹具协议](./docs-site/api/guides/workspace-runtime.md#门控-e2e-夹具)。这不代表日常环境已经切换。
+
+规模种子的项目、成员和计数写入也使用对应 owner；清理会保护视频执行、学习历史及辅助来源引用。截图支持读取保留原会话缓存，见[规模种子边界](./docs-site/api/guides/workspace-runtime.md#规模种子与截图支持读取)。
+
 视频推理输入的清单、精确帧、证据与回收已通过隔离数据库、HTTP、独立执行进程及真实对象存储联调；逐帧预标、覆盖、失败重试与候选采纳已接入固定输入，并完成受限容器的 360 帧负载、Celery 优雅交接与 Media 租约接管验证。完整模块部署继续推进，见[受理视频输入协议](./docs-site/api/guides/module-data.md#受理视频输入与帧计划)。
 
 专用视频跟踪、范围传播和 Mask 修正使用各自作业的固定原片输入，逐窗口复用同一保留版本；采样设置变化不会改写已接受请求，候选采纳与派生标注保留原片证据。控制和执行复用现有 Media 工件，见[跟踪原片接口](./docs-site/api/guides/assets-media.md#视频跟踪的原片输入)。
+
+视频输入回收同时核对未退役执行和历史垃圾前缀的当前引用，无法证明安全时保留。升级前须停止并确认清理进程退出、盘点旧租约；历史过期状态及已删除对象不自动恢复，见 [DEV.md](./DEV.md) 与[输入保留台账](./docs-site/dev/concepts/module-deployment.md#tracker-input-retention)。
+
+视频执行增加冻结计划与不可变窗口账本；确认旧范围退役且模型兼容身份完整后，可复用已完成窗口或重放未闭合会话。真实进程中断接管已在隔离本地环境验证。worker 成功、取消和失败的最终写入已有独立 Labeling owner 源码切片，仍在本地验收；人工审核及中间 start/progress 仍由 API 持有，见[视频窗口协议](./docs-site/api/guides/module-data.md#视频执行窗口账本)、[Labeling 写入协议](./docs-site/api/guides/labeling-runtime.md#视频-worker-的最终写入)和 [ADR-0159](./docs/adr/0159-independent-labeling-video-writer.md)。
 
 Mask 内容读写提供可选独立工件 `apps/assets-mask-content`，沿用现有引用和业务权限；回收统一使用持久删除围栏与不可变回执，可本地装配或调用独立协调服务。部署与配置见 [DEV.md](./DEV.md#mask-内容的独立字节服务)，协议见 [Mask 字节接口](./docs-site/api/guides/mask-content.md)。
 
@@ -304,6 +312,10 @@ docker compose --profile monitoring up -d prometheus grafana
 [所有模块的部署与语言替换状态](./docs-site/dev/concepts/module-deployment.md)
 仍按完整运行工件、协议、权限与事务逐项验收。
 
+Notifications 可通过独立 WebSocket 服务持有认证、逐帧授权与 Redis 订阅，API 保留
+原 `/ws/notifications` 地址。可选部署和最小凭据配置见
+[DEV.md](./DEV.md#独立-notifications-websocket)；当前独立运行资格按模块台账记录。
+
 ## 开发工作流
 
 ```bash
@@ -345,6 +357,8 @@ Data Manager 将未解决问题与普通评论分别计数，兼容旧反馈筛�
 
 视频轨迹 API 保留旧关键帧缺失的来源字段，客户端应按「来源未知」处理；新建标注仍使用现有来源默认值，详见[任务与标注 API](./docs-site/api/guides/tasks-and-annotations.md)。
 
+视频作业取消先保存状态与审计，再重投同一作业完成后台退役。若队列投递无法确认，接口返回可重试的 503；重复相同取消请求不会重建作业或重复审计。取消成功仍需等待退役后才能删除项目或解绑数据集，详见[视频作业 API](./docs-site/api/guides/video-tracker-jobs.md)。
+
 内部账号支持邮件恢复、按状态查询、逐项目职责交接、紧急停用与恢复。管理员确认交接时会重新核对接收资格及预览状态；恢复不会拿回已交接工作或恢复已撤销的凭据。接口与兼容字段见[认证与账号生命周期](./docs-site/api/guides/auth.md)。
 
 工作台显示保存和本机待同步状态，并按账号保留离线操作；普通标注创建支持持久幂等键，避免重试生成重复对象。详见[任务与标注 API](./docs-site/api/guides/tasks-and-annotations.md#保存标注与提交任务)。
@@ -353,7 +367,13 @@ Data Manager 将未解决问题与普通评论分别计数，兼容旧反馈筛�
 
 问题回复、状态变化、任务留言和标注评论提及复用站内通知与按类型偏好，点击时重新核对权限并定位原对话。`GET/PUT /api/v1/notification-preferences` 按类型返回并更新「接收通知（in_app）」与「弹出提示（toast）」；PUT 至少提供其一，只原子合并请求出现的键，`toast` 读取为显式选择或类型默认计算出的有效值。讨论通知在业务提交成功后推送，网络推送失败不影响已保存内容，详见[讨论通知](./docs-site/api/guides/tasks-and-annotations.md#讨论通知)。
 
+通知偏好的读取、原子更新和静音判断，以及普通通知的同事务追加，由 `apps/notifications` 的语言无关合同与固定 owner 函数持有。普通即时推送可选择现有独立 publisher 的私网 HTTP 入口，配置与提交语义见 [Notifications 即时发布](./docs-site/api/guides/module-data.md#notifications-即时发布)。原调用方继续控制提交、回滚及提交后推送；收件箱读取和完整投递仍按模块台账推进。切换受限凭据前须更新并排空旧 API／worker，详见 [Notifications 能力](./apps/notifications/README.md)和[开发运行说明](./DEV.md#notifications-偏好事务内能力)。
+
+业务审计、HTTP 元数据及其 Celery 持久化现通过 `apps/audit` 的版本化追加能力写入，保留原事务、actor 快照及匿名重试。查询、归档及完整凭据边界仍在推进；现有 LAN 的分区所有权还不能直接采用严格追加配置，见 [Audit 能力](./apps/audit/README.md)与[模块台账](./docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
+
 命名布局预设通过账号偏好 API 跨设备保存；`namedPresets` 采用带 revision 的整份 map 替换与省略删除语义，陈旧设备写入返回冲突，而 `contexts` 可在预设专用 PATCH 中缺席。安全更新方式与兼容规则见[账号偏好与命名布局预设](./docs-site/api/guides/auth.md#账号偏好与命名布局预设)。
+
+资料、偏好、心跳、自助改密和头像引用可由同一独立 Identity 工件处理；偏好合并、当前凭据校验、状态和业务审计在所有者事务内提交。头像字节继续通过现有存储入口处理，在线扫描使用独立权限。协议见[自助账户命令](./docs-site/api/guides/identity-runtime.md#自助账户命令)，完整 Identity 与其他模块继续按[模块台账](./docs-site/dev/concepts/module-deployment.md)推进。
 
 工作台之外的全局界面偏好（主题、二次推理工具条显隐、登录后「本次更新」提醒的已确认版本）保存在账号偏好的 `ui` 子树并跨设备同步；`ui.changelog_seen_version` 为空表示从未确认，客户端仅在当前构建版本更高时提醒一次。契约见[账号偏好与命名布局预设](./docs-site/api/guides/auth.md#账号偏好与命名布局预设)。
 
@@ -376,6 +396,60 @@ SDK 和 CLI 支持视频媒体／分段租约、追踪候选与质量审阅、Ma
 任务文件采用初始化、签名上传和明确完成的分步流程，签名与排队前校验项目／任务权限；数据集场景提供读取、轨迹与管理员更新，见 [文件上传与数据集场景](./docs-site/dev/sdk/files-and-scenes.md)。
 
 账户／会话、用户／分组／邀请、根健康、系统设置、审计、连接器及 ML 运维可通过 SDK 和 CLI 显式操作，见 [账户、管理与运维](./docs-site/dev/sdk/account-and-operations.md)。项目管理员的审计、预标队列与分组操作由服务器按项目归属限制；批量部分失败和健康降级保留机器可读回执及非零退出码。
+
+Identity 准入、API key、核心会话、自助账户、注册恢复／邮件、分组目录／指派、自助注销，以及完整邀请生命周期与 MailV2 已有本地 owner 资格。用户目录的列表、分页、统计和导出已接入同一 Identity 工件，并通过独立进程、受限数据权限、真实 API、重启和备份恢复的本地验收，保留原可见范围、公开响应与导出审计。管理员重置密码也已通过受限连接、真实 API、重启重放、备份恢复与镜像的本地验收，保留临时密码响应和现有 JWT／API key 行为。平台角色预览和变更也已通过受限权限、真实 API、重放、恢复与镜像的本地验收，保留项目职责阻断和最后一名未预留超级管理员保护；管理员停用和恢复也已通过受限权限、独立进程、真实 API、重启重放及备份恢复的本地验收，保留项目范围、自助注销预约与凭据撤销规则；管理员删除账号也已通过本地受限权限、独立进程、真实 API、转交／重放及备份恢复验收，保留既有任务范围和凭据行为；离职交接预览与提交也已通过窄权限、独立进程、真实 API、原子转交与应急停用、重启重放和备份恢复的本地验收，保持公开接口、预览摘要与已受理操作的回执语义；任务、批次、项目成员、负责人显示和历史记录使用的六字段用户摘要也已通过受限 SQL、独立进程、普通成员权限、真实 API、备份恢复和镜像的本地验收，保留停用用户的历史展示、项目角色回退及调用方事务；共享认证依赖的账号存在、启用状态和角色复查也已移到同一 AUTH owner，并通过只读主体上下文、事务保留、双向语言 peer 与真实 API 的限定本地验收；其余用户查询和剩余模块继续推进，完整 Identity、另一语言提供方与生产容量尚未完成。新验证器的受控切换要求旧 JWT 重新登录，API key 状态保留；日常环境尚未切换，见[认证与权限](./docs-site/api/guides/auth.md)、[Identity 私有运行协议](./docs-site/api/guides/identity-runtime.md)、[目录 ADR](./docs/adr/0123-independent-identity-directory-reads.md)、[管理员改密 ADR](./docs/adr/0124-independent-identity-admin-password-reset.md)、[平台角色 ADR](./docs/adr/0125-independent-identity-platform-role-commands.md)、[管理员停用／恢复 ADR](./docs/adr/0126-independent-identity-suspension-commands.md)、[管理员删除 ADR](./docs/adr/0127-independent-identity-deletion-commands.md)、[离职交接 ADR](./docs/adr/0128-independent-identity-offboarding-commands.md)、[用户摘要 ADR](./docs/adr/0129-identity-batched-user-brief-reads.md)、[主体上下文 ADR](./docs/adr/0130-identity-post-admission-actor-context.md)及 [DEV.md](./DEV.md#identity-独立认证准入)。
+
+执行期的单账号读取与已接受 API-key 最终授权已接入 Identity 的同事务能力，保持当前权限、账号／项目／key 锁序、取消及原错误行为；定向本地检查通过，范围见 [ADR-0161](./docs/adr/0161-identity-current-authority-consumers.md)。集合查询、展示投影、完整模块凭据及独立运行验收继续按唯一台账收口，当前不切换日常或生产环境。
+
+项目成员新增、职责预览／变更及移除支持可选的独立 Workspace owner，保留公开接口、职责交接、冲突和审计语义，并已完成隔离本地验收。负责人转移也支持独立的受限命令绑定，默认路径保留调用方提交边界。项目与模板查询已提供独立读取绑定；成员列表与提及候选也已接入目录 owner，其余 Workspace 入口继续迁移，见 [Workspace 运行指南](./docs-site/api/guides/workspace-runtime.md)。
+
+项目／模板配置模型与纯策略已移到 Workspace 包，预标注阶段结构与规范化由共享 Inference 契约包持有，Workspace 无需安装 Inference 提供方。六项公开配置调用已接入配置 owner，默认保留调用方事务；独立安装包、进程、受限镜像与本地并发执行已完成限定验收，见 [配置命令 ADR](./docs/adr/0136-workspace-configuration-command-owner.md)。
+
+开发点云种子的 Project 读写也已接入固定 Workspace 能力，保留目录／nuScenes 的不同默认值、提交时点和提交后对象清理。运维授权与定向复验见 [开发点云种子](./DEV.md#workspace-开发点云种子)；其他开发脚本和完整模块资格继续按部署台账推进。
+
+主种子脚本自身的账号创建和演示成员写入也使用固定 Identity／Workspace 能力，保留已有账号和原事务行为。受限凭据复验见 [主种子账号与演示成员](./DEV.md#主种子账号与演示成员)；主脚本自身已通过冷中断／恢复验收；媒体子入口和完整模块资格仍按同一台账跟踪。
+
+媒体子种子及截图目录的账号操作也已迁移到 Identity 能力，保留各自的默认值与校验规则。范围和剩余运维入口见[模块台账](./docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
+
+媒体及截图种子的 Project／成员读写也已接入固定 Workspace 能力，保留 COCO8 补工具、截图固定时间及原事务行为；定向及匹配冷工件的真实媒体／截图操作验收均通过，完整模块资格继续按同一台账推进。
+
+图片导入及规模种子的账号选择已接入 Identity 事实／固定只读能力，保留任意首账号和创建时间排序的不同规则。实现、限定验收及其他运维入口见同一模块台账。
+
+历史角色审计使用独立的 Identity 审计关系，兼容较早数据库；需要在只读命令之外显式安装受限关系。部署前置条件与实际资格见[模块台账](./docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
+
+截图作业恢复／拒绝夹具从 Identity 公开事实读取账号 ID；偏好完整恢复使用仅限测试库的固定 Identity 写入能力。受限凭据与授权步骤见 `DEV.md`，整体状态仍以模块台账为准。
+
+门控 E2E 路由的账号、邀请及组织成员清理也通过 Identity 测试能力执行。可信测试运维凭据先应用普通 Identity 围栏，再显式追加夹具能力；普通 API 权限保持，安装步骤见 `DEV.md`。 Jobs 测试清理通过[固定项目范围能力](./docs-site/api/guides/module-data.md#jobs-测试项目清理)保留视频退役检查；普通运行账号的 Jobs 私表 INSERT／UPDATE／DELETE 已撤销，筛选夹具通过固定的测试初始化能力保持原时间戳和事务语义。 项目预标和所选任务导出的[幂等锁读](./docs-site/api/guides/module-data.md#jobs-动作幂等查找)也由 Jobs owner 执行，保留原复用、冲突和事务行为。
+
+类别重命名已接入同一个配置 owner，在单一事务内组合项目绑定和 Labeling 类名写入；同名请求由独立提供方持锁完成投影。三路径、独立安装包、受限镜像、重启、恢复与完整迁移已通过限定本地验收，见 [类别改名 ADR](./docs/adr/0143-workspace-project-class-rename-owner.md)。
+
+指南对象的受限签名、HEAD 与普通删除能力已加入既有 Assets Source 运行时，支持无需数据库凭据的 `guide-only` 模式。公共指南工作流由 Workspace 编排，借用事务、专用 DSN 与独立 HTTP 三路径已通过冻结回放、实际权限锁及备份恢复验收；受限容器重启后仍可读取已登记素材。范围见 [指南素材 ADR](./docs/adr/0144-workspace-guide-assets-owner.md)，完整模块与语言替换资格继续推进。
+
+模板列表、详情和写入后的响应投影也已接入同一个读取 owner，默认借用调用方事务，可选专用 DSN／HTTP；三条路径的旧响应对照、独立安装包、受限镜像、故障恢复与完整迁移均已完成限定本地验收，见 [模板查询 ADR](./docs/adr/0137-workspace-template-query-owner.md)。
+
+成员列表与提及候选的目录 owner 已通过三路径响应对照、独立安装包、受限镜像、故障与备份恢复的限定本地验收；现有权限、成员排序和停用账号展示规则保留。相邻命令和其他模块继续推进，见 [目录读取 ADR](./docs/adr/0140-workspace-directory-query-owner.md)。
+
+项目访问上下文 `/access` 也已接入现有 Project Query owner，沿用同一部署配置，保留两轮当前权限读取与最终成员版本；三路径响应对照、独立安装包、受限镜像、重启、恢复及完整迁移已通过限定本地验收。完整 Workspace 与全模块独立部署仍在推进，见 [访问上下文 ADR](./docs/adr/0141-workspace-project-access-query.md)。
+
+项目访问纯规则与行解码位于共享契约包；Workspace 新增分阶段锁定事实接口，供 Inference 在同一事务内组合原有权限围栏。它是命名流水线独立 owner 的前置能力，范围见 [项目访问事实 ADR](./docs/adr/0145-workspace-project-access-facts.md)。
+
+普通单项目业务读取已统一经过 Workspace 快照边界，支持无 actor 的后台元数据读取，保留原缓存、刷新和调用方事务；当前权限检查仍在原入口完成。排序项目集合锁与两处 Labeling 计数投影已通过同事务 owner 能力执行。项目范围聚合、看板及作业／通知列表通过 Workspace 事实关系过滤，保留原角色和 Identity 校验。非锁定成员集合、绩效名册和批次相关判断也已使用[成员事实关系](./docs/adr/0174-workspace-nonlocking-member-facts.md)，保留各调用的规则和 ORM 行为。Project 集合、投影及 owner 子查询现也通过[原生事实关系](./docs/adr/0175-workspace-project-fact-relations.md)组合 Workspace 字段和 Labeling 计数。生命周期／审核的三处原子计数增减也已由 [Labeling 数据能力](./docs/adr/0176-labeling-lifecycle-counter-deltas.md)执行，保留并发累加、缓存与 Task／Audit 共同事务。数据集解绑也已接入 Workspace 的[可移植事务绑定](./docs/adr/0177-workspace-caller-transaction-dataset-unlink.md)，保留原响应、幂等重放和共同回滚。项目删除和解绑现会在视频执行未退役时返回 409，先取消并完成退役后重试；旧作业缺证明时继续保留。普通调用账号现可显式应用 [Workspace 凭据边界](./docs/adr/0179-workspace-consumer-credential-closure.md)，只保留固定函数与事实关系；完整凭据及模块装配继续按[唯一台账](./docs-site/dev/concepts/module-deployment.md#剩余工作台账)推进。
+
+命名流水线的列表、详情、创建、更新、删除和应用已接入 Inference owner，支持借用调用方事务、专用数据库连接及独立 HTTP 进程。公开接口保留原样；嵌入项目的预标注配置继续由 Workspace 持有。三路径、独立工件、受限容器、并发与恢复已通过限定本地验收，配置见 [Inference 运行指南](./docs-site/api/guides/inference-runtime.md)。
+
+Workspace 的后端能力探测通过 Inference 私有协议返回模态，Workspace 只持有事务绑定的不透明快照；API 的借用连接、专用 DSN 和 HTTP 以及独立 Workspace 均使用同一能力。配置与边界见 [Inference 运行指南](./docs-site/api/guides/inference-runtime.md#workspace-的后端能力探测)；完整模块与语言替换仍按部署台账推进。
+
+健康对账与服务池成员写入采用一致锁顺序；删除与成员移除会拒绝安全检查后的拓扑变化，项目绑定争用会完整回滚。接口冲突及重试见 [ML Backend API](./docs-site/api/guides/ml-backend.md#修改--删除)。
+
+健康检查的外部观察支持独立 Inference 进程，密封快照与回执绑定原事务；能力提取、GPU 围栏与写回仍在原调用方事务完成。健康数据读写和能力对账使用固定 Native 函数，独立数据包可借用调用方事务。配置见 [Inference 运行指南](./docs-site/api/guides/inference-runtime.md#健康观察与调用方写回)，完整健康控制面继续迁移。
+
+启动时的环境后端同步与截图 seed 共用 Registry ingress 策略及固定写入能力。整个环境同步命令可选择借用连接、专用 DSN 或独立 HTTP owner；seed 保留原调用方事务。配置与未完成范围见 [环境同步指南](./docs-site/api/guides/inference-runtime.md#registry-环境同步)。
+
+推理路由正在接入独立的持久执行账本；运行计数不再依赖 Redis 租约，卸载与重载要求管理占用和真实后端连续性。配置与本地验证边界见[路由执行权指南](./docs-site/api/guides/inference-runtime.md#持久路由执行权)。GPU 自动驱逐、作业重启交接与完整模块资格仍在推进。
+
+作业交接的定向退役协议已提供并通过限定本地验收：先关闭单个 scope 的准入，再确认该范围的实际后端工作结束，其他作业继续运行。视频 runner 已接入执行代次、原子路由绑定和当前业务写入检查，重派发复用后台汇总；持久窗口检查点与协调恢复已完成限定本地验收，见[协调恢复 ADR](./docs/adr/0160-coordinated-video-restore.md)；完整 Inference 装配仍按模块台账推进。
+
+类别与属性用量已接入 Labeling 读取边界，先核验当前项目管理权，保留原统计口径和两次顺序读取；独立安装包、三路径响应、语句间提交、受限镜像与备份恢复已完成限定本地验收，见 [Labeling 运行协议](./docs-site/api/guides/labeling-runtime.md)与 [统计 owner ADR](./docs/adr/0142-labeling-class-usage-query-owner.md)。任务／批次控制、人工与批量标注、预测记录与采纳、轨迹命令／撤销、跨帧、视频框及草稿／配置孤儿清理已接入同事务命令边界，完整模块验收仍按[唯一台账](./docs-site/dev/concepts/module-deployment.md#剩余工作台账)推进。
 
 项目与批次维护、数据回填、成员绩效、搜索、指引资源及预测／标注导入见 [项目、批次与数据运维](./docs-site/dev/sdk/project-workflows.md)。分派绑定原预览版本，项目范围约束先于查询限制，批次导出与项目导出使用相同能力检查。
 

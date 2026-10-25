@@ -198,6 +198,8 @@ async def test_active_geometry_gauge_uses_exact_db_counts(monkeypatch):
     children["annotation"].set.assert_called_once_with(7)
     children["prediction"].set.assert_called_once_with(3)
     queries = [str(call.args[0]) for call in db.execute.await_args_list]
+    assert "FROM aap_labeling_v1.annotation_rows" in queries[0]
+    assert "FROM aap_labeling_v1.prediction_rows" in queries[1]
     assert "is_active IS TRUE" in queries[0]
     assert "jsonb_path_exists" in queries[1]
     assert '@.type == "raster_mask"' in queries[1]

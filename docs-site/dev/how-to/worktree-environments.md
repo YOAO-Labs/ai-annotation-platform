@@ -2,7 +2,7 @@
 audience: [dev]
 type: how-to
 status: stable
-last_reviewed: 2026-09-12
+last_reviewed: 2026-10-23
 ---
 
 # 独立工作树开发环境
@@ -13,7 +13,7 @@ last_reviewed: 2026-09-12
 
 - macOS 或 Linux、Node.js、pnpm，以及当前 checkout 独立的 `apps/api/.venv`。先完成 [Orca 工作树初始化](../tutorials/local-dev#orca-工作树初始化)。
 - 本机 Docker 可用；共享 PostgreSQL、MinIO 已经启动。建议在主目录只执行 `docker compose up -d postgres minio`，不要为每个工作树重复启动默认 Compose 栈。
-- PostgreSQL 配置使用本机 `postgresql+asyncpg` URL，不带 query 参数；运行连接与迁移连接必须指向同一个本机实例。两个账号都需要连接 `postgres` 库，启动器通过会话锁核对实例，不能仅凭 loopback 地址和相同端口判断。迁移账号需要创建数据库及管理新库的权限。MinIO endpoint 也必须位于本机，账号需要创建、标记和管理专属 bucket 的权限。
+- PostgreSQL 配置使用本机 `postgresql+asyncpg` URL，不带 query 参数；运行连接与迁移连接必须指向同一个本机实例。两个账号都需要连接 `postgres` 库，启动器通过会话锁核对实例，不能仅凭 loopback 地址和相同端口判断。迁移账号需要创建数据库及管理新库的权限。基础配置若共用一个账号，还需具备 `CREATEROLE`，用于创建本模式的普通运行账号；没有该权限时，先由管理员预配置普通账号，再分开 `DATABASE_URL` 与 `MIGRATION_DATABASE_URL`，启动器不会回退使用 owner。MinIO endpoint 也必须位于本机，账号需要创建、标记和管理专属 bucket 的权限。
 - 默认工作树模式关闭外发 SMTP、Sentry、共享 ML 后端自动注册和 GPU 控制配置，不会启动 GPU worker 或 beat。真实 GPU 调度验证应使用专用验收环境，不能让多个独立控制面管理同一块卡。
 
 这不是生产环境隔离或权限沙箱：基础设施进程和账号可能共享。启动器拒绝 staging/production 配置，也不会自动启动、停止或重建共享 PostgreSQL/MinIO 服务。
@@ -43,13 +43,20 @@ pnpm dev:worktree -- up --with-worker
 | Celery          | 可选的普通及维护 worker，各自单并发，共用本环境的 Redis 和 bucket |
 | DuckDB/临时文件 | 当前工作树、当前模式的独立目录                                    |
 
-`.worktree/identity.json` 保存稳定 ID 和 checkout 路径；提交代码不会改变 ID。各模式下的资源清单和进程记录也保存在 `.worktree/`，不包含数据库密码或完整连接串。该目录已被 Git 忽略，**不要复制、软链接或随手删除它**；丢失归属记录后不能靠资源名自动接管旧数据。移动工作树前，应先停止并按需销毁旧环境。
+`.worktree/identity.json` 保存稳定 ID 和 checkout 路径；提交代码不会改变 ID。各模式下的资源清单和进程记录不包含数据库密码或完整连接串。
+基础配置共用 owner 时，启动器为当前模式创建 `aap_wt_<id>_<mode>_app` 普通 LOGIN，角色 comment 记录相同资源归属；随机密码仅保存在权限为 `0600` 的 `.worktree/<mode>/runtime-credentials.json`。API／普通 worker 使用这个账号，迁移与维护 worker 继续使用原 owner。已有分离账号配置不被替换。
+
+该目录已被 Git 忽略，**不要复制、软链接或随手删除它**；丢失归属记录后不能靠资源名自动接管旧数据。凭据文件损坏、权限过宽、目标或迁移账号变化、已有角色缺少匹配凭据时都会拒绝继续，不自动改密或接管。移动工作树前，应先停止并按需销毁旧环境。
 
 `.env` 仍可链接主目录作为基础配置，运行时仅向子进程注入独立目标，不修改共享文件。直接运行 `pnpm dev:api`、`uv run pytest` 或默认 Compose 不经过这个隔离入口，仍按原来的配置工作。
 
 媒体上传下载地址统一使用同源 `/minio`，Vite 转发到已验证的本机 MinIO endpoint；远程浏览器只需能访问 Web 端口。应用临时文件按模式隔离，端口预留锁则统一保存在用户目录的 `.cache/aap-dev-ports`，供所有工作树和模式协调使用。
 
 前端进程只接收系统和公开配置，不继承数据库或对象存储凭据。API 配置通过匿名管道交给监督进程后传给 API 子进程，不写入磁盘或命令行；API/普通 worker 不继承迁移账号连接。专用维护 worker 将同库的 owner 连接作为 `DATABASE_URL`，同时清空迁移和测试连接变量。进程身份同时核对启动时间、工作树范围和命令摘要，支持软链接入口和相对路径调用。
+
+所有 Identity 专用数据库选择器及文件选择器会在子进程中清空，避免从共享 `.env` 连接到其他环境。默认内嵌 Identity 通过固定 Native 能力读写，其私表与列权限在授权事务内撤销。
+
+自有运行账号不持有角色成员资格；仅允许创建它的普通迁移账号保留 PostgreSQL 自动授予的 ADMIN-only 成员关系。权限、外部数据库依赖或归属变化会阻止继续。`doctor` 只核对角色与真实登录，不创建账号或凭据。
 
 新库只有迁移创建的结构及必要数据，没有原来的账号、项目或媒体。需要管理员时，在下面的隔离 `exec --mode dev` 中运行现有的 `scripts.bootstrap_admin` 流程；凭据按[开发部署说明](/ops/deploy/development#_2-5-首个-super-admin)配置，不放进工作树身份清单。
 
@@ -61,7 +68,7 @@ pnpm dev:worktree -- up --with-worker
 pnpm dev:worktree -- up --mode e2e --scenario filtering
 ```
 
-它准备该工作树的独立 `e2e` 环境、生成筛选数据并启动 API/Web，终端会显示实际端口、账号、各场景链接和预期结果。首次初始化要求该库没有用户、项目或数据集；有数据但没有验收记录时拒绝覆盖，需你先决定是否重建该模式。它不会把测试 seed 路由开放给 `dev` 库。
+它准备该工作树的独立 `e2e` 环境、生成筛选数据并启动 API/Web，终端会显示实际端口、账号、各场景链接和预期结果。初始化使用该模式的普通运行账号；首次要求库内没有账号（含停用账号）、项目或数据集。有数据但没有验收记录时拒绝覆盖，需你先决定是否重建该模式；已有有效验收记录时复用数据并保留操作。它不会把测试 seed 路由开放给 `dev` 库。
 
 账号为 `admin@e2e.test`（管理员）、`anno@e2e.test`（标注员）、`rev@e2e.test`（审核员），初始密码均为 `Test1234`；使用这里的账号，而非普通 demo seed 的 `admin / 123456`。
 
@@ -130,7 +137,7 @@ pnpm dev:worktree -- stop --mode test
 
 `doctor` 不创建资源；它返回 JSON，显示环境身份、资源归属、数据库 revision、本 checkout head、Redis 连通性、进程与 HTTP 就绪状态。未初始化、资源不齐或检查失败时返回非零退出码。启动中的服务不会被当作已就绪。输出不包含连接凭据。
 
-`Ctrl+C` 停止本次启动的 API/Web 和可选 worker，保留资源。`stop` 还会停止对应 Redis 容器，但保留 PostgreSQL、bucket、Redis AOF 和分析文件。进行中的任务不保证能够原地恢复，重要任务应先等到完成后再停止。
+`Ctrl+C` 停止本次启动的 API/Web 和可选 worker，保留资源。`stop` 还会停止对应 Redis 容器，但保留 PostgreSQL、运行账号及凭据、bucket、Redis AOF 和分析文件。进行中的任务不保证能够原地恢复，重要任务应先等到完成后再停止。
 
 需要清空当前环境时，先停止相关客户端，再从 `doctor` 的 `resources.confirmation` 复制精确确认值：
 
@@ -139,11 +146,13 @@ pnpm dev:worktree -- reset --mode test --confirm '<id>:test'
 pnpm dev:worktree -- destroy --mode e2e --confirm '<id>:e2e'
 ```
 
-- `reset`：删除该模式的数据库、Redis、bucket、派生文件，再创建空环境并迁移。
+- `reset`：删除该模式的数据库、自有运行账号、Redis、bucket、派生文件，再创建空环境并迁移；新账号生成新密码。
 - `destroy`：只删除该模式资源，保留工作树身份；验证资源删除后清除该模式的目标记录，允许下次初始化选择新的本机基础设施。
 - `--confirm` 不是泛化的 `--yes`；必须匹配当前工作树和模式。
-- 有数据库连接、环境会话仍在运行、资源标记不匹配时拒绝删除。不使用强制断开数据库连接、全局删桶或共享栈 `down`。
+- 有数据库或运行账号连接、环境会话仍在运行、资源标记不匹配、角色存在外部依赖时拒绝删除。不使用强制断开数据库连接、全局删桶或共享栈 `down`。
 - 基础设施地址变化时，先使用旧配置处理旧环境，不能让同一份清单静默改指另一个服务器。
+
+销毁会先核对全部归属、连接和角色依赖，再删除本模式数据库及准确匹配的自有账号，不对其他数据库执行 `DROP OWNED`。凭据与目标清单保留到全部资源删除成功，失败后可用原配置重试。创建账号与归属 comment 在同一数据库事务里完成；若事务中断但凭据文件已保存，后续 `init` 复用该密码恢复，不自动轮换现有账号。
 
 销毁工作树前，分别清理已经使用过的模式。Git/Orca 删除工作树不会自动删除数据库和 bucket。
 
@@ -163,8 +172,8 @@ apps/api/.venv/bin/python scripts/test-orca-worktree-setup.py
 # 真实基础设施验收：创建随机、带归属标记的临时资源并在结束时删除
 apps/api/.venv/bin/python scripts/verify_worktree_isolation.py -v
 
-# 分离账号验收：临时 PostgreSQL、专属 Redis/bucket，实际派发五项维护任务
+# 共用基础账号验收：自动分离运行账号，实际在线状态任务及五项维护任务
 apps/api/.venv/bin/python scripts/verify_worktree_maintenance.py
 ```
 
-两条 `verify_worktree_*` 命令会创建和删除临时资源，不是无副作用的单元测试。隔离验收覆盖迁移、Redis 键与 Pub/Sub、停止恢复、对象隔离和重建；维护验收额外使用临时 PostgreSQL 容器创建分离账号，验证普通账号不能执行维护 SQL、五项维护任务成功、两个 worker 退出后无遗留连接。只在已核对的本机开发基础设施上运行。
+两条 `verify_worktree_*` 命令会创建和删除临时资源，不是无副作用的单元测试。隔离验收覆盖迁移、Redis 键与 Pub/Sub、停止恢复、对象隔离和重建；维护验收额外使用临时 PostgreSQL 容器，从共用 owner 的基础配置自动分离账号；验证私表与 DDL 拒绝、普通 worker 的真实 Identity Native 调用身份、五项维护任务、重建时凭据稳定及完整退出／清理。只在已核对的本机开发基础设施上运行。

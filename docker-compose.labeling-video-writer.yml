@@ -1,0 +1,36 @@
+services:
+  labeling-video-writer:
+    image: aap-labeling-video-writer:local
+    build:
+      context: .
+      dockerfile: apps/labeling/Dockerfile
+      target: video-writer
+    environment:
+      LABELING_VIDEO_WRITER_HOST: 0.0.0.0
+      LABELING_VIDEO_WRITER_PORT: 8180
+      LABELING_VIDEO_WRITER_DATABASE_URL_FILE: /run/secrets/video_writer_database_url
+      LABELING_VIDEO_WRITER_CONTROL_TOKEN_FILE: /run/secrets/video_writer_control_token
+      ASSETS_MASK_CONTENT_URL: ${ASSETS_MASK_CONTENT_URL:-}
+      ASSETS_MASK_CONTENT_TOKEN_FILE: /run/secrets/video_writer_mask_content_token
+    secrets:
+      - video_writer_database_url
+      - video_writer_control_token
+      - video_writer_mask_content_token
+    ports:
+      - "127.0.0.1:8180:8180"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 768m
+    cpus: 1
+
+secrets:
+  video_writer_database_url:
+    file: ${LABELING_RUNTIME_VIDEO_WRITER_DATABASE_URL_FILE:?Set the Labeling video-writer function-only DSN file}
+  video_writer_control_token:
+    file: ${LABELING_RUNTIME_VIDEO_WRITER_CONTROL_TOKEN_FILE:?Set the Labeling video-writer private bearer file}
+  video_writer_mask_content_token:
+    file: ${LABELING_RUNTIME_VIDEO_WRITER_MASK_CONTENT_TOKEN_FILE:?Set the MaskContent bearer file or an empty file for bbox-only operation}

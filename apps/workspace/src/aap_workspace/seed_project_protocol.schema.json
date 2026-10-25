@@ -1,0 +1,169 @@
+{
+  "$defs": {
+    "NuScenesSeedDefaultsWrite": {
+      "additionalProperties": false,
+      "description": "Receipt for reasserting the fixed nuScenes development Project fields.",
+      "properties": {
+        "schema": {
+          "const": "aap-workspace-seed-project/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Updated At",
+          "x-source-timezone": "UTC",
+          "x-timezone-aware": true
+        }
+      },
+      "required": ["schema", "project_id", "updated_at"],
+      "title": "NuScenesSeedDefaultsWrite",
+      "type": "object"
+    },
+    "PointCloudSeedProjectCreated": {
+      "additionalProperties": false,
+      "description": "Receipt for inserting the legacy non-scene point-cloud seed Project.",
+      "properties": {
+        "schema": {
+          "const": "aap-workspace-seed-project/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "display_id": {
+          "title": "Display Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "display_id", "project_id"],
+      "title": "PointCloudSeedProjectCreated",
+      "type": "object"
+    }
+  },
+  "anyOf": [
+    {
+      "$ref": "#/$defs/PointCloudSeedProjectCreated"
+    },
+    {
+      "$ref": "#/$defs/NuScenesSeedDefaultsWrite"
+    }
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-workspace-seed-project/v1",
+  "x-native-capabilities": {
+    "protocol": "aap-workspace-seed-project/v1",
+    "postgres_schema": "aap_workspace_v1",
+    "functions": [
+      {
+        "name": "create_point_cloud_seed_project",
+        "signature": "aap_workspace_v1.create_point_cloud_seed_project(uuid, text, text, uuid, jsonb)",
+        "arguments": [
+          {
+            "name": "p_project_id",
+            "postgres_type": "uuid",
+            "json_schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "p_display_id",
+            "postgres_type": "text",
+            "json_schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "p_name",
+            "postgres_type": "text",
+            "json_schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "p_owner_id",
+            "postgres_type": "uuid",
+            "json_schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "p_tool_bindings",
+            "postgres_type": "jsonb",
+            "json_schema": {
+              "$defs": {
+                "JsonValue": {}
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            }
+          }
+        ],
+        "result_postgres_type": "jsonb",
+        "result_model": "PointCloudSeedProjectCreated",
+        "result_schema_ref": "#/$defs/PointCloudSeedProjectCreated",
+        "transaction_semantics": "Insert one fixed non-scene Lidar seed Project using the caller-supplied UUID and display ID; this is not an upsert. The trusted caller owns authorization, the surrounding workflow transaction, and commit. Uniqueness, foreign-key, and length errors remain database errors."
+      },
+      {
+        "name": "write_nuscenes_seed_defaults",
+        "signature": "aap_workspace_v1.write_nuscenes_seed_defaults(uuid, text, jsonb)",
+        "arguments": [
+          {
+            "name": "p_project_id",
+            "postgres_type": "uuid",
+            "json_schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "p_name",
+            "postgres_type": "text",
+            "json_schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "p_tool_bindings",
+            "postgres_type": "jsonb",
+            "json_schema": {
+              "$defs": {
+                "JsonValue": {}
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            }
+          }
+        ],
+        "result_postgres_type": "jsonb",
+        "result_model": "NuScenesSeedDefaultsWrite",
+        "result_schema_ref": "#/$defs/NuScenesSeedDefaultsWrite",
+        "transaction_semantics": "Set only name, tool_bindings, scene_mode, and prefer_same_scene_continuation on an existing Project in the caller's transaction. Equal values leave updated_at unchanged; a missing row returns a null updated_at. The trusted caller retains authorization, workflow ordering, and commit."
+      }
+    ],
+    "authorization_boundary": "Trusted seed callers retain authorization and workflow policy; these fixed maintenance functions add no application authorization.",
+    "transaction_boundary": "The caller owns the surrounding transaction and commit."
+  }
+}

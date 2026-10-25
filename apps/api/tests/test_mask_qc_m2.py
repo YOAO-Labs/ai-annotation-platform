@@ -15,7 +15,8 @@ from app.db.models.mask_qc import MaskQCIssue, MaskQCRun
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
-from app.schemas.mask_qc import MaskQCConfig, MaskQCRunRequest
+from aap_workspace.mask_configuration_values import MaskQCConfig
+from app.schemas.mask_qc import MaskQCRunRequest
 from app.services.mask_qc.config import mask_qc_config_digest
 from app.services.mask_qc.service import (
     canonical_digest,
@@ -225,9 +226,10 @@ async def test_mask_qc_execution_dedupes_findings_and_advances_last_seen(
     await execute_mask_qc(
         db_session, run_id=first.id, celery_task_id=first_job.celery_task_id
     )
-    await db_session.refresh(first)
-    assert first.status == "completed"
-    assert first.progress_pct == 100
+    persisted_first = await db_session.get(MaskQCRun, first.id, populate_existing=True)
+    assert persisted_first is not None
+    assert persisted_first.status == "completed", persisted_first.error_message
+    assert persisted_first.progress_pct == 100
     first_count = int(
         (
             await db_session.execute(select(func.count()).select_from(MaskQCIssue))
@@ -496,7 +498,7 @@ async def test_blocking_qc_prevents_approve_until_blocker_resolved(
         annotator_id=contrib.id,
     )
     snapshot, source_digest = await current_task_source_snapshot(
-        db_session, task_id=task.id
+        db_session, task_id=task.id, project_id=project.id
     )
     assert source_digest is not None
     run = MaskQCRun(
@@ -665,9 +667,10 @@ async def test_mask_qc_cancel_updates_generic_and_domain_ledgers(
         headers=_bearer(token),
     )
     assert response.status_code == 200, response.text
-    await db_session.refresh(run)
+    persisted_run = await db_session.get(MaskQCRun, run.id, populate_existing=True)
+    assert persisted_run is not None
     await db_session.refresh(job)
-    assert run.status == "cancelled"
+    assert persisted_run.status == "cancelled"
     assert job.status == AsyncJobStatus.CANCELLED.value
     revoke.assert_called_once_with(job.celery_task_id, terminate=False)
 

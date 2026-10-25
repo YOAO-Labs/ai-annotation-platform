@@ -1,0 +1,120 @@
+{
+  "$defs": {
+    "AnnotationStatisticsCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-statistics/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "recompute_task_statistics",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "task_id"],
+      "title": "AnnotationStatisticsCommand",
+      "type": "object"
+    },
+    "AnnotationStatisticsSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "task_found": {
+          "title": "Task Found",
+          "type": "boolean"
+        },
+        "total_annotations": {
+          "minimum": 0,
+          "title": "Total Annotations",
+          "type": "integer"
+        },
+        "is_labeled": {
+          "title": "Is Labeled",
+          "type": "boolean"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Status"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "status_changed": {
+          "title": "Status Changed",
+          "type": "boolean"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Updated At"
+        }
+      },
+      "required": [
+        "task_found",
+        "total_annotations",
+        "is_labeled",
+        "status",
+        "batch_id",
+        "status_changed",
+        "updated_at"
+      ],
+      "title": "AnnotationStatisticsSnapshot",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "aap-labeling-annotation-statistics-data/v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "ok": {
+      "const": true,
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "request": {
+      "$ref": "#/$defs/AnnotationStatisticsCommand"
+    },
+    "data": {
+      "$ref": "#/$defs/AnnotationStatisticsSnapshot"
+    }
+  },
+  "required": ["schema", "ok", "request", "data"],
+  "title": "AnnotationStatisticsReply",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-labeling-annotation-statistics/v1",
+  "x-postgresql-functions": ["aap_labeling_v1.annotation_statistics_command(jsonb)"]
+}

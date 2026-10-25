@@ -22,6 +22,7 @@ from fastapi import (
 from pydantic import BaseModel
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.deps import (
     get_current_user,
@@ -34,9 +35,7 @@ from app.deps import (
 )
 from app.db.enums import UserRole
 from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
-from app.db.models.prediction import FailedPrediction
 from app.db.models.project import Project
-from app.db.models.task import Task
 from app.schemas.aap_json import AAPImportErrorEntry, AAPImportResult
 from app.schemas.prediction import (
     PredictionPurgeCounts,
@@ -53,6 +52,12 @@ from app.services.prediction import (
     assert_can_manage_failed_prediction,
 )
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.workspace_read_relations import project_facts, project_rows
+from app.services.labeling_core_read_relations import (
+    failed_prediction_row,
+    get_core_row,
+    task_row,
+)
 
 
 router = APIRouter()
@@ -106,23 +111,27 @@ async def list_failed_predictions(
     actor: IdentityActorFacts = Depends(require_roles(*_MANAGERS)),
 ):
     base_filter = (
-        FailedPrediction.dismissed_at.is_(None) if not include_dismissed else None
+        failed_prediction_row.dismissed_at.is_(None) if not include_dismissed else None
     )
 
-    count_q = select(func.count()).select_from(FailedPrediction)
+    count_q = select(func.count()).select_from(failed_prediction_row)
+    project_row = aliased(Project, project_rows(), adapt_on_names=True)
     rows_q = (
-        select(FailedPrediction, Task, Project, MLBackend)
-        .outerjoin(Task, Task.id == FailedPrediction.task_id)
-        .outerjoin(Project, Project.id == FailedPrediction.project_id)
-        .outerjoin(MLBackend, MLBackend.id == FailedPrediction.ml_backend_id)
-        .order_by(desc(FailedPrediction.created_at))
+        select(failed_prediction_row, task_row, project_row, MLBackend)
+        .outerjoin(task_row, task_row.id == failed_prediction_row.task_id)
+        .outerjoin(project_row, project_row.id == failed_prediction_row.project_id)
+        .outerjoin(MLBackend, MLBackend.id == failed_prediction_row.ml_backend_id)
+        .order_by(desc(failed_prediction_row.created_at))
     )
     if actor.role == UserRole.PROJECT_ADMIN.value:
         # A platform project administrator's global list covers only their own
         # projects; an explicit other-owner project cannot be enumerated here.
-        owned_project_ids = select(Project.id).where(Project.owner_id == actor.id)
-        count_q = count_q.where(FailedPrediction.project_id.in_(owned_project_ids))
-        rows_q = rows_q.where(FailedPrediction.project_id.in_(owned_project_ids))
+        owner_facts = project_facts()
+        owned_project_ids = select(owner_facts.c.id).where(
+            owner_facts.c.owner_id == actor.id
+        )
+        count_q = count_q.where(failed_prediction_row.project_id.in_(owned_project_ids))
+        rows_q = rows_q.where(failed_prediction_row.project_id.in_(owned_project_ids))
     if base_filter is not None:
         count_q = count_q.where(base_filter)
         rows_q = rows_q.where(base_filter)
@@ -200,7 +209,7 @@ async def dismiss_failed_prediction(
     审计：``failed_prediction.dismissed``。重复调用幂等——已 dismiss 的行
     不更新 dismissed_at。
     """
-    fp = await db.get(FailedPrediction, failed_id)
+    fp = await get_core_row(db, failed_prediction_row, failed_id)
     if not fp:
         raise HTTPException(status_code=404, detail="Failed prediction not found")
     await assert_can_manage_failed_prediction(db, fp, current_user.id)
@@ -237,7 +246,7 @@ async def restore_failed_prediction(
     current_user: IdentityActorFacts = Depends(require_roles(*_MANAGERS)),
 ) -> Any:
     """v0.8.8 · 误操作恢复：清空 ``dismissed_at``，让该行重回默认列表。"""
-    fp = await db.get(FailedPrediction, failed_id)
+    fp = await get_core_row(db, failed_prediction_row, failed_id)
     if not fp:
         raise HTTPException(status_code=404, detail="Failed prediction not found")
     await assert_can_manage_failed_prediction(db, fp, current_user.id)
@@ -448,7 +457,9 @@ async def import_predictions(
                 "error_count": len(result.errors),
                 "model_version_fallback": model_version,
                 "overwrite_existing": overwrite_existing,
-                "image_size_hint": image_size_hint,
+                "image_size_hint": list(image_size_hint)
+                if image_size_hint is not None
+                else None,
                 "yolo_variant": yolo_variant if format == "yolo" else None,
             },
         )

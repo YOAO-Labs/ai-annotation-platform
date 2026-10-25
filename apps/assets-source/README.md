@@ -141,6 +141,57 @@ configuration; no bulk-ingest environment variables are added.
 
 ## Configuration
 
+### Optional project guide objects
+
+The same binary supports `ASSETS_SOURCE_MODE=guide-only` and
+`source-and-guide`; the default `source` behavior is unchanged. Guide-only needs
+no PostgreSQL, connector or Dataset source credentials and registers only
+health/readiness and bearer-authenticated `POST /v1/guide-objects/execute`.
+Combined mode uses separate source and guide storage identities.
+
+The closed [guide object schema](src/aap_assets_source/guide_object_contract.schema.json)
+exposes only PUT signing (900 seconds), HEAD, ordinary DELETE and GET signing
+(nominal 3600 seconds, aligned to a 600-second window). Requests and replies bind
+request UUID, operation, Project UUID and its `projects/{project}/guide/` key.
+There are no bucket/version selectors or public authorization decisions. Workspace
+retains project access policy and metadata ownership. Public Guide routes use
+the Workspace Configuration owner; command qualification is still in progress.
+
+Guide credentials allow GetObject, PutObject and DeleteObject only under the
+configured annotation bucket's `projects/*/guide/*`. Do not grant ListBucket,
+bucket administration or version deletion. The local MinIO permission probe
+required an explicit Deny for `s3:DeleteObjectVersion` in addition to the narrow
+ordinary-operation allow; verify this on the selected object-store platform.
+Ordinary deletion preserves historical versions and may add a delete marker.
+
+| Guide setting                                    | Purpose                                                           |
+| ------------------------------------------------ | ----------------------------------------------------------------- |
+| `ASSETS_SOURCE_MODE`                             | `source`, `guide-only`, or `source-and-guide`.                    |
+| `ASSETS_SOURCE_GUIDE_S3_ENDPOINT`                | Internal HTTP(S) origin.                                          |
+| `ASSETS_SOURCE_GUIDE_S3_PUBLIC_URL`              | Safe public URL prefix or same-origin path; default `/minio`.     |
+| `ASSETS_SOURCE_GUIDE_S3_REGION`                  | Explicit signing region; default `us-east-1`.                     |
+| `ASSETS_SOURCE_GUIDE_S3_BUCKET`                  | Fixed annotation bucket; never request-selected.                  |
+| `ASSETS_SOURCE_GUIDE_S3_ACCESS_KEY` or `_FILE`   | Guide-only scoped S3 access key.                                  |
+| `ASSETS_SOURCE_GUIDE_S3_SECRET_KEY` or `_FILE`   | Matching secret.                                                  |
+| `ASSETS_SOURCE_GUIDE_S3_CONNECT_TIMEOUT_SECONDS` | Bounded connection time, default 2 seconds.                       |
+| `ASSETS_SOURCE_GUIDE_S3_READ_TIMEOUT_SECONDS`    | Bounded read time, default 5 seconds.                             |
+| `ASSETS_SOURCE_GUIDE_MAX_IN_FLIGHT`              | Immediate admission bound, default 4; excess calls return `busy`. |
+
+Shared token, host/port and JSON body budgets below also apply to Guide mode.
+Guide-only readiness confirms successful assembly; it does not probe S3 or IAM.
+There is no automatic transport/SDK retry or durable deletion receipt. A timeout
+can leave object effects uncertain, and cancellation cannot stop an already-running
+boto3 thread. PostgreSQL and S3 have no distributed atomic commit.
+
+Guide URL signing deliberately retains the old SigV2 internal-sign/rewrite
+convention for `/minio`; ordinary object I/O uses SigV4. Source upload signing
+continues to use its separate SigV4 public-origin convention. The optional
+`client` extra provides the bounded one-attempt `GuideObjectHttpClient` without
+the server's boto3/asyncpg dependencies. Scope and transition gates are recorded
+in [ADR-0144](../../docs/adr/0144-workspace-guide-assets-owner.md).
+
+### Source operations
+
 All settings are explicit. Generic `DATABASE_URL`, `AWS_*`, MinIO, and API
 settings are never fallback sources.
 

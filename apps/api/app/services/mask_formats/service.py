@@ -10,12 +10,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db.models.async_job import AsyncJob, AsyncJobKind
-from app.db.models.mask_format_import import MaskFormatImport
 from app.db.models.project import Project
 from app.schemas.mask_format import (
     MaskFormatImportBatchOut,
@@ -28,6 +26,23 @@ from app.services.async_job_terminal import JobTerminal
 from app.services.mask_formats.contracts import StagedObject, canonical_digest
 from app.services.mask_formats.catalog import registry
 from app.services.storage import storage_service
+from aap_labeling.annotation_transfer_contract import (
+    ANNOTATION_TRANSFER_PROTOCOL,
+    CancelPendingMaskFormatImport,
+    CreateMaskFormatImport,
+    FinishMaskFormatImport,
+    LinkMaskFormatImportJob,
+    LockMaskFormatImport,
+    LockMaskFormatImportReceipt,
+    MarkMaskFormatImportRunning,
+    MaskFormatImportSnapshot,
+    RecordMaskFormatImportItem,
+    ReadMaskFormatImport,
+)
+from app.services.labeling_annotation_transfer import (
+    AnnotationTransferRejected,
+    annotation_transfer_command,
+)
 
 
 RECEIPT_TTL = timedelta(minutes=15)
@@ -47,6 +62,18 @@ class MaskFormatError(ValueError):
         self.message = message
         self.status_code = status_code
         self.detail = detail or {}
+
+
+async def _transfer(db: AsyncSession, command):
+    try:
+        return await annotation_transfer_command(db, command)
+    except AnnotationTransferRejected as exc:
+        raise MaskFormatError(
+            exc.reason,
+            str(exc),
+            status_code=exc.status_code,
+            detail=exc.detail if isinstance(exc.detail, dict) else None,
+        ) from exc
 
 
 def staged_prefix(project_id: uuid.UUID, user_id: uuid.UUID) -> str:
@@ -149,7 +176,7 @@ def materialize_staged_object(
         )
 
 
-def batch_out(batch: MaskFormatImport) -> MaskFormatImportBatchOut:
+def batch_out(batch: MaskFormatImportSnapshot) -> MaskFormatImportBatchOut:
     return MaskFormatImportBatchOut(
         id=batch.id,
         project_id=batch.project_id,
@@ -221,29 +248,33 @@ async def preflight_import(
 
     receipt = f"mfi_{secrets.token_urlsafe(32)}"
     expires_at = datetime.now(timezone.utc) + RECEIPT_TTL
-    batch = MaskFormatImport(
-        project_id=project.id,
-        requested_by_id=user_id,
-        format_id=format_id,
-        adapter_version=adapter.descriptor.adapter_version,
-        manifest_version=adapter.descriptor.manifest_version,
-        staged_object_key=staged_object_key,
-        staged_sha256=staged_sha256,
-        mapping_json=mapping,
-        options_json=options,
-        mapping_digest=canonical_digest(mapping),
-        options_digest=canonical_digest(options),
-        plan_json=plan.model_dump(mode="json"),
-        plan_digest=plan.plan_digest,
-        token_hash=_token_hash(receipt),
-        receipt_expires_at=expires_at,
-        status="staged",
-        result_json={"items": {}},
+    data = await _transfer(
+        db,
+        CreateMaskFormatImport(
+            schema=ANNOTATION_TRANSFER_PROTOCOL,
+            operation="create_mask_format_import",
+            id=uuid.uuid4(),
+            project_id=project.id,
+            requested_by_id=user_id,
+            format_id=format_id,
+            adapter_version=adapter.descriptor.adapter_version,
+            manifest_version=adapter.descriptor.manifest_version,
+            staged_object_key=staged_object_key,
+            staged_sha256=staged_sha256,
+            mapping_json=mapping,
+            options_json=options,
+            mapping_digest=canonical_digest(mapping),
+            options_digest=canonical_digest(options),
+            plan_json=plan.model_dump(mode="json"),
+            plan_digest=plan.plan_digest,
+            token_hash=_token_hash(receipt),
+            receipt_expires_at=expires_at,
+            result_json={"items": {}},
+        ),
     )
-    db.add(batch)
-    await db.flush()
+    assert data.mask_import is not None
     return MaskFormatImportPreflightResponse(
-        import_id=batch.id,
+        import_id=data.mask_import.id,
         receipt=receipt,
         receipt_expires_at=expires_at,
         plan=plan,
@@ -258,22 +289,19 @@ async def execute_import(
     receipt: str,
     plan_digest: str,
     confirm_lossy: bool,
-) -> tuple[MaskFormatImport, bool]:
-    batch = (
-        await db.execute(
-            select(MaskFormatImport)
-            .where(MaskFormatImport.token_hash == _token_hash(receipt))
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
-    if (
-        batch is None
-        or batch.project_id != project.id
-        or batch.requested_by_id != user_id
-    ):
-        raise MaskFormatError(
-            "format_receipt_not_found", "format receipt not found", status_code=404
-        )
+) -> tuple[MaskFormatImportSnapshot, bool]:
+    data = await _transfer(
+        db,
+        LockMaskFormatImportReceipt(
+            schema=ANNOTATION_TRANSFER_PROTOCOL,
+            operation="lock_mask_format_import_receipt",
+            token_hash=_token_hash(receipt),
+            project_id=project.id,
+            requested_by_id=user_id,
+        ),
+    )
+    assert data.mask_import is not None
+    batch = data.mask_import
     if batch.plan_digest != plan_digest:
         raise MaskFormatError(
             "format_plan_digest_conflict", "format plan digest changed"
@@ -333,17 +361,44 @@ async def execute_import(
             "project_display_id": project.display_id,
         },
     )
-    batch.async_job_id = job.id
-    batch.status = "pending"
-    return batch, True
+    linked = await _transfer(
+        db,
+        LinkMaskFormatImportJob(
+            schema=ANNOTATION_TRANSFER_PROTOCOL,
+            operation="link_mask_format_import_job",
+            id=batch.id,
+            project_id=project.id,
+            requested_by_id=user_id,
+            async_job_id=job.id,
+            resume=False,
+        ),
+    )
+    assert linked.mask_import is not None
+    return linked.mask_import, True
 
 
 async def resume_import(
     db: AsyncSession,
     *,
-    batch: MaskFormatImport,
+    batch_id: uuid.UUID,
+    project_id: uuid.UUID,
     user_id: uuid.UUID,
-) -> MaskFormatImport:
+) -> MaskFormatImportSnapshot:
+    data = await _transfer(
+        db,
+        LockMaskFormatImport(
+            schema=ANNOTATION_TRANSFER_PROTOCOL,
+            operation="lock_mask_format_import",
+            id=batch_id,
+            project_id=project_id,
+            async_job_id=None,
+        ),
+    )
+    batch = data.mask_import
+    if batch is None:
+        raise MaskFormatError(
+            "format_import_not_found", "format import not found", status_code=404
+        )
     if batch.requested_by_id != user_id:
         raise MaskFormatError(
             "format_import_not_found", "format import not found", status_code=404
@@ -367,10 +422,20 @@ async def resume_import(
             "resumed": True,
         },
     )
-    batch.async_job_id = job.id
-    batch.status = "pending"
-    batch.completed_at = None
-    return batch
+    linked = await _transfer(
+        db,
+        LinkMaskFormatImportJob(
+            schema=ANNOTATION_TRANSFER_PROTOCOL,
+            operation="link_mask_format_import_job",
+            id=batch.id,
+            project_id=batch.project_id,
+            requested_by_id=user_id,
+            async_job_id=job.id,
+            resume=True,
+        ),
+    )
+    assert linked.mask_import is not None
+    return linked.mask_import
 
 
 async def dispatch_import(
@@ -386,101 +451,184 @@ async def dispatch_import(
         ) from exc
 
 
-def _committed_import_items(batch: MaskFormatImport) -> int:
-    return sum(
-        1
-        for value in ((batch.result_json or {}).get("items") or {}).values()
-        if isinstance(value, dict) and value.get("status") == "committed"
+async def read_import(
+    db: AsyncSession, *, import_id: uuid.UUID, project_id: uuid.UUID | None = None
+) -> MaskFormatImportSnapshot | None:
+    data = await _transfer(
+        db,
+        ReadMaskFormatImport(
+            schema=ANNOTATION_TRANSFER_PROTOCOL,
+            operation="read_mask_format_import",
+            id=import_id,
+            project_id=project_id,
+        ),
     )
+    return data.mask_import
 
 
-def _mark_import_terminal(batch: MaskFormatImport, status: str) -> None:
-    batch.status = status
-    batch.completed_at = datetime.now(timezone.utc)
+async def lock_import(
+    db: AsyncSession,
+    *,
+    import_id: uuid.UUID | None = None,
+    project_id: uuid.UUID | None = None,
+    async_job_id: uuid.UUID | None = None,
+) -> MaskFormatImportSnapshot | None:
+    data = await _transfer(
+        db,
+        LockMaskFormatImport(
+            schema=ANNOTATION_TRANSFER_PROTOCOL,
+            operation="lock_mask_format_import",
+            id=import_id,
+            project_id=project_id,
+            async_job_id=async_job_id,
+        ),
+    )
+    return data.mask_import
 
 
-def mark_import_running(batch: MaskFormatImport) -> None:
-    """Move the domain batch into execution without committing its transaction."""
-    batch.status = "running"
+async def mark_import_running(
+    db: AsyncSession, batch: MaskFormatImportSnapshot
+) -> MaskFormatImportSnapshot:
+    data = await _transfer(
+        db,
+        MarkMaskFormatImportRunning(
+            schema=ANNOTATION_TRANSFER_PROTOCOL,
+            operation="mark_mask_format_import_running",
+            id=batch.id,
+            async_job_id=batch.async_job_id,
+        ),
+    )
+    assert data.mask_import is not None
+    return data.mask_import
 
 
-def record_import_item_result(
-    batch: MaskFormatImport, item_key: str, item_result: dict[str, Any]
-) -> None:
-    """Journal one result in the caller's existing per-item transaction."""
-    result = dict(batch.result_json or {})
-    result["items"] = dict(result.get("items") or {})
-    result["items"][item_key] = item_result
-    batch.result_json = result
+async def record_import_item_result(
+    db: AsyncSession,
+    batch: MaskFormatImportSnapshot,
+    item_key: str,
+    item_result: dict[str, Any],
+) -> MaskFormatImportSnapshot:
+    data = await _transfer(
+        db,
+        RecordMaskFormatImportItem(
+            schema=ANNOTATION_TRANSFER_PROTOCOL,
+            operation="record_mask_format_import_item",
+            id=batch.id,
+            async_job_id=batch.async_job_id,
+            item_key=item_key,
+            item_result=item_result,
+        ),
+    )
+    assert data.mask_import is not None
+    return data.mask_import
 
 
-def cancel_import_execution(batch: MaskFormatImport) -> int:
-    """Set the cancelled/partial ledger state and return its committed-item count."""
-    committed = _committed_import_items(batch)
-    _mark_import_terminal(batch, "partial" if committed else "cancelled")
-    return committed
+async def cancel_import_execution(
+    db: AsyncSession, batch: MaskFormatImportSnapshot
+) -> int:
+    data = await _transfer(
+        db,
+        FinishMaskFormatImport(
+            schema=ANNOTATION_TRANSFER_PROTOCOL,
+            operation="finish_mask_format_import",
+            action="cancel",
+            id=batch.id,
+            async_job_id=batch.async_job_id,
+            failed=None,
+            completed=None,
+            skipped=None,
+        ),
+    )
+    assert data.committed_count is not None
+    return data.committed_count
 
 
-def complete_import_batch(
-    batch: MaskFormatImport,
+async def complete_import_batch(
+    db: AsyncSession,
+    batch: MaskFormatImportSnapshot,
     *,
     failed: int,
     completed: int,
     skipped: int,
-) -> str:
-    """Set the final execution state while preserving partial-failure semantics."""
-    status = (
-        "partial"
-        if failed and (completed or skipped)
-        else ("failed" if failed else "completed")
+) -> MaskFormatImportSnapshot:
+    data = await _transfer(
+        db,
+        FinishMaskFormatImport(
+            schema=ANNOTATION_TRANSFER_PROTOCOL,
+            operation="finish_mask_format_import",
+            action="complete",
+            id=batch.id,
+            async_job_id=batch.async_job_id,
+            failed=failed,
+            completed=completed,
+            skipped=skipped,
+        ),
     )
-    _mark_import_terminal(batch, status)
-    return status
+    assert data.mask_import is not None
+    return data.mask_import
 
 
-def fail_import_batch(batch: MaskFormatImport) -> None:
-    """Mark an unexpected execution failure without committing the caller's work."""
-    _mark_import_terminal(batch, "failed")
+async def fail_import_batch(db: AsyncSession, batch: MaskFormatImportSnapshot) -> None:
+    await _transfer(
+        db,
+        FinishMaskFormatImport(
+            schema=ANNOTATION_TRANSFER_PROTOCOL,
+            operation="finish_mask_format_import",
+            action="fail",
+            id=batch.id,
+            async_job_id=batch.async_job_id,
+            failed=None,
+            completed=None,
+            skipped=None,
+        ),
+    )
 
 
 async def reconcile_job_terminal(db: AsyncSession, terminal: JobTerminal) -> None:
-    """Preserve partial imports when cancellation follows committed items."""
-    batch = (
-        await db.execute(
-            select(MaskFormatImport)
-            .where(MaskFormatImport.async_job_id == terminal.job_id)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
-    if batch is None:
-        return
-    if terminal.cancelled:
-        if batch.status not in {"pending", "running"}:
-            return
-        batch.status = "partial" if _committed_import_items(batch) else "cancelled"
-    else:
-        batch.status = "failed"
-    batch.completed_at = datetime.now(timezone.utc)
+    await _transfer(
+        db,
+        FinishMaskFormatImport(
+            schema=ANNOTATION_TRANSFER_PROTOCOL,
+            operation="finish_mask_format_import",
+            action="reconcile_cancel" if terminal.cancelled else "reconcile_fail",
+            id=None,
+            async_job_id=terminal.job_id,
+            failed=None,
+            completed=None,
+            skipped=None,
+        ),
+    )
 
 
 async def request_job_cancel(
     db: AsyncSession, job_id: uuid.UUID, *, pending: bool
 ) -> str:
-    """Cancel a queued import or request a stop at its next item boundary."""
-    batch = (
-        await db.execute(
-            select(MaskFormatImport)
-            .where(MaskFormatImport.async_job_id == job_id)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
+    batch_data = await _transfer(
+        db,
+        LockMaskFormatImport(
+            schema=ANNOTATION_TRANSFER_PROTOCOL,
+            operation="lock_mask_format_import",
+            id=None,
+            project_id=None,
+            async_job_id=job_id,
+        ),
+    )
     if pending:
         await async_job_svc.mark_cancelled(
             db, job_id, result={"reason": "cancelled_by_user"}
         )
-        if batch is not None and batch.status == "pending":
-            batch.status = "cancelled"
-            batch.completed_at = datetime.now(timezone.utc)
+        if (
+            batch_data.mask_import is not None
+            and batch_data.mask_import.status == "pending"
+        ):
+            await _transfer(
+                db,
+                CancelPendingMaskFormatImport(
+                    schema=ANNOTATION_TRANSFER_PROTOCOL,
+                    operation="cancel_pending_mask_format_import",
+                    async_job_id=job_id,
+                ),
+            )
         await notify_job_terminal(db, job_id=job_id)
         return "cancelled"
     await async_job_svc.request_cancel(db, job_id)
@@ -494,14 +642,17 @@ async def record_import_dispatch_task(
     async_job_id: uuid.UUID,
     celery_task_id: str,
 ) -> None:
-    batch = (
-        await db.execute(
-            select(MaskFormatImport)
-            .where(MaskFormatImport.id == batch_id)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
-    if batch is None or batch.async_job_id != async_job_id:
+    data = await _transfer(
+        db,
+        LockMaskFormatImport(
+            schema=ANNOTATION_TRANSFER_PROTOCOL,
+            operation="lock_mask_format_import",
+            id=batch_id,
+            project_id=None,
+            async_job_id=async_job_id,
+        ),
+    )
+    if data.mask_import is None:
         return
     job = await db.get(AsyncJob, async_job_id)
     if job is not None:
@@ -515,15 +666,20 @@ async def fail_import_dispatch(
     async_job_id: uuid.UUID,
     error: str,
 ) -> None:
-    batch = (
-        await db.execute(
-            select(MaskFormatImport)
-            .where(MaskFormatImport.id == batch_id)
-            .with_for_update()
-        )
-    ).scalar_one()
-    if batch.async_job_id != async_job_id:
+    data = await _transfer(
+        db,
+        FinishMaskFormatImport(
+            schema=ANNOTATION_TRANSFER_PROTOCOL,
+            operation="finish_mask_format_import",
+            action="fail",
+            id=batch_id,
+            async_job_id=async_job_id,
+            failed=None,
+            completed=None,
+            skipped=None,
+        ),
+    )
+    if data.mask_import is None:
         return
-    batch.status = "failed"
     await async_job_svc.mark_failed(db, async_job_id, error=error)
     await notify_job_terminal(db, job_id=async_job_id)

@@ -21,8 +21,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.db.models.audit_log import AuditLog
-from app.db.models.task_event import TaskEvent
+from app.services.audit_read_relations import audit_event
+from app.services.labeling_discussion_relations import task_event_facts
 
 log = logging.getLogger(__name__)
 
@@ -107,29 +107,26 @@ def _set_high_water(con: duckdb.DuckDBPyConnection, source: str, ts: datetime) -
 
 async def sync_task_events(db: AsyncSession) -> dict:
     """v0.10.16 · 增量同步 task_events（带 task.reject_reason_type 反向 join）。"""
-    from app.db.models.task import Task
-
     con = _connect_writer()
     try:
         watermark = _get_high_water(con, "task_events")
         stmt = (
             select(
-                TaskEvent.id,
-                TaskEvent.task_id,
-                TaskEvent.user_id,
-                TaskEvent.project_id,
-                TaskEvent.kind,
-                TaskEvent.started_at,
-                TaskEvent.ended_at,
-                TaskEvent.duration_ms,
-                TaskEvent.annotation_count,
-                TaskEvent.was_rejected,
-                Task.reject_reason_type,
-                TaskEvent.created_at,
+                task_event_facts.c.id,
+                task_event_facts.c.task_id,
+                task_event_facts.c.user_id,
+                task_event_facts.c.project_id,
+                task_event_facts.c.kind,
+                task_event_facts.c.started_at,
+                task_event_facts.c.ended_at,
+                task_event_facts.c.duration_ms,
+                task_event_facts.c.annotation_count,
+                task_event_facts.c.was_rejected,
+                task_event_facts.c.reject_reason_type,
+                task_event_facts.c.created_at,
             )
-            .join(Task, Task.id == TaskEvent.task_id, isouter=True)
-            .where(TaskEvent.created_at > watermark)
-            .order_by(TaskEvent.created_at)
+            .where(task_event_facts.c.created_at > watermark)
+            .order_by(task_event_facts.c.created_at)
         )
         result = await db.execute(stmt)
         rows = result.all()
@@ -170,17 +167,17 @@ async def sync_audit_logs(db: AsyncSession) -> dict:
         watermark = _get_high_water(con, "audit_logs")
         stmt = (
             select(
-                AuditLog.id,
-                AuditLog.actor_id,
-                AuditLog.actor_role,
-                AuditLog.action,
-                AuditLog.target_type,
-                AuditLog.target_id,
-                AuditLog.status_code,
-                AuditLog.created_at,
+                audit_event.id,
+                audit_event.actor_id,
+                audit_event.actor_role,
+                audit_event.action,
+                audit_event.target_type,
+                audit_event.target_id,
+                audit_event.status_code,
+                audit_event.created_at,
             )
-            .where(AuditLog.created_at > watermark)
-            .order_by(AuditLog.created_at)
+            .where(audit_event.created_at > watermark)
+            .order_by(audit_event.created_at)
             .limit(50000)  # 单次 cap，防止首次同步爆内存
         )
         result = await db.execute(stmt)

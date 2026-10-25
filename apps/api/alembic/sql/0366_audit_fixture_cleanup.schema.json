@@ -1,0 +1,382 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-audit-maintenance/v1",
+  "title": "Audit maintenance commands",
+  "$comment": "Partition names encode their first-day UTC month and next-month upper bound. Ensure accepts only first-day dates; archive keys must match the partition month. Commands remain in the caller transaction. Snapshot locks the identified partition ACCESS EXCLUSIVE; drop requires that lock in the same transaction. The archive object is written before drop. Filtering-fixture cleanup is limited to its fixed audit markers and isolated _test/_e2e databases.",
+  "$defs": {
+    "AuditPartition": {
+      "additionalProperties": false,
+      "description": "Frozen identity and UTC date range for one monthly audit partition.",
+      "properties": {
+        "name": {
+          "pattern": "^audit_logs_y([0-9]{4})m(0[1-9]|1[0-2])$",
+          "title": "Name",
+          "type": "string"
+        },
+        "from": {
+          "format": "date",
+          "title": "From",
+          "type": "string"
+        },
+        "to": {
+          "format": "date",
+          "title": "To",
+          "type": "string"
+        },
+        "oid": {
+          "exclusiveMinimum": 0,
+          "maximum": 4294967295,
+          "title": "Oid",
+          "type": "integer"
+        }
+      },
+      "required": ["name", "from", "to", "oid"],
+      "title": "AuditPartition",
+      "type": "object"
+    },
+    "_ArchiveEventRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-audit-maintenance/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "archive_event",
+          "title": "Operation",
+          "type": "string"
+        },
+        "partition": {
+          "$ref": "#/$defs/AuditPartition"
+        },
+        "row_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Row Count",
+          "type": "integer"
+        },
+        "object_key": {
+          "pattern": "^[0-9]{4}/(0[1-9]|1[0-2])\\.jsonl\\.gz$",
+          "title": "Object Key",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "partition", "row_count", "object_key"],
+      "title": "_ArchiveEventRequest",
+      "type": "object"
+    },
+    "_CleanupFilteringFixtureEventsRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-audit-maintenance/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "cleanup_filtering_fixture_events",
+          "title": "Operation",
+          "type": "string"
+        },
+        "namespace": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z0-9]{4,12}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Namespace"
+        }
+      },
+      "required": ["schema", "operation", "namespace"],
+      "title": "_CleanupFilteringFixtureEventsRequest",
+      "type": "object"
+    },
+    "_DropPartitionRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-audit-maintenance/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "drop",
+          "title": "Operation",
+          "type": "string"
+        },
+        "partition": {
+          "$ref": "#/$defs/AuditPartition"
+        }
+      },
+      "required": ["schema", "operation", "partition"],
+      "title": "_DropPartitionRequest",
+      "type": "object"
+    },
+    "_EnsurePartitionRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-audit-maintenance/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "ensure",
+          "title": "Operation",
+          "type": "string"
+        },
+        "month": {
+          "format": "date",
+          "title": "Month",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "month"],
+      "title": "_EnsurePartitionRequest",
+      "type": "object"
+    },
+    "_ListPartitionsRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-audit-maintenance/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "partitions",
+          "title": "Operation",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation"],
+      "title": "_ListPartitionsRequest",
+      "type": "object"
+    },
+    "_RefreshDailyRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-audit-maintenance/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "refresh_daily",
+          "title": "Operation",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation"],
+      "title": "_RefreshDailyRequest",
+      "type": "object"
+    },
+    "_SnapshotPartitionRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-audit-maintenance/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "snapshot",
+          "title": "Operation",
+          "type": "string"
+        },
+        "partition": {
+          "$ref": "#/$defs/AuditPartition"
+        }
+      },
+      "required": ["schema", "operation", "partition"],
+      "title": "_SnapshotPartitionRequest",
+      "type": "object"
+    },
+    "JSONValue": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/JSONValue"
+          },
+          "type": "object"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/JSONValue"
+          },
+          "type": "array"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "_EmptyData": {
+      "additionalProperties": false,
+      "properties": {},
+      "title": "_EmptyData",
+      "type": "object"
+    },
+    "_EnsureData": {
+      "additionalProperties": false,
+      "properties": {
+        "created": {
+          "title": "Created",
+          "type": "boolean"
+        }
+      },
+      "required": ["created"],
+      "title": "_EnsureData",
+      "type": "object"
+    },
+    "_FilteringFixtureCleanupData": {
+      "additionalProperties": false,
+      "properties": {
+        "deleted_rows": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Deleted Rows",
+          "type": "integer"
+        }
+      },
+      "required": ["deleted_rows"],
+      "title": "_FilteringFixtureCleanupData",
+      "type": "object"
+    },
+    "_PartitionsData": {
+      "additionalProperties": false,
+      "properties": {
+        "partitions": {
+          "items": {
+            "$ref": "#/$defs/AuditPartition"
+          },
+          "title": "Partitions",
+          "type": "array"
+        }
+      },
+      "required": ["partitions"],
+      "title": "_PartitionsData",
+      "type": "object"
+    },
+    "_SnapshotData": {
+      "additionalProperties": false,
+      "properties": {
+        "rows": {
+          "items": {
+            "additionalProperties": {
+              "$ref": "#/$defs/JSONValue"
+            },
+            "type": "object"
+          },
+          "title": "Rows",
+          "type": "array"
+        }
+      },
+      "required": ["rows"],
+      "title": "_SnapshotData",
+      "type": "object"
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/_ListPartitionsRequest"
+    },
+    {
+      "$ref": "#/$defs/_EnsurePartitionRequest"
+    },
+    {
+      "$ref": "#/$defs/_SnapshotPartitionRequest"
+    },
+    {
+      "$ref": "#/$defs/_DropPartitionRequest"
+    },
+    {
+      "$ref": "#/$defs/_ArchiveEventRequest"
+    },
+    {
+      "$ref": "#/$defs/_RefreshDailyRequest"
+    },
+    {
+      "$ref": "#/$defs/_CleanupFilteringFixtureEventsRequest"
+    }
+  ],
+  "x-aap-replies": {
+    "additionalProperties": false,
+    "properties": {
+      "schema": {
+        "const": "aap-audit-maintenance/v1",
+        "title": "Schema",
+        "type": "string"
+      },
+      "ok": {
+        "const": true,
+        "title": "Ok",
+        "type": "boolean"
+      },
+      "data": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/_PartitionsData"
+          },
+          {
+            "$ref": "#/$defs/_EnsureData"
+          },
+          {
+            "$ref": "#/$defs/_SnapshotData"
+          },
+          {
+            "$ref": "#/$defs/_FilteringFixtureCleanupData"
+          },
+          {
+            "$ref": "#/$defs/_EmptyData"
+          }
+        ],
+        "title": "Data"
+      }
+    },
+    "required": ["schema", "ok", "data"],
+    "title": "_MaintenanceReply",
+    "type": "object"
+  },
+  "x-postgresql-functions": {
+    "aap_audit_v1.maintenance_command(jsonb)": {
+      "argument_types": ["jsonb"],
+      "returns": "jsonb",
+      "owner": "audit",
+      "security_definer": true,
+      "fixed_targets": ["public.audit_logs monthly partitions", "public.mv_audit_bi_daily"],
+      "caller_transaction_required": true,
+      "snapshot_lock": "ACCESS EXCLUSIVE",
+      "drop_requires_same_transaction_lock": true,
+      "operation_constraints": {
+        "cleanup_filtering_fixture_events": {
+          "fixed_targets": ["public.audit_logs filtering E2E fixture rows"],
+          "fixed_predicates": [
+            "path=/api/v1/__test/seed/filtering",
+            "namespace=null: detail_json.fixture=filtering",
+            "namespace=set: detail_json.namespace=namespace"
+          ],
+          "test_database_suffixes": ["_e2e", "_test"],
+          "required_transaction_setting": "app.allow_audit_update=true"
+        }
+      }
+    }
+  }
+}

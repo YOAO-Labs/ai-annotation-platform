@@ -67,7 +67,10 @@ BEGIN
         'aap_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb)',
         'aap_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb)',
         'aap_workspace_v1.write_seed_members(jsonb)',
-        'aap_workspace_v1.write_point_cloud_quality_config(uuid,jsonb)'
+        'aap_workspace_v1.write_point_cloud_quality_config(uuid,jsonb)',
+        'aap_workspace_v1.create_media_seed_project(uuid,text,text,uuid,text,jsonb)',
+        'aap_workspace_v1.write_seed_project_projection(uuid,jsonb)',
+        'aap_workspace_v1.pin_seed_member_assignment(uuid,timestamptz)'
     ] LOOP
         function_oid := pg_catalog.to_regprocedure(signature);
         IF function_oid IS NULL OR NOT EXISTS (
@@ -86,7 +89,10 @@ BEGIN
        OR NOT pg_catalog.has_column_privilege(owner_oid, 'public.projects', 'point_cloud_quality_config', 'SELECT')
        OR NOT pg_catalog.has_column_privilege(owner_oid, 'public.projects', 'point_cloud_quality_config', 'UPDATE')
        OR NOT pg_catalog.has_column_privilege(owner_oid, 'public.projects', 'updated_at', 'SELECT')
-       OR NOT pg_catalog.has_column_privilege(owner_oid, 'public.projects', 'updated_at', 'UPDATE') THEN
+       OR NOT pg_catalog.has_column_privilege(owner_oid, 'public.projects', 'updated_at', 'UPDATE')
+       OR NOT pg_catalog.has_column_privilege(owner_oid, 'public.projects', 'created_at', 'UPDATE')
+       OR NOT pg_catalog.has_column_privilege(owner_oid, 'public.projects', 'ml_backend_pool_id', 'UPDATE')
+       OR NOT pg_catalog.has_column_privilege(owner_oid, 'public.projects', 'preannotate_pipeline', 'UPDATE') THEN
         RAISE EXCEPTION 'Workspace owner lacks required project-maintenance capabilities';
     END IF;
 END $$;

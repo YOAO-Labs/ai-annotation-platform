@@ -1,0 +1,1282 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "CleanupOCRRows": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-screenshot-operations/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "cleanup_ocr_rows",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_key": {
+          "enum": ["image_demo", "video_demo", "ocr_demo"],
+          "title": "Project Key",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "tracker_job_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Tracker Job Ids",
+          "type": "array"
+        },
+        "annotation_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Annotation Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "project_key",
+        "project_id",
+        "task_id",
+        "tracker_job_ids",
+        "annotation_ids"
+      ],
+      "title": "CleanupOCRRows",
+      "type": "object"
+    },
+    "CleanupRecoveryRows": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-screenshot-operations/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "cleanup_recovery_rows",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "failed_prediction_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Failed Prediction Ids",
+          "type": "array"
+        },
+        "prediction_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Prediction Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "project_id",
+        "task_id",
+        "failed_prediction_ids",
+        "prediction_ids"
+      ],
+      "title": "CleanupRecoveryRows",
+      "type": "object"
+    },
+    "DeleteOCRPredictions": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-screenshot-operations/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "delete_ocr_predictions",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_key": {
+          "enum": ["image_demo", "video_demo", "ocr_demo"],
+          "title": "Project Key",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "prediction_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Prediction Ids",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "project_key", "project_id", "task_id", "prediction_ids"],
+      "title": "DeleteOCRPredictions",
+      "type": "object"
+    },
+    "FinishOCRCleanup": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-screenshot-operations/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "finish_ocr_cleanup",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_key": {
+          "enum": ["image_demo", "video_demo", "ocr_demo"],
+          "title": "Project Key",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "expected_status": {
+          "enum": ["pending", "in_progress", "review", "completed"],
+          "title": "Expected Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "project_key",
+        "project_id",
+        "task_id",
+        "expected_status"
+      ],
+      "title": "FinishOCRCleanup",
+      "type": "object"
+    },
+    "LinkSeedTasksToBatches": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-screenshot-operations/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "link_seed_tasks_to_batches",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "tasks": {
+          "items": {
+            "$ref": "#/$defs/SeedTaskBatch"
+          },
+          "title": "Tasks",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "project_id", "tasks"],
+      "title": "LinkSeedTasksToBatches",
+      "type": "object"
+    },
+    "PinSeedTaskTimestamps": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-screenshot-operations/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "pin_seed_task_timestamps",
+          "title": "Operation",
+          "type": "string"
+        },
+        "tasks": {
+          "items": {
+            "$ref": "#/$defs/SeedTaskTimestamp"
+          },
+          "title": "Tasks",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "tasks"],
+      "title": "PinSeedTaskTimestamps",
+      "type": "object"
+    },
+    "ReconcileSeedAnnotations": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-screenshot-operations/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "reconcile_seed_annotations",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "annotations": {
+          "items": {
+            "$ref": "#/$defs/SeedAnnotation"
+          },
+          "title": "Annotations",
+          "type": "array"
+        },
+        "tasks": {
+          "items": {
+            "$ref": "#/$defs/SeedTaskEvidence"
+          },
+          "title": "Tasks",
+          "type": "array"
+        },
+        "annotator_id": {
+          "format": "uuid",
+          "title": "Annotator Id",
+          "type": "string"
+        },
+        "fixed_time": {
+          "format": "date-time",
+          "title": "Fixed Time",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "project_id",
+        "annotations",
+        "tasks",
+        "annotator_id",
+        "fixed_time"
+      ],
+      "title": "ReconcileSeedAnnotations",
+      "type": "object"
+    },
+    "ReconcileSeedBatches": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-screenshot-operations/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "reconcile_seed_batches",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "created_by": {
+          "format": "uuid",
+          "title": "Created By",
+          "type": "string"
+        },
+        "fixed_time": {
+          "format": "date-time",
+          "title": "Fixed Time",
+          "type": "string"
+        },
+        "batches": {
+          "items": {
+            "$ref": "#/$defs/SeedBatch"
+          },
+          "title": "Batches",
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "project_id",
+        "dataset_id",
+        "created_by",
+        "fixed_time",
+        "batches"
+      ],
+      "title": "ReconcileSeedBatches",
+      "type": "object"
+    },
+    "ReconcileSeedPredictions": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-screenshot-operations/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "reconcile_seed_predictions",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Task Ids",
+          "type": "array"
+        },
+        "predicted_task_id": {
+          "format": "uuid",
+          "title": "Predicted Task Id",
+          "type": "string"
+        },
+        "keep_prediction_id": {
+          "format": "uuid",
+          "title": "Keep Prediction Id",
+          "type": "string"
+        },
+        "remove_prediction_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Remove Prediction Ids",
+          "type": "array"
+        },
+        "model_version": {
+          "title": "Model Version",
+          "type": "string"
+        },
+        "fixed_time": {
+          "format": "date-time",
+          "title": "Fixed Time",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "project_id",
+        "task_ids",
+        "predicted_task_id",
+        "keep_prediction_id",
+        "remove_prediction_ids",
+        "model_version",
+        "fixed_time"
+      ],
+      "title": "ReconcileSeedPredictions",
+      "type": "object"
+    },
+    "ResetSeedTasks": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-screenshot-operations/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "reset_seed_tasks",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "project_display_id": {
+          "enum": ["P-COCO8", "P-VIDEO-DEV", "P-PC-DEV", "P-PC-MULTI", "P-OCR"],
+          "title": "Project Display Id",
+          "type": "string"
+        },
+        "tasks": {
+          "items": {
+            "$ref": "#/$defs/SeedTaskReset"
+          },
+          "title": "Tasks",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "project_id", "project_display_id", "tasks"],
+      "title": "ResetSeedTasks",
+      "type": "object"
+    },
+    "RestoreReviewReject": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-screenshot-operations/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "restore_review_reject",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "reviewer_id": {
+          "format": "uuid",
+          "title": "Reviewer Id",
+          "type": "string"
+        },
+        "expected_status": {
+          "const": "review",
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "review_round_id": {
+          "format": "uuid",
+          "title": "Review Round Id",
+          "type": "string"
+        },
+        "review_contributor_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Review Contributor Ids"
+        },
+        "review_submitter_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Review Submitter Id"
+        },
+        "reason_texts": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reason Texts",
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "project_id",
+        "task_id",
+        "reviewer_id",
+        "expected_status",
+        "review_round_id",
+        "review_contributor_ids",
+        "review_submitter_id",
+        "reason_texts"
+      ],
+      "title": "RestoreReviewReject",
+      "type": "object"
+    },
+    "SeedAnnotation": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "geometry": {
+          "additionalProperties": true,
+          "title": "Geometry",
+          "type": "object"
+        },
+        "ground_truth": {
+          "title": "Ground Truth",
+          "type": "boolean"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": ["id", "task_id", "user_id", "geometry", "ground_truth", "created_at"],
+      "title": "SeedAnnotation",
+      "type": "object"
+    },
+    "SeedBatch": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "existing": {
+          "title": "Existing",
+          "type": "boolean"
+        },
+        "display_id": {
+          "enum": ["B-SS-DRAFT", "B-SS-ACTIVE", "B-SS-ANNOTATING", "B-SS-REVIEW", "B-SS-COMPLETE"],
+          "title": "Display Id",
+          "type": "string"
+        },
+        "name": {
+          "enum": [
+            "截图 · 待分派",
+            "截图 · 待预标",
+            "截图 · 标注中",
+            "截图 · 待审核",
+            "截图 · 已完成"
+          ],
+          "title": "Name",
+          "type": "string"
+        },
+        "status": {
+          "enum": ["draft", "active", "annotating", "reviewing", "approved"],
+          "title": "Status",
+          "type": "string"
+        },
+        "annotator_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Annotator Id"
+        },
+        "reviewer_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reviewer Id"
+        },
+        "assigned_user_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Assigned User Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "existing",
+        "display_id",
+        "name",
+        "status",
+        "annotator_id",
+        "reviewer_id",
+        "assigned_user_ids"
+      ],
+      "title": "SeedBatch",
+      "type": "object"
+    },
+    "SeedBatchCounters": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "batch_key": {
+          "enum": ["draft", "active", "annotating", "review", "completed"],
+          "title": "Batch Key",
+          "type": "string"
+        }
+      },
+      "required": ["id", "batch_key"],
+      "title": "SeedBatchCounters",
+      "type": "object"
+    },
+    "SeedTaskBatch": {
+      "additionalProperties": false,
+      "properties": {
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        }
+      },
+      "required": ["task_id", "batch_id"],
+      "title": "SeedTaskBatch",
+      "type": "object"
+    },
+    "SeedTaskEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": ["pending", "in_progress", "review", "completed"],
+          "title": "Status",
+          "type": "string"
+        },
+        "review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Review Round Id"
+        },
+        "annotation_contributor_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Annotation Contributor Ids"
+        },
+        "review_contributor_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Review Contributor Ids"
+        },
+        "review_submitter_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Review Submitter Id"
+        }
+      },
+      "required": [
+        "task_id",
+        "status",
+        "review_round_id",
+        "annotation_contributor_ids",
+        "review_contributor_ids",
+        "review_submitter_id"
+      ],
+      "title": "SeedTaskEvidence",
+      "type": "object"
+    },
+    "SeedTaskReset": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "file_path": {
+          "title": "File Path",
+          "type": "string"
+        },
+        "display_id": {
+          "title": "Display Id",
+          "type": "string"
+        },
+        "sequence_order": {
+          "title": "Sequence Order",
+          "type": "integer"
+        },
+        "status": {
+          "enum": ["pending", "in_progress", "review", "completed"],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": ["id", "file_path", "display_id", "sequence_order", "status"],
+      "title": "SeedTaskReset",
+      "type": "object"
+    },
+    "SeedTaskState": {
+      "additionalProperties": false,
+      "properties": {
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": ["pending", "in_progress", "review", "completed"],
+          "title": "Status",
+          "type": "string"
+        },
+        "sequence_order": {
+          "title": "Sequence Order",
+          "type": "integer"
+        },
+        "assignee_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Assignee Id"
+        },
+        "reviewer_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reviewer Id"
+        },
+        "assigned_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Assigned At"
+        },
+        "submitted_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Submitted At"
+        },
+        "reviewer_claimed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reviewer Claimed At"
+        },
+        "reviewed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reviewed At"
+        }
+      },
+      "required": [
+        "task_id",
+        "status",
+        "sequence_order",
+        "assignee_id",
+        "reviewer_id",
+        "assigned_at",
+        "submitted_at",
+        "reviewer_claimed_at",
+        "reviewed_at"
+      ],
+      "title": "SeedTaskState",
+      "type": "object"
+    },
+    "SeedTaskTimestamp": {
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "project_display_id": {
+          "enum": ["P-COCO8", "P-VIDEO-DEV", "P-PC-DEV", "P-PC-MULTI", "P-OCR"],
+          "title": "Project Display Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": ["project_id", "project_display_id", "task_id", "created_at", "updated_at"],
+      "title": "SeedTaskTimestamp",
+      "type": "object"
+    },
+    "SetImageSeedTaskState": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-screenshot-operations/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "set_image_seed_task_state",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "tasks": {
+          "items": {
+            "$ref": "#/$defs/SeedTaskState"
+          },
+          "title": "Tasks",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "project_id", "tasks"],
+      "title": "SetImageSeedTaskState",
+      "type": "object"
+    },
+    "SyncSeedBatchCounters": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-screenshot-operations/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "sync_seed_batch_counters",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Task Ids",
+          "type": "array"
+        },
+        "batches": {
+          "items": {
+            "$ref": "#/$defs/SeedBatchCounters"
+          },
+          "title": "Batches",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "project_id", "task_ids", "batches"],
+      "title": "SyncSeedBatchCounters",
+      "type": "object"
+    }
+  },
+  "discriminator": {
+    "mapping": {
+      "cleanup_ocr_rows": "#/$defs/CleanupOCRRows",
+      "cleanup_recovery_rows": "#/$defs/CleanupRecoveryRows",
+      "delete_ocr_predictions": "#/$defs/DeleteOCRPredictions",
+      "finish_ocr_cleanup": "#/$defs/FinishOCRCleanup",
+      "link_seed_tasks_to_batches": "#/$defs/LinkSeedTasksToBatches",
+      "pin_seed_task_timestamps": "#/$defs/PinSeedTaskTimestamps",
+      "reconcile_seed_annotations": "#/$defs/ReconcileSeedAnnotations",
+      "reconcile_seed_batches": "#/$defs/ReconcileSeedBatches",
+      "reconcile_seed_predictions": "#/$defs/ReconcileSeedPredictions",
+      "reset_seed_tasks": "#/$defs/ResetSeedTasks",
+      "restore_review_reject": "#/$defs/RestoreReviewReject",
+      "set_image_seed_task_state": "#/$defs/SetImageSeedTaskState",
+      "sync_seed_batch_counters": "#/$defs/SyncSeedBatchCounters"
+    },
+    "propertyName": "operation"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ResetSeedTasks"
+    },
+    {
+      "$ref": "#/$defs/ReconcileSeedBatches"
+    },
+    {
+      "$ref": "#/$defs/LinkSeedTasksToBatches"
+    },
+    {
+      "$ref": "#/$defs/SetImageSeedTaskState"
+    },
+    {
+      "$ref": "#/$defs/ReconcileSeedPredictions"
+    },
+    {
+      "$ref": "#/$defs/ReconcileSeedAnnotations"
+    },
+    {
+      "$ref": "#/$defs/SyncSeedBatchCounters"
+    },
+    {
+      "$ref": "#/$defs/PinSeedTaskTimestamps"
+    },
+    {
+      "$ref": "#/$defs/CleanupOCRRows"
+    },
+    {
+      "$ref": "#/$defs/DeleteOCRPredictions"
+    },
+    {
+      "$ref": "#/$defs/FinishOCRCleanup"
+    },
+    {
+      "$ref": "#/$defs/CleanupRecoveryRows"
+    },
+    {
+      "$ref": "#/$defs/RestoreReviewReject"
+    }
+  ],
+  "$id": "aap-labeling-screenshot-operations/v1",
+  "x-postgresql-functions": {
+    "aap_labeling_v1.screenshot_operations_command(jsonb)": {
+      "arguments": "jsonb",
+      "returns": "jsonb",
+      "volatility": "volatile",
+      "parallel": "unsafe"
+    }
+  },
+  "x-scope": "Fixed screenshot project display IDs, exact declared Task file paths and task display IDs, the five declared image batches, three fixed annotation identities, and exact supplied cleanup IDs.",
+  "x-security": {
+    "owner": "Labeling NOLOGIN definer; ordinary runtime receives EXECUTE only",
+    "search_path": "pg_catalog,pg_temp",
+    "timezone": "UTC",
+    "project_fence": "aap_workspace_v1.read_project_row(uuid)"
+  },
+  "x-owner-columns": {
+    "public.tasks": {
+      "select": [
+        "id",
+        "project_id",
+        "file_path",
+        "display_id",
+        "sequence_order",
+        "batch_id",
+        "status",
+        "assignee_id",
+        "reviewer_id",
+        "assigned_at",
+        "submitted_at",
+        "reviewer_claimed_at",
+        "reviewed_at",
+        "reject_reason",
+        "reject_reason_type",
+        "skip_reason",
+        "skipped_at",
+        "total_predictions",
+        "total_annotations",
+        "is_labeled",
+        "annotation_contributor_ids",
+        "review_round_id",
+        "review_contributor_ids",
+        "review_submitter_id",
+        "created_at",
+        "updated_at"
+      ],
+      "update": [
+        "display_id",
+        "sequence_order",
+        "status",
+        "assignee_id",
+        "reviewer_id",
+        "batch_id",
+        "assigned_at",
+        "submitted_at",
+        "reviewer_claimed_at",
+        "reviewed_at",
+        "reject_reason",
+        "reject_reason_type",
+        "skip_reason",
+        "skipped_at",
+        "total_predictions",
+        "total_annotations",
+        "is_labeled",
+        "annotation_contributor_ids",
+        "review_round_id",
+        "review_contributor_ids",
+        "review_submitter_id",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    "public.task_batches": {
+      "select": [
+        "id",
+        "project_id",
+        "dataset_id",
+        "display_id",
+        "name",
+        "description",
+        "status",
+        "priority",
+        "assigned_user_ids",
+        "total_tasks",
+        "completed_tasks",
+        "review_tasks",
+        "approved_tasks",
+        "rejected_tasks",
+        "created_by",
+        "created_at",
+        "updated_at",
+        "annotator_id",
+        "reviewer_id"
+      ],
+      "insert": [
+        "id",
+        "project_id",
+        "dataset_id",
+        "display_id",
+        "name",
+        "description",
+        "status",
+        "priority",
+        "annotator_id",
+        "reviewer_id",
+        "assigned_user_ids",
+        "created_by",
+        "created_at",
+        "updated_at"
+      ],
+      "update": [
+        "dataset_id",
+        "name",
+        "description",
+        "status",
+        "priority",
+        "annotator_id",
+        "reviewer_id",
+        "assigned_user_ids",
+        "created_by",
+        "created_at",
+        "updated_at",
+        "total_tasks",
+        "completed_tasks",
+        "review_tasks",
+        "approved_tasks",
+        "rejected_tasks"
+      ]
+    },
+    "public.annotations": {
+      "select": [
+        "id",
+        "task_id",
+        "project_id",
+        "parent_prediction_id",
+        "is_active",
+        "was_cancelled"
+      ],
+      "insert": [
+        "id",
+        "task_id",
+        "project_id",
+        "user_id",
+        "source",
+        "annotation_type",
+        "tool_unit_id",
+        "class_name",
+        "geometry",
+        "attributes",
+        "is_active",
+        "was_cancelled",
+        "ground_truth",
+        "version",
+        "created_at",
+        "updated_at"
+      ],
+      "update": [
+        "task_id",
+        "project_id",
+        "user_id",
+        "source",
+        "annotation_type",
+        "tool_unit_id",
+        "class_name",
+        "geometry",
+        "attributes",
+        "is_active",
+        "was_cancelled",
+        "ground_truth",
+        "created_at",
+        "updated_at",
+        "parent_prediction_id"
+      ],
+      "delete": true
+    },
+    "public.predictions": {
+      "select": ["id", "project_id", "task_id", "model_version", "created_at"],
+      "update": ["created_at"],
+      "delete": true
+    },
+    "public.prediction_metas": {
+      "select": ["prediction_id", "failed_prediction_id", "extra"],
+      "update": ["prediction_created_at", "created_at"],
+      "delete": true
+    },
+    "public.failed_predictions": {
+      "select": ["id", "project_id", "task_id"],
+      "delete": true
+    },
+    "public.video_tracker_jobs": {
+      "select": ["id", "task_id", "annotation_id", "prompt", "celery_task_id"],
+      "delete": true
+    },
+    "public.annotation_feedbacks": {
+      "select": ["task_id", "kind", "author_id", "body"],
+      "delete": true
+    }
+  },
+  "x-transactions": {
+    "commit": false,
+    "rollback": false,
+    "caller": "Borrowed caller transaction; managed Workspace/Assets guards and existing commit points remain caller-owned."
+  },
+  "x-errors": {
+    "22023": "Invalid closed operation payload or unsupported operation",
+    "23514": "Screenshot project, task, batch, annotation, prediction, or cleanup scope changed",
+    "42501": "Missing execution privilege"
+  }
+}

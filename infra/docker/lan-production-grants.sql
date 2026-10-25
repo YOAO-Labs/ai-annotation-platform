@@ -4,7 +4,7 @@
 --       -v migration_role=anno_prod_owner -v asset_cleanup_role=asset_cleanup_client
 --       -f lan-production-grants.sql
 -- application_role composes embedded owners through their published capabilities.
--- Identity private storage is denied; other legacy table access remains.
+-- Identity, Audit, and Notifications writes use owner capabilities; other legacy access remains.
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('aap.expected_database', :'expected_database', true);
@@ -58,7 +58,7 @@ BEGIN
 END $$;
 
 REVOKE ALL ON DATABASE :"expected_database" FROM PUBLIC;
--- Concurrent materialized-view refresh uses temporary relations internally.
+-- Retained Predictions and user-performance maintenance still needs these privileges.
 GRANT CONNECT, TEMPORARY ON DATABASE :"expected_database" TO :"application_role";
 REVOKE ALL ON DATABASE :"expected_database" FROM :"asset_cleanup_role";
 GRANT CONNECT ON DATABASE :"expected_database" TO :"asset_cleanup_role";
@@ -79,6 +79,14 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.read_import_project(text),
     aap_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb),
     aap_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb),
     aap_workspace_v1.write_seed_members(jsonb),
+    aap_workspace_v1.create_media_seed_project(uuid,text,text,uuid,text,jsonb),
+    aap_workspace_v1.write_seed_project_projection(uuid,jsonb),
+    aap_workspace_v1.pin_seed_member_assignment(uuid,timestamptz),
+    aap_workspace_v1.create_scale_seed_project(uuid,text),
+    aap_workspace_v1.ensure_scale_seed_member(uuid,uuid,uuid),
+    aap_workspace_v1.guard_scale_seed_cleanup(text),
+    aap_workspace_v1.delete_scale_seed_projects(text,uuid[]),
+    aap_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean),
     aap_workspace_v1.write_point_cloud_quality_config(uuid,jsonb)
     TO :"application_role";
 GRANT USAGE ON SCHEMA aap_inference_backend_probe_v1 TO :"application_role";
@@ -118,6 +126,8 @@ GRANT EXECUTE ON FUNCTION aap_inference_registry_ingress_v1.registry_ingress_pol
     aap_inference_registry_ingress_v1.sync_result(uuid,text),
     aap_inference_registry_ingress_v1.record_sync_result(uuid,text,integer)
     TO :"application_role";
+GRANT USAGE ON SCHEMA aap_inference_v1 TO :"application_role";
+GRANT EXECUTE ON FUNCTION aap_inference_v1.ai_mask_pool_reference_row(uuid) TO :"application_role";
 GRANT USAGE ON SCHEMA aap_inference_routing_v1 TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_inference_routing_v1.routing_policy(),
     aap_inference_routing_v1.routing_step(text,text),
@@ -128,7 +138,66 @@ GRANT EXECUTE ON FUNCTION aap_learning_v1.registry_evaluation_reference_exists(u
     aap_jobs_v1.count_running_registry_predictions(uuid),
     aap_jobs_v1.video_execution_step(text,text),
     aap_jobs_v1.video_execution_checkpoint_step(text,text) TO :"application_role";
-GRANT EXECUTE ON FUNCTION aap_labeling_v1.video_writer_step(text,text)
+GRANT EXECUTE ON FUNCTION aap_labeling_v1.video_writer_step(text,text),
+    aap_labeling_v1.task_edit_lock_command(jsonb),
+    aap_labeling_v1.task_workflow_command(jsonb),
+    aap_labeling_v1.annotation_statistics_command(jsonb),
+    aap_labeling_v1.scene_track_domain_command(jsonb),
+    aap_labeling_v1.annotation_write_command(jsonb),
+    aap_labeling_v1.annotation_bulk_command(jsonb),
+    aap_labeling_v1.video_bbox_editing_command(jsonb),
+    aap_labeling_v1.batch_control_command(jsonb),
+    aap_labeling_v1.prediction_record_command(jsonb),
+    aap_labeling_v1.prediction_partition_command(jsonb),
+    aap_labeling_v1.create_uploading_task(uuid,uuid,text,text,text),
+    aap_labeling_v1.complete_uploading_task(uuid,uuid,uuid,text,text),
+    aap_labeling_v1.scene_track_command(jsonb),
+    aap_labeling_v1.cross_frame_write_command(jsonb),
+    aap_labeling_v1.annotation_prediction_command(jsonb),
+    aap_labeling_v1.annotation_maintenance_command(jsonb),
+    aap_labeling_v1.discussion_command(jsonb),
+    aap_labeling_v1.task_event_command(jsonb),
+    aap_labeling_v1.mask_edit_command(jsonb),
+    aap_labeling_v1.mask_revision_command(jsonb),
+    aap_labeling_v1.ai_mask_accept_command(jsonb),
+    aap_labeling_v1.scene_read_query(jsonb),
+    aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid),
+    aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid),
+    aap_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[]),
+    aap_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[]),
+    aap_labeling_v1.next_batch_display_id(),
+    aap_labeling_v1.video_control_command(jsonb),
+    aap_labeling_v1.video_segment_lifecycle_command(jsonb),
+    aap_labeling_v1.screenshot_operations_command(jsonb),
+    aap_labeling_v1.annotation_transfer_command(jsonb),
+    aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid),
+    aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean),
+    aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean),
+    aap_labeling_v1.mask_qc_command(jsonb),
+    aap_labeling_v1.mask_repair_command(jsonb),
+    aap_labeling_v1.raster_mask_retention_query(jsonb),
+    aap_labeling_v1.spatial_quality_command(jsonb),
+    aap_labeling_v1.task_maintenance_command(jsonb),
+    aap_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[]),
+    aap_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid),
+    aap_labeling_v1.create_scale_seed_tasks(text,uuid,uuid),
+    aap_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer)
+    TO :"application_role";
+GRANT SELECT ON aap_labeling_v1.task_rows,
+    aap_labeling_v1.batch_rows,
+    aap_labeling_v1.annotation_rows,
+    aap_labeling_v1.annotation_draft_rows,
+    aap_labeling_v1.prediction_rows,
+    aap_labeling_v1.prediction_meta_rows,
+    aap_labeling_v1.failed_prediction_rows,
+    aap_labeling_v1.task_lock_rows,
+    aap_labeling_v1.task_dataset_item_link_rows,
+    aap_labeling_v1.scene_track_rows,
+    aap_labeling_v1.scene_track_interval_rows,
+    aap_labeling_v1.video_segment_rows,
+    aap_labeling_v1.video_tracker_job_rows,
+    aap_labeling_v1.annotation_comment_facts,
+    aap_labeling_v1.annotation_feedback_facts, aap_labeling_v1.task_event_facts
     TO :"application_role";
 -- Embedded Identity adapters use the same owner capabilities as isolated clients.
 GRANT USAGE ON SCHEMA aap_identity_v1, aap_identity_keys_v1,
@@ -140,6 +209,125 @@ GRANT USAGE ON SCHEMA aap_identity_v1, aap_identity_keys_v1,
     aap_identity_deletions_v1, aap_identity_offboarding_v1,
     aap_identity_briefs_v1,
     aap_settings_v1, aap_notifications_v1 TO :"application_role";
+-- Existing API bindings call these owner functions inside the business transaction.
+GRANT USAGE ON SCHEMA aap_audit_v1 TO :"application_role";
+REVOKE ALL ON FUNCTION aap_audit_v1.maintenance_command(jsonb) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION aap_audit_v1.append_events(jsonb),
+    aap_audit_v1.query_events(pg_catalog.jsonb),
+    aap_audit_v1.maintenance_command(jsonb),
+    aap_notifications_v1.preference_command(jsonb),
+    aap_notifications_v1.append_notification(jsonb),
+    aap_notifications_v1.append_job_terminal_notification(jsonb),
+    aap_notifications_v1.inbox_page(uuid,text,boolean,integer,integer),
+    aap_notifications_v1.inbox_total_count(uuid,text),
+    aap_notifications_v1.inbox_unread_count(uuid,text),
+    aap_notifications_v1.read_notification(uuid),
+    aap_notifications_v1.find_terminal_notification(uuid,text,uuid),
+    aap_notifications_v1.delivery_job_scopes(uuid[]),
+    aap_notifications_v1.delivery_member_pairs(jsonb),
+    aap_notifications_v1.delivery_reviewer_pairs(jsonb),
+    aap_notifications_v1.delivery_owner_pairs(jsonb),
+    aap_notifications_v1.delivery_super_pairs(jsonb),
+    aap_notifications_v1.read_state_command(jsonb),
+    aap_notifications_v1.delete_command(pg_catalog.jsonb),
+    aap_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer),
+    aap_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text),
+    aap_jobs_v1.read_job(uuid),
+    aap_jobs_v1.read_job_for_update(uuid),
+    aap_jobs_v1.read_job_for_share_nowait(uuid),
+    aap_jobs_v1.lock_action_idempotency(text,uuid,uuid,text),
+    aap_jobs_v1.find_action_idempotent_jobs(text,uuid,uuid,text),
+    aap_jobs_v1.lock_cross_frame_singleflight(uuid,text),
+    aap_jobs_v1.active_cross_frame_job(uuid,text),
+    aap_jobs_v1.cross_frame_job_page(uuid,text,integer),
+    aap_jobs_v1.cross_frame_job_count(uuid,text),
+    aap_jobs_v1.latest_batch_prediction_times(uuid[]),
+    aap_jobs_v1.jobs_by_execution_id(text),
+    aap_jobs_v1.insert_video_summary(uuid,text,uuid,uuid,jsonb,text),
+    aap_jobs_v1.apply_lifecycle(uuid,jsonb),
+    aap_jobs_v1.mark_dispatch_failed(uuid,timestamptz,text),
+    aap_jobs_v1.cancel_batch_predict_jobs(uuid,timestamptz),
+    aap_jobs_v1.delete_batch_predict_jobs(uuid),
+    aap_jobs_v1.delete_terminal_jobs_before(timestamptz,text[])
+    TO :"application_role";
+GRANT SELECT, INSERT ON aap_jobs_v1.async_job_creation TO :"application_role";
+DO $jobs_creation_acl$
+DECLARE
+    v_runtime name := current_setting('aap.application_role');
+    v_columns text;
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_catalog.pg_class
+        WHERE oid IN ('public.async_jobs'::regclass,
+                      'aap_jobs_v1.async_job_creation'::regclass)
+          AND pg_catalog.pg_has_role(v_runtime, relowner, 'MEMBER')
+    ) THEN
+        RAISE EXCEPTION 'The runtime role must not own or inherit Jobs creation authority';
+    END IF;
+    EXECUTE format('REVOKE INSERT ON TABLE public.async_jobs FROM %I, PUBLIC',
+                   v_runtime);
+    SELECT string_agg(format('%I', attname), ', ' ORDER BY attnum)
+    INTO v_columns FROM pg_catalog.pg_attribute
+    WHERE attrelid = 'public.async_jobs'::regclass
+      AND attnum > 0 AND NOT attisdropped;
+    IF v_columns IS NOT NULL THEN
+        EXECUTE format('REVOKE INSERT (%s) ON TABLE public.async_jobs FROM %I, PUBLIC',
+                       v_columns, v_runtime);
+    END IF;
+    IF pg_catalog.has_table_privilege(v_runtime, 'public.async_jobs', 'INSERT')
+       OR pg_catalog.has_any_column_privilege(v_runtime, 'public.async_jobs', 'INSERT') THEN
+        RAISE EXCEPTION 'The runtime role still has effective private Jobs INSERT privileges';
+    END IF;
+    IF NOT pg_catalog.has_table_privilege(v_runtime, 'aap_jobs_v1.async_job_creation', 'SELECT')
+       OR NOT pg_catalog.has_table_privilege(v_runtime, 'aap_jobs_v1.async_job_creation', 'INSERT') THEN
+        RAISE EXCEPTION 'The runtime role is missing the Jobs creation capability';
+    END IF;
+END
+$jobs_creation_acl$;
+DO $jobs_delete_acl$
+DECLARE
+    v_runtime name := current_setting('aap.application_role');
+BEGIN
+    EXECUTE format('REVOKE DELETE ON TABLE public.async_jobs FROM %I, PUBLIC',
+                   v_runtime);
+    IF pg_catalog.has_table_privilege(v_runtime, 'public.async_jobs', 'DELETE') THEN
+        RAISE EXCEPTION 'The runtime role still has effective private Jobs DELETE privileges';
+    END IF;
+END
+$jobs_delete_acl$;
+DO $jobs_update_acl$
+DECLARE
+    v_runtime name := current_setting('aap.application_role');
+    v_columns text;
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_catalog.pg_class
+        WHERE oid = 'public.async_jobs'::regclass
+          AND pg_catalog.pg_has_role(v_runtime, relowner, 'MEMBER')
+    ) THEN
+        RAISE EXCEPTION 'The runtime role must not own or inherit Jobs update authority';
+    END IF;
+    EXECUTE format('REVOKE UPDATE ON TABLE public.async_jobs FROM %I, PUBLIC', v_runtime);
+    SELECT string_agg(format('%I', attname), ', ' ORDER BY attnum)
+    INTO v_columns FROM pg_catalog.pg_attribute
+    WHERE attrelid = 'public.async_jobs'::regclass
+      AND attnum > 0 AND NOT attisdropped;
+    IF v_columns IS NOT NULL THEN
+        EXECUTE format('REVOKE UPDATE (%s) ON TABLE public.async_jobs FROM %I, PUBLIC',
+                       v_columns, v_runtime);
+    END IF;
+    IF pg_catalog.has_table_privilege(v_runtime, 'public.async_jobs', 'UPDATE')
+       OR pg_catalog.has_any_column_privilege(v_runtime, 'public.async_jobs', 'UPDATE') THEN
+        RAISE EXCEPTION 'The runtime role still has effective private Jobs UPDATE privileges';
+    END IF;
+END
+$jobs_update_acl$;
+REVOKE ALL ON FUNCTION aap_jobs_v1._jobs_lifecycle_has_keys(jsonb,text[]),
+    aap_jobs_v1._jobs_lifecycle_is_truthy(jsonb),
+    aap_jobs_v1._jobs_lifecycle_integer(jsonb) FROM :"application_role", PUBLIC;
+REVOKE ALL ON FUNCTION
+    aap_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)
+    FROM :"application_role", PUBLIC;
 SELECT right(current_database(),5)='_test' OR right(current_database(),4)='_e2e'
     AS identity_fixture_database \gset
 \if :identity_fixture_database
@@ -147,9 +335,35 @@ GRANT EXECUTE ON FUNCTION aap_identity_v1.replace_fixture_preferences(uuid,jsonb
     TO :"application_role";
 \endif
 
+REVOKE ALL ON FUNCTION aap_jobs_v1.delete_fixture_project_jobs(uuid[])
+    FROM :"application_role", PUBLIC;
+REVOKE ALL ON FUNCTION aap_labeling_v1.delete_fixture_project_rows(uuid[])
+    FROM :"application_role", PUBLIC;
+REVOKE ALL ON FUNCTION aap_labeling_v1.e2e_fixture_command(jsonb)
+    FROM :"application_role", PUBLIC;
+REVOKE ALL ON FUNCTION aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid)
+    FROM :"application_role", PUBLIC;
 SELECT right(lower(current_database()),5)='_test' OR right(lower(current_database()),4)='_e2e'
     AS identity_e2e_fixture_database \gset
 \if :identity_e2e_fixture_database
+GRANT EXECUTE ON FUNCTION aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid)
+    TO :"application_role";
+GRANT EXECUTE ON FUNCTION aap_jobs_v1.delete_fixture_project_jobs(uuid[])
+    TO :"application_role";
+GRANT EXECUTE ON FUNCTION aap_labeling_v1.delete_fixture_project_rows(uuid[])
+    TO :"application_role";
+GRANT EXECUTE ON FUNCTION aap_labeling_v1.e2e_fixture_command(jsonb)
+    TO :"application_role";
+GRANT USAGE ON SCHEMA aap_workspace_fixture_v1 TO :"application_role";
+GRANT SELECT ON aap_workspace_fixture_v1.templates TO :"application_role";
+GRANT EXECUTE ON FUNCTION
+    aap_workspace_fixture_v1.create_project(jsonb),
+    aap_workspace_fixture_v1.create_templates(jsonb),
+    aap_workspace_fixture_v1.guard_project_cleanup(uuid[]),
+    aap_workspace_fixture_v1.delete_projects(uuid[]),
+    aap_workspace_fixture_v1.delete_templates(boolean,text[])
+    TO :"application_role";
+
 GRANT USAGE ON SCHEMA aap_identity_fixture_v1 TO :"application_role";
 GRANT SELECT ON aap_identity_fixture_v1.account_profiles TO :"application_role";
 GRANT EXECUTE ON FUNCTION
@@ -165,6 +379,194 @@ GRANT EXECUTE ON FUNCTION
 
 GRANT SELECT ON aap_identity_v1.account_profiles,
     aap_identity_v1.invitation_audit_targets TO :"application_role";
+REVOKE ALL ON TABLE public.notifications, public.notification_preferences,
+    public.notification_delivery_outbox FROM :"application_role", PUBLIC;
+REVOKE ALL (id, user_id, type, target_type, target_id, payload, read_at, created_at)
+    ON TABLE public.notifications FROM :"application_role", PUBLIC;
+REVOKE ALL (user_id, type, channels, updated_at)
+    ON TABLE public.notification_preferences FROM :"application_role", PUBLIC;
+REVOKE ALL (notification_id, operation_id, recipient_id, notification_type,
+    state, attempt, available_at, worker_id, lease_id, lease_expires_at,
+    last_reason, created_at, delivered_at)
+    ON TABLE public.notification_delivery_outbox FROM :"application_role", PUBLIC;
+REVOKE ALL ON TABLE aap_notifications_v1.notification_facts
+    FROM :"application_role", PUBLIC;
+REVOKE ALL (id, user_id, type, target_type, target_id, payload, read_at, created_at)
+    ON TABLE aap_notifications_v1.notification_facts FROM :"application_role", PUBLIC;
+REVOKE EXECUTE ON FUNCTION aap_notifications_v1._visible_inbox_rows(uuid,text)
+    FROM :"application_role", PUBLIC;
+REVOKE ALL ON TABLE aap_audit_v1.audit_events FROM :"application_role", PUBLIC;
+REVOKE ALL (id, actor_id, actor_email, actor_role, action, target_type, target_id,
+    method, path, status_code, ip, detail_json, request_id, created_at)
+    ON TABLE aap_audit_v1.audit_events FROM :"application_role", PUBLIC;
+GRANT SELECT ON aap_audit_v1.audit_events TO :"application_role";
+REVOKE ALL ON TABLE public.mv_audit_bi_daily FROM :"application_role", PUBLIC;
+REVOKE ALL (day, action, target_type, actor_role, status_family, event_count)
+    ON TABLE public.mv_audit_bi_daily FROM :"application_role", PUBLIC;
+REVOKE ALL ON TABLE aap_audit_v1.audit_daily_facts FROM :"application_role", PUBLIC;
+REVOKE ALL (day, action, target_type, actor_role, status_family, event_count)
+    ON TABLE aap_audit_v1.audit_daily_facts FROM :"application_role", PUBLIC;
+GRANT SELECT ON aap_audit_v1.audit_daily_facts TO :"application_role";
+REVOKE ALL ON TABLE aap_jobs_v1.notification_scope_facts FROM :"application_role", PUBLIC;
+REVOKE ALL (id, kind, scope_project_id)
+    ON TABLE aap_jobs_v1.notification_scope_facts FROM :"application_role", PUBLIC;
+GRANT SELECT ON aap_jobs_v1.notification_scope_facts TO :"application_role";
+REVOKE EXECUTE ON FUNCTION aap_audit_v1.refresh_audit_bi_mv()
+    FROM :"application_role", PUBLIC;
+DO $audit_storage_acl$
+DECLARE
+    v_runtime pg_catalog.name := current_setting('aap.application_role');
+    v_partition record;
+    v_columns text;
+    v_sequence text := pg_catalog.pg_get_serial_sequence('public.audit_logs', 'id');
+BEGIN
+    EXECUTE pg_catalog.format('REVOKE ALL ON TABLE public.audit_logs FROM %I, PUBLIC',
+        v_runtime);
+    SELECT pg_catalog.string_agg(pg_catalog.quote_ident(attribute.attname), ',' ORDER BY attribute.attnum)
+    INTO v_columns
+    FROM pg_catalog.pg_attribute AS attribute
+    WHERE attribute.attrelid = 'public.audit_logs'::pg_catalog.regclass
+      AND attribute.attnum > 0 AND NOT attribute.attisdropped;
+    EXECUTE pg_catalog.format(
+        'REVOKE ALL (%s) ON TABLE public.audit_logs FROM %I, PUBLIC',
+        v_columns, v_runtime);
+    EXECUTE pg_catalog.format('GRANT SELECT ON TABLE public.audit_logs TO %I',
+        v_runtime);
+    FOR v_partition IN
+        SELECT relid FROM pg_catalog.pg_partition_tree('public.audit_logs')
+        WHERE relid <> 'public.audit_logs'::pg_catalog.regclass
+    LOOP
+        EXECUTE pg_catalog.format('REVOKE ALL ON TABLE %s FROM %I, PUBLIC',
+            v_partition.relid::pg_catalog.regclass, v_runtime);
+        SELECT pg_catalog.string_agg(pg_catalog.quote_ident(attribute.attname), ',' ORDER BY attribute.attnum)
+        INTO v_columns
+        FROM pg_catalog.pg_attribute AS attribute
+        WHERE attribute.attrelid = v_partition.relid
+          AND attribute.attnum > 0 AND NOT attribute.attisdropped;
+        EXECUTE pg_catalog.format('REVOKE ALL (%s) ON TABLE %s FROM %I, PUBLIC',
+            v_columns, v_partition.relid::pg_catalog.regclass, v_runtime);
+    END LOOP;
+    IF v_sequence IS NULL THEN
+        RAISE EXCEPTION 'Audit log sequence is missing';
+    END IF;
+    EXECUTE pg_catalog.format('REVOKE ALL ON SEQUENCE %s FROM %I, PUBLIC',
+        v_sequence, v_runtime);
+END;
+$audit_storage_acl$;
+DO $notification_private_acl$
+DECLARE
+    v_runtime pg_catalog.name := current_setting('aap.application_role');
+    v_relation pg_catalog.regclass;
+BEGIN
+    FOREACH v_relation IN ARRAY ARRAY[
+        'public.notifications'::pg_catalog.regclass,
+        'public.notification_preferences'::pg_catalog.regclass,
+        'public.notification_delivery_outbox'::pg_catalog.regclass
+    ] LOOP
+        IF pg_catalog.has_table_privilege(v_runtime, v_relation,
+                'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+           OR pg_catalog.has_any_column_privilege(v_runtime, v_relation,
+                'SELECT,INSERT,UPDATE,REFERENCES') THEN
+            RAISE EXCEPTION 'The runtime role still has direct Notifications storage access';
+        END IF;
+    END LOOP;
+    IF pg_catalog.has_table_privilege(v_runtime,
+            'aap_notifications_v1.notification_facts', 'SELECT')
+       OR pg_catalog.has_any_column_privilege(v_runtime,
+            'aap_notifications_v1.notification_facts', 'SELECT')
+       OR pg_catalog.has_table_privilege(v_runtime,
+            'aap_notifications_v1.notification_facts',
+            'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+       OR pg_catalog.has_any_column_privilege(v_runtime,
+            'aap_notifications_v1.notification_facts', 'INSERT,UPDATE,REFERENCES') THEN
+        RAISE EXCEPTION 'The runtime role can read Notifications facts directly';
+    END IF;
+    IF NOT pg_catalog.has_function_privilege(v_runtime,
+            'aap_notifications_v1.read_notification(uuid)', 'EXECUTE')
+       OR NOT pg_catalog.has_function_privilege(v_runtime,
+            'aap_notifications_v1.find_terminal_notification(uuid,text,uuid)', 'EXECUTE')
+       OR NOT pg_catalog.has_function_privilege(v_runtime,
+            'aap_notifications_v1.delivery_job_scopes(uuid[])', 'EXECUTE')
+       OR NOT pg_catalog.has_function_privilege(v_runtime,
+            'aap_notifications_v1.delivery_member_pairs(jsonb)', 'EXECUTE')
+       OR NOT pg_catalog.has_function_privilege(v_runtime,
+            'aap_notifications_v1.delivery_reviewer_pairs(jsonb)', 'EXECUTE')
+       OR NOT pg_catalog.has_function_privilege(v_runtime,
+            'aap_notifications_v1.delivery_owner_pairs(jsonb)', 'EXECUTE')
+       OR NOT pg_catalog.has_function_privilege(v_runtime,
+            'aap_notifications_v1.delivery_super_pairs(jsonb)', 'EXECUTE')
+       OR NOT pg_catalog.has_function_privilege(v_runtime,
+            'aap_notifications_v1.inbox_page(uuid,text,boolean,integer,integer)', 'EXECUTE')
+       OR NOT pg_catalog.has_function_privilege(v_runtime,
+            'aap_notifications_v1.inbox_total_count(uuid,text)', 'EXECUTE')
+       OR NOT pg_catalog.has_function_privilege(v_runtime,
+            'aap_notifications_v1.inbox_unread_count(uuid,text)', 'EXECUTE')
+       OR pg_catalog.has_function_privilege(v_runtime,
+            'aap_notifications_v1._visible_inbox_rows(uuid,text)', 'EXECUTE') THEN
+        RAISE EXCEPTION 'The runtime role is missing fixed Notifications reads';
+    END IF;
+END;
+$notification_private_acl$;
+DO $audit_read_acl$
+DECLARE
+    v_runtime pg_catalog.name := current_setting('aap.application_role');
+    v_sequence text := pg_catalog.pg_get_serial_sequence('public.audit_logs', 'id');
+BEGIN
+    IF NOT pg_catalog.has_table_privilege(v_runtime, 'public.audit_logs', 'SELECT')
+       OR pg_catalog.has_table_privilege(v_runtime, 'public.audit_logs',
+            'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+       OR pg_catalog.has_any_column_privilege(v_runtime, 'public.audit_logs',
+            'INSERT,UPDATE,REFERENCES')
+       OR pg_catalog.has_sequence_privilege(v_runtime, v_sequence, 'SELECT,UPDATE,USAGE')
+       OR pg_catalog.pg_has_role(v_runtime,
+            (SELECT relation.relowner FROM pg_catalog.pg_class AS relation
+             WHERE relation.oid='public.audit_logs'::pg_catalog.regclass), 'MEMBER')
+       OR NOT pg_catalog.has_function_privilege(v_runtime,
+            'aap_audit_v1.maintenance_command(jsonb)', 'EXECUTE')
+       OR pg_catalog.has_function_privilege(v_runtime,
+            'aap_audit_v1.refresh_audit_bi_mv()', 'EXECUTE')
+       OR EXISTS (
+            SELECT FROM pg_catalog.pg_partition_tree('public.audit_logs') AS partition
+            WHERE partition.relid <> 'public.audit_logs'::pg_catalog.regclass
+              AND (
+                  pg_catalog.has_table_privilege(v_runtime, partition.relid,
+                      'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                  OR pg_catalog.has_any_column_privilege(v_runtime, partition.relid,
+                      'SELECT,INSERT,UPDATE,REFERENCES')
+              )
+       )
+       OR NOT pg_catalog.has_table_privilege(v_runtime, 'aap_audit_v1.audit_events', 'SELECT')
+       OR pg_catalog.has_table_privilege(v_runtime, 'aap_audit_v1.audit_events',
+            'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+       OR pg_catalog.has_any_column_privilege(v_runtime, 'aap_audit_v1.audit_events',
+            'INSERT,UPDATE,REFERENCES')
+       OR NOT pg_catalog.has_table_privilege(v_runtime, 'aap_audit_v1.audit_daily_facts', 'SELECT')
+       OR pg_catalog.has_table_privilege(v_runtime, 'aap_audit_v1.audit_daily_facts',
+            'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+       OR pg_catalog.has_any_column_privilege(v_runtime, 'aap_audit_v1.audit_daily_facts',
+            'INSERT,UPDATE,REFERENCES')
+       OR pg_catalog.has_table_privilege(v_runtime, 'public.mv_audit_bi_daily',
+            'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+       OR pg_catalog.has_any_column_privilege(v_runtime, 'public.mv_audit_bi_daily',
+            'SELECT,INSERT,UPDATE,REFERENCES')
+       OR pg_catalog.has_function_privilege(v_runtime, 'aap_audit_v1.refresh_audit_bi_mv()', 'EXECUTE') THEN
+        RAISE EXCEPTION 'The runtime role is missing read-only Audit facts';
+    END IF;
+END;
+$audit_read_acl$;
+DO $jobs_scope_acl$
+DECLARE
+    v_runtime pg_catalog.name := current_setting('aap.application_role');
+BEGIN
+    IF NOT pg_catalog.has_table_privilege(v_runtime, 'aap_jobs_v1.notification_scope_facts', 'SELECT')
+       OR pg_catalog.has_table_privilege(v_runtime, 'aap_jobs_v1.notification_scope_facts',
+            'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+       OR pg_catalog.has_any_column_privilege(v_runtime, 'aap_jobs_v1.notification_scope_facts',
+            'INSERT,UPDATE,REFERENCES') THEN
+        RAISE EXCEPTION 'The runtime role is missing read-only Jobs notification facts';
+    END IF;
+END;
+$jobs_scope_acl$;
 GRANT SELECT ON aap_workspace_v1.project_member_facts TO :"application_role";
 GRANT SELECT ON aap_workspace_v1.project_facts,
     aap_labeling_v1.project_catalog_counters TO :"application_role";
@@ -359,6 +761,35 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid),
     aap_assets_v1.pending_storage_deletions(uuid, integer),
     aap_assets_v1.complete_storage_deletion(uuid, uuid)
     TO :"application_role";
+-- Compose the existing Spatial native contract for default API/worker calls.
+GRANT SELECT ON aap_assets_v1.spatial_item_references,
+    aap_assets_v1.spatial_scene_references,
+    aap_assets_v1.labeling_dataset_item_facts TO :"application_role";
+GRANT EXECUTE ON FUNCTION
+    aap_assets_v1.guard_spatial_actor(uuid,text),
+    aap_assets_v1.list_spatial_scenes(uuid,uuid,timestamp with time zone,uuid,integer),
+    aap_assets_v1.get_spatial_scene(uuid,uuid),
+    aap_assets_v1.read_spatial_layout(uuid,uuid,uuid,uuid,integer),
+    aap_assets_v1.read_spatial_items(uuid,uuid[],uuid,integer),
+    aap_assets_v1.read_spatial_poses(uuid,uuid,integer,integer),
+    aap_assets_v1.read_spatial_pose_pairs(jsonb),
+    aap_assets_v1.read_spatial_calibrations(uuid[],boolean,uuid,integer,integer),
+    aap_assets_v1.lock_spatial_calibration_facts(uuid,uuid,text,uuid,jsonb),
+    aap_assets_v1.mutate_spatial_scene(uuid,uuid,uuid,jsonb,jsonb),
+    aap_assets_v1.apply_spatial_layout(uuid,uuid,uuid,text,boolean,jsonb,jsonb),
+    aap_assets_v1.read_spatial_layout_receipt(uuid,uuid,uuid,text,boolean),
+    aap_assets_v1.upsert_spatial_poses(uuid,uuid,jsonb),
+    aap_assets_v1.create_spatial_scene(uuid,uuid,uuid,text,text,jsonb,uuid),
+    aap_assets_v1.assign_spatial_items(uuid,uuid,jsonb),
+    aap_assets_v1.set_spatial_scene_source(uuid,uuid,text,jsonb),
+    aap_assets_v1.update_spatial_calibration(uuid,uuid,uuid,text,integer,text,jsonb,text,text,jsonb,jsonb),
+    aap_assets_v1.read_pointcloud_preparation(uuid,uuid,integer),
+    aap_assets_v1.apply_pointcloud_preparation(uuid,jsonb,jsonb,jsonb),
+    aap_assets_v1.read_spatial_camera_target(uuid,uuid,text),
+    aap_assets_v1.record_spatial_calibration_provenance(uuid,uuid,jsonb),
+    aap_assets_v1.set_spatial_dataset_axis(uuid,uuid,text)
+    TO :"application_role";
+
 -- The monolithic API/Celery runtime composes retained video input capabilities
 -- locally. Keep this bounded to workflow, control, worker and labeling calls;
 -- system sweep and video-input garbage operations stay with their owners.
@@ -474,29 +905,13 @@ GRANT EXECUTE ON FUNCTION aap_assets_v1.pending_storage_deletions_v2(
     aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer),
     aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)
     TO :"asset_cleanup_role";
-ALTER DEFAULT PRIVILEGES FOR ROLE :"migration_role" IN SCHEMA public
-    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO :"application_role";
-ALTER DEFAULT PRIVILEGES FOR ROLE :"migration_role" IN SCHEMA public
-    GRANT USAGE, SELECT ON SEQUENCES TO :"application_role";
+-- Refresh explicit runtime grants after migrations; blanket defaults expose owner storage.
 
--- Existing maintenance tasks create/drop monthly partitions and refresh these
--- two materialized views via the normal runtime connection. Ownership is limited
--- to these objects; the migration role inherits the runtime role, never vice versa.
+-- User-performance maintenance retains this MV; prediction partitions use
+-- their Labeling owner. The migration role inherits the runtime, never vice versa.
 DO $$
-DECLARE
-    obj record;
 BEGIN
-    FOR obj IN
-        SELECT relid FROM pg_partition_tree('public.audit_logs')
-        UNION
-        SELECT relid FROM pg_partition_tree('public.predictions')
-    LOOP
-        EXECUTE format('ALTER TABLE %s OWNER TO %I', obj.relid::regclass,
-                       current_setting('aap.application_role'));
-    END LOOP;
     EXECUTE format('ALTER MATERIALIZED VIEW public.mv_user_perf_daily OWNER TO %I',
-                   current_setting('aap.application_role'));
-    EXECUTE format('ALTER MATERIALIZED VIEW public.mv_audit_bi_daily OWNER TO %I',
                    current_setting('aap.application_role'));
 END $$;
 
@@ -660,4 +1075,155 @@ BEGIN
     END LOOP;
 END;
 $identity_private_acl$;
+DO $labeling_private_acl$
+DECLARE
+    v_runtime name := current_setting('aap.application_role');
+    v_runtime_oid oid;
+    v_tables text[] := ARRAY[
+        'ai_mask_accept_decisions', 'annotation_comments',
+        'annotation_conversion_plans', 'annotation_drafts', 'annotation_feedbacks',
+        'annotation_input_sources', 'annotation_lineage_edges', 'annotation_operations',
+        'annotation_video_input_sources', 'annotation_video_tracker_input_sources',
+        'annotations', 'batch_result_bundles', 'batch_result_parts',
+        'batch_result_payloads', 'failed_predictions', 'mask_annotation_revisions',
+        'mask_format_imports', 'mask_gc_intents', 'mask_gc_key_epochs', 'mask_gc_roots',
+        'mask_gc_sweeps', 'mask_gc_write_permit_secrets', 'mask_qc_issues', 'mask_qc_runs',
+        'mask_repair_batches', 'mask_review_scopes', 'point_cloud_quality_evaluations',
+        'point_cloud_quality_issues', 'point_cloud_quality_runs', 'prediction_metas',
+        'prediction_retry_attempts', 'predictions', 'raster_mask_uploads',
+        'scene_track_intervals', 'scene_track_operations', 'scene_tracks',
+        'task_append_operations', 'task_batches', 'task_creation_chunks',
+        'task_creation_operations', 'task_dataset_item_links', 'task_events',
+        'task_locks', 'tasks', 'video_segments', 'video_track_quality_issues',
+        'video_track_quality_runs', 'video_tracker_input_scopes', 'video_tracker_jobs'
+    ];
+    v_private oid[];
+    v_owners oid[];
+    v_name text;
+    v_relation record;
+    v_default record;
+    v_columns text;
+BEGIN
+    SELECT oid INTO v_runtime_oid FROM pg_catalog.pg_roles
+    WHERE rolname=v_runtime AND rolcanlogin
+      AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls);
+    IF current_database() <> current_setting('aap.expected_database')
+       OR v_runtime_oid IS NULL OR v_runtime=current_user THEN
+        RAISE EXCEPTION 'Invalid embedded Labeling runtime ownership';
+    END IF;
+    FOREACH v_name IN ARRAY v_tables LOOP
+        IF pg_catalog.to_regclass(pg_catalog.format('public.%I',v_name)) IS NULL THEN
+            RAISE EXCEPTION 'Missing private Labeling relation: %',v_name;
+        END IF;
+    END LOOP;
+    v_private := ARRAY(
+        WITH RECURSIVE storage(oid) AS (
+            SELECT c.oid FROM pg_catalog.pg_class c
+            JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+            WHERE (n.nspname='public' AND c.relname=ANY(v_tables))
+               OR (n.nspname ~ '^aap_labeling(_[a-z0-9]+)*_v[0-9]+$'
+                   AND c.relkind IN ('r','p','m','f'))
+            UNION
+            SELECT i.inhrelid FROM pg_catalog.pg_inherits i
+            JOIN storage s ON s.oid=i.inhparent
+        ) SELECT oid FROM storage
+    );
+    v_owners := ARRAY(
+        SELECT relowner FROM pg_catalog.pg_class WHERE oid=ANY(v_private)
+        UNION SELECT p.proowner FROM pg_catalog.pg_proc p
+        JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+        WHERE n.nspname ~ '^aap_labeling(_[a-z0-9]+)*_v[0-9]+$'
+        UNION SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_user
+    );
+    IF EXISTS (SELECT FROM pg_catalog.unnest(v_owners) owner_oid
+               WHERE owner_oid=v_runtime_oid
+                  OR pg_catalog.pg_has_role(v_runtime_oid,owner_oid,'MEMBER')) THEN
+        RAISE EXCEPTION 'Runtime inherits private Labeling ownership';
+    END IF;
+    FOR v_relation IN
+        SELECT c.oid,n.nspname,c.relname FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+        WHERE c.oid=ANY(v_private)
+    LOOP
+        EXECUTE pg_catalog.format('REVOKE ALL ON TABLE %I.%I FROM %I, PUBLIC',
+            v_relation.nspname,v_relation.relname,v_runtime);
+        SELECT pg_catalog.string_agg(pg_catalog.quote_ident(attname),',' ORDER BY attnum)
+        INTO v_columns FROM pg_catalog.pg_attribute
+        WHERE attrelid=v_relation.oid AND attnum>0 AND NOT attisdropped;
+        IF v_columns IS NOT NULL THEN
+            EXECUTE pg_catalog.format('REVOKE ALL (%s) ON TABLE %I.%I FROM %I, PUBLIC',
+                v_columns,v_relation.nspname,v_relation.relname,v_runtime);
+        END IF;
+        IF pg_catalog.has_table_privilege(v_runtime,v_relation.oid,
+                'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+           OR pg_catalog.has_any_column_privilege(v_runtime,v_relation.oid,
+                'SELECT,INSERT,UPDATE,REFERENCES') THEN
+            RAISE EXCEPTION 'Runtime retains private Labeling access: %.%',
+                v_relation.nspname,v_relation.relname;
+        END IF;
+    END LOOP;
+    FOR v_relation IN
+        SELECT c.oid,n.nspname,c.relname FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+        WHERE c.relkind='S' AND (
+            (n.nspname='public' AND c.relname IN ('display_seq_tasks','display_seq_batches'))
+            OR n.nspname ~ '^aap_labeling(_[a-z0-9]+)*_v[0-9]+$'
+            OR EXISTS (SELECT FROM pg_catalog.pg_depend d
+                       WHERE d.classid='pg_catalog.pg_class'::pg_catalog.regclass
+                         AND d.objid=c.oid AND d.refclassid=d.classid
+                         AND d.refobjid=ANY(v_private) AND d.deptype IN ('a','i'))
+        )
+    LOOP
+        EXECUTE pg_catalog.format('REVOKE ALL ON SEQUENCE %I.%I FROM %I, PUBLIC',
+            v_relation.nspname,v_relation.relname,v_runtime);
+        IF pg_catalog.has_sequence_privilege(v_runtime,v_relation.oid,'USAGE,SELECT,UPDATE') THEN
+            RAISE EXCEPTION 'Runtime retains private Labeling sequence access: %.%',
+                v_relation.nspname,v_relation.relname;
+        END IF;
+    END LOOP;
+    FOR v_relation IN
+        SELECT c.oid,n.nspname,c.relname FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+        WHERE c.relkind='v' AND n.nspname ~ '^aap_labeling(_[a-z0-9]+)*_v[0-9]+$'
+    LOOP
+        EXECUTE pg_catalog.format(
+            'REVOKE INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER ON TABLE %I.%I FROM %I, PUBLIC',
+            v_relation.nspname,v_relation.relname,v_runtime);
+        SELECT pg_catalog.string_agg(pg_catalog.quote_ident(attname),',' ORDER BY attnum)
+        INTO v_columns FROM pg_catalog.pg_attribute
+        WHERE attrelid=v_relation.oid AND attnum>0 AND NOT attisdropped;
+        IF v_columns IS NOT NULL THEN
+            EXECUTE pg_catalog.format(
+                'REVOKE INSERT (%1$s),UPDATE (%1$s),REFERENCES (%1$s) ON TABLE %2$I.%3$I FROM %4$I, PUBLIC',
+                v_columns,v_relation.nspname,v_relation.relname,v_runtime);
+        END IF;
+        IF pg_catalog.has_table_privilege(v_runtime,v_relation.oid,
+                'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+           OR pg_catalog.has_any_column_privilege(v_runtime,v_relation.oid,
+                'INSERT,UPDATE,REFERENCES') THEN
+            RAISE EXCEPTION 'Runtime retains Labeling view writes: %.%',
+                v_relation.nspname,v_relation.relname;
+        END IF;
+    END LOOP;
+    FOR v_default IN
+        SELECT d.defaclobjtype,r.rolname,n.nspname
+        FROM pg_catalog.pg_default_acl d
+        JOIN pg_catalog.pg_roles r ON r.oid=d.defaclrole
+        LEFT JOIN pg_catalog.pg_namespace n ON n.oid=d.defaclnamespace
+        WHERE d.defaclrole=ANY(v_owners) AND d.defaclobjtype IN ('r','S')
+          AND (d.defaclnamespace=0 OR n.nspname='public'
+               OR n.nspname ~ '^aap_labeling(_[a-z0-9]+)*_v[0-9]+$')
+          AND EXISTS (SELECT FROM pg_catalog.aclexplode(d.defaclacl) a
+                      WHERE a.grantee IN (0,v_runtime_oid))
+    LOOP
+        EXECUTE pg_catalog.format(
+            'ALTER DEFAULT PRIVILEGES FOR ROLE %I%s REVOKE ALL ON %s FROM %I, PUBLIC',
+            v_default.rolname,
+            CASE WHEN v_default.nspname IS NULL THEN ''
+                 ELSE pg_catalog.format(' IN SCHEMA %I',v_default.nspname) END,
+            CASE v_default.defaclobjtype WHEN 'r' THEN 'TABLES' ELSE 'SEQUENCES' END,
+            v_runtime);
+    END LOOP;
+END;
+$labeling_private_acl$;
 COMMIT;

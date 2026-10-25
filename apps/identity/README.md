@@ -43,11 +43,23 @@ rederive Identity credentials. Keep the existing Identity secret stable for
 live issuers and durable receipts; this is not a key-rotation procedure.
 Configuration errors never fall back. The runtime does not load an API `.env` file.
 
+For a separate API admission connection, optionally provide
+`IDENTITY_ADMISSION_TOKEN` or `IDENTITY_ADMISSION_TOKEN_FILE`. It must be a
+canonical bearer value distinct from the normalized `IDENTITY_TOKEN`. This
+scoped bearer is accepted only by `/v1/identity/authenticate` and
+`/v1/identity/actor-status`; command, session, and administrator endpoints
+continue to require the general token. Provide
+`IDENTITY_ACTOR_STATUS_DATABASE_URL` or its `_FILE` variant to enable the
+second-handshake status read. It uses a dedicated LOGIN with only
+`aap_identity_v1.read_actor_facts(uuid)` and has no fallback to the admission
+database URL. Without that source, `/v1/identity/actor-status` returns 503.
+
 ```sh
 uv run --project apps/identity --locked --extra runtime python -m aap_identity_runtime
 ```
 
-`/health` is process liveness; `/ready` calls and checks the native policy.
+`/health` is process liveness; `/ready` calls and checks the native policy and
+the actor-status source when configured.
 Private `POST /v1/identity/authenticate` requires the control bearer and a JSON
 `{"token":"..."}` body. Valid credential verdicts return a closed success or
 failure envelope with HTTP 200. Invalid control credentials return 401, malformed
@@ -55,6 +67,12 @@ requests return 400, and owner failures/deadlines return 503. Bodies never echo
 the supplied credential. Concurrency and deadlines are bounded. Account preferences
 retain their existing accepted size/cardinality set rather than inheriting the
 smaller admission/session byte limits.
+
+`POST /v1/identity/actor-status` accepts the same general or scoped service
+bearer and a closed `aap-identity-actor-status/v1` request containing an actor
+UUID. Its reply contains only that UUID and the current strict boolean activity
+flag, or `actor: null` when the account is absent. It deliberately does not
+compare the actor's current role with the role from credential admission.
 
 `docker-compose.identity.yml` starts optional admission and Recovery credential-
 mail processes from the same `aap-identity:local` image. The opt-in `mail-v2`
@@ -385,14 +403,19 @@ through its existing API process.
 
 Identity writes the two fixed deactivation events through the Notifications
 owner in the same database transaction. Delivery uses the separate
-`notification_publish_client` and the same package's
-`python -m aap_identity_runtime.notification_worker` process; this publisher
+`notification_publish_client`; the existing
+`python -m aap_identity_runtime.notification_worker` entry remains as a
+compatibility wrapper around the Notifications publisher. The publisher
 requires only `NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)` and
 `NOTIFICATION_PUBLISH_REDIS_URL(_FILE)`, with no Identity/auth/signing secret.
-Its portable DTO and Postgres execution live in
-`aap_identity.notification_delivery_contract` and
-`aap_identity.notification_delivery_postgres`; runtime settings are owned by
-`aap_identity_runtime.notification_config`.
+The contract, PostgreSQL client, runtime settings, and executor are owned by
+`aap_notifications.notification_delivery_contract`,
+`aap_notifications.notification_delivery_postgres`,
+`aap_notifications.delivery_config`, and
+`aap_notifications.delivery_worker`; Identity's old import paths remain
+compatibility wrappers. The Identity runtime image installs the Notifications
+package as a noneditable dependency so its existing worker deployment remains
+independent.
 See [the private protocol](../../docs-site/api/guides/identity-runtime.md#自助注销与最后一名超级管理员围栏),
 [ADR-0121](../../docs/adr/0121-identity-self-deactivation-and-notification-delivery.md),
 and the [deployment slice status](../../docs-site/dev/concepts/module-deployment.md).

@@ -1,11 +1,7 @@
-"""v0.10.27 · 导出异步化 worker（计划 §4 阶段 3）。
+"""Asynchronous exports with session-fenced builds and cached artifacts.
 
-照 batch_predict 模板：`@celery_app.task` + `asyncio.run(_run_export(...))`，内部 async_sessionmaker。
-
-流程：mark_running → 算指纹（max updated_at + active count）→ compute_cache_key →
-export_cache.lookup（命中且探活在 → 刷新预签名 URL 直接 mark_complete）→ 否则生成 ZIP
-（export_packaging.build_export_zip）→ put 到 export 桶 `image/{project_id}/{job_id}.zip` →
-export_cache.record → update_progress 分段 → mark_complete。异常 mark_failed。
+The worker reauthorizes accepted scope, shares valid cached artifacts, or builds
+and uploads a temporary ZIP under a unique attempt key before publishing results.
 """
 
 from __future__ import annotations
@@ -14,26 +10,23 @@ import asyncio
 import logging
 import os
 import re
-import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
-import redis.asyncio as aioredis
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.orm import aliased
+from sqlalchemy.pool import NullPool
 
 from app.config import settings
-from app.db.models.annotation import Annotation
-from app.db.models.async_job import AsyncJob
 from app.db.models.export_artifact import ExportArtifact
 from app.db.models.project import Project
-from app.db.models.task import Task
-from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.services import async_job as async_job_svc
+from app.services.jobs_lifecycle_data import job_lock_statement
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.exporting import cache as export_cache
 from app.services.exporting.packaging import (
@@ -49,6 +42,12 @@ from app.services.notification import NotificationService
 from app.services.data_management.task_filters import visible_tasks_stmt
 from app.services.assets_spatial import AssetsSpatialGateway
 from app.services.labeling_scene import read_spatial_item_facts
+from app.services.workspace_read_relations import project_facts
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    task_dataset_item_link_row,
+    task_row,
+)
 from aap_assets_catalog.spatial_contract import (
     ReadPosesRequest,
     SpatialItem,
@@ -59,16 +58,58 @@ from app.workers.celery_app import celery_app
 
 log = logging.getLogger(__name__)
 
-_RELEASE_LOCK_LUA = """
-if redis.call('get', KEYS[1]) == ARGV[1] then
-  return redis.call('del', KEYS[1])
-end
-return 0
-"""
-
 
 class ExportBuildInProgress(RuntimeError):
     pass
+
+
+class ExportExecutionLost(ExportBuildInProgress):
+    pass
+
+
+class _ExportExecution:
+    """Keep execution rights on the same PostgreSQL session as all writes."""
+
+    def __init__(self, db: AsyncSession, connection) -> None:
+        self.db = db
+        self.connection = connection
+        self.backend_pid: int | None = None
+        self.lost = False
+
+    async def assert_owned(self) -> None:
+        if self.lost or self.connection.invalidated:
+            self.lost = True
+            raise ExportExecutionLost("export database session was lost")
+        try:
+            pid = await self.db.scalar(select(func.pg_backend_pid()))
+        except Exception as exc:
+            if self.connection.invalidated:
+                self.lost = True
+                raise ExportExecutionLost("export database session was lost") from exc
+            raise
+        if self.backend_pid is None:
+            self.backend_pid = pid
+        elif pid != self.backend_pid:
+            self.lost = True
+            raise ExportExecutionLost("export database session was replaced")
+
+    async def acquire(self, key: str) -> None:
+        await self.assert_owned()
+        try:
+            acquired = await self.db.scalar(
+                select(
+                    func.pg_try_advisory_lock(
+                        func.hashtextextended(f"aap-export:{key}", 0)
+                    )
+                )
+            )
+        except Exception as exc:
+            if self.connection.invalidated:
+                self.lost = True
+                raise ExportExecutionLost("export database session was lost") from exc
+            raise
+        if not acquired:
+            raise ExportBuildInProgress("another worker owns this export execution")
 
 
 async def _complete_from_cache(
@@ -120,7 +161,7 @@ async def _emit_export_notification(
     失败不阻断主流程（与 notification 服务自身的 try/except 一致）。调用方负责后续 commit。
     """
     try:
-        job = await db.get(AsyncJob, job_uuid)
+        job = await async_job_svc.get_job(db, job_uuid)
         if job is None or job.user_id is None:
             return None
         payload_in = job.payload or {}
@@ -156,7 +197,12 @@ async def _publish_export_notification(db: AsyncSession, pending: Notification |
         await NotificationService(db).publish_committed([pending])
 
 
-@celery_app.task(bind=True, name="app.workers.export.run_export")
+@celery_app.task(
+    bind=True,
+    name="app.workers.export.run_export",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
 def run_export(
     self,
     project_id: str,
@@ -189,28 +235,33 @@ async def _scope_fingerprint(
     task_ids: list[uuid.UUID] | None = None,
 ) -> tuple[datetime | None, int]:
     """max(project/annotation updated_at) + active annotation count for cache invalidation."""
-    q = select(func.max(Annotation.updated_at), func.count(Annotation.id)).where(
-        Annotation.project_id == project_id,
-        Annotation.is_active.is_(True),
-        Annotation.was_cancelled.is_(False),
+    q = select(
+        func.max(annotation_row.updated_at), func.count(annotation_row.id)
+    ).where(
+        annotation_row.project_id == project_id,
+        annotation_row.is_active.is_(True),
+        annotation_row.was_cancelled.is_(False),
     )
     if batch_id is not None:
         # Annotation 无 batch_id 列；与 _load_data 一致，按 task.batch_id 过滤。
         q = q.where(
-            Annotation.task_id.in_(select(Task.id).where(Task.batch_id == batch_id))
+            annotation_row.task_id.in_(
+                select(task_row.id).where(task_row.batch_id == batch_id)
+            )
         )
     if task_ids is not None:
         q = q.where(
-            Annotation.task_id.in_(
-                select(Task.id).where(
-                    Task.project_id == project_id,
-                    Task.id.in_(task_ids),
+            annotation_row.task_id.in_(
+                select(task_row.id).where(
+                    task_row.project_id == project_id,
+                    task_row.id.in_(task_ids),
                 )
             )
         )
     row = (await db.execute(q)).one()
+    project = aliased(Project, project_facts(), adapt_on_names=True)
     project_updated_at = (
-        await db.execute(select(Project.updated_at).where(Project.id == project_id))
+        await db.execute(select(project.updated_at).where(project.id == project_id))
     ).scalar_one_or_none()
     timestamps = [ts for ts in (row[0], project_updated_at) if ts is not None]
     return (max(timestamps) if timestamps else None), int(row[1] or 0)
@@ -221,9 +272,9 @@ async def _nuscenes_scope_digest(
     project_id: uuid.UUID,
     batch_id: uuid.UUID | None,
 ) -> str:
-    task_query = select(Task).where(Task.project_id == project_id)
+    task_query = select(task_row).where(task_row.project_id == project_id)
     if batch_id is not None:
-        task_query = task_query.where(Task.batch_id == batch_id)
+        task_query = task_query.where(task_row.batch_id == batch_id)
     tasks = list((await db.execute(task_query)).scalars())
     task_ids = [task.id for task in tasks]
     links = []
@@ -232,8 +283,8 @@ async def _nuscenes_scope_digest(
             list(
                 (
                     await db.execute(
-                        select(TaskDatasetItemLink).where(
-                            TaskDatasetItemLink.task_id.in_(
+                        select(task_dataset_item_link_row).where(
+                            task_dataset_item_link_row.task_id.in_(
                                 task_ids[start : start + 1000]
                             )
                         )
@@ -327,9 +378,9 @@ async def _multicamera_coco_scope_digest(
     project_id: uuid.UUID,
     batch_id: uuid.UUID | None,
 ) -> str:
-    task_query = select(Task.id).where(Task.project_id == project_id)
+    task_query = select(task_row.id).where(task_row.project_id == project_id)
     if batch_id is not None:
-        task_query = task_query.where(Task.batch_id == batch_id)
+        task_query = task_query.where(task_row.batch_id == batch_id)
     task_ids = list((await db.execute(task_query)).scalars())
     rows = []
     for start in range(0, len(task_ids), 1000):
@@ -337,11 +388,13 @@ async def _multicamera_coco_scope_digest(
             list(
                 (
                     await db.execute(
-                        select(TaskDatasetItemLink).where(
-                            TaskDatasetItemLink.task_id.in_(
+                        select(task_dataset_item_link_row).where(
+                            task_dataset_item_link_row.task_id.in_(
                                 task_ids[start : start + 1000]
                             ),
-                            TaskDatasetItemLink.role.like("camera\\_%", escape="\\"),
+                            task_dataset_item_link_row.role.like(
+                                "camera\\_%", escape="\\"
+                            ),
                         )
                     )
                 ).scalars()
@@ -423,10 +476,11 @@ async def _scope_naming(
     media 由 project.data_type 决定（image/video）；dataset_name = 唯一数据集名
     （file_path 首段，跨多数据集时 None）；用于桶前缀与友好下载名。
     """
+    project = aliased(Project, project_facts(), adapt_on_names=True)
     row = (
         await db.execute(
-            select(Project.data_type, Project.display_id).where(
-                Project.id == project_id
+            select(project.data_type, project.display_id).where(
+                project.id == project_id
             )
         )
     ).first()
@@ -434,13 +488,13 @@ async def _scope_naming(
     display_id = (row[1] if row else None) or "export"
     media = "video" if data_type == "video" else "image"
 
-    name_q = select(func.split_part(Task.file_path, "/", 1)).where(
-        Task.project_id == project_id
+    name_q = select(func.split_part(task_row.file_path, "/", 1)).where(
+        task_row.project_id == project_id
     )
     if batch_id is not None:
-        name_q = name_q.where(Task.batch_id == batch_id)
+        name_q = name_q.where(task_row.batch_id == batch_id)
     if task_ids is not None:
-        name_q = name_q.where(Task.id.in_(task_ids))
+        name_q = name_q.where(task_row.id.in_(task_ids))
     names = [r[0] for r in (await db.execute(name_q.distinct())).all() if r[0]]
     dataset_name = names[0] if len(names) == 1 else None
     return media, dataset_name, display_id
@@ -467,9 +521,10 @@ async def _assert_export_task_scope(
     job_uuid: uuid.UUID,
 ) -> None:
     """Recheck export project access and any explicit task scope."""
+    from app.services.project_access import get_workspace_project
 
-    project = await db.get(Project, project_id)
-    job = await db.get(AsyncJob, job_uuid)
+    project = await get_workspace_project(db, project_id=project_id)
+    job = await async_job_svc.get_job(db, job_uuid)
     if project is None or job is None or job.project_id != project_id:
         raise ValueError("export scope owner or project is unavailable")
     actor = (
@@ -482,7 +537,7 @@ async def _assert_export_task_scope(
     # Export is a fixed project capability: reviewer or legitimate manager.
     # Reauthorize against current membership so a revoked queued export fails
     # safely before any cache lookup, build or signed-URL issuance.
-    from app.services.workspace_contract import ProjectCapability
+    from aap_workspace_contract.access import ProjectCapability
     from app.services.project_access import resolve_project_access
 
     try:
@@ -508,9 +563,9 @@ async def _assert_export_task_scope(
         raise ValueError("export job task scope does not match worker arguments")
 
     if access.is_manager:
-        query = select(Task.id).where(
-            Task.project_id == project_id,
-            Task.id.in_(task_ids),
+        query = select(task_row.id).where(
+            task_row.project_id == project_id,
+            task_row.id.in_(task_ids),
         )
     else:
         query = visible_tasks_stmt(
@@ -518,7 +573,7 @@ async def _assert_export_task_scope(
             user=actor,
             project=project,
             project_role=access.project_role,
-        ).where(Task.id.in_(task_ids))
+        ).where(task_row.id.in_(task_ids))
     visible_ids = set((await db.execute(query)).scalars().all())
     if visible_ids != set(task_ids):
         raise ValueError("export task scope is no longer visible")
@@ -541,7 +596,7 @@ async def _reauthorize_export_final_write(
 
     from app.services.project_write_guard import lock_actor_scope
 
-    job = await db.get(AsyncJob, job_uuid)
+    job = await async_job_svc.get_job(db, job_uuid)
     if job is None or job.project_id is None or job.user_id is None:
         raise ValueError("export scope is no longer valid")
     actor = await IdentityAccountLockData(db).read_actor_status(job.user_id)
@@ -582,38 +637,26 @@ async def _run_export(
     axis_frame = str(opts.get("axis_frame", "iso"))
     video_scope = VideoExportScope.from_dict(opts.get("video_export_scope"))
     export_bucket = settings.minio_export_bucket
-    lock_client = None
-    lock_key: str | None = None
-    lock_owner: str | None = None
-    lock_acquired = False
     uploaded_object_key: str | None = None
 
-    engine = create_async_engine(settings.database_url, echo=False)
+    engine = create_async_engine(settings.database_url, echo=False, poolclass=NullPool)
     SessionLocal = async_sessionmaker(
         engine, class_=AsyncSession, expire_on_commit=False
     )
     try:
-        async with SessionLocal() as db:
+        async with engine.connect() as connection, SessionLocal(bind=connection) as db:
+            execution = _ExportExecution(db, connection)
+            await execution.acquire(f"job:{job_uuid}")
             try:
                 job_row = (
-                    await db.execute(
-                        select(AsyncJob)
-                        .where(AsyncJob.id == job_uuid)
-                        .with_for_update()
-                    )
+                    await db.execute(job_lock_statement(job_uuid, mode="update"))
                 ).scalar_one_or_none()
                 if job_row is None:
                     raise ValueError("export async job not found")
                 if job_row.status in {"completed", "failed", "cancelled"}:
                     return
-                if (
-                    job_row.status == "running"
-                    and job_row.celery_task_id
-                    and job_row.celery_task_id != celery_task_id
-                ):
-                    # A duplicate delivery for the same durable job must not
-                    # build or publish a second artifact.
-                    return
+                if celery_task_id:
+                    async_job_svc.bind_execution_id(job_row, celery_task_id)
                 await async_job_svc.mark_running(
                     db, job_uuid, celery_task_id=celery_task_id
                 )
@@ -699,29 +742,11 @@ async def _run_export(
 
                 hit = await export_cache.lookup(db, cache_key, bucket=export_bucket)
                 if hit is None:
-                    lock_key = f"export-build:{cache_key}"
-                    lock_owner = secrets.token_hex(32)
-                    lock_client = aioredis.from_url(
-                        settings.redis_url,
-                        decode_responses=True,
-                        socket_connect_timeout=3,
-                        socket_timeout=3,
-                    )
-                    lock_acquired = bool(
-                        await lock_client.set(
-                            lock_key,
-                            lock_owner,
-                            nx=True,
-                            ex=6 * 60 * 60,
-                        )
-                    )
-                    if not lock_acquired:
-                        raise ExportBuildInProgress(
-                            "another worker is building the same export cache key"
-                        )
+                    await execution.acquire(f"cache:{cache_key}")
                     # 首次 miss 与抢锁之间可能已有前驱任务完成。
                     hit = await export_cache.lookup(db, cache_key, bucket=export_bucket)
                 if hit is not None:
+                    await execution.assert_owned()
                     await _complete_from_cache(
                         db,
                         job_uuid=job_uuid,
@@ -734,6 +759,7 @@ async def _run_export(
                     return
 
                 # 未命中：生成 ZIP（v0.12.1 · 落盘 tempfile，不再整包驻留 RAM）。
+                await execution.assert_owned()
                 await async_job_svc.update_progress(db, job_uuid, 10)
                 await db.commit()
 
@@ -750,10 +776,13 @@ async def _run_export(
                     video_scope=video_scope,
                 )
                 try:
+                    await execution.assert_owned()
                     await async_job_svc.update_progress(db, job_uuid, 70)
                     await db.commit()
 
-                    object_key = f"{media}/{project_id}/{async_job_id}.zip"
+                    object_key = (
+                        f"{media}/{project_id}/{async_job_id}/{uuid.uuid4().hex}.zip"
+                    )
                     # 流式多段上传（boto3 upload_file），不把整文件读进内存。
                     storage_service.upload_file(
                         zip_path,
@@ -772,6 +801,7 @@ async def _run_export(
                 expires_at = datetime.now(timezone.utc) + timedelta(
                     seconds=PRESIGN_EXPIRES_SECONDS
                 )
+                await execution.assert_owned()
                 await export_cache.record(
                     db,
                     cache_key=cache_key,
@@ -786,12 +816,14 @@ async def _run_export(
                 await db.commit()
                 uploaded_object_key = None
 
+                await execution.assert_owned()
                 await async_job_svc.update_progress(db, job_uuid, 90)
                 await db.commit()
 
                 # Final result/URL boundary after the long build: reauthorize
                 # the initiating account/membership and canonical selected-task
                 # scope before issuing the URL.
+                await execution.assert_owned()
                 await _reauthorize_export_final_write(db, job_uuid, selected_task_ids)
                 download_url = storage_service.generate_download_url(
                     object_key,
@@ -831,10 +863,17 @@ async def _run_export(
                     size_bytes,
                 )
             except Exception as exc:  # noqa: BLE001
-                await db.rollback()
-                if isinstance(exc, ExportBuildInProgress):
-                    raise
-                if uploaded_object_key is not None:
+                execution.lost = (
+                    execution.lost
+                    or connection.invalidated
+                    or isinstance(exc, ExportExecutionLost)
+                )
+                try:
+                    await db.rollback()
+                except Exception:  # noqa: BLE001
+                    execution.lost = True
+                # A disconnected commit may have published this object already.
+                if uploaded_object_key is not None and not execution.lost:
                     try:
                         storage_service.delete_object(
                             uploaded_object_key,
@@ -845,7 +884,14 @@ async def _run_export(
                             "failed to clean orphan export object key=%s",
                             uploaded_object_key,
                         )
+                if isinstance(exc, ExportBuildInProgress):
+                    raise
+                if execution.lost:
+                    raise ExportExecutionLost(
+                        "export database session was lost"
+                    ) from exc
                 try:
+                    await execution.assert_owned()
                     err = f"{type(exc).__name__}: {exc}"
                     await async_job_svc.mark_failed(db, job_uuid, error=err)
                     pending = await _emit_export_notification(
@@ -853,20 +899,18 @@ async def _run_export(
                     )
                     await db.commit()
                     await _publish_export_notification(db, pending)
-                except Exception:
-                    await db.rollback()
+                except ExportExecutionLost:
+                    raise
+                except Exception as terminal_exc:
+                    execution.lost = execution.lost or connection.invalidated
+                    try:
+                        await db.rollback()
+                    except Exception:  # noqa: BLE001
+                        execution.lost = True
+                    if execution.lost:
+                        raise ExportExecutionLost(
+                            "export database session was lost"
+                        ) from terminal_exc
                 raise
     finally:
-        if lock_client is not None:
-            if lock_acquired and lock_key and lock_owner:
-                try:
-                    await lock_client.eval(
-                        _RELEASE_LOCK_LUA,
-                        1,
-                        lock_key,
-                        lock_owner,
-                    )
-                except Exception:  # noqa: BLE001
-                    log.exception("export single-flight lock release failed")
-            await lock_client.aclose()
         await engine.dispose()

@@ -26,13 +26,11 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.responses import JSONResponse
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import task_access
 from app.config import settings
 from app.db.models.annotation import Annotation
-from app.db.models.raster_mask_upload import RasterMaskUpload
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
@@ -63,6 +61,7 @@ from app.services.raster_mask_storage import (
     build_rle_gzip_reference,
     build_rle_reference,
     classify_raster_mask_content_error,
+    count_unlinked_mask_uploads,
     load_coco_rle,
     lock_raster_mask_references,
     reserve_raster_mask_upload,
@@ -71,6 +70,7 @@ from app.services.raster_mask_storage import (
     validate_mask_geometry_for_task,
 )
 from app.services.video_tracks import resolve_track_at_frame
+from app.services.project_access import get_workspace_project
 from app.utils.raster_mask_rle import (
     MAX_IMAGE_MASK_DIMENSION,
     MAX_IMAGE_MASK_PIXELS,
@@ -78,6 +78,13 @@ from app.utils.raster_mask_rle import (
     MAX_VIDEO_MASK_PIXELS,
 )
 from app.services.identity_contracts import IdentityActorFacts
+
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    get_core_row,
+    lock_task_for_core_read,
+    task_row,
+)
 
 router = APIRouter(dependencies=[Depends(require_active_task_actor)])
 logger = logging.getLogger(__name__)
@@ -93,17 +100,7 @@ MAX_MASK_OBJECTS_PER_TASK = 256
 
 async def _count_task_mask_references(db: AsyncSession, task_id: uuid.UUID) -> int:
     """Count anonymous uploads not yet claimed by an annotation transaction."""
-    return int(
-        (
-            await db.execute(
-                select(func.count(RasterMaskUpload.id)).where(
-                    RasterMaskUpload.task_id == task_id,
-                    RasterMaskUpload.linked_at.is_(None),
-                )
-            )
-        ).scalar()
-        or 0
-    )
+    return await count_unlinked_mask_uploads(db, task_id)
 
 
 _MASK_CONTENT_RESPONSES = {
@@ -129,10 +126,10 @@ async def _load_visible_mask_annotation(
     db: AsyncSession,
     user: User | IdentityActorFacts,
 ) -> tuple[Annotation, Task, dict]:
-    annotation = await db.get(Annotation, annotation_id)
+    annotation = await get_core_row(db, annotation_row, annotation_id)
     if annotation is None or not annotation.is_active:
         raise HTTPException(status_code=404, detail="annotation not found")
-    task = await db.get(Task, annotation.task_id)
+    task = await get_core_row(db, task_row, annotation.task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="task not found")
     await task_access.assert_task_visible(db, task, user.id)
@@ -282,14 +279,7 @@ async def upload_task_mask_content(
     user: IdentityActorFacts = Depends(get_current_user),
 ) -> dict:
     # Match all Mask writers: the Task row is the first database row lock.
-    task = (
-        await db.execute(
-            select(Task)
-            .where(Task.id == task_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
+    task = await lock_task_for_core_read(db, task_id, populate_existing=True)
     if task is None:
         raise HTTPException(status_code=404, detail="task not found")
     access = await task_access.resolve_task_access(
@@ -338,7 +328,9 @@ async def upload_task_mask_content(
                 source_summary = await summary_reader.one(task.dataset_item_id)
         source_file_type = task.file_type
         if source_file_type != "video":
-            project = await db.get(Project, task.project_id)
+            project = await get_workspace_project(
+                db, actor_id=None, project_id=task.project_id
+            )
             assert_raster_mask_write_enabled(project)
         if (
             isinstance(size, list)

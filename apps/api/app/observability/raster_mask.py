@@ -14,13 +14,13 @@ log = logging.getLogger(__name__)
 _ACTIVE_RASTER_GEOMETRY_QUERIES = {
     "annotation": """
         SELECT COUNT(*)
-        FROM annotations
+        FROM aap_labeling_v1.annotation_rows
         WHERE is_active IS TRUE
           AND geometry ->> 'type' = 'raster_mask'
     """,
     "prediction": """
         SELECT COUNT(*)
-        FROM predictions
+        FROM aap_labeling_v1.prediction_rows
         WHERE jsonb_path_exists(
             result,
             '$.** ? (@.type == "raster_mask" && @.mask.type() == "object")'

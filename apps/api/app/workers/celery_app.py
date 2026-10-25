@@ -2,6 +2,7 @@ from datetime import timedelta
 
 from celery import Celery
 from celery.schedules import crontab
+from aap_jobs.queue_contract import load_queue_configuration
 from app.config import settings
 
 celery_app = Celery(
@@ -59,114 +60,10 @@ celery_app = Celery(
 )
 
 celery_app.conf.update(
-    task_serializer="json",
-    result_serializer="json",
-    accept_content=["json"],
+    **load_queue_configuration(),
     timezone="UTC",
     task_track_started=True,
     worker_max_memory_per_child=512_000,
-    # v0.10.25 · 默认队列从 Celery 内置 "celery" 改为 "default"。worker 订阅
-    # default,ml,media,gpu,cleanup,audit —— 不含 "celery", 故任何未在 task_routes 显式
-    # 路由的任务(beat 的 ensure_future_*_partitions / mark_inactive_offline
-    # / process_deactivation_requests / refresh_user_perf_mv 等)此前都落进无人消费的 "celery"
-    # 队列堆积、永不执行。收口到 default 让兜底任务真正跑起来。
-    task_default_queue="default",
-    task_routes={
-        "app.workers.identity_mail_delivery.relay_credential_mail": {
-            "queue": "default"
-        },
-        "app.workers.identity_mail_v2_delivery.relay_invitation_mail": {
-            "queue": "default"
-        },
-        "app.workers.tasks.batch_predict": {"queue": "ml"},
-        # v0.21.7 · 逐帧段任务跑 GPU predict → ml 队列; finalize 轻量走 default。
-        "app.workers.frame_preannotate.predict_video_segment": {"queue": "ml"},
-        # v0.21.8 · 两阶段: 抽帧 (下载+ffmpeg) 走 media 队列 (跨视频并行, 有 ffmpeg);
-        #   衔接回调轻量派 chord 走 default。
-        "app.workers.frame_preannotate.extract_frames_task": {"queue": "media"},
-        "app.workers.frame_preannotate.launch_predict_phase": {"queue": "default"},
-        "app.workers.predictions_retry.retry_failed_prediction": {"queue": "ml"},
-        "app.workers.predictions_retry.relay_prediction_retry_deliveries": {
-            "queue": "maintenance"
-        },
-        "app.workers.media.generate_thumbnail": {"queue": "media"},
-        "app.workers.media.generate_video_metadata": {"queue": "media"},
-        "app.workers.media.generate_task_thumbnail": {"queue": "media"},
-        "app.workers.media.backfill_media": {"queue": "media"},
-        "app.workers.media.backfill_tasks": {"queue": "media"},
-        "app.workers.media.ensure_video_chunks": {"queue": "media"},
-        "app.workers.media.extract_video_frames": {"queue": "media"},
-        "app.workers.media.execute_video_media": {"queue": "media"},
-        "app.workers.media.cleanup_video_frame_assets": {"queue": "media"},
-        "app.workers.image_pyramid.execute_image_media": {"queue": "image-pyramid"},
-        "app.workers.image_pyramid.reconcile_image_media": {"queue": "cleanup"},
-        # Retain routes for messages produced before the native image cutover.
-        "app.workers.image_pyramid.generate_image_pyramid": {"queue": "image-pyramid"},
-        "app.workers.image_pyramid.reconcile_image_pyramids": {"queue": "cleanup"},
-        # shortcut: shared legacy queue; split it before deploying an Assets LOGIN worker.
-        "app.workers.video_tracker.run_video_tracker_job": {"queue": "gpu"},
-        "app.workers.video_track_quality.run": {"queue": "media"},
-        "app.workers.mask_qc.run_mask_qc": {"queue": "media"},
-        "app.workers.point_cloud_quality.run": {"queue": "media"},
-        "app.workers.mask_repair.run_mask_repair": {"queue": "media"},
-        "app.workers.mask_repair.rollback_mask_repair": {"queue": "media"},
-        "app.workers.mask_format_import.run_mask_format_import": {"queue": "media"},
-        "app.workers.cleanup.purge_soft_deleted_attachments": {"queue": "cleanup"},
-        "app.workers.cleanup.purge_unreferenced_raster_masks": {"queue": "cleanup"},
-        # v0.10.16 · DuckDB 同步 + async_jobs 清理走 cleanup 队列
-        "app.workers.analytics.sync_to_duckdb": {"queue": "cleanup"},
-        "app.workers.async_jobs_cleanup.purge_old_async_jobs": {"queue": "cleanup"},
-        # v0.10.27 · 导出 worker 独立 export 队列；过期产物清理走 cleanup
-        "app.workers.export.run_export": {"queue": "export"},
-        "app.workers.training_dataset.run_training_dataset": {"queue": "export"},
-        "app.workers.sample_evaluations.run_sample_evaluation": {"queue": "ml.cpu"},
-        "app.workers.sample_evaluations.maintain_evaluations": {"queue": "default"},
-        "app.workers.active_learning.run_round": {"queue": "ml.cpu"},
-        "app.workers.active_learning.maintain_rounds": {"queue": "default"},
-        "app.workers.training_preview_cleanup.purge_expired_previews": {
-            "queue": "cleanup"
-        },
-        "app.workers.training_observability_cleanup.purge_observations": {
-            "queue": "cleanup"
-        },
-        "app.workers.learning_policy.check_policies": {"queue": "default"},
-        "app.workers.training_study.check_studies": {"queue": "default"},
-        "app.workers.export_cleanup.purge_expired_export_artifacts": {
-            "queue": "cleanup"
-        },
-        # v0.12.0 · B4 建任务异步化走 default 队列
-        "app.workers.create_tasks.run_create_tasks": {"queue": "default"},
-        "app.workers.cross_frame_job.run_cross_frame_job": {"queue": "default"},
-        # v0.7.6 · audit 异步 INSERT 走独立队列，不与 ml/media 抢资源
-        "app.workers.audit.persist_audit_entry": {"queue": "audit"},
-        "app.workers.deactivation.process_deactivation_requests": {"queue": "default"},
-        "app.workers.notification_delivery.relay_identity_notifications": {
-            "queue": "default"
-        },
-        # v0.8.4 · task_events 批量 INSERT 走独立队列
-        "app.workers.task_events.persist_task_events_batch": {"queue": "audit"},
-        # Owner-required tasks have a dedicated queue, separate from ordinary workers.
-        "app.workers.cleanup.refresh_user_perf_mv": {"queue": "maintenance"},
-        "app.workers.cleanup.refresh_audit_bi_mv": {"queue": "maintenance"},
-        "app.workers.audit_partition.ensure_future_audit_partitions": {
-            "queue": "maintenance"
-        },
-        "app.workers.audit_partition.archive_old_audit_partitions": {
-            "queue": "maintenance"
-        },
-        "app.workers.prediction_partition.ensure_future_prediction_partitions": {
-            "queue": "maintenance"
-        },
-        "app.workers.dataset_import_delivery.relay_dataset_import_deliveries": {
-            "queue": "maintenance"
-        },
-        # v0.9.11 PerfHud · 1s 推送任务走 default queue (worker 默认订阅 default,ml,media)
-        "app.workers.ml_health.publish_ml_backend_stats": {"queue": "default"},
-        # v0.8.6 · check_ml_backends_health 历史也漏在路由表外, 同步补上避免 stale celery 队列堆积
-        "app.workers.ml_health.check_ml_backends_health": {"queue": "default"},
-        # ADR-0049 · 只有独立控制 worker 持有 tombstone collector 数据库凭据。
-        "app.workers.ml_health.repair_gpu_arbiter_resources": {"queue": "gpu.control"},
-    },
     # v0.7.0：beat schedule。运维侧需 deploy `celery -A app.workers.celery_app beat` 进程
     # （或 worker --beat 单进程模式）才会触发。
     beat_schedule={

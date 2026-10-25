@@ -52,6 +52,48 @@ async def test_wrong_bulk_actor_binding_rejects_before_sql_or_side_effects(
 
 
 @pytest.mark.asyncio
+async def test_bulk_adapter_flushes_dirty_version_inside_no_autoflush(
+    db_session, super_admin
+):
+    actor, _token = super_admin
+    project = await create_project(db_session, owner_id=actor.id)
+    task = await create_task(db_session, project_id=project.id, status="in_progress")
+    annotation = Annotation(
+        task_id=task.id,
+        project_id=project.id,
+        user_id=actor.id,
+        annotation_type="bbox",
+        class_name="car",
+        geometry={"type": "bbox", "x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2},
+        is_active=True,
+        attributes={},
+    )
+    db_session.add(annotation)
+    await db_session.flush()
+    pending_version = annotation.version + 10
+    annotation.version = pending_version
+    with db_session.no_autoflush:
+        response = await _AnnotationBulkUpdateSqlAdapter(
+            db_session, actor=actor
+        ).update(
+            AnnotationBulkUpdateCommand(
+                actor_id=actor.id,
+                payload=AnnotationBulkUpdateRequest(
+                    ids=[annotation.id], patch=AnnotationBulkPatch(is_hidden=True)
+                ),
+                audit_origin=AuditOriginContext(
+                    method="POST", path="/test/bulk-no-autoflush", ip="127.0.0.1"
+                ),
+            )
+        )
+
+    assert response.updated_ids == [annotation.id]
+    await db_session.refresh(annotation)
+    assert annotation.version == pending_version + 1
+    assert annotation.is_hidden is True
+
+
+@pytest.mark.asyncio
 async def test_bulk_route_preserves_task_lock_order_empty_patch_and_errors(
     db_session, httpx_client, super_admin
 ):
@@ -99,12 +141,12 @@ async def test_bulk_route_preserves_task_lock_order_empty_patch_and_errors(
     identity_select = next(
         index
         for index, statement in enumerate(statements)
-        if "select annotations.id, annotations.task_id" in statement.lower()
+        if "from aap_labeling_v1.annotation_rows" in statement.lower()
     )
     task_lock = next(
         index
         for index, statement in enumerate(statements)
-        if "from tasks" in statement.lower() and "for update" in statement.lower()
+        if "from aap_labeling_v1.lock_task_for_core_read(" in statement.lower()
     )
     assert identity_select < task_lock
 

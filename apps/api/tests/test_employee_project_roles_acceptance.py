@@ -7,7 +7,6 @@ import pytest
 from app.core.security import create_access_token
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
-from app.db.models.notification import Notification
 from app.db.models.project_member import ProjectMember
 from tests.factory import (
     create_membership,
@@ -73,6 +72,8 @@ async def test_employee_annotates_a_reviews_b_and_cannot_access_c(
     task_b.review_round_id = uuid.uuid4()
     pending_b = await create_task(db_session, project_id=project_b.id)
     pending_b.assignee_id = colleague.id
+    # Keep this Task visible so the request reaches annotation capability checks.
+    pending_b.reviewer_id = employee.id
     task_c = await create_task(db_session, project_id=project_c.id)
     # Assignment alone must not grant project authority.
     task_c.assignee_id = employee.id
@@ -96,7 +97,11 @@ async def test_employee_annotates_a_reviews_b_and_cannot_access_c(
             f"/api/v1/tasks/{task.id}/{operation}", headers=headers, json=payload
         )
         expected = 404 if task is task_c else 403
-        assert response.status_code == expected, response.text
+        assert response.status_code == expected, (
+            operation,
+            str(task.id),
+            response.text,
+        )
     hidden = await httpx_client.get(f"/api/v1/tasks/{task_c.id}", headers=headers)
     assert hidden.status_code == 404, hidden.text
 
@@ -265,29 +270,29 @@ async def test_notification_delivery_uses_actual_job_project_after_revocation(
     )
     db_session.add(job)
     await db_session.flush()
-    secret = Notification(
+    service = NotificationService(db_session)
+    secret = await service.notify(
         user_id=employee.id,
         type="export.completed",
         target_type=target_type,
         target_id=job.id,
         payload={"project_id": str(project_b.id)} if misleading_payload else {},
     )
-    allowed = Notification(
+    allowed = await service.notify(
         user_id=employee.id,
         type="task.mentioned",
         target_type="task",
         target_id=uuid.uuid4(),
         payload={"project_id": str(project_b.id)},
     )
-    global_notice = Notification(
+    global_notice = await service.notify(
         user_id=employee.id,
         type="system.notice",
         target_type="system",
         target_id=uuid.uuid4(),
         payload={},
     )
-    db_session.add_all([secret, allowed, global_notice])
-    await db_session.flush()
+    assert secret is not None and allowed is not None and global_notice is not None
     await db_session.delete(membership)
     await db_session.flush()
     headers = {

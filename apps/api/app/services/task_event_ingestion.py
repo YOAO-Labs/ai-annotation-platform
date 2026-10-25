@@ -13,19 +13,25 @@ from typing import Any, Iterable, Mapping
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
-from sqlalchemy import select, text
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import task_access
-from app.db.models.project import Project
+from app.services.project_access import get_workspace_project
 from app.db.models.task import Task
-from app.db.models.task_event import TaskEvent
+from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.schemas.task_event import TaskEventIn
-from app.services.workspace_contract import ProjectCapability
+from aap_workspace_contract.access import ProjectCapability
 from app.services.project_access import resolve_project_access
 from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
-from app.services.identity_account_lock_data import IdentityAccountLockData
+from aap_labeling.discussion_contract import (
+    TASK_EVENT_PROTOCOL,
+    InsertTaskEvents,
+    ReadTaskEvents,
+    TaskEventInsertRow,
+)
+from app.services.labeling_discussion_data import task_event_command
+from app.services.labeling_core_read_relations import get_core_row, task_row
 
 MAX_EVENT_DURATION_MS = 4 * 60 * 60 * 1000
 MAX_ANNOTATION_COUNT = 1_000_000
@@ -164,7 +170,7 @@ async def assert_task_event_access(
     still fails the normal policy.
     """
 
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, project_id=task.project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Task not found")
     # Current account + actual-project membership authority, locked for the
@@ -261,7 +267,7 @@ async def validate_api_events(
     event_list = list(events)
     task_ids = {event.task_id for event in event_list}
     task_rows = (
-        await db.execute(select(Task).where(Task.id.in_(task_ids)))
+        await db.execute(select(task_row).where(task_row.id.in_(task_ids)))
         if task_ids
         else None
     )
@@ -349,12 +355,18 @@ async def validate_api_events(
         event.client_id for event in event_list if event.client_id is not None
     }
     if client_ids:
-        existing = (
-            await db.execute(
-                select(TaskEvent.__table__).where(TaskEvent.id.in_(client_ids))
-            )
-        ).mappings()
-        existing_by_id = {row.id: row for row in existing}
+        existing = await task_event_command(
+            db,
+            ReadTaskEvents(
+                schema=TASK_EVENT_PROTOCOL,
+                operation="read_ids",
+                event_ids=sorted(client_ids),
+            ),
+            flush_before=False,
+        )
+        existing_by_id = {
+            row.id: row.model_dump(mode="python") for row in (existing.event_rows or [])
+        }
         accepted_rows: list[dict[str, Any]] = []
         for row in rows:
             stored = existing_by_id.get(row["id"])
@@ -422,7 +434,7 @@ async def validate_worker_event(
         return None
 
     user = await IdentityAccountLockData(db).read_actor_status(user_id)
-    task = await db.get(Task, task_id)
+    task = await get_core_row(db, task_row, task_id)
     if user is None or not user.is_active or task is None:
         return None
     if task.project_id != client_project_id:
@@ -479,34 +491,16 @@ async def insert_task_events(
 
     if not rows:
         return TaskEventInsertResult(inserted=0)
-    by_id: dict[UUID, dict[str, Any]] = {}
-    conflicts: set[UUID] = set()
-    for row in rows:
-        event_id = row["id"]
-        previous = by_id.get(event_id)
-        if previous is not None and _fingerprint(previous) != _fingerprint(row):
-            conflicts.add(event_id)
-        by_id[event_id] = row
-
-    for event_id in sorted(by_id):
-        await db.execute(
-            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
-            {"key": f"aap:task-event:{event_id}"},
-        )
-    existing = (
-        await db.execute(select(TaskEvent.__table__).where(TaskEvent.id.in_(by_id)))
-    ).mappings()
-    stored_ids: set[UUID] = set()
-    for stored in existing:
-        stored_ids.add(stored.id)
-        if _fingerprint(by_id[stored.id]) != _fingerprint(stored):
-            conflicts.add(stored.id)
-    new_rows = [
-        by_id[event_id]
-        for event_id in sorted(by_id)
-        if event_id not in stored_ids and event_id not in conflicts
-    ]
-    if new_rows:
-        await db.execute(pg_insert(TaskEvent).values(new_rows))
+    result = await task_event_command(
+        db,
+        InsertTaskEvents(
+            schema=TASK_EVENT_PROTOCOL,
+            operation="insert",
+            rows=[TaskEventInsertRow.model_validate(row) for row in rows],
+        ),
+    )
     await db.commit()
-    return TaskEventInsertResult(inserted=len(new_rows), conflicts=frozenset(conflicts))
+    return TaskEventInsertResult(
+        inserted=int(result.inserted or 0),
+        conflicts=frozenset(result.conflicts or []),
+    )

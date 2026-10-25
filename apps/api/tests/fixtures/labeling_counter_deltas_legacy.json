@@ -1,0 +1,4805 @@
+{
+  "cases": {
+    "approval:clean:False": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 12,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 12,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 12,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 12,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "approval:clean:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 12,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 12,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 12,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 12,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "approval:deleted:False": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 11,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "database_after_rollback": null,
+      "error": {
+        "sqlstate": null,
+        "type": "NoResultFound"
+      },
+      "flushes": [],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "approval:deleted:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 11,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "database_after_rollback": null,
+      "error": {
+        "sqlstate": null,
+        "type": "NoResultFound"
+      },
+      "flushes": [],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "approval:dirty_other:False": {
+      "cache": {
+        "dirty_fields": ["name"],
+        "modified": true,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 12,
+          "in_progress_tasks": 4,
+          "name": "pending other field",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 12,
+          "in_progress_tasks": 4,
+          "name": "pending other field",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 12,
+        "in_progress_tasks": 4,
+        "name": "pending other field",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 12,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": true,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "approval:dirty_other:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 12,
+          "in_progress_tasks": 4,
+          "name": "pending other field",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 12,
+          "in_progress_tasks": 4,
+          "name": "pending other field",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 12,
+        "in_progress_tasks": 4,
+        "name": "pending other field",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 12,
+        "in_progress_tasks": 4,
+        "name": "pending other field",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [
+        {
+          "dirty": ["Project"],
+          "new": ["Task"]
+        }
+      ],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "approval:dirty_other_counter:False": {
+      "cache": {
+        "dirty_fields": ["total_tasks"],
+        "modified": true,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 12,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 42
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 12,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 42
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 12,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 42,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 12,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": true,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "approval:dirty_other_counter:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 12,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 42
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 12,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 42
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 12,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 42,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 12,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 42,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [
+        {
+          "dirty": ["Project"],
+          "new": ["Task"]
+        }
+      ],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "approval:dirty_target:False": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": true,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 12,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 12,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 12,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 12,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": true,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "approval:dirty_target:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 43,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 43,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 43,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 43,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [
+        {
+          "dirty": ["Project"],
+          "new": ["Task"]
+        }
+      ],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "approval:expired_all:False": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [
+          "ai_enabled",
+          "ai_interactive_enabled",
+          "annotation_guide",
+          "batch_summary",
+          "box_threshold",
+          "completed_tasks",
+          "created_at",
+          "data_type",
+          "default_variants",
+          "display_id",
+          "due_date",
+          "guide_assets",
+          "id",
+          "in_progress_tasks",
+          "iou_dedup_threshold",
+          "label_config",
+          "mask_qc_config",
+          "maximum_annotations",
+          "ml_backend_pool_id",
+          "model_version",
+          "name",
+          "organization_id",
+          "owner_id",
+          "point_cloud_quality_config",
+          "preannotate_pipeline",
+          "prefer_same_scene_continuation",
+          "raster_mask_native_editing_enabled",
+          "rendering_config",
+          "review_tasks",
+          "sampling",
+          "scene_continuation_window_min",
+          "scene_mode",
+          "show_overlap_first",
+          "status",
+          "task_lock_ttl_seconds",
+          "text_threshold",
+          "tool_bindings",
+          "total_tasks",
+          "type_key",
+          "type_label",
+          "updated_at",
+          "video_collaboration",
+          "video_sampling"
+        ],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": "__unloaded__",
+          "completed_tasks": "__unloaded__",
+          "in_progress_tasks": "__unloaded__",
+          "name": "__unloaded__",
+          "review_tasks": "__unloaded__",
+          "total_tasks": "__unloaded__"
+        }
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "error": {
+        "sqlstate": null,
+        "type": "MissingGreenlet"
+      },
+      "flushes": [],
+      "pending_task": true,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "approval:expired_all:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [
+          "ai_enabled",
+          "ai_interactive_enabled",
+          "annotation_guide",
+          "batch_summary",
+          "box_threshold",
+          "completed_tasks",
+          "created_at",
+          "data_type",
+          "default_variants",
+          "display_id",
+          "due_date",
+          "guide_assets",
+          "id",
+          "in_progress_tasks",
+          "iou_dedup_threshold",
+          "label_config",
+          "mask_qc_config",
+          "maximum_annotations",
+          "ml_backend_pool_id",
+          "model_version",
+          "name",
+          "organization_id",
+          "owner_id",
+          "point_cloud_quality_config",
+          "preannotate_pipeline",
+          "prefer_same_scene_continuation",
+          "raster_mask_native_editing_enabled",
+          "rendering_config",
+          "review_tasks",
+          "sampling",
+          "scene_continuation_window_min",
+          "scene_mode",
+          "show_overlap_first",
+          "status",
+          "task_lock_ttl_seconds",
+          "text_threshold",
+          "tool_bindings",
+          "total_tasks",
+          "type_key",
+          "type_label",
+          "updated_at",
+          "video_collaboration",
+          "video_sampling"
+        ],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": "__unloaded__",
+          "completed_tasks": "__unloaded__",
+          "in_progress_tasks": "__unloaded__",
+          "name": "__unloaded__",
+          "review_tasks": "__unloaded__",
+          "total_tasks": "__unloaded__"
+        }
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "error": {
+        "sqlstate": null,
+        "type": "MissingGreenlet"
+      },
+      "flushes": [
+        {
+          "dirty": [],
+          "new": ["Task"]
+        }
+      ],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": false
+    },
+    "approval:explicit_timestamp:False": {
+      "cache": {
+        "dirty_fields": ["updated_at"],
+        "modified": true,
+        "unloaded": [],
+        "updated_at": "explicit",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 12,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "explicit",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 12,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 12,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "explicit"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 12,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": true,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "approval:explicit_timestamp:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "explicit",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 12,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "explicit",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 12,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 12,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 12,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [
+        {
+          "dirty": ["Project"],
+          "new": ["Task"]
+        }
+      ],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "approval:negative:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": -1,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": -1,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": -1,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": -2,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": -2,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": -1,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "approval:overflow:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 2147483647,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 2147483647,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "error": {
+        "sqlstate": "22003",
+        "type": "DBAPIError"
+      },
+      "flushes": [],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "approval:partial:False": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 12,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 12,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 12,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 12,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": true,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "approval:partial:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 12,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 12,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 12,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 12,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [
+        {
+          "dirty": [],
+          "new": ["Task"]
+        }
+      ],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "approval:pending_task:False": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 12,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 12,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 12,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 12,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": true,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "approval:pending_task:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 12,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 12,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 12,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 12,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [
+        {
+          "dirty": [],
+          "new": ["Task"]
+        }
+      ],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "approval:stale:False": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 112,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 106,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 112,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 106,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 112,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 106,
+        "total_tasks": 122,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 111,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 107,
+        "total_tasks": 122,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 112,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 106,
+        "total_tasks": 122,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "approval:stale:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 112,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 106,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 112,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 106,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 112,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 106,
+        "total_tasks": 122,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 111,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 107,
+        "total_tasks": 122,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 112,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 106,
+        "total_tasks": 122,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "approval:zero:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 1,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 1,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 0,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "completed:clean:False": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 10,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 10,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 10,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 10,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "completed:clean:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 10,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 10,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 10,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 10,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "completed:deleted:False": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": null,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": null,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": null,
+      "database_after_rollback": null,
+      "database_before_flush": null,
+      "error": null,
+      "flushes": [],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "completed:deleted:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": null,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": null,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": null,
+      "database_after_rollback": null,
+      "database_before_flush": null,
+      "error": null,
+      "flushes": [],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "completed:dirty_other:False": {
+      "cache": {
+        "dirty_fields": ["name"],
+        "modified": true,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 10,
+          "in_progress_tasks": 4,
+          "name": "pending other field",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 10,
+          "in_progress_tasks": 4,
+          "name": "pending other field",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 10,
+        "in_progress_tasks": 4,
+        "name": "pending other field",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 10,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": true,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "completed:dirty_other:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 10,
+          "in_progress_tasks": 4,
+          "name": "pending other field",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 10,
+          "in_progress_tasks": 4,
+          "name": "pending other field",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 10,
+        "in_progress_tasks": 4,
+        "name": "pending other field",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 10,
+        "in_progress_tasks": 4,
+        "name": "pending other field",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [
+        {
+          "dirty": ["Project"],
+          "new": ["Task"]
+        }
+      ],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "completed:dirty_other_counter:False": {
+      "cache": {
+        "dirty_fields": ["review_tasks"],
+        "modified": true,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 10,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 42,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 10,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 42,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 10,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 42,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 10,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": true,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "completed:dirty_other_counter:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 10,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 42,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 10,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 42,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 10,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 42,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 10,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 42,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [
+        {
+          "dirty": ["Project"],
+          "new": ["Task"]
+        }
+      ],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "completed:dirty_target:False": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": true,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 10,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 10,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 10,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 10,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": true,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "completed:dirty_target:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 41,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 41,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 41,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 41,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [
+        {
+          "dirty": ["Project"],
+          "new": ["Task"]
+        }
+      ],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "completed:expired_all:False": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [
+          "ai_enabled",
+          "ai_interactive_enabled",
+          "annotation_guide",
+          "batch_summary",
+          "box_threshold",
+          "completed_tasks",
+          "created_at",
+          "data_type",
+          "default_variants",
+          "display_id",
+          "due_date",
+          "guide_assets",
+          "id",
+          "in_progress_tasks",
+          "iou_dedup_threshold",
+          "label_config",
+          "mask_qc_config",
+          "maximum_annotations",
+          "ml_backend_pool_id",
+          "model_version",
+          "name",
+          "organization_id",
+          "owner_id",
+          "point_cloud_quality_config",
+          "preannotate_pipeline",
+          "prefer_same_scene_continuation",
+          "raster_mask_native_editing_enabled",
+          "rendering_config",
+          "review_tasks",
+          "sampling",
+          "scene_continuation_window_min",
+          "scene_mode",
+          "show_overlap_first",
+          "status",
+          "task_lock_ttl_seconds",
+          "text_threshold",
+          "tool_bindings",
+          "total_tasks",
+          "type_key",
+          "type_label",
+          "updated_at",
+          "video_collaboration",
+          "video_sampling"
+        ],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": "__unloaded__",
+          "completed_tasks": "__unloaded__",
+          "in_progress_tasks": "__unloaded__",
+          "name": "__unloaded__",
+          "review_tasks": "__unloaded__",
+          "total_tasks": "__unloaded__"
+        }
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "error": {
+        "sqlstate": null,
+        "type": "MissingGreenlet"
+      },
+      "flushes": [],
+      "pending_task": true,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "completed:expired_all:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [
+          "ai_enabled",
+          "ai_interactive_enabled",
+          "annotation_guide",
+          "batch_summary",
+          "box_threshold",
+          "completed_tasks",
+          "created_at",
+          "data_type",
+          "default_variants",
+          "display_id",
+          "due_date",
+          "guide_assets",
+          "id",
+          "in_progress_tasks",
+          "iou_dedup_threshold",
+          "label_config",
+          "mask_qc_config",
+          "maximum_annotations",
+          "ml_backend_pool_id",
+          "model_version",
+          "name",
+          "organization_id",
+          "owner_id",
+          "point_cloud_quality_config",
+          "preannotate_pipeline",
+          "prefer_same_scene_continuation",
+          "raster_mask_native_editing_enabled",
+          "rendering_config",
+          "review_tasks",
+          "sampling",
+          "scene_continuation_window_min",
+          "scene_mode",
+          "show_overlap_first",
+          "status",
+          "task_lock_ttl_seconds",
+          "text_threshold",
+          "tool_bindings",
+          "total_tasks",
+          "type_key",
+          "type_label",
+          "updated_at",
+          "video_collaboration",
+          "video_sampling"
+        ],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": "__unloaded__",
+          "completed_tasks": "__unloaded__",
+          "in_progress_tasks": "__unloaded__",
+          "name": "__unloaded__",
+          "review_tasks": "__unloaded__",
+          "total_tasks": "__unloaded__"
+        }
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "error": {
+        "sqlstate": null,
+        "type": "MissingGreenlet"
+      },
+      "flushes": [
+        {
+          "dirty": [],
+          "new": ["Task"]
+        }
+      ],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": false
+    },
+    "completed:explicit_timestamp:False": {
+      "cache": {
+        "dirty_fields": ["updated_at"],
+        "modified": true,
+        "unloaded": [],
+        "updated_at": "explicit",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 10,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "explicit",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 10,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 10,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "explicit"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 10,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": true,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "completed:explicit_timestamp:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "explicit",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 10,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "explicit",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 10,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 10,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 10,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [
+        {
+          "dirty": ["Project"],
+          "new": ["Task"]
+        }
+      ],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "completed:negative:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 0,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": -2,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 0,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": -2,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 0,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": -2,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": -2,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": -2,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 0,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": -2,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "completed:overflow:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": -2147483648,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": -2147483648,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "error": {
+        "sqlstate": "22003",
+        "type": "DBAPIError"
+      },
+      "flushes": [],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "completed:partial:False": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["review_tasks", "updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 10,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": "__unloaded__",
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["review_tasks", "updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 10,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": "__unloaded__",
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 10,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 10,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": true,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "completed:partial:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["review_tasks", "updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 10,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": "__unloaded__",
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["review_tasks", "updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 10,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": "__unloaded__",
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 10,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 10,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [
+        {
+          "dirty": [],
+          "new": ["Task"]
+        }
+      ],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "completed:pending_task:False": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 10,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 10,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 10,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 10,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": true,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "completed:pending_task:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 10,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 10,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 10,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 10,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [
+        {
+          "dirty": [],
+          "new": ["Task"]
+        }
+      ],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "completed:stale:False": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 110,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 110,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 110,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 107,
+        "total_tasks": 122,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 111,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 107,
+        "total_tasks": 122,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 110,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 107,
+        "total_tasks": 122,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "completed:stale:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 110,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 110,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 7,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 110,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 107,
+        "total_tasks": 122,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 111,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 107,
+        "total_tasks": 122,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 110,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 107,
+        "total_tasks": 122,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "completed:zero:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 0,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 0,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 0,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 0,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 0,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "review:clean:False": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 11,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 11,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "review:clean:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 11,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 11,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "review:deleted:False": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 11,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": null,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 11,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": null,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": null,
+      "database_after_rollback": null,
+      "database_before_flush": null,
+      "error": null,
+      "flushes": [],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "review:deleted:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 11,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": null,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 11,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": null,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": null,
+      "database_after_rollback": null,
+      "database_before_flush": null,
+      "error": null,
+      "flushes": [],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "review:dirty_other:False": {
+      "cache": {
+        "dirty_fields": ["name"],
+        "modified": true,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 11,
+          "in_progress_tasks": 4,
+          "name": "pending other field",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 11,
+          "in_progress_tasks": 4,
+          "name": "pending other field",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "pending other field",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": true,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "review:dirty_other:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 11,
+          "in_progress_tasks": 4,
+          "name": "pending other field",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 11,
+          "in_progress_tasks": 4,
+          "name": "pending other field",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "pending other field",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "pending other field",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [
+        {
+          "dirty": ["Project"],
+          "new": ["Task"]
+        }
+      ],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "review:dirty_other_counter:False": {
+      "cache": {
+        "dirty_fields": ["completed_tasks"],
+        "modified": true,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 42,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 42,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 42,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": true,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "review:dirty_other_counter:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 42,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 42,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 42,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 42,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [
+        {
+          "dirty": ["Project"],
+          "new": ["Task"]
+        }
+      ],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "review:dirty_target:False": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": true,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 11,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 11,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": true,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "review:dirty_target:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 11,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 41,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 11,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 41,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 41,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 41,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [
+        {
+          "dirty": ["Project"],
+          "new": ["Task"]
+        }
+      ],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "review:expired_all:False": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [
+          "ai_enabled",
+          "ai_interactive_enabled",
+          "annotation_guide",
+          "batch_summary",
+          "box_threshold",
+          "completed_tasks",
+          "created_at",
+          "data_type",
+          "default_variants",
+          "display_id",
+          "due_date",
+          "guide_assets",
+          "id",
+          "in_progress_tasks",
+          "iou_dedup_threshold",
+          "label_config",
+          "mask_qc_config",
+          "maximum_annotations",
+          "ml_backend_pool_id",
+          "model_version",
+          "name",
+          "organization_id",
+          "owner_id",
+          "point_cloud_quality_config",
+          "preannotate_pipeline",
+          "prefer_same_scene_continuation",
+          "raster_mask_native_editing_enabled",
+          "rendering_config",
+          "review_tasks",
+          "sampling",
+          "scene_continuation_window_min",
+          "scene_mode",
+          "show_overlap_first",
+          "status",
+          "task_lock_ttl_seconds",
+          "text_threshold",
+          "tool_bindings",
+          "total_tasks",
+          "type_key",
+          "type_label",
+          "updated_at",
+          "video_collaboration",
+          "video_sampling"
+        ],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": "__unloaded__",
+          "completed_tasks": "__unloaded__",
+          "in_progress_tasks": "__unloaded__",
+          "name": "__unloaded__",
+          "review_tasks": "__unloaded__",
+          "total_tasks": "__unloaded__"
+        }
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "error": {
+        "sqlstate": null,
+        "type": "MissingGreenlet"
+      },
+      "flushes": [],
+      "pending_task": true,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "review:expired_all:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [
+          "ai_enabled",
+          "ai_interactive_enabled",
+          "annotation_guide",
+          "batch_summary",
+          "box_threshold",
+          "completed_tasks",
+          "created_at",
+          "data_type",
+          "default_variants",
+          "display_id",
+          "due_date",
+          "guide_assets",
+          "id",
+          "in_progress_tasks",
+          "iou_dedup_threshold",
+          "label_config",
+          "mask_qc_config",
+          "maximum_annotations",
+          "ml_backend_pool_id",
+          "model_version",
+          "name",
+          "organization_id",
+          "owner_id",
+          "point_cloud_quality_config",
+          "preannotate_pipeline",
+          "prefer_same_scene_continuation",
+          "raster_mask_native_editing_enabled",
+          "rendering_config",
+          "review_tasks",
+          "sampling",
+          "scene_continuation_window_min",
+          "scene_mode",
+          "show_overlap_first",
+          "status",
+          "task_lock_ttl_seconds",
+          "text_threshold",
+          "tool_bindings",
+          "total_tasks",
+          "type_key",
+          "type_label",
+          "updated_at",
+          "video_collaboration",
+          "video_sampling"
+        ],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": "__unloaded__",
+          "completed_tasks": "__unloaded__",
+          "in_progress_tasks": "__unloaded__",
+          "name": "__unloaded__",
+          "review_tasks": "__unloaded__",
+          "total_tasks": "__unloaded__"
+        }
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "error": {
+        "sqlstate": null,
+        "type": "MissingGreenlet"
+      },
+      "flushes": [
+        {
+          "dirty": [],
+          "new": ["Task"]
+        }
+      ],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": false
+    },
+    "review:explicit_timestamp:False": {
+      "cache": {
+        "dirty_fields": ["updated_at"],
+        "modified": true,
+        "unloaded": [],
+        "updated_at": "explicit",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 11,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "explicit",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 11,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "explicit"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": true,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "review:explicit_timestamp:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "explicit",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 11,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "explicit",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 11,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [
+        {
+          "dirty": ["Project"],
+          "new": ["Task"]
+        }
+      ],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "review:negative:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": -2,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": -2,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": -2,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": -2,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": -2,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": -2,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "review:overflow:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 11,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": -2147483648,
+          "total_tasks": 22
+        }
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": -2147483648,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "error": {
+        "sqlstate": "22003",
+        "type": "DBAPIError"
+      },
+      "flushes": [],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "review:partial:False": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["completed_tasks", "updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": "__unloaded__",
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["completed_tasks", "updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": "__unloaded__",
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": true,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "review:partial:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["completed_tasks", "updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": "__unloaded__",
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["completed_tasks", "updated_at"],
+        "updated_at": "unloaded",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": "__unloaded__",
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [
+        {
+          "dirty": [],
+          "new": ["Task"]
+        }
+      ],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "review:pending_task:False": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 11,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 11,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": true,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "review:pending_task:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 11,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 11,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 6,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 7,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 11,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [
+        {
+          "dirty": [],
+          "new": ["Task"]
+        }
+      ],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "review:stale:False": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 11,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 106,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 11,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 106,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 111,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 106,
+        "total_tasks": 122,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 111,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 107,
+        "total_tasks": 122,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 111,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 106,
+        "total_tasks": 122,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "review:stale:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 11,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 106,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 11,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 106,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 111,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 106,
+        "total_tasks": 122,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 111,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 107,
+        "total_tasks": 122,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 111,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 106,
+        "total_tasks": 122,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    },
+    "review:zero:True": {
+      "cache": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 0,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 22
+        }
+      },
+      "cache_after_flush": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "updated_at": "initial",
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 0,
+          "in_progress_tasks": 4,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 22
+        }
+      },
+      "database_after_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 0,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "database_after_rollback": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 0,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 22,
+        "updated_at": "initial"
+      },
+      "database_before_flush": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 0,
+        "in_progress_tasks": 4,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 22,
+        "updated_at": "transaction_now"
+      },
+      "error": null,
+      "flushes": [],
+      "pending_task": false,
+      "return_is_none": true,
+      "session_active": true
+    }
+  },
+  "source_commit": "af9c604f015f98f22020661c4df5f8d7c561fdd3"
+}

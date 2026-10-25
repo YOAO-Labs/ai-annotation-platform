@@ -97,10 +97,10 @@ async def test_bind_image_only_backend_to_video_project_rejected(
     backend = await _seed_backend(db_session, proj.id)
     await db_session.commit()
 
-    async def fake_setup(self):
+    async def fake_setup(locator, *, timeout):
         return _IMAGE_SETUP
 
-    with patch("app.services.ml_client.MLBackendClient.setup", new=fake_setup):
+    with patch("aap_inference.probe.fetch_backend_setup", new=fake_setup):
         res = await httpx_client.patch(
             f"/api/v1/projects/{proj.id}",
             json={"ml_backend_id": str(backend.id)},
@@ -120,10 +120,10 @@ async def test_bind_video_backend_to_video_project_ok(
     backend = await _seed_backend(db_session, proj.id)
     await db_session.commit()
 
-    async def fake_setup(self):
+    async def fake_setup(locator, *, timeout):
         return _VIDEO_SETUP
 
-    with patch("app.services.ml_client.MLBackendClient.setup", new=fake_setup):
+    with patch("aap_inference.probe.fetch_backend_setup", new=fake_setup):
         res = await httpx_client.patch(
             f"/api/v1/projects/{proj.id}",
             json={"ml_backend_id": str(backend.id)},
@@ -142,10 +142,10 @@ async def test_bind_failopen_when_setup_unreachable(
     backend = await _seed_backend(db_session, proj.id)
     await db_session.commit()
 
-    async def fake_setup(self):
+    async def fake_setup(locator, *, timeout):
         raise RuntimeError("connection refused")
 
-    with patch("app.services.ml_client.MLBackendClient.setup", new=fake_setup):
+    with patch("aap_inference.probe.fetch_backend_setup", new=fake_setup):
         res = await httpx_client.patch(
             f"/api/v1/projects/{proj.id}",
             json={"ml_backend_id": str(backend.id)},
@@ -164,10 +164,10 @@ async def test_bind_backend_with_empty_modalities_failopen(
     backend = await _seed_backend(db_session, proj.id)
     await db_session.commit()
 
-    async def fake_setup(self):
+    async def fake_setup(locator, *, timeout):
         return {"name": "plain-detector", "is_interactive": False}
 
-    with patch("app.services.ml_client.MLBackendClient.setup", new=fake_setup):
+    with patch("aap_inference.probe.fetch_backend_setup", new=fake_setup):
         res = await httpx_client.patch(
             f"/api/v1/projects/{proj.id}",
             json={"ml_backend_id": str(backend.id)},
@@ -187,10 +187,10 @@ async def test_create_video_project_with_image_backend_rejected(
     backend = await _seed_backend(db_session, dummy.id, name="image-bk")
     await db_session.commit()
 
-    async def fake_setup(self):
+    async def fake_setup(locator, *, timeout):
         return _IMAGE_SETUP
 
-    with patch("app.services.ml_client.MLBackendClient.setup", new=fake_setup):
+    with patch("aap_inference.probe.fetch_backend_setup", new=fake_setup):
         res = await httpx_client.post(
             "/api/v1/projects",
             json={

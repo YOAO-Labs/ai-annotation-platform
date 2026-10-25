@@ -7,25 +7,15 @@ database.  The database-backed producer, lock and concurrency coverage lives in
 
 from __future__ import annotations
 
+from contextlib import nullcontext
+from types import SimpleNamespace
 import uuid
 
 import pytest
 
+from aap_labeling.review_evidence_policy import record_annotation_actor_policy
 from app.db.models.task import Task
 from app.services import annotation_evidence as evidence
-
-
-class _StubSession:
-    """Minimal AsyncSession stand-in recording flush/refresh order under lock."""
-
-    def __init__(self) -> None:
-        self.calls: list[tuple] = []
-
-    async def flush(self) -> None:
-        self.calls.append(("flush",))
-
-    async def refresh(self, instance, attribute_names=None, with_for_update=None):
-        self.calls.append(("refresh", tuple(attribute_names or ()), with_for_update))
 
 
 def _task(**kwargs) -> Task:
@@ -90,107 +80,74 @@ def test_known_ids_malformed_is_unknown(values):
 # ── accumulation ─────────────────────────────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_record_accumulates_canonical_actor_under_lock():
+def test_record_pure_policy_accumulates_canonical_actor():
     actor = uuid.uuid4()
     task = _task(annotation_contributor_ids=[], status="in_progress")
-    db = _StubSession()
 
-    changed = await evidence.record_annotation_actor(db, task, actor)
+    changed = record_annotation_actor_policy(task, actor)
 
     assert changed is True
     assert task.annotation_contributor_ids == [str(actor)]
-    # Pending changes must be flushed before the locking refresh re-reads them.
-    assert db.calls == [
-        ("flush",),
-        ("refresh", ("annotation_contributor_ids", "status"), True),
-    ]
 
 
-@pytest.mark.asyncio
-async def test_record_canonicalizes_uppercase_actor():
+def test_record_canonicalizes_uppercase_actor():
     actor = uuid.uuid4()
     task = _task(annotation_contributor_ids=[], status="in_progress")
 
-    await evidence.record_annotation_actor(
-        _StubSession(), task, str(actor).upper(), lock=False
-    )
+    record_annotation_actor_policy(task, str(actor).upper())
 
     assert task.annotation_contributor_ids == [str(actor)]
 
 
-@pytest.mark.asyncio
-async def test_record_deduplicates_existing_actor():
+def test_record_deduplicates_existing_actor():
     actor = uuid.uuid4()
     task = _task(annotation_contributor_ids=[str(actor)], status="in_progress")
 
-    changed = await evidence.record_annotation_actor(
-        _StubSession(), task, actor, lock=False
-    )
+    changed = record_annotation_actor_policy(task, actor)
 
     assert changed is False
     assert task.annotation_contributor_ids == [str(actor)]
 
 
-@pytest.mark.asyncio
-async def test_record_unions_and_sorts_multiple_actors():
+def test_record_unions_and_sorts_multiple_actors():
     first, second = uuid.uuid4(), uuid.uuid4()
     task = _task(annotation_contributor_ids=[str(second)], status="in_progress")
-    db = _StubSession()
 
-    await evidence.record_annotation_actor(db, task, first)
+    record_annotation_actor_policy(task, first)
 
     assert task.annotation_contributor_ids == sorted([str(first), str(second)])
 
 
-@pytest.mark.asyncio
-async def test_legacy_null_accumulator_stays_unknown():
+def test_legacy_null_accumulator_stays_unknown():
     task = _task(annotation_contributor_ids=None, status="in_progress")
 
-    changed = await evidence.record_annotation_actor(
-        _StubSession(), task, uuid.uuid4(), lock=False
-    )
+    changed = record_annotation_actor_policy(task, uuid.uuid4())
 
     assert changed is False
     assert task.annotation_contributor_ids is None
 
 
-@pytest.mark.asyncio
-async def test_malformed_accumulator_stays_unknown():
+def test_malformed_accumulator_stays_unknown():
     task = _task(annotation_contributor_ids=["broken"], status="in_progress")
 
-    changed = await evidence.record_annotation_actor(
-        _StubSession(), task, uuid.uuid4(), lock=False
-    )
+    changed = record_annotation_actor_policy(task, uuid.uuid4())
 
     assert changed is False
     assert task.annotation_contributor_ids == ["broken"]
 
 
-@pytest.mark.asyncio
-async def test_missing_or_malformed_actor_is_noop():
+def test_missing_or_malformed_actor_is_noop():
     task = _task(annotation_contributor_ids=[], status="in_progress")
 
-    assert (
-        await evidence.record_annotation_actor(_StubSession(), task, None, lock=False)
-        is False
-    )
-    assert (
-        await evidence.record_annotation_actor(
-            _StubSession(), task, "broken", lock=False
-        )
-        is False
-    )
+    assert record_annotation_actor_policy(task, None) is False
+    assert record_annotation_actor_policy(task, "broken") is False
     assert task.annotation_contributor_ids == []
 
 
-@pytest.mark.asyncio
-async def test_review_phase_adjustment_does_not_add_reviewer():
+def test_review_phase_adjustment_does_not_add_reviewer():
     task = _task(annotation_contributor_ids=[], status="review")
 
-    changed = await evidence.record_annotation_actor(
-        _StubSession(), task, uuid.uuid4(), lock=False
-    )
+    changed = record_annotation_actor_policy(task, uuid.uuid4())
 
     assert changed is False
     assert task.annotation_contributor_ids == []
@@ -259,6 +216,26 @@ def test_freeze_empty_accumulator_keeps_submitter_only():
     )
 
     assert frozen == [str(actor)]
+
+
+@pytest.mark.asyncio
+async def test_ordered_task_evidence_locks_keep_project_scope(monkeypatch):
+    project_id = uuid.uuid4()
+    task_ids = [uuid.uuid4(), uuid.uuid4()]
+    calls = []
+
+    async def lock_task(db, task_id, **values):
+        calls.append((db, task_id, values))
+
+    monkeypatch.setattr(evidence, "lock_task_for_core_read", lock_task)
+    db = SimpleNamespace(no_autoflush=nullcontext())
+
+    await evidence.lock_tasks_for_evidence(db, task_ids, project_id=project_id)
+
+    assert [(task_id, values) for _, task_id, values in calls] == [
+        (task_id, {"lock_mode": "update", "project_id": project_id})
+        for task_id in sorted(task_ids, key=str)
+    ]
 
 
 def test_clear_invalidates_round_but_retains_accumulator():

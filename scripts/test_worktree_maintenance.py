@@ -22,6 +22,7 @@ MAINTENANCE_TASKS = {
     "app.workers.audit_partition.archive_old_audit_partitions",
     "app.workers.prediction_partition.ensure_future_prediction_partitions",
     "app.workers.dataset_import_delivery.relay_dataset_import_deliveries",
+    "app.workers.predictions_retry.relay_prediction_retry_deliveries",
 }
 
 
@@ -147,6 +148,10 @@ class MaintenanceTests(unittest.TestCase):
             check=True,
         )
         routes = json.loads(result.stdout)
+        self.assertEqual(
+            routes["app.workers.identity_mail_delivery.relay_credential_mail"]["queue"],
+            "default",
+        )
         self.assertEqual(
             {name for name, route in routes.items() if route["queue"] == "maintenance"},
             MAINTENANCE_TASKS,

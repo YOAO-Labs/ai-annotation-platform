@@ -35,7 +35,7 @@ from app.services.project_access import (
     resolve_project_access_by_id,
     restore_project_write_policy_failure,
 )
-from app.services.workspace_contract import (
+from aap_workspace_contract.access import (
     ProjectAccess,
     ProjectWritePolicyFailure,
     ProjectWritePolicyRequest,
@@ -173,16 +173,7 @@ class LegacyFileUploadWorkflow:
                 status_code=403, detail="仅项目负责人或超级管理员可执行"
             )
         try:
-            if task.status != "uploading":
-                raise LabelingUploadTaskNotUploading
-            if (
-                task.project_id != target.project_id
-                or task.batch_id != target.batch_id
-                or task.file_path != target.file_path
-                or task.file_type != target.file_type
-            ):
-                raise LabelingUploadTargetChanged
-            task.status = "pending"
+            await self.labeling_tasks.complete_uploading_task(task, target)
         except LabelingUploadTaskNotFound as exc:
             raise UploadTaskNotFoundError from exc
         except LabelingUploadTaskNotUploading as exc:

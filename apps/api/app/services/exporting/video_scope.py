@@ -8,9 +8,7 @@ from typing import Any, Literal, cast
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.dataset import VideoSegment
 from app.db.models.project import Project
-from app.db.models.task import Task
 from app.schemas.export import (
     VideoExportFrameSelection,
     VideoExportScopeRequest,
@@ -18,6 +16,11 @@ from app.schemas.export import (
 )
 from app.services.video_frame_service import AssetsVideoContextReader
 from app.services.video_tracks import normalize_outside_ranges, resolve_track_at_frame
+from app.services.labeling_core_read_relations import (
+    get_core_row,
+    task_row,
+    video_segment_row,
+)
 
 
 @dataclass(frozen=True)
@@ -100,7 +103,7 @@ async def normalize_video_export_scope(
     if project.data_type != "video":
         raise ValueError("video export scope is only supported for video projects")
 
-    task = await db.get(Task, request.task_id)
+    task = await get_core_row(db, task_row, request.task_id)
     if task is None or task.project_id != project.id:
         raise ValueError("video export task does not belong to this project")
     if batch_id is not None and task.batch_id != batch_id:
@@ -133,11 +136,11 @@ async def normalize_video_export_scope(
     endpoints = (
         (
             await db.execute(
-                select(VideoSegment).where(
-                    VideoSegment.id.in_(
+                select(video_segment_row).where(
+                    video_segment_row.id.in_(
                         [selection.start_segment_id, selection.end_segment_id]
                     ),
-                    VideoSegment.dataset_item_id == ctx.dataset_item_id,
+                    video_segment_row.dataset_item_id == ctx.dataset_item_id,
                 )
             )
         )
@@ -155,13 +158,13 @@ async def normalize_video_export_scope(
     rows = (
         (
             await db.execute(
-                select(VideoSegment)
+                select(video_segment_row)
                 .where(
-                    VideoSegment.dataset_item_id == ctx.dataset_item_id,
-                    VideoSegment.segment_index >= start.segment_index,
-                    VideoSegment.segment_index <= end.segment_index,
+                    video_segment_row.dataset_item_id == ctx.dataset_item_id,
+                    video_segment_row.segment_index >= start.segment_index,
+                    video_segment_row.segment_index <= end.segment_index,
                 )
-                .order_by(VideoSegment.segment_index)
+                .order_by(video_segment_row.segment_index)
             )
         )
         .scalars()

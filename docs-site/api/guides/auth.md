@@ -2,7 +2,7 @@
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-20
 ---
 
 # 认证
@@ -29,6 +29,12 @@ Content-Type: application/json
 
 `access_token` 默认有效期 **24 小时**（`access_token_expire_minutes` 配置，默认 `60 * 24`）。登录后通过 `/api/v1/auth/me` 获取当前用户；续期使用同一个 Bearer token。
 
+认证准入支持可选独立 Identity 进程，公开路径及响应模型保持不变。当前账号角色、启用状态、JWT 代际／撤销和 API key 有效期由持久权威确认；权威不可用返回 503，客户端不应将其视为密码错误。新验证器只接受当前 issuer 的 JWT，受控切换后旧会话须重新登录，旧 JWT 不能通过刷新跨过切换；API key 沿用已有 SQL 状态。普通自助／管理员改密的会话策略保持原样，密码恢复和账号凭据回收继续撤销旧会话。
+
+登录、刷新、登出和全端登出也可交由同一 Identity 服务；当前凭据、在线状态和业务审计在所有者事务中处理，API 保留原路径、状态、计数头与错误代码。刷新不会撤销原 JWT，全端登出仍保留 API key。服务或能力不可用时返回 503，账号更新竞争仍为 409；不要自动重试会改变会话状态的 POST。私有回执和冻结声明的恢复规则见 [Identity 运行协议](./identity-runtime#核心会话请求)。
+
+`/api/v1/me/api-keys` 的列表、创建、修改、轮换和撤销可由独立 Identity 命令运行时持有，公开输入输出保持原形。名称／scope 省略表示不改，显式空有效期改为永久；已过期但未撤销的 key 仍可管理。用某把 key 轮换自身后，旧明文立即失效。创建和轮换只在响应中返回明文，响应丢失时不能盲目重试 POST，应使用其他有效凭据检查并处理该 key。私有命令的显式重放、当前凭据围栏及部署限制见 [Identity 运行协议](./identity-runtime)。
+
 ## 携带 token
 
 ```http
@@ -49,6 +55,8 @@ Authorization: Bearer <access_token>
 `workbench.common.showAnnotationComments` 控制图片和视频画布的标注评论提示，默认 `true`。通过下面的账号偏好接口提交 `{ "workbench": { "common": { "showAnnotationComments": false } } }` 可关闭；显式 `false` 会保留，历史偏好缺少字段时按开启处理。该设置不影响评论读取、写入或通知。
 
 `GET /api/v1/auth/me/preferences` 读取当前账号偏好，`PATCH /api/v1/auth/me/preferences` 只提交要修改的子树。工作台布局位于 `workbench.layout.workspace`：`contexts` 是可选 map，每个 key 是 `annotate|review × image|video|3d` 中的一项，只提交某个 context 时会原子替换该快照，不会删除其他 context。写入 `contexts` 必须同时携带当前 `engine`；只有下述预设专用 PATCH 可以省略它。
+
+模型、读取归一化和稀疏 PATCH 策略由 `apps/identity` 持有；准备、合并、版本校验和写入在同一个身份所有者事务完成，可内嵌装配或显式使用独立进程。公开路径及响应形状保持原样，服务不可用返回 503 且不回退到其他写入者；见[私有账户协议](./identity-runtime#自助账户命令)和[模块台账](../../dev/concepts/module-deployment)。
 
 `workbench.shortcuts` 承载账号级快捷键覆盖：`schemaVersion: 1` 加 `common` / `image` / `video` 三个命令桶，每桶把命令 ID 映射到该命令的完整组合列表（`null` = 恢复默认，`[]` = 停用，非空列表 = 一主一备整体替换）。PATCH 只提交变更的命令条目（按命令深合并），不要携带 `schemaVersion`。写路径对变更条目严格校验：命令 ID 必须在可编辑集合内、键为单字符或小写命名键且不能是修饰键名、修饰键只能是 `mod|alt|shift`、每条命令最多 2 条组合。未触碰的存量条目（包括损坏或来自更新版本的条目）原样保留，不会被默认值覆盖；GET 对无法识别的 shortcuts 子树原样透出，由客户端宽容解析并把受影响覆盖排除出执行。 未提交的命令桶保持原值；显式提交 `null` 命令桶、未知信封字段或类型错误的 `schemaVersion` 返回 `422`。恢复默认应提交命令条目的 `null`，不能用 `null` 替代整个命令桶。
 
@@ -86,6 +94,10 @@ Content-Type: application/json
 
 管理角色通过 `POST /api/v1/users/invite` 提交 `email`、平台角色 `role`（项目管理员可邀请 `employee` / `viewer`，超级管理员可选全部平台角色）、可选 `group_name`、可选目标 `project_id` 与项目角色 `project_member_role`（`annotator` / `reviewer` / `viewer`）。平台角色与项目角色分别保存，互不代填；目标项目的角色兼容性（例如平台 `viewer` 只能获得只读项目角色）在接受时校验。响应中的 `invite_url` 可直接复制使用。
 
+这组公开邀请路径与字段保持不变；Identity owner 事务负责创建、批量预览／执行、查询、统计、导出、撤销、换新链接、解析、注册和接受，CSV/JSON 序列化留在 HTTP。项目角色必须与平台身份兼容；已有账号接受邀请只增加兼容的项目成员行，不修改平台角色。邀请上限、过期时间与接收项目所有权会在写事务内重新校验。
+
+项目管理员只能创建员工／观察者邀请和管理本人创建的记录；超级管理员可以管理全部邀请，并且只有当前超级管理员可邀请项目管理员／超级管理员。需要项目的邀请要求目标项目仍存在且有启用的管理员 owner；项目管理员邀请人必须仍是该项目 owner。匿名 link resolve/register 请求用 payload `invitation_token`，与登录用户 Bearer 完全分开。
+
 公开的 `GET /api/v1/auth/invitations/{token}` 校验邀请并返回目标项目摘要。新账号通过 `POST /api/v1/auth/register` 提交 `token`、`name`、`password`，账号、用户组和项目成员关系在同一事务内建立。已有账号先登录，再调用：
 
 ```http
@@ -111,7 +123,7 @@ Content-Type: application/json
 { "email": "alice@example.com", "captcha_token": null }
 ```
 
-接口对已注册和未注册地址都返回 `202` 及相同提示。账号查询和邮件投递在响应后执行，SMTP 等待不会延迟该响应或阻塞其他请求。已注册账号会通过系统 SMTP 设置发送一小时有效的重置链接；SMTP 未配置或发送失败时，服务端不会把 token 写入日志，管理员可在设置页发送测试邮件定位问题。未收到邮件时可重新申请或由管理员协助恢复。
+接口在 Identity 持久受理后返回 `202`；已注册、未知或停用邮箱得到相同提示。已启用账号的重置链接有效期为一小时。邮件执行进程在请求事务提交后读取系统 SMTP 设置并投递，SMTP 等待不占用账号锁。临时故障或进程重启后继续投递；确认结果不明时可能再次发送同一链接。SMTP 缺少必要配置或明确拒绝投递时，本次重置链接作废，修复配置后需要重新申请。服务端不记录原始 token；管理员可在设置页发送测试邮件定位问题。
 
 用户提交邮件中的 token 设置新密码：
 
@@ -124,11 +136,13 @@ Content-Type: application/json
 
 密码为 8–128 位，并且必须包含大写字母、小写字母和数字。token 过期、消费后或账号处于停用状态时不能使用；重置成功会使该账号已有的 JWT 会话失效，用户需要使用新密码重新登录。
 
+挑战表只保留 token 的 SHA-256 摘要与签发邮箱；修改邮箱后旧链接失效。邮件队列保留由独立 Fernet key 加密的投递材料，公开接口及私有恢复响应均不返回原始链接。邮箱验证保持多个独立链接各可消费一次，停用账号完成验证也不会重新启用；验证邮件投递失败不会主动使仍有效的验证链接作废。独立运行协议及权限见[账号恢复与投递](./identity-runtime.md#开放注册与账号恢复)。
+
 管理员无法发送邮件时，可以先在 `/settings` 的系统设置中检查 `frontend_base_url` 与 SMTP host / port / 发件人，并使用「发送测试邮件到我」定位配置问题。使用管理员生成的临时密码登录后，界面会引导用户到设置页改密。
 
 ## 停用、交接与恢复
 
-以下接口要求超级管理员或目标用户所在项目的项目管理员。项目管理员只能处理其管理范围内的标注员和审核员；跨越管理范围、操作自己和停用最后一名超管均会被拒绝。
+以下管理接口要求超级管理员或目标用户所在项目的项目管理员。项目管理员只能处理其管理范围内的标注员和审核员；跨越管理范围、操作自己，以及会减少可用超级管理员但未保留另一名启用且未预留注销申请的超级管理员，均会被拒绝。
 
 | 方法与路径                                       | 行为                                                     |
 | ------------------------------------------------ | -------------------------------------------------------- |
@@ -159,6 +173,14 @@ Content-Type: application/json
 
 `UserOut` 增加 `disabled_kind`、`disabled_at`、`disabled_by`、`disabled_reason`。`suspended` 和 `emergency_suspended` 可以恢复；`deleted`、`historical_unknown` 不能恢复。迁移前无法可靠识别停用来源的账号归入 `historical_unknown`。恢复请求可带 `{"reason":"返岗"}`；恢复不会拿回已交接职责、复活旧会话或恢复已撤销的 API Key。集成负责人应为接收账号另行创建密钥。
 
+### 自助注销申请
+
+当前登录用户可通过 `POST /api/v1/auth/me/deactivation-request` 申请注销，body 可传 `{}` 或 `{ "reason": "..." }`；reason 最长 500 个 Unicode 字符。七天冷静期内可调用 `DELETE /api/v1/auth/me/deactivation-request` 撤销。成功响应仍是当前 `UserOut`，不附带通知集合；注销命令不回显 reason，也不会将其写入 Audit detail 或通知 payload。到期后已有 `disabled_reason` 字段仍按原用户生命周期语义保留停用说明。
+
+申请已接受后，管理员对账号执行 suspension 或之后 reactivate 都不会自动取消这项申请。只有用户显式撤销，或到期处理成功，才清除注销请求字段。到期时再次检查启用超级管理员；若该用户已经是最后一名实际启用超级管理员，会保留申请等待后续管理员恢复／指定继任者，不会完成注销。
+
+超级管理员本人申请时，至少需要另一名启用且尚未申请注销的超级管理员。没有其他启用超级管理员时返回 `400 您是最后一名超级管理员，请先指定继任者再申请注销`；有其他启用者、但他们都已预留注销时返回 `400 其余超级管理员均已申请注销，请先让其他管理员撤销申请或指定继任者`。超级管理员降级、停用、离职和删除等减少操作共用同一最终管理员围栏，但保留各自旧错误语义和管理工作流。
+
 原有删除入口继续具有独立语义，参见[人员管理](../../user-guide/superadmin/user-management.md)。
 
 ## 管理查询与批量操作
@@ -173,7 +195,9 @@ Content-Type: application/json
 | `GET /api/v1/groups/query?page=1&page_size=50&search=`                                    | 分页返回数据组及启用成员数                                                                                                                                                                                                                                                                                                                  |
 | `GET /api/v1/invitations/query`                                                           | 支持 `status`、`scope`、`project_id`、`role`、`email`、`search`、`created_from`、`created_to`                                                                                                                                                                                                                                               |
 | `GET /api/v1/invitations/stats` / `GET /api/v1/invitations/export`                        | 使用邀请列表的同一过滤和权限范围                                                                                                                                                                                                                                                                                                            |
-| `POST /api/v1/invitations/{id}/send-email`                                                | 使用当前有效 token 发送邀请邮件；不轮换链接，SMTP 失败返回 `502` 且邀请保持有效                                                                                                                                                                                                                                                             |
+| `POST /api/v1/invitations/{id}/send-email`                                                | 用当前 token 发送邮件，沿用 `200`／`502` 和原链接；不轮换邀请                                                                                                                                                                                                                                                                               |
+
+邀请邮件先写入 durable send intent，再由独立 MailV2 sender 执行 SMTP；邮件网络调用不持 User、Project 或 Invitation SQL 锁。API 最多等待配置的时间（默认 60 秒，最大 120 秒），其后仍返回旧 502 而不是新增 202；pending intent 仍可恢复，超时前后均不作废或轮换链接。SMTP 明确拒绝也只结束当前发送 intent，不撤销邀请。暂时故障时用户可重新发送当前邀请，可能收到同一链接的重复邮件；必须选择「新链接」才会轮换 token 并让旧链接失效。V1 credential-mail API/role 继续只负责密码重置与邮箱验证，不能领取 invitation purpose。
 
 批量邀请先调用 `POST /api/v1/users/bulk-invite/preview`，确认每行的校验结果后调用 `POST /api/v1/users/bulk-invite`。批量接口为每行建立独立保存点；成功行提交，失败行返回 `retryable` 和错误信息，客户端可以只重试失败行。数据组批量替换使用 `POST /api/v1/users/groups/bulk/preview` 和 `POST /api/v1/users/groups/bulk`，`group_id=null` 表示清除数据组。
 
@@ -213,7 +237,7 @@ Authorization: Bearer <access_token>
 }
 ```
 
-开启 Turnstile 后由前端验证组件获取 `captcha_token`。验证失败时接口返回 `captcha_required`，响应头 `X-Login-Failed-Count` 提供失败次数。
+开启 Turnstile 后由前端验证组件获取 `captcha_token`。验证失败时接口返回 HTTP 400、`detail: "captcha_required"`；页面据此展示验证，响应头 `X-Login-Failed-Count` 仅提供失败次数。证明为单次使用，带证明的登录仍失败时，页面会丢弃它并重新验证；前端不自行实现阈值。
 
 失败计数按 IP 单键 (`login_failed:{ip}`)，窗口长度由 `login_failed_window_seconds` 配置（默认 **3600 秒 / 1 小时**）。登录成功后立刻清空计数。
 

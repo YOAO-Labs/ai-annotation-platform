@@ -28,6 +28,17 @@ if settings.environment == "production":
     print("[seed_scale] refusing to run with environment=production", file=sys.stderr)
     raise SystemExit(2)
 
+from app.services.workspace_scale_seed_data import (  # noqa: E402
+    create_scale_seed_project,
+    delete_scale_seed_projects,
+    ensure_scale_seed_member,
+    guard_scale_seed_sources,
+    prepare_scale_seed_cleanup,
+)
+from app.services.labeling_scale_seed_operations import (  # noqa: E402
+    LabelingScaleSeedOperations,
+)
+
 MARKER = "scale-seed"
 
 engine = create_async_engine(settings.database_url, echo=False)
@@ -35,37 +46,20 @@ Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False
 
 
 async def _purge(db: AsyncSession) -> None:
+    project_ids, dataset_ids = await prepare_scale_seed_cleanup(db, MARKER)
+    await LabelingScaleSeedOperations(db).purge_labeling_rows(MARKER, project_ids)
+    await guard_scale_seed_sources(db, dataset_ids, after_task_cleanup=True)
     await db.execute(
-        text(
-            "DELETE FROM annotations WHERE task_id IN "
-            "(SELECT t.id FROM tasks t JOIN projects p ON p.id = t.project_id "
-            " WHERE p.name = :m)"
-        ),
-        {"m": MARKER},
+        text("DELETE FROM dataset_items WHERE dataset_id=ANY(CAST(:ids AS uuid[]))"),
+        {"ids": dataset_ids},
     )
     await db.execute(
         text(
-            "DELETE FROM tasks WHERE project_id IN "
-            "(SELECT id FROM projects WHERE name = :m)"
+            "DELETE FROM datasets WHERE id=ANY(CAST(:ids AS uuid[])) AND name=:marker"
         ),
-        {"m": MARKER},
+        {"ids": dataset_ids, "marker": MARKER},
     )
-    await db.execute(
-        text(
-            "DELETE FROM task_batches WHERE project_id IN "
-            "(SELECT id FROM projects WHERE name = :m)"
-        ),
-        {"m": MARKER},
-    )
-    await db.execute(
-        text(
-            "DELETE FROM dataset_items WHERE dataset_id IN "
-            "(SELECT id FROM datasets WHERE name = :m)"
-        ),
-        {"m": MARKER},
-    )
-    await db.execute(text("DELETE FROM datasets WHERE name = :m"), {"m": MARKER})
-    await db.execute(text("DELETE FROM projects WHERE name = :m"), {"m": MARKER})
+    await delete_scale_seed_projects(db, marker=MARKER, project_ids=project_ids)
     await db.commit()
 
 
@@ -73,6 +67,7 @@ async def seed(n_tasks: int, n_batches: int, n_annotated: int) -> None:
     from app.services.identity_commands import IdentityCommandService
 
     async with Session() as db:
+        labeling = LabelingScaleSeedOperations(db)
         await _purge(db)
 
         owner_id, annotator_id = await IdentityCommandService(
@@ -85,26 +80,11 @@ async def seed(n_tasks: int, n_batches: int, n_annotated: int) -> None:
             )
             raise SystemExit(1)
 
-        project_id = (
-            await db.execute(
-                text(
-                    "INSERT INTO projects (id, display_id, name, type_label, type_key, owner_id, total_tasks) "
-                    "VALUES (gen_random_uuid(), 'P-'||nextval('display_seq_projects'), :m, "
-                    "'图像检测', 'image_detection', :owner, :n) RETURNING id"
-                ),
-                {"m": MARKER, "owner": owner_id, "n": n_tasks},
-            )
-        ).scalar()
-
-        # Explicit project duty so the stress project is actually reachable by
-        # the annotator under the project-scoped access model.
-        await db.execute(
-            text(
-                "INSERT INTO project_members (id, project_id, user_id, role, assigned_by) "
-                "VALUES (gen_random_uuid(), :proj, :anno, 'annotator', :owner) "
-                "ON CONFLICT (project_id, user_id) DO NOTHING"
-            ),
-            {"proj": project_id, "anno": annotator_id, "owner": owner_id},
+        project_id = await create_scale_seed_project(
+            db, owner_id=owner_id, marker=MARKER, total_tasks=n_tasks
+        )
+        await ensure_scale_seed_member(
+            db, project_id=project_id, annotator_id=annotator_id, owner_id=owner_id
         )
 
         dataset_id = (
@@ -127,69 +107,20 @@ async def seed(n_tasks: int, n_batches: int, n_annotated: int) -> None:
             {"ds": dataset_id, "n": n_tasks},
         )
 
-        await db.execute(
-            text(
-                "INSERT INTO task_batches (project_id, dataset_id, display_id, name, status, annotator_id) "
-                "SELECT :proj, :ds, 'B-'||nextval('display_seq_batches'), 'batch '||g, 'active', :anno "
-                "FROM generate_series(1, :m) g"
-            ),
-            {
-                "proj": project_id,
-                "ds": dataset_id,
-                "m": n_batches,
-                "anno": annotator_id,
-            },
+        await labeling.create_batches(
+            MARKER, project_id, dataset_id, n_batches, annotator_id
         )
         await db.commit()
 
         # tasks：按 dataset_item 行号轮转分配到批次；created_at 错开以让排序有区分度。
-        await db.execute(
-            text(
-                "WITH b AS ("
-                "  SELECT id, row_number() OVER (ORDER BY display_id) - 1 AS rn,"
-                "         count(*) OVER () AS cnt FROM task_batches WHERE project_id = :proj"
-                "), items AS ("
-                "  SELECT id, row_number() OVER (ORDER BY file_name) - 1 AS rn"
-                "  FROM dataset_items WHERE dataset_id = :ds"
-                ") "
-                "INSERT INTO tasks (id, project_id, dataset_item_id, batch_id, display_id, "
-                "  file_name, file_path, file_type, status, sequence_order, created_at, is_labeled) "
-                "SELECT gen_random_uuid(), :proj, items.id, "
-                "  (SELECT id FROM b WHERE b.rn = items.rn % (SELECT cnt FROM b LIMIT 1)), "
-                "  'T-'||nextval('display_seq_tasks'), "
-                "  'img_'||items.rn||'.jpg', '/seed/'||items.rn||'.jpg', 'image', 'pending', "
-                "  items.rn, now() - make_interval(secs => items.rn), false "
-                "FROM items"
-            ),
-            {"proj": project_id, "ds": dataset_id},
-        )
+        await labeling.create_tasks(MARKER, project_id, dataset_id)
         await db.commit()
 
         # 标注员对前 K 个 task 留 active 标注（task 仍 is_labeled=false）。
-        # geometry 用绑定参数传入：text() 会把内联 JSON 里的 ":0" 误解析为绑定参数。
-        await db.execute(
-            text(
-                "INSERT INTO annotations (id, task_id, user_id, project_id, class_name, geometry, is_active) "
-                "SELECT gen_random_uuid(), t.id, :anno, :proj, 'seed', cast(:geom AS jsonb), true "
-                "FROM (SELECT id FROM tasks WHERE project_id = :proj ORDER BY sequence_order LIMIT :k) t"
-            ),
-            {
-                "anno": annotator_id,
-                "proj": project_id,
-                "k": n_annotated,
-                "geom": '{"type":"bbox","x":0,"y":0,"w":1,"h":1}',
-            },
-        )
+        await labeling.create_annotations(MARKER, project_id, annotator_id, n_annotated)
         await db.commit()
 
-        a_batch = (
-            await db.execute(
-                text(
-                    "SELECT id FROM task_batches WHERE project_id = :proj ORDER BY display_id LIMIT 1"
-                ),
-                {"proj": project_id},
-            )
-        ).scalar()
+        a_batch = await labeling.read_first_batch_id(project_id)
 
         print(
             f"[seed_scale] done: {n_tasks} tasks / {n_batches} batches / {n_annotated} annotated"
@@ -199,7 +130,8 @@ async def seed(n_tasks: int, n_batches: int, n_annotated: int) -> None:
         print(f"  annotator_id = {annotator_id}")
         print("  EXPLAIN 示例：")
         print(
-            f"    EXPLAIN ANALYZE SELECT * FROM tasks WHERE project_id='{project_id}' "
+            f"    EXPLAIN ANALYZE SELECT * FROM aap_labeling_v1.task_rows "
+            f"WHERE project_id='{project_id}' "
             "ORDER BY created_at, id LIMIT 100;"
         )
 

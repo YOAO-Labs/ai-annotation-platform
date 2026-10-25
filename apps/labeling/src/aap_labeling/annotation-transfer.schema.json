@@ -1,0 +1,3233 @@
+{
+  "$defs": {
+    "AnnotationTransferData": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "title": "Operation",
+          "type": "string"
+        },
+        "task": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TaskMatchSnapshot"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "tasks": {
+          "items": {
+            "$ref": "#/$defs/TaskMatchSnapshot"
+          },
+          "title": "Tasks",
+          "type": "array"
+        },
+        "camera_facts": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImportCameraFacts"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "purged_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Purged Count"
+        },
+        "imported_annotation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImportedAnnotationResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "scene_track": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImportSceneTrackResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "plan": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConversionPlanSnapshot"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "conversion_sources": {
+          "items": {
+            "$ref": "#/$defs/CrossFrameAnnotationSnapshot"
+          },
+          "title": "Conversion Sources",
+          "type": "array"
+        },
+        "video_segments": {
+          "items": {
+            "$ref": "#/$defs/ConversionVideoSegment"
+          },
+          "title": "Video Segments",
+          "type": "array"
+        },
+        "expired_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expired Count"
+        },
+        "replay": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConversionReplay"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "conversion": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConversionApplyResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "camera_links": {
+          "items": {
+            "$ref": "#/$defs/CameraLink"
+          },
+          "title": "Camera Links",
+          "type": "array"
+        },
+        "camera_graph": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CameraGraph"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "camera_mutation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CameraMutationResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "camera_lock_scope": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CameraLockScope"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "mask_import": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MaskFormatImportSnapshot"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "committed_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Committed Count"
+        }
+      },
+      "required": ["operation"],
+      "title": "AnnotationTransferData",
+      "type": "object"
+    },
+    "ApplyConversion": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "apply_conversion",
+          "title": "Operation",
+          "type": "string"
+        },
+        "plan_token_hash": {
+          "title": "Plan Token Hash",
+          "type": "string"
+        },
+        "plan_id": {
+          "format": "uuid",
+          "title": "Plan Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "expected_batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Batch Id"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "execution_id": {
+          "format": "uuid",
+          "title": "Execution Id",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "execution_digest": {
+          "title": "Execution Digest",
+          "type": "string"
+        },
+        "scope_fingerprint": {
+          "title": "Scope Fingerprint",
+          "type": "string"
+        },
+        "source_fences": {
+          "items": {
+            "$ref": "#/$defs/ConversionSourceFence"
+          },
+          "title": "Source Fences",
+          "type": "array"
+        },
+        "actions": {
+          "items": {
+            "$ref": "#/$defs/ConversionAction"
+          },
+          "title": "Actions",
+          "type": "array"
+        },
+        "report": {
+          "additionalProperties": true,
+          "title": "Report",
+          "type": "object"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "plan_token_hash",
+        "plan_id",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "expected_batch_id",
+        "expected_status",
+        "expected_review_round_id",
+        "execution_id",
+        "idempotency_key",
+        "execution_digest",
+        "scope_fingerprint",
+        "source_fences",
+        "actions",
+        "report"
+      ],
+      "title": "ApplyConversion",
+      "type": "object"
+    },
+    "CameraGraph": {
+      "additionalProperties": false,
+      "properties": {
+        "task_scene_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Scene Id"
+        },
+        "members": {
+          "items": {
+            "$ref": "#/$defs/CrossFrameAnnotationSnapshot"
+          },
+          "title": "Members",
+          "type": "array"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/CrossFrameAnnotationSnapshot"
+          },
+          "title": "Sources",
+          "type": "array"
+        },
+        "tracks": {
+          "items": {
+            "$ref": "#/$defs/CameraTrackSnapshot"
+          },
+          "title": "Tracks",
+          "type": "array"
+        }
+      },
+      "required": ["task_scene_id", "members", "sources", "tracks"],
+      "title": "CameraGraph",
+      "type": "object"
+    },
+    "CameraLink": {
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        }
+      },
+      "required": ["role", "dataset_item_id"],
+      "title": "CameraLink",
+      "type": "object"
+    },
+    "CameraLockScope": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CrossFrameAnnotationSnapshot"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "member": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CrossFrameAnnotationSnapshot"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "track": {
+          "$ref": "#/$defs/CameraTrackSnapshot"
+        }
+      },
+      "required": ["source", "member", "track"],
+      "title": "CameraLockScope",
+      "type": "object"
+    },
+    "CameraMutationResult": {
+      "additionalProperties": false,
+      "properties": {
+        "member": {
+          "$ref": "#/$defs/CrossFrameAnnotationSnapshot"
+        },
+        "track_revision": {
+          "title": "Track Revision",
+          "type": "integer"
+        }
+      },
+      "required": ["member", "track_revision"],
+      "title": "CameraMutationResult",
+      "type": "object"
+    },
+    "CameraTrackSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "track_id": {
+          "title": "Track Id",
+          "type": "string"
+        },
+        "class_name": {
+          "title": "Class Name",
+          "type": "string"
+        },
+        "revision": {
+          "title": "Revision",
+          "type": "integer"
+        },
+        "retired_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Retired At"
+        }
+      },
+      "required": [
+        "id",
+        "project_id",
+        "scene_id",
+        "track_id",
+        "class_name",
+        "revision",
+        "retired_at"
+      ],
+      "title": "CameraTrackSnapshot",
+      "type": "object"
+    },
+    "CancelPendingMaskFormatImport": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "cancel_pending_mask_format_import",
+          "title": "Operation",
+          "type": "string"
+        },
+        "async_job_id": {
+          "format": "uuid",
+          "title": "Async Job Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "async_job_id"],
+      "title": "CancelPendingMaskFormatImport",
+      "type": "object"
+    },
+    "CommittedMaskImportItem": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "committed",
+          "title": "Status",
+          "type": "string"
+        },
+        "task_id": {
+          "title": "Task Id",
+          "type": "string"
+        },
+        "imported": {
+          "minimum": 0,
+          "title": "Imported",
+          "type": "integer"
+        },
+        "skipped": {
+          "minimum": 0,
+          "title": "Skipped",
+          "type": "integer"
+        }
+      },
+      "required": ["status", "task_id", "imported", "skipped"],
+      "title": "CommittedMaskImportItem",
+      "type": "object"
+    },
+    "ConversionAction": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": ["update", "create", "deactivate"],
+          "title": "Kind",
+          "type": "string"
+        },
+        "source_id": {
+          "format": "uuid",
+          "title": "Source Id",
+          "type": "string"
+        },
+        "result_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Result Id"
+        },
+        "geometry": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Geometry"
+        },
+        "annotation_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Annotation Type"
+        },
+        "tool_unit_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Tool Unit Id"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Track Id"
+        },
+        "frame_index": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Frame Index"
+        }
+      },
+      "required": [
+        "kind",
+        "source_id",
+        "result_id",
+        "geometry",
+        "annotation_type",
+        "tool_unit_id",
+        "track_id",
+        "frame_index"
+      ],
+      "title": "ConversionAction",
+      "type": "object"
+    },
+    "ConversionApplyResult": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "updated_annotations": {
+          "items": {
+            "$ref": "#/$defs/CrossFrameAnnotationSnapshot"
+          },
+          "title": "Updated Annotations",
+          "type": "array"
+        },
+        "created_annotations": {
+          "items": {
+            "$ref": "#/$defs/CrossFrameAnnotationSnapshot"
+          },
+          "title": "Created Annotations",
+          "type": "array"
+        },
+        "deleted_annotation_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Deleted Annotation Ids",
+          "type": "array"
+        },
+        "result_versions": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Result Versions",
+          "type": "object"
+        }
+      },
+      "required": [
+        "operation_id",
+        "updated_annotations",
+        "created_annotations",
+        "deleted_annotation_ids",
+        "result_versions"
+      ],
+      "title": "ConversionApplyResult",
+      "type": "object"
+    },
+    "ConversionPlanSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "token_hash": {
+          "title": "Token Hash",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "request_digest": {
+          "title": "Request Digest",
+          "type": "string"
+        },
+        "snapshot_digest": {
+          "title": "Snapshot Digest",
+          "type": "string"
+        },
+        "request_json": {
+          "additionalProperties": true,
+          "title": "Request Json",
+          "type": "object"
+        },
+        "plan_json": {
+          "additionalProperties": true,
+          "title": "Plan Json",
+          "type": "object"
+        },
+        "executed_operation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Executed Operation Id"
+        },
+        "executed_idempotency_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Executed Idempotency Key"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "token_hash",
+        "task_id",
+        "actor_id",
+        "request_digest",
+        "snapshot_digest",
+        "request_json",
+        "plan_json",
+        "executed_operation_id",
+        "executed_idempotency_key",
+        "created_at",
+        "expires_at"
+      ],
+      "title": "ConversionPlanSnapshot",
+      "type": "object"
+    },
+    "ConversionReplay": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "request_digest": {
+          "title": "Request Digest",
+          "type": "string"
+        },
+        "response_json": {
+          "additionalProperties": true,
+          "title": "Response Json",
+          "type": "object"
+        }
+      },
+      "required": ["operation_id", "request_digest", "response_json"],
+      "title": "ConversionReplay",
+      "type": "object"
+    },
+    "ConversionSourceFence": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        },
+        "digest": {
+          "title": "Digest",
+          "type": "string"
+        }
+      },
+      "required": ["annotation_id", "version", "digest"],
+      "title": "ConversionSourceFence",
+      "type": "object"
+    },
+    "ConversionVideoSegment": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "start_frame": {
+          "title": "Start Frame",
+          "type": "integer"
+        },
+        "end_frame": {
+          "title": "End Frame",
+          "type": "integer"
+        },
+        "segment_index": {
+          "title": "Segment Index",
+          "type": "integer"
+        },
+        "locked_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Locked By"
+        },
+        "lock_expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Lock Expires At"
+        }
+      },
+      "required": [
+        "id",
+        "dataset_item_id",
+        "start_frame",
+        "end_frame",
+        "segment_index",
+        "locked_by",
+        "lock_expires_at"
+      ],
+      "title": "ConversionVideoSegment",
+      "type": "object"
+    },
+    "CreateConversionPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "create_conversion_plan",
+          "title": "Operation",
+          "type": "string"
+        },
+        "plan_id": {
+          "format": "uuid",
+          "title": "Plan Id",
+          "type": "string"
+        },
+        "token_hash": {
+          "title": "Token Hash",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "request_digest": {
+          "title": "Request Digest",
+          "type": "string"
+        },
+        "snapshot_digest": {
+          "title": "Snapshot Digest",
+          "type": "string"
+        },
+        "request_json": {
+          "additionalProperties": true,
+          "title": "Request Json",
+          "type": "object"
+        },
+        "plan_json": {
+          "additionalProperties": true,
+          "title": "Plan Json",
+          "type": "object"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "plan_id",
+        "token_hash",
+        "task_id",
+        "actor_id",
+        "request_digest",
+        "snapshot_digest",
+        "request_json",
+        "plan_json",
+        "expires_at"
+      ],
+      "title": "CreateConversionPlan",
+      "type": "object"
+    },
+    "CreateImportedAnnotation": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "source": {
+          "enum": ["manual", "prediction_based", "interpolated"],
+          "title": "Source",
+          "type": "string"
+        },
+        "annotation_type": {
+          "title": "Annotation Type",
+          "type": "string"
+        },
+        "tool_unit_id": {
+          "title": "Tool Unit Id",
+          "type": "string"
+        },
+        "class_name": {
+          "title": "Class Name",
+          "type": "string"
+        },
+        "geometry": {
+          "additionalProperties": true,
+          "title": "Geometry",
+          "type": "object"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Track Id"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Confidence"
+        },
+        "attributes": {
+          "additionalProperties": true,
+          "title": "Attributes",
+          "type": "object"
+        },
+        "temporal_role": {
+          "enum": ["keyframe", "derived", "sample"],
+          "title": "Temporal Role",
+          "type": "string"
+        },
+        "created_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Created At"
+        },
+        "scene_track_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scene Track Id"
+        },
+        "sensor_dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sensor Dataset Item Id"
+        },
+        "sensor_role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sensor Role"
+        },
+        "sensor_visibility": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sensor Visibility"
+        },
+        "calibration_revision": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Calibration Revision"
+        },
+        "calibration_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Calibration Digest"
+        },
+        "scene_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scene Id"
+        },
+        "frame_index": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Frame Index"
+        },
+        "schema": {
+          "const": "aap-labeling-annotation-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "create_imported_annotation",
+          "title": "Operation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "annotation_id",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "source",
+        "annotation_type",
+        "tool_unit_id",
+        "class_name",
+        "geometry",
+        "track_id",
+        "confidence",
+        "attributes",
+        "temporal_role",
+        "created_at",
+        "scene_track_id",
+        "sensor_dataset_item_id",
+        "sensor_role",
+        "sensor_visibility",
+        "calibration_revision",
+        "calibration_digest",
+        "scene_id",
+        "frame_index",
+        "schema",
+        "operation"
+      ],
+      "title": "CreateImportedAnnotation",
+      "type": "object"
+    },
+    "CreateMaskFormatImport": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "create_mask_format_import",
+          "title": "Operation",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "requested_by_id": {
+          "format": "uuid",
+          "title": "Requested By Id",
+          "type": "string"
+        },
+        "format_id": {
+          "title": "Format Id",
+          "type": "string"
+        },
+        "adapter_version": {
+          "title": "Adapter Version",
+          "type": "string"
+        },
+        "manifest_version": {
+          "title": "Manifest Version",
+          "type": "string"
+        },
+        "staged_object_key": {
+          "title": "Staged Object Key",
+          "type": "string"
+        },
+        "staged_sha256": {
+          "title": "Staged Sha256",
+          "type": "string"
+        },
+        "mapping_json": {
+          "additionalProperties": true,
+          "title": "Mapping Json",
+          "type": "object"
+        },
+        "options_json": {
+          "additionalProperties": true,
+          "title": "Options Json",
+          "type": "object"
+        },
+        "mapping_digest": {
+          "title": "Mapping Digest",
+          "type": "string"
+        },
+        "options_digest": {
+          "title": "Options Digest",
+          "type": "string"
+        },
+        "plan_json": {
+          "additionalProperties": true,
+          "title": "Plan Json",
+          "type": "object"
+        },
+        "plan_digest": {
+          "title": "Plan Digest",
+          "type": "string"
+        },
+        "token_hash": {
+          "title": "Token Hash",
+          "type": "string"
+        },
+        "receipt_expires_at": {
+          "format": "date-time",
+          "title": "Receipt Expires At",
+          "type": "string"
+        },
+        "result_json": {
+          "additionalProperties": true,
+          "title": "Result Json",
+          "type": "object"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "id",
+        "project_id",
+        "requested_by_id",
+        "format_id",
+        "adapter_version",
+        "manifest_version",
+        "staged_object_key",
+        "staged_sha256",
+        "mapping_json",
+        "options_json",
+        "mapping_digest",
+        "options_digest",
+        "plan_json",
+        "plan_digest",
+        "token_hash",
+        "receipt_expires_at",
+        "result_json"
+      ],
+      "title": "CreateMaskFormatImport",
+      "type": "object"
+    },
+    "CrossFrameAnnotationSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "video_segment_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Video Segment Id"
+        },
+        "user_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "User Id"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "annotation_type": {
+          "title": "Annotation Type",
+          "type": "string"
+        },
+        "tool_unit_id": {
+          "title": "Tool Unit Id",
+          "type": "string"
+        },
+        "class_name": {
+          "title": "Class Name",
+          "type": "string"
+        },
+        "geometry": {
+          "additionalProperties": true,
+          "title": "Geometry",
+          "type": "object"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Confidence"
+        },
+        "parent_prediction_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Parent Prediction Id"
+        },
+        "parent_annotation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Parent Annotation Id"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Track Id"
+        },
+        "scene_track_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scene Track Id"
+        },
+        "sensor_dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sensor Dataset Item Id"
+        },
+        "sensor_role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sensor Role"
+        },
+        "sensor_visibility": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sensor Visibility"
+        },
+        "calibration_revision": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Calibration Revision"
+        },
+        "calibration_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Calibration Digest"
+        },
+        "temporal_role": {
+          "enum": ["keyframe", "derived", "sample"],
+          "title": "Temporal Role",
+          "type": "string"
+        },
+        "lead_time": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Lead Time"
+        },
+        "was_cancelled": {
+          "title": "Was Cancelled",
+          "type": "boolean"
+        },
+        "ground_truth": {
+          "title": "Ground Truth",
+          "type": "boolean"
+        },
+        "is_active": {
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "attributes": {
+          "additionalProperties": true,
+          "title": "Attributes",
+          "type": "object"
+        },
+        "attributes_meta": {
+          "additionalProperties": true,
+          "title": "Attributes Meta",
+          "type": "object"
+        },
+        "z_order": {
+          "title": "Z Order",
+          "type": "integer"
+        },
+        "is_locked": {
+          "title": "Is Locked",
+          "type": "boolean"
+        },
+        "is_hidden": {
+          "title": "Is Hidden",
+          "type": "boolean"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "task_id",
+        "project_id",
+        "video_segment_id",
+        "user_id",
+        "source",
+        "annotation_type",
+        "tool_unit_id",
+        "class_name",
+        "geometry",
+        "confidence",
+        "parent_prediction_id",
+        "parent_annotation_id",
+        "track_id",
+        "scene_track_id",
+        "sensor_dataset_item_id",
+        "sensor_role",
+        "sensor_visibility",
+        "calibration_revision",
+        "calibration_digest",
+        "temporal_role",
+        "lead_time",
+        "was_cancelled",
+        "ground_truth",
+        "is_active",
+        "attributes",
+        "attributes_meta",
+        "z_order",
+        "is_locked",
+        "is_hidden",
+        "version",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "CrossFrameAnnotationSnapshot",
+      "type": "object"
+    },
+    "ExpireConversionPlans": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "expire_conversion_plans",
+          "title": "Operation",
+          "type": "string"
+        },
+        "now": {
+          "format": "date-time",
+          "title": "Now",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "now"],
+      "title": "ExpireConversionPlans",
+      "type": "object"
+    },
+    "FailedMaskImportItem": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "failed",
+          "title": "Status",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 500,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": ["status", "reason"],
+      "title": "FailedMaskImportItem",
+      "type": "object"
+    },
+    "FinalizeConversion": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "finalize_conversion",
+          "title": "Operation",
+          "type": "string"
+        },
+        "plan_token_hash": {
+          "title": "Plan Token Hash",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "response_json": {
+          "additionalProperties": true,
+          "title": "Response Json",
+          "type": "object"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "plan_token_hash",
+        "task_id",
+        "actor_id",
+        "idempotency_key",
+        "operation_id",
+        "response_json"
+      ],
+      "title": "FinalizeConversion",
+      "type": "object"
+    },
+    "FinishMaskFormatImport": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "finish_mask_format_import",
+          "title": "Operation",
+          "type": "string"
+        },
+        "action": {
+          "enum": ["cancel", "complete", "fail", "reconcile_cancel", "reconcile_fail"],
+          "title": "Action",
+          "type": "string"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Id"
+        },
+        "async_job_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Async Job Id"
+        },
+        "failed": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Failed"
+        },
+        "completed": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Completed"
+        },
+        "skipped": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Skipped"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "action",
+        "id",
+        "async_job_id",
+        "failed",
+        "completed",
+        "skipped"
+      ],
+      "title": "FinishMaskFormatImport",
+      "type": "object"
+    },
+    "ImportCameraFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "sensor_dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sensor Dataset Item Id"
+        },
+        "scene_track_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scene Track Id"
+        },
+        "primary_exists": {
+          "title": "Primary Exists",
+          "type": "boolean"
+        },
+        "member_exists": {
+          "title": "Member Exists",
+          "type": "boolean"
+        }
+      },
+      "required": ["sensor_dataset_item_id", "scene_track_id", "primary_exists", "member_exists"],
+      "title": "ImportCameraFacts",
+      "type": "object"
+    },
+    "ImportSceneTrackResult": {
+      "additionalProperties": false,
+      "properties": {
+        "updated": {
+          "title": "Updated",
+          "type": "boolean"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason"
+        },
+        "scene_track_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scene Track Id"
+        }
+      },
+      "required": ["updated", "reason", "scene_track_id"],
+      "title": "ImportSceneTrackResult",
+      "type": "object"
+    },
+    "ImportedAnnotationResult": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "scene_track_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scene Track Id"
+        }
+      },
+      "required": ["annotation_id", "scene_track_id"],
+      "title": "ImportedAnnotationResult",
+      "type": "object"
+    },
+    "ImportedInterval": {
+      "additionalProperties": false,
+      "properties": {
+        "interval_id": {
+          "format": "uuid",
+          "title": "Interval Id",
+          "type": "string"
+        },
+        "start_frame": {
+          "minimum": 0,
+          "title": "Start Frame",
+          "type": "integer"
+        },
+        "end_frame": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End Frame"
+        }
+      },
+      "required": ["interval_id", "start_frame"],
+      "title": "ImportedInterval",
+      "type": "object"
+    },
+    "LinkMaskFormatImportJob": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "link_mask_format_import_job",
+          "title": "Operation",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "requested_by_id": {
+          "format": "uuid",
+          "title": "Requested By Id",
+          "type": "string"
+        },
+        "async_job_id": {
+          "format": "uuid",
+          "title": "Async Job Id",
+          "type": "string"
+        },
+        "resume": {
+          "title": "Resume",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "id",
+        "project_id",
+        "requested_by_id",
+        "async_job_id",
+        "resume"
+      ],
+      "title": "LinkMaskFormatImportJob",
+      "type": "object"
+    },
+    "LockCameraMemberScope": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "lock_camera_member_scope",
+          "title": "Operation",
+          "type": "string"
+        },
+        "action": {
+          "enum": ["create", "update", "restore"],
+          "title": "Action",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "member_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Member Id"
+        },
+        "source_annotation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Annotation Id"
+        },
+        "expected_version": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Version"
+        },
+        "expected_track_revision": {
+          "minimum": 1,
+          "title": "Expected Track Revision",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "action",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "member_id",
+        "source_annotation_id",
+        "expected_version",
+        "expected_track_revision"
+      ],
+      "title": "LockCameraMemberScope",
+      "type": "object"
+    },
+    "LockConversionPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "lock_conversion_plan",
+          "title": "Operation",
+          "type": "string"
+        },
+        "token_hash": {
+          "title": "Token Hash",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "token_hash", "task_id", "actor_id"],
+      "title": "LockConversionPlan",
+      "type": "object"
+    },
+    "LockMaskFormatImport": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "lock_mask_format_import",
+          "title": "Operation",
+          "type": "string"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Id"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "async_job_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Async Job Id"
+        }
+      },
+      "required": ["schema", "operation", "id", "project_id", "async_job_id"],
+      "title": "LockMaskFormatImport",
+      "type": "object"
+    },
+    "LockMaskFormatImportReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "lock_mask_format_import_receipt",
+          "title": "Operation",
+          "type": "string"
+        },
+        "token_hash": {
+          "title": "Token Hash",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "requested_by_id": {
+          "format": "uuid",
+          "title": "Requested By Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "token_hash", "project_id", "requested_by_id"],
+      "title": "LockMaskFormatImportReceipt",
+      "type": "object"
+    },
+    "MarkMaskFormatImportRunning": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "mark_mask_format_import_running",
+          "title": "Operation",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "async_job_id": {
+          "format": "uuid",
+          "title": "Async Job Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "id", "async_job_id"],
+      "title": "MarkMaskFormatImportRunning",
+      "type": "object"
+    },
+    "MaskFormatImportSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "requested_by_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Requested By Id"
+        },
+        "async_job_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Async Job Id"
+        },
+        "format_id": {
+          "title": "Format Id",
+          "type": "string"
+        },
+        "adapter_version": {
+          "title": "Adapter Version",
+          "type": "string"
+        },
+        "manifest_version": {
+          "title": "Manifest Version",
+          "type": "string"
+        },
+        "staged_object_key": {
+          "title": "Staged Object Key",
+          "type": "string"
+        },
+        "staged_sha256": {
+          "title": "Staged Sha256",
+          "type": "string"
+        },
+        "mapping_json": {
+          "additionalProperties": true,
+          "title": "Mapping Json",
+          "type": "object"
+        },
+        "options_json": {
+          "additionalProperties": true,
+          "title": "Options Json",
+          "type": "object"
+        },
+        "mapping_digest": {
+          "title": "Mapping Digest",
+          "type": "string"
+        },
+        "options_digest": {
+          "title": "Options Digest",
+          "type": "string"
+        },
+        "plan_json": {
+          "additionalProperties": true,
+          "title": "Plan Json",
+          "type": "object"
+        },
+        "plan_digest": {
+          "title": "Plan Digest",
+          "type": "string"
+        },
+        "token_hash": {
+          "title": "Token Hash",
+          "type": "string"
+        },
+        "receipt_expires_at": {
+          "format": "date-time",
+          "title": "Receipt Expires At",
+          "type": "string"
+        },
+        "status": {
+          "enum": ["staged", "pending", "running", "partial", "completed", "failed", "cancelled"],
+          "title": "Status",
+          "type": "string"
+        },
+        "result_json": {
+          "additionalProperties": true,
+          "title": "Result Json",
+          "type": "object"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "completed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Completed At"
+        }
+      },
+      "required": [
+        "id",
+        "project_id",
+        "requested_by_id",
+        "async_job_id",
+        "format_id",
+        "adapter_version",
+        "manifest_version",
+        "staged_object_key",
+        "staged_sha256",
+        "mapping_json",
+        "options_json",
+        "mapping_digest",
+        "options_digest",
+        "plan_json",
+        "plan_digest",
+        "token_hash",
+        "receipt_expires_at",
+        "status",
+        "result_json",
+        "created_at",
+        "updated_at",
+        "completed_at"
+      ],
+      "title": "MaskFormatImportSnapshot",
+      "type": "object"
+    },
+    "MutateCameraMember": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "mutate_camera_member",
+          "title": "Operation",
+          "type": "string"
+        },
+        "action": {
+          "enum": ["create", "update", "delete", "restore"],
+          "title": "Action",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "member_id": {
+          "format": "uuid",
+          "title": "Member Id",
+          "type": "string"
+        },
+        "source_annotation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Annotation Id"
+        },
+        "camera_role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Camera Role"
+        },
+        "camera_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Camera Item Id"
+        },
+        "bbox": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Bbox"
+        },
+        "visibility": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Visibility"
+        },
+        "expected_version": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Version"
+        },
+        "expected_track_revision": {
+          "minimum": 1,
+          "title": "Expected Track Revision",
+          "type": "integer"
+        },
+        "expected_calibration_revision": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Calibration Revision"
+        },
+        "expected_calibration_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Calibration Digest"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "action",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "member_id",
+        "source_annotation_id",
+        "camera_role",
+        "camera_item_id",
+        "bbox",
+        "visibility",
+        "expected_version",
+        "expected_track_revision",
+        "expected_calibration_revision",
+        "expected_calibration_digest"
+      ],
+      "title": "MutateCameraMember",
+      "type": "object"
+    },
+    "PurgeImportedAnnotations": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "purge_imported_annotations",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "task_id"],
+      "title": "PurgeImportedAnnotations",
+      "type": "object"
+    },
+    "ReadCameraGraph": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_camera_graph",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "scene_track_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scene Track Id"
+        },
+        "include_inactive": {
+          "title": "Include Inactive",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "task_id",
+        "project_id",
+        "scene_track_id",
+        "include_inactive"
+      ],
+      "title": "ReadCameraGraph",
+      "type": "object"
+    },
+    "ReadCameraLinks": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_camera_links",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "roles": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Roles",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "task_id", "roles"],
+      "title": "ReadCameraLinks",
+      "type": "object"
+    },
+    "ReadConversionPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_conversion_plan",
+          "title": "Operation",
+          "type": "string"
+        },
+        "token_hash": {
+          "title": "Token Hash",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "token_hash"],
+      "title": "ReadConversionPlan",
+      "type": "object"
+    },
+    "ReadConversionReplay": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_conversion_replay",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "title": "Idempotency Key",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "task_id", "actor_id", "idempotency_key"],
+      "title": "ReadConversionReplay",
+      "type": "object"
+    },
+    "ReadConversionSources": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_conversion_sources",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "annotation_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Annotation Ids",
+          "type": "array"
+        },
+        "lock": {
+          "title": "Lock",
+          "type": "boolean"
+        }
+      },
+      "required": ["schema", "operation", "task_id", "annotation_ids", "lock"],
+      "title": "ReadConversionSources",
+      "type": "object"
+    },
+    "ReadConversionVideoSegments": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_conversion_video_segments",
+          "title": "Operation",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "dataset_item_id"],
+      "title": "ReadConversionVideoSegments",
+      "type": "object"
+    },
+    "ReadImportCameraFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_import_camera_facts",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "track_id": {
+          "title": "Track Id",
+          "type": "string"
+        },
+        "sensor_role": {
+          "title": "Sensor Role",
+          "type": "string"
+        },
+        "overwrite": {
+          "title": "Overwrite",
+          "type": "boolean"
+        }
+      },
+      "required": ["schema", "operation", "task_id", "track_id", "sensor_role", "overwrite"],
+      "title": "ReadImportCameraFacts",
+      "type": "object"
+    },
+    "ReadMaskFormatImport": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_mask_format_import",
+          "title": "Operation",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        }
+      },
+      "required": ["schema", "operation", "id", "project_id"],
+      "title": "ReadMaskFormatImport",
+      "type": "object"
+    },
+    "RecordMaskFormatImportItem": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "record_mask_format_import_item",
+          "title": "Operation",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "async_job_id": {
+          "format": "uuid",
+          "title": "Async Job Id",
+          "type": "string"
+        },
+        "item_key": {
+          "title": "Item Key",
+          "type": "string"
+        },
+        "item_result": {
+          "discriminator": {
+            "mapping": {
+              "committed": "#/$defs/CommittedMaskImportItem",
+              "failed": "#/$defs/FailedMaskImportItem",
+              "skipped": "#/$defs/SkippedMaskImportItem"
+            },
+            "propertyName": "status"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/CommittedMaskImportItem"
+            },
+            {
+              "$ref": "#/$defs/SkippedMaskImportItem"
+            },
+            {
+              "$ref": "#/$defs/FailedMaskImportItem"
+            }
+          ],
+          "title": "Item Result"
+        }
+      },
+      "required": ["schema", "operation", "id", "async_job_id", "item_key", "item_result"],
+      "title": "RecordMaskFormatImportItem",
+      "type": "object"
+    },
+    "ReplaceImportedSceneTrack": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "replace_imported_scene_track",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "track_id": {
+          "title": "Track Id",
+          "type": "string"
+        },
+        "scene_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scene Name"
+        },
+        "class_name": {
+          "title": "Class Name",
+          "type": "string"
+        },
+        "intervals": {
+          "items": {
+            "$ref": "#/$defs/ImportedInterval"
+          },
+          "title": "Intervals",
+          "type": "array"
+        },
+        "attributes": {
+          "additionalProperties": true,
+          "title": "Attributes",
+          "type": "object"
+        },
+        "attributes_meta": {
+          "additionalProperties": true,
+          "title": "Attributes Meta",
+          "type": "object"
+        },
+        "presence_mode": {
+          "enum": ["inferred", "explicit"],
+          "title": "Presence Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "project_id",
+        "actor_id",
+        "track_id",
+        "scene_name",
+        "class_name",
+        "intervals",
+        "attributes",
+        "attributes_meta",
+        "presence_mode"
+      ],
+      "title": "ReplaceImportedSceneTrack",
+      "type": "object"
+    },
+    "ResolveTask": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "resolve_task",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "display_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Display Id"
+        },
+        "file_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "File Path"
+        }
+      },
+      "required": ["schema", "operation", "project_id", "display_id", "file_path"],
+      "title": "ResolveTask",
+      "type": "object"
+    },
+    "ResolveTaskByStem": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "resolve_task_by_stem",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "normalized_path": {
+          "title": "Normalized Path",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "project_id", "normalized_path"],
+      "title": "ResolveTaskByStem",
+      "type": "object"
+    },
+    "ResolveVideoSequence": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "resolve_video_sequence",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "project_id", "target"],
+      "title": "ResolveVideoSequence",
+      "type": "object"
+    },
+    "SkippedMaskImportItem": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "skipped",
+          "title": "Status",
+          "type": "string"
+        },
+        "skip_code": {
+          "title": "Skip Code",
+          "type": "string"
+        }
+      },
+      "required": ["status", "skip_code"],
+      "title": "SkippedMaskImportItem",
+      "type": "object"
+    },
+    "TaskMatchSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Dataset Item Id"
+        },
+        "display_id": {
+          "title": "Display Id",
+          "type": "string"
+        },
+        "file_name": {
+          "title": "File Name",
+          "type": "string"
+        },
+        "file_path": {
+          "title": "File Path",
+          "type": "string"
+        },
+        "file_type": {
+          "title": "File Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "project_id",
+        "dataset_item_id",
+        "display_id",
+        "file_name",
+        "file_path",
+        "file_type"
+      ],
+      "title": "TaskMatchSnapshot",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "aap-labeling-annotation-transfer/v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "request": {
+      "discriminator": {
+        "mapping": {
+          "apply_conversion": "#/$defs/ApplyConversion",
+          "cancel_pending_mask_format_import": "#/$defs/CancelPendingMaskFormatImport",
+          "create_conversion_plan": "#/$defs/CreateConversionPlan",
+          "create_imported_annotation": "#/$defs/CreateImportedAnnotation",
+          "create_mask_format_import": "#/$defs/CreateMaskFormatImport",
+          "expire_conversion_plans": "#/$defs/ExpireConversionPlans",
+          "finalize_conversion": "#/$defs/FinalizeConversion",
+          "finish_mask_format_import": "#/$defs/FinishMaskFormatImport",
+          "link_mask_format_import_job": "#/$defs/LinkMaskFormatImportJob",
+          "lock_camera_member_scope": "#/$defs/LockCameraMemberScope",
+          "lock_conversion_plan": "#/$defs/LockConversionPlan",
+          "lock_mask_format_import": "#/$defs/LockMaskFormatImport",
+          "lock_mask_format_import_receipt": "#/$defs/LockMaskFormatImportReceipt",
+          "mark_mask_format_import_running": "#/$defs/MarkMaskFormatImportRunning",
+          "mutate_camera_member": "#/$defs/MutateCameraMember",
+          "purge_imported_annotations": "#/$defs/PurgeImportedAnnotations",
+          "read_camera_graph": "#/$defs/ReadCameraGraph",
+          "read_camera_links": "#/$defs/ReadCameraLinks",
+          "read_conversion_plan": "#/$defs/ReadConversionPlan",
+          "read_conversion_replay": "#/$defs/ReadConversionReplay",
+          "read_conversion_sources": "#/$defs/ReadConversionSources",
+          "read_conversion_video_segments": "#/$defs/ReadConversionVideoSegments",
+          "read_import_camera_facts": "#/$defs/ReadImportCameraFacts",
+          "read_mask_format_import": "#/$defs/ReadMaskFormatImport",
+          "record_mask_format_import_item": "#/$defs/RecordMaskFormatImportItem",
+          "replace_imported_scene_track": "#/$defs/ReplaceImportedSceneTrack",
+          "resolve_task": "#/$defs/ResolveTask",
+          "resolve_task_by_stem": "#/$defs/ResolveTaskByStem",
+          "resolve_video_sequence": "#/$defs/ResolveVideoSequence"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ResolveTask"
+        },
+        {
+          "$ref": "#/$defs/ResolveTaskByStem"
+        },
+        {
+          "$ref": "#/$defs/ResolveVideoSequence"
+        },
+        {
+          "$ref": "#/$defs/ReadImportCameraFacts"
+        },
+        {
+          "$ref": "#/$defs/PurgeImportedAnnotations"
+        },
+        {
+          "$ref": "#/$defs/CreateImportedAnnotation"
+        },
+        {
+          "$ref": "#/$defs/ReplaceImportedSceneTrack"
+        },
+        {
+          "$ref": "#/$defs/CreateConversionPlan"
+        },
+        {
+          "$ref": "#/$defs/ReadConversionPlan"
+        },
+        {
+          "$ref": "#/$defs/ReadConversionSources"
+        },
+        {
+          "$ref": "#/$defs/ReadConversionVideoSegments"
+        },
+        {
+          "$ref": "#/$defs/LockConversionPlan"
+        },
+        {
+          "$ref": "#/$defs/ExpireConversionPlans"
+        },
+        {
+          "$ref": "#/$defs/ReadConversionReplay"
+        },
+        {
+          "$ref": "#/$defs/ApplyConversion"
+        },
+        {
+          "$ref": "#/$defs/FinalizeConversion"
+        },
+        {
+          "$ref": "#/$defs/ReadCameraLinks"
+        },
+        {
+          "$ref": "#/$defs/ReadCameraGraph"
+        },
+        {
+          "$ref": "#/$defs/MutateCameraMember"
+        },
+        {
+          "$ref": "#/$defs/LockCameraMemberScope"
+        },
+        {
+          "$ref": "#/$defs/CreateMaskFormatImport"
+        },
+        {
+          "$ref": "#/$defs/ReadMaskFormatImport"
+        },
+        {
+          "$ref": "#/$defs/LockMaskFormatImportReceipt"
+        },
+        {
+          "$ref": "#/$defs/LockMaskFormatImport"
+        },
+        {
+          "$ref": "#/$defs/LinkMaskFormatImportJob"
+        },
+        {
+          "$ref": "#/$defs/MarkMaskFormatImportRunning"
+        },
+        {
+          "$ref": "#/$defs/RecordMaskFormatImportItem"
+        },
+        {
+          "$ref": "#/$defs/FinishMaskFormatImport"
+        },
+        {
+          "$ref": "#/$defs/CancelPendingMaskFormatImport"
+        }
+      ],
+      "title": "Request"
+    },
+    "data": {
+      "$ref": "#/$defs/AnnotationTransferData"
+    }
+  },
+  "required": ["schema", "ok", "request", "data"],
+  "title": "_Reply",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-labeling-annotation-transfer/v1",
+  "x-postgresql-functions": ["aap_labeling_v1.annotation_transfer_command(jsonb)"]
+}

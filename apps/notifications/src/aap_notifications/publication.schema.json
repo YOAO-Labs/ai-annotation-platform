@@ -1,0 +1,242 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-notifications-immediate-publication/v1",
+  "title": "AAP Notifications immediate publication protocol",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ImmediatePublicationRequest"
+    },
+    {
+      "$ref": "#/$defs/ImmediatePublicationReply"
+    }
+  ],
+  "$defs": {
+    "PublicationAuthorization": {
+      "additionalProperties": false,
+      "description": "Accepted caller snapshot for the existing notification scope policy.",
+      "properties": {
+        "restricted": {
+          "title": "Restricted",
+          "type": "boolean"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "export_required": {
+          "title": "Export Required",
+          "type": "boolean"
+        },
+        "member": {
+          "title": "Member",
+          "type": "boolean"
+        },
+        "reviewer": {
+          "title": "Reviewer",
+          "type": "boolean"
+        },
+        "owner": {
+          "title": "Owner",
+          "type": "boolean"
+        },
+        "super_admin": {
+          "title": "Super Admin",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "restricted",
+        "project_id",
+        "export_required",
+        "member",
+        "reviewer",
+        "owner",
+        "super_admin"
+      ],
+      "title": "PublicationAuthorization",
+      "type": "object"
+    },
+    "NotificationEvent": {
+      "additionalProperties": false,
+      "description": "Persisted notification event sent through the existing user channel.",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "maxLength": 36,
+          "minLength": 36,
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "maxLength": 60,
+          "title": "Type",
+          "type": "string"
+        },
+        "target_type": {
+          "maxLength": 30,
+          "title": "Target Type",
+          "type": "string"
+        },
+        "target_id": {
+          "format": "uuid",
+          "maxLength": 36,
+          "minLength": 36,
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+          "title": "Target Id",
+          "type": "string"
+        },
+        "payload": {
+          "title": "Payload"
+        },
+        "created_at": {
+          "format": "date-time",
+          "pattern": "^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(\\.[0-9]+)?(Z|([+-])([01][0-9]|2[0-3]):([0-5][0-9]))$",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": ["id", "type", "target_type", "target_id", "payload", "created_at"],
+      "title": "NotificationEvent",
+      "type": "object"
+    },
+    "NotificationSyncEvent": {
+      "additionalProperties": true,
+      "description": "Open sync hint; clients may ignore unknown reasons and extensions.",
+      "properties": {
+        "type": {
+          "const": "notifications.sync",
+          "title": "Type",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        }
+      },
+      "required": ["type"],
+      "title": "NotificationSyncEvent",
+      "type": "object"
+    },
+    "ImmediatePublicationRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-notifications-immediate-publication/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "message": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NotificationEvent"
+            },
+            {
+              "$ref": "#/$defs/NotificationSyncEvent"
+            }
+          ]
+        },
+        "authorization": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PublicationAuthorization"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["schema", "user_id", "message", "authorization"],
+      "title": "ImmediatePublicationRequest",
+      "type": "object",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "authorization": {
+                "type": "null"
+              }
+            },
+            "required": ["authorization"]
+          },
+          "then": {
+            "properties": {
+              "message": {
+                "$ref": "#/$defs/NotificationSyncEvent"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "message": {
+                "$ref": "#/$defs/NotificationEvent"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "ImmediatePublicationReply": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-notifications-immediate-publication/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "published": {
+          "title": "Published",
+          "type": "boolean"
+        }
+      },
+      "required": ["schema", "published"],
+      "title": "ImmediatePublicationReply",
+      "type": "object"
+    }
+  },
+  "x-http": {
+    "method": "POST",
+    "path": "/v1/notifications/publish",
+    "authorization": "constant-time service bearer before body read",
+    "channel": "notify:<canonical user UUID>",
+    "redirects": false,
+    "retries": false
+  },
+  "x-policy": {
+    "sync": "Null authorization selects the notifications.sync control shape; open event type strings may also equal notifications.sync when authorization is present",
+    "restricted": "member or owner or super_admin",
+    "export": "reviewer or owner or super_admin",
+    "restricted_without_project": "denied",
+    "authorization": "trusted service caller snapshot, no owner DB reread",
+    "message": "existing event/sync object preserved; native JSON payload values",
+    "zero_subscribers": "Redis PUBLISH acceptance is success"
+  },
+  "x-security": {
+    "incoming_service_bearer": true,
+    "arbitrary_channel_input": false,
+    "request_database_or_session": false,
+    "errors": "sanitized; do not echo request payload or secrets"
+  }
+}

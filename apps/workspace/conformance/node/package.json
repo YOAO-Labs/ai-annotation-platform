@@ -1,0 +1,16 @@
+{
+  "name": "@aap/workspace-owner-transfer-conformance",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "pg": "8.16.3"
+  },
+  "scripts": {
+    "check": "node --check provider.mjs && node --check src/provider.mjs && node --check src/wire.mjs && node provider.mjs --self-check"
+  },
+  "packageManager": "pnpm@10.28.1+sha512.7d7dbbca9e99447b7c3bf7a73286afaaf6be99251eb9498baefa7d406892f67b879adb3a1d7e687fc4ccc1a388c7175fbaae567a26ab44d1067b54fcb0d6a316"
+}

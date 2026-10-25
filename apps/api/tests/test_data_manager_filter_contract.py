@@ -8,8 +8,8 @@ from datetime import datetime, timezone
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import select
 from sqlalchemy.dialects import postgresql
-from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.db.models.annotation import Annotation
@@ -27,8 +27,14 @@ from app.services.data_management.filter_tree import (
 from app.services.data_management.schema import build_data_manager_schema
 from app.services.data_management.task_filters import _MAX_IN_VALUES, compile_filter
 from app.services.data_management.views import (
+    _last_activity_at_expr,
     builtin_views,
     invalid_filter_fields,
+)
+from app.services.labeling_core_read_relations import (
+    alias_core_row,
+    annotation_row,
+    task_row,
 )
 
 
@@ -72,6 +78,33 @@ def _assert_422(callable_, *args, **kwargs) -> None:
     assert exc.value.status_code == 422
 
 
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("feedback.kind", "issue"),
+        ("feedback.status", "open"),
+        ("feedback.severity", "warning"),
+    ],
+)
+def test_feedback_filter_correlates_to_the_public_task_row(field, value):
+    statement = select(task_row.id).where(
+        compile_filter({"field": field, "op": "eq", "value": value})
+    )
+    sql = str(statement.compile(dialect=postgresql.dialect()))
+    assert "FROM aap_labeling_v1.annotation_feedback_facts" in sql
+    assert "annotation_feedback_facts.task_id = aap_labeling_v1.task_rows.id" in sql
+    assert "FROM aap_labeling_v1.annotation_feedback_facts, " not in sql
+    assert "public.annotation_feedbacks" not in sql
+
+
+def test_activity_feedback_read_correlates_to_the_public_task_row():
+    statement = select(task_row.id, _last_activity_at_expr())
+    sql = str(statement.compile(dialect=postgresql.dialect()))
+    assert "annotation_feedback_facts.task_id = aap_labeling_v1.task_rows.id" in sql
+    assert "FROM aap_labeling_v1.annotation_feedback_facts, " not in sql
+    assert "public.annotation_feedbacks" not in sql
+
+
 def test_root_rule_and_nested_groups_compile_for_task_and_entity_grains():
     project = _project()
     rule = {"field": "annotation.class_name", "op": "eq", "value": "car"}
@@ -89,14 +122,20 @@ def test_root_rule_and_nested_groups_compile_for_task_and_entity_grains():
 )
 @pytest.mark.parametrize("use_alias", [False, True])
 def test_issue_filter_correlates_to_the_current_annotation(field, use_alias):
-    entity = aliased(Annotation, name="candidate") if use_alias else Annotation
+    entity = (
+        alias_core_row(annotation_row, name="candidate")
+        if use_alias
+        else annotation_row
+    )
     condition = compile_entity_filter(
         {"field": field, "op": "gt", "value": 0}, entity, project=_project()
     )
-    sql = str(condition.compile(dialect=postgresql.dialect()))
-    table = "candidate" if use_alias else "annotations"
-    assert f"annotation_feedbacks.annotation_id = {table}.id" in sql
-    assert "annotation_feedbacks.task_id = tasks.id" not in sql
+    sql = str(select(entity.id).where(condition).compile(dialect=postgresql.dialect()))
+    table = "candidate" if use_alias else "aap_labeling_v1.annotation_rows"
+    assert f"annotation_feedback_facts.annotation_id = {table}.id" in sql
+    assert "FROM aap_labeling_v1.annotation_rows" in sql
+    assert "FROM aap_labeling_v1.annotation_feedback_facts" in sql
+    assert "annotation_feedback_facts.task_id = aap_labeling_v1.task_rows.id" not in sql
 
 
 @pytest.mark.parametrize("compiler", [compile_filter, compile_entity_filter])

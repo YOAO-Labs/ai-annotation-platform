@@ -143,7 +143,7 @@ async def _assert_consumer_is_restricted(test_engine, actor):
                         "AND has_function_privilege(current_user,p.oid,'EXECUTE')"
                     )
                 )
-                == 6
+                == 5
             )
     finally:
         await engine.dispose()

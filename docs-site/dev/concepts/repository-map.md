@@ -2,7 +2,7 @@
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-21
 ---
 
 # 仓库地图：模块归属与调用链
@@ -29,6 +29,7 @@ last_reviewed: 2026-10-19
 | 任务契约        | `apps/_shared/task_contract`                                                                | 纯 Python 统一视觉操作名（detect/segment/classify 等）与别名映射                                           |
 | 训练参数契约    | `apps/_shared/training_contract`                                                            | 纯 Python 原生框架字段快照、catalog 依赖校验、预算与回流契约                                               |
 | 项目只读契约    | `apps/_shared/workspace_contract`                                                           | 纯 Project 配置快照、类别与属性投影；不依赖提供方 ORM、API 或运行时                                        |
+| 项目成员命令    | `apps/workspace` (`aap-workspace`)                                                          | 成员、负责人转移与配置命令的便携 owner；限定本地验收已完成，普通读取与相邻写入仍待迁移                     |
 | 独立素材目录    | `apps/assets-catalog`                                                                       | 七项目录与关联读取操作；受限 SQL LOGIN、只读 S3 身份与独立镜像                                             |
 | 独立素材来源    | `apps/assets-source`                                                                        | 单文件上传/发布、来源删除、同步 ZIP/旧前缀扫描、六项连接管理操作与持久连接器导入；纯合同和独立 SQL/S3 身份 |
 | 审计请求契约    | `apps/_shared/audit_contract`                                                               | 冻结请求上下文字段，不依赖 API 或 ORM                                                                      |
@@ -40,7 +41,7 @@ last_reviewed: 2026-10-19
 ## 2. 授权真值（唯一来源）
 
 - 平台身份与项目能力解析：`app/services/project_access.py`
-  纯访问值、能力与标量角色规则位于 `app/services/workspace_contract.py`；解析和锁仍由本地 SQL 所有者持有。
+  纯访问值、能力与标量角色规则位于独立共享契约包 `aap_workspace_contract/access.py`；Workspace 与 API 直接导入该所有者，解析和锁仍由本地 SQL 所有者持有。
   `ProjectWritePolicyResolver` 为只需访问决策的管理围栏、预测导入和上传交付纯值；审核、生命周期和单题/整批送审命令使用 actor UUID，再从同事务锁定账号投影 `identity_contracts.IdentityActorFacts`，每个送审分块重新生成。
   - `resolve_project_access()` / `resolve_project_access_by_id()`：请求期真值，
     每次重读账号与项目，未知的平台/项目角色 fail closed。
@@ -65,29 +66,95 @@ last_reviewed: 2026-10-19
   不把历史作业或 Scope DTO 当授权。
 - 作业读取/取消/重试值接口：`app/application/async_job_contracts.py`；SQL 可见性实现为 `app/services/async_job_access.py::_can_access_job`，ORM 留在读取与命令适配器内；
   明细与取消重查当前项目、导出能力及审核任务范围，不把历史作业归属当作当前授权。
-- 账号与责任交接：`app/application/{user_lifecycle,legacy_user_lifecycle,project_membership,project_workspace}.py`
-  组合身份、workspace 与 labeling 所有者；账号写入在
-  `services/{user_lifecycle,identity_commands,account_groups}.py`，
-  成员行在 `services/project_membership.py`，任务/批次交接在 `BatchService`，
-  GDPR 审计历史脱敏在 `AuditService`。预览/CAS、传统删除与离职、SQL/Redis 时序不混同。
+- 用户生命周期与责任交接：public REST routes／DTO 仍在 `app/api/v1/users.py` 与
+  `app/schemas/user.py`。管理员 DELETE、暂停／恢复与 offboarding 各由独立 Identity command
+  owner 组合；offboarding 的 HTTP composition/caller port/data 是
+  `app/api/v1/offboarding_commands.py`、`app/services/identity_offboarding_commands.py` 和
+  `app/services/identity_offboarding_data.py`。Portable contract/manager/Postgres adapter 在
+  `apps/identity/src/aap_identity/{offboarding_contract,offboarding_manager,offboarding_postgres}.py`。
+  旧 API lifecycle coordinator 已移除；`services/user_lifecycle.py` 仅保留
+  `UserLifecycleService.lock_accounts`，现经 caller-bound Identity account lock adapter 获取只读事实并保留其显式 rollback 语义。Batch handoff/release helpers 已退役，Project owner
+  transfer helper 继续供其他 workflows 使用。各命令的权限、回执和事务边界独立维护；offboarding
+  已通过限定的本地资格，精确范围见 [ADR-0128](/dev/adr/0128-independent-identity-offboarding-commands)。
+- Identity 运维账号 provisioning：`services/identity_provisioning_data.py` 把
+  `AccountProvisioningData` 绑定到 caller `AsyncSession`；portable manager 只返回 UUID 或
+  bootstrap 的 `None`，不把 User ORM/password hash 交给 CLI。Native 负责 per-email
+  bootstrap defaults/fixed Audit 与 exact import-admin guard；outer bootstrap/import caller
+  保留 commit/rollback。邀请账号仍由 Identity Invitation owner 创建；运维 provisioning
+  不复用邀请写入路径。本切片已通过限定本地资格，见
+  [ADR-0132](/dev/adr/0132-identity-operational-provisioning-and-authority-reads)。
+- Identity authority facts 复用：`project_access` 的非锁定账号读取复用现有
+  `IdentityAccountLockData.read_actor_status`／`read_actor_facts`；事务写路径复用已有 SHARE、
+  UPDATE、KEY SHARE 函数，不新增 SQL 或传输协议。Project/member 刷新及 caller 原错误映射
+  保持不变；详见 [ADR-0132](/dev/adr/0132-identity-operational-provisioning-and-authority-reads)。
+- 同事务 Identity 账号锁：`apps/api/app/services/identity_account_lock_data.py` 调用
+  `apps/identity/src/aap_identity/account_lock_contract.py` 定义的 SHARE/UPDATE/KEY SHARE 三项
+  Native function；它使用 caller connection 并让锁持续到业务写入提交，只返回 id/name/email/role/is_active
+  五字段事实。没有 lock HTTP endpoint、独立 DSN 或 User 原表授权；账号、Project、membership 与资源
+  的顺序及各 caller 对 NOWAIT、SQLSTATE、busy 和 rollback 的映射仍由原 workflow 持有。跨帧写入每帧重取
+  facts，非锁定 Workspace 查询和 bootstrap/import User writer 仍待处理；详见 [ADR-0131](/dev/adr/0131-identity-transactional-account-locks)。
+- 批量 UserBrief enrichment：现有 `app/services/user_brief.py::resolve_briefs` 与
+  `resolve_briefs_with_project_role` 为已授权的任务／项目／结果补充六字段用户摘要；
+  调用者先检查自己的 rows，helper 不接收 actor，也不增加公共资料查询路由。Identity
+  portable owner 位于 `apps/identity/src/aap_identity/{briefs_contract,briefs_manager,briefs_postgres}.py`；
+  项目成员角色只通过 Workspace 的窄批量 capability 读取。该 owner 已通过 64 个 distinct
+  selected cases（59 DB/process、5 pure/static），零跳过；旧行为、caller-transaction 和
+  可选 private runtime 边界见
+  [ADR-0129](/dev/adr/0129-identity-batched-user-brief-reads)。
+- Projects 成员列表 `projects.list_members` 在 Workspace 完成授权并按
+  `assigned_at DESC` 选择 membership rows 后，调用全局 `resolve_briefs` 一次补齐用户显示字段。
+  Membership role 仍是项目职责，brief role 是平台角色；响应保持原 DTO，空列表不访问 Identity，
+  缺失 profile 继续省略。该消费者另有 21 个限定案例（18 DB/process、3 pure/static）与 SDK 44
+  项序列化检查通过，不计入前述 owner 的 64 例；验证边界见 ADR-0129。
+- Project owner display enrichment：`projects._serialize_project` 与
+  `_serialize_project_list` 只用全局 `resolve_briefs` 的 `name/avatar_ref` 填充可空 owner
+  显示字段；Workspace 的 `owner_id` 和 ProjectOut schema 不变。list/query 先按既有 ACL、
+  filters、order、count、pagination 选定页面，再对页面 distinct owner IDs 批量读取一次；
+  空页无 owner I/O，single serializer 收到 `{}` 时不重复查询。创建、详情、patch、改名和
+  转移对非空 owner ID 各读取一次；dataset-linked 项目路径仍保留 null 显示字段。59 个选定消费者案例
+  （53 DB/process、6 pure/static）通过，更新后的 API image/contract checks 也已通过；见 ADR-0129。
+- 分组目录与账号指派：`api/v1/group_commands.py` 收口 HTTP 请求与权限映射；
+  `services/identity_group_commands.py` 选择本地事务、函数 DSN 或 Identity runtime，
+  `services/identity_group_data.py` 只适配当前 SQL Session 上的本地 Group command data。
+  可提取的 Python owner 位于 `apps/identity/src/aap_identity/{group_contract,group_manager,group_postgres}.py`，
+  通过 Workspace 项目成员投影维护作用域并将 Group 状态、审计与冻结 receipt 同事务提交。
+  该 owner 只覆盖目录／指派；invite group resolution 由下列 Identity invitation owner 通过私有 helper 内部调用，不授予 GROUP LOGIN。用户目录、平台角色管理与其余账号生命周期仍未整体迁移。
+- 自助注销与到期处理：`api/v1/deactivation_commands.py` 用 `get_current_principal` 和
+  `get_deactivation_commands`／`execute_deactivation` 绑定两个用户命令；
+  `services/identity_deactivation_commands.py` 适配两个 versioned port，
+  `identity_deactivation_data.py` 保留本地 SQL caller transaction。可移植 user/due owner
+  位于 `apps/identity/src/aap_identity/{deactivation_contract,deactivation_manager,deactivation_postgres}.py`；
+  `workers/deactivation.py` 保留原 task 名及 04:00 UTC 调度，
+  通过 operation receipts 分页排空，不再直接扫描 User/Notification ORM。
+- 注销通知投递：Identity 命令通过 Notifications owner 原子创建两种固定 event 与 delivery outbox；
+  `apps/identity/src/aap_identity/notification_delivery_{contract,postgres}.py` 提供纯值领取端口，
+  `aap_identity_runtime.notification_worker` 是无 HTTP 的独立 publisher，API 默认 queue
+  的 `app.workers.notification_delivery.relay_identity_notifications` 每 10 秒运行并使用相同 executor 与 lease，
+  不保留第二条即时发送路径。
 - 在线状态扫描：`workers/presence.py` 解析阈值、计算 cutoff 并持有提交/计数/日志；
   `IdentityCommandService.mark_inactive_accounts_offline(cutoff)` 以单条批量更新写身份状态，
   保留 online 与缺失/严格早于 cutoff 的 `last_seen_at` 条件。
-- 邀请接受：`application/invitation_acceptance.py` 组合 `InvitationService`、`IdentityCommandService` 与 `project_membership.grant_invitation_membership`。邀请、账号、成员各由对应所有者写入；原 token/当前权限锁与重复 409 保持，HTTP 持有审计、最终提交和 JWT 签发。
-- 自有 API key 管理：`services/api_key_contracts.ApiKeyManagementPort` 以 owner UUID 和现有 schema 提供五个操作；`api_key_service.SqlApiKeyManagement` 绑定请求 Session，持有凭据行与原提交/refresh，并返回响应 DTO。`deps.get_current_user_id` 复用同一次认证，凭据解析及 `last_used_at` 提交保持原路径。
-- 类别重命名：`application/project_class_rename.py` 组合 workspace 绑定与
-  `AnnotationService.rename_class_name()`；管理权威及排他项目锁在修改前刷新。
-  工具选择只收窄配置，存量标注的项目级名称迁移及原版本语义保留。
-- 项目配置与模板行命令：`services/project_workspace.py` 是唯一服务所有者，
-  `application/project_workspace_configuration.py::WorkspaceConfigurationWorkflow`
-  复核当前 actor/项目/模板权威并组合跨域校验；HTTP 保留提交与响应。
-- 保存预标流水线写入由 `services/pipeline_template.py` 持有，包括
-  `validate_saved_pipeline`、创建/更新/删除、阶段深拷贝与默认项切换；
-  `application/project_pipeline.py::apply_saved_pipeline` 组合当前项目管理权威与 backend 启用校验。
-  canonical `PipelineStage` / `PreannotateRequest` 位于 `schemas/preannotate.py`。
-- 指引图片：`application/project_guide_assets.py` 组合当前授权与存储，
-  `services/project_workspace.py` 持有 key/登记规则，纯值限制在 `guide_asset_contracts.py`。
-  HEAD 后再次取权并刷新登记，DELETE 保持当前围栏；HTTP 持有提交。
+- 完整邀请生命周期：`api/v1/invitation_commands.py` 通过 Principal/value dependencies 装配 13 项 invitation contract；`services/identity_invitation_commands.py` 选择调用方事务或 Identity runtime，`identity_invitation_data.py` 只适配本地 SQL。可移植 owner 位于 `apps/identity/src/aap_identity/{invitation_contract,invitation_manager,invitation_postgres}.py`；User/Invitation/Group、Workspace membership、Audit 与 token proof 在一个调用方事务中组合，不水合 API ORM User/Project/ProjectMember/TaskBatch。
+- Invitation MailV2：`services/identity_mail_v2_delivery.py` 在邀请 owner commit 后等待有界私有 pending/sent/failed 状态；`app.workers.identity_mail_v2_delivery.relay_invitation_mail` 每 10 秒在 default queue 执行相同 MailV2 executor。独立 sender 用 `apps/identity/src/aap_identity/{mail_v2_contract,mail_v2_postgres}.py`、`aap_identity_runtime.mail_config_v2` 和 `mail_worker_v2.py`，只有 MAILV2/MAIL_SETTINGS/key/SMTP 能力，不持 AUTH/Invitation/User 表权限。
+- 自有 API key 管理：`services/api_key_contracts.ApiKeyManagementPort` 消费 `aap-identity-keys/v1` 值消息，`api_key_service.IdentityKeyManagement` 装配调用方事务、函数专用连接或独立运行时。`deps.get_current_principal` 提供准入和审计身份；管理路由不水合 User 或写 key ORM。Identity 命令所有者持有五项操作、当前凭据围栏、签发和冻结回执。
+- 核心会话：`services/identity_session_commands.SessionCommandsPort` 消费 `aap-identity-sessions/v1`，装配同一 Identity 提供方的登录、刷新、登出和全端登出；API 保留限流和 Turnstile 验证，不水合 User 或写会话状态。提供方拥有密码验证、失败计数、当前凭据围栏、冻结签发回执和同事务 Audit 能力；三函数 LOGIN 与登录计数 Redis ACL 分离于其他能力。其他公开注册签发、用户目录／平台管理和完整账号生命周期仍待迁移。
+- 类别重命名：Workspace Configuration 的 `rename_project_class` 组合便携绑定策略与
+  Labeling 窄类名能力；账户、项目和成员围栏先于策略，实际改名再升级排他项目锁。
+  两项写入同事务；同名请求在独立提供方持锁完成项目投影后返回，不写回执或自动重发。
+  工具选择只收窄配置，存量标注的项目级名称迁移及原版本语义保留，原 API 写入副本已移除。
+- 项目配置与模板命令：`apps/workspace` 的 portable manager 与 Native 能力持有配置编排、权限围栏及写入，
+  `services/workspace_configuration.py::execute_configuration` 装配调用方事务、专用连接或 HTTP；
+  原 API 配置 ORM 命令已移除，HTTP 保留提交与响应。
+- 命名预标编排由 `aap_inference.pipeline_manager.PipelineManager` 与 `pipeline_policy` 持有；
+  `services/inference_pipelines.py` 选择 API 借用事务、专用 DSN 或 HTTP owner，
+  `inference_pipelines_data.py` 只适配固定 Native step。六个 CRUD/apply 公开路由与 DTO 保持原合同，
+  结构校验仍使用 `aap_inference.pipeline.validate_saved_pipeline`；canonical `PipelineStage` /
+  `PreannotateRequest` 位于 `aap_inference.preannotate`。Private Native RPC、Workspace 权威桥接和
+  commit/status/projection 阶段见 [后端分层](./backend-layers#分层规则)。
+- 指引图片：`aap_workspace.configuration.ConfigurationManager` 持有四项无状态命令，
+  `aap_workspace.guide_asset_policy` 持有 key、类型、大小与登记规则，Native 持有完整行读取和权限围栏。
+  `services/workspace_configuration.py` 选择绑定；`services/workspace_guide_objects.py` 只装配 Assets 字节端口。
+  借用事务由 HTTP 提交后完整刷新；独立 owner 自行提交和刷新。旧 API 工作流及 Guide ORM 写入已移除。
 - 全局 ML registry 删除：`application/ml_registry_deletion.py::delete_registry` 编排删除准入、路由静默、pool 解析与 registry 删除；成功后由 `services/project_workspace.py::clear_primary_backend_binding_for_pool` 在同一事务清空该 pool 的项目主绑定。workspace 持有主绑定 setter/clearer，`MLBackendService.delete` 不写 Project；HTTP 保留审计/提交，超管权限经 `identity_commands.IdentityCommandService.lock_platform_super_admin()` 锁定并刷新。
 - 原标注评论：`application/annotation_comment.py::AnnotationCommentWorkflow` 组合
   `services/annotation_comment.py`、反馈镜像、审计和通知；当前权威与真实任务/标注/评论行
@@ -129,8 +196,7 @@ last_reviewed: 2026-10-19
 
 1. 路由进入：`apps/web/src/App.tsx` → 页面路由；项目内入口经
    `RequireProjectAccess` 调 `useProjectAccess` 取得能力集。
-2. 后端鉴权：`app/deps.py::get_current_user`（停用账号 401）→
-   路由内 `resolve_project_access()` 建立不可变 `ProjectAccess`。
+2. 后端鉴权：`app/deps.py::get_current_user` 先由现有 AUTH 完成 JWT/API-key 准入，再用其 actor UUID 和 admitted role 读取 Identity 当前主体上下文；缺失/停用/role drift 保持 401，owner 或响应错误保持 503。随后路由内的 `resolve_project_access()` 独立建立不可变 `ProjectAccess`，不会把 actor-context 当项目能力或写权限票据。该内部读取只替代准入后的 profile hydration，不替代项目/写入围栏，详见 [ADR-0130](/dev/adr/0130-identity-post-admission-actor-context)。
 3. 取任务：`app/services/scheduler.py` 派题；任务锁语义在 `app/services/task_lock.py`。
    视频共享上下文和采样在 `app/services/video_context.py`；帧服务负责构建，
    片段、协作、导出、追踪与质检单向依赖该下层所有者。
@@ -225,7 +291,7 @@ last_reviewed: 2026-10-19
    讨论流的 `services/task_discussion.py` 与 `services/discussion_notifications.py` 直接调用
    `project_access.resolve_project_access_by_id` 和任务可见性所有者，不依赖 HTTP 装配；
    对实际接收人复核当前项目/任务资格，移除成员后不再成为受限讨论通知目的地。
-8. 通知偏好 PUT 由 `app/services/notification_preferences_command.py` 原子合并频道；HTTP 入口仍绑定 JWT 用户、处理缺失/null/未知类型错误并提交，只有提交成功后才经 `NotificationService` 向 `notify:{user_id}` 发布同步事件。
+8. 通知偏好 GET／PUT 经 `aap_notifications.preferences` 调用 `aap_notifications_v1.preference_command(jsonb)`；`NotificationService.notify` 先用同一 owner 预检静音，再经 `aap_notifications_v1.append_notification(jsonb)` 在原事务写入并合并返回行到 Session identity map。单条／批量已读经 `aap_notifications.read_state` 调用 `aap_notifications_v1.read_state_command(jsonb)`；0318 起，单条删除与清空已读经 `aap_notifications.delete` 调用 `aap_notifications_v1.delete_command(jsonb)`。这些命令保留 API 的认证、flush、提交和提交后同步职责，并按原 SQLAlchemy evaluator 同步 identity map；HTTP 入口仍持有提交权，通知按 `defer_publish` 合同发布到 `notify:{user_id}`。
 
 ## 4. ML backend 调用链
 
@@ -325,21 +391,21 @@ last_reviewed: 2026-10-19
 
 `workers/celery_app.py` 与各模块装饰器是注册名/签名真值；下表覆盖全部 first-party task-bearing 模块，不含 Celery 内建任务。Python 注册表导入核对不是 broker、消费者或真实模型资格。
 
-| 家族               | task-bearing 模块（模块内 task 数）                                                                                                                                                                                  | tasks | beat 项 |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----: | ------: |
-| 推理 / 追踪 / 控制 | `tasks`(1)、`predictions_retry`(1)、`frame_preannotate`(4)、`video_tracker`(1)、`ml_health`(3)                                                                                                                       |    10 |       3 |
-| 素材派生           | `media`(8)、`image_pyramid`(2)                                                                                                                                                                                       |    10 |       2 |
-| 质检 / Mask 执行   | `video_track_quality`(1)、`mask_qc`(1)、`point_cloud_quality`(1)、`mask_repair`(2)、`mask_format_import`(1)                                                                                                          |     6 |       0 |
-| 导入 / 建题 / 导出 | `dataset_import`(1)、`create_tasks`(1)、`cross_frame_job`(1)、`export`(1)、`training_dataset`(1)                                                                                                                     |     5 |       0 |
-| 学习编排 / 保留    | `sample_evaluations`(2)、`active_learning`(2)、`learning_policy`(1)、`training_study`(1)、`training_preview_cleanup`(1)、`training_observability_cleanup`(1)                                                         |     8 |       6 |
-| 支撑持久化 / 维护  | `cleanup`(4)、`audit`(1)、`audit_partition`(2)、`task_events`(1)、`presence`(1)、`deactivation`(1)、`analytics`(1)、`async_jobs_cleanup`(1)、`export_cleanup`(1)、`prediction_partition`(1)、`feedback_reconcile`(1) |    15 |      13 |
-| 合计               | 34 个模块                                                                                                                                                                                                            |    54 |      24 |
+| 家族               | task-bearing 模块（模块内 task 数）                                                                                                                                                                                                                                              | tasks | beat 项 |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----: | ------: |
+| 推理 / 追踪 / 控制 | `tasks`(1)、`predictions_retry`(1)、`frame_preannotate`(4)、`video_tracker`(1)、`ml_health`(3)                                                                                                                                                                                   |    10 |       3 |
+| 素材派生           | `media`(8)、`image_pyramid`(2)                                                                                                                                                                                                                                                   |    10 |       2 |
+| 质检 / Mask 执行   | `video_track_quality`(1)、`mask_qc`(1)、`point_cloud_quality`(1)、`mask_repair`(2)、`mask_format_import`(1)                                                                                                                                                                      |     6 |       0 |
+| 导入 / 建题 / 导出 | `dataset_import`(1)、`create_tasks`(1)、`cross_frame_job`(1)、`export`(1)、`training_dataset`(1)                                                                                                                                                                                 |     5 |       0 |
+| 学习编排 / 保留    | `sample_evaluations`(2)、`active_learning`(2)、`learning_policy`(1)、`training_study`(1)、`training_preview_cleanup`(1)、`training_observability_cleanup`(1)                                                                                                                     |     8 |       6 |
+| 支撑持久化 / 维护  | `cleanup`(4)、`audit`(1)、`audit_partition`(2)、`task_events`(1)、`presence`(1)、`deactivation`(1)、`notification_delivery`(1)、`identity_mail_v2_delivery`(1)、`analytics`(1)、`async_jobs_cleanup`(1)、`export_cleanup`(1)、`prediction_partition`(1)、`feedback_reconcile`(1) |    17 |      15 |
+| 合计               | 36 个模块                                                                                                                                                                                                                                                                        |    56 |      26 |
 
 include 另外包含 `signals`、`heartbeat`，后者是 worker bootstep，不是 task/beat。任务、结果与 accepted content 保持 JSON，调度使用 UTC。静态 exact-name 路由如下；未覆盖项走 default，项目/设备选择的动态队列不等同于该表，队列声明也不证明消费者正在运行。
 
 | 队列            | exact-name 路由数 |
 | --------------- | ----------------: |
-| `default`       |                 9 |
+| `default`       |                11 |
 | `ml`            |                 3 |
 | `media`         |                16 |
 | `image-pyramid` |                 1 |
@@ -350,7 +416,7 @@ include 另外包含 `signals`、`heartbeat`，后者是 worker bootstep，不�
 | `audit`         |                 2 |
 | `maintenance`   |                 5 |
 | `gpu.control`   |                 1 |
-| 合计            |                50 |
+| 合计            |                52 |
 
 注册名不是函数名的简单推导：质检保留 `app.workers.point_cloud_quality.run` 和 `app.workers.video_track_quality.run`。训练数据构建保留 version/job/attempt 与明确执行身份，质检传 run ID、修复/导入传 batch ID；不能在不迁移生产者和在途消息的情况下改名、重排参数或把它们宣称为跨语言公共协议。
 
@@ -360,9 +426,9 @@ include 另外包含 `signals`、`heartbeat`，后者是 worker bootstep，不�
 
 | 入口 / 分类                       | 所有权与提交责任                                                                                                                                                                                                                                                                                                                               |
 | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bootstrap_admin`                 | bootstrap 应用组合 identity 创建与 audit；CLI 提交                                                                                                                                                                                                                                                                                             |
+| `bootstrap_admin`                 | `AccountProvisioningManager` 按 exact email 创建或跳过；Identity/Audit owners 原子写 User 与固定 Audit；CLI 保留提交和 boolean 返回                                                                                                                                                                                                            |
 | `import_images`                   | Dataset/Item 命令归 assets；对象上传先于最终 SQL 提交                                                                                                                                                                                                                                                                                          |
-| `import_nuscenes_scene`           | nuScenes 应用组合 assets、workspace、labeling；入口最终 SQL 提交                                                                                                                                                                                                                                                                               |
+| `import_nuscenes_scene`           | nuScenes 应用组合 provisioning UUID、assets、workspace、labeling；入口在同一 SQL 事务最终提交，失败时共同回滚                                                                                                                                                                                                                                  |
 | `reset_datasets`                  | 应用组合 labeling 源引用清除与 assets 行删除；入口提交                                                                                                                                                                                                                                                                                         |
 | `backfill_scenes`                 | 场景所有者命令，逐 dataset 提交/回滚                                                                                                                                                                                                                                                                                                           |
 | `backfill_frame_poses`            | pose upsert 归 assets，CLI 最终提交                                                                                                                                                                                                                                                                                                            |
@@ -395,7 +461,7 @@ include 另外包含 `signals`、`heartbeat`，后者是 worker bootstep，不�
 | 合同                                                              | canonical source                                                                                              |
 | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | HTTP 请求 / 响应                                                  | `apps/api/app/schemas/*.py` 及路由内导出 DTO；`scripts/export_openapi.py` 导出主快照，docs 同步副本不另立真值 |
-| 预标注请求 / stage                                                | `schemas/preannotate.py`，不是 projects 路由中的类型                                                          |
+| 预标注请求 / stage                                                | `aap_inference.preannotate`，不是 projects 路由中的类型                                                       |
 | 几何 / tool bindings / attributes / calibration                   | `schemas/_jsonb_types.py`                                                                                     |
 | 视频媒体元信息                                                    | `schemas/task.py::VideoMetadata`                                                                              |
 | 独立素材探测 wire                                                 | `apps/media-probe/src/aap_media_probe/protocol.py` 与独立应用导出；`apps/media-probe/openapi.json` 是生成快照 |

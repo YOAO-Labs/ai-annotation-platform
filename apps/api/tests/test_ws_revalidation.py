@@ -162,13 +162,9 @@ async def test_notification_parser_resolves_stored_row(monkeypatch):
 
     monkeypatch.setattr(ws, "_authenticate_socket_token", fake_auth)
 
-    class _FakeDb:
-        async def get(self, _model, _notification_id):
-            return object()  # row is committed and visible
-
     class _Ctx:
         async def __aenter__(self):
-            return _FakeDb()
+            return object()
 
         async def __aexit__(self, *_args):
             return False
@@ -177,10 +173,15 @@ async def test_notification_parser_resolves_stored_row(monkeypatch):
 
     seen: dict = {}
 
+    async def fake_notification(self, candidate_id):
+        seen["notification_id"] = candidate_id
+        return object()  # row is committed and visible
+
     async def fake_deliverable(self, notification_id, user_id):
         seen["pair"] = (notification_id, user_id)
         return False
 
+    monkeypatch.setattr(NotificationService, "notification_by_id", fake_notification)
     monkeypatch.setattr(
         NotificationService, "notification_deliverable", fake_deliverable
     )
@@ -209,10 +210,6 @@ async def test_notification_gate_retries_until_row_visible(monkeypatch):
         def __init__(self) -> None:
             self.looks = 0
 
-        async def get(self, _model, _notification_id):
-            self.looks += 1
-            return object() if self.looks >= 2 else None  # visible on 2nd look
-
     fake_db = _FakeDb()
 
     class _Ctx:
@@ -227,6 +224,11 @@ async def test_notification_gate_retries_until_row_visible(monkeypatch):
     async def fake_deliverable(self, _notification_id, _user_id):
         return True
 
+    async def fake_notification(self, _notification_id):
+        fake_db.looks += 1
+        return object() if fake_db.looks >= 2 else None
+
+    monkeypatch.setattr(NotificationService, "notification_by_id", fake_notification)
     monkeypatch.setattr(
         NotificationService, "notification_deliverable", fake_deliverable
     )
@@ -247,23 +249,32 @@ async def test_notification_gate_fails_closed_after_retry_window(monkeypatch):
     monkeypatch.setattr(ws, "_NOTIFICATION_GATE_RETRY_SECONDS", 0)
 
     class _FakeDb:
-        async def get(self, _model, _notification_id):
-            return None  # row never becomes visible
+        def __init__(self) -> None:
+            self.looks = 0
+
+    fake_db = _FakeDb()
 
     class _Ctx:
         async def __aenter__(self):
-            return _FakeDb()
+            return fake_db
 
         async def __aexit__(self, *_args):
             return False
 
     monkeypatch.setattr("app.db.base.async_session", lambda: _Ctx())
+
+    async def fake_notification(self, _notification_id):
+        fake_db.looks += 1
+        return None  # row never becomes visible
+
+    monkeypatch.setattr(NotificationService, "notification_by_id", fake_notification)
     assert (
         await ws._notification_message_allowed(
             "t", json.dumps({"id": str(uuid.uuid4())})
         )
         is False
     )
+    assert fake_db.looks == 4
 
 
 async def test_load_active_user_returns_facts_after_session_closes(

@@ -31,7 +31,7 @@ from app.services.gpu_arbitration.fences import (
     _activate_gpu_backend_membership_in_transaction,
 )
 from app.services.ml_backend import MLBackendService
-from app.services.ml_client import GPU_HEALTH_CHALLENGE_ECHO_MARKER
+from aap_inference.backend_transport import GPU_HEALTH_CHALLENGE_ECHO_MARKER
 
 
 async def _make_backend(db: AsyncSession, url: str = "http://example/") -> MLBackend:
@@ -554,7 +554,9 @@ async def test_gpu_check_health_rejects_zero_length_proof_window(
     original_scalar = db_session.scalar
 
     async def scalar_with_fixed_clock(statement, *args, **kwargs):
-        if "clock_timestamp" in str(statement):
+        if "clock_timestamp" in str(statement) or "observation_clock()" in str(
+            statement
+        ):
             return fixed_clock
         return await original_scalar(statement, *args, **kwargs)
 
@@ -899,9 +901,14 @@ async def test_gpu_check_health_holds_membership_lock_through_probe_commit(
 
             async def execute_with_commit_pause(statement, *args, **kwargs):
                 result = await original_execute(statement, *args, **kwargs)
-                if getattr(
-                    statement, "_for_update_arg", None
-                ) is not None and "gpu_backend_memberships" in str(statement):
+                source = str(statement)
+                if (
+                    getattr(statement, "_for_update_arg", None) is not None
+                    and "gpu_backend_memberships" in source
+                ) or (
+                    "aap_inference_health_data_v1.membership_row(" in source
+                    and ",true)" in source
+                ):
                     final_membership_locked.set()
                     await allow_health_commit.wait()
                 return result

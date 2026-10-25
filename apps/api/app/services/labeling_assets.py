@@ -6,11 +6,9 @@ from typing import cast as typing_cast
 
 from sqlalchemy import String, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
-from app.db.models.annotation import Annotation
-from app.db.models.dataset import DatasetItem
 from app.db.models.project import Project
-from app.db.models.task import Task
 
 from app.services.dataset_task_facts import (
     AnnotationSourceFact,
@@ -22,6 +20,11 @@ from app.services.dataset_task_facts import (
     freeze_source_json,
 )
 from app.services.labeling_scene import read_spatial_item_facts
+from app.services.workspace_read_relations import project_facts
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    task_row,
+)
 
 
 class SqlAlchemyProjectTaskSourceReader(ProjectTaskSourceReader):
@@ -44,51 +47,48 @@ class SqlAlchemyProjectTaskSourceReader(ProjectTaskSourceReader):
             select(
                 func.jsonb_build_object(
                     "count",
-                    func.count(Annotation.id),
+                    func.count(annotation_row.id),
                     "selected",
                     func.jsonb_agg(
                         func.jsonb_build_object(
                             "id",
-                            cast(Annotation.id, String),
+                            cast(annotation_row.id, String),
                             "version",
-                            Annotation.version,
+                            annotation_row.version,
                             "class_name",
-                            Annotation.class_name,
+                            annotation_row.class_name,
                             "tool_unit_id",
-                            Annotation.tool_unit_id,
+                            annotation_row.tool_unit_id,
                             "geometry",
-                            Annotation.geometry,
+                            annotation_row.geometry,
                         )
-                    ).filter(Annotation.tool_unit_id == tool_unit_id),
+                    ).filter(annotation_row.tool_unit_id == tool_unit_id),
                 )
             )
             .where(
-                Annotation.task_id == Task.id,
-                Annotation.is_active.is_(True),
-                Annotation.was_cancelled.is_(False),
+                annotation_row.task_id == task_row.id,
+                annotation_row.is_active.is_(True),
+                annotation_row.was_cancelled.is_(False),
             )
-            .correlate(Task)
+            .correlate(task_row)
             .scalar_subquery()
         )
+        project = aliased(Project, project_facts(), adapt_on_names=True)
         stmt = (
             select(
-                Task,
-                DatasetItem.id,
-                DatasetItem.width,
-                DatasetItem.height,
-                Project.tool_bindings,
+                task_row,
+                project.tool_bindings,
                 annotation_json,
             )
-            .join(Project, Project.id == Task.project_id)
-            .outerjoin(DatasetItem, DatasetItem.id == Task.dataset_item_id)
-            .where(Task.project_id == project_id)
-            .order_by(Task.id)
+            .join(project, project.id == task_row.project_id)
+            .where(task_row.project_id == project_id)
+            .order_by(task_row.id)
             .limit(limit)
         )
         if batch_id:
-            stmt = stmt.where(Task.batch_id == batch_id)
+            stmt = stmt.where(task_row.batch_id == batch_id)
         if task_ids:
-            stmt = stmt.where(Task.id.in_(task_ids))
+            stmt = stmt.where(task_row.id.in_(task_ids))
 
         rows = await db.stream(
             stmt.execution_options(populate_existing=True, yield_per=128)
@@ -98,21 +98,27 @@ class SqlAlchemyProjectTaskSourceReader(ProjectTaskSourceReader):
         first_row = True
         try:
             async for row in rows:
-                task, item_id, width, height, raw_bindings, annotation_summary = row
+                task, raw_bindings, annotation_summary = row
                 if first_row:
                     tool_bindings = typing_cast(
                         JsonObject, freeze_source_json(raw_bindings)
                     )
                     first_row = False
-                source_rows.append((task, item_id, width, height, annotation_summary))
+                source_rows.append((task, annotation_summary))
         finally:
             await rows.close()
 
         item_facts, _ = await read_spatial_item_facts(
-            db, [item_id for _, item_id, *_ in source_rows if item_id is not None]
+            db,
+            [
+                task.dataset_item_id
+                for task, _ in source_rows
+                if task.dataset_item_id is not None
+            ],
         )
         task_facts = []
-        for task, item_id, width, height, annotation_summary in source_rows:
+        for task, annotation_summary in source_rows:
+            item_id = task.dataset_item_id
             item = item_facts.get(item_id) if item_id is not None else None
             raw_annotations = annotation_summary["selected"] or ()
             annotation_count = annotation_summary["count"]
@@ -146,8 +152,8 @@ class SqlAlchemyProjectTaskSourceReader(ProjectTaskSourceReader):
                     dataset_item_id=task.dataset_item_id,
                     file_path=task.file_path,
                     scene_id=item.scene_id if item else None,
-                    width=width,
-                    height=height,
+                    width=item.width if item else None,
+                    height=item.height if item else None,
                     annotations=annotations,
                 )
             )

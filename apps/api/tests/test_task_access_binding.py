@@ -15,7 +15,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.services import task_access
-from app.services.workspace_contract import ProjectAccess
+from aap_workspace_contract.access import ProjectAccess
 
 
 def _access(*, user_id: uuid.UUID, project_id: uuid.UUID) -> ProjectAccess:

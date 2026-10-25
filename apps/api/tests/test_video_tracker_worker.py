@@ -10,17 +10,27 @@ from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
-from app.services.ml_client import PredictionResult
+from aap_inference.backend_transport import PredictionResult
 from app.services.video_tracking.adapters import TrackerContext, TrackerFrameResult
 from app.services.video_tracking.runner import accept_tracker_job, run_tracker_job
 from tests.conftest import create_registry_with_pool
 from tests.factory import build_tool_bindings
-from tests.tracker_input_test_ports import seed_staged_tracker_input
+from tests.tracker_input_test_ports import (
+    seed_staged_tracker_input,
+    yield_tracker_fake_results,
+)
 
 
 @pytest.fixture(autouse=True)
 def _tracker_input_owner_test_port(tracker_input_owner_fakes):
     return tracker_input_owner_fakes
+
+
+@pytest.fixture(autouse=True)
+def _staged_routing_owner_test_port(savepoint_routing_owner):
+    # This module replaces backend inference and stages all inputs in a savepoint.
+    # Real owner/HTTP/rollback acceptance uses committed worlds in separate tests.
+    return savepoint_routing_owner
 
 
 async def _make_video_task(db_session, owner_id):
@@ -191,18 +201,24 @@ async def test_stage_fence_retries_held_results_and_preserves_cancellation(
 
         async def propagate(self, context):
             self.calls += 1
-            yield TrackerFrameResult(
-                frame_index=context.from_frame,
-                geometry={
-                    "type": "bbox",
-                    "x": 2.0,
-                    "y": 2.0,
-                    "w": 10.0,
-                    "h": 12.0,
-                },
-                confidence=0.9,
-                outside=False,
-            )
+            async for result in yield_tracker_fake_results(
+                context,
+                [
+                    TrackerFrameResult(
+                        frame_index=context.from_frame,
+                        geometry={
+                            "type": "bbox",
+                            "x": 2.0,
+                            "y": 2.0,
+                            "w": 10.0,
+                            "h": 12.0,
+                        },
+                        confidence=0.9,
+                        outside=False,
+                    )
+                ],
+            ):
+                yield result
 
     adapter = CountingAdapter()
     monkeypatch.setattr(runner, "get_tracker_adapter", lambda _capability: adapter)
@@ -950,7 +966,7 @@ class _SeedRecordingAdapter:
     Frames in ``outside_frames`` are emitted as outside (no geometry update).
     """
 
-    model_key = "seed_recording"
+    model_key = "mock_bbox"
 
     def __init__(self, outside_frames: set[int] | None = None) -> None:
         self.seeds: list[dict] = []
@@ -961,27 +977,34 @@ class _SeedRecordingAdapter:
         frames = range(ctx.from_frame, ctx.to_frame + 1)
         if ctx.direction == "backward":
             frames = range(ctx.to_frame, ctx.from_frame - 1, -1)
+        results = []
         for frame_index in frames:
             if frame_index in self.outside_frames:
-                yield TrackerFrameResult(
-                    frame_index=frame_index,
-                    geometry={},
-                    confidence=0.0,
-                    outside=True,
+                results.append(
+                    TrackerFrameResult(
+                        frame_index=frame_index,
+                        geometry={},
+                        confidence=0.0,
+                        outside=True,
+                    )
                 )
                 continue
-            yield TrackerFrameResult(
-                frame_index=frame_index,
-                geometry={
-                    "type": "bbox",
-                    "x": float(frame_index),
-                    "y": 0.0,
-                    "w": 10.0,
-                    "h": 10.0,
-                },
-                confidence=1.0,
-                outside=False,
+            results.append(
+                TrackerFrameResult(
+                    frame_index=frame_index,
+                    geometry={
+                        "type": "bbox",
+                        "x": float(frame_index),
+                        "y": 0.0,
+                        "w": 10.0,
+                        "h": 10.0,
+                    },
+                    confidence=1.0,
+                    outside=False,
+                )
             )
+        async for result in yield_tracker_fake_results(ctx, results):
+            yield result
 
 
 async def _run_seed_test(db_session, super_admin, monkeypatch, *, direction, outside):
@@ -1003,7 +1026,7 @@ async def _run_seed_test(db_session, super_admin, monkeypatch, *, direction, out
         annotation_id=annotation.id,
         created_by=user.id,
         status=VideoTrackerJobStatus.QUEUED.value,
-        model_key="seed_recording",
+        model_key="mock_bbox",
         direction=direction,
         from_frame=0,
         to_frame=5,
@@ -1121,6 +1144,7 @@ async def _run_worker_with_final_status(
     status,
     *,
     gpu_arbiter_error=None,
+    defer_cleanup=False,
 ):
     """seed 专表 job + stub run_tracker_job 返回指定终态，跑 worker 包装层，
     返回它创建/同步的 async_job。验证 cancelled/failed 不被误标 completed。"""
@@ -1186,6 +1210,10 @@ async def _run_worker_with_final_status(
             if gpu_arbiter_error is not None:
                 _kw["failure_recorder"](gpu_arbiter_error)
         await db.commit()
+        if defer_cleanup:
+            from app.services.video_tracking.execution import TrackerExecutionDeferred
+
+            raise TrackerExecutionDeferred("scope_retirement_pending")
         return row
 
     monkeypatch.setattr(worker_mod, "run_tracker_job", _stub_run)
@@ -1213,7 +1241,14 @@ async def _run_worker_with_final_status(
     monkeypatch.setattr(worker_mod, "create_async_engine", lambda *a, **k: _Engine())
     monkeypatch.setattr(worker_mod, "async_sessionmaker", _Factory)
 
-    await worker_mod._run_video_tracker_job(str(job.id), "celery-vt")
+    job_id = job.id
+    if defer_cleanup:
+        from app.services.video_tracking.execution import TrackerExecutionDeferred
+
+        with pytest.raises(TrackerExecutionDeferred, match="scope_retirement_pending"):
+            await worker_mod._run_video_tracker_job(str(job_id), "celery-vt")
+    else:
+        await worker_mod._run_video_tracker_job(str(job_id), "celery-vt")
     assert len(built_from) == 1
 
     aj = (
@@ -1221,7 +1256,7 @@ async def _run_worker_with_final_status(
             await db_session.execute(
                 select(AsyncJob).where(
                     AsyncJob.kind == "video_tracker",
-                    AsyncJob.payload["video_tracker_job_id"].astext == str(job.id),
+                    AsyncJob.payload["video_tracker_job_id"].astext == str(job_id),
                 )
             )
         )
@@ -1236,6 +1271,15 @@ async def test_worker_syncs_async_job_cancelled(db_session, super_admin, monkeyp
         db_session, super_admin, monkeypatch, VideoTrackerJobStatus.CANCELLED.value
     )
     assert aj.status == "cancelled"  # 不再被误标 completed
+
+
+async def test_worker_projects_success_while_physical_cleanup_is_retried(
+    db_session, super_admin, monkeypatch
+):
+    summary = await _run_worker_with_final_status(
+        db_session, super_admin, monkeypatch, "pending_review", defer_cleanup=True
+    )
+    assert summary.status == "completed"
 
 
 async def test_worker_syncs_async_job_failed(db_session, super_admin, monkeypatch):
@@ -1301,6 +1345,10 @@ async def test_materialize_tracker_mask_result_stores_rle_and_adds_aabb(monkeypa
         events.append("running_root")
 
     expected_job_id, expected_task_id = job_id, task_id
+    monkeypatch.setattr(
+        "app.services.video_tracking.runner.read_mask_write_epochs",
+        AsyncMock(return_value={reference["object_key"]: 0}),
+    )
     monkeypatch.setattr(
         "app.services.video_tracking.runner.retain_tracker_output_mask", retain_root
     )
@@ -1372,6 +1420,11 @@ async def test_materialize_tracker_mask_keeps_raw_result_during_fence(
     db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
     running = AsyncMock(return_value=not cancelled)
     monkeypatch.setattr(runner, "store_generated_mask_content", store)
+    monkeypatch.setattr(
+        runner,
+        "read_mask_write_epochs",
+        AsyncMock(return_value={reference["object_key"]: 0}),
+    )
     monkeypatch.setattr(
         runner, "retain_tracker_output_mask", AsyncMock(return_value=None)
     )
@@ -1492,29 +1545,6 @@ def test_apply_tracker_results_preserves_mask_type_when_all_results_are_outside(
     assert annotation.geometry["outside"] == [
         {"from": 1, "to": 1, "source": "prediction"}
     ]
-
-
-def test_stage_tracker_results_rejects_oversized_payload_atomically(monkeypatch):
-    from app.services.video_tracking import runner as runner
-
-    job = _job()
-    job.staged_result = None
-    monkeypatch.setattr(runner, "MAX_TRACKER_STAGED_BYTES", 32)
-    with pytest.raises(ValueError, match="tracker_candidate_too_large"):
-        runner._stage_tracker_results(
-            job,
-            [
-                TrackerFrameResult(
-                    frame_index=0,
-                    geometry={"type": "bbox", "x": 0, "y": 0, "w": 1, "h": 1},
-                )
-            ],
-            1,
-            "bbox",
-            tracker_input_evidence={},
-            source_instance_map={},
-        )
-    assert job.staged_result is None
 
 
 async def test_accept_mask_candidate_validates_source_dimensions_before_commit(
@@ -1767,26 +1797,24 @@ async def test_tracker_enforce_mode_acquires_and_finishes_route_lease(
     await db_session.refresh(job)
     # enforce: job completes; the route lease was acquired + finished (no leak).
     assert job.status == VideoTrackerJobStatus.PENDING_REVIEW.value
-    # verify the lease was released: query the Redis ledger for residual inflight.
-    from app.services.ml_routing.ledger import _member_leases_key
-    from app.services.ml_routing.router import make_ledger_from_settings
+    from sqlalchemy import text
 
-    ledger = make_ledger_from_settings()
-    try:
-        # the tracker lease should be gone (finished); ZCARD of the member leases == 0.
-        key = _member_leases_key(str(pool.id), str(backend.id))
-        inflight = await ledger._redis.zcard(key)
-        assert inflight == 0, (
-            f"route lease leaked: {inflight} inflight after job completion"
+    rows = (
+        await db_session.execute(
+            text(
+                "SELECT state, closed FROM aap_inference_routing_v1.scopes "
+                "WHERE owner=:owner"
+            ),
+            {"owner": f"tracker:{job.id}"},
         )
-    finally:
-        await ledger.aclose()
+    ).all()
+    assert rows == [("finished", True)]
 
 
 async def _make_multi_member_tracker_job(db_session, user_id):
     from app.db.models.ml_backend_pool import MLBackendPoolMember
     from app.db.models.ml_backend_registry import MLBackendRegistry
-    from app.services.ml_routing.capability import (
+    from aap_inference.pool_capability import (
         canonicalize_capability,
         capability_fingerprint,
     )
@@ -1795,7 +1823,14 @@ async def _make_multi_member_tracker_job(db_session, user_id):
     project = await db_session.get(Project, task.project_id)
     capabilities = {
         "supported_trackers": ["sam2_video"],
-        "models": [{"id": "sam2", "task": "video_segment", "modalities": ["video"]}],
+        "models": [
+            {
+                "id": "sam2",
+                "task": "video_segment",
+                "modalities": ["video"],
+                "supported_trackers": ["sam2_video"],
+            }
+        ],
     }
     legacy, pool = await create_registry_with_pool(
         db_session,
@@ -1887,6 +1922,7 @@ async def test_tracker_enforce_dispatches_to_router_selected_instance(
     job, legacy, selected, pool = await _make_multi_member_tracker_job(
         db_session, user.id
     )
+    legacy_id, selected_id = legacy.id, selected.id
     lease = RouteLease(
         lease_id="tracker-selected-lease",
         pool_id=pool.id,
@@ -1949,11 +1985,37 @@ async def test_tracker_enforce_dispatches_to_router_selected_instance(
 
     await run_tracker_job(db_session, job.id, publisher=_noop_pub)
     await db_session.refresh(job)
-    assert legacy.id != selected.id
-    assert used_backend_ids == [str(selected.id)]
+    assert legacy_id != selected_id
+    assert job.status == VideoTrackerJobStatus.PENDING_REVIEW.value, job.error_message
+    assert used_backend_ids == [str(selected_id)]
     assert job.status == VideoTrackerJobStatus.PENDING_REVIEW.value
-    assert finished == [(selected.id, RouteOutcome.SUCCESS)]
+    assert finished == [(selected_id, RouteOutcome.SUCCESS)]
     assert cancelled == []
+
+
+@pytest.mark.asyncio
+async def test_tracker_runtime_identity_outage_defers_without_failing_the_job(
+    db_session, super_admin, monkeypatch
+):
+    from unittest.mock import AsyncMock
+    from aap_inference_contract.routing import RoutingUnavailable
+    from app.services.ml_routing.authority import RoutingAuthority
+    from app.services.ml_client import MLBackendClient
+    from app.services.video_tracking.execution import TrackerExecutionDeferred
+
+    user, _ = super_admin
+    job, _, _, _ = await _make_multi_member_tracker_job(db_session, user.id)
+    job_id = job.id
+    snapshot = AsyncMock(side_effect=RoutingUnavailable())
+    predict = AsyncMock()
+    monkeypatch.setattr(RoutingAuthority, "runtime_snapshot", snapshot)
+    monkeypatch.setattr(MLBackendClient, "predict_interactive", predict)
+    with pytest.raises(TrackerExecutionDeferred, match="routing_unavailable"):
+        await run_tracker_job(db_session, job_id, publisher=_noop_pub)
+    await db_session.refresh(job)
+    assert job.status == "running" and job.error_message is None
+    snapshot.assert_awaited_once()
+    predict.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -2019,3 +2081,50 @@ def test_context_spans_group_same_direction_windows() -> None:
         2: (8, 11),
         3: (0, 3),
     }
+
+
+async def test_mask_write_cancellation_retains_completed_frames_in_current_window(
+    db_session, super_admin, monkeypatch
+):
+    from app.services.video_tracking import runner
+
+    user, _ = super_admin
+    task, item = await _make_video_task(db_session, user.id)
+    job = VideoTrackerJob(
+        task_id=task.id,
+        dataset_item_id=item.id,
+        created_by=user.id,
+        target_class_name="car",
+        target_tool_unit_id="bbox",
+        status="queued",
+        model_key="mock_bbox",
+        direction="forward",
+        from_frame=0,
+        to_frame=1,
+        prompt={},
+        event_channel="video-tracker-job:cancel-mask-write",
+    )
+    db_session.add(job)
+    await db_session.commit()
+    job_id = job.id
+    original = runner._materialize_tracker_mask_result
+
+    async def cancel_during_second_write(result, **kwargs):
+        if result.frame_index == 1:
+            current = await db_session.get(VideoTrackerJob, job_id)
+            current.status = "cancelled"
+            current.cancel_requested_at = datetime.now(timezone.utc)
+            await db_session.flush()
+            raise runner.TrackerMaskWriteCancelled()
+        return await original(result, **kwargs)
+
+    monkeypatch.setattr(
+        runner, "_materialize_tracker_mask_result", cancel_during_second_write
+    )
+
+    async def silent(*_args):
+        pass
+
+    result = await run_tracker_job(db_session, job_id, publisher=silent)
+    assert result.status == "cancelled"
+    assert [frame["frame_index"] for frame in result.staged_result["results"]] == [0]

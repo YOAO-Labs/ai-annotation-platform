@@ -51,6 +51,8 @@ ws://<api-host>/ws/batches/project/{project_id}?token=<encoded-token>
 
 除单项目预标进度频道外，长生命周期频道每 30 秒发送 `{"type":"ping"}`，客户端无需回复。预标进度频道以 batch 进度消息为主。发布消息没有交付保证，断线后应从对应 REST API 重新读取状态：
 
+通知事件的 `payload` 是原样 JSON 值，兼容对象、数组、字符串、数字、布尔值和 `null`；`GET /api/v1/notifications` 与 Python SDK 不会把旧数据规范化为对象。通知写入时省略 `payload` 仍使用空对象默认值。
+
 - 通知：`GET /api/v1/notifications`。
 - 批量预标：对应 job / prediction API。
 - 视频 tracker：`GET /api/v1/tasks/{task_id}/video/tracker-jobs/reviewable`，再读取每条 job 的 `/preview`；候选接受前不在 annotation 中。

@@ -12,10 +12,12 @@ import uuid
 from dataclasses import dataclass
 
 from app.db.models.task import Task
-from app.services.video_tracks import (
-    frame_is_outside,
-    normalize_outside_ranges,
-    sorted_keyframes,
+from aap_labeling.video_bbox_editing_policy import (
+    clean_bbox_geometry as _clean_bbox_geometry,  # noqa: F401
+    clip_outside_ranges as _clip_outside_ranges,  # noqa: F401
+    composition_keyframe as _composition_keyframe,  # noqa: F401
+    new_track_id as _new_track_id,  # noqa: F401
+    track_visible_keyframes as _track_visible_keyframes,  # noqa: F401
 )
 
 
@@ -40,61 +42,3 @@ class _PropagateContext:
     pose_src: object | None = None
     pose_dst: object | None = None
     _box3d_resolved: bool = False
-
-
-def _new_track_id() -> str:
-    # v0.21.2 · 全局唯一 track_id 工厂 (跨帧对象一等标识)。检测式追踪 ingestion
-    # (_remap_track_ids)、交互式传播、3D 存量回填共用本工厂, 统一 `trk_<hex>` 形态。
-    return f"trk_{uuid.uuid4().hex}"
-
-
-def _clean_bbox_geometry(geometry: dict) -> dict:
-    return {
-        "x": float(geometry.get("x", 0)),
-        "y": float(geometry.get("y", 0)),
-        "w": float(geometry.get("w", 0)),
-        "h": float(geometry.get("h", 0)),
-    }
-
-
-def _composition_keyframe(
-    frame_index: int, bbox: dict, *, source: str = "manual"
-) -> dict:
-    return {
-        "frame_index": int(frame_index),
-        "bbox": _clean_bbox_geometry(bbox),
-        "source": "prediction" if source == "prediction" else "manual",
-        "occluded": False,
-    }
-
-
-def _track_visible_keyframes(geometry: dict) -> list[dict]:
-    return [
-        kf
-        for kf in sorted_keyframes(geometry)
-        if not frame_is_outside(geometry, int(kf.get("frame_index", 0)))
-    ]
-
-
-def _clip_outside_ranges(
-    geometry: dict, *, start: int | None, end: int | None
-) -> list[dict]:
-    out: list[dict] = []
-    for range_ in geometry.get("outside") or []:
-        from_frame = int(range_.get("from", 0))
-        to_frame = int(range_.get("to", 0))
-        if start is not None:
-            from_frame = max(from_frame, start)
-        if end is not None:
-            to_frame = min(to_frame, end)
-        if from_frame <= to_frame:
-            out.append(
-                {
-                    "from": from_frame,
-                    "to": to_frame,
-                    "source": "prediction"
-                    if range_.get("source") == "prediction"
-                    else "manual",
-                }
-            )
-    return normalize_outside_ranges(out)

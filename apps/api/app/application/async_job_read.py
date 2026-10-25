@@ -7,15 +7,19 @@ import uuid
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aap_jobs.async_job_list_query_contract import AsyncJobListQuery
 from app.application.async_job_contracts import AsyncJobOperationFailure
+from app.services.project_access import get_workspace_project
 from app.db.enums import PlatformRole, ProjectRole
 from app.db.models.async_job import AsyncJob
 from app.db.models.project import Project
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
 from app.schemas.async_job import AsyncJobListResponse, AsyncJobOut
-from app.services import async_job_access
+from app.services import async_job as jobs, async_job_access
 from app.services.project_aggregates import project_scope_clause
+from app.services.workspace_read_relations import project_search_scope
+from app.services.jobs_list_query_data import JobsListQueryPostgresData
 
 
 def _build_async_job_query(
@@ -28,9 +32,10 @@ def _build_async_job_query(
 ):
     """Build the one scoped async-job relation used by page and count queries."""
     project_scope_id = func.coalesce(AsyncJob.project_id, AsyncJob.retained_project_id)
+    workspace_projects = project_search_scope(current_user)
     project_exists = (
-        select(Project.id)
-        .where(Project.id == project_scope_id)
+        select(workspace_projects.c.project_id)
+        .where(workspace_projects.c.project_id == project_scope_id)
         .correlate(AsyncJob)
         .exists()
     )
@@ -99,11 +104,11 @@ async def _to_async_job_out(
     project_scope_id = job.project_id or job.retained_project_id
     if project_scope_id is not None:
         if project_cache is None:
-            project = await db.get(Project, project_scope_id)
+            project = await get_workspace_project(db, project_id=project_scope_id)
         else:
             if project_scope_id not in project_cache:
-                project_cache[project_scope_id] = await db.get(
-                    Project, project_scope_id
+                project_cache[project_scope_id] = await get_workspace_project(
+                    db, project_id=project_scope_id
                 )
             project = project_cache[project_scope_id]
 
@@ -145,22 +150,20 @@ class SqlAsyncJobReadAdapter:
         if user is None or not user.is_active:
             return AsyncJobListResponse(items=[], total=0)
 
-        stmt = _build_async_job_query(
-            current_user=user,
-            status=status,
-            kind=kind,
+        search_text = search.strip() if search else ""
+        request = AsyncJobListQuery(
+            actor_id=user.id,
+            platform_role=user.role,
+            statuses=status or [],
+            kinds=kind or [],
             project_id=project_id,
-            search=search,
+            search_pattern=f"%{search_text}%" if search_text else None,
+            limit=limit,
+            offset=offset,
         )
-        count_stmt = select(func.count()).select_from(stmt.order_by(None).subquery())
-        stmt = (
-            stmt.order_by(AsyncJob.created_at.desc(), AsyncJob.id.desc())
-            .offset(offset)
-            .limit(limit)
-            .execution_options(populate_existing=True)
-        )
-        rows = (await self._db.execute(stmt)).scalars().all()
-        total = (await self._db.execute(count_stmt)).scalar_one()
+        query_data = JobsListQueryPostgresData(self._db, AsyncJob)
+        rows = await query_data.page(request)
+        total = await query_data.total(request)
         project_cache: dict[uuid.UUID, Project | None] = {}
 
         return AsyncJobListResponse(
@@ -173,7 +176,7 @@ class SqlAsyncJobReadAdapter:
     async def get_job(
         self, *, job_id: uuid.UUID, actor_id: uuid.UUID
     ) -> AsyncJobOut | None:
-        job = await self._db.get(AsyncJob, job_id, populate_existing=True)
+        job = await jobs.get_job(self._db, job_id, populate_existing=True)
         if job is None:
             return None
         if not await async_job_access._can_access_job(

@@ -18,8 +18,7 @@ DECLARE
         'aap_identity_v1.lock_accounts_share(uuid[],boolean)'::regprocedure::oid,
         'aap_identity_v1.lock_accounts_update(uuid[],boolean)'::regprocedure::oid,
         'aap_identity_v1.lock_accounts_key_share(uuid[],boolean)'::regprocedure::oid,
-        'aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])'::regprocedure::oid,
-        'aap_identity_v1.workspace_template_query_org_ids(uuid)'::regprocedure::oid
+        'aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])'::regprocedure::oid
     ];
     v_relation record;
 BEGIN
@@ -49,7 +48,7 @@ BEGIN
     END IF;
     IF (SELECT pg_catalog.count(*) FROM pg_catalog.pg_proc p
         JOIN pg_catalog.pg_roles owner ON owner.oid=p.proowner
-        WHERE p.oid=ANY(v_allowed) AND owner.rolname=v_identity) <> 6 THEN
+        WHERE p.oid=ANY(v_allowed) AND owner.rolname=v_identity) <> 5 THEN
         RAISE EXCEPTION 'Identity consumer capabilities have unexpected ownership';
     END IF;
     FOR v_relation IN
@@ -130,8 +129,7 @@ GRANT EXECUTE ON FUNCTION
     aap_identity_v1.lock_accounts_share(uuid[],boolean),
     aap_identity_v1.lock_accounts_update(uuid[],boolean),
     aap_identity_v1.lock_accounts_key_share(uuid[],boolean),
-    aap_identity_v1.check_accepted_api_key(uuid,uuid,text[]),
-    aap_identity_v1.workspace_template_query_org_ids(uuid)
+    aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])
     TO :"consumer_role";
 
 DO $verify$
@@ -142,8 +140,7 @@ DECLARE
         'aap_identity_v1.lock_accounts_share(uuid[],boolean)'::regprocedure::oid,
         'aap_identity_v1.lock_accounts_update(uuid[],boolean)'::regprocedure::oid,
         'aap_identity_v1.lock_accounts_key_share(uuid[],boolean)'::regprocedure::oid,
-        'aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])'::regprocedure::oid,
-        'aap_identity_v1.workspace_template_query_org_ids(uuid)'::regprocedure::oid
+        'aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])'::regprocedure::oid
     ];
 BEGIN
     IF EXISTS (

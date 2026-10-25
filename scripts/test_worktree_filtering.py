@@ -164,7 +164,7 @@ class ManualFilteringTests(unittest.IsolatedAsyncioTestCase):
         ]
         self.db.scalar.side_effect = [0, 0, 0, *predictions]
         result = await prepare_filtering(self.resources, self.path)
-        self.seed.assert_awaited_once_with(self.db)
+        self.seed.assert_awaited_once_with(db=self.db)
         self.assertEqual(
             [p.result[0]["geometry"]["frame_index"] for p in predictions], [0, 0, 10]
         )

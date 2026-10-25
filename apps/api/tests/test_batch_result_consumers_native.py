@@ -439,7 +439,7 @@ async def test_real_runner_continues_after_a_failed_member_and_publishes_durable
     monkeypatch,
 ):
     from app.application import preannotation_execution as execution
-    from app.services.ml_client import PredictionResult
+    from aap_inference.backend_transport import PredictionResult
     from app.services import prediction_progress
     from app.db.models.notification import Notification
 
@@ -522,7 +522,7 @@ async def test_legacy_delivery_without_job_id_resumes_the_same_captured_job(
     from dataclasses import replace
     from app.application import durable_preannotation as workflow
     from app.application import preannotation_execution as execution
-    from app.services.ml_client import PredictionResult
+    from aap_inference.backend_transport import PredictionResult
 
     async with _world(test_engine, staged=False, result_count=1) as world:
         _runtime_connections(monkeypatch, world)

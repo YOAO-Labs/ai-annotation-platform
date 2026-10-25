@@ -272,6 +272,7 @@ describe("F_degraded_partial_health", () => {
     // The stale health source is surfaced.
     const healthSrc = vm.sources.find((s) => s.name === "health")!;
     expect(healthSrc.stale).toBe(true);
+    expect(vm.sources.find((s) => s.name === "router_ledger")?.label).toBe("路由执行状态");
   });
 });
 
@@ -294,7 +295,7 @@ describe("F_metrics_absent · 负向断言", () => {
   it("capacity limit 恒为 null（v0.23.3 合同无 max_concurrency）", () => {
     const vm = mergeTopologyAndSnapshot(makeTopology(), makeSnapshot());
     expect(vm.pools[0].capacity.limit).toBeNull();
-    // inflight is real (from Redis ledger), saturated is derived — these stay.
+    // Execution counts come from the current routing-state observation; these stay.
     expect(vm.pools[0].capacity.inflight).toBe(0);
     expect(vm.pools[0].capacity.saturated).toBe(false);
   });
@@ -418,6 +419,20 @@ describe("deriveMemberCapacity", () => {
 // ── diagnostic dedup ───────────────────────────────────────────────────────
 
 describe("collectDiagnostics · 去重", () => {
+  it("off 模式下路由执行状态过期仍阻止卸载请求", () => {
+    const snapshot = makeSnapshot({
+      router_mode: "off",
+      sources: [{ name: "router_ledger", stale: true, error: "status unavailable" }],
+    });
+    const diagnostic = collectDiagnostics(makeTopology(), snapshot, null).find(
+      (item) => item.code === "router_ledger_unavailable",
+    );
+
+    expect(diagnostic?.message).toContain("路由执行状态不可用");
+    expect(diagnostic?.remediation).toContain("卸载请求会被禁用");
+    expect(diagnostic?.remediation).not.toContain("Redis");
+  });
+
   it("同一 code+subject_type+subject_id 只出现一次", () => {
     const pool = makePool({
       id: "p1",
@@ -587,9 +602,9 @@ describe("sortDiagnostics + filterDiagnostics", () => {
   });
 });
 
-// ── unload safety gate (§8.1) ──────────────────────────────────────────────
+// ── unload request gate (§8.1) ────────────────────────────────────────────
 
-describe("evaluateUnloadGate · drain→quiescent→unload 安全门", () => {
+describe("evaluateUnloadGate · drain→observed idle→unload request gate", () => {
   function makeMember(
     overrides: Partial<PoolViewModel["members"][number]> = {},
   ): PoolViewModel["members"][number] {
@@ -618,24 +633,29 @@ describe("evaluateUnloadGate · drain→quiescent→unload 安全门", () => {
     };
   }
 
-  it("routable 实例阻止直接 unload", () => {
+  it("routable 实例不显示 unload 请求", () => {
     const gate = evaluateUnloadGate(
       makeMember({ routing: "routable", traffic_state: "active" }),
       "enforce",
       true,
     );
-    expect(gate.can_unload).toBe(false);
+    expect(gate.can_request_unload).toBe(false);
     expect(gate.blocked_routable).toBe(true);
     expect(gate.reasons[0]).toContain("drain");
   });
 
-  it("drained + inflight=0 + enforce + fresh → 可 unload", () => {
-    const gate = evaluateUnloadGate(makeMember(), "enforce", true);
-    expect(gate.can_unload).toBe(true);
-    expect(gate.reasons).toHaveLength(0);
-  });
+  it.each(["off", "observe", "enforce"] as const)(
+    "router_mode=%s 时 draining + fresh zero observation 可请求卸载",
+    (routerMode) => {
+      const gate = evaluateUnloadGate(makeMember(), routerMode, true);
+      expect(gate.can_request_unload).toBe(true);
+      expect(gate.can_unload).toBe(true);
+      expect(gate.blocked_shadow_mode).toBe(false);
+      expect(gate.reasons).toHaveLength(0);
+    },
+  );
 
-  it("inflight>0 阻止 unload", () => {
+  it("inflight>0 不显示 unload 请求", () => {
     const gate = evaluateUnloadGate(
       makeMember({
         runtime: {
@@ -653,20 +673,14 @@ describe("evaluateUnloadGate · drain→quiescent→unload 安全门", () => {
       "enforce",
       true,
     );
-    expect(gate.can_unload).toBe(false);
+    expect(gate.can_request_unload).toBe(false);
     expect(gate.blocked_inflight).toBe(true);
   });
 
-  it("stale 账本阻止安全结论", () => {
+  it("陈旧执行状态不显示 unload 请求", () => {
     const gate = evaluateUnloadGate(makeMember(), "enforce", false);
-    expect(gate.can_unload).toBe(false);
+    expect(gate.can_request_unload).toBe(false);
     expect(gate.blocked_stale).toBe(true);
-  });
-
-  it("router_mode=observe + draining → shadow 模式阻止", () => {
-    const gate = evaluateUnloadGate(makeMember(), "observe", true);
-    expect(gate.can_unload).toBe(false);
-    expect(gate.blocked_shadow_mode).toBe(true);
   });
 
   it("disabled 成员也必须先进入 draining", () => {
@@ -675,7 +689,7 @@ describe("evaluateUnloadGate · drain→quiescent→unload 安全门", () => {
       "enforce",
       true,
     );
-    expect(gate.can_unload).toBe(false);
+    expect(gate.can_request_unload).toBe(false);
     expect(gate.blocked_routable).toBe(true);
   });
 });

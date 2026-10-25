@@ -2,7 +2,7 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-23
+last_reviewed: 2026-10-25
 ---
 
 # 所有业务模块的独立部署与语言替换
@@ -15,35 +15,988 @@ last_reviewed: 2026-10-23
 
 路由 tag、Python package、Celery queue 或一个独立 worker 都不等于完整业务模块。一个模块只有同时拥有稳定的语言无关公开协议、独立运行工件、明确数据和凭据范围、完整消费者迁移及故障恢复证据，才算具备独立部署能力。所有公开交互还需证明不依赖提供方的语言运行时；实际选中的语言替换实现须通过相同合同与真实消费者验收。共享 PostgreSQL 实例可以保留，但不能让模块绕过其他所有者的契约读写其表。
 
-## 当前模块状态
+## 剩余工作台账
 
-当前入口清单覆盖主 API 的 485 paths、568 operations，另有 WebSocket、Celery、训练 executor、CLI 和诊断工具。逻辑所有权台账覆盖 136 张 ORM 表；受理输入、批量清单、视频帧计划与跟踪输入另有十二张 Assets 账本及四张 Labeling 受理／证据表，由 native SQL 迁移持有。路由数和表数用于定位现有边界，不代表模块已有稳定 wire schema。具体入口以[仓库地图](./repository-map#公开契约与入口台账)为准，表和事务以[后端分层](./backend-layers#权威数据与写入所有权)为准。
+这是本计划唯一的剩余工作台账；下文和 ADR 保存已完成证据，不另行维护待办列表。
+本次后端重构的当前实现已统一合入主工作树的 `feat/backend-opt`，后续开发直接使用该分支。
+集成源码以 `e0095835f` 为基准；当前分支的 Identity 注册策略修正已在其中，Notifications
+候选仅补入实际缺少的依赖断言修正，另保留历史捕获夹具的两份未提交修正。旧兼容层已由
+当前 Workspace／Inference／Notifications owner 承接，不把旧分支整体覆盖到新实现。
+既有资格证据按原合格源码范围保留，关键收据与证据包已另存主工作树；这次源码合并不提升
+各模块的验收结论。日常库仍为 `0306`，合并后迁移图为 `0366`；本地 API 已暂停以避免跨版本
+运行，数据库升级和 API 恢复待明确选择，独立运行拓扑未切换。
 
-| 模块          | 已有证据                                                                                                                                                                                                                                                                                          | 独立部署与替换仍缺少的能力                                                                                                                                                                                             |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| identity      | 独立 owner 包、版本化协议、能力凭据和公开 API／运维消费者已迁移；当前检查点通过 268 个去重定向案例及完整冷装配。源码已合入主工作树，日常库升级至 0306，既有内嵌 API 的健康与热重载通过。                                                                                                          | 本地功能资格和主工作树源码采用已完成；日常独立 owner 拓扑、另一语言完整提供方及生产容量尚未获得资格。                                                                                                                  |
-| workspace     | 31 个路径、41 个操作、5 张所有者表。项目配置、模板、成员与项目删除已有领域 owner；项目删除和数据集解绑使用 Workspace 当前权限合同及同库事务协调。                                                                                                                                                 | Workspace 尚非独立服务。项目转移、邀请、成员生命周期仍涉及多 owner 当前授权、写入与审计；完整入口、迁移和独立凭据仍缺。                                                                                                |
-| assets        | 40 个路径、51 个操作、34 张所有者表。视频探测有独立工件与 Node 互操作验收；目录、关联读取及 Scene/位姿/标定由既有 Catalog 工件提供；来源控制、六项连接管理操作、同步 ZIP/扫描、清理和持久连接器导入使用现有 Assets Source 运行时；本地图片与 nuScenes importer 使用单独的六项 operator SQL 能力。 | 视频与图片执行及引用已通过受限账号、独立进程及容器联调；Workbench 单图及普通图片批量输入清单已完成本地联调；一般 Blob、其余推理输入和运维写入仍待提取，全模块部署与语言替换尚未完成。                                  |
-| labeling      | 123 个路径、138 个操作、36 张所有者表，覆盖任务、批次、标注、候选、审核、反馈、轨迹、Mask 和质检。多项写入端口及解绑主来源选择、保留检查、Task 清理和投影已有 owner 合同。                                                                                                                        | 许多操作仍绑定请求方 SQL Session。完整写入集合仍须与账号、成员、Task 和编辑锁的当前权威串行化；跨模块事务 owner 和远程撤权/重放协议仍待完成。                                                                          |
-| inference     | 82 个路径、94 个操作与 tracking/quality 路由合计；9 张推理控制面所有者表。五个 ML backend 已是独立 HTTP 服务，已有 JSON/Pydantic 协议包。                                                                                                                                                         | ML backend 是计算子能力，不是平台 inference 模块。Registry、pool、GPU 仲裁、路由、pipeline 和作业账本仍在 API/Redis/Celery 内。需公开平台控制协议，约束 GPU 租约、取消和迟到结果，并解除对 Python 协议包的运行时依赖。 |
-| learning      | 87 个路径、105 个操作、35 张所有者表。训练 executor 有独立 HTTP 拉取进程和执行权交接验收；项目删除与 Dataset/Item 删除、解绑已有保留检查能力。                                                                                                                                                    | executor 只是执行子能力；版本、训练、评估与发布账本仍由 API 持有，并依赖 Labeling/Assets 冻结来源、Workspace 权威和 Inference 安装/试用。                                                                              |
-| insights      | 34 个路径、37 个操作；`project_task_views` 是其 1 张权威表，另有跨域列表、Dashboard、分析视图及物化统计。只读查询和可重建投影适合作为低事务风险候选。                                                                                                                                             | 查询仍跨 owner 表并共享授权判断；保存视图写入与运行时都在 API。需由各 owner 提供批量只读合同或可重建投影，定义新鲜度、授权和数据删除语义，避免逐行 RPC。                                                               |
-| jobs          | `async_jobs` 为 1 张通用作业表；建题有创建/取消/恢复合同，项目删除保留原 Project scope，数据集解绑按 Dataset/Project/association 代次取消匹配的活动建题作业。                                                                                                                                     | Celery 注册名/参数仍是 Python 内部协议；通用状态和领域终态需独立作业协议、队列交接、取消确认及消费者重启恢复。                                                                                                         |
-| audit         | `audit_logs` 为 1 张所有者表；月度汇总算法已移到本地 Python 函数；项目删除与数据集解绑会在各自同一事务中由 Audit owner 记录事件。                                                                                                                                                                 | 其他业务审计仍需与业务写入同事务提交；分区归档涉及对象存储。Go 月报仅是架构实验，不是生产模块或目标完成证明。                                                                                                          |
-| notifications | 支撑路由的一部分；`notifications` 和 `notification_preferences` 共 2 张所有者表，偏好命令已有局部所有者。                                                                                                                                                                                         | 持久通知可能与审核或作业状态同事务写入，发布与偏好同步有提交后 Redis pub/sub 语义。需要独立写入/投递协议、去重和提交后重放，不把 Redis pub/sub 当持久事件账本。                                                        |
-| ops           | 主 API 的 29 个运维脚本、一个 application CLI、迁移入口和 Compose 运行单元已有清单；生产 API 与队列 worker 使用同一 API Dockerfile。                                                                                                                                                              | 需要逐模块独立工件、启动/健康/迁移职责、最小凭据、日志/指标与升级回退流程。现有队列拆分和运维清单不提供模块级运行时或权限边界。                                                                                        |
+已闭合操作按模块合并展示，明细与原始证据继续保留在下文；当前 Labeling 未闭合操作组依据实际源码固定，不把测试夹具和暂缓领域混入生产范围。
+协调视频恢复切片已完成限定本地验收；Identity 九组操作的公开能力、实际消费者、运维入口、普通运行凭据及独立私网装配已完成本地模块门槛审计。宿主机转发 TCP 故障由 Runtime assembly 行继续跟踪。
+“操作已实现”“消费者已迁移”“独立运行已验收”分别记录，均不代替整模块完成判断。
+所有结果限本地；当前重构源码已统一合入主工作树，日常独立 owner 拓扑尚未切换，Go 继续仅作实验。训练／Learning 及 Assets 的数据集、存储暂缓扩大实施，待最新功能合并后一起优化；其他互不依赖的操作使用隔离工作树并行推进，由协调者集成验收。
+实施先完成独立模块及其调用迁移，再按模块集中验收。开发中保留必要的基础检查与权限／数据完整性守卫；不因每个小改动重复编写测试或启动冷环境，也不沿验收失败不断扩大前置条件。与本 epic 无关的缺陷独立登记，不能阻塞模块实现主线。已通过证据保持复用，未完成的组合验收继续明确标记。
 
-这些模块的公开 HTTP 仍由主 API 聚合。现有端口、owner 表台账和架构守卫证明的是代码内部依赖方向及选定写入职责，不证明独立二进制、独立部署、最小凭据或跨语言兼容。下述建题数据接口也只覆盖选定的事务操作，不改变模块整体未完成的判断。
+Audit 与 Labeling 未暂缓范围的实现和已知调用方收口阶段已交付。Audit 维护／归档的独立 CLI 冷验收，以及 HTTP 元数据现有绑定的真实 broker／prefork 故障与 PostgreSQL 恢复验收均已通过。下一限定交付为当前 Audit API／worker 消费者工件组合与剩余查询／导出消费的冷验收；这些操作资格不代表完整 epic 或整个 Audit 模块闭合。其他模块后续提取和 Runtime 宿主机故障不自动扩入，训练／Learning、Assets 及 Notifications 采用限制保持。
+
+<!-- prettier-ignore -->
+| 模块／操作组                             | 实现                                                                                                               | 消费者迁移                                                                                       | 独立运行验收与证据                                                                                                                                       | 剩余阻塞／下一交付                                                                                                                                                                                                                                                                                                                                               |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity：完整模块                       | 九组业务能力、账号事实／事务锁、provisioning 及独立工件已实现                                                      | 生产 API／worker、邮件、种子／截图、运维及门控测试的 Identity 操作已迁移                         | [整模块装配](#identity-整模块独立装配)与主工作树采用检查点 d2ea90f3f 保留，本地冷安装／真实消费者／完整恢复通过                                          | 本地模块资格和源码采用完成；日常独立拓扑未切换，另一语言完整提供方、其他网络拓扑及生产容量未验收。宿主机转发仍见 Runtime assembly                                                                                                                                                                                                                                |
+| Workspace：项目、成员、配置及访问        | 成员、交接、配置／模板、查询及相邻项目写入已实现                                                                   | nuScenes／点云质量晋升和对应公开入口已迁移，其他选定消费者已迁移                                 | [组合运行与恢复](#workspace-组合运行与恢复验收)、种子／运维及 export／cross-frame／video-tracker 的既有操作资格保留                                      | 媒体／截图、门控 E2E、规模种子／截图支持三组已完成限定本地验收。历史迁移审计已完成限定本地验收；cross-frame 已完成含实际数据库身份观测的限定冷验收；export 已完成普通 reviewer 冷执行与进程丢失恢复的限定本地验收；video-tracker 也已完成含真实撤权及子进程丢失重投的限定冷验收；剩余旧视频排空／退役的真实 worker／写凭据围栏事实源及整模块审计，主环境尚未切换 |
+| Workspace／Jobs：取消后重投              | 取消和审计先提交，再复用现有派发器重投同一作业；不确定投递返回可重试 503                                           | 当前 API 入口已迁移；重复取消不重建作业、不重复审计                                              | [取消恢复](#video-cancel-redrive)：真实队列／prefork 丢失恢复、退役与删除门禁通过                                                                        | 操作切片和当前组合工件已完成限定本地验收；完整 Workspace／Jobs、无账本旧作业真实围栏仍待完成；未切主环境                                                                                                                                                                                                                                                         |
+| Workspace：项目删除                      | 原子 Native 协调器及 Workspace 可移植命令／连接式客户端已实现                                                      | API 已通过同一请求事务调用 owner；不新增独立提交点                                               | [项目删除](#workspace-项目删除事务切片)的调用边界通过 76 项源码／受限 PG／Node／实际 API 定向检查                                                        | [退役门禁](#video-deletion-retirement)已实现并通过；无证明旧作业继续 409，遗留排空／修复入口仍缺，完整安全／恢复能力未闭合                                                                                                                                                                                                                                       |
+| Workspace：数据集解绑                    | 原协调器、可移植合同／管理器及借用事务 PostgreSQL 绑定已实现                                                       | API 通过相同 Session 调用 Workspace；原响应／缓存／提交保持                                      | [解绑切片](#workspace-数据集解绑事务切片)新增 72 项不同案例，含受限双函数 LOGIN、Node 与实际 HTTP                                                        | 调用边界、退役门禁及组合冷工件／受限凭据／恢复已通过；旧作业无证明的排空／修复入口仍缺                                                                                                                                                                                                                                                                           |
+| Assets：来源、目录、连接及媒体／输入     | 已有 Source、Catalog、Media、Images、accepted inputs 和视频输入能力                                                | 已迁移选定导入、Workbench 和推理输入消费者                                                       | [数据能力协议](/api/guides/module-data)及既有 ADR 保留受限进程／容器证据；[辅助保留](#来源删除的辅助引用)的实际删除与 HTTP 映射通过 11 项定向检查        | 已确认沿用既有辅助引用 409 guard；部分相机／轨迹引用缺少独立解除入口，任务、标注及学习证据保留；一般 Blob、其余输入、运维写入与完整装配仍待收口                                                                                                                                                                                                                  |
+| Labeling：任务、标注、审核、Mask 与视频写入 | 任务／批次生命周期、人工／批量标注、审核计数、预测／轨迹、Mask／点云质检及最终发布均已有固定 owner 能力 | 选定 API／worker 调用已迁移；原授权、UOW、缓存、锁序与 Audit 时点保持；七处标注响应刷新改用公开关系 | [集中原生验收](#labeling-native-cohort-acceptance)与既有操作证据保留；四项刷新过期状态／缺失行检查通过 | 创建标注的限权冷 API、幂等重放与重启读取已通过；全部运维边界仍待闭合 |
+| Labeling：核心读取、讨论、场景与分区维护 | 十二项核心读取关系、有序锁、讨论／场景能力及预测分区 owner 已实现；0365 将效率 MV 改接已有 TaskEvent 公开事实 | API、导出、视频、工作流、兼容学习读取及选定维护调用已迁移；效率 MV 保留聚合、索引、所有者和有效显式授权 | [核心读取与维护](#labeling-current-candidate-acceptance)的既有受限读锁／分区证据保留；效率 MV 普通角色实际刷新与 0365 完整恢复已通过限定验收 | 本轮只修复撤销私表权限暴露出的 MV 依赖，不扩大 Insights 或暂缓领域 |
+| Labeling：普通凭据与运维兼容 | LAN／worktree 共用固定 ACL，撤销 49 张私表及分区、列、序列和宽默认授权；E2E／截图／规模种子使用固定 owner 能力 | 兼容读取与锁、批次编号及选定种子／截图调用已迁移，原事务和作用域守卫保持 | [普通权限与兼容调用](#labeling-private-runtime-acl)：原有 56 项 Native 通过证据保留；原 Audit 筛选失败已通过本阶段真实 HTTP 复验，另补共享清理和维护凭据／守卫证据；不是当前头全套重跑 | 未暂缓的已知生产／运维调用已收口；Assets reset 手动维护仍暂缓，完整模块资格和独立拓扑采用待完成 |
+| Labeling：完整模块工件与恢复 | 独立包、writer 及 API 消费者工件已有源码证明；视频中间状态和最终发布 owner 已接入 | 当前普通角色冷 API 与真实 worker 使用既有公开能力及限定凭据 | [当前工件与恢复](#labeling-private-runtime-acl)：独立包 120 项、工件离线检查、两个真实 worker 用例、冷 API、完整恢复和普通角色 MV 刷新分批通过 | 限定工件与恢复门槛已有通过证据；Assets reset 手动维护仍暂缓，全部运维边界与整模块审计与独立拓扑采用待完成；主环境运行资格未更新 |
+| Jobs／Labeling：旧视频输入保留           | 0312 的窄 Jobs 事实与 Labeling 保留投影已实现；0313 补齐历史垃圾领取围栏                                           | tracker sweep 和 video garbage claim 使用当前保留事实；pin、审核宽限期及已证明替代的前缀清理保留 | [输入保留](#tracker-input-retention)：0312 的 23 项和 0313 的 10 项定向案例及各自完整迁移往返通过；进程内取消单测单列                                    | 新领取路径的限定本地资格已闭合；已领租约仍须真实停机／凭据围栏，历史 expired 状态／已删除对象修复和无账本退役 operator 未闭合；[当前组合工件](#coherent-module-artifact)已验收，主环境尚未采用                                                                                                                                                                   |
+| Inference／Jobs：协调视频恢复            | `aap-video-restore/v1`、两类权威屏障／轮换、不可变退休证明已实现                                                   | 实际 runner 已经独立安装 CLI 恢复，同 run 新代次复用窗口并由 Labeling owner 发布                 | [ADR-0160](/dev/adr/0160-coordinated-video-restore)：五个 Native／消费者场景、源码和安装各 420 项、51 项旧路径回归、完整迁移通过                         | 本切片已闭合：独立安装 CLI 实际消费者与匹配 Inference／API 冷镜像均通过，源码提交 `968212e4e`；对象存储备份恢复、GPU／生产容量不在本切片通过范围                                                                                                                                                                                                                 |
+| Inference：控制面与其他预测路径          | Pipeline、backend 配置／探测／健康、registry ingress、routing 和 scope 退休已有选定 owner                          | 对应绑定及部分实际预测消费者已迁移                                                               | [Inference 协议](/api/guides/inference-runtime)保留各切片资格                                                                                            | 其他推理编排、GPU 租约、取消／迟到结果、完整独立装配及提供方替换仍须逐操作收口                                                                                                                                                                                                                                                                                   |
+| Learning：训练、版本、评估及发布         | 训练 executor 独立拉取与交接已实现；其余账本仍由 API 持有                                                          | executor 与部分保留检查已迁移                                                                    | 既有 executor 资格仅证明执行子能力                                                                                                                       | 冻结来源、训练／搜索／评估／主动学习／发布事务及对 Workspace／Inference 的 owner 调用待完整提取                                                                                                                                                                                                                                                                  |
+| Insights：查询及保存视图                 | 已有本地只读组合和投影                                                                                             | 尚未完成全量 owner 读取合同迁移                                                                  | 完整独立运行未验收                                                                                                                                       | 跨 owner 批量快照／投影、授权／新鲜度／删除语义及保存视图写入待收口                                                                                                                                                                                                                                                                                              |
+| Jobs：通知范围事实                       | 三列公开关系、原生类型及版本化合同已集成                                                                           | 通知筛选和批量范围读取已迁移，保留授权及 autoflush                                               | [日聚合与 Jobs 事实](#support-daily-and-jobs-facts)：父线 27 项组合案例及真实 LOGIN／Node、40 个 Unicode 字符的 kind、完整 0323 往返通过                 | 本组操作的限定本地资格闭合；当前 API 离线工件通过，普通 API 其他作业仍需私表；不关闭完整 Jobs／冷进程恢复                                                                                                                                                                                                                                                        |
+| Jobs：列表查询                           | 两项固定 page／total 与原生行合同已集成；成员资格保留当前 Identity 事实                                            | GET 列表迁移，保留独立语句、缓存／autoflush、caller 事务与 Workspace 补充                        | [列表 owner](#jobs-list-query-owner)：十四项不同 Native／旧 API 案例、实际受限 HTTP／Node 及完整迁移往返通过                                             | 本查询 Native 操作与 API／Node 调用边界闭合；冷 API 业务、完整 Jobs 和恢复仍待验收，详情／取消／重试另按下行跟踪                                                                                                                                                                                                                                                 |
+| Jobs：通用生命周期与队列交接             | 通用策略、固定创建／八项 Native 能力及可选私网队列 owner 已集成                                                    | 通用 helper 保留 Session／flush／缓存；首个队列调用方为跨帧传播                                  | [生命周期与队列](#jobs-lifecycle-queue)：二十二项 Native 与一个冷 API／队列／worker／完整恢复场景通过                                                    | API 兼容私表权限、其余 producer、取消完成确认、其他领域恢复及完整 Jobs 工件／凭据仍待闭合；训练／资产扩展继续暂缓                                                                                                                                                                                                                                                |
+| Jobs：详情、取消、重试与终态通知读取     | 复用已有按 ID owner 能力，无新协议或迁移                                                                           | 五个单行读取已迁移，保留强制刷新、二次授权和 caller 事务                                         | [单行读取](#jobs-api-single-reads)：三十二项纯检查、三十一项 PostgreSQL／API 用例及完整迁移往返通过                                                      | 其余领域查询及未支持的 ORM 加载仍依赖私表，不能全局收回 SELECT；训练／资产保持暂缓                                                                                                                                                                                                                                                                               |
+| Jobs：领域单行读取、按主键行锁及字段刷新 | 两项固定行锁能力与无锁字段刷新绑定已实现                                                                           | 21 处普通读取、9 处按主键行锁已迁移；原 get／refresh 两阶段保持                                  | [行访问](#jobs-row-access)：114 项不同数据库／调用方用例、117 项纯检查及 24 项子检查；当前冷工件、实际行访问与完整恢复通过                               | 其余过滤／聚合、领域读取、锁定刷新和未支持 ORM 形状仍待收口；不能全局收回私表权限                                                                                                                                                                                                                                                                                |
+| Jobs：领域固定查询与继续迁移读取         | 五项跨帧／预测时间 Native 能力与语言无关合同已实现                                                                 | 跨帧 API、admin 预测聚合及 12 处 worker／QC／修复／视频质量读取已迁移                            | [领域查询](#jobs-domain-queries)：67 项不同 PostgreSQL／API 案例与 Node 通过；当前冷工件、去重复用／历史接口及完整恢复通过                               | 保留原去重锁、独立分页／总数、autoflush 和事务；训练／资产继续暂缓，完整 Jobs 与私表权限退出未闭合                                                                                                                                                                                                                                                               |
+| Jobs：项目／批次／所选任务导出派发       | 复用既有私网队列合同、原 kwargs 与 export 路由                                                                     | 三个标注导出入口已迁移，保留提交／审计／执行 ID 绑定和失败差异                                   | [导出派发](#jobs-export-dispatch)：33 项纯检查、39 项 PostgreSQL／API 用例与当前冷组合通过，含六个真实包下载和完整恢复                                   | 仅迁移派发，不扩大数据集／存储；没有新 options、canvas、取消或自动交接保证，完整 Jobs 继续跟踪                                                                                                                                                                                                                                                                   |
+| Jobs：质量检查与修复／导入派发           | 复用既有同步调度端口、私网队列合同及六项 media 路由                                                                | 三类质量检查、修复／回滚及导入共享绑定迁移，原业务事务保持                                       | [质量派发](#jobs-quality-dispatch)：10 项原生、78 项纯检查；真实消息、点云执行／完整恢复及取消窄验收通过                                                 | 六项传输及代表性点云操作的限定本地资格闭合；提交／发布、执行 ID 回绑窗口及其他 producer／领域恢复仍开放，不代表完整 Jobs；不扩大暂缓的训练／资产业务                                                                                                                                                                                                             |
+| Jobs：视频追踪与取消后重投派发           | 复用同步队列客户端、现有端口及 gpu 路由                                                                            | HTTP 创建／纠正／取消与 Mask 修复 worker 共用配置绑定，原业务流程保持                            | [追踪派发](#jobs-video-tracker-dispatch)：14 项不同原生与 68 项纯检查通过；真实源库派发／执行／排队取消及克隆 Media 前置已验收，完整恢复待完成           | 旧作业／输入恢复读回已通过；恢复激活与新消费者待组合验收；发布后执行 ID 回绑窗口及完整 Jobs 仍开放，不扩大暂缓领域                                                                                                                                                                                                                                               |
+| Jobs：普通运行创建权限                   | LAN／worktree 撤销表与列 INSERT，拒绝继承旁路，保留既有创建 view／视频摘要                                         | 两处终态筛选种子改为 pending 创建后同事务投影，原字段／审计保持                                  | [创建权限](#jobs-creation-credentials)：7 项数据库／普通账号／CLI 用例、27 项纯检查及 24 子检查通过；当前安装 API 创建／回滚和完整恢复通过               | 私表 SELECT 和其他 Jobs 操作仍待收口；UPDATE／DELETE 按下行单独验收，不新增 owner 凭据或改动暂缓领域                                                                                                                                                                                                                                                             |
+| Jobs：普通运行删除权限                   | 测试库限定的固定项目清理能力保留 Workspace 退役守卫；LAN／worktree 在宽授权后撤销 DELETE                           | 原 E2E 删除位置迁移，命名空间、保存点、提交与 409 保持；不可用返回 503 停止清理                  | [删除权限](#jobs-delete-credentials)：20 项不同原生案例、62 项纯检查及 24 子检查通过；当前冷工件／完整恢复通过                                           | 私表 SELECT、其余 producer 与恢复仍未闭合；UPDATE 见下行，截图多领域夹具继续使用自有测试库 owner，不扩大暂缓领域                                                                                                                                                                                                                                                 |
+| Jobs：普通运行更新权限                   | LAN／worktree 清除表／列 UPDATE 并拒绝继承旁路，保留既有生命周期与 invoker 校验                                    | 两条筛选夹具通过固定测试能力迁移，原字段、空时间戳、缓存及事务保持                               | [更新权限](#jobs-update-credentials)：20 项原生案例、62 项纯检查及 24 子检查通过；当前冷工件／完整恢复通过                                               | 私表 SELECT、其余 producer／消息形状和领域恢复仍开放；不改暂缓的训练／资产实现                                                                                                                                                                                                                                                                                   |
+| Jobs：动作幂等锁读与点云作业读取         | 两项固定原生锁／查询及语言无关合同已实现；点云投影复用 read_job                                                    | 项目预标／导出共享 helper 与点云质量读取迁移，保留全部匹配行锁、autoflush 和缓存                 | [动作幂等](#jobs-action-idempotency)：11 项不同原生案例、66 项纯检查及 24 子检查通过；当前冷工件／带键请求／完整恢复通过                                 | 剩余七处训练／主动学习或格式导入关联读取继续暂缓；全局 SELECT、其他 producer／消息形状与领域恢复未闭合                                                                                                                                                                                                                                                           |
+| Audit：同事务业务事件追加 | 既有 typed owner 保留；通用追加独立包、版本化合同与固定 SQL 已实现 | AuditService 与普通追加构造器已迁移；保留 caller 提交／回滚、快照和 ORM 缓存，无追加后私表回读 | [追加 owner](#audit-append-owner)：既有 PG／纯检查、受限 LOGIN／Node 证据保留；本轮受限追加前置检查通过 | 默认 LAN／worktree 的私表写入、序列和树所有权已在源码收口；完整消费者冷装配仍待模块验收，Learning 父表 SELECT 保留 |
+| Audit：测试夹具清理 | 0366 在既有维护命令内提供固定共享／namespace 清理，保留测试库、精确路径及不可变性标记守卫 | 原 seed 清理通过同一事务／savepoint 的 typed owner 适配器调用，并经公开事件关系核对残留 | 0366 的真实受限角色、共享／namespace／回滚、非测试库拒绝及两条原 HTTP 清理路径均已定向通过 | 本操作实现与调用边界已收口；[维护冷验收](#audit-maintenance-cold-qualification)通过，不扩大 Labeling／Assets 范围 |
+| Audit：HTTP 请求元数据 | 响应后 Celery 与同步回退使用同一追加 owner；请求 ID 长度边界及原尽力投递语义保持 | 原 middleware／worker 绑定保持；孤儿 actor 回滚后匿名重试，不新增去重或可靠投递承诺 | [元数据边界](#audit-http-metadata)：真实 broker 拒绝、结果不明注入、受限追加 LOGIN、prefork 子进程 SIGKILL、重启重放及整库恢复通过 | 现有绑定的故障与恢复语义已验收；当前冷 API／worker 工件组合仍待验收，业务审计 request ID 的独立遗留边界未扩修 |
+| Audit：查询、筛选与导出                  | 全局列表／导出使用固定查询 owner；项目范围通过公开事件关系组合                                                     | super-admin 全局与 project-admin 范围已迁移，保留筛选、游标、总数和导出顺序                      | [全局查询](#audit-global-query-owner)资格保持；[读取组合](#support-read-relations)补充项目隔离及合法复合行键原生回归                                     | 剩余读取、冷进程真实消费及完整模块继续验收；不得提前撤销所有 Audit 私表 SELECT                                                                                                                                                                                                                                                                                   |
+| Audit：领域事实消费者                    | 公开事件关系保留 14 个原生字段及复合行键                                                                           | 历史、批次、看板、评审快照与项目绩效已迁移；主动学习仍走原路径                                   | [读取组合](#support-read-relations)资格保持；[分析读取](#support-delivery-and-analytics)补充 26 项真实 PostgreSQL／API 案例及受影响测试替身修复          | 未暂缓的生产读取已使用公开关系；Learning 的直接读取等待最新功能合并。不能提前撤销父表 SELECT；完整模块验收仍待完成                                                                                                                                                                                                                                               |
+| Audit／Insights：汇总与分析投影 | 日聚合公开关系与固定并发刷新已集成，MV 由 Audit owner 持有 | 月报已迁移；尾段保留公开事件关系，维护保留原提交边界 | [日聚合与 Jobs 事实](#support-daily-and-jobs-facts)的原生／Node 证据保留；本轮独立维护 CLI 实际刷新通过 | 独立维护刷新已通过限定冷验收；原 Celery 维护调度与整模块资格继续单列，Go 仅实验 |
+| Audit：分区、保留与冷归档 | 固定维护合同／Native 能力与调用方事务适配已实现，上传成功后以同事务快照锁退役分区 | 原 API／Celery 入口已迁移；独立 CLI 使用专用写凭据，管理员列表／读取使用独立只读凭据 | [维护冷验收](#audit-maintenance-cold-qualification)：真实 CLI、上传后 SIGKILL／回滚、孤儿接管、整库恢复、重复执行及原 ASGI HTTP 权限通过 | 本操作限定本地资格闭合；归档桶在 PostgreSQL 恢复期间保留，未验证对象存储灾难恢复；日常调度未切换 |
+| Audit：独立工件、凭据与恢复 | 独立一次性 CLI、锁定包／镜像／Compose、单函数 LOGIN 与 owner 收权源码已齐 | 现有 API／Celery 调用保持事务和签名；公开归档读者保留授权与只读绑定 | [维护冷验收](#audit-maintenance-cold-qualification)：非 editable ARM64 镜像、29 份安装文件、真实 DB／分离 S3 凭据及完整 PostgreSQL 恢复通过 | 维护／归档工件资格完成；不是冷 API 或整个 Audit 模块资格，API／worker 消费者组合、Learning 暂缓读取与主工作树采用仍开放 |
+| Notifications：完整 Python 模块 | 固定数据合同、独立 publisher／socket、共享准入及兼容绑定已实现并冻结 | 既有 SQL 操作、API 即时发布与原 WS 地址已迁移；候选保留主线 Jobs 读取 | [候选整模块资格](#notifications-primary-adoption-candidate)：源码 913d3fc5c 的四镜像、真实 REST／Node／WS 组合、最终凭据及 0325 完整恢复通过；224／48／50 项未变组件证据复用 | 本地 Python 模块与采用候选资格完成；源码已合回当前分支，日常库升级及独立拓扑仍未切换。历史 0313 资产迁移须与此前暂缓的功能合并协调；完整替代语言 owner 与生产容量未验证 |
+| Runtime assembly：全模块启动、迁移和运维 | 已有独立包、受限角色及 Compose 模式可复用                                                                          | 主 API 仍承担过渡装配；旧绑定继续工作                                                            | 各切片冷镜像证据单独保存                                                                                                                                 | 逐模块完成入口、凭据、启动／健康、全局迁移升级／回退及独立恢复；[宿主机转发诊断](#runtime-host-forwarding)已完成本机抓包，35／65 秒复用对照高度吻合活跃 gVisor 的 TIME_WAIT 转发缺陷；尚无已验收的修复构建，旧路径仍未修复；历史三类业务 503 的逐次归因仍未证实，保持已验收的私网数据库路径                                                                      |
+
+这些模块的公开 HTTP 仍由主 API 聚合。端口、owner 表台账和架构守卫本身不能证明独立二进制、独立部署、最小凭据或跨语言兼容；各模块以其实际运行证据为准。下述建题数据接口只覆盖选定的事务操作，不能代替整模块验收。
+
+## 视频输入保留 {#tracker-input-retention}
+
+源码 `c24635241` 通过 Jobs 的窄事实核对当前 execution／journal 代次、writer 终结和真实退役，缺少可信证明时保留输入。Labeling 继续持有业务状态、annotation pin 和审核宽限期；缺 scope 的 ready 输入只通过现有 Assets 能力恢复作业身份，非就绪且缺身份的受损输入跳过 GC，形成明确的待修复积压。
+
+子工作树 `.worktree/legacy-input-retention-green-0312-verified.json`（SHA-256 `34cbaa2f235e95f4b148646ec77c5b10620e40ec83d6f1fc288e24be3022f559`）通过 23 项不同 Native／真实 sweep／角色与锁竞争案例，0312→0189→0312 及全部自有资源清理通过。非就绪缺 scope 案例的后续单例复验不重复计数。原始失败、旧 journal 失败及安全释放基线分别保留，未改旧冻结 SQL 或 Assets／Learning 实现。
+
+源码 `25cb6e480` 补齐历史垃圾领取围栏：Assets 将前缀映射到不可变原片／帧证据，当前 tracker 根目录在发出租约前重新查询 Labeling；引用未解除、映射不明或多义时延后一个本次租约，已被新一代证明替代的前缀继续领取。Jobs 同时与删除围栏对齐，未知或运行状态继续保留。独立源码复核未发现领取后可重新获得合法引用的路径；已发出的旧租约不在这项保护范围内。
+
+归档 `.worktree/legacy-input-retention-evidence/legacy-input-retention-0313-final2.json`（SHA-256 `245e262d3c25219cfa244b77869c9d35994fde9d846daa80f2d168954ce8af47`）通过 10 项不同案例、0313→0189→0313 和全部自有资源清理。实际 collector 配合记录型存储证明旧路径会发出删除调用，新路径保留引用前缀并允许安全项推进；这不是生产 S3 删除验证。清理器另有一项进程内取消测试，证明等待已开始的假 S3 调用、停止后续请求且不 ack，不等于部署进程停机或凭据围栏验收。0312 的原始收据也已归档，单例复验不另加计数。
+
+采用前必须停止全部 `apps/assets-cleanup` 并确认退出、盘点旧前缀与租约；无法确认进程或在途 S3 请求结束时先隔离删除凭据。等待剩余租约到期后才恢复清理，不能用 lease 到期证明物理删除已停止。默认租约 600 秒，Native claim 接受 60–7200 秒。回退任一迁移都会重新打开对应旧路径。两项迁移不恢复历史输入的 expired 状态或已删除对象；完整旧输入修复、真实退役 operator 及整模块资格继续保留在表中。
+
+## 已验收组合工件 {#coherent-module-artifact}
+
+源码 `736bb07ab` 的 API／worker 与 Workspace owner 镜像已重新构建；严格 COPY 指纹检查发现 Workspace 构建输入还包含新增的清理器测试，因此一并刷新该工件。Inference 与 AssetsSource 的 133／161 项构建输入均未变化，继续使用原不可变镜像。Workspace 安装的 300 项文件、API／Alembic 的 1,375 项、35 个包的 541 项安装文件、32 项 CLI 及 4 项运行夹具均与当前源码匹配；Notifications 独立安装位置、非 editable 元数据及三项必需资源另有禁网只读检查。
+
+`.worktree/coherent-module-artifact-0313-qualification.json`（SHA-256 `38860759288ab5822aa213170749537c732ee9d758baedb40356c61b3ce5c0b5`）汇总工件和运行证据。实际 worker 使用新 API 镜像 `sha256:5f32269dce3b4c4e92b50d740b53f9a4472407dbde6d8a0c55121ac89154f5b3`，仍为受限普通身份、只读文件系统及 1 CPU／512 MiB。一个组合案例覆盖成功、取消后同 ID 重投、取消时子进程丢失、撤权／停用拒绝和窗口恢复；成功、取消及恢复均取得真实退役，队列／unacked 归零。完整迁移往返 head 0313、Notifications 函数权限／Node 合同与全部自有资源清理通过，运行收据 SHA-256 `a9441673ecd9a142aa54688aa228c7222292a6b7211981d58ebe78619477bf54`。
+
+这是一个组合案例；既有定向案例和 HTTP 前置证据分别保留。取消 API 使用当前源码的主机 ASGI 请求，新 API 工件在真实 worker 中运行，不将其记为独立 HTTP 服务整模块验收。数据库／Redis 走私网，Media 与确定性 CPU 后端仍走宿主机转发。默认恢复延迟、GPU、完整模块及生产容量不在此次资格内，日常主环境未切换。
+
+## Notifications 偏好 owner {#notification-preferences-owner}
+
+源码 `36a4ab0d4` 将偏好读取、原子局部更新和静音检查集中到独立安装包与 `aap_notifications_v1.preference_command(jsonb)`；owner 计算新行默认值，保留旧频道、扩展键和按类型的 toast 策略。API 使用原请求事务，保留 autoflush／no_autoflush，并在成功提交后发布同步；未知未来通知类型仍可检查静音，没有新增服务或环境配置。
+
+子工作树 `.worktree/notification-preferences-boundary/source-manifest.json`（SHA-256 `ec57e124341487c0369f792dcd086740eb5dc0d4e7e891c1c210ed4c52b332e8`）绑定全部 37 项源码与验收文件。通过的 36 项 API 案例包括并发局部合并、提交失败不发布同步、默认值、用户隔离和静音；真实 API 角色与 Node 函数账号能调用 owner，但不能直接读取偏好表。0311→0189→0311、冻结 SQL 往返及自有资源清理通过，收据 SHA-256 为 `164ebafc20bccc3bbb003a17a748507f69d626c81d6ceb8b8191a4f36eaddc8c`。集成时补全了已有 session Protocol 的 autoflush／flush 声明，并明确同步在提交后发布，五项包合同检查通过，运行逻辑不变。
+
+严格授权撤销 API 和 PUBLIC 的偏好表权限，必须先部署新 API／worker 并排空旧 ORM 消费者。普通日常绑定尚未切换；完整 Notifications 写入、投递／重放、WebSocket 和通道装配不因本操作级资格完成。[当前组合 API／worker 工件](#coherent-module-artifact)已通过匹配安装文件、真实普通 worker 和恢复验收；完整 Notifications 仍按台账推进。
+
+## Audit 普通追加 owner {#audit-append-owner}
+
+源码 `48381f6ac` 和 `854c1585a` 将普通业务、HTTP 元数据与筛选夹具的追加接入独立包及固定 SQL，既有 typed Audit 函数保持。owner 只返回生成 ID／时间，API 用原事件构造干净 ORM identity 并保留 full flush，不为追加再查询私表。孤儿 actor 的 IntegrityError／匿名重试及调用方事务权保持；JSON null、INET 对外序列化和事务时间与原实现对照通过。在既有允许审计更新的测试上下文中，待删除 actor 的缓存及 FK SET NULL 行为也与原 ORM 一致。
+
+子工作树的原始收据 SHA-256 `3e22a0061a22b6247e64488ccad3db71513c14c868b8dba4f056d6b17057d534` 与后续 hydration 收据 `8e421b8d67f555f29b76bbdd203d945cc6fe69ff622a156ee85674e1bd58196a` 分别保留。最新 12 项 PostgreSQL／API、20 项纯 API／包检查通过；后者包含 11 项包检查，不能重复相加。实际严格 grants 与 Node 检查使用临时受限 owner 模拟精确 ACL，没有在该次托管测试库整体应用 module-data grants；完整追加 owner 授权及新工件已在下述集成检查中验收。
+
+集成时补齐原 LAN 调用角色的三项新固定函数和 Audit schema usage，保持现有绑定；分区所有权及全局默认 ACL 未改。SQL definer 显式将 `pg_temp` 放在搜索路径末尾，adapter 的类型转换也限定到 `pg_catalog.jsonb`；临时类型遮蔽案例经过真实 adapter。独立追加账号显式获得数据库 CONNECT，避免后续撤销 PUBLIC 权限使其断连；无效 JSON 数值不会静默改成 null，跨语言回执限定为正 int64。新命名空间案例和真实 Celery 重复载荷／匿名 actor 投递已通过下述组合检查。当前 LAN 分区树仍由 API 拥有，严格追加配置按设计拒绝该布局；查询、维护、归档及完整模块资格仍在表中。
+
+## Audit HTTP 请求元数据边界 {#audit-http-metadata}
+
+源码 `2705ecf53` 已集成为 `5e52bcf14`：HTTP 元数据的可选 request ID 仅在不超过 36 字符时传入同一 append owner，超长时省略该字段，保留原请求上下文、响应头、actor 事实与响应对象。同步配置和 enqueue 失败后的同步回退使用同一构造点；取消继续传播，不新增重试、去重或可靠投递承诺。业务审计入口仍直接使用原上下文 ID，其超长值处理属于另一个已发现的遗留项。
+
+11 项聚焦检查零失败／错误／跳过，覆盖 36／37 边界、真实 owner 请求验证、同步／enqueue 回退、响应和取消。五项原始收据归档于 `.worktree/audit-http-metadata-parallel-evidence/`，清单 SHA-256 为 `2185ed5201d844183bbabe74a25b330f6f34cdefc9b86bd22f08e7d9b8a741de`；三项 Python 输入逐字节匹配已测试源码和集成提交。README 在测试后补充了范围说明，未将其最终字节标为运行前输入。本次没有真实 DB／broker 或冷进程验收，也不关闭完整 Audit。原 enqueue 结果不明时可能重复、之后 worker 丢失时可能缺行的最佳努力语义保持。
+
+HTTP 元数据的集中入口为 `tests/test_audit_metadata_delivery_live.py`。它复用现有资源归属、
+broker 观测和完整恢复 helpers，以真实受限追加 LOGIN、Redis 与独立 worker 进程检查同步回退、
+重复、提前确认后的进程丢失、显式重放及恢复后继续写入。publish／commit 结果不明使用测试端
+边界注入，broker、数据库提交和进程终止实际执行。原 middleware 通过最小 ASGI 路由消费，
+不声明生产 HTTP 路由、冷 API 镜像或新独立模块工件通过。
+
+源码 `5f25ac416` 的单个组合场景已通过，无失败、错误或跳过。实际使用单函数追加 LOGIN、
+自有 Redis 与当前源码 prefork worker，拒绝 broker 后同步回退；真实发布／提交成功后的
+结果不明由测试端注入，分别观察到原有重复窗口。任务子进程在真实数据库阻塞点被 SIGKILL，
+broker 已确认且没有自动重投；新 worker 的正常写入作为对照，显式重放才补上缺失尝试。
+完整 PostgreSQL dump／restore 后保留旧行并继续追加；孤儿 actor 匿名重试及原 HTTP 响应保持。
+
+规范收据 `.worktree/audit-metadata-delivery-qualification.json` 的 SHA-256 为
+`652c2998fb287b3855ca97b161168ec980649ba0eea3241da219a14ddf2214dc`，绑定 33 项证据。
+3,132 项运行输入未变；0366→0189→0366、最终 ACL 与自有 PG／Redis／worker 清理通过。
+维护／归档冷工件、原定向行为和 Labeling 资格按未改动的实现复用，没有重跑整套已通过批次。
+本轮只增加验收与夹具接线，未改变业务代码、投递语义、队列、权限或迁移。
+
+失败及最小对照保留：SQLAlchemy 驱动选择、Celery 环境变量覆盖故障地址，以及 solo 执行中
+无法推进 broker 确认均属于夹具问题。原生最小 PG 的追加基线通过；独占 Redis 下 solo／prefork
+分别观测到一条／零条未确认消息，最终使用生产一致的 prefork 模型。没有以这些失败扩大模块实现。
+结果不明的故障注入不等于 TCP 响应丢失实测；本轮仍限宿主进程与最小 ASGI 路由，冷消费者
+工件组合、业务 request ID 遗留边界和暂缓 Learning 读取继续按唯一台账跟踪。
+
+## Audit 全局查询 owner {#audit-global-query-owner}
+
+源码 `d1da388c9` 将 super-admin 全局列表和 CSV／JSON 导出接入固定 `aap_audit_v1.query_events(jsonb)`；同事务查询遵守原 autoflush，不提交事务。总数在游标／分页前计算，排序及过滤保持。导出仍先检查 50,000 行上限，成功后记录 `audit.export` 并提交，再返回流。内部 ID 使用完整有符号 int64 字符串，公开 API 保持整数；日期、游标、actor UUID 及 INET 序列化按实际旧 PostgreSQL／asyncpg 行为对照。project-admin 项目范围与跨域事实仍由原 API 持有。
+
+子工作树完成 0317→0316→0317、安装函数体与提交源码哈希核对、query-only LOGIN 的真实 Node／权限检查，以及 20 项数据库／API 案例，零失败／错误／跳过。9 项包／迁移检查和 21 项工作树资源检查另行通过。父线逐项核对 27 个提交文件及 12 个原始证据／执行器文件；规范归档 `.worktree/audit-query-evidence/archive-manifest.json` 的 SHA-256 为 `69d303f3a6f1b9657d498e85cfb88800b8e22ac115048f9e896b981299a39b63`，原 TEMP 权限标签夹具失败保留。集成额外拒绝“返回行数超过总数”的异常回执，并以 Python／Node 纯检查验证；SQL、授权及 API 查询行为未因此改变。自有测试资源已精确销毁，清理收据 SHA-256 为 `aa8f30848cfc4dc527c2450da8ce7118b24a6211e647fdfa0cc10b4f4a6e9905`，共享 owner 与源码工作树保留。完整迁移往返已随 0318 组合阶段通过，当前不可变组合工件仍待验收，未切日常主环境。
+
+## 组合追加与本地旧视频围栏 {#coherent-owner-operations}
+
+不可变 API 工件在源码 `1c9abf956` 构建并核对 1,965 项安装文件及四项运行夹具，Audit／Notifications 均为非 editable 安装。独占 PostgreSQL 的四项 Audit、四项 Notifications 事务案例与一个真实视频 worker 组合案例通过；后者另执行三次审计投递，重复载荷生成两行，缺失 actor 生成一行匿名记录。完整 0315→0189→0315、冻结 SQL、固定函数授权及真实受限 Node 均通过。首轮最后的围栏夹具失败，因此原始整轮收据仍保留失败状态，只复用其中九项实际通过的案例。
+
+后续单独围栏案例端到端通过：观察原任务 RETRY，停止精确 worker，真实退役 scope，停止 Media／后端 peer，撤销唯一 S3 身份和独占 PostgreSQL 中全部非 owner LOGIN，确认会话为零及四个旧 DSN 认证被拒绝。S3 复测相同已成功写入的对象；新 worker 使用完全相同旧凭据处理原任务并失败，Job／输入与 409 守卫保持。最终 owner 仅用于销毁自有环境，不重新启用任何 LOGIN。先前清理失败保留原收据并另记恢复；最新整轮清理全部成功。51 项纯检查及 26 项包检查通过，数字不与旧批次累加。
+
+规范证据为 `.worktree/coherent-owner-315-qualification.json`，SHA-256 `5b935661f921b04ccd177507984c4ba0746250945c8aa4e4155dae4ef2cb0fb4`；最终围栏收据 SHA-256 `34ff7d36158b58993105aa8452053afc0d4fa07fa263f44f34d1207c7a960dc9`。worker 应用、安装包和实际运行夹具输入保持不变；三项主机围栏测试文件及验收器的独立哈希绑定后续修复，未宣称镜像包含最新全部 COPY 输入。严格 Audit 客户端测试使用 `legacy_runtime`；冷 worker 的 `identity_api_consumer` 仍保留旧 Audit 分区所有权，只获得功能资格。共享 broker、有效旧 admission、完整模块、主环境切换及生产容量均未因此完成。
+
+## Notifications 普通追加 owner {#notification-append-owner}
+
+源码 `ca6617abc` 将普通通知写入改为既有 Notifications 包的固定 `append_notification(jsonb)`。静音判断继续由原偏好能力负责，随后在原 flush 前追加并将返回快照合入原 Session，调用方的提交、回滚及推送顺序保持。独立合同验证返回记录与请求的身份、目标和载荷一致，时间字段为 UTC；没有新增 HTTP 服务、独立配置或通用 outbox。
+
+真实 PostgreSQL 旧行为对照确认：`no_autoflush` 下，待插入用户的单次 ORM flush 原本会以 23503 失败；待删除用户与通知同次 flush 会成功，通知随后级联删除。因此不提前 flush 或特殊处理 User。最终聚焦 JUnit 为 55 个不同 API 案例、零失败／错误／跳过；包的 11 项检查包括既有偏好案例，不与旧检查相加。真实普通 API 角色及 Node 同一连接／事务的偏好＋追加、回滚、私表读取和直接 INSERT 拒绝通过。
+
+子工作树收据 `.worktree/test/notification-append-live-receipt.json` 的 SHA-256 为 `be056a3d717abd891b5b97a2a643ded85a77e47073c5dfbb16c95ee42fb87e8a`，绑定八项实际执行源码；55 例 JUnit SHA-256 为 `25bb72b1e9590e0f196e59a94a655e6c8388b89472f7efa3781e1cf42adb066c`。这些操作级检查使用明确自有的工作树测试库，不是验收器的独占 PostgreSQL 冷装配。新工件、完整迁移往返和整模块资格继续按表中范围验收；严格授权前须更新并排空旧 API／worker。
+
+## Notifications 终态追加 owner {#notification-terminal-append}
+
+`aap-notification-terminal-append/v1` 与迁移 `0321` 将同一收件人、类型及作业目标的查重和追加放入一个固定 owner 调用。函数返回新建标记和实际通知快照，不读取 Jobs／Identity 私表，保留历史行及长 scope。它与冻结的数据集导入通知函数共用事务锁键；只支持 `READ COMMITTED`，其他隔离级别明确拒绝。API 保留原作业白名单、payload 投影和静音行为，在借用连接的保存点内保护通知预检、SQL 与回包校验，避免通知 SQL 错误静默丢失外层作业状态更新。只有实际新建者沿用原提交前即时发布，57 个调用点没有改动。
+
+子线 27 项混合数据库／调用基线与另 1 项 ORM 缓存／回滚检查通过，包含两会话竞争、旧函数两种锁顺序、SQLSTATE 42883 故障、静音真假值、长 payload、提交前发布和 caller 回滚；56 项包检查单列，不叠加计数。15 项原始证据及失败基线已归档，清单 SHA-256 为 `61caabc6c93d983ea9654e8f498320a7ff968354a25f6816bd2bc38d21e7641a`。19 项原始 Git 文件已核对；父线仅在服务导入和 README 合并即时 Redis 传输的独立改动。父线 65 项包／兼容纯检查、Node 自检和固定版本 Ruff 通过；这批纯检查与下述数据库／工件门槛分别保存。
+
+父线在干净源码 `8d8c4a387` 上完成一次独占验收：28 项终态／旧调用案例、普通 API LOGIN 实际调用、仅函数权限的 Node 客户端、私表拒绝及 `0321 → 0189 → 0321` 完整迁移往返均通过。冻结 SQL 和已安装函数体一致，3,799 项运行前输入在运行中未变，所有自有资源清理成功；子线独立测试环境也已在归档确认后按精确确认值销毁。规范说明 `.worktree/notifications-terminal-321-qualification.json` SHA-256 为 `faef9987490ca16d13e574c45fc2b03e4a6408b71afc6abea9722b9099f0a9a3`，实际收据为 `3e6e5032161568d07cce977b5be59978391c0f545cb6eb8122b30c134c07e83d`。这些案例包含子线已通过的行为，不叠加计数；当前冷工件、普通发布／WS／Jobs 范围及整模块继续按上表跟踪。
+
+当前源码的 Notifications、Identity 兼容、Workspace 和 API 四个本地 Linux ARM64 镜像已构建，分别核对 38、177、338 和 2,017 项安装／应用／CLI 文件；API 另核对四项运行夹具。终态 schema、可移植 manager、即时传输导入、CLI 与依赖检查通过，全部 COPY 输入仍匹配。离线进程显式以非 root、只读、禁网、1 CPU／512 MiB 运行；API 镜像沿用未设置默认 USER 的旧 Dockerfile，启动器仍须指定运行用户。首个依赖收集器在此元数据假设上失败，前三项已打印的成功结果保留，只补跑未执行的 API 检查，没有重建或修改镜像。规范说明 `.worktree/notifications-terminal-321-four-images-qualification.json` SHA-256 为 `78b687b9d43e1fab848268d93ebf7d87ce1c0efd0262116b464f8f073b3ac49e`。这些是文件／资源／导入资格，不代表新镜像已运行数据库业务或整模块生命周期；既有真实事件镜像证据保留原源码边界。
+
+## Notifications 已读 owner {#notification-read-state-owner}
+
+源码 `28dba4993` 与 `dabaae028` 将单条及全部已读迁入同事务固定能力；API 继续使用认证用户 ID，并保留单条缺失／他人／已读返回 404、全部标记返回数量，以及成功提交后才同步的行为。时间由原 Python caller 一次生成并传给 owner。Adapter 尊重 autoflush／no_autoflush，不提交事务；owner 返回后复用锁定 SQLAlchemy 的批量 evaluate 缓存同步，保留原谓词顺序、dirty／expired 处理及保存点回滚登记。旧 UPDATE 仅本地编译，不执行私表 SQL。新插入、待删除、脏值及过期对象均按实际旧 ORM 对照，过期字段不会触发额外读取。
+
+独占 PostgreSQL 验收中的七项数据库／API／缓存案例和另一个真实临时类型遮蔽案例通过，零失败／跳过；Node 使用同一连接／事务验证更新和回滚。API 直接 UPDATE 被拒绝，函数账号只有偏好、追加与已读三项固定能力；`notifications_code` 只获得 `read_at` 列的 UPDATE，其他列不授权。完整 0316→0189→0316、冻结 SQL 与自有资源清理通过。新增 adapter 限定 `pg_catalog.jsonb`；随后纯合同校验收紧 false 回执必须零 ID，没有重复跑无关数据库案例。集成包 20 项、缓存纯检查一项及三个 Node 自检均通过，包数字包含旧案例，不与历史批次相加。
+
+规范归档为 `.worktree/notification-read-state-evidence/archive-manifest.json`，SHA-256 `9af8b0269821329ac210f0351dc45f100f51e21ac19fda348f3fb40ce0420a1b`。七例收据 SHA-256 `0969b7caca45f2620ba7b7c0f9512f6aead261e2b92381f81d393a47cd76def1`，独立遮蔽案例收据 `0c01b64c34f52173591f1abc861fac36f793b4a32c9894a9a09ab97cd0ca1dce`。父线核对两项 JUnit 以及精确 Git 提交的 27＋4 项文件哈希；初始夹具计数失败和诊断归因修正保留在子线证据中。收件箱可见性、删除、WebSocket、投递／去重和新组合镜像仍未闭合；主环境不自动采用严格授权。 后续删除基线发现了新的缓存反向条件：旧 ORM 在数据库更新零行时仍可能按内存条件同步。源码 `e1a71a62e`／`c75e136fb` 修正先前 ID 交集近似，并保留省略 `read_at` 的新插入对象不被填充、部分过期字段的短路顺序和保存点回滚。最终六项缓存／事务回归组含既有案例，不与先前案例相加；其归档清单 SHA-256 为 `b0a5433597744af1c9552705daa04e875cd2db4bec2e81d1b58f9c2ee922169e`，位于同一证据目录。
+
+## Notifications 删除 owner {#notification-delete-owner}
+
+源码 `c14747420` 将单条删除与清空已读迁入固定能力；返回原 boolean／数量，不返回全量 ID。API 仍由认证用户限定范围，保留缺失／他人记录的 404、调用方事务和提交后同步；原 SQLAlchemy 删除缓存同步、dirty／expired 对象及保存点回滚按旧行为复验。通知投递 outbox 继续级联删除，目标业务对象保留。严格 grants 撤销 API 的通知表直接 DELETE，owner 增加 DELETE，函数账号获得第四项固定能力。
+
+受控聚焦组 16 项通过，其中 14 项使用数据库／API、2 项为纯缓存检查；7 项纯组包含这两项，不重复相加。独占验收器完成 0318→0189→0318、冻结 SQL、0317／0318 安装函数体核对、API／函数账号权限和直接 DELETE 拒绝。该原始整轮在 Node 删除 peer 调错函数时失败，未执行 pytest；原失败状态及缺失 JUnit 原因保持。修复 peer 后，最终源码 Node 在自有工作树测试库单独通过，原整轮之前有效的阶段继续复用，未重复完整迁移。
+
+规范归档 `.worktree/notification-delete-evidence/archive-manifest.json` 的 SHA-256 为 `f409ac59e6d41721dbd8842799b3c2c5eeb8d4447180a4f341544ccb4503e749`；最终子线 provenance SHA-256 为 `fa3bf9f6ad07d2707f79ad10ef3c834e4693d39036d8d4dc8e39970ce223c190`。父线核对 27 项 Git 源码和两项 JUnit，54 项集成包／纯路由／缓存检查、21 项资源 mock 及四项 Node 自检通过。16 项聚焦执行时没有独立源码哈希清单，因此不将后补提交清单当作该时点证明；原始证据保留此限制。完整模块、新不可变组合工件及主环境切换继续按表中范围推进。
+
+## Notifications／Audit 公开读取关系 {#support-read-relations}
+
+Notifications 源码 `599b4de90` 和 Audit 源码 `d945b73d7` 分别发布八字段通知事实与十四字段事件关系，均为各自 owner 持有的 security-barrier 视图，保留原生 PostgreSQL 类型。API 保留项目／作业授权、调用方事务、autoflush 和旧 ORM identity 行为；通知服务、终态查重、WebSocket、项目审计、标注历史、批次日志、管理看板及评审快照改读公开关系。Audit 物理行键为 `(id, created_at)`；父线修复全局查询客户端错误地只按 ID 去重的问题，Python 与 Node 均接受微秒不同的合法记录，兼容 ORM 的旧 ID 映射不因此改变。
+
+统一独占 PostgreSQL 验收通过 26 项选定混合案例，零失败／错误／跳过，覆盖真实消费者、INET、同事务 flush、评审快照筛选及复合行键回归。完整 0320→0189→0320、冻结 SQL、固定函数体、四阶段视图定义／类型及 owner 转移一致性通过。只读 LOGIN、普通 API 和 LAN 授权分别验证；通知、偏好与 outbox 私表／列及视图写入被拒绝，偏好与 publisher 函数仍可调用。三项 Audit 和五项 Notifications Node 自检及对应 live peer 通过。67 项包／纯适配检查和 21 项资源 mock 另行通过，不与混合组相加。
+
+当前成功收据 `.worktree/read-relations-320-second.json` 的 SHA-256 为 `40e63aee78e2f9ef3e88ca52dc3492726cb1aa79cb99e6af7a01cb3cb42b92c8`，JUnit 为 `c4cc89f9ecaa275a54b7db45ca4d2a9cbb5466eb2766d1d04e3d7137e805906a`；执行前 3,775 项输入清单 SHA-256 为 `a1d2c87754e98b26443f54c9c9515c1039da1e7343d3ca9f06aa48f4069baab4`，验收后输入未变。首轮统一验收在发布器探针的密码字典键错误处中断，原失败收据保留；修正验收器后才获得当前成功记录。自有数据库、LOGIN、Redis、桶和临时 PostgreSQL 容器均已清理。
+
+规范组合说明 `.worktree/read-relations-320-qualification.json` 的 SHA-256 为 `35ac78b53852a9bc0cdf8c71086ddb330690037ecf953770550320a5e1028d57`。运行验收后，终审仅收紧三项 Python／Node 契约文件的时区等价判重；SQL、适配器及授权输入未变，最终 67 项纯检查和 Node 自检通过，未将旧数据库执行标为这些后续字节的执行结果。审计子线 27 项脱敏证据和 24 项原始 Git 源码归档清单 SHA-256 为 `ccede7304070dd3dc25a9a1f7db981f2b6545e8ad622a35b6e7c80dc19697457`；精确清理收据为 `ef319f29ebbf55c56ad8e5c5e746a70cc4d380b9918a52091e0e88d1c7d35df5`，仅删除本任务创建且无全局依赖的两个角色。
+
+子线通知的 34 项聚焦检查与后续 7 项重叠缓存检查单独归档；审计子线原整组失败不能计作通过，修正不可变审计更新的测试预期后仅定点补验。主线本轮不重复视频矩阵，也不将旧不可变 API 镜像标为当前工件。Audit 的月报、DuckDB、绩效、主动学习和分区／归档消费者仍需既有私表读取；Notifications 的终态原子去重、发布、完整 WebSocket 与 outbox 所有权仍待收口。因此不宣称完整 Audit／Notifications 闭合，也未切换日常主环境。
+
+读取关系检查点 `1b18a40b5` 的冷 API 镜像已单独构建，3,699 项 Docker COPY 输入与源码一致，核对 2,003 个文件（573 个安装包文件、1,398 个应用／迁移文件和 32 个 CLI 文件），另核对四项运行夹具。Notifications／Audit 均为非 editable 安装；禁网、只读、普通用户、512 MiB 容器中，两项读取 schema 与生成器一致，两项 API SQLAlchemy 别名成功编译。未变的 Workspace／Inference／Assets-source 镜像分别核对 513／133／161 项输入后复用。规范说明 `.worktree/read-relations-320-cold-artifact-qualification.json` SHA-256 为 `10b4158e0c7688e17f0c9f59280796ecf8cf08fbc5517253138ff97fbf17f896`，API 镜像 ID 为 `sha256:7e68655ba4d5abe7d14d2cd333a7b71bd862547f39b0b86778278879d642ec12`。这些是工件包装、源码一致性和离线导入证据；之前 26 项数据库案例由主机测试进程执行，不视作此冷镜像的真实读取运行资格。后续源码变更须重新核对 COPY 输入，主环境仍未切换。
+
+## Notifications 发布器归属与 Audit 分析读取 {#support-delivery-and-analytics}
+
+Notifications 源码 `0b6beeb28` 将 durable delivery 的协议、PostgreSQL 客户端、配置和执行器迁到自身包；Identity 原导入、异常类型与 CLI 通过兼容层保留，原 Compose 仍使用 Identity image。API relay 使用 Notifications executor，内部确认失败按 owner 异常处理，外层任务保持原 Identity 错误边界；claim 提交、Redis 接受后才确认、取消及重试顺序不变。独立 `apps/notifications/Dockerfile` 和锁文件定义非 editable 运行工件，不引入新 selector 或改变冻结 SQL。
+
+子线 40 项聚焦、26 项 Notifications test-only、5 项 Identity compatibility test-only 检查有重叠，分别保存；三套锁、schema exporter、独立 wheel／runtime CLI 通过。没有子线镜像／数据库／Redis 执行，原确认错误只有脱敏摘要，没有原始 JUnit／输出留存。27 项原始 Git 文件及四项归档文件已核对，清单 SHA-256 为 `2749ea518476e22d11d4a6b73ec148e9f4195c95738b748f9e052d6da85a6ab2`。新独立镜像的实际发布、失败重试和恢复仍是下一门槛，旧 Identity 宿主机执行证据不代替新工件。
+
+父线源码 `89b51f43e` 已构建独立 Notifications 与 Identity 兼容镜像，在禁网、只读、非 root、1 CPU／512 MiB 下分别核对 32／171 项安装文件、非 editable 来源、delivery schema 和 CLI。Notifications 工件不含 Identity、API、SQLAlchemy、FastAPI 或 Celery；36／178 项 COPY 输入与当前源码匹配。两镜像均为本地 Linux ARM64，规范说明 `.worktree/notification-delivery-owner-image-qualification.json` SHA-256 为 `defa0b090f53dfddefd0f775eee497cd5d0e87161f15ec502ebe344e4028772b`。这是包装与导入资格，真实 PostgreSQL／Redis、故障重试和进程死亡接管尚未因此通过；API 兼容工件待新验收用例集成后统一构建。Workspace 间接依赖 Identity，原锁检查失败；补齐 Notifications COPY 输入并更新本地路径依赖锁后检查通过，未升级外部依赖。旧 Workspace 镜像的 COPY 集已变化，须重建后再验证，不能继续标为当前工件。
+
+新工件的定向门槛代码为 `37bfd87e8`、`0fd430d26` 与 `e0145db27`：绑定不可变镜像／网络身份，只在独占、无待处理 outbox 的自有测试库运行，复用真实 Identity 事件生产并使用受限 Redis ACL；覆盖拒绝发布后重试、稳定 ID、空批次重启与领取后进程死亡的租约接管。14 项纯夹具检查通过；原接线缺陷和后续修正分别保留。当前仅接线及纯检查通过，真实容器案例仍待执行，不把握手阻塞说成已发送 PUBLISH。
+
+后续 Workspace／API 工件分别核对 332／2,008 项文件，四个镜像的依赖检查均通过；规范说明 `.worktree/delivery-four-images-4d844a3-qualification.json` SHA-256 为 `55c4b09672a2140fcaab1f2de5653bd7b1698398be5726f3d7c91a4567fe0cf6`。首轮真实用例在发布器启动前失败：Docker 创建态只有不可变 NetworkMode，运行态 endpoint ID 尚为空，夹具误判并中断清理。原失败收据 `7671de537345a69d4cbc0d86c84b8a7a69bccc41d10df03e7b3733d399c31628` 保持失败；迁移、授权和 Node 通过阶段单独保留。精确自有残留已核对并清理，恢复收据 `bb4edd85d6ba6403aa5f22e0acc06caf2e131cc09965392d2c973af68d8b0e59`；不带数据库或凭据的 Docker 最小复现 `d32cbe0d290c03efb75e9afcab3abc565f7ccada558d5770e29a33dbb60a801f` 确认三种生命周期状态。`2d2048645` 仅修正宿主机测试夹具的创建／快速退出检查、完整 ID 和清理异常传播，19 项定向检查通过，真实投递门槛待重验。四个运行工件的应用／安装包输入不变，后续三项宿主机测试文件以独立哈希绑定，不能将旧 COPY 全集声明为这些新测试字节。
+
+修正生命周期夹具后，独占测试环境中的一个新镜像组合案例通过，零失败／错误／跳过：真实 Identity 请求产生两条已提交 outbox；拒绝 PUBLISH 的 ACL 不确认且保持可重试；允许的 ACL 将同一 ID 投递并完成；新的空批次无重复工作；进程在领取提交后、Redis 握手未完成时被实际终止，受控到期后由同一镜像的新进程接管原 ID。六个容器及私网身份写入 JUnit，容器、网络、密钥、生产夹具和标准验证器资源均已清理。成功收据 SHA-256 为 `674a586aa8d60215a378f45fe60f5748d4c79e484fc0337c2bf8d3b399e4735e`，JUnit 为 `d5dbfe216cd7b3424b8a1cd105615b52f4b58588c45f6ddf31d1e15f6e7f0783`，3,786 项运行前输入快照为 `9d1c0bfc6a168907a77c1a5d97a2508b689102135520d199c04b009b8e687919`，运行期间输入未变。规范说明 `.worktree/notifications-delivery-owner-runtime-qualification.json` SHA-256 为 `a3f4a57dc8be575d2abb292aa23377549b2e8d9d5a9202f277d5b46d4e8f1159`。
+
+完成事件另以独占测试环境中的一个案例通过，未重复申请事件的故障矩阵：真实 Identity 申请先生成并投递通知，仅将该测试账号及对应申请的时间同步推进为到期，再由实际 due owner 完成注销。账号持久状态为停用、离线、已删除；只有另一名仍启用的管理员收到完成通知，payload 保留 email／name／auto，不泄露私有 reason 或 user_id。同一独立镜像的新进程投递原 ID、收据完成后，空批次重启没有再次发送。三个容器、私网、密钥和标准验收资源均已清理，3,786 项运行前源码输入在运行中未变。成功收据 SHA-256 为 `1824dbca4b3713629a0d87228b4279eb22fe0f5eeac3d0a4152d3458f794031b`，JUnit 为 `111f4f1bf9e45a7f50eecac1884af11c2eb73abd043735f2ed5e81682040c477`。
+
+两类注销事件的当前镜像门槛均已闭合，联合规范说明 `.worktree/notifications-delivery-event-coverage-qualification.json` SHA-256 为 `91fea004354a4523cc0bb2c6e9fca7b23fded8090259aa62f107a018f01817c7`。全类业务通知、终态原子去重、普通发布／WebSocket 与完整模块仍分别跟踪；受控推进测试时间不代表生产恢复时限，原首轮失败不改写。当前没有切换主工作树、日常拓扑或生产环境。
+
+普通即时发布另将 `channel_for` 与 Redis 传输原语移入 Notifications；API 保留 `_publish` 兼容入口、原消息构造和授权，继续分别处理提交后最佳努力、终态提交前即时发布及 durable relay 的错误传播。默认 JSON 字节、每次创建连接、finally 关闭及取消行为保持；不复用 durable codec，也不新增 RPC 或配置。13 项传输／durable／API 纯检查及固定版本 Ruff 通过，7 项源码在检查期间未变；规范说明 `.worktree/notifications-redis-transport-qualification.json` SHA-256 为 `08219cb6b22be12eaa63311ca8dd64ce1cc6de3a47d434473e0b5c1a4392666a`。这是传输归属与兼容资格，普通通道的冷工件和完整发布合同仍待验收。
+
+Audit 源码 `4f762fb91` 将月报原始尾段、DuckDB Audit 同步、项目绩效的 ORM／原始 SQL 事件读取迁到既有公开关系；没有新增迁移、grant、提交或 flush。真实 PostgreSQL／API 26 项通过，DuckDB 目标数据检查 8 项与相关纯检查 15 项分别保存，不相加。`99589119a` 为受既有读取 helper 影响的 `MissingAudit` 测试替身显式补上 `autoflush=False`，生产 helper 未放宽；该失败案例单独补验通过，原失败 JUnit 保留。21 项证据／源码快照归档清单 SHA-256 为 `cfacebe42f905881df07bf39829fdd23475758f1d264b8abad9a43f516a6d695`；精确自有环境已销毁，收据 SHA-256 为 `fec3b1fd7c4b0f36c5b943f85ae8f82daccfa1e8232ce14400148206f0a2d8e8`。
+
+父线合并源码后，117 项包／兼容／API 边界／绩效及 DuckDB 目标检查通过，零失败／错误／跳过；它们包含上述部分案例，不与子线计数叠加。月报 MV、主动学习及分区／归档仍保留原有读取与维护路径，不能统一撤销 Audit 私表读取。当前改动不代表完整 Audit／Notifications、冷进程真实消费或主工作树采用；训练与 Assets 数据集／存储继续待最新功能合并。
+
+## 视频取消后重投 {#video-cancel-redrive}
+
+源码 `4f5dd10c0` 保留原授权与取消／审计事务，提交后通过既有派发器重投相同作业 ID。队列确认不明时返回 `503 tracker_retirement_redrive_unavailable`；重复请求保留已取消状态和单次审计。200 仅确认取消提交，项目删除与解绑仍等待 Jobs journal 和实际 Inference scope 的退役证明。
+
+子工作树的 `.worktree/video-cancel-redrive-qualification-second.json`（SHA-256 `cd36cdfeb9b295a5ac7b7abf8c7341277e0f7180d7ae1c841cec0de11703dde4`）通过两项案例：HTTP 撤权前置与一个完整 worker 组合案例。当前源码 API 通过真实 ASGI 请求派发到独占 broker／队列，取消后杀死 prefork 子进程，再观察原 ID 重投、当前执行退役及空队列确认。复用的 worker 镜像源码未变化；这不证明当前 API 镜像已验收。另两个删除／解绑案例通过，记录为 `.worktree/video-cancel-deletion-guard-qualification.json`（SHA-256 `4d841d50726e87bfcb634251fa7b52097e1b9305a4d3bc640364688f10b7fa2b`）。未退役时保持 409，真实退役后同操作重试成功，自有资源清理通过。无账本旧作业、scope-only 孤儿及整模块资格继续按上表推进。
+
+无账本旧视频的后续只读审计确认：当前 execution 退役会校验精确 run／route 证明，never-started clearance 仅适用于从未启动的作业。已启动但无 execution／journal 的作业，以及 scope-only 孤儿，仍缺覆盖旧 Celery 消费者、重投和在途写入的可核验停机／写凭据隔离事实源；单个推理 scope 的排空不能证明旧 worker 已停止写入。现有全局恢复中的外部 fence 摘要也不验证其实际内容。因此这些对象继续返回 409，不能补造 journal 或复用 never-started clearance。此审计不改变任何运行状态，整模块收口仍等待该真实前提。 后续实施仅为可观测、验收器独占 PostgreSQL／精确 worker 容器／作用域存储凭据建立本地围栏事实源；真实历史部署仍须证明完整凭据范围。新本地夹具使用随机专用队列，旧 tracker 基类则使用 `gpu`，不能将队列名当作独占证明，也不清空共享 broker；旧消息安全性须由失效凭据无法再写入来证明。 夹具保留真实 scope 退役、进程停止、S3／数据库旧凭据拒绝及相同任务重试观察；S3 先用同一账号成功写入并读回专用对象，撤销后重试相同写入，不能用原本未授权的桶操作作为证据。worker 诊断覆盖 tracker 凭据脱敏，部分启动也必须清理网络且不得吞掉清理失败；历史 Job 与 scope-only 状态均由测试 owner 播种，保留当前 tracker INSERT permit 防护；该 scope 没有 attempt、permit 或有效 admission。当前工件对无账本记录返回 RETRY，不能记作旧版二进制迁移或有效旧令牌资格，也不创建 Jobs 退役凭证。
 
 ## Identity 整模块独立装配
 
-`apps/identity`、共享邮件传输包及 `docker-compose.identity.yml` 复用已验收的独立实现。API 保留原 HTTP、事务和撤权语义；旧 Workspace 模板与编排通过已有 Identity 组织 ID 能力读取归属，普通 API 为两张公开关系和六项函数，无私表／列授权。
+主工作树已从 `856fa79c87` 快进采用经过精确验收的 Identity 检查点 `d2ea90f3f`，保留旧 Workspace 实现。采用分支的 `.worktree/identity-adoption-qualification.json`（SHA-256 `7c7a3739e540e6f1de389f3b5667c8afc573865e0c6c37ceac3486a769aa19d3`）记录 268 个去重定向案例及一个完整冷装配案例，后者包含 66 次公开请求、Socket／Node、邮件／通知、停服、重放和完整恢复。
 
-本检查点源于已接受的 Identity 源码及其线性迁移前置，未带入后续 Workspace 实现。252 个去重 API 案例和另一个受限 HTTP／Node 案例通过。主库的只读快照已在独占 PostgreSQL 中验证 `0234→0306` 升级及原快照恢复；原库只有一行业务数据，另在副本添加两名旧账号和两条恢复令牌验证密码、JWT 准入及预期的令牌哈希转换。
+日常库已实际从 `0234` 升到 `0306`；采用前的私有数据库和角色备份已保留，数据恢复在独占 PostgreSQL 验证。171 张原有业务关系及唯一业务行保持，原 LaunchAgent 管理的 API 已重新启动，实际 DB／Redis／MinIO、注册策略、未认证拒绝、OpenAPI 快照和源码热重载通过。采用分支的 `.worktree/identity-primary-adoption-delivery.json`（SHA-256 `5bc31b3fa2b4d3e5f95001f6d19707a73ec1acce250d3a5724bfc245fd5d1cd2`）独立记录交付状态；原有内嵌绑定继续使用，日常独立拓扑未切换，Celery 未启动且旧 worker 镜像启用前须刷新。下文原装配证据保持原范围，不把采用兼容函数或请求数重复计为案例。
 
-当前源码检查点已通过匹配冷工件和完整独立装配的真实消费者验收：一次组合案例含 66 次公开请求，以及 Socket、Node、邮件、通知、停服、重启和完整数据库恢复。另有 268 个去重定向案例通过。规范证据为 `.worktree/identity-adoption-qualification.json`，SHA-256 为 `7c7a3739e540e6f1de389f3b5667c8afc573865e0c6c37ceac3486a769aa19d3`。
+复用 `docker-compose.identity.yml`，一个独立 HTTP 进程配置全部 17 类 Identity 能力，另起 MailV1、MailV2 和 Notifications publisher；远程 API 使用单独的冷镜像。五个进程通过同一 Compose 私网连接验收器独占的 PostgreSQL／Redis，不经宿主机发布端口访问数据库。SMTP 和 API 启动所需的对象存储元数据仍使用隔离夹具；Identity 不持有对象存储凭据。
 
-已验收源码检查点 `d2ea90f3f` 已合入主工作树。采用前保留了权限为 0600 的数据库备份和集群角色备份，并在独占 PostgreSQL 验证数据恢复；日常库实际从 `0234` 升至 `0306`，171 张原有业务关系及唯一业务行保持。原 LaunchAgent 重新启动既有内嵌 API，DB／Redis／MinIO、注册策略读取和未认证拒绝通过，公开 OpenAPI 与快照一致；触碰源码后新子进程完成启动。采用记录为 `.worktree/identity-primary-adoption-delivery.json`，SHA-256 为 `5bc31b3fa2b4d3e5f95001f6d19707a73ec1acce250d3a5724bfc245fd5d1cd2`。日常独立 owner 拓扑未切换，Celery 仍未启动。Go 保持实验性质，其他模块的独立部署资格不随迁移前置安装而成立。
+API 使用既有远程 consumer 权限模型：在 owner 及兼容应用授权之后，最后应用 `identity-consumer-grants.sql`。真实 LOGIN 只能读取两个公开关系及执行五项同事务事实／锁函数；密码、key hash、私有回执和 User 写入均拒绝。独立提供方保管签名密钥，API 使用不同的 edge secret；实际登录、刷新、注册、REST 和 Socket 均使用 owner 凭据。API 不持有 Identity 命令 DSN、签名密钥或邮件 key，远程故障返回 503。
+
+冷安装的非 editable 包通过 658 项检查；129 个包文件与独立安装及两个镜像匹配，API 镜像另核对 1,294 个应用／Native／元数据文件。完整迁移通过该次验收 head 0287 的五阶段 fresh、升级、降级再升级及快照恢复检查。已有操作级事务、锁、撤销及协议资格继续有效，各批数字独立保留，不与 658 项相加。
+
+整模块真实消费者场景连续两轮通过。每轮记录 66 个公开请求，另含私有 RPC、Node 与 Socket 调用；覆盖注册设置、分组／邀请、目录／UserBrief、管理员生命周期、到期注销、停服拒绝、重启重放、两种实际邮件发送、通知积压后投递，以及完整 dump/restore 后的 JWT、撤销、回执、待发邮件、通知与受限 ACL。两轮是同一案例的重复验证，不计为两个去重案例。恢复保持原有 owner 密钥，没有执行密钥轮换。
+
+所有进程使用普通 UID、只读根文件系统、禁提权及固定预算：每进程 1 CPU，Identity／worker 各 256 MiB，API 512 MiB。每轮另采样 16 个混合读取、并发 4，观察到 p95 为 0.134／0.135 秒。这只是本机 ARM64 的有限样本，不提供生产容量或 SLA 结论。证据汇总在验收工作树的 `.worktree/identity-module-qualification.json`，可重复入口见 `DEV.md` 的“Identity 整模块私网验收”。
+
+此前容器经 `host.docker.internal` 访问数据库发布端口的实验，曾在邀请、恢复后的 `/auth/me` 和离职提交中出现间歇性 503；后续无业务代码的传输探针已复现 TCP 建连故障，但历史单次请求的根因仍未确认。`/auth/me` 的失败日志不能区分认证与账号读取 RPC，不能归因于 actor-context。当前通过的是上述 Compose 私网拓扑，没有将旧转发路径记为已修复。日常主环境、AMD64、远程 CI、生产部署与另一语言完整提供方均未因本次本地资格完成；其他模块的阻塞仍以本页台账为准。
+
+旧转发路径现有持久化的真实 RPC 诊断用例，分别在开启插桩和原始启动命令下，使用
+各自全新验收库通过 67 次公开调用，包含八次邀请、八次离职预览／提交和 32 次完整
+恢复后的资料读取。受控连接拒绝捕获数据库 `53300`、owner 原始 503 和 API 原始
+503；拒绝期间没有邀请写入，恢复后同一入口返回 201。两个不同用例分别计数，不能
+把重复请求计为独立案例。六个关键路由／RPC 适配器与当时失败镜像的源码哈希一致。
+匹配 owner／API 镜像核对 139／1,289 个文件，迁移 head 0306、冻结 SQL 往返和全部
+自有资源清理通过。记录见 `.worktree/identity-forwarding-diagnostics.json`；它证明
+诊断和受控恢复有效，不能单独证明历史故障已修复或模块完成。
+
+原始完整业务顺序也已在带／不带插桩下各通过一次，每项保留原有 66 条公开调用记录，
+并覆盖真实邮件／通知、Node／Socket、停服重放和完整恢复。带插桩的恢复就绪探测
+实际出现过一次五秒数据库连接超时，重试后通过，不能被最终通过状态掩盖。
+无 Identity 业务代码的两轮传输探针进一步记录：转发路径出现十六次 TCP
+`sock_connect` 超时，发生在 TLS／认证及应用 SQL 之前；私网直连合计 4,096 次连接
+没有失败，第二轮各组也均未失败。这些是本机连接观测，不是容量或可靠性保证。
+收据见 `.worktree/identity-forwarding-original-qualification.json`；旧三类业务 503
+与该连接故障的逐次关联及修复仍待验证，作为运行装配遗留保留在上方台账。
+
+同步对照进一步隔离了故障：同一客户端进程、同一服务器及四个角色均使用默认 SSL，
+私网 4,096 次全部成功，转发 4,096 次出现 112 次连接超时。取消堆栈指向 IPv4
+宿主机转发地址的 TCP 建连，尚未进入 TLS／认证；它不是业务 SQL 或角色权限错误。
+这一问题属于旧宿主机转发路径的运行装配故障，继续由台账跟踪；没有修改业务重试
+或超时，也不把历史单次请求的原因视为已经证实。
+
+最终本地模块审计汇总九组操作，复用上述原始证据并补齐最后一个筛选 CLI 消费者：
+CLI 使用公开账号关系检查非空库，播种显式传递数据库参数。相同真实案例在旧源码上
+失败、修复后通过，覆盖停用账号拒绝、首次播种及复用后保留修改／计数／凭据／原始媒体；
+普通 E2E LOGIN 始终不能访问 Identity 私表。五项既有 CLI 单元检查也通过。
+审计记录在 `.worktree/identity-module-completion-audit.json`，本轮收据及保留的失败在
+`.worktree/identity-forwarding-original-qualification.json`。这闭合 Identity 的本地私网
+模块门槛；全局迁移仍由 Runtime assembly 持有，主环境切换、其他模块、旧转发路径修复、
+生产容量及另一语言完整提供方均不在这一完成结论内。下一交付是媒体子种子的 Workspace
+Project 操作边界。
+
+Identity 已将认证后的主体资料读取绑定到既有 AUTH owner：私有 actor-context 使用同一远程服务或 AUTH LOGIN，只新增第五个只读函数，不引入新 DSN、角色或运行单元。它只刷新 admitted account 的基础资料与 weekly target，不重新验证凭据，也不承接后续写入授权；写路径的账号锁、目标 User 查询和 ORM 状态同步保留。本切片限定验收通过 114 个 distinct selected cases（92 DB/process、22 pure/static），零跳过；包含真实 API、双向语言 peer、第五项权限撤销／恢复与既有 Identity 恢复用例。源码和安装包各通过 579 项，安装文件与镜像哈希匹配；这些结果不与此前 UserBrief／项目显示消费者的用例数相加，也不证明完整 Identity 独立部署、全模块凭据收口或全目标完成。合同见 [ADR-0130](/dev/adr/0130-identity-post-admission-actor-context)。
+
+Identity account-lock boundary 用三项 typed SQL functions（SHARE／UPDATE／KEY SHARE）让现有 Workspace、Labeling、Inference、Learning 和 workflow owners 在同一 caller transaction 中持有账号事实锁，再完成各自写入；它不新增 HTTP lock endpoint、LOGIN 或 DSN，也不扩张 AUTH/FENCE 权限。锁异常、NOWAIT/wait 与 UserLifecycle 显式 rollback 均保留 caller 原语义。新锁切片通过 231 个 distinct selected cases、无有效跳过，含独立 Node 调用、真实锁等待、转移／角色变更的两种顺序、八项恢复及新 Celery 进程。源码和非 editable 安装各通过 595 项，119 个包文件与新 owner／API 容器指纹一致，API 另核对 150 个应用／native 文件。Pre-change baseline 的 15 个场景和 actor-context 的 114 项资格均单独保留，不能相加或借用。本次不收口非锁定 Workspace 查询、bootstrap/import writer、完整 Identity、十模块／七门槛或生产切换。精确边界见 [ADR-0131](/dev/adr/0131-identity-transactional-account-locks)。
+
+运维 provisioning 是新的 Identity 账号写入切片。两个既有 bootstrap/import 入口改为调用 Identity owner；受限验收角色 `identity_provisioning_client` 现有三项固定函数，其中 `read_provisioning_account(text)` 与 `create_provisioning_account(jsonb)` 供 bootstrap/import 使用，另有下文主种子的 persona 创建能力。默认 CLI/import 继续使用调用方的数据库连接，保留外层 SQL transaction；账号写入及固定 Audit 由 owner 组合。这是按 email 的 bootstrap 与环境门控 import，不是一般账号创建、注册或邀请。Authority readers 只复用现有账号状态和同事务锁能力，不新增 SQL、角色或 wire operation。Provisioning 与 authority consumers 已通过 236 个去重选定案例、无有效跳过，覆盖受限 Node client、实际 CLI、全新 Celery worker、八项恢复和事务／锁语义。源码与非 editable 安装各通过 619 项检查；独立 owner 和禁网只读 API 镜像均核对 122 个包文件，API 另核对 61 个本轮应用／native 输入。先前 actor-context 的 114 项与 account-lock 的 231 项各自独立，不计入本次资格。该操作级证据与上文整模块装配资格独立保留；十模块／七门槛目标仍未完成。详见 [ADR-0132](/dev/adr/0132-identity-operational-provisioning-and-authority-reads)。
+
+## Workspace 组合运行与恢复验收
+
+复用六个既有 Compose 片段，用同一个 Workspace 冷镜像启动成员、交接、配置、模板、项目及目录服务；另起 API、Inference probe 和 Guide 对象服务。九个进程经独占私网访问本轮 PostgreSQL／Redis。API 使用独立冷镜像，Workspace 权限限定为 32 个函数和两张事实视图，私表及回执不可读；六项 HTTP 选择器与借用调用方事务的 Native 能力共同装配。
+
+非 editable 安装通过 439 项适用检查，274 个包文件、12 个命名空间与安装及 owner 镜像一致；环境不含 API、SQLAlchemy、Celery、对象存储 SDK 或 ML 框架。API 镜像另核对 1,273 个应用与安装文件。镜像健康探针读取已有 `WORKSPACE_PORT`，六个既定端口均通过真实容器检查。
+
+组合案例覆盖模板、项目／类别、成员预览和撤权、负责人交接、实际后端探测和 Guide 对象操作；选定服务停止后返回 503，重启后重放同一回执。六个 HTTP owner 均停止时，借用 Native 事务的读取、维护、项目删除及数据集解绑仍保持现有行为。点云质量晋升通过真实 API 验证：Audit 后置失败时项目配置和评估共同回滚，成功时三个状态一起提交，旧基线返回 409。
+
+带业务数据和删除／解绑回执的数据库完整恢复后，九个进程在恢复库重新启动；项目鉴权、无效令牌拒绝、回执重放、受限 ACL 及未退役旧视频的 409 均通过。旧视频的项目／作业和零删除回执保持。迁移工件安装、回滚及升级检查通过，验收器删除全部自有资源且无清理错误。可重复入口见 `DEV.md` 的“Workspace 组合私网验收”。
+
+16 次项目读取、并发 4 的本机样本耗时 1.180 秒，观测 p95 为 0.335 秒。这是 macOS ARM64 的有限正确性样本。独占 worker 案例另起同一个 API 冷工件中的真实 prefork Celery 进程：受限 `identity_api_consumer` 连接通过 Native 读取项目，重启前后两个 retry 均写入 Prediction／元信息及作业终态，真实队列与 Redis 未确认消息数归零。容器保持普通 UID、只读根文件系统、1 CPU／512 MiB；该案例通过后清理全部自有资源。它不覆盖公共 retry 入队、池路由、源对象读取或 ML 正确性。冷 nuScenes 运维入口的限定资格见下节；旧视频无证明的退役修复、其余运行路径与更完整容量仍按台账跟踪；未切日常主环境，也未获得 AMD64、远程 CI、生产或另一语言完整提供方资格。Inference peer 是确定性 HTTP 协议夹具。
+
+## Identity 内嵌运行权限
+
+默认 API 继续在 caller Session 中使用 Identity 固定 Native 能力。分离账号的
+工作区和 LAN 授权在同一事务里撤销 Identity 私表的表级与列级权限，保留公开关系
+和已有命令能力；工作区补齐目录、管理员改密、角色、暂停／恢复、删除及离职绑定。
+普通应用 LOGIN 不能持有角色成员资格，避免 `NOINHERIT` 下仍能 `SET ROLE`。
+遗留 PUBLIC／所有权等绕过导致整笔授权回滚，不修改共享 ACL 或捏造隔离状态。
+
+两套授权配置的 14 项定向检查已通过，含实际 LOGIN 的私表拒绝、列权限清理、
+重复授权、PUBLIC／成员资格拒绝及整笔回滚、借用事务创建后回滚，以及真实 HTTP
+登录／账户修改／六组管理员命令／退出后的撤销。匹配 API 镜像的两项冷容器检查
+也已通过，实际 Uvicorn／TCP 完成相同 HTTP 流程，完整启动生命周期启用，E2E 路由
+关闭且 Identity 专用选择器全部留空。容器为非 root、只读、1 CPU／512 MiB；这不是
+生产容量或 SLO 结论。既有独立 Identity、录制和 E2E 的受限 profile 继续分别保留，
+未扩大普通远程消费者的五函数／两视图范围。完整迁移与冻结 SQL 安装／回滚通过，
+临时数据库、网络、容器和存储凭据均已移除。源码实现为 `ae2401897`；验收记录见
+`.worktree/identity-embedded-acl-qualification.json`。
+
+工作区的基础配置共用 owner 时，资源生命周期现在会创建本模式的普通 LOGIN，
+密码仅保存在 `0600` 的模式凭据文件，应用和普通 worker 改用该账号；迁移与维护
+worker 保留原连接。创建、恢复、停止及销毁核对归属、角色属性、成员关系、连接和
+外部依赖。缺少 `CREATEROLE` 时要求预配置分离账号，不回退 owner。两个 PostgreSQL
+角色原语场景、20 项去重 Native 检查、真实普通／维护 worker 及一项冷 API 验收已通过。
+
+Native 检查覆盖完整准备／真实 HTTP／停止／重建／销毁、带账号数据的完整备份恢复、严格凭据模式、角色及
+双向成员关系、跨数据库依赖、活跃连接、CREATEROLE 失败与事务回滚恢复。授权事务
+会重新核对自有角色，额外成员导致整批授权回滚；已有 LAN 的迁移继承方向保持。
+完整 dump／restore 在原数据库名下保留全局 LOGIN 和凭据，验证账号数据、撤销记录、私表拒绝与恢复后的实际登录；该阶段不轮换密钥或密码。复用仓库既有修复后，自动维护行不再被算作用户连接，真实客户端仍阻止删除；该回归
+使用注入的维护行验证 SQL 过滤，不宣称本轮实际触发了 autovacuum 调度。
+
+匹配冷镜像的实际 Uvicorn／TCP 流程使用自动生成的 LOGIN，所有 Identity 专用
+数据库选择器留空，迁移／测试 owner 不进入 API。登录、账户修改、六组管理员操作
+及退出撤销通过；容器为非 root、只读、1 CPU／512 MiB。1,289 个应用及安装包文件
+与源码一致，完整迁移和冻结 SQL 安装／回滚通过，全部自有资源已清理。
+98 项 Python 工具检查与十一项 Node supervisor 检查通过；源码实现为 `600556197`，
+收据见 `.worktree/identity-runtime-role-qualification.json`。这是本机 ARM64 的限定
+正确性资格，不能作为生产容量或 SLO 结论。
+
+每次迁移或刷新宽授权后重应用授权；默认权限没有在本项中改变。直接 `dev:api`
+等入口不经过工作区凭据管理；主环境未切换、宿主机转发的旧间歇性 503 仍未定位。
+操作说明见
+[内嵌角色权限](/api/guides/identity-runtime#内嵌运行角色的私表权限)。
+
+## Identity 门控 E2E 夹具
+
+原门控路由的 Identity 访问经独立的完整资料关系与七项固定 Native 能力执行。资料
+投影精确保留 `UserOut` 的 21 字段和 Session 缓存；创建、停用、四种邀请、密码重置
+token／邀请／组织成员依赖清理及共享／命名空间删除均由 Identity 持有。没有一般 SQL
+或任意表名入口，普通 API 仍只有既有五函数与两视图。环境与实际数据库守卫保持。
+
+修改前 64 项原测试及六份完整行为基线已捕获。27 项不同定向检查通过，含 16 条实际
+受限 API 场景、Node 七能力调用、完整 DTO／真实缓存漂移复验、共同回滚、真实行锁、
+实际 `_TEST`／非测试数据库守卫以及 GPU 前置回归。64 项既有回归也已逐项通过；
+源码 393 项通过、150 项既有架构规则跳过，工具 58 项和 OpenAPI 核对通过。
+
+实际验证补齐了组织成员清理，并发现注册项触发器对零行围栏删除也会检查 DELETE
+权限。新迁移只跳过不存在围栏时的空操作，真实围栏仍受原权限与 GC 证明保护；
+有历史围栏和非零 runtime epoch 的实际数据验证其保留。API 镜像也固定携带原
+filtering 视频文件，不改文档媒体内容或审阅来源。测试准备的哈希约束、跨连接提交、
+非 Identity 运维授权和 keeper 收尾缺陷均与产品缺口分开修复，原失败收据继续保留。
+
+冷工件已完成安装核对：owner 288、API 1,322（含原视频文件）、Inference 88 和
+Assets-source 154 个文件分别与源码匹配。一个冷案例的八次独立 API 容器运行通过，
+实际启用 Uvicorn、原始 HTTP 与应用启动生命周期；覆盖路由关闭、能力撤销、完整
+账号／邀请／tracker／raster／advance 路径，以及 token、邻居和精确对象版本清理。
+物理取消关联 Native SQL、LOGIN、容器 IP 和 PostgreSQL PID，退出 137 后确认连接
+消失、事务未提交，再执行恢复成功。迁移／冻结 SQL 回滚和全部自有资源清理通过。
+
+首轮冷运行在已完成实际 HTTP 操作后，因 probe 对 Response 的结果取值错误而失败；
+原收据保留，单表达式复现修复后整例通过。四个源码工作树在精确 Git bundle、patch
+及忽略缓存归档验证后移除，分支保留。汇总收据为验收工作树中的
+`.worktree/identity-e2e-qualification.json`。
+
+只读入口审计未再发现运行时私表操作，但默认兼容运行角色仍获 public 全表 CRUD。
+独立模块消费者的五函数／两视图资格不能代替该默认绑定；下一项在隔离开发装配中
+收口 Identity 私表权限并验证现有绑定。日常主环境未切换，未获得其他领域、完整
+浏览器工作流、ML／GPU 执行、远程 CI 或生产容量资格。
+
+## Identity 截图夹具
+
+三项原始工具的 Identity 操作已改用公开账号关系及固定偏好写入能力。恢复／拒绝
+夹具继续按精确 email 查找 ID，不新增角色／启用判断；偏好恢复仍是原 JSON object 的
+完整替换，同值更新计一行，缺失账号报错。新能力由 Identity 持有，在调用方事务内
+正常等待行锁，不增加提交、审计或自动重试；实际数据库名必须严格以 `_test`／`_e2e`
+结尾。可信录制 operator 只追加该函数的 EXECUTE，普通 API 保持两视图／五函数。
+
+修改前捕获 37 项行为，包括真实 Session 的 email 缓存漂移；受限凭据复验全部通过。
+五项额外 Native 检查覆盖 Node 调用、私表拒绝、共同回滚、实际行锁等待、真实测试／
+非测试和大写后缀数据库。完整迁移、冻结 SQL 安装及回滚均通过。首次补充运行因缺失
+测试夹具注册有两项 setup error，修正接线后仅重跑这两项并通过；原失败收据保留。
+
+owner／API 工件分别完成 286／1,318 个文件匹配检查，未变化的 Inference 和
+Assets-source 工件资格复用。独立冷案例通过 23 次原始 CLI 容器调用，涵盖重复操作、
+范围／账号拒绝及共同回滚。撤销写入能力后操作失败，恢复后成功；取消与真实 Native
+SQL、调用角色、容器 IP 和 PostgreSQL PID 关联，容器退出 137 后确认后端消失、偏好
+未改变，再执行成功。全部自有资源已清理，迁移与冻结 SQL 回滚通过。
+
+源码检查 392 项通过，150 项既有架构规则明确跳过；工具 58 项及 OpenAPI 核对通过。
+收据在验收工作树 `.worktree/identity-recording-qualification.json`。范围仅为三项
+消费者的 Identity 操作，不代表其他领域写入、浏览器录制、真实 ML 推理或整个录制
+工作流；旧媒体资产及人工审阅来源保持真实。门控 E2E 路由仍需逐项收口，见台账。
+日常主环境未切换，未取得远程 CI、AMD64 或生产容量资格。
+
+## Identity 历史角色审计
+
+审计入口通过独立的 `aap_identity_audit_v1` 关系读取账号角色、邀请审计字段和邀请
+准备列事实。关系保留每一行的原始角色、NULL 和启用状态；没有权限决策、筛选、
+角色转换或 Python 端账号缓存。账号和邀请仍与原项目／任务查询在同一只读快照组合。
+
+历史库可能早于普通 Identity 事实关系及头像列。维护者在审计之外显式安装固定关系，
+使用既有 Identity 非 LOGIN owner 和受限审计 LOGIN；安装器不创建账号、不修改业务
+行或 Alembic revision。三个关系保持单独的部署前置条件，普通 API 仍仅获既有两视图
+和五函数。审计凭据不能直读 User／邀请私表或列；其他领域的只读权限另按原范围提供。
+
+邀请项目角色从整行的 JSON 表达式读取单一字段：源列不存在时返回 NULL，加入后
+自动读取其值。中间行 JSON 不向消费者返回，email、token 等字段不属于公开契约。
+准备列存在性由单行 owner 元数据关系给出，保留原报告的“未知”判断。
+
+原工具的八份报告已在修改前捕获，包含真实迁移到 `0171` 的隔离库；原有四项行为
+检查也已通过。受限凭据复验、真实 `0171` 到 `0173` 的无重装过渡、Node 消费和备份恢复已通过，
+连同既有检查共 15 项不同案例。新 owner／API 工件分别通过 284／1,316 个文件匹配
+检查；未变化的 Inference／Assets-source 工件资格复用。
+
+冷案例在真实 `0171` 数据库执行七次 CLI 容器调用：未安装关系和撤销 SELECT 均退出 2，
+限制行数和格式化报告保持，权限恢复后可再次审计。取消退出 137，先关联实际 SQL、
+角色、应用标签、容器 IP 和 PostgreSQL PID，再确认该后端消失及源行未变，随后恢复
+执行。十秒阻塞只证明最终释放。临时只读 LOGIN、旧 LOGIN 的执行环境、自有数据库
+与运行资源均已恢复或清理；安装和运行均未推进历史库 revision。
+
+实现提交 `980576b7a`，证据见仓库 `.worktree/identity-role-audit-qualification.json`。
+本轮关闭此审计的 Identity 操作；完整 Identity 模块、其他领域边界和生产容量仍按上方
+唯一台账跟踪，日常主环境未切换。
+
+## Identity 运维账号选择
+
+图片导入仍无序选择第一个已有账号，不增加平台角色或启用限制。只查询既有公开账号
+事实的 ID／email；对象上传、批次、提交和失败后保留对象的行为保持。重复导入仍会
+新建数据集，不作为幂等导入接口。
+
+规模种子的两项固定 Identity 只读能力保留原规则：按创建时间选最早的 super_admin，
+不排除停用账号；标注员按创建时间选具有 annotator 项目职责的启用账号，不限制平台
+角色。相同时间不增加 UUID 排序，空候选返回 null，创建时间不跨边界传出。
+
+API 组合既有 Workspace 成员事实与 Identity `STABLE` 函数，在同一 SQL 语句中形成候选
+数组并选择账号。并发检查在语句中暂停后同时修改成员职责与账号启用状态：当前语句
+保留开始时的结果，下一语句看到新状态。两个原查询仍按顺序执行，没有新增 ORM flush。
+清理仍先提交；账号选择失败不会恢复已清理的旧规模种子。
+
+12 项修改前行为已捕获并在拒绝 User 私表／列的凭据下复验，包括完整小规模建题、
+角色差异、跨项目与重复候选、并列和无限时间。另有真实 Node READ ONLY 消费与并发
+快照检查，两类合计 14 项通过。匹配冷工件通过 282 项 owner 包文件和 1,314 项 API／
+安装包／脚本文件的一致性检查；未变化的 Inference／Assets-source 工件资格复用。
+
+一个冷案例中的 11 次真实容器调用覆盖空账号、生产拒绝、版本化图片上传及重复导入、
+小规模建题和重复清理、选择能力撤销、后期标注失败、物理取消及两类恢复。普通 API
+仍只有五项 Identity 函数，可信 CLI 追加两项只读选择，均禁止 User 私表／列。
+进程退出 137 后先确认实际 PostgreSQL 后端消失，再检查已提交清理和重新执行的结果；
+十秒 SQL 阻塞只证明最终释放。迁移回退／重建及自有资源清理通过。
+
+这是本机 ARM64 上这两个消费者的 Identity 边界资格，不代表全部导入、规模种子容量
+或完整 Identity 模块资格。实现提交 `dce7d425a`，证据见仓库
+`.worktree/identity-seed-selection-qualification.json`；凭据与复验见 `DEV.md`。
+日常主环境未切换，整体剩余项只按上方唯一台账跟踪。
+
+## 媒体种子 Identity 边界
+
+COCO8、视频和 OCR 的管理员获取／创建复用主种子的固定 persona 能力。原样复用任意
+已存在账号，保留原脚本名称默认值：OCR 为 `Admin`，另外两个为中文名称。账号写入仍
+由调用方提交或回滚，原有环境行为保持；此操作不增加角色或启用状态前置条件。
+
+截图准备按顺序校验 persona 角色，截图目录额外累计启用状态问题；两者读取既有公开
+`account_profiles`，并保留已加载／过期字段、autoflush 和原错误顺序。后续所有者、成员、
+任务、批次和证据引用均传递 UUID。大图图谱仍先按原邮箱确认 owner，再检查项目与来源。
+
+54 项修改前行为已捕获并在拒绝 User 私表／列权限的凭据下复验；既有截图目录 19 项和
+大图 4 项检查也通过。原始基线的 54 项均通过，但清理曾发生原因未捕获的 WorktreeError；随后确认无
+连接并按原所有权守卫完成清理，没有终止未知客户端。源码／架构另有 377 项通过、150
+项既有不适用规则跳过；验收器与迁移策略单元 58 项通过，公开 OpenAPI 字节保持。
+
+匹配 API 冷工件首轮通过一个综合案例的十八次独立容器调用，覆盖三个真实账号 helper、
+旧账号复用、缺失写能力、后置触发器失败、物理停止与同邮箱恢复、截图准备／目录校验
+及大图图谱创建／重跑／缺失 owner。中断退出码 137，非执行超时；在停止前核对真实
+SQL、应用标签、容器 IP 和数据库 PID，等待该后端消失后确认 User 与调用方数据共同
+回滚。十秒人工 SQL 阻塞只证明最终回滚，不证明即时取消任意长查询。
+
+冷账号禁止 User 私表／列，只获得五项普通函数及两项种子能力；其他领域保留旧运维
+权限。API 工件核对 768 个应用、512 个安装包和 32 个脚本文件。未改变的 owner、
+Inference 和 Assets-source 工件复用已通过指纹。隔离桶版本保持为空，自有资源已清理。
+证据见 `.worktree/media-seed-identity-qualification.json`。
+
+本切片只关闭六个消费者的 Identity 操作，不代表完整媒体种子、截图就绪、其余运维
+入口或整个 Identity 模块完成。命令与凭据边界见仓库 `DEV.md`，日常主环境未切换。
+
+## 主种子账号与演示成员
+
+`seed.py` 自身的账号／成员操作已迁移到两个独立 owner 能力，仍使用调用方同一
+SQL 事务。已有账号原样复用；演示成员保留缺失跳过、同角色不修复分配人、原提交
+时点、autoflush、脏字段和缓存语义。普通 Identity／Workspace API 权限保持五／32
+个函数；只有显式可信运维配置获得新增写能力。
+
+22 个旧行为案例已在拒绝 User／Project／Member 私表／列的凭据下复验。四项失败
+案例覆盖提交或读取前 flush 时目标丢失及回复异常，捕获错误后再次提交仍无部分结果；
+Node 直接使用两个 owner 协议并共同回滚。源码、合同与架构检查 420 项通过、150 项
+既有不适用规则跳过。数据库迁移安装／回滚／重升到新 head 通过；此前失败收据保留。
+
+本轮定向数据库检查按最新用例去重为 37 项通过，含上述旧行为、失败回滚、Node 及
+既有回归。一个冷综合案例的九次独立容器调用已通过：新建与复用账号、缺失能力拒绝、
+后置失败回滚、中途停止容器、恢复 25 条成员、无变更不提交、漂移修复和最终幂等。
+停止点绑定实际 SQL、应用标签、容器 IP 与 PostgreSQL PID，退出码 137，随后核对
+该后端消失与整批回滚。人工 SQL 阻塞最多十秒，不证明即时取消任意长查询。
+
+普通 UID、只读根文件系统、1 CPU／512 MiB 的 API 工件核对 768 个应用文件、512 个
+已安装包文件和 32 个脚本；Workspace 工件核对 280 个包文件，且不含 API、ORM、Celery
+或 Inference 提供方。隔离素材桶的版本集合保持为空；自有资源已清理。
+前四次冷尝试的夹具问题及日志保留，最终九次调用全部达到预期结果。
+
+证据见 `.worktree/seed-parent-qualification.json`。此切片只包含主脚本自身的账号与
+成员操作，未证明媒体子入口、整个种子 CLI 或完整 Workspace 已独立部署。既有模块
+安装、组合恢复及负载只复用未改变部分的证据。运行命令和精确授权见仓库 `DEV.md`；
+剩余范围只按上方唯一台账推进，日常主环境未切换。
+
+## Workspace 媒体及截图种子
+
+媒体种子按既有四种类型创建 Project，仍在调用方事务中完成；COCO8 只补缺失的工具
+绑定，已配置值不覆盖。视频、OCR 和大图保留各自的跳过、成对资源／标记校验与提交
+边界。Project／成员读取使用完整公开事实的单语句 alias，保持原 identity map 行为。
+
+截图的 Project 字段、两个后端字段及固定时间戳通过闭合 Workspace 种子投影写入。
+成员角色和分配人复用现有 writer，固定 assigned_at 由新能力持有；autoflush 和原有
+显式 flush 点均保留。项目计数显式注册既有 Labeling projection，不新增第二个计数
+owner。修复删除仍调用现有 Workspace 删除协调器，未退役视频继续返回 409。
+
+Workspace 完整源码套件 488 项及 68 项去重 Native／消费者检查通过，包含七项原始媒体行为 golden、
+停用／缺失账号、大图配对守卫、事务回滚、缺失更新目标、截图幂等与固定时间、
+中间 flush 的后端设置，以及独立 Node 直接调用三项新能力。原有 25 项截图／大图
+检查和七项媒体行为在修改前也分别保留基线；重复运行不增加去重计数。0308 完整迁移
+与冻结 SQL 往返通过。非 editable Workspace 工件核对 292 个文件，API 工件核对
+1326 个文件（含 32 个 CLI 文件），两份新 schema 与实际安装的生成结果一致。
+
+匹配 API 镜像在原有私网拓扑内通过六次真实冷命令：撤销创建权限时共同回滚且没有
+对象上传；恢复后完成四类媒体、重跑和 COCO 自定义绑定保留。四个上传对象的真实 S3
+哈希与只读夹具一致。截图 DB 夹具在同一安装包中两次完成原 reconcile、无后端探测的
+字段清理及最终时间固定，项目／成员私表全程拒绝。这是一个组合案例，未执行完整
+截图素材准备、浏览器录制或真实 ML 推理。此操作组限定本地资格已闭合，精确记录在
+`.worktree/workspace-media-seed-qualification.json`；日常主环境未切换。
+
+## Workspace 门控 E2E 夹具
+
+项目、成员、模板与筛选 CLI 的 Workspace 直接表访问已迁移。项目与模板创建使用
+测试库限定的五项固定能力，成员和脏字段复用现有 writer；原 flush、调用方提交、
+历史属性和角色测试矩阵保留。普通 API 凭据没有 fixture 能力，可信测试账号显式追加
+操作配置。共享 reset 前仍须逐个清理 owned namespace，未扩张共享删除选择器。
+
+修改前的四组真实接口完整字段已保存。迁移后的 95 个去重数据库／消费者案例通过，
+含四组原始字段对照、原 HTTP 行为、autoflush 开关与回滚、原生视频退役拒绝、二次
+拒绝与忙锁回滚、改名项目／模板残留、Lidar 事务中止、独立 Node 五能力与普通 E2E
+LOGIN 的实际筛选 CLI 三阶段。权限检查首次按无权访问的 schema 名称解析而失败，
+改为 owner 取得 OID 后通过；失败记录保留。Workspace 源码套件通过 498 项。
+0309 完整迁移、冻结 SQL 往返及本次资源清理通过。
+
+清理先锁定项目并检查真实视频退役，再进行子记录清理；最终删除再次检查，拒绝即
+返回 409，外层事务回滚，不再继续对象删除。残留检查包含原 name／display ID 谓词
+以及模板。匹配的非 editable Workspace 工件核对 295 个安装文件，API 核对 1330 个文件及
+两项运行夹具，三份资源 schema 与实际安装生成结果一致。一个真实冷 HTTP 综合案例
+通过十次独立命令：缺失 Workspace 创建能力时账号与项目共同回滚，恢复后重跑；
+进程中断与恢复、原四类夹具、邻接 namespace 保留和幂等清理均通过。受控中断的退出码
+137 属于预期结果，其他九次命令成功。0309／冻结 SQL 往返与资源清理通过。
+
+此操作组的限定本地资格已闭合，记录为 `.worktree/workspace-e2e-qualification.json`。
+完整 Workspace 未闭合，日常主环境未切换。
+
+## Workspace 规模种子与截图支持读取
+
+规模种子的 Project 原始 SQL 默认值、编号序列和成员冲突不更新语义由固定 owner
+能力持有；初始计数复用 Labeling writer。原 purge、基础图、Task 和 Annotation 四个
+提交点保留。清理按精确名称捕获范围，先锁定来源与项目并检查保留条件，再删除
+子记录；未退役执行、学习历史、辅助引用或忙锁拒绝时回滚。原始来源字节不删除。
+
+两个截图支持助手使用既有 Session.get 兼容读取，保留项目标识、素材托管标记、任务
+范围和缓存行为；不把其他领域写入或完整截图录制计入本操作组。普通 Workspace
+consumer 不获得规模写能力，可信账号显式组合现有 operator 配置。
+
+修改前五组原始字段／提交基线与迁移后的 13 项新规模检查通过；原账号选择／图片
+导入 14 项、截图支持 23 项及生产前置守卫一项通过，共 51 个不同消费者案例。截图
+golden 依赖全库账号，和图片导入夹具分库执行；确认唯一差异是图片导入夹具保留的一个
+无关账号，原基线未改动。0310／冻结 SQL 往返及各次登记资源清理通过。完整源码
+504 项及架构 358 项通过，150 条既有规则仍延期，不计入已验收资格。
+
+匹配的非 editable Workspace 工件核对 298 个文件，API 核对 1334 个文件及两项
+运行夹具，四份资源 schema 与实际安装生成结果一致。两个独立冷案例均通过：规模
+种子／图片导入 11 次命令，截图助手／偏好恢复 23 次命令；权限和范围拒绝、后置
+失败、物理进程中断均按预期保留已提交阶段或回滚，恢复后重跑与幂等清理通过。
+这些检查使用小夹具，不代表默认十万任务规模或生产容量资格。证据记录为
+`.worktree/workspace-scale-qualification.json`；日常主环境未切换。
+
+## Workspace 开发点云种子
+
+`seed_pointcloud.py` 不再直接查询、创建或更新 Project 私表。目录夹具通过固定能力
+创建非 scene 项目；nuScenes 重跑通过另一项固定能力重设四字段，并同步原会话缓存。
+旧种子的来源、名称、owner、独占关联和删除守卫保持；旧对象仍只在调用方提交后清理。
+
+7 项旧行为基线已捕获并复验，覆盖完整默认值、提前跳过、目录三次内部提交和 nuScenes
+外层回滚，含六个重跑分支；另有过期缓存、Native 错误／共同回滚、Node 及既有清理
+检查。15 个不同数据库案例已通过；纯合同／绑定与架构检查为 390 通过、150 条既有
+不适用规则跳过；迁移策略与验收器单元另有 40 项及三个子案例通过。
+
+匹配的冷 API 镜像以 1 CPU／512 MiB、非 root、只读文件系统运行真实种子入口，
+Project／Identity 私表凭据被拒绝，S3 凭据仅限本次素材桶。一个综合案例的五次独立
+容器调用覆盖目录成功、缺失写能力的后置失败、外层回滚、成功替换及漂移重跑。
+失败和回滚保留旧 SQL 状态与外部字节；成功后旧对象在外层提交后才显式清理，
+重跑修复四字段且 Project／Item／Task／Batch 身份不重复。
+
+点云种子验收所用 Workspace 镜像核对 276 个文件、API／安装包与三个实际脚本核对
+1,278 个文件；该 owner 工件不含 API、SQLAlchemy、Celery 或 Inference 提供方。新合同与消费端
+证据见 `.worktree/workspace-seed-qualification.json`；既有完整安装、组合恢复和负载
+只复用未改变部分的已通过证据。资源已清理，日常主环境未切换。这仍是本地小夹具，
+不构成整个开发种子、Assets 或 Workspace 的独立部署／生产容量资格。
+授权边界见 [Workspace 运行指南](/api/guides/workspace-runtime#同事务运维导入与质量配置)，复验命令见仓库 `DEV.md`。
+
+## Workspace 公共结构契约与本地负载
+
+保存流水线的阶段模型、结构校验与规范化由共享 Inference 契约包持有，Workspace 核心依赖和镜像构建不再包含 Inference 提供方。旧 Inference 导入为同一对象的兼容别名；公开 JSON Schema、阶段字段、规范化和 422 详情保持，阶段说明更正为当前非零根节点与三层树语义。193 项源码、103 项 API／输入回归和 14 项 SDK 合同检查通过；独立 wheel 环境以七项依赖回放同一组 26 项旧向量，没有提供方、API、HTTP、ORM 或 ML 运行时。
+
+新的非 editable Workspace 安装重新通过同一组 439 项检查，274 个包文件逐字节匹配当前源码与冷镜像。Inference 匹配镜像核对 88 个文件；API 核对 1,273 个文件。真实 Node.js 客户端经公开 API 保存并规范化阶段，非法流水线返回 422，项目名称和已存阶段不产生部分写入。既有组合恢复、worker 和导入证据继续适用；本次结构迁移未改变 SQL、存储格式、事务阶段或校验执行逻辑，不重复累计旧案例。
+
+固定本机负载使用九个已有服务：API 为 1 CPU／768 MiB，其余各 1 CPU／256 MiB，均限制 64 PIDs。每条负载通道使用独立账号组和项目；三个阶段分别以并发 1、4、8 运行十五秒准入窗口，已开始的循环完成后结束。混合超级管理员流量覆盖配置、项目读取、模板读取、成员增删／目录和负责人交接；普通成员的撤权与旧预览失效另在流量中检查。
+
+| 并发 | 实际耗时（秒） | 请求 | 请求／秒 | 观测 p95（毫秒） |
+| ---- | -------------- | ---- | -------- | ---------------- |
+| 1    | 15.080         | 77   | 5.106    | 318.85           |
+| 4    | 16.360         | 224  | 13.692   | 452.01           |
+| 8    | 16.806         | 280  | 16.661   | 698.38           |
+
+581 次混合请求均成功；账号锁竞争单独返回 409，成员、回执与该操作者审计均保持。最终项目名、负责人、成员清理、已确认写入对应的不可变回执／审计和空临时状态全部核对通过。十六组观测中 API CPU 最高 97.63%，内存最高为其配额的 53.76%，服务数据库连接最高观测数为 12；九个容器 ID／启动时间保持，无 OOM 或重启，停栈后非 owner 服务连接归零。稀疏采样不代表连续峰值；以上是 macOS ARM64 的限定正确性／资源样本，包含宿主调度和 HTTP 成本，不是生产容量或 SLO。
+
+开发用 `seed_pointcloud.py` 的 Project 边界已通过上节验收；主种子自身的账号／成员边界也已迁移，媒体子脚本仍单独跟踪。其他普通生产入口已迁移到 Workspace 能力。cross-frame 已完成下文的普通成员冷 worker 验收；export 已完成下文的限定冷恢复验收；video tracker 的实际冷执行与恢复仍按台账跟踪。这些调用复用既有 Workspace 操作合同。历史视频无证明的排空仍缺机器可验证前置条件。完整 Workspace 与全目标继续按唯一台账推进，日常主环境未切换。
+
+## Workspace 冷运维导入验收
+
+实际 `scripts.import_nuscenes_scene` 从 API 冷镜像运行，仅挂载只读数据夹具。入口保持现有可信运维账号；最后一次资源准备之后应用 Identity 和 Workspace 消费者围栏，再仅恢复两项已发布的账号 provisioning 能力。账号私表与 Workspace 私表仍不可访问，普通 API 账号不增加这些运维权限。Assets／Labeling 继续使用现有可信运维授权，本案例不证明它们的整模块凭据闭合。
+
+一个集成案例包含六次真实 CLI 执行：缺少项目创建能力时拒绝且无私表回退；后置建题失败时账号、来源、项目和任务共同回滚；在实际建题 SQL 中途停止容器后确认连接释放和 SQL 回滚；同名重新导入成功；重复导入不重复建题；原始来源漂移被拒绝且已有业务状态和对象内容保持。中断时核对 PostgreSQL 客户端地址与自有容器 IP，实际退出码为 137，非执行超时。默认 PostgreSQL 可能在当前查询结束后才发现客户端断开；这个案例使用十秒人工阻塞，不证明即时中断任意长 SQL。
+
+夹具为两场景、每场景两帧，成功导入十项素材、四项任务和四条姿态。对象读写使用隔离桶内保留前缀的受限存储身份，核对真实点云、相机、标定和地图字节。失败／中断导入保留不确定的外部对象；重复导入也可能重写同键对象及产生新操作回执，因此只断言业务状态不重复，不声称 S3 事务或零写入重放。全部自有资源与存储身份在验收后销毁。
+
+API 镜像核对 1,271 个应用、安装包与 CLI 文件；本次仅增加验收代码，既有 Workspace 安装、组合恢复和 worker 证据继续有效。可重复入口见 `DEV.md` 的“Workspace 冷运维导入验收”。这项结果限 macOS ARM64 本地小夹具，不代表真实 nuScenes 数据集、ML、生产容量或日常环境切换。
+
+## Workspace 相邻项目写入
+
+nuScenes 运维导入的精确查找／创建，以及点云质量评估晋升的配置写入，已通过
+`aap-workspace-project-maintenance/v1` 的三项 Workspace Native 能力执行。导入只传递
+项目 UUID，保留稳定 display ID、原创建默认值和 Assets／Labeling／标定的外层事务；
+晋升保留原权限重验、Project 锁、评估策略、Audit 和提交，写后同步调用方的 ORM 视图。
+不通过独立 HTTP／数据库连接拆分这些跨域写入。
+
+函数专用 LOGIN 只有三项业务 owner 能力，无私表／列、序列、DDL 或 TEMP 权限；建题
+账号没有因此扩权。修改前 28 项旧行为检查与当前 65 项去重定向检查分别保留，覆盖严格
+合同、实际权限、完整默认值、调用方回滚、SQL 错误／失败事务、真实锁等待、Node 直接
+调用及现有公开 API／导入回归。SQL 冻结工件安装／回滚和资源清理通过。详细边界见
+[ADR-0164](/dev/adr/0164-workspace-transactional-project-maintenance)。
+
+这只收口相邻写入能力；当前权限读取的限定资格见后文。项目删除／数据集解绑已有
+同事务 Native 协调器，其包迁移及安全状态见顶部台账；完整模块资格仍以本页台账为准。
+冷安装、容器、完整迁移和备份恢复集中在一致模块里程碑验收，既有资格不重复执行。
+
+## Workspace 锁定权限读取
+
+当前权限锁定复用 `aap-workspace-project-access-step/v1`。Identity SHARE、Project
+KEY SHARE、成员 SHARE 的顺序、NOWAIT 错误和调用方事务保持；manager 跳过成员。
+完整 Project／成员快照直接同步原 ORM 会话，不再 SELECT 私表或在锁后另行读取项目，
+也不 flush 其他 pending work。原接口仍返回相同对象与权限值，训练冻结、标注配置和
+成员缓存读取因而保持原行为。应用 grant 清单加入已有函数，没有新增角色、服务或迁移。
+
+本次 163 项不同定向检查通过，含原 ORM 缓存基线后的同案复验、真实 API LOGIN 私读
+拒绝、9 项新数据库用例、Node 直接调用，以及标注／帧持久化／反馈／训练和冻结时间
+字段的 borrowed、DSN、HTTP 对照。HTTP 提供方为独立当前源码进程；非 editable 安装、
+完整模块镜像与恢复没有因这些检查新增资格。两次测试预期／环境失败的最小复验与原始
+报告均保留在 `.worktree/workspace-authority-locks-qualification.json`。
+[ADR-0166](/dev/adr/0166-workspace-locked-authority-snapshots) 记录快照、缓存与权限边界，
+剩余操作只在本页顶部台账维护；日常主环境未切换。
+
+## Workspace 无锁权限读取
+
+当前权限 helper 的 Project／成员读取已借用同一 Session 的 owner facts。by-id 保留
+初始 Project → Identity → 刷新 Project → 非 manager 成员的顺序；直接 helper 先查
+Identity。初始阶段无需虚构 admitted role，后续 Query 使用实际账号角色。完整快照
+保留原对象身份、缓存刷新及默认／禁用 autoflush；公开 GET 的第二轮权威读取不变。
+
+本轮 180 项不同定向案例通过，无有效失败或跳过；修改前两项缓存基线单独保留。
+真实 API LOGIN 在三类私表 SELECT 被拒绝时可完成 READ ONLY 调用，同一 backend／
+transaction 保持，另一事务仍能获取账号／Project／成员 UPDATE 锁。Node 无 Python
+代理直接调用；阶段间提交、错误顺序和异常回复回滚也已覆盖。
+[ADR-0167](/dev/adr/0167-workspace-unlocked-authority-snapshots) 记录边界，汇总位于
+`.worktree/workspace-access-unlocked-qualification.json`。完整装配与剩余操作仍以顶部
+台账为准；本次没有切换日常主环境或增加冷工件／生产资格。
+
+## Workspace 独占 Project 快照
+
+孤儿标注清理与点云评估晋升已在原调用方事务中使用严格完整行锁合同，保留 NOWAIT／
+等待、缓存刷新／普通缓存以及原 autoflush 差异。等待后在持锁期间重新生成完整快照，
+避免 Labeling 计数与 Project 字段来自不同时间。原管理权、业务写入、Audit 和提交
+保持；没有增加服务、凭据或独立连接。
+
+245 项去重定向检查通过，无有效失败或跳过；修改前九项缓存基线单独保留。包含
+受限真实 API、Node、24 项新 Native／消费者用例、原权限读取及清理／点云／标注／
+训练回归。首次等待探针揭示的混合快照已最小复验修复；AUTH、单元和 immutable Audit
+夹具失败也已修正，原报告保留。边界见
+[ADR-0168](/dev/adr/0168-workspace-exclusive-project-snapshots)，汇总为
+`.worktree/workspace-exclusive-qualification.json`。完整模块与剩余操作仍按顶部台账
+集中收口，日常主环境未切换。
+
+## Workspace Task／Training 业务快照 {#workspace-task-training-snapshots}
+
+八处选定 Task／Training 读取已使用已有无锁事实，保留普通 get 的零查询缓存命中、
+autoflush、显式刷新和过期删除语义。账号／项目引用围栏保持锁序和 KEY SHARE，
+NOWAIT companion 只返回 UUID／null，不引入配置时间字段异常或虚构 actor。
+
+329 项去重定向检查通过；修改前 40 项 getter 与 16 项引用锁基线单独保留，不累加。
+实际受限 API 的 READ ONLY Task 访问、训练围栏、Node、精确 ACL 和调用方回滚均
+通过，完整选定训练与既有标注／预测回归也通过。原测试夹具失败、最小复验和清理记录
+保留于 `.worktree/workspace-project-get-qualification.json`。边界见
+[ADR-0169](/dev/adr/0169-workspace-task-training-project-snapshots)。其余消费者和
+完整 Workspace 工件／恢复仍以顶部台账为准；日常主环境未切换。
+
+## Workspace 普通单项目业务读取 {#workspace-business-project-reads}
+
+其余 86 处普通只读 getter 已统一使用 Workspace 的完整行快照，保留原会话、目标、
+条件、缓存、autoflush 及十处强制刷新。无 actor 的后台读取使用真实无锁事实能力，
+原入口仍执行当前权限和最终写入检查；空项目 ID 保留原 flush 后缺失行为。
+
+957 项去重定向检查通过，无有效失败或跳过；包含旧 40 场景的两绑定复验、真实受限
+API、Node、异常回复回滚和 785 项选定消费者。旧基线没有覆盖或重复累计；夹具失败
+和最小复验保留于 `.worktree/workspace-project-read-qualification.json`。边界见
+[ADR-0171](/dev/adr/0171-workspace-actorless-business-snapshots)。两处计数写入已在后续操作中迁移，原始 getter 仅留
+三个测试 seed；集合／标量查询和完整模块资格
+仍按顶部台账继续，日常主环境未切换。
+
+## Workspace 项目集合锁与计数持久化 {#workspace-project-persistence}
+
+批次决策改用一次排序 NOWAIT 集合锁，保持账号 → 项目 → 成员 → 批次 → 任务顺序
+和原 409／整笔回滚。两处 Labeling 重算保留原聚合和赋值，在原 UoW flush 内通过
+owner 补丁写五项计数字段；其他脏字段保持原 ORM 行为，不新增提交点或通用写代理。
+
+243 项不同适用案例通过，无失败或错误，含 32 项冻结旧行为复验、23 项
+受限 PG／Node 检查、15 项适配器检查与 173 项实际消费者；另一个既有权限分支
+按测试设计跳过，其放行边由专门正向用例覆盖。旧查询未排序导致最后待
+flush 批次随机，原 golden 保留，仅对比已落库与待写投影全集及待写数量。Session
+关闭后复用的标记泄漏已由事务结束清理修复；本地兼容角色漏授执行权也已修复。
+
+汇总为 `.worktree/project-owner-persistence-qualification.json`，边界见
+[ADR-0172](/dev/adr/0172-project-set-locks-and-labeling-counters)。原始生产 Project
+getter 与该批次私表锁已移除，剩余集合查询按顶部台账继续。完整 Workspace 凭据、
+冷安装、镜像与恢复仍集中验收；日常环境未切换，Go 仍仅作实验。
+
+## Workspace actor 范围与列表读取 {#workspace-actor-scope}
+
+成员项目范围由 ID-only Workspace 事实与 Identity 资料关系在原 SQL 中组合，保留
+活跃／已知角色、viewer 配对、所需职责和 owner 分支。看板使用既有候选项目关系
+取得名称与视频配置，继续执行原权限及 claim 判断。作业与通知保留全局／导出／
+retained project 及权威资源优先于 payload 的规则，范围过滤先于分页和计数。
+
+415 个不同定向案例通过，无失败或跳过：126 项 owner 复验、141 项受限 PG／HTTP／
+Node 检查（含同案的 126 项 API 复验）、16 项适配器及 132 项实际消费者。完整分类以
+`.worktree/workspace-actor-scope-qualification.json` 为准，不累计旧捕获执行次数。
+独立 Select 的 autoflush 差异已用 ORM 列别名修复；成员事实只需 actor ID，不新增
+平台角色依赖或完整日期解码。客户端工厂不加载提供方实现，旧导入路径保持。
+
+HTTP 夹具最初把认证与 Briefs 命令交给受限 API 角色而返回 503；改用既有独立 owner
+连接后通过，没有放宽 API 凭据。API 私表 SELECT 拒绝、READ ONLY、无额外锁、同一
+事务、已提交成员撤权与 Node 直接调用均通过。边界见
+[ADR-0173](/dev/adr/0173-workspace-actor-scope-relations)。成员集合见下节，Project
+集合和完整 Workspace 装配仍以顶部台账为准；主环境未切换，Go 仍仅作实验。
+
+## Workspace 非锁定成员事实 {#workspace-member-facts}
+
+九列原生视图复用共享成员行合同，支持任意成员对、分组、完整名册与 Task UPDATE
+内的相关成员判断。调用方保留原权限规则；通知四个语句的先后与快照不合并，批次
+判断继续只按项目职责，提及保持任意成员和缺失 ID 顺序，个人绩效不追加 viewer
+配对规则。完整 ORM 别名保留缓存、脏字段、过期字段及 autoflush，局部读取不解码
+未选择的日期。不新增服务、连接、锁或提交点。
+
+130 项不同适用案例通过，无有效失败或跳过：30 项冻结旧行为同案复验、12 项受限
+PG／真实 HTTP／Node、16 项客户端／SQL 适配器和 72 项实际消费者。原生字段与 ACL、
+READ ONLY、已提交变更、批次 UPDATE 和外层回滚通过。schema 标题与测试 getter
+调用错误修复后，仅复验失败项再继续未运行案例；原始退出与日志保留。完整证据为
+`.worktree/workspace-member-facts-qualification.json`，边界见
+[ADR-0174](/dev/adr/0174-workspace-nonlocking-member-facts)。
+
+本轮撤掉测试 API LOGIN 的成员私表 SELECT；含 Project 查询的操作仍保留 Project
+权限。默认应用宽角色仍属兼容装配，整模块凭据、冷工件、恢复和容量尚未获得资格；
+主环境未切换。其余工作只在顶部台账继续跟踪。
+
+## Workspace Project 集合与投影 {#workspace-project-facts}
+
+Workspace 以固定 38 列原生视图公开项目字段，完整 ORM 对象在同一 SQL 内按主键
+联接既有 Labeling 六列计数关系，得到原 43 列。部分 ID／owner／元数据读取只访问
+Workspace 事实，不做完整 JSON 或日期解码。五个计数列的 NOT NULL 由迁移和实际
+数据库共同验证，既有计数视图的 COALESCE 对受支持数据保持原值；没有新增计数视图。
+完整对象增加数据库内的主键联接，连接数、语句数及提交边界保持。
+
+所有已找到的应用级 Project 只读 SQL 已迁移，保留权限谓词、外联接、相关计数、
+分页、延迟列和流式选项。新增 42 项旧行为基线覆盖缓存、autoflush、日期与超级
+管理员的全局总数；Core-only count 推迟 flush 导致 total 与列表不一致的缺陷已
+复现并通过 ORM 别名修复。两个 real 阈值列按真实 PostgreSQL 类型声明。
+
+125 个不同适用案例通过，无有效失败或跳过：42 项旧行为复验、15 项 Native／HTTP／
+Node、4 项相关合同／客户端检查和 64 项实际消费者。
+
+受限 API LOGIN 撤销 User／Project／Member 私表 SELECT 后，选定 SQL、真实 HTTP
+和 Node 客户端通过；READ ONLY、原生 JSONB／非有限数、同事务与无锁也已验证。
+完整分类和失败／最小复验见 `.worktree/workspace-project-facts-qualification.json`
+及 [ADR-0175](/dev/adr/0175-workspace-project-fact-relations)。三处计数 DML 另见下述
+Labeling 能力；默认应用宽角色、冷工件、恢复与容量仍未获完整模块资格；主环境未切换。
+
+## Labeling 生命周期与审核原子计数 {#labeling-counter-deltas}
+
+撤回／驳回、重开和批准使用三项固定 Labeling Native 增减能力。每次仍是一条原子
+UPDATE，按数据库当前值计算并写事务时间戳；保留原正常行锁等待、autoflush 和
+缓存同步，不增加连接、提交点或授权规则。Task、计数和 Audit 仍共同提交或回滚。
+空 ID 也会尝试零行写入，保留旧 READ ONLY 拒绝；初版 STRICT 短路差异已复现修复。
+
+139 个不同适用案例通过，无有效失败、错误或跳过：69 项冻结旧行为、30 项 Native／
+受限连接／Node、4 条真实 HTTP 和 36 项现有消费者。实际 API LOGIN 的 Project 私表
+SELECT／UPDATE 均被撤销；并发等待、旧快照增减、溢出与 pending Task 回滚通过。
+原失败、夹具修正及最小复验保留于 `.worktree/labeling-counter-deltas-qualification.json`，
+设计见 [ADR-0176](/dev/adr/0176-labeling-lifecycle-counter-deltas)。
+
+本组调用边界已闭合；完整 Labeling／Workspace 凭据、冷工件、恢复与容量仍按顶部
+台账集中验收。默认宽应用角色继续兼容装配，日常主环境未切换；Go 未扩展。
+
+## Workspace 同事务成员锁 {#workspace-member-locks}
+
+最终写入标量成员锁与批量分派的有序完整快照通过两项固定 owner 能力执行。保留
+原 SHARE／NOWAIT／等待、账号及项目锁顺序、完整成员缓存刷新与调用方事务。
+无锁 preflush 分支只用于过期脏缓存；不增加逐用户 RPC、角色或运行单元。
+224 项去重定向检查通过，无有效失败或跳过；22 项旧源基线单独保留。真实受限 API、
+Node、排序锁等待、缓存与时间字段、精确授权和异常回复回滚均通过；失败夹具最小
+复验与原始报告保留于 `.worktree/workspace-member-locks-qualification.json`。
+[ADR-0170](/dev/adr/0170-workspace-transactional-member-locks) 记录边界。成员集合见前节，
+其余业务操作与完整工件／恢复仍按本页台账跟踪。
+
+## Workspace 项目负责人转移命令
+
+直接负责人转移已使用 `aap-workspace-owner-transfer/v1` 和独立两项 RPC 凭据，保留公开路由、错误顺序、默认调用方提交边界、账号／项目锁冲突差异、事务时间戳及同一负责人不写入的行为。私有回执与 owner 更新原子提交；响应丢失后可用同一私有 UUID 重放，后续转移不会被旧回执重新覆盖。无需公开幂等头，也不额外写业务 Audit。
+
+本地限定验收最终通过 66 个去重选定案例（59 DB/process、7 pure/static），无有效失败或跳过；源码和非 editable 安装包各通过 85 项。四条绑定路径均对照 17 组实际旧接口响应，另核对 4 组调用方事务探针。受限权限、畸形回复回滚、原始 DML／延迟提交错误、丢响应恢复、九项关联恢复检查，以及 Python／Node 镜像的真实调用和重启重放均通过。Python owner 镜像匹配 14 个包文件，Node 匹配 5 个运行输入；新 API 镜像匹配 136 个包文件、72 个应用／Native 输入及 head 0254。API 冷启动使用显式普通 UID、禁网、只读文件系统和固定预算，不改变镜像默认用户。
+
+Node 仅提供本地单命令 transport conformance；Native 继续持有业务策略。此结果不代表整个 Workspace、完整业务语言替换、独立数据库或生产容量已完成。API 仍使用过渡期宽角色装配；配置命令验收见后续说明，模板读取接入与验证见后文，项目读取仍待迁移。详见 [ADR-0134](/dev/adr/0134-workspace-project-owner-transfer) 与 [Workspace 运行指南](/api/guides/workspace-runtime)。
+
+## Workspace 模板查询
+
+模板列表、详情与配置提交后的响应投影通过独立查询能力接入 Workspace owner。
+默认调用方事务、专用 DSN 和独立 HTTP 三条路径均对照原40项 HTTP 观测；
+默认绑定保留自动刷新，远程显式故障不回退。查询角色只有两项函数权限，
+独立连接使用只读事务。它接收可信 API 的已认证身份快照，投影绑定成功配置回执。
+独立安装包、受限 owner/API 镜像、故障恢复、备份恢复和0259完整迁移均已通过限定本地验收。
+1 CPU／256 MiB 下16次读取、并发4全部成功，无 OOM；p95 约108 ms仅是本地观察。
+项目读取已接入独立查询 owner；其余相邻写入仍有独立缺口。
+协议与信任边界见 [模板查询 ADR](/dev/adr/0137-workspace-template-query-owner)。
+
+## Workspace 配置命令
+
+项目与模板的配置模型、kind、克隆、类别规范化及模板纯策略已由 `apps/workspace` 持有；API 的旧模型和纯策略副本已移除。预标注请求、能力词表、归一化和保存编排校验由 `apps/inference` 持有，API 显式传入当前 tracker 限制。Geometry、运行／评估与普通读取 DTO 保留各自所有者，公开接口行为不变。
+
+Identity 组织范围、Assets 关联数据集 kind、Labeling 视频阻塞事实和 Inference 服务池启用的初始 typed Native 能力已通过隔离权限、真实旧／新写入顺序、时间戳、回滚和迁移恢复检查；命令实现补充了按原阶段读取的类型化能力。
+
+项目创建／更新、模板创建／更新／删除／复制已使用封闭协议和同一个 Workspace owner，原 API 配置工作流与 ORM 命令已移除。默认端口借用调用方事务，HTTP 保留提交与响应；专用 DSN／HTTP 自行拥有业务事务。成功回执、未完成草稿提交围栏、两项 RPC 的专用 LOGIN 及配置独立运行入口均已实现。
+
+基础 Native 验收通过5项，包含全部六种命令及重放；相关公开 API 通过57项。调用方事务、专用 DSN 和独立 HTTP 三条路径各已对照106项实际旧 HTTP 响应，默认路径另核对17项调用方记录，保留公开错误、外部探测顺序和业务回滚。三项写入转换错误的 SQLAlchemy 内部 active 标记不作兼容承诺；原客户端 SQL trace 无法观测 Native 内部语句，未计为已匹配。实际 PostgreSQL 更新次数、锁竞争、探测期间撤权回滚，以及独立进程的丢响应重试和重启重放均已通过。失败事务与恢复通过4项，另有9项关联恢复无跳过通过；0257 完整迁移验证通过，派生数据库均已清理。非 editable 安装通过132项 Workspace 与27项 Inference 检查，46个包文件指纹匹配。受限 owner/API 镜像和实际容器联调通过；1 CPU／256 MiB 下，16个独立项目、并发4全部完成，无 OOM，本地观察 p95 约114 ms。六项配置命令的限定本地验收已完成，完整 Workspace 的读取投影、相邻写入和全模块资格仍待推进。边界、基线与剩余门槛见 [ADR-0136](/dev/adr/0136-workspace-configuration-command-owner)。
+
+## Workspace 类别重命名
+
+类别重命名已接入同一个 Configuration owner，使用独立的无状态命令分支，
+在一个事务内组合 Workspace 绑定策略和 Labeling 的窄类名写入。
+同名操作的独立提供方在权限锁释放前完成项目投影，不额外写入成功回执；
+改名传输不自动重发。47 个去重选定数据库／进程检查已通过，包括三路径、
+当前受限镜像、真实撤权竞争、重启、源库及克隆恢复和完整迁移。
+源码与非 editable 安装各通过 273 项 Workspace 检查；本地并发样本不代表生产容量。见
+[ADR-0143](/dev/adr/0143-workspace-project-class-rename-owner)。
+
+## 跨 owner 的项目访问事实
+
+项目访问值、纯规则、Project Query wire、完整 Project／成员行解码及权限读取顺序位于
+`aap_workspace_contract`；Workspace 运行编排继续位于 `apps/workspace`。共享包仅依赖
+标准库和 Pydantic，独立安装也包含原字节的 query schema，不引入 Inference 与 Workspace
+运行时的相互依赖。
+
+`aap_workspace_v1.project_access_step(actor_id, project_id, phase)` 只发布账号 SHARE、
+项目 KEY SHARE、成员 SHARE 三种锁定事实，调用者逐步解码和判断权限，并在同一连接、事务中
+完成最终写入。Inference owner 仅获得此固定函数的执行权，不读取其他 owner 原表。
+这是命名流水线独立 owner 的前置能力；它没有新增远程权限服务或完成整个 Inference。
+15 个去重选定数据库案例通过，包含旧行为兼容、三阶段权限与竞争、完整迁移和非空转储恢复；
+源码与非 editable 安装分别通过 Workspace 299 项、共享包 21 项检查，252 个包文件一致。
+边界与本地验收见 [ADR-0145](/dev/adr/0145-workspace-project-access-facts)。
+
+## Inference 命名流水线
+
+命名流水线的列表、详情、创建、更新、删除和应用通过封闭合同接入 Inference owner。
+默认借用 API 事务；专用 DSN 与独立 HTTP 进程自行提交。成功回执和业务写入原子持久化，
+响应不确定时只查询状态，不自动重发命令；API 在提交后重新读取流水线并组合 Identity 资料。
+项目内嵌预标注配置继续由 Workspace 持有，独立 LOGIN 仅调用本 owner 两项 Native RPC。
+
+三条绑定路径各已回放同一套70组旧 HTTP／数据库观测。独立非 editable 工件通过90项检查，
+5个包的39个文件与当前源码一致；源码检查另计。本轮33个去重 DB/process 案例通过，包含24项 owner 资格和9项既有 API 兼容；
+真实权限锁冲突、丢响应与重启、非空备份恢复、受限容器及完整迁移均通过。
+1 CPU／256 MiB 下16次读取、并发4全部成功，无 OOM；本地观察 p95 约120 ms，API与数据库在预算之外。这些结果不代表完整 Inference、独立数据库、
+非 Python 提供方或生产容量已完成。部署和边界见
+[运行指南](/api/guides/inference-runtime)及[ADR-0146](/dev/adr/0146-inference-named-pipeline-owner)。
+
+## Backend 健康协调的单一实现
+
+完整健康检查和服务池能力对账策略由 `aap_inference.health` 提供；项目／全局探活、
+能力漂移接受、周期 worker 和 GPU 冷启动刷新均经现有入口调用它。API 适配器继续借用
+原 Session，保留全行 JSON 物化、无锁 HTTP、数据库观察时间、配置／代次围栏、能力指纹
+和调用方提交顺序。健康数据读写现通过同事务的固定 Native 能力；API 保留 ORM 兼容绑定，不增加完整健康协调服务的部署 selector。
+
+旧实现已冻结24组真实 HTTP／SQL 相位观测，覆盖两种自动刷新设置和原有错误阶段。
+健康对账与 Registry／Pool／Member 变更已统一为 Registry → Pool → Member；需要多个池时按 UUID 排序，健康检查的外部 I/O 仍在持锁前完成。删除或移除成员在写锁内复核先前观察的成员身份、池、路由代次与接流状态，发生变化返回409。项目启用先通过 Workspace 固定能力锁项目再锁池，并在池锁内重验资格；Inference 不增加 Project 表权限。清理项目绑定遇争用时立即回滚整个实例或空池删除；项目配置等待池锁后也会重新核验所选成员。并发边界见 [ADR-0151](/dev/adr/0151-inference-topology-locking)。
+
+当前 Redis 检查仍只是一次在飞计数观察，尚未证明账本连续性、暂停路由候选的代次围栏或长请求租约持续有效；不能由一次零计数推导完整停流安全。外部观察已通过事务绑定的密封快照及受限提供方回执接入独立运行时，详见 [ADR-0152](/dev/adr/0152-credential-owning-health-observations)。它证明提供方来源与快照归属；同事务健康数据能力及延迟 apply 见 [ADR-0153](/dev/adr/0153-caller-owned-native-health-data)。协调器提取见 [ADR-0150](/dev/adr/0150-portable-backend-health-coordination)。
+
+本地197项去重选定检查通过，24组旧健康相位和38组既有服务池观测匹配。
+该协调器批次的独立安装 Inference／Workspace 分别通过132／449项；对应镜像的包及 API／Native
+指纹一致。该批次证据覆盖协调器提取，不代表独立健康写服务或完整 Inference 已完成。
+
+锁序修复另有151项去重选定检查通过，包含25项 PostgreSQL 并发与拓扑边界；完整迁移、非空恢复及独立安装通过。三项镜像的冷检查匹配50／272个包文件、1,246项 API 输入和 Native head275。最终组合批次的测试通过，外层清理首次失败后经归属核验重试完成，原失败及恢复回执均保留。此批次不作为独立健康服务、完整路由停流或生产容量资格。
+
+健康观察另有176项去重选定检查通过，三绑定各匹配24组旧健康相位；完整迁移、非空恢复、独立安装与受限容器实际公开 API 链路通过。安装包核对55／277个文件，API冷检查核对1,250项输入及 Native head276；容器重启与停止后不回退均验证。有限并发样本不代表生产容量。这批证据对应观察阶段；后续同事务健康数据能力独立记录，整个模块继续推进。
+
+健康数据适配器使用11项固定 Native 函数，后端健康写入与服务池 seed／disable 对账继续由原事务持有。独立 `HealthDataPostgresData` 可借用已开启的 asyncpg 事务，不依赖 API／ORM；API 绑定保留原对象身份、自动刷新与其他待提交对象。专用数据 LOGIN 没有原表权限，观察 LOGIN 不增加写权。本地153项去重选定检查通过，源码213项、独立安装 Inference／Workspace 213／530项通过；完整迁移、非空恢复、受限镜像与实际公开 API 链路分别验证。独立端口拒绝已结束或已更换事务的旧绑定。此切片不代表完整健康远程协调、全部 Registry／Pool writers 或路由／GPU已完成。见 [ADR-0153](/dev/adr/0153-caller-owned-native-health-data)。
+
+启动环境同步与截图 seed 的 Registry 写入使用另一组11项固定 ingress 能力，策略由 Inference 包持有。环境同步以完整命令选择嵌入、专用 DSN 或独立 HTTP owner，实际探测在数据库事务之前完成；seed 写入仍与项目选择和绑定处于原事务。最小回执区分待提交、已提交与未知，响应不确定时只查状态，不重发写命令。本地64项去重选定检查通过，含54组旧入口观测的限定比较；源码265项、独立安装 Inference／Workspace 265／582项通过。完整迁移、非空恢复、三项受限镜像、实际启动入口、容器重启和停止后不回退分别验证。Native 内部 SQL 顺序与错误后的 Session 内存状态差异单独记录。完整 Registry／Pool 控制、健康远程协调、stats／GPU 消费者以及路由连续性仍未闭合，见 [ADR-0154](/dev/adr/0154-registry-ingress-and-environment-sync-owner)。
+
+持久路由执行权正在实施：独立账本记录实际 HTTP attempt，视频作业固定实例，卸载和重载持有跨网络调用的管理占用。真实后端 drain/bind 才能建立连续性，超时或 Redis 丢失不能据此清除工作。修改前四项实际竞态已记录；受限 Native、实际 HTTP、控制超时后的排空恢复、调用方 Prediction 回滚与非空恢复隔离已有本地证据。运行状态端点在三种模式均读取持久账本，Redis 丢失仍保留未决计数，owner 故障保持未知。GPU 驱逐已组合独立路由与 GPU 签名校验，普通 GPU 请求的发送前拒绝可精确撤回；驱逐 deadline 后的持久恢复、视频执行权崩溃交接、恢复后重绑定、完整独立工件与跨语言资格仍待完成。该进展不表示完整 Inference 或十模块目标完成，见 [ADR-0155](/dev/adr/0155-durable-inference-routing-authority)。
+
+单个 scope 的定向退役已作为交接前置能力提供：Native 先关闭旧准入，实际后端只等待
+该 scope 的请求及已登记 future，其他 scope 继续运行。三种 API 连接方式、受限数据库
+账户、真实 TCP、独立安装入口的停止／重启和非空克隆隔离已通过限定本地验收。
+该退役批次的安装工件通过413项检查，77个包文件与源码一致。视频 runner 现已接入 Jobs
+执行代次、原子路由绑定及当前启动／进度／候选／Mask 根／失败写入的同事务检查；重派发
+复用同一个后台汇总，broker 失败不能替代主作业终态。取消后允许当前执行续租并暂存部分结果，
+新推理准入仍被拒绝。三种实际视频连接来源、重复 acquire、最小权限及迁移回滚的32项本地检查通过。
+冻结计划与逐窗口结果账本已接入当前 runner。完整兼容身份的提供方可复用闭合分块，重建
+未闭合 session 并比对原始候选和后续状态；旧范围完成实际退役后才允许新的准入。缺少
+身份或重放不一致时保留原结果并暂缓。Jobs LOGIN 使用两项固定函数，最终业务写入仍由
+Labeling 原事务持有，见 [ADR-0158](/dev/adr/0158-video-window-journals-and-replay)。独立
+Labeling writer、提供方资格和完整崩溃续跑验收仍待完成，不能据此清理 GPU 预算。
+后台登记时机是提供方合同的硬前置条件，见 [ADR-0156](/dev/adr/0156-scoped-inference-retirement)。
+执行协议边界见 [ADR-0157](/dev/adr/0157-video-execution-claims-and-route-binding)。
+
+## Workspace 后端能力探测
+
+Workspace 配置路径只持有 registry ID 和不透明事务快照；Inference 独立持有凭据并执行
+setup。API 支持借用连接、专用 DSN 和 HTTP，独立 Workspace 使用同一私有 HTTP 协议。
+三种模式保持原读取时点、后端故障 fail-open、内部故障503与旧物化错误的回滚阶段；
+原事务结束后拒绝重新打开快照。没有额外业务提交或外部 I/O 前的 registry 行锁。
+
+`aap-inference-contract` 单独发布值、wire schema 和客户端；专用 probe LOGIN 只有两个
+固定能力，Workspace 不获得 key／registry 原表或凭据。此切片不收口 registry/pool 写入、
+health apply、路由/GPU、发布与部署等其余控制面，也不代表全模块语言替换。运行配置及
+限定验收见 [ADR-0149](/dev/adr/0149-credential-owning-workspace-backend-probe)。
+
+本切片54项去重选定验收通过，三路径各匹配106项原公开响应，借用路径另匹配17项调用方记录；
+源码445项，独立安装的 Inference／Workspace 分别128／445项通过。非空恢复、完整迁移、
+当前三镜像指纹及实际受限容器链路均通过；停止 Inference 后明确503且不新增业务写入。
+单次链路验证不代表容量、优雅交接、真实 GPU、AMD64 或全模块资格。
+
+## 指南素材命令与对象能力
+
+指南签名、HEAD 和普通删除已有独立字节合同，由既有 Assets Source 二进制提供。
+`guide-only` 不需要数据库凭据；Workspace 保留项目权限与元数据，公共指南工作流已接入。
+指南切片验收记录中，源码 449 项、独立安装的 Source 439 项检查通过，十五个包的 154 个文件指纹一致。
+两个去重选定真实运行案例覆盖独立进程与受限容器；容器重启后重新检查端口并保留上传对象。
+1 CPU／256 MiB 的 16 个并发 HEAD 得到 5 个成功、11 个预期 busy，无其他错误或 OOM；
+命令的本地选定验收另有 53 个去重 DB/process 案例，包含 12 项既有恢复兼容检查；无有效跳过。
+借用事务、专用 DSN 和独立 HTTP 均匹配 11 个冻结场景，实际权限锁、非空登记的备份恢复、
+克隆库独立写入与撤权均通过。该切片源码与独立 Workspace 安装各通过 314 项，251 个包文件一致；
+Workspace 无 S3 凭据，复用受限 Source 字节能力。两个实际受限容器完成重启读取及 16 次并发签名，
+均返回 200；API、数据库及对象存储在 owner 资源预算之外。它不代表生产容量、完整 Workspace／Assets
+或非 Python 提供方替换资格；精确工件、失败尝试与验收范围见
+[ADR-0144](/dev/adr/0144-workspace-guide-assets-owner)。
+
+## Workspace 项目成员生命周期命令
+
+项目成员新增、角色预览／变更与移除已收口到 `apps/workspace` 的可移植 owner。命令协议为 `aap-workspace-membership/v1`，以 prepare → portable policy → apply 在同一 PostgreSQL 事务中组合 Workspace member row、Identity/Project 当前权威、Labeling 工作事实与交接、typed Audit 及不可变成功 receipt。现有 Python preview digest、blocker 顺序、CAS、NOWAIT/rollback 和公开 API/DTO/error mapping 保持；邀请接受继续由 Identity invitation owner 处理，不另建 membership writer。
+
+独立运行时的 private endpoint 为 `POST /v1/workspace/membership/execute`，health/readiness 分别是 `GET /health` 与 `GET /ready`；仅 `workspace_membership_client` LOGIN 可调用 policy、prepare、apply 三项函数。runtime 默认 `0.0.0.0:8172`、30 秒请求超时、8 个并发；API client timeout 默认 30 秒。API 可用 `WORKSPACE_MEMBERSHIP_URL` 与 control token 选择独立服务，或用 `WORKSPACE_MEMBERSHIP_DATABASE_URL(_FILE)` 选择本地专用 caller，未配置时保留 caller Session。Compose host selectors 为 `WORKSPACE_RUNTIME_MEMBERSHIP_DATABASE_URL_FILE` 与 `WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE`。
+
+此切片已通过 119 个去重选定案例（96 DB/process、23 pure/static），无有效跳过；源码与独立安装包各通过 51 项。独立 owner 镜像匹配 9 个包文件，API 镜像核对 131 个包文件、65 个本轮应用／Native 输入及 head 0253。真实 API、职责交接、重启重放、备份恢复及错误优先级均已在隔离本地验证。API 仍为过渡期 `legacy_runtime` 装配；这些结果不等于整个 API 的凭据收口、完整 Workspace 或跨语言提供方资格。owner、精确范围和未完成项见 [ADR-0133](/dev/adr/0133-workspace-membership-lifecycle-owner) 和[运行指南](/api/guides/workspace-runtime)。
 
 ## 已存在的运行边界
 
@@ -52,6 +1005,18 @@ last_reviewed: 2026-10-23
 ML backends 和 training executor 已有独立运行单元。ML 服务只证明模型推理接口可独立运行；training executor 通过内部 HTTP 领取任务，证明训练子进程可独立执行和移交。这些服务都不足以代表对应的 inference 或 learning 业务模块已经完成。
 
 Go 月报容器是独立的多语言架构实验。其部署或大请求容量结果不作为本目标的完成门槛；正常月报仍由 Python API 提供。Go 不进入默认或真实环境路径。
+
+## Identity 注册与凭据邮件切片
+
+Recovery owner 把既有自助注册、密码恢复、验证邮件重发、重置消费和验证消费收口为五个版本化操作。API 保留 CAPTCHA、频率限制和公开响应；Identity 在原生事务中持有凭据挑战、密码 generation、Audit、operation receipt 与 outbox。注册要求验证时，User、验证挑战、初始邮件 intent 和注册 Audit 一起提交，不在 API 事务提交前发 SMTP。已有 token 行通过原地 SHA-256 转换保留正在使用的链接；outbox 只保存 token 摘要和 Fernet 密文，原始 token 不出现在 API／RPC 响应或日志。
+
+邮件 worker 是从同一 Identity 工件运行的独立进程，使用 MAIL 领取／续租／确认能力和 MAIL_SETTINGS 的单一快照读取能力。它没有 AUTH、control bearer、Recovery DSN 或 JWT signing secret；只有 MAIL DSN、MAIL_SETTINGS DSN、Fernet key 和 SMTP fallback。每次 claim 先提交 lease，再访问 SMTP，因此邮件网络调用不持 SQL 锁。固定 Message-ID 与同一密文用于 retry/unknown 重排队；at-least-once 允许 SMTP 结果不确定时产生重复邮件。未配置 SMTP 属于确定拒绝：只退役当前密码重置挑战，邮箱验证挑战仍可用；临时拒绝、断连未知及 key 暂不可用会保留 outbox intent。轮换 Fernet key 时须保留旧 key，直至相关 pending 行送达或被人工处理。
+
+`docker-compose.identity.yml` 是可选本地运行单元：Admission 与 `identity-mail` 共用同一 Identity 镜像；Mail 进程运行 `python -m aap_identity_runtime.mail_worker`，健康检查指向 `127.0.0.1:8171/ready`，容器非 root 且只读。主机的 `IDENTITY_RUNTIME_*_FILE` 变量选择必需 secret 文件，运行容器内才映射为实际 `IDENTITY_*_FILE` 配置；不能把这组 Compose 包装变量当作 API 配置。邮件 fallback 用 `IDENTITY_MAIL_SMTP_*`，Settings 值优先，且与既有 API `SMTP_*` 邮件测试配置分开。细节见 [Identity recovery ADR](/dev/adr/0119-independent-identity-recovery-and-mail)。
+
+API 配置 Recovery 专用 DSN 后，MAIL 和 MAIL_SETTINGS 两个 DSN 必须同时配置，否则拒绝 mail kick，不会转去轮询 API 数据库；不配置 Recovery DSN 时可复用 API caller transaction 与内嵌 mail session。若 API 显式选择远程 Identity owner，Mail worker 必须与该 owner 部署在一起，主 API 不读取远程 outbox。`infra/docker/lan-production-grants.sql` 为现有单体 `application_role` 增加了这组公开 Identity 函数授权源，但这份改动尚未应用到生产，单体 API 其他表权限也仍是过渡状态。
+
+该切片已通过本地恢复／凭据邮件资格。发送进程在 DATA 阶段被终止后，另一容器可按过期租约接管并发送同一链接；数据库恢复、旧明文链接摘要迁移、密码重置后的 JWT 失效与 API key 保留也已验证。小规模并发采样只证明本地资源限制内的行为。完整邀请生命周期与 MailV2 也已通过本地独立运行和恢复验收；用户目录／平台管理员、整个 Identity 模块与另一语言提供方仍待完成，当前没有生产部署或日常认证切换。Go 月报切片保持实验状态。
 
 ## 首个真实独立服务切片
 
@@ -71,7 +1036,7 @@ assets 的视频探测能力已完成首片本地验收：`apps/media-probe` 持
 
 原上传完成、ZIP、扫描和连接器消费同一操作。重复的操作 ID 重放原结果，换请求复用 ID 被拒绝；旧追加入口每次生成新 ID，重复调用仍返回零。同步追加、关联创建、解绑和单素材删除按父行优先锁序协调，任务与计数不会因这些路径交错而部分提交。回执不因素材或项目删除而级联消失，当前没有自动回执清理。
 
-当前独立角色验收包含 13 个模块专属 `NOLOGIN` 函数 owner 和 5 个受限 `LOGIN` 调用角色。迁移期主 API 仍持有原来的宽权限角色；受限角色能力不能被表述为整个 API 已隔离。项目引用锁只保证引用存续；初始操作接受另调用 Identity 当前账号和 Workspace 当前管理权合同，项目授权锁阻止负责人或模式更新穿过接受事务。
+0190–0195 追加与初始建题切片的独立角色验收包含 13 个模块专属 `NOLOGIN` 函数 owner 和 5 个受限 `LOGIN` 调用角色。迁移期主 API 仍持有原来的宽权限角色；受限角色能力不能被表述为整个 API 已隔离。项目引用锁只保证引用存续；初始操作接受另调用 Identity 当前账号和 Workspace 当前管理权合同，项目授权锁阻止负责人或模式更新穿过接受事务。
 
 此前针对 0190–0195 追加与初始建题切片的隔离验收记录为 209 项业务、协议、消费者及角色用例通过，零跳过，覆盖真实独立登录、拒绝私有表访问与角色提升、原生 `psql` 调用、提交失败、丢响应重放、追加/解绑锁序、5,000 条素材追加及 33,000 条初始建题。使用受限账号的真实 Celery 在发起者停用后完成已接受作业，重复投递不重建任务；独立执行进程强制退出后可续跑，解绑和取消阻止后续块。迁移回退、当时冻结 SQL 的独立安装和外层回滚、再正常升级均通过；临时消费者、容器与隔离资源已清理。该历史记录不覆盖项目删除切片（0196–0200），也不是生产容量或数据库内部 SQL 工作量证明。项目删除切片的本轮验收见下节。
 
@@ -89,15 +1054,86 @@ Workspace 的版本化 `delete_project` 命令在调用方外层事务中组合 
 
 完整实现与限制见[ADR-0094](/dev/adr/0094-transactional-project-deletion)。账号/成员生命周期、其他 Assets 操作及其他模块操作、完整模块运行工件和凭据仍是全目标的未完成工作；全目标门槛见下文。
 
+项目删除的值契约和回执绑定现由 `aap-workspace` 持有，API 保留兼容导入和原请求
+事务；外层提交失败仍一起回滚全部清理、Audit 和回执。独立语言客户端使用同一个
+PostgreSQL 协调器，而非先行提交的 HTTP／专用连接命令。删除专用 LOGIN 仅有一项业务
+Native 能力；实际 Node 和公开 API 的定向检查通过，边界见
+[ADR-0165](/dev/adr/0165-workspace-caller-transaction-project-deletion)。
+
+此前独占数据库复现了 canonical Job 级联先于执行退役的缺口。下述退役门禁现已
+修复两条协调路径；无证明旧作业的排空／修复仍开放，整模块状态见上方唯一台账。
+
+## Workspace 普通消费者凭据 {#workspace-consumer-credentials}
+
+`workspace-consumer-grants.sql` 显式收紧普通 API／worker LOGIN，在 Workspace 范围
+只保留32项固定函数及 project_facts、project_member_facts 两张合同视图，移除私表
+关系／列、回执、项目序列、内部 helper 和 schema 创建权限，并撤销未来 public
+表／序列的宽默认授权。Labeling 计数关系和其他领域现有权限保持。原调用继续借用
+事务，迁移者继承运行账号的维护方向保留；seed／截图准备使用单独操作账号。
+
+旧兼容部署脚本也补齐三个 schema、六项 policy／step 与成员搜索函数，默认本地
+绑定不会因缺少可选 URL／DSN 而失去接口权限。真实数据库先复现42501，再复验修复。
+13项不同适用案例通过，无有效失败／错误／跳过，含真实HTTP模板／项目生命周期、
+成员增删及搜索、Node同事务读锁、worker计数共同回滚、PUBLIC列授权原子拒绝、
+错误部署身份和未来默认权限。另有8项既有模块角色回归通过；兼容授权保持
+清理 worker 的八项函数，不会重置为旧的两项 outbox。原始失败与JUnit保留；源码
+审查不计作运行证据。
+
+[ADR-0179](/dev/adr/0179-workspace-consumer-credential-closure) 与
+`.worktree/workspace-consumer-profile-qualification.json` 记录范围。本地SQL凭据边界
+通过不等于整模块冷工件／恢复已完成；日常环境未应用该配置，完整装配继续集中验收。
+
 ## Workspace 数据集解绑事务切片
 
-Workspace 通过版本化 `preview_dataset_unlink` 提供只读数量预览，并以 `unlink_dataset(operation_id, actor_id, dataset_id, project_id, cleanup_bucket, audit_context)` 协调实际解绑。新命令锁定活跃身份和操作 ID，先锁 Dataset，再重验当前 Workspace 管理权并以 NOWAIT 锁 Project，随后锁定原 association generation。Labeling 按 batch UUID 再 Task UUID 顺序锁定并验证来源/批次快照；Learning 检查所有 round/project 的 pool member 与 candidate 引用，Labeling 再保护人工反馈和跨 Task annotation lineage。
+Workspace 通过版本化 `preview_dataset_unlink` 提供不删除业务数据的数量预览，但仍会锁定当前权限；并以 `unlink_dataset(operation_id, actor_id, dataset_id, project_id, cleanup_bucket, audit_context)` 协调实际解绑。新命令锁定活跃身份和操作 ID，先锁 Dataset，再重验当前 Workspace 管理权并以 NOWAIT 锁 Project，随后锁定原 association generation。Labeling 按 batch UUID 再 Task UUID 顺序锁定并验证来源/批次快照；Learning 检查所有 round/project 的 pool member 与 candidate 引用，Labeling 再保护人工反馈和跨 Task annotation lineage。
 
 来源选择优先 `Task.dataset_item_id`；仅旧点云 Task 缺少直接来源时回退到 `primary_lidar` 链接，忽略 camera-only 和无来源 Task。通过保留检查后，Diagnostics 解除被删 Task 的 bug-report 引用，Assets 为精确的 Task-owned pyramid 记录 outbox，Jobs 只取消匹配原 association generation 的活动版本化建题作业，Labeling 删除对应 Task 子行并重算计数，Assets 删除锁定的 association generation。Audit 记录 `dataset.unlink`，Workspace 保存不可变回执；所有 SQL、审计和回执共用同一外层事务。
 
 事务内不调用 S3 或 broker。独立 `apps/assets-cleanup` 用受限 LOGIN、专用 S3 身份和非 root 镜像轮询 outbox，替代旧清理 Celery task。它按精确 UUID/prefix/bucket 删除，等待捕获的 building lease，到期后才可领取和确认；失败记录不阻塞后续页，重启后可重试。REST 可选 UUID `Idempotency-Key` 在成功时回传，SDK/Web 的同次重试复用原 key；响应体仍为五字段，API key 写入需 `datasets:write` scope。
 
 本节只记录 Dataset→Project 解绑与清理回执边界。Assets 公开来源删除与暂存上传的后续切片见下节。实现决策见 [ADR-0095](/dev/adr/0095-transactional-dataset-unlink)。本阶段独立 PostgreSQL 整合回归 516 项通过、零跳过，覆盖两个受限 LOGIN、原生 psql、回滚/提交失败、幂等重放和真实 Celery/MinIO 清理恢复；迁移往返及冻结 SQL 独立安装/回滚通过，隔离资源已清理。角色验收不等于默认 Compose 已部署受限清理 worker，也不提供完整模块或生产容量资格。该解绑切片验收时主 checkout 应用至 0205，API 热重载与 DB/Redis/MinIO 检查通过；日常 Celery 未启动，相关健康检查维持 503。
+
+可移植调用方合同与管理器现位于 Workspace 包，API 只保留同一 Session 的 SQLAlchemy
+绑定和兼容导出。原始 JSON 严格解析，原 Python UUID／tuple 输入保持；预览与解绑
+都借用调用方事务，预览不能设置 READ ONLY。专用 LOGIN 仅有两项函数执行权，无
+私表／列、序列、DDL 或 TEMP。Native、Node 和真实 API 验收通过；Node 保留超过
+JavaScript 安全整数范围的原始审计 ID。72 项不同适用案例通过，无有效失败或跳过，
+其中 34 项包级检查、23 项旧消费者复验、15 项受限 Native／Node／HTTP。
+范围与失败复验见 [ADR-0177](/dev/adr/0177-workspace-caller-transaction-dataset-unlink)
+及 `.worktree/workspace-dataset-unlink-qualification.json`。完整凭据／冷工件仍集中验收，
+日常主环境未切换；新增门禁及遗留恢复限制见下节。
+
+此前 Task／Annotation 级联可能提前移除 canonical Job；下述退役门禁现已修复这两条协调路径。旧的无证明执行仍需独立排空／修复，完整恢复资格继续在顶部唯一台账跟踪。
+
+## 视频执行退役与删除门禁 {#video-deletion-retirement}
+
+项目删除和数据集解绑在任何 owner 清理前检查当前执行退役。Labeling 按原足迹锁定
+批次、Task 和将删除的 Annotation，包含跨 Task 的 Job 外键及来源 sidecar；Jobs
+按 UUID 锁 Job、execution、journal。未退役、缺 journal 或 run 不匹配返回
+video_execution_not_retired 409，正常锁竞争沿用 project_busy，原数据和提交边界保持。
+Task／Annotation 外键及 Job 锁阻止并发新准入。已退役的当前 run 无需等 lease 过期。
+
+从未启动且无账本的 Job 可以删除，Jobs 在同一事务保存私有 clearance；后续输入
+scope 留存不会被误认成未知孤儿，已有 execution 仍只认可其当前 run 证明。
+旧的已启动无账本 Job 与无证明孤儿继续拒绝，可靠排空／修复入口仍是恢复缺口。
+clearance 非空时降级拒绝删除证明，不能据门禁通过宣称历史恢复或整模块完成。
+
+226 项不同适用案例通过，无有效失败、错误或跳过：98 项 Native／并发／独立客户端、
+8 项真实 HTTP、2 项映射、118 项既有消费者。受限 API、两类函数账号和 Node 通过；
+公开取消后仍阻止删除，Native 退役完成后可重试。初始级联缺口及未启动孤儿误拦截
+均先复现，再以最小案例修复；失败日志和真实退出保留于
+`.worktree/video-deletion-retirement-qualification.json`。
+[ADR-0178](/dev/adr/0178-video-retirement-deletion-fences) 记录边界。完整凭据、冷工件、
+备份恢复与容量继续集中验收，日常主环境未切换，Go 未扩展。
+
+遗留恢复的源审计已区分三类：有 Jobs 账本可使用现有代次证明恢复；只有旧 tracker
+scope 时仍需完整枚举并可验证地停止旧 worker；更早的部署可能没有持久身份，无法以
+空记录证明排空。当前 off/observe 仍获取 Jobs 执行证明和 PostgreSQL scope，缺少
+Redis ledger 不等于没有 scope，须按存储事实及实际进程身份分类。
+原后端 incarnation 不可达时也不能认可新进程零计数。
+全局视频数据库恢复需要真实备份与外部源进程／凭据围栏，不能代替普通逐作业修复。
+这项外部证明前置条件继续保留；不会通过补造 journal、改状态或操作者声明解除409。
+整模块剩余项继续按上方唯一台账跟踪。
 
 ## Assets 来源删除、暂存上传与独立清理
 
@@ -277,4 +1313,1491 @@ Celery 消费者通过 `services/mask_gc_collection.py` 选择本地协调器或
 
 Assets 的删除事务通过所属模块能力检查引用：相机链接、场景轨迹／质量历史、视频章节、媒体执行和保留输入会阻止来源删除；单条素材也检查所在场景。Assets 仅向 Labeling 提供素材到场景的投影，不开放来源表；原任务、标注和主动学习证据继续保留。仍有引用时返回 409 `source_in_use`，要求先在对应项目或功能中解除引用，旧 FK 的级联不会代为移除这些记录。迁移通过新增合同安装该规则；现有公开删除和幂等回执接口保持不变。
 
+本次定向验收通过 11 个不同案例：10 项 Native 删除覆盖单素材／整数据集、辅助相机链接、活动／已退休轨迹，以及有／无未退役视频执行 pin；另 1 项实际 HTTP 检查确认 `source_in_use` 映射为 409。相机案例的主任务来源位于另一数据集；视频案例先移除 canonical Task／Job，证明执行日志本身仍保留来源。冲突时素材与引用保持，Audit、成功回执及清理 outbox 均不产生。已实际退役的执行日志可以保留来源 UUID 历史而不再 pin 素材；其他任务、标注和轨迹引用仍独立阻止删除。
+
+首轮有两个测试对 Assets 辅助 guard 加了错误断言；执行 pin 的检查实际属于 Labeling guard。修正这一测试预期后，两项最小复验通过，沿用其余九项通过证据；没有改动生产 guard。原始失败和清理记录保留在 `.worktree/assets-auxiliary-deletion-qualification.json`。本次不新增完整 Assets 独立装配或生产资格。
+
 取消 tracker、终止轨迹和软删除相机标注会保留历史引用；部分记录没有独立解除命令，因此来源仍被保留。相机链接、轨迹与视频历史的独立生命周期仍是所属 owner 的后续工作。运维脚本 `reset_datasets.py` 直接组合全库来源脱离与表删除，不经过普通来源删除守卫，仍可能触发辅助引用级联；该重置入口未获得上述保留保证或模块最小凭据资格。
+
+## Identity 准入与持久会话
+
+`apps/identity` 使用 Python 复用现有 bcrypt／JOSE，实现唯一的 JWT／API key 验证器及 `aap-identity/v1` 主体合同。HTTP 与所有 socket 握手／重验消费同一入口；显式远程服务或专用 DSN 故障不回退。原生 generation、JTI 和凭据回收已进入调用方同一事务，准入 LOGIN 只有四项函数权限；命令、最终围栏与过期回收分开授权。
+
+独立安装包与只读、非 root 容器的实际文件摘要匹配当前源码，不依赖 API、SQLAlchemy、Celery、对象存储或 ML；会话能力另使用受限 Redis 计数客户端。真实 API 通过 HTTP 消费容器，覆盖 API key 范围／轮换／撤销、登出与全设备登出、WebSocket 握手和逐消息重验，以及服务停机后的 503。独立进程重启后仍拒绝已撤销 JWT；备份还原保留 generation、JTI、API key 和原生权限，含数据时拒绝退回旧权威。Node 客户端验证完整主体绑定并精确保留 64 位代次，是跨语言消费证据，尚不是另一语言的提供方替换实现。有限并发采样只作本地冒烟，不证明生产容量。
+
+API key 的列表、创建、更新、轮换和撤销也由同一个独立 Identity 工件持有。公开 API 只转发值和消费主体，不再水合 User 或写 API key ORM；独立命令 LOGIN 只有两项函数权限。实际 API 进程使用不能读取身份表的准入 LOGIN，五项操作仍能通过远程所有者完成；缺少命令能力时返回 503，不回退。命令在提交时锁定当前账号和凭据，并比较此前验证的 API key hash，拒绝验证后被轮换的凭据。
+
+每次修改和操作回执同事务提交。私有调用方保存操作 UUID 后，可在响应丢失、服务重启或数据库恢复后重放；相同请求返回冻结元数据及相同签发材料，不重新应用修改。回执不保留明文或 hash，签发材料通过现有 secret 的独立 HMAC 域确定性派生。重放仍要求当前凭据有效；自轮换丢响应须以同一账号的其他有效凭据重新认证，secret 轮换后旧签发操作冲突。公开 HTTP 未增加自动 POST 重试或幂等 header。协议与部署说明见 [Identity 独立运行时](/api/guides/identity-runtime) 和 [ADR-0116](/dev/adr/0116-independent-identity-key-commands)。
+
+核心登录、刷新、登出和全端登出也由同一独立工件持有。三函数 LOGIN 与准入、key、Audit 权限分离；Redis ACL 只允许登录计数。原生命令按 User → 凭据锁重验当前密码 hash、generation、JTI 或 API key，状态、成功回执与 Audit 所有者事件共同提交；有效失败也保留审计。API 只转发值，保留 HTTP 限流和 Turnstile 边缘验证。无身份表权限的 API 已完成全部四项操作，包括 API key 全端登出、错误计数与验证码；独立登录签发的 JWT 通过 REST 和 socket 联调。
+
+会话回执冻结数据库签发的声明，重启、丢响应和备份恢复后可重放，始终重新认证，不重复修改代次、在线状态或审计。当前账号角色可与历史声明分别返回；历史 token 不保证当前仍有效。刷新保留原 JWT 和七天宽限，账号更新 409 与凭据竞争 503、畸形声明及 Bearer challenge 的既有区别已回归。Node 和 Python 核对相同的 Unicode 指纹、精确 64 位代次与冻结签名测试向量，提供跨语言消费及原语／序列化证据；它们尚非另一语言提供方替换或生产容量证明。协议见 [ADR-0117](/dev/adr/0117-independent-identity-session-commands)。
+
+同一工件还持有七项自助账户命令：资料读取、改名、偏好读写、心跳、改密与头像引用。准备、完整偏好策略／bcrypt 和提交保留在一条所有者连接中，按 User → 当前凭据锁定；状态、业务审计和四类修改回执共同提交。API 对这些路由只消费值，在线扫描改走单函数 operator。头像规范化与字节存储仍在既有入口，远程 SQL 锁不跨 S3 IO；提交未知时保留新字节，确认提交后再清理旧引用。协议见 [ADR-0118](/dev/adr/0118-independent-identity-account-commands)。
+
+包分发读／写模型和账户 wire/native schema，未来语言提供方仍须实现深合并、原子 map、revision CAS、版本降级和 opaque 数据保留。账户不使用较小的会话请求／准入响应限额；部署资源与容量需要实际测量。Node 消费者验证操作和主体绑定，尚非另一语言的完整提供方。
+
+一次性本地样本在 1 CPU／256 MiB 容器完成 32 次资料读取、并发 8，总耗时约 0.197 秒、p95 约 0.056 秒；16,777,217 字节的合法 AI 参数值完成写入与读回，共约 1.452 秒。负载结束后的内存快照为 65.45 MiB，无 OOM；这不是峰值测量或生产容量结论。实际 API 使用不能读取身份表的准入角色，仍可完成资料、偏好、心跳、改密及真实头像存储；专用 DSN 装配、当前撤权、响应中断重放和保留 ACL 的备份恢复也在隔离环境验证。
+
+这些是独立准入、API key、核心会话、自助账户、Recovery、Group、自助注销与durable notification 的不同子边界；各自本地资格不表示公开 HTTP 的所有写入都已与撤权串行化。完整邀请生命周期与 MailV2 sender 已通过本地消费者、受限角色、SMTP 结果不明重试、进程接管和备份恢复验收。用户目录／平台管理员、其他用户 hydration、其余多 owner lifecycle 和剩余签发端仍在 API。新 issuer 受控切换会要求旧 JWT 重新登录，API key 状态保留；日常环境仍未切换。Web 登录验证由服务端 `captcha_required` 挑战驱动，失败次数仅作提示，已用证明在失败后丢弃。完整 Identity 与全模块目标保持未完成，见 [ADR-0115](/dev/adr/0115-identity-admission-and-durable-revocation)、[ADR-0119](/dev/adr/0119-independent-identity-recovery-and-mail) 和 [ADR-0122](/dev/adr/0122-independent-identity-invitations-and-mail-v2)。
+
+### Identity group catalog and assignment
+
+Identity 组目录／指派定义了八项命令：列表、分页查询、创建、更新、删除、单用户指派、批量预览和批量应用。`GroupRecord` 的成员数只统计启用账号；查询保留 name／description 的 ILIKE、Python Unicode trim、name 后按 UUID 排序、500 条分页上限与既有无 search-length ceiling 行为。批量操作保留输入顺序和重复 ID，沿用原逐项部分结果 DTO。
+
+超级管理员与项目管理员都可管理全局目录。项目管理员只可指派自己、当前所管项目成员或启用 employee；批量操作仍允许所管项目的停用成员，单用户指派必须是启用目标。Workspace 原生投影按 Project 在先、membership 在后的顺序持锁并返回授权成员 UUID；Identity 不读取项目私有表，也不接受调用方给出的 manager/范围布尔值。写入采用 Group → actor/target User 锁顺序；rename/delete 按 UUID 预锁受影响用户并使用 NOWAIT。身份撤权、Project transfer 与成员移除必须受同一调用事务中的当前 scope fence 约束。
+
+迁移 0240 增加无 live-User FK 的 group operation receipt。create/update/delete/single assignment/bulk apply 在业务状态、typed Audit 与 receipt 同事务完成；bulk 成功受理后即使每一项都失败也保存冻结结果。Replay 必须重新认证当前 manager，单人指派还重验目标可见性。Audit 只接受五种固定组／指派事件，入口使用封闭 target_type、target_id、detail 结构，没有通用 Audit 表写权限。此前 group slice 仅用 Identity 私有 helper 解析／创建 invitation group 值且不授予 GROUP LOGIN；当前完整 invitation owner 已把旧 coordinator 的 resolve/register/accept 与管理操作迁入 Identity。
+
+API 的可选 DSN 是 `IDENTITY_GROUP_DATABASE_URL`／`IDENTITY_GROUP_DATABASE_URL_FILE`；独立 Identity runtime 使用 `IDENTITY_GROUP_DATABASE_URL`／`IDENTITY_GROUP_DATABASE_URL_FILE`，Compose 主机路径为 `IDENTITY_RUNTIME_GROUP_DATABASE_URL_FILE`。指定的连接只执行 `group_policy()` 和 `execute_group_command(jsonb)`；未配置能力或显式连接失败返回 503，绝不回退其他 writer。组目录命令依赖共享 PostgreSQL owner capabilities，不要求拆数据库。分组切片已通过 67 项数据库及进程验收，包括两函数 GROUP LOGIN、AUTH-only API 的八条公开路由、远程与专用 DSN 绑定、权限撤销、重启重放及备份恢复；独立安装包通过 272 项测试，Node 消费者通过 39 项自检。一个 1 CPU／256 MiB 提供方的本地样本以并发四完成 12 次创建，用时 0.138 秒、观察 p95 为 0.050 秒；共享 PostgreSQL 不在该进程预算内，结果不代表生产容量或另一语言提供方。完整组权限和 API 兼容边界见 [ADR-0120](/dev/adr/0120-independent-identity-group-catalog-and-assignment)。
+
+### Identity self-deactivation and Notifications delivery (current slice)
+
+自助注销的申请／撤销有两个 user operations；到期处理使用独立 operator protocol。公开 `/api/v1/auth/me/deactivation-request` 与 `UserOut` 保持不变，Identity 通过 `aap-identity-deactivation/v1` 和 `aap-identity-deactivation-due/v1` 接受用户命令及无用户 token 的批次页。原 Celery task 名和 04:00 UTC beat 保持，worker 使用 request UUID 和 `uuid5(run_id,"batch:N")` 固定每页 ID，并连续排空直到无进展／没有后续页；`limit` 是 1–500 的单页大小，不是总扫描上限。
+
+Native migration 0241 先安装 `0241_deactivation_notifications.sql`，再安装 `0241_identity_deactivation.sql`。一个固定 try-advisory fence 与 Legacy API 的角色、停用、删除、offboarding 和恢复路径共用，检查“其他启用且未预留注销申请的超级管理员”；所有会减少可用超级管理员的写入先取此 fence，再按序锁用户。已受理的自助申请跨管理员 suspend/reactivate 保持有效；最终 due 会逐个重查实际启用超级管理员，最后管理员候选进入 `blocked_last_super_admin`，请求和 ledger 保留不清除。
+
+自助 due 只做 inactive/offline 软删除并写固定 Audit／通知事件，不推进 JWT generation、不撤 API key、不交接任务／项目。批准后 Audit 只擦除现有 `actor_email`／`actor_role` 两列，`detail_json` 和旧通知 payload 保持；这不是完整 GDPR 删除。Identity 在原生事务调用 Notifications owner 创建申请／完成两种 event，`notification_delivery_outbox` 在同一事务持久化；独立 `aap_identity_runtime.notification_worker` 或同 executor 的 default queue relay 发布到 Redis，worker claim 提交前绝不做网络调用。发送语义 at-least-once，复用同一 notification ID，偏好仍在创建时应用。
+
+三个专用 LOGIN 分别是 `identity_deactivation_client`（两个 self 函数）、`identity_deactivation_operator`（policy 与 due 函数）和 `notification_publish_client`（policy、claim、finish）。API/runtime 的可选 DSN、Compose secret files 与权限见仓库根 `DEV.md` 和 [ADR-0121](/dev/adr/0121-identity-self-deactivation-and-notification-delivery)。本地验收覆盖三个精确受限账号、最终超管竞态、已受理申请跨停用／恢复、冻结 due 页、真实 Redis 与发布进程中断后的接管，以及备份恢复后的收据和租约保留。AUTH-only API 已验证专用 DSN 和远程容器两种绑定；两类 Celery task 入口各跨新事件循环执行，采用 eager 模式，不作为 broker／prefork 的新增资格。独立安装包通过 323 项测试，68 个不同数据库及进程用例通过；Node 只验证协议消费，不是另一语言 provider。完整 Identity、生产准备、另一语言 provider 与 Go 实验均不因该切片变更完成状态。
+
+### Identity 邀请与 MailV2 独立投递
+
+完整 invitation 生命周期用 `aap-identity-invitations/v1` 的 13 个 operations 接管既有创建、批量预览／应用、list/query/stats/export、revoke/resend/send-email、resolve、register 和 accept 路径。Public HTTP、SDK DTO、邮件发送的 200/502、当前 invitation link 与导出表现保持兼容。此 slice 不新增 Notifications event 或 Jobs backfill。
+
+Identity owner 在同库事务中协调 User、Group、Invitation proof、Workspace ProjectMember、Settings policy、Audit 和 Labeling active-batch work hint。Project admin 的列表与写入只覆盖本人邀请，不能使用全局 scope；当前 inviter/project owner、目标权限及 email quota 在写时重验。Authority 锁顺序为 sorted User → email advisory key → Project → Invitation/ProjectMember，所有 Project owner snapshots 锁后重查。公开注册和已有账号接受均在同一 owner transaction 消费 proof 并写 Audit/Member；既有账号不会改平台角色或合并账号。
+
+Native migration 0242 的依赖顺序是 `0242_identity_invitations_support.sql` → MailV2-owned `0242_invitation_mail.sql` → `0242_identity_invitations.sql`。`identity_invitation_client` 只有 policy/prepare/apply 三函数；MailV2 sender 使用只限 MAILV2 的四函数 `identity_mail_v2_client`。邮件 producer 接受 durable send intent 后在 bounded wait 里轮询 terminal `mail_status`，绝不持 Invitation/User/Project SQL 锁发 SMTP；V2 sender 校验当前链接/issuer/project scope 并通过短 lease 事务领取、续租和完成。`send-email` 失败或超时不改变 token、有效期或邀请状态；邮件发送 unknown 可能按同一 Message-ID 重试。
+
+`identity_credential_mail_outbox` 保存 invitation ID 与封闭发送上下文，用户/邀请凭据只使用现有 Fernet epoch/key，不能复制明文 token/link 到第二列或 receipt。MailV2 运行工件默认仍使用旧 Identity 镜像；可选 Compose `mail-v2` profile 会启动非 root、只读、健康检查在容器 8171 的 `identity-mail-v2`，只取得自身 MAILV2 DSN、既有 MAIL_SETTINGS、Recovery Fernet key 和 SMTP fallback。Recovery v1 MAIL worker/LOGIN 不变且只领取两个 Recovery purpose。SMTP sender 不获得 AUTH、control bearer、JWT signing secret 或 Invitation SQL 权限。
+
+API config 包含可选 `IDENTITY_INVITATION_DATABASE_URL(_FILE)`、`IDENTITY_MAIL_V2_DATABASE_URL(_FILE)` 与 `IDENTITY_INVITATION_MAIL_TIMEOUT_SECONDS`；runtime invitation owner 用 `IDENTITY_INVITATION_DATABASE_URL(_FILE)` 和独立 `IDENTITY_INVITATION_FRONTEND_BASE_URL` fallback（default 5173，系统 Settings 覆盖），Recovery 的 3000 fallback 保持不变。MAILv2 Compose host selector 为 `IDENTITY_RUNTIME_MAIL_V2_DATABASE_URL_FILE`，Settings/Fernet host secret 复用现有 selector 并在 container 映射为 V2 变量。细节见[Identity 私有运行协议](/api/guides/identity-runtime#邀请生命周期)、[ADR-0122](/dev/adr/0122-independent-identity-invitations-and-mail-v2)与仓库根 `DEV.md`。
+
+本地联合验收 68 项通过、零跳过，其中 58 项覆盖原生能力、受限角色和既有 API 行为，10 项覆盖独立 Node 消费者、真实 Identity 进程／容器、API、SMTP、恢复和旧挑战迁移。API 只持 AUTH 数据权限，分别经远程 Identity 容器与专用 Invitation DSN 完成全部 13 个公开操作；独立 MailV2 发送时 API 不持 MAILV2 连接。500 项真实预览全部回滚，部分成功、同操作重放、当前 issuer／owner／凭据代次围栏和注册／数据组／成员关系原子性均通过。迁移到 head、降至基线、冻结 SQL 安装回滚、恢复 head 与 grants 重装通过。
+
+独立安装包 375 项测试通过，77 个安装源码／schema 与当前工件指纹一致；Node 消费者 37 项自检、324 项装配／架构检查与 36 项 SDK 检查通过。架构套件另有 124 项显式延迟规则跳过，不属于上述 68 项真实验收。主 API 的独立构建镜像在无网络、只读、512 MiB 容器中通过冷检，核对 77 个包文件、63 个 API／原生工件、13 条邀请路由、0242 head、OpenAPI 及默认队列 relay 注册。
+
+1 CPU、256 MiB、非 root 只读 Identity 容器读取 600 条目录，列表／导出结果分别为 273,907／274,037 字节；页码 2^31 与 int64 最大值均返回正确空页，offset 不溢出。12 次创建、并发 4 的本地样本包含 7 次锁竞争重试，总时长 0.640 秒、观测 p50／p95 为 0.107／0.372 秒；重放不增加邀请或回执。SMTP 断线未知及进程在 DATA 后终止均以同一 Message-ID 重试，过期租约可接管，V1 继续只领取 Recovery 邮件；旧链接、已接受和已撤销邀请不会被迟到发送。备份恢复保留原链接、JWT、精确角色能力及可续租邮件，重放不重复审计；存在状态时拒绝降级。
+
+这些结果分别提供 invitation/MailV2 子边界资格；Directory 的限定本地资格记录在下节。平台角色／员工 lifecycle、全 Identity 独立部署、另一语言 provider、生产容量和其余模块门槛仍未完成；没有日常环境切换或生产部署，Go 保持实验状态。
+
+### Identity user-directory read owner (locally qualified slice)
+
+本 slice 只迁移 `GET /api/v1/users`、`/users/query`、`/users/stats` 和 `/users/export` 四项读取；公开参数、默认值、`UserOut`／分页 models、状态码、CSV/JSON、文件名和 SDK REST 调用保持不变。私有 Identity operation 是 `list_users`、`query_users`、`user_stats` 和 `export_users`。用户目录数据只含现有 21 个 `UserOut` 字段，偏好仍是 opaque JSON；不向目录 DTO 添加密码、hash、generation 或 API-key 字段。
+
+必须保留两套不同的 project-admin 可见范围。旧 `list_users` 仅当 `role=employee` 且 `status=active` 时返回全局 active employee 候选，其余情况是本人与所管项目成员并集，传入的 `project_id` 对 project-admin 忽略。新 query/stats/export 无项目筛选时还包含全部 active employee 和只读 active super-admin；带 `project_id` 后改为本人／所管项目成员与指定项目成员的字面交集，不套用全局 arm，也不额外要求所选项目由调用者拥有。不要把这个历史交集收紧成注释推断的规则。
+
+Query 每页 1–500 行，默认 50；page 使用正 signed int64，offset 计算不得溢出。role 不 trim/lowercase，也不引入任意短长度上限；非法或旧平台角色继续返回原 400 文本。search 最长 255，按 Python Unicode `str.strip()` 修剪，保留 email/name 上 ILIKE wildcard 语义；group_id 精确筛选。query/export 依 `created_at DESC, id DESC` 排序，legacy list 只承诺 `created_at DESC`。不增加目录总行或响应字节 cap；统计三项 count 与结果来自一致 snapshot，`weekly_active` 使用含边界的 `now - 7 days` cutoff。
+
+Project-admin query item 的 `is_managed` 表示自身、所管项目成员或 active employee；`is_lifecycle_managed` 还要求该用户的派生项目都由调用者管理。派生引用包括目标拥有项目、ProjectMember、TaskBatch annotator/reviewer、Task assignee/reviewer 及 TaskLock→Task；历史、停用和 archived 引用都参与，孤儿引用保留旧 inner-join Project 行为。Workspace 与 Labeling 通过批量 typed capability 返回项目引用／阻断结果；它们与 User rows/total 在同一 SQL snapshot 读取，不通过逐用户 RPC，也不向 Identity 授予外部表读取权限。超级管理员两项 flag 都是 true。
+
+只有 export 写入：每次新 export 写一条 `user.export` Audit。Directory owner 对成功 export 的同一 operation UUID 保存 8 字段导出行、metadata 和 Audit ID；当前 actor/credential 与原 `project_id` 范围内的所有冻结用户仍须可见，才可重放。搜索／group／status filters 不重算；用户删除或不可见时返回 `409 operation_conflict`。profile/context 变化单独不阻止返回原冻结内容，且不会重复 Audit。receipt 不带 live User FK、raw credential、hash 或完整偏好副本。格式仍有八列、CSV UTF-8 BOM 与公式转义、原 JSON `_export_meta` 和附件行为。
+
+`identity_directory_client` 只可执行 `directory_policy()` 与 `execute_directory_command(jsonb)`。Migration 0243 建立 `aap_identity_directory_v1`；Workspace 提供 owned/project member ids 与 lifecycle-blocked projection，Labeling 提供最多 500 个用户的去重 project refs，Audit 只接受封闭 export capability。API/runtime 可选 `IDENTITY_DIRECTORY_DATABASE_URL(_FILE)`；Compose host selector 为 `IDENTITY_RUNTIME_DIRECTORY_DATABASE_URL_FILE`，为空时关闭此 capability 且不阻止既有 Identity 服务启动。显式选择的连接失败不回退；独立 runtime 需要配置对应函数专用能力。
+
+Directory 读取 owner 已通过限定的本地资格。Native/role、restore 和 live/API 套件分别有 32、3、3 个数据库／进程用例通过，均无跳过；restore/live 还覆盖既有邀请与 legacy challenge 兼容路径，因此 38 项并非全是新 Directory 用例。非 editable 安装包 398 项检查通过，82 个安装源码文件的 hash 与提交一致。Node consumer 通过 22 项自检，SDK 用户管理／CLI 通过 31 项，OpenAPI contract 通过 14 项，操作目录发现／生成检查通过 21 项；API assembly 通过 348 项，另有 125 条 lazy architecture rule 明确延期。
+
+非 root、只读 Identity image 安装了相同的 82 个文件，并通过真实 runtime/API proof。API image `sha256:12eadf471566c1487a5830961928232e9abf4b01728912b03fb18fa70fc60479` 在禁网、只读、512 MiB 的冷启动检查中核对 82 个 package 文件和 70 个 API/native inputs；Directory 四路由、既有 Identity routes、OpenAPI、迁移 head 0243 与 relay 注册均匹配。OpenAPI 只调整了 users/stats 的描述。540 个用户的样本覆盖超过 500 行及 64 KiB 的 list/export；重放、当前可见性 409、stale-role 403、int64 页码、生命周期引用、credential-generation 围栏与重启检查均通过。环境文档生成检查覆盖 447 个变量和 48 个分组。镜像／源码身份与完整范围见 `docs/plans/1792160873_backend-module-decoupling.md`。
+
+这些结果只覆盖四项 Directory 读取。另一次并发 4 的 12 次 host-process 读取耗时 0.232 秒，p50 为 0.077 秒，p95 为 0.081 秒，包含 Node process 开销；它不等同于 1 CPU／256 MiB Identity 容器预算，也不是生产 SLO。平台角色预览／变更、管理员暂停／恢复／删除／offboarding 与自助注销均有各自独立的限定本地资格，不计入 Directory 证据。UserBrief 批量 owner 另有 64 个 selected cases（59 DB/process、5 pure/static），不能并入 Directory 的 38 例。Bootstrap/import、dashboard analytics、完整 Identity、其他模块门槛与语言替换仍未完成。本次没有切换主身份运行时，也没有建立生产容量结论。管理员临时密码重置已在下节单独限定资格；详见 [Identity 私有运行协议](/api/guides/identity-runtime#用户目录读取)与 [ADR-0123](/dev/adr/0123-independent-identity-directory-reads)。
+
+### Identity 管理员临时密码重置 owner (locally qualified slice)
+
+本 slice 只将公开 `POST /api/v1/users/{user_id}/admin-reset-password` 从既有 API workflow 交给 Identity owner；公开路径、3/minute 限流、成功状态与三字段响应保持不变。响应字段为 `temp_password`、`message`、`target_email`，message 保留现有固定中文文案。临时密码为 16 位 ASCII，使用固定字母/数字/符号集合并要求大写、小写、数字、符号各至少一位；明文不得进入 logs、errors、repr 或 Audit。
+
+权限按平台角色严格比较：super-admin rank 0、project-admin 1、reviewer 2、employee/历史 annotator 3、viewer 4、未知历史 target role 99。只能重置等级更低的 active target；super-admin可重置全部低等级目标。Project-admin 对启用 employee 有全局例外（含未分配／foreign-project），其他低等级目标必须有其所管理项目中的 membership，历史／inactive membership 继续参与。管理员密码重置不新增角色写入、offboarding 或 work reassignment。
+
+Identity 按 UUID 顺序先锁 actor 与 target User，再校验当前 actor/credential；Workspace scope 之后锁 Project 再锁 ProjectMember，并在调用事务中重验 owner/membership，防止 transfer/delete 穿过权限检查。原子提交范围包括密码 hash、`password_admin_reset_at`、typed `user.password_admin_reset` Audit 与成功 receipt；Audit detail 仅有 target email/role，generation/API-key validity 不变。receipt 用 operation-bound current bcrypt state fingerprint 与冻结 reset timestamp 阻止已 superseded 临时密码被重放返回。
+
+API/runtime DSN 是 `IDENTITY_ADMIN_PASSWORD_DATABASE_URL(_FILE)`；Compose host selector 是 `IDENTITY_RUNTIME_ADMIN_PASSWORD_DATABASE_URL_FILE`。Selector 留空会关闭该 capability 并让私有路由返回 503，但不影响既有 Identity service startup；显式 DSN 故障不 fallback。Dedicated `identity_admin_password_client` LOGIN 仅有 policy/execute 两项函数权限。42 个选定数据库／进程案例全部通过、零跳过：36 个 DB/restore 与 6 个 live 案例覆盖新 owner 和兼容路径；不能视为 42 个全新的 admin-reset 案例。Portable source／installed package 各通过 420 项检查，API/architecture 通过 467 项并显式延期 126 条 lazy rules，SDK user/CLI/OpenAPI 通过 35 项且公开 OpenAPI 不变。只读非 root Identity image 与禁网、只读、512 MiB API cold image 通过；具体镜像和样本边界见 [ADR-0124](/dev/adr/0124-independent-identity-admin-password-reset)。Local qualification 不代表生产容量。全 Identity、平台角色管理、其他用户 hydration、其他 lifecycle 和多语言 provider 仍未完成；见[Identity 私有运行协议](/api/guides/identity-runtime#管理员临时密码重置)。
+
+### Identity 平台角色预览与变更 owner (locally qualified slice)
+
+本 slice 仅迁移 super-admin `GET /api/v1/users/{user_id}/role/preview` 与 `PATCH /api/v1/users/{user_id}/role`。保留原 path/method、请求默认、错误、响应与 SDK/CLI；角色限定为 `super_admin/project_admin/employee/viewer`，不增加 CAS。Preview 返回 12 个既有字段和 target 成员项目的 direct counts；展示计数使用所有状态、不应用批次 fallback，viewer 的未完成工作 blocker 则按 Task→TaskBatch fallback 计算，两者保持不同语义。`other_project_count` 对当前 SA-only surface 固定为 0，preview 不取 last-SA fence。
+
+Mutation 先锁共享 last-super-admin invariant，再按 UUID 锁 actor/target User 并校验当前 credential 和 active SA；同角色请求直接写 no-op receipt、不锁 Project。真实变更先由 Workspace 以 UUID 顺序 NOWAIT 锁定所有 target-owned Projects，再检查工作 blockers，最后检查 last-SA。Lock order、preview/mutation blocker 顺序、typed Audit 与无 Audit 的 no-op receipts，以及 A→B→A 仍返回原 accepted snapshot 的 replay 语义见 [ADR-0125](/dev/adr/0125-independent-identity-platform-role-commands)。Workspace/Labeling/Audit 只提供窄 facts 与 typed write，不授予原表读取，不修改成员、批次或任务。
+
+私有 endpoint 为 `/v1/identity/platform-roles/execute`。`identity_platform_role_client` 仅可调用 `platform_role_policy()` 与 `execute_platform_role_command(jsonb)`。API/runtime selector `IDENTITY_PLATFORM_ROLE_DATABASE_URL(_FILE)`／Compose host `IDENTITY_RUNTIME_PLATFORM_ROLE_DATABASE_URL_FILE` 留空时只关闭此能力并返回 503；显式 DSN 先过 policy readiness，失败不 fallback。56 个 selected DB/process cases（48 Native/旧 API、5 restore、3 live）全部通过、零跳过；installed package 94 个文件 hash 匹配，source 与 installed tests 各 447 项通过，API/architecture 499 项通过并延期 127 条 lazy rules，Node 22 与 SDK 35 项通过。API cold image `sha256:a49450a0b203a3f05f68c6de058cd61d7d84d66cfd2b9384265ce3d8adbb6ca9` 在禁网、只读、1 CPU/512 MiB 下通过；精确 image inputs 与 host-process 样本见 [ADR-0125](/dev/adr/0125-independent-identity-platform-role-commands)。这只完成平台角色 slice 的本地资格，不代表全 Identity、生产容量或切换完成；管理员重置密码与 Directory evidence 仍分属 ADR-0124、ADR-0123。十模块／七门槛目标和其他语言 provider 仍未完成。
+
+### Identity 管理员暂停与恢复账号 owner (locally qualified slice)
+
+此 slice 只迁移 `POST /api/v1/users/{user_id}/deactivate` 与 `POST /api/v1/users/{user_id}/reactivate`。保留停用字符串 path／404 与恢复 UUID path／422、可空 body、error 和 `UserOut`；两路只允许当前 SA/PA。Inactive suspend 是早于 PA scope 与 role 检查的完整 User no-op，不退休凭据或写 Audit。真实 suspend 对所有 derived Projects 取 KEY SHARE NOWAIT；PA 只能停 employee，project set 可空但须全部归其管理，不能加成员关系要求。PA reactivate 只能恢复 employee，scope 必须非空且全归其管理，并按旧行为只锁自己的 Project subset；SA reactivate 不取 Project 锁。Reactivate 在确认 scope 后检查当前 active/kind，凭据退休先于恢复写入。
+
+两条 Admin write 都保留现有 credential retirement、副作用和已接受 self-deactivation reservation；不写 Project/Member/Batch/Task/TaskLock，不交接责任。Workspace helper 复用 Labeling 现有 derived-project reader，但不新增 Labeling protocol/grant 或通用锁框架；旧 batch clear/reassignment-away race 也不视作本 slice 已修复。配置为 `IDENTITY_SUSPENSION_DATABASE_URL(_FILE)` 与可选 Compose host `IDENTITY_RUNTIME_SUSPENSION_DATABASE_URL_FILE`；空 selector 只关闭此能力并返回 503，不影响现有 Identity startup。Root 汇总 77 个 selected DB/process cases，零跳过；source 与 installed package 各 468 项通过，99 个 installed 文件 hash 精确匹配，API architecture 543 项通过并明确延期 128 条规则，Node 46、SDK 35 项通过。Nonroot/read-only Identity owner image 通过实际 remote API binding；禁网、只读、1 CPU/512 MiB API cold image 也通过。有限 host-process 样本仅用于并发联通，不代表容器时延、生产容量或 SLO。该证据只限定此 owner slice；完整 Identity、生产部署和多语言 provider 仍未完成。完整 image hashes、case scope 与样本数字见 [ADR-0126](/dev/adr/0126-independent-identity-suspension-commands) 和[Identity 私有运行协议](/api/guides/identity-runtime#管理员停用与恢复账号)。
+
+### Identity 管理员账号删除 owner (locally qualified slice)
+
+此 owner slice 仅迁移管理员 `DELETE /api/v1/users/{user_id}`，维持原 path、`DeleteUserPayload`、权限、errors 与 `UserOut`。它保留 legacy inactive-target no-op、基于 direct-assignee Task 的阻塞与可选转交、全量 target TaskLock 释放和既有任务范围；只将 eligible Task 的 `assignee_id`、`assigned_at`、`updated_at` 一并更新，不写 ProjectMember 或 TaskBatch，也不把 reviewer、TaskBatch fallback 或其他 Task 状态混入转交。项目管理员可在空 derived-project set 下删除 employee，否则必须管理所有 derived Projects。准确的授权顺序、receiver 条件、错误 detail 和事务边界见 [ADR-0127](/dev/adr/0127-independent-identity-deletion-commands)。
+
+DELETE 设置 inactive/offline/deleted metadata，但不退休凭据或修改已接受的 self-deactivation fields。Audit owner 先清除既有 target 行的 `actor_email`/`actor_role` 并捕获数量，再 INSERT 固定事件；既有 detail/IP/target 保留，这不是完整 erasure。API/runtime selector 为 `IDENTITY_DELETION_DATABASE_URL(_FILE)`，可选 Compose host selector 为 `IDENTITY_RUNTIME_DELETION_DATABASE_URL_FILE`。空配置只关闭该 capability，独立 route 503；显式 DSN 失败不 fallback。Root 最终并集通过 72 个 selected acceptance cases（71 DB/process、1 static artifact），零跳过；source/installed suites 各 502 项、104 个安装文件 hash 精确匹配，API assembly 576 项通过并延期 129 条规则，Node 21、SDK 35 项通过。受限 owner image 与禁网、只读、1 CPU/512 MiB API cold image 通过；有限 host sample 不代表生产容量或 SLO。完整 image hashes、migration/restore、case union 和 host sample 见 [ADR-0127](/dev/adr/0127-independent-identity-deletion-commands)。此 owner 不代表完整 Identity、生产容量或 provider replacement。
+
+### Identity 管理员离职预览与提交 owner (locally qualified slice)
+
+此 owner slice 仅接管 `GET /api/v1/users/{user_id}/offboarding-preview` 与 `POST /api/v1/users/{user_id}/offboarding`。保留 public DTO/defaults/errors 与 UUID validation；portable snapshot 与 SHA-256 版本、role/receiver options、blocker 先后顺序、commit CAS 和 lock order 都按现有兼容行为固定。Handoff 和 emergency suspend 共享原子事务但保留不同的职责转移与 unresolved 结果；reason 不写 Audit，凭据退休和 TaskLock release 在同一事务内完成。详细字段与错误 precedence 见 [ADR-0128](/dev/adr/0128-independent-identity-offboarding-commands)。
+
+HTTP composition 位于 `apps/api/app/api/v1/offboarding_commands.py`，导出 `require_offboarding_manager`、`get_offboarding_commands` 与 `execute_offboarding`；`IdentityOffboardingCommands` 装配 `OffboardingCommandsPort`，`IdentityOffboardingCommandData` 将 prepare/apply 留在 caller transaction。Portable owner 在既有 Identity 包。旧 API lifecycle coordinator、Batch handoff/release helpers 不留兼容 writer；`services/user_lifecycle.py` 只保留共享账号锁。Migration 0248 与 `identity_offboarding_client` 仅提供函数能力。API selector 留空时继续使用 caller transaction；独立 Identity runtime selector 留空只关闭其 runtime capability，显式 DSN readiness failure 不 fallback。
+
+Root 的限定本地 qualification 通过 77 个 distinct selected cases（76 DB/process、1 static artifact），零跳过；source/installed suites 各 523 项、109 个安装文件 hash 精确匹配，API assembly 604 项通过并显式延期 130 条规则，Node 21 与 SDK 37 项通过。Migration 0248 upgrade/restore、受限 owner image 与 cold API image 均通过。Identity owner image 在真实 remote API binding 下以 nonroot/read-only、1 CPU/256 MiB 运行；cold API image 在禁网/read-only、1 CPU/512 MiB 下验证后已清理。具体 hashes、case union、legacy/owner 同夹具比较及采样边界见 [ADR-0128](/dev/adr/0128-independent-identity-offboarding-commands)。这只限定 offboarding slice；完整 Identity、十模块／七门槛、production cutover 与多语言 provider 仍未完成。
+
+### Identity batched UserBrief reads owner (locally qualified slice)
+
+此 slice 把既有 `app.services.user_brief.resolve_briefs` 与
+`resolve_briefs_with_project_role` 的 User/ProjectMember 读取换成内部批量 Identity
+owner，不新增 public profile 路由或 SDK 操作。Caller 仍先授权自己的业务 rows；Identity
+只返回六字段 UserBrief，项目 role 通过 Workspace 的窄 `(user_id, role)` projection 获取。
+inactive/history rows、项目 role fallback、Python `avatar_initial` 与 caller-owned
+transaction/autoflush 行为都保留。
+
+Private `POST /v1/identity/briefs/execute` 使用内部 control Bearer；wire 与 native schema
+分别为 `aap-identity-briefs/v1`、`aap-identity-briefs-native/v1`。API 可选
+`IDENTITY_BRIEFS_DATABASE_URL(_FILE)`，Compose host selector 为
+`IDENTITY_RUNTIME_BRIEFS_DATABASE_URL_FILE`；留空时 API 走 caller Session，独立 runtime
+则禁用该 capability。Migration 0249 的 `identity_briefs_client` 仅有
+`briefs_policy()` 与 `execute_briefs_command(jsonb)` 两项执行权限，Workspace 原表不授权。
+Root 的最新 selected-case union 通过 64 个 distinct cases（59 DB/process、5 pure/static），零跳过。Source/installed suites 各 549 项通过、114 个安装文件 hash 精确匹配；API assembly 625 项通过并显式延期 132 条规则，Node 21、SDK 43 项通过。Migration 0249、冻结 SQL/grants、restore 与资源清理通过，cleanup errors 为空。
+
+Owner image `sha256:c86eba7f5b49ef4424ba0a5eab9751d99f866b74e268f3190bfd06615dd89884` 通过真实 remote API binding（nonroot/read-only、1 CPU/256 MiB）。Cold API image `sha256:f7a80e3a2b41643d33044dfa5eff5fc49510f16fa3563241989262d5841652e7` 在 network-none/read-only、1 CPU/512 MiB 下核验 114 package 与 45 API/native inputs、六字段响应、caller transaction 保留、无 helper ORM、native snapshot byte 一致、head 0249 与 hidden SQL parameters；容器已移除。41.875 秒是 build+offline verification，不是 startup latency。Compose disabled/enabled selectors configuration-only checks 通过且未启动 deployment。准确 case classification、schema/image hashes 和旧 helper baseline 见 [ADR-0129](/dev/adr/0129-identity-batched-user-brief-reads)。该结果只限定 UserBrief owner；完整 Identity、十模块／七门槛、production capacity/cutover 与 provider replacement 仍未完成。
+
+Projects 成员列表 `projects.list_members` 是该 UserBrief owner 的独立消费者：Workspace 保留 membership 授权、`assigned_at DESC` 顺序和项目职责，随后只用一次全局 `resolve_briefs` 补齐原 DTO 的姓名、邮箱、平台角色和头像引用。它不使用 project-role overlay、不新增字段；空列表不访问 Identity、缺失 profile 继续省略，必填 `platform_role` 遇到非法历史值仍触发旧验证错误。该消费者另通过 21 个 selected cases（18 DB/process、3 pure/static）与 SDK 44 项序列化检查，不能并入前述 owner 64 例。相较旧 JOIN 增加一次批量读取；远程 Workspace/Identity 组合没有共同 snapshot。其他用户水合、完整 Identity、production capacity/cutover 与 provider replacement 仍未完成。
+
+Project owner display 是另一个独立消费者：serializer 只读取全局 brief 的 `name/avatar_ref`，保持 `owner_id` 与 Workspace 权威，以及可空显示字段的旧 null/raw-value 语义；资料不参与授权。list/query 仅为过滤、排序、分页后的返回 owner IDs 做一次 batch；详情和现有写入口对非空 owner ID 各读取一次。共享 owner 去重，empty page 无 IO，dataset-linked 关联路由保留 null 默认。N+1 owner 查找被单次批量查询替代，但其他 per-project counters 仍保留。该 slice 的 59 个 selected cases（53 DB/process、6 pure/static）已通过；SDK projects 23 项通过，含两个新增序列化用例，SDK 生产包未改。现有 owner artifact 沿用 prior qualification；更新后的 API image 与 OpenAPI/codegen/catalog checks 均通过，详见 [ADR-0129](/dev/adr/0129-identity-batched-user-brief-reads#project-owner-display-consumer)。
+
+## Workspace 历史角色审计
+
+历史角色审计通过专用 `aap_workspace_audit_v1` 读取项目的 ID／所有者／状态、成员的
+ID／项目／账号／原职责，以及两个成员准备列的存在标记。关系没有 Identity join、
+筛选或职责映射，原 SQL 的关联、NULL／未知值、排序、限制及报告字段保持。
+
+`workspace-role-audit-grants.sql` 与既有 Identity 审计安装器显式组合，不依赖较新
+Workspace schema，也不推进 Alembic revision。专用审计 LOGIN 的 Project／成员私表
+表级和列级权限均被撤销；普通 Workspace 消费者配置会撤销特权审计关系，防止进入
+日常 API 默认权限。字段存在标记由 owner 查询 `pg_attribute`，不会因调用方私表权限
+被收紧而误报缺列，添加准备列后无需重新安装关系。
+
+22 项数据库／消费者检查通过：八份既有全字段报告对照、真实 0171 数据库、无重装
+0173 过渡、Node 读取、备份恢复、并发更新下的 REPEATABLE READ 快照、历史 NULL
+诊断、安装器错误数据库／所有者／定义／额外对象的原子拒绝，以及普通凭据撤销。
+Workspace 包共 513 项源码检查通过，另有 358 项架构和 9 项报告契约检查通过；
+既有 150 条延后架构规则不作为通过项计数。
+
+匹配冷工件的 300 项 Workspace 安装文件和 1,336 项 API／包／CLI 文件通过源码一致性
+检查，非 editable 安装中的五份资源 schema 与运行时合同相符。两个冷案例完成 11 次
+真实 CLI 调用，分别覆盖 0171 与当前 schema：缺少安装器或 SELECT 时退出 2，恢复
+权限后完整报告一致，物理取消后 PostgreSQL 后端实际退出，源行与历史 revision 保持。
+完整迁移升级／回退及自有资源清理均通过。
+
+实现提交 `8109a369c`；本地证据见
+`.worktree/workspace-role-audit-qualification.json`。这是本机 ARM64 的有限正确性资格，
+不证明完整模块、生产容量或日常环境切换。
+
+本项只收口历史角色审计的 Workspace 操作；完整模块资格与日常主环境切换按唯一台账
+跟踪。安装与复验命令见 `DEV.md`，本地收据按操作组保留。
+
+## Workspace cross-frame 冷 worker
+
+跨帧传播复用已有 Workspace 项目、访问和成员锁能力。普通 employee 通过 annotator
+项目成员身份执行，目标写入前重查当前成员和任务范围。默认普通账号组合已补齐既有
+Spatial Native 的 22 个函数及两张窄引用视图，与嵌入式 workflow 授权一致；Workspace
+和 Identity 的私表／列权限继续被拒绝。
+
+17 项去重 Native／准入检查通过：16 项原跨帧行为保持，另一个实际受限角色案例验证
+空间 item／pose／引用、专用 Identity 准入、当前成员上下文、真实作业创建准备以及合法
+交接后撤员。任务已转给接收人，历史标注作者保持。资源与授权单元检查另有 21 项通过。
+
+一个通过的冷案例包含七次真实 Celery 派发，覆盖成功与已有轨迹跳过、重启后重复投递
+不增加标签、排队后撤员拒绝、NOWAIT 竞争与实际 retry、源版本过期、取消后投递。
+实际数据库等待点核实了 worker 的私网地址、`identity_api_consumer` 登录身份，以及
+`lock_project_reference_nowait` 的关系锁等待；释放锁后完成全部七次派发。任务注册、
+签名、独占队列、持久化结果和逐次消息确认均核对通过。
+
+worker 来自非 root、只读 API 冷镜像，使用 1 CPU／512 MiB 资源限制；API 的 retry 和
+取消路由在主机 ASGI 中使用受限业务连接及专用 Identity 凭据，派发桥只指定本次独占
+broker 队列。当前 API 工件核对 1,336 项代码／包／CLI 文件及四项夹具输入；其余四个
+工件通过全部 COPY 路径与哈希核对后复用。全迁移回退／重建与自有资源清理通过。
+
+执行实现提交 `3692d02ea`；证据见 `.worktree/workspace-cross-frame-qualification.json`。
+原失败尝试保留，未累计为通过案例。本项关闭 cross-frame 的 Workspace 调用资格；
+完整 Labeling／Jobs、生产容量、整模块 Workspace 和日常主环境切换继续按唯一台账跟踪。
+
+## Workspace export 冷执行与恢复 {#workspace-export-recovery}
+
+此组验证普通 `employee` 的 reviewer 成员身份执行图像 AAP JSON 导出。Worker 使用
+受限 `identity_api_consumer`、自有 PostgreSQL／Redis 私网及全部十个隔离桶；项目／
+成员表和列的直接读取被拒绝，项目权限与最终签名检查继续通过既有 Workspace 能力。
+对象身份只可读取本案例的一张源图片和操作本项目的 export 前缀，无桶管理权限。
+
+先前的实际 SIGKILL 复现了 Redis 六小时锁遗留：不同 task ID 的投递虽显示 SUCCESS，
+持久作业仍停在 running；原 ID 和同范围新作业都进入 RETRY，没有产物。修复改用同一
+独占 PostgreSQL 连接上的作业／缓存会话锁，写入前核对原 backend PID；失联后永久拒绝
+该次执行写入并重试。独立执行对象键阻止旧上传覆盖恢复结果。连接丢失时不删除可能已经
+提交的对象，以免恢复执行刚好引用了它；未引用对象仍由既有 export 生命周期回收。
+
+22 项选定数据库／纯逻辑检查和 1 项冷组合案例均通过，无跳过；先前 19 项纯逻辑检查
+包含在 22 项内，不重复计数。冷案例在 1 CPU／512 MiB、普通 UID、只读根文件系统的
+不可变 API 镜像上运行，日志确认 5 个 task ID 共 7 次真实投递：排队后经 Workspace
+能力撤员而拒绝；容器 SIGKILL 后由新 ID 接管同一作业；精确恢复原始 Redis unacked
+消息并完成确认；同范围新作业复用缓存；prefork 子进程 SIGKILL 后由 Celery 自动重投
+原 ID 完成，父容器不变。有效作业各有一条通知，原消息重放不增加产物或通知；ZIP 及
+清单中的源图片均通过实际签名 URL 下载并核对内容。最终队列／unacked 均为零，
+自有资源全部清理，完整迁移升级／回退保持 head `0310`。
+
+源码修复提交为 `cde81715d`，最终冷夹具为 `d8c21999f`。API 镜像
+`sha256:edf86c782fd9453a511b67d4efbde12910461482e2e074d24cb5c5d3234215e9`
+核对 1,336 个应用／安装包／CLI 文件和 4 个运行夹具输入，另四个镜像的完整 COPY 集合
+及哈希复用既有资格。规范证据为 `.worktree/workspace-export-loss-qualification.json`，
+SHA-256 为 `eadb3df1d922370fca25f0e1bfb2b7d5de4d94ff8381e168744eb1e06af88dea`。
+执行命令见仓库 `DEV.md` 的“Workspace export 冷 worker 验收”。
+
+本机 ARM64 的图像案例不代表每种导出格式、完整 Jobs／Workspace、AMD64、远程 CI
+或生产容量资格。整容器丢失后的原消息由验收夹具按唯一投递标签显式恢复，未证明自动
+恢复耗时；实际自动重投资格仅覆盖 prefork 子进程丢失。旧 export worker 在采用新锁前
+须排空，未验证两种锁混跑。主环境和 Go 实验均未切换。
+
+## Workspace video-tracker 冷 worker {#workspace-video-tracker-cold-worker}
+
+实际 Celery 任务在普通 UID、只读根文件系统、1 CPU／512 MiB 的不可变 API 镜像中
+执行。主数据库身份为 `identity_api_consumer`，Workspace 私表及列权限均已关闭；
+Inference Routing 和 Labeling 视频写入各使用已有独立能力凭据。第一窗口推理被
+夹具暂停期间，数据库实际会话确认普通角色、独占数据库与 worker 私网地址。
+
+一个冷组合案例覆盖五个 task ID、六次真实接收：普通 annotator 完成三个窗口的六帧
+结果；真实 HTTP 取消保留首窗口两帧；成员显式交接后移除、账号停用均使排队作业拒绝
+执行且不调用模型；prefork 子进程 SIGKILL 后，Celery 自动重投原 ID，父容器保持。
+恢复保留首窗口原有 parts，提升执行代次，仅重跑中断窗口并继续后续窗口。成功、取消
+和恢复均通过实际 backend 控制器及 owner 完成退役；恢复前后的 scope 都已关闭并
+reconciled。最终五个作业确认、队列及 unacked 均归零。
+
+真实 preview／成员交接／移除／账号停用序列另有一个通过的数据库 HTTP 前置案例。
+冷案例与前置案例均无失败或跳过，自有资源全部清理，完整迁移升级／回退保持 head
+`0310`。匹配镜像核对 772 个应用文件、532 个安装包文件、32 个 CLI 文件及 4 个运行
+夹具输入；另四个既有镜像的完整 COPY 路径与哈希继续匹配。
+规范证据为 `.worktree/workspace-video-tracker-qualification.json`，SHA-256 为
+`c8978e1f78d3889000ae360d1d7b796ad460ed51900e51a27bcfde8baa7ff2c4`。
+可重复入口见仓库 `DEV.md` 的“Workspace video-tracker 冷 worker 验收”。
+
+本项关闭 tracker 的限定 Workspace 消费者资格，未改变生产执行实现。PostgreSQL／
+Redis 使用私网别名；Media 与确定性 CPU 推理 peer 仍经宿主机转发，依赖 Runtime
+台账中的未修复路径。恢复夹具只令精确旧代次的租约到期，因此不证明默认故障恢复耗时。
+完整 Workspace、GPU、生产容量及另一语言提供方仍未获资格，日常运行环境尚未切换。
+
+## Runtime 宿主机转发诊断 {#runtime-host-forwarding}
+
+当前 Docker Desktop 的宿主机转发路径存在可重复的连接关闭／复用故障，尚未记为修复。
+原始数据库对照本轮再次观测到转发路径 4,096 次中 92 次连接超时，私网 4,096 次全部成功。
+无数据库协议的 TCP 对照中，容器经宿主机访问随机发布端口、显式发布端口、原生宿主机
+监听器均出现 connect 阶段超时；宿主机对三个端点各 1,174 次检查全部成功。客户端最多
+约 15 个文件描述符，限制为 1,048,576；没有耗尽源端口范围。
+
+同一进程、同一原生宿主机监听器的对照进一步显示：内核自动分配源端口的组失败 96 次，
+96 次均复用了此前使用的源端口；每次选择唯一源端口的诊断组 4,096 次全部成功。
+随后用四组固定源端口稳定复现：读完标记及对端 FIN、正常关闭并确认本地旧四元组消失
+后，私网第二次连接全部成功，宿主机路径第二次连接 4/4 超时。只存控制包头的记录显示
+新 SYN 发出并重传，没有收到 SYN-ACK。记录只保留带 SYN／FIN／RST 的包头，未保存
+纯 ACK，不能据此断言没有任何应答。关闭 TCP timestamps 没有改善；RST 关闭的
+诊断对照通过，但它会中止 TCP，不能替代数据库／API 的正常关闭，也没有作为运行配置。
+
+本机授权后的宿主机抓包补充了包含纯 ACK 的 200 条记录，无内核丢包。16 个宿主机
+控制连接和 4 个容器首次连接均有完整握手；四个失败重连的超时区间内，该临时监听
+端口没有新 SYN，也没有其他包。同一四元组立即重连和 35 秒后的重连仍失败，65 秒后
+恢复，期间未修改配置或计时器。这把故障进一步缩小到宿主机监听器之前的转发路径。
+
+当前 `com.docker.backend` 的构建信息包含 gVisor 提交 `6520f0ab6e7a`，本轮临时子网的
+路由增删日志也来自其 gVisor 组件。现象高度吻合上游
+[TIME_WAIT 转发器重开缺陷](https://github.com/google/gvisor/issues/15013)：新 SYN
+命中旧 TIME_WAIT 端点后，没有普通监听端点可以接手，转发器也未得到回调。
+这是结合本机观测与上游机制的判断，尚未直接跟踪内部函数。拟议
+[修复](https://github.com/google/gvisor/pull/15019)仍未合入；当前没有已验证包含该修复的
+Docker 工件或本地切换证据。它不是本仓库的 API／数据库逻辑修复，历史单次业务 503
+也没有被追溯归因。
+
+仓库的 `scripts/verify_docker_host_forwarding.py` 保存配对复现和受限的宿主机元数据抓取
+入口。它只使用自有短期监听器、网络及不可变本地 Python 镜像，不执行 SQL、不取业务
+凭据、不修改 Docker 配置。`diagnosed_not_repaired` 会返回非零退出码，不能把发现故障
+计为验收通过。命令及本机管理员授权要求见 `DEV.md` 的“宿主机转发诊断”。
+本机授权前置条件已完成，抓包进程及所有已完成探针的自有容器、网络和监听器均已
+清理。最新证据为 `.worktree/runtime-host-forwarding-host-trace-diagnosis.json`，SHA-256
+`4472b6f773e9f27edafb1ec961eee4c5806f600552897d4c0c29e3b978a8091d`。
+该次抓包保持了当时的日常主环境、20 项 editable 绑定、4 个共享链接和 4 个共享容器；Go 实验未变。后续 Identity 源码采用与运行刷新另按上文记录，不覆盖旧收据的时间点。
+
+另对[官方发布说明](https://docs.docker.com/desktop/release-notes/)中的 Apple silicon 候选 Docker Desktop 4.96.3 做了只读工件检查。官方 DMG 的 SHA-256 匹配，嵌入后端仍声明与当前 4.96.0 相同的 gVisor `6520f0ab6e7a`，没有报告 replacement；未找到可确认包含上游修复的构建。供应方构建标记为 `+dirty`，其私有源码无法核对，因此元数据不能排除未记录的内部回移，也不能代替转发行为验收。记录为 `.worktree/runtime-docker-desktop-candidate-4.96.3-arm64.json`，SHA-256 为 `93c3a6f2641a996e1becf363a9495b97849b1cf15298d4afa0c62ffb02b8b847`。候选从未执行或安装，只读挂载与下载文件已清理，活跃 Docker 未重启／改配置。
+
+## Audit 日聚合与 Jobs 通知范围事实 {#support-daily-and-jobs-facts}
+
+两项源码来自独立 worktree：Audit `dbcec594f` 集成为 `05dd3e683`，
+Jobs `09172f914` 集成为 `fdd0ae476`。Audit 日聚合保留六个原生字段与月报
+完成日／原始尾段拼接，维护固定函数仍由调用方提交。真实受限 owner 验证确认
+并发刷新需要 owner 的数据库 TEMP；普通读取及刷新账号均不需要 TEMP。
+父线修正 Node DATE 解码，避免 Asia/Shanghai 时区下偏移一天。
+
+Jobs 只公开 UUID、开放 kind、当前／保留项目三列事实；API 保留类型白名单、
+当前成员、导出权限、缺失作业拒绝和原 autoflush／事务。子线 29 项混合检查通过，
+Node 当时通过 SET ROLE 验证，不能当作独立 LOGIN 证据。
+父线补充真实 session_user 检查、Unicode code point 长度及严格只读授权。
+
+子线原始收据、失败、源码哈希及清理证明分别归档在
+`.worktree/audit-daily-projection-evidence/` 和
+`.worktree/jobs-notification-facts-evidence/`。两套唯一测试环境及专属角色均已清理，
+源码 worktree 保留。Audit 不可变探针只随数据库销毁移除，未绕过触发器。
+父线在干净提交 `b482d3210` 完成 27 项混合案例，零失败／跳过；真实刷新 LOGIN
+完成并发刷新，API／读取账号被拒绝访问私有 MV 和刷新函数。Jobs Node 通过独立 LOGIN
+验证 session_user、三列原生事实、40 个 Unicode 字符的开放 kind 及私表／写入拒绝；
+Audit Node 在 Asia/Shanghai 下读取日期。完整 0323→0189→0323、冻结 SQL 回滚及
+函数体哈希相等通过，3,819 项输入在运行前后保持一致；父线自有资源全部清理。
+
+当前 API 镜像 `sha256:11af6667ab0fcb5ca21794f81a0261682662cacb879999240eb24f189740ade6`
+在非 root、禁网、只读、1 CPU／512 MiB 下核对 2,031 个文件及 4 个运行夹具，
+新增 schema、关系绑定和依赖检查通过。Workspace 的 549 项完整输入未变；共用探针
+误要求其安装 Audit 的原失败保留，已成功的 338 文件检查不重复，仅补齐遗漏检查。
+重建后使用实际镜像 ID，未把已不可解析的旧 manifest 引用当作可用工件。
+Notifications／Identity 的 42／184 项输入及既有资格继续复用。
+
+规范证据 `.worktree/audit-daily-jobs-323-qualification.json` 的 SHA-256 为
+`fc9b5aa30109f91365c3fb120033a15d3bdcba79f14a31a74f355dddbeb02414`。
+两组操作的限定本地资格闭合；新镜像仅有离线证据，尚不代表冷进程业务、完整
+Audit／Jobs／Notifications、独立维护凭据、生产容量或替代语言提供方。
+API 镜像仍由启动方指定非 root 用户；日常主环境未切换。
+
+## Notifications 实时消息与 socket 生命周期 {#notification-realtime-wire}
+
+通知 owner 发布六字段事件与开放 sync 合同，API 和 durable publisher 共用构造，
+各自原有时间字符串、JSON 编码、提交时机及错误／重试策略保持。历史 JSONB 的
+数组、标量和 null 保留；Python／Node 对 UUID、日期、时区偏移与 Unicode 长度
+使用同一规则，不把新合同校验强加给既有 WS admission。
+
+父线 50 项包、13 项 API 纯检查及 Node 自检通过；浏览器增加历史非对象 payload
+检查后 28 项 hook 回归通过。原始 array 参数化写法把数组展开，首轮通过记录保留，
+修正后的命名样本另有 JUnit 和预运行源码绑定。浏览器子线原 23 项的补记收据明确
+没有原始 JUnit／预运行快照；父线完整 lint 和 TSC 另行通过。
+
+两项实际复现证明订阅被取消或退订失败会跳过 PubSub 关闭，修复后连同退订取消
+及既有 relay／授权共 10 项纯检查通过。独立测试数据、认证角色及跨频道订阅拒绝
+已由只读预审收口；父线在干净提交 `b23eaa074` 完成 8 项组合案例，零失败／跳过。
+真实 API 与认证 LOGIN、私表拒绝和单频道订阅 ACL 均已验证；Node 的实际 stdio 帧
+经 Redis 进入 socket，五种历史载荷继续送达。未提交行的第一次真实查询未命中后提交，
+后续查询送达；成员移除、缺失行四次查询及停用账号均拒绝相应帧。正常断连和精确
+handler 取消后，订阅数与连接占用均归零，所有自有资源清理通过。
+
+3,826 项后端输入在运行前后保持一致，完整 0323→0189→0323、冻结 SQL 回滚及
+已安装函数体校验通过。原 JUnit 的 xunit2 property 警告保留，实际 socket 属性仍存在
+并已从 XML 解析。规范证据 `.worktree/notifications-wire-socket-qualification.json`
+的 SHA-256 为 `4aa99bc5fd6d7a667b71117b71ae099db736f0d5ded7a23f75e0074842e35cda`。
+
+源码集成与子线原始收据分别保存在
+`.worktree/notifications-wire-contract-evidence/` 与
+`.worktree/notifications-web-consumer-evidence/`。当前工件资格继续绑定此前实际源码；
+新合同的冷工件将随下一次完整运行边界批量验收，不把旧镜像标为当前。
+两套本轮源码 worktree 在精确归属、干净状态和五项 cherry-pick 等价检查后已移除；
+原始源码 tips 的已验证 bundle、收据、临时测试配置与最终图稿均保留在父线归档。
+这仍未关闭完整 Notifications：WS、当前范围授权和即时发布编排仍由 API 持有。
+下一步迁移收件箱查询与投递可见性策略，保留各自原有事务和缓存语义。
+
+## Notifications 收件箱查询 owner {#notification-inbox-owner}
+
+`aap-notifications-inbox-query/v1` 与迁移 `0324` 将列表、排序、分页、总数和未读数放入三个固定函数，复用私有可见性策略。API 继续先读取 Identity actor 状态，传该次角色快照，分别执行 page、total、unread；仅 actor 缺失时返回空结果，不新增整个接口的停用过滤。成员资格仍要求有效 Identity 与平台／项目角色配对，项目管理员自有项目、reviewer 导出、实际 Jobs 范围、已删／缺失／未知作业拒绝及全局作业白名单保持。
+
+公开行保留八个原生字段与任意 JSONB；收件箱 SQL `->>` 与批量投递的 Python 字典语义继续分别保持。借用 Session 的 ORM 查询保留 identity、脏值与 autoflush，调用方仍控制提交／回滚。实际 ORM 计数回归先复现 `NoSuchColumnError`，再通过结果列标签修复；原失败与修复 JUnit 均保留。
+
+子线两项提交合入时，17 项源码逐字节一致；父线另补原生事务回归和限定类型修正。11 个原始证据文件归档在 `.worktree/notifications-inbox-parallel-evidence/`，清单 SHA-256 为 `7af82a3414ce6032028e0059375f59136ade070c96cfabda6d8a62012a57d34b`。父线 8 项包、6 项 API 纯检查、23 项脚本检查（另 19 个 subtests）、完整 Node 自检及固定 Ruff 通过；独立只读语义／权限复核无剩余具体缺陷。纯检查与下述真实 PostgreSQL 组合案例分别记录，不叠加计数。
+
+Notifications owner 只持公开 Identity 资料列、Workspace 两项固定能力和 Jobs 三列事实；API／函数账号不能调用私有 helper。公共授权源与 inbox profile 拒绝非迁移角色取得 owner 成员资格，显式撤销并检查 PUBLIC EXECUTE；验收器使用实际 guard 进行事务内负向探针并检查回滚清洁。普通 API 仍需公开通知关系用于单条读取、投递和 WS，不在本操作提前撤销。
+
+当前冷工件随完整运行边界批量验证。完整 Notifications、逐条投递策略及 WS owner 仍未闭合，主工作树与日常环境未切换；训练和资产扩展继续暂缓，Go 保持实验。
+
+首轮真实组合在前三项分页案例以类型不存在失败；实际 LOGIN／Node、API／LAN、私有 helper 拒绝、三项 ACL 负向探针与完整迁移阶段分别已通过，原整轮仍保持失败。适配器把 SQL 关键字别名错误限定为 `pg_catalog.boolean`／`pg_catalog.integer`；改用原生 `bool`／`int4`。独占、断网的最小 PostgreSQL 探针绑定实际适配器语句，先取得 `42704`，修正后 PREPARE／EXECUTE 返回一行；两种别名均被实际拒绝，自有容器清理通过。探针自身的启动临时服务及 Docker 错误大小写两次夹具失败另行保留，不计为产品验收。
+
+修正后的干净源码 `0cc417c60` 通过 19 项真实数据库／API 案例，零失败／错误／跳过，案例耗时合计 4.686 秒。它显式包含新的 PostgreSQL 基线文件，覆盖 pending／dirty 的 autoflush 与 no_autoflush、ORM identity、总数／未读和 caller 回滚、七种原生 JSONB、成员／自有项目、导出以及已删／未解析 Jobs 范围和真实 HTTP 收件箱。受限函数 LOGIN 的 current_user／session_user、Node bigint 字符串、API／LAN 实际调用、helper 拒绝及三项事务内异常授权探针均通过。
+
+完整 0324→0189→0324、冻结 SQL 回滚和八项已安装函数体校验通过；3,837 项输入运行前后未变，自有数据库、角色、Redis、存储身份与 PostgreSQL 容器全部清理。规范证据 `.worktree/notifications-inbox-324-qualification.json` 的 SHA-256 为 `73a47226a9c64c47d0edc57a766a2a7a066ba6e9d3b3c2fc9d89a2976fc0194d`，原失败没有改写为成功。
+
+子线在干净状态、两项提交 patch 等价、11 个原始证据重验与 Git bundle 验证后，无 force 移除本轮唯一 worktree；仅删除其已备份的本地分支。共享依赖目录保留、共享环境文件字节未变，未创建子线运行资源；清理收据 SHA-256 为 `54e377ca1ae8a340ccaacedb0376718ecc794abd5e023aea683abe734b74d9b2`。
+
+本次关闭收件箱操作边界。下一项完整边界是按 ID 读取与批量投递授权：统一迁移当前范围决策及既有消费者，保留单条缓存、批量快照顺序、两种 JSON 语义、发布时机与 WS 生命周期。终态预查的原有 autoflush／identity 行为必须通过 owner 保留，或在真实旧／新对照后才能移除；不能仅因已有原子追加而直接删掉。等全部事实关系读取者迁走后，再撤销 API 的该关系 SELECT。完整 Notifications 的独立 WS、普通发布装配、当前冷工件及恢复仍未闭合；主工作树与日常环境保持原状态。
+
+## Notifications 投递读取与当前授权 owner {#notification-delivery-read-owner}
+
+`aap-notifications-delivery-read/v1` 与迁移 `0325` 发布按 ID 读取、终态预查、Jobs scope 和四项精确配对授权函数，策略移入 Notifications 包。API 的 ORM 绑定保留缓存短路、部分／完全过期、缺失 identity 清理、终态保存点与 caller 事务；四项授权仍为独立 ORM 语句。实际 Jobs 范围、dict／键存在性、宽容 UUID 解析与异常后仅允许未限制行的规则保持，未与收件箱 SQL 策略合并。
+
+子线两项提交与 14 项源码已集成；28 个原始证据文件归档在 `.worktree/notifications-delivery-read-owner-evidence/`，清单 SHA-256 为 `95bb08321f7f9680afe979a5e80b5892d1a17140e7d5d05270ca487f92634d65`。父线的真实 SQLAlchemy／SQLite loader 回归、既有消费者纯检查共 40 项通过，包的 14 项与完整 Node 自检通过；SQLite 不代表 PostgreSQL 或冷工件资格。
+
+父线原生小探针先确认不存在的 `jsonb_object_length` 返回 `42883`，再证明精确键集合减法能区别两字段与额外键；另一个探针确认带名参数的 catalog identity 字符串不能当作纯类型签名，改用现有 helper 同款 `oidvectortypes`。两个专属断网 PostgreSQL 容器均清理，原源码及跟进修复分别保留；未为这两处问题启动整轮迁移验收。
+
+API 的事实关系表／列 SELECT 在普通 worktree、LAN 和固定能力配置中撤销，专用只读关系客户端保留旧视图资格。新函数账号仅可执行七项能力，跨 owner 权限仍复用现有 Identity 资料列、Workspace 能力及 Jobs 事实。权限与适配器独立复核未发现具体剩余缺陷；新原生回归将验证外部提交撤权发生在四次读取之间时的旧语义及精确 pair 关联。
+
+当前已通过下述操作级真实验收。完整 Notifications 的独立 WS／普通发布装配、当前冷工件及恢复继续保留，日常环境未切换；训练、主动学习与资产扩展暂缓，Go 保持实验。
+
+干净源码 `e274922e9` 首轮组合通过 27 项真实 PostgreSQL／API／socket 案例，零失败／错误／跳过，案例耗时合计 4.045 秒。API 的表级／列级事实读取均被拒绝，七项固定函数可用；专用只读关系账号的旧资格保持，Node 的新独立 LOGIN 验证原生行、40 个 Unicode 字符的 Jobs kind、精确 pair、无额外能力及私表／视图读取拒绝。外部事务在 member 与 reviewer 读取之间实际提交撤权，当前调用保留旧成员快照并拒绝导出，下一调用全部拒绝；原只读连接的 PID／事务 ID 保持。终态竞争、旧记录短路、保存点／caller 回滚、SQL 失败不丢作业状态、autoflush 与真实 socket 均通过。
+
+完整 0325→0189→0325、冻结 SQL 回滚和 15 项已安装函数体哈希检查通过，3,851 项源输入运行前后未变；数据库、角色、Redis、存储身份与独占 PostgreSQL 全部清理。实际 socket 的 xunit2 property 警告保留，属性仍存在于原 XML。规范证据 `.worktree/notifications-delivery-read-325-qualification.json` 的 SHA-256 为 `7e1d9d9481876945f4c84362c50adc37e49b9c8adc6611f19ffbd57149ea6b22`；纯检查与此前案例有重叠，不叠加计数。
+
+子线两项原始提交与 28 项原始证据在 patch 等价、bundle 校验及干净状态检查后保留，唯一任务工作树无 force 移除，仅删除已备份的本地分支。共享依赖目录及环境文件保持，未创建子线运行资源；清理收据 SHA-256 为 `d86a117d9c4068f02f192045abfc77970be44cf04412a7f6e277c786c9702794`。
+
+本次关闭按 ID／终态预查／批量投递读取和当前范围授权的操作边界。下一完整交付为独立 Notifications WebSocket 运行路径及现有 API 兼容绑定，随后统一验证当前冷工件、受限凭据、真实认证／撤权、取消、重启和回退。普通发布的 best-effort 与 durable relay 差异继续保留，不扩大成新的可靠性保证；完整 Notifications 和另一语言完整提供方仍未验收，主检出与日常环境未切换。
+
+## Notifications 独立 WebSocket 运行路径 {#notification-socket-owner}
+
+独立子线 `7018ffccc` 与 `f25529ae0` 集成为 `1bcbe860f`／`85edf8352`。Notifications 新增独立 ASGI、CLI 和原生 asyncpg 只读适配器；API 保留原 `/ws/notifications`，显式选定 owner 后只转发原文本／二进制消息，拒绝重定向与环境代理，不记录用户 token URL，也不回退 API 的认证、DB 或 Redis。空配置使用同一个 Notifications owner 的内嵌装配。原四次可见性读取、三次 150 ms 等待、当前范围判断、30 秒 ping 和取消清理保持；publisher 的最佳努力与耐久租约语义没有合并。
+
+Identity admission 的纯合同逐字节移入无环共享包，旧路径导出相同类与异常。独立 socket 只持 admission-only bearer；它仅可调用 authenticate 和新增 actor-status，后者使用独立单函数 LOGIN，复用既有 read_actor_facts，不扩展 AUTH 五函数、比较 admitted role 或回退其他 DSN。API 既有 Identity URL base path 保留。新增 schema 随共享包发布。四套锁和五个工件的 COPY 输入已同步；原外部依赖版本未升级，新 socket 依赖与 API 已验收锁对齐。
+
+父线归档 `.worktree/notification-socket-parent-focused/` 保存实际 JUnit：30 项 API、17 项共享客户端、38 项 owner，均零失败／错误／跳过；212 项输入运行期间未变。此前 10 项 loopback bridge 与 7 项 facade 检查有重叠，不另相加。子线 owner 的六项原始收据及十项源码核对归档于 `.worktree/notification-socket-parallel-evidence/`，清单 SHA-256 为 `e11a83c2a75a66a615852d10a81eb6c0db8444de3f64fa01cbb66ae701c21a17`。Identity 子线没有生成原始 JUnit／源码映射，其报告的数量不计入父线证据；新增 RPC 的真实运行资格由下述冷组合单独证明。
+
+当前 socket、Identity、publisher 三个冷工件的 69／213／69 项 COPY 输入与验收源码逐项匹配；API 冷工件另核对 3,803 项 COPY 输入。禁网、只读、非 root 离线检查分别核对 61／200／53／2,061 项安装或应用文件，API 另核对五项运行夹具。以上为工件资格，不能替代真实链路验收。
+
+干净源码 `bfeb76a9a` 通过一个实际冷组合案例，JUnit 零失败／错误／跳过，耗时 66.624 秒；4,173 项源码输入运行期间未变，所有临时资源清理成功。实际 API 原地址转发到独立 owner，经真实 Identity admission／actor-status RPC、单函数账号状态凭据、七函数通知凭据和单 actor Redis ACL，验证 API key／缺失 JWT 拒绝、当前撤权与角色变化、停用账号拒绝、四次读取／三次等待、提交后可见与约 30 秒心跳。五种历史 JSON payload 经 Node 原字节转发和实际 SDK 源码消费保留；owner 重启后的耐久收件箱补拉通过。SDK 通过源码导入，未证明安装 wheel。
+
+原始三次失败收据保留：首次缺少夹具所需的 API bootstrap 输入；第二次使用 WebSocket 库未导入的异常路径；第三次业务断言全部通过，但清理测试账号触发 Audit 不可修改保护。分别先用最小复现确认，再修复既有夹具。账号清理只删除无审计记录的 fixture 用户，有审计记录的 actor 留到独占测试数据库销毁；未绕过审计触发器。`.worktree/notification-socket-cold-qualification.json` 汇总 32 项原始证据，SHA-256 为 `78faf170cd9b2dbd5b1824f6bc49ac2e9be395b73fb035c9f4655fe69a2fb6d3`。
+
+本次关闭独立 WebSocket 与 API 兼容绑定的限定本地运行边界，不关闭完整 Notifications；普通发布装配、全操作组合及完整数据库备份恢复仍待验收。原 Identity 整模块资格仍指此前配置的能力，新增可选状态接口有独立证据，不计入旧分母。日常拓扑、主工作树和 Go 实验保持原状态；训练、主动学习和数据集／存储扩展仍暂缓。本机 Linux ARM64 结果不代表 AMD64、远程 CI 或生产容量。
+
+## Jobs 列表查询 owner {#jobs-list-query-owner}
+
+独立子线 `c3a5bff5f`／`80da05eba` 集成为 `c34d98882`／`a29224582`，Node 消费夹具另集成为 `ea279cf32`／`a24a4bcf0`。迁移 `0326` 持有 page、total 和私有 predicate；公开行显式列出十五个原生字段，内部表复合类型不经公开函数暴露。API 保留一次 Identity 活动预查、分别执行 page／total、Workspace 展示补充与原 Session 提交边界；每条语句仍读取 Identity 当前事实，保留成员资格的活动状态、合法角色及 viewer 配对语义。
+
+普通 owner、工作区和 LAN 授权已接入新能力，专用 `jobs_list_query_client` 仅可执行两项公开函数；API 的其余 Jobs 操作尚未提取，不提前撤销其私表权限。验收器创建并销毁独立 LOGIN、安装并重施严格授权、核对迁移及冻结函数体。真实 API 夹具使用原认证依赖和受限账号，Node 使用独立 LOGIN 对照旧查询的有序 UUID／总数，并核验原生列类型和私表／helper 拒绝。
+
+父线聚焦检查通过五项 API／包案例、三项脚本案例及其 24 项子检查，Node 自检通过；原始输出、JUnit 和 29 项输入快照保存在 `.worktree/jobs-list-query-parent-focused/`。Node 原始 OID 键名和签名空格错误分别最小复现并修正，原失败收据保留。
+
+本地 Native 资格覆盖十四项不同案例：首轮十三项旧／新查询和 API 基线通过，新增组合案例在修正夹具后单独通过。只改变该案例及其 Node 脚本，其余十二个夹具函数的 AST 和所有相关实现保持不变，复用首轮通过证据。最终源码 `be5a12442` 的 3,855 项输入运行期间未变；实际 JWT 认证、普通受限 API 调用 page／total 与 Workspace 展示补充、独立 Node LOGIN 的原生列／顺序／bigint 总数及私表／helper 拒绝均通过。完整 0326→0189→0326、十八个安装函数体与冻结 SQL 回滚、严格授权重施均通过，所有临时资源清理成功。
+
+三次原始失败保留：夹具给 token helper 传 UUID 对象、误用普通数据账号作 Identity 认证，以及 Node 文本 ACL 探针在无 Identity schema USAGE 时提前报错。修正分别先通过最小实际调用、数据源选择和独占 PostgreSQL 复现；认证改用原有单独凭据，Node 保留全局 OID 检查和真实拒绝访问探针，未扩大权限。汇总 `.worktree/jobs-list-query-qualification.json` 绑定 33 项原始证据，SHA-256 为 `3bd897aaa24a0897710776267be73bdfe190e5e999b5d25cf0dd4e29c97816ee`；十四项资格由保留的十三项与修正后的一项组成，另保留三份原始失败收据。
+
+API 镜像源码检查点 `e888f17` 的非 editable 安装、资源与导入资格保留，2,068 项实际安装／应用／迁移／CLI 文件仍与当前源码一致；两项已修正的 QA 文件与原 COPY 清单有差异，不能称为当前全量 COPY 匹配。该镜像资格限离线安装、资源与导入，冷 API 业务请求仍待验收。列表操作的限定本地边界已闭合；其余操作、完整恢复、另一语言提供方、日常采用、远程 CI 与生产容量继续按台账跟踪。
+
+## Jobs API 单行读取 {#jobs-api-single-reads}
+
+详情、当前作业访问检查、取消、失败项重试与终态通知统一复用现有
+`aap_jobs_v1.read_job(uuid)`。详情和访问检查分别保留强制刷新，取消与重试保留
+普通 identity map 快捷路径；授权、错误顺序、领域取消策略和提交点保持。
+没有新增服务、公开响应字段、迁移或数据库权限。
+
+聚焦纯检查三十二项通过。新增四项 PostgreSQL 用例在一次性数据库的测试事务中撤销
+API 角色对 Jobs 私表的 SELECT，确认实际拒绝后执行详情、取消、重试拒绝和终态通知，
+并记录 SQL。它们与既有账号新鲜度、已删除项目范围、通知 autoflush 和 API 用例组成
+三十一项通过案例，零失败／错误／跳过，3,903 项输入运行期间未变。完整
+0327→0189→0327、二十九项安装函数体、冻结 SQL 往返、授权重施及自有资源清理通过。
+汇总 `.worktree/jobs-single-read-qualification.json` 的 SHA-256 为
+`d8176b8702a4031e3de220658a36586df183e5ebbc742f8dfb41fbdd15faf0ce`。
+原始失败收据保留：一个旧 Identity 测试仍模拟项目锁 SQL，在未改基线上复现后，仅把
+夹具接到已经存在的项目锁接口；未改变运行逻辑。
+
+本组不关闭其余聚合／筛选查询、作业行锁、领域消费者或完整 Jobs。更新时间保持原有
+过期语义，无锁字段刷新已按下文迁移；锁定刷新和未支持的 ORM 形状仍待收口。
+旧视频已启动而无执行账本的退役证明仍需跨模块处理，删除／解绑的 409 围栏保持。
+训练／主动学习、资产数据集／存储扩展继续等待功能合并。
+
+## Jobs 领域行访问与事务锁 {#jobs-row-access}
+
+二十一处普通作业读取复用现有 owner getter，保留原来的缓存、强制刷新、撤权检查和
+get／refresh 两阶段。九处按主键加锁读取使用 `aap-jobs-row-locks/v1` 的两项固定函数：
+`read_job_for_update(uuid)` 等待独占锁，`read_job_for_share_nowait(uuid)` 获取共享锁并
+立即报告竞争。迁移 `0328` 保留十五列原生行 ABI，函数以固定 search_path 的 Jobs owner
+执行；普通 API／worker 授权接入，严格 lifecycle LOGIN 仍只有原八项能力。
+锁在调用方事务中持有，错误与 scalar-one／缺失行行为不变，不新增重试或提交点。
+
+无锁 ORM 字段刷新复用 `read_job`，保留原字段投影、脏缓存与过期语义；更新时间仍在
+属性刷新时观察数据库，不提前缓存本次写入时间。锁定刷新和不匹配的 ORM 形状保留
+原路径，后续仍需逐调用方收口。wheel 的二十项包文件与源码一致，解包到独立目录后
+可导入两项能力、Schema 与 SQL 资源；wheel 仅是打包检查；当前冷组合资格另列如下。
+
+首次组合验收有一百一十四项，其中一百一十二项通过，零错误／跳过，3,912 项输入
+运行期间未变。保留两项原始失败：新用例把 ORM 缺失行 get 的额外查询混入字段刷新
+范围；旧跨帧测试替换了整个队列模块，遗漏现有执行控制 builder。SQLAlchemy 本地
+对照及实际 builder 前后探针确认原因后，修正后的刷新用例及全部十六项跨帧用例
+定向复验通过。两轮产品实现与其余输入保持一致，只有两份测试文件变化；总计一百
+一十四项不同案例通过，不叠加重复运行。当前纯检查一百一十七项及二十四项子检查
+通过；完整 0328→0189→0328、三十一项安装函数体、冻结 SQL、授权重施与自有资源
+清理通过。汇总 `.worktree/jobs-row-access-qualification.json` 绑定二十三项原始证据，
+SHA-256 为 `06d27c085ff97509e105942d10e3eccf6cf067f8e5e00a8d14c35b703d654f56`。
+
+最终格式化调整两份 Schema 的 JSON 排版和两份 SQL 的文件尾空行；JSON 值及函数
+定义相同，其余 3,908 项输入不变。当前 wheel 已刷新，全部原始工件和验收收据保留。
+
+当前源码检查点 `c339d8d68` 通过一个真实冷组合案例，零失败／错误／跳过，场景耗时
+73.066 秒；4,277 项输入运行期间未变。API 与 worker 各有 3,874 项 COPY 输入匹配，
+并核对 2,096 项安装／应用／迁移／CLI 文件；Jobs 队列为 24 项 COPY 输入及二十项包
+文件。未变的 Identity／publisher 工件复用原有 218／74 项匹配输入。
+
+恢复前后，实际 API 容器使用普通数据角色和当前测试库，分别执行两项 Jobs 行锁及
+字段级 refresh；原身份、结果和进度保持，SQL 只调用 owner 能力，没有私表 FROM。
+真实 HTTP GET 均返回完成态及实际标注结果。原有 owner 故障无本地回退、预先持久化
+执行 ID、default 队列真实 worker、协作取消及终态迟到重投仍通过。完整 PG dump／
+restore 后新进程处理新任务，再验证同样的容器内行访问和 HTTP 读取。完整迁移往返、
+三十一项冻结函数体、授权重施和全部自有资源清理通过。
+
+新夹具先通过十九项纯检查、内嵌脚本编译和用例收集；审阅时将原来的完整 getter
+刷新改成真正的字段级 refresh，在构建前修正。离线探针的嵌套字符串转义也在静态
+编译阶段修正，没有失败的真实冷运行。`.worktree/jobs-row-access-cold-qualification.json`
+绑定二十七项原始证据，SHA-256 为
+`0c3698bbbb432d09af69e91d6d2ee851cdf07f8568d8ce23bf13a57f400e9591`。
+这是行访问与代表性跨帧队列的限定冷资格，不代表整个 Jobs 模块或全部 worker 路径。
+
+完整 Jobs 仍有过滤／聚合查询、其余领域读取、原生生命周期之外的兼容编辑权限、
+producer／canvas／options、其他执行恢复和替代语言提供方待收口。下一批集中迁移
+非暂缓的跨帧 worker、Mask QC／Repair 及视频质量读取，再与专用查询统一验收，
+避免每个 getter 单独刷新工件。日常环境和主工作树未切换；训练／主动学习及资产的
+数据集／存储继续等待功能合并，Go 保持实验。
+
+## Jobs 生命周期与队列交接 {#jobs-lifecycle-queue}
+
+通用 `create`、运行／进度／结果、完成／失败／取消与取消请求规则移入 Jobs 包，
+API 保留原方法签名、ORM 对象、缓存与 caller 事务。固定创建关系保留原 INSERT 的
+默认值、RETURNING、upsert 和全量 flush；每个实际变脏的 Job 按原 mapper 顺序执行
+一次 Native 更新，字段掩码保留 UPDATE OF 触发器、部分 flush 与时间戳过期行为。
+方法中途的转换异常仍保留已赋值前缀，payload／result 保持领域投影与原生 JSON。
+
+迁移 `0327` 安装创建关系和八项公开能力：按 ID／执行 ID 读取、视频摘要插入、
+生命周期应用、仅 pending 的派发失败、批次取消／删除及终态历史清理。
+`jobs_lifecycle_client` 仅有创建关系与这些函数的权限；不接收私表／列权限、
+helper、其他模块能力或角色成员资格。已有私表 INSERT 调用方保留原初始化方式；
+直接字段修改与显式时间戳按真实 PostgreSQL invoker 原有的主键 SELECT 和列 UPDATE
+权限检查。普通 API 其他读写和暂缓模块仍需兼容权限，本切片不提前撤销。
+
+可选 `aap-jobs-queue/v1` 私网服务只持 broker URL 与专用 bearer，复用原 Celery
+JSON 路由及发布重试设置。首个调用方为跨帧作业：执行 ID 在第一次提交前固定，
+派发异常只能修改数据库中仍 pending 的行，worker 在业务写入前拒绝终态作业。
+HTTP 不自动重试或回退；`accepted` 只证明 broker 接收，`terminate=False` 只请求撤销。
+提交与派发之间仍有原有故障窗口，不新增 outbox、幂等投递或完成确认保证。
+
+创建探针在独占 PostgreSQL 中验证默认值、RETURNING、重复插入、原生 JSON 和失败
+Session 回滚要求。首次 Native 十三项旧服务回归中十一项通过，两项结果／payload
+投影失败保留原收据；修正最终投影后，两项最小复验通过，3,898 项源码输入未变。
+随后补齐最终调用方字段优先级、显式时间戳权限和无写入命令清理。
+原始收据分别为 `.worktree/jobs-creation-relation-probe-first.json`、
+`.worktree/jobs-lifecycle-native-first.json` 与 `.worktree/jobs-lifecycle-native-second.json`。
+当前生命周期能力已通过二十二项 PostgreSQL 案例，零失败／错误／跳过，3,902 项输入
+运行期间未变。它们覆盖严格 LOGIN、独立 Node 的十五列与八函数 ABI、原生 JSON、
+最终调用方字段优先级、显式时间戳权限、部分 flush／错误前缀、缓存与 rollback，及
+原有视频摘要并发重投和批次重置实际调用方。完整 0327→0189→0327、冻结函数体、
+授权重施与资源清理通过。第三次原始收据中一项新缓存断言失败保留；用原 SQLAlchemy
+写法证实未加载可空字段的旧缓存行为后，先定向复验，再以规范化 scalar 参数运行
+当前完整组合；未改变产品缓存行为，也不把重复运行相加。
+汇总 `.worktree/jobs-lifecycle-native-qualification.json` 的 SHA-256 为
+`12c18e60f8653a2e39708835ac88e7f9bc7f56fe0972dd2d81430c9c8822dc51`。
+
+检查点 `104082104` 通过一个实际冷组合场景，零失败／错误／跳过，耗时 70.136 秒，
+4,267 项输入未变。API 与独立 worker 各有 3,864 项 COPY 输入一致并核对 2,090 项
+安装／应用／迁移／CLI 文件；队列工件核对 21 项 COPY 输入和 17 项包文件，
+复用的 Identity／publisher 仍分别有 218／74 项输入匹配。队列服务以独立用户运行，
+只读、无宿主机端口，只持 broker URL 与 bearer，不接收 API、Identity 或数据库凭据。
+真实 API 验证 owner 故障不回退、预先提交执行 ID、default 队列消费和实际跨帧写入；
+完整 PG dump／restore 后，新 worker 使用恢复库执行新任务，远程协作取消与迟到终态
+重投不再写入标注。迁移往返、二十九项安装函数体与所有临时资源清理通过。
+
+原始四次冷场景失败保留：SMTP 夹具模块引用、本地无密码 Redis 的误加限制、
+API／worker 镜像用途标签以及恢复后参考 URL 未同步。先做收集、纯目标选择、实际镜像
+校验和真实旧账号 URL 围栏的最小复现，再定向重试；未弱化权限或所有权围栏。
+队列离线探针引用不存在的 schema 工厂也保留失败，只修正探针并复用镜像。
+一百项聚焦案例及二十四项子检查通过；不与重复或重叠 cohort 相加。
+`.worktree/jobs-module-cold-qualification.json` 绑定五十三项原始证据，SHA-256 为
+`9e7883229f75d64d864b9c8459e76a29b7cab71a7bd0966b980037f562228ed7`。
+
+本组生命周期与跨帧队列交接的限定本地边界闭合；完整 Jobs 仍需迁移其余 producer、
+其余领域的私表读取、未支持的字段刷新、收回兼容凭据，以及执行／恢复和完整语言替换
+验收。提交与派发之间的故障窗口、通用幂等交接、canvas／自定义 options 和其他消息
+形状仍未关闭。日常拓扑、主工作树、AMD64／远程 CI 与生产容量尚未采用或验证。
+训练／主动学习和资产的数据集／存储扩展继续等待功能合并；Go 仍只作实验。
+
+## Jobs 领域固定查询 {#jobs-domain-queries}
+
+`aap-jobs-domain-queries/v1` 将跨帧 actor／singleflight-key 的事务去重锁、
+活动作业查询、actor／scene 历史分页与独立总数，以及各当前项目最近一次
+`batch_predict` 时间，收口为五项固定 Native 能力。普通运行角色获得执行权；
+严格生命周期 LOGIN 仍只有原八项能力。API 保留授权、ORM identity、原 autoflush、
+去重锁先于查询、独立语句与 caller 提交／回滚。没有增加项目过滤、排序 tie breaker、
+保留项目范围或新的消息保证。
+
+三个隔离子任务完成跨帧 worker／视频质量、Mask QC／修复的 12 处普通读取迁移和
+原生验收夹具；父线完成固定查询与调用方组合。67 项不同 PostgreSQL／API 案例全部
+通过，独立 Node 使用普通 LOGIN 实际调用五项能力并核对原生行 ABI、JSONB／int64、
+时间戳与私表读取拒绝。首轮保留失败记录：分页适配器的限定 SQL 类型别名不存在，
+已用一次性 PostgreSQL 复现并改用 `pg_catalog.int4`；另修复异步 ABI 夹具的 await
+顺序。最终完整迁移往返、冻结函数与权限重施、资源清理通过。纯合同／脚本检查为
+30 项及 24 项子检查；扩展后的冷夹具另有 19 项纯检查通过。
+
+源码 `dd6894a24` 的当前 API／worker 镜像各匹配 3884 项 COPY 输入，离线核对
+638 项安装包资源、1433 项应用／迁移文件和 32 项 CLI 文件；队列镜像匹配 27 项输入、
+23 项安装包资源，保持 UID 10005 且没有 API／数据库／Identity／存储包。Identity 与
+publisher 复用镜像的 218／74 项输入均未变。实际冷组合案例首次通过，0 失败／错误／
+跳过，73.179 秒，4287 项源码输入不变。恢复前后，普通 API 容器都实际调用五项
+领域能力、两项行锁与局部字段刷新，保持 ORM identity、原结果和进度，没有私表
+`FROM`。最近预测时间在该冷世界验证空投影；非空最大值／过滤语义由前述 Native
+与 admin API 用例覆盖。真实 HTTP 详情和历史均返回完成作业；worker 启动前的
+相同请求复用原作业／执行 ID，队列仍只有一条消息。
+
+原私网队列故障 503／无内嵌回退、预先持久化执行 ID、原 default 路由和真实标注、
+完整 PostgreSQL dump／restore 后新作业、协作取消与已取消终态重放继续通过。
+完整 `0329 → 0189 → 0329`、36 项安装函数／冻结回滚、权限重施和清理均通过。
+规范收据 `.worktree/jobs-domain-query-qualification.json` 的 SHA-256 为
+`5c7a94434ca80e9fb5d1bb79368bb1096850f3af4c9e28f6b83629305ff11192`，绑定
+62 份原始记录，保留首轮失败及最小类型复现。三个子工作树的 22 份原始检查／补丁
+文件和经核验的增量 bundle 已归档，再移除干净 worktree 与原分支；主工作树及四个
+共享链接目标不变。集成 dev 环境未配置或运行；本次独立工件进程由验收器创建并清理。
+
+剩余七处普通主键读取属于暂缓的训练／主动学习或格式导入关联路径；专用投影、
+锁定字段刷新、旧 invoker 权限、其余 producer／消息形状和领域恢复继续跟踪。
+不能据此全局收回 Jobs 私表权限或宣布完整模块闭合。主工作树及日常环境未切换；
+训练和资产扩展等待功能合并，Go 保持实验。
+
+## Jobs 标注导出派发 {#jobs-export-dispatch}
+
+项目、批次和 Data Manager 所选任务的标注导出通过既有
+`aap-jobs-queue/v1` 发布相同关键词参数，复用原 `export` 静态路由。
+项目／批次保留先提交作业与审计、派发后由 worker 领取时绑定执行 ID；
+所选任务导出保留先持久化 pending、再记录审计、派发成功后绑定并提交的顺序，
+失败仍标记失败并提交后重抛。pending 幂等重派继续为每次发布分配新执行 ID，
+没有套用跨帧作业的预先持久化 ID 行为。原任务范围、参数、授权与 worker 执行保持。
+
+实现和测试分别在隔离 worktree 完成，父线集成后修正新纯夹具：使用真实 `AsyncJob`
+保留现有生命周期观察，而非不可被 SQLAlchemy inspect 的替身；同时保存夹具作业引用。
+保留首轮六项夹具失败记录，修正后六项路由边界、八项队列绑定和十九项装配纯检查
+全部通过。四个既有 API／SDK／点云格式／所选任务测试文件共 39 项数据库案例
+全部通过，0 失败／错误／跳过，6.005 秒，3923 项源码输入不变；完整迁移往返、36 项
+冻结函数核对／回滚、权限重施和资源清理通过。
+
+源码 `9fc1b69c9` 的 API／worker 工件各匹配 3885 项 COPY 输入、2103 项运行文件；
+队列工件匹配 27 项输入／23 项安装包资源。原 Identity／publisher 工件输入保持。
+当前冷组合首次通过，0 失败／错误／跳过，104.642 秒，4288 项源码输入不变。
+三个真实 HTTP 入口在恢复前后都通过私网 Jobs owner 发布到原 `export` 队列，
+实际消息的执行 ID、空 args、关键词参数和所选任务范围均被核对；保持 worker
+领取绑定与成功派发后绑定的差异。两个独立的受限 export worker 完成六个新作业，
+六个真实 ZIP 下载均为 200，并核对项目、任务及标注内容。完整数据库恢复后，
+原三个完成作业的状态／执行 ID 仍能读取；新三个导出也能执行与下载。这里没有
+证明对象存储独立备份或旧签名 URL 在凭据退役后继续有效。
+
+队列 owner 停止时，三入口均保持原异常响应 500：项目／批次保留 pending，
+所选任务导出标记 failed，`export` 队列为空，没有内嵌 broker 回退。此前跨帧服务
+故障 503、去重复用、行锁／局部刷新、恢复前后历史／详情、default 执行／标注、
+协作取消和已取消终态重放继续通过。本轮完整迁移／36 项冻结函数及资源清理通过。
+规范收据 `.worktree/jobs-export-qualification.json` 的 SHA-256 为
+`ea25a1d8091b42e7bf73eb5f6845c4dd548a62b31df9a5cdcd130c4ca896a476`，绑定
+41 份原始记录。两个子工作树经源 bundle、补丁等价和现有检查文件归档后移除，
+主工作树及四个共享链接目标保持；测试子任务未保留原始 stdout 文件，最终资格
+以父线实际纯测试／数据库／冷组合收据为准。
+
+下一项先收口普通运行账号的 Jobs 私表 INSERT 旁路：生产创建已集中在既有
+creation view／视频摘要能力；还需调整测试筛选种子的两处终态初始行，并以实际
+运行 LOGIN 验证拒绝私表 INSERT、正常创建及原夹具语义，再撤销宽授权后的 INSERT。
+UPDATE／DELETE、旧 invoker 校验和其他执行／恢复仍须各自证明，不能一并撤销。
+
+导出尚不在原可取消集合内；本批保持现状。动态队列、自定义 options、canvas、
+提交与发布之间的窗口、普通运行角色的私表兼容权限及完整 Jobs 继续跟踪。
+训练／主动学习与数据集／存储实现扩展等待功能合并。
+
+## Jobs 普通运行创建权限 {#jobs-creation-credentials}
+
+LAN 和 worktree 授权在宽授权之后清除普通运行账号及 PUBLIC 对 `async_jobs`
+的表级、所有当前列级 INSERT，并核对有效权限；继承 INSERT 或持有／继承 Jobs
+表／创建 view 所有权的账号会被拒绝。保留既有创建 view 的 SELECT／INSERT 和
+视频摘要能力，保留私表 SELECT／UPDATE 或现有 invoker 校验；DELETE 另见下节。
+没有新增服务、角色、选择器、SQL 协议或 owner 凭据。
+
+筛选种子的两个终态初始行先通过原 pending ORM 创建路径写入，再在同一调用方
+事务中应用原 status／progress／result／error 字段。原空 started_at／completed_at、
+payload、manifest、Identity invitation flush 和审计 origin 保持，最终字段有显式断言。
+普通生产创建入口继续复用现有 facade／view 与视频摘要能力。
+
+父线七项不同数据库用例首次全部通过，0 失败／错误／跳过，22.048 秒，3924 项
+源码输入不变：实际 LAN 普通 LOGIN 创建、私表原生 INSERT 42501、非法终态 view
+写入 44000、创建及视频摘要的 caller 提交／回滚；继承写角色被拒并恢复；生成的
+普通 worktree LOGIN 重复授权清除自身及 PUBLIC 的旧列 INSERT；原筛选种子的三项
+行为检查和实际普通 E2E 账号筛选 CLI。完整迁移往返、36 项冻结函数、权限重施和
+资源清理通过。纯脚本检查为 27 项及 24 子检查；扩展冷夹具的 21 项纯检查通过。
+
+源码 `9841890b8` 的当前 API／worker 各匹配 3886 项 COPY 输入、2103 项运行文件
+和五项固定运行夹具；队列、Identity、publisher 的 27／218／74 项输入不变，复用
+原工件。离线导入、资源哈希和非 editable 安装检查通过，独立源码复核无具体发现。
+冷组合首次通过，0 失败／错误／跳过，106.804 秒，4289 项源码输入不变。
+实际 API 普通账号在恢复前后都确认表／列 INSERT 为 false、创建 view 的两个权限
+为 true；真实 facade 创建 pending 行，savepoint 内原生私表 INSERT 返回 42501，
+caller 回滚后从 view 查不到该行。原行锁、局部刷新及五项领域查询保持原 SQL 次数，
+没有私表 FROM。六个真实导出包下载、旧完成作业恢复、跨帧执行／历史、队列故障、
+协作取消及终态重放继续通过。完整迁移、36 项冻结函数与资源清理通过。
+
+规范收据 `.worktree/jobs-creation-qualification.json` 的 SHA-256 为
+`b1882efe803f197730281395f8838809ce97f71ee4da60e4ed5408f4d0749f9b`，绑定
+59 份原始记录。原生验收后仅两项冷 QA 文件变化，其余 3922 项输入保持。
+两个子任务的 17 份原始检查／补丁及核验后的源 bundle 已归档，干净子工作树和
+原分支已移除；主工作树及四个共享链接目标不变。
+
+本组关闭普通运行创建 INSERT 与当前限定工件／恢复边界。DELETE 现按下节单独收口；
+SELECT／UPDATE、完整 Jobs／Workspace 和其他消息形状／领域恢复继续跟踪。
+主工作树和日常环境未采用，训练／主动学习与数据集／存储扩展继续等待功能合并。
+
+## Jobs 普通运行删除权限 {#jobs-delete-credentials}
+
+`aap-jobs-fixture-cleanup/v1` 与固定函数
+`aap_jobs_v1.delete_fixture_project_jobs(uuid[])` 承接原 E2E 项目范围删除。
+仅按当前 `project_id` 删除所有 kind／status 的行，保留 retained scope 和其他项目；
+原 DELETE 触发器、约束与 caller 事务保持。函数内验证实际测试库名称，并在同一事务
+调用 Workspace 既有清理守卫，保留项目 NOWAIT 和视频退役要求；异常守卫回复拒绝。
+不扩大成按作业 ID 的通用删除，不添加服务、角色、选择器或 owner 凭据。
+
+普通 LAN／worktree 账号在宽授权后撤销自身及 PUBLIC 的私表 DELETE，并拒绝继承
+权限旁路；Jobs owner 保留原写权限。生产批次和 retention 删除已使用原 owner 能力。
+原清理调用位置、命名空间／项目选择、保存点与最终提交保持，409 语义保留；Jobs
+错误或无效回包返回 503 并中止清理。截图的直接多领域夹具仍使用自有截图库 owner，
+连接前提已在 DEV 中明确，未以项目删除扩大它们的精确 job-ID 清理范围。
+
+并行子任务分别完成 caller 与 Python／Node 原生验收，父线集成合同、迁移和授权。
+19 项不同原生案例全部通过：实际普通 LOGIN／Node 的 ABI、私表删除 42501、全部
+kind／status 和 JSONB 形状、精确当前范围／保留历史、事务／保存点／提交、项目忙、
+异常守卫回复、继承 DELETE 拒绝、自身及 PUBLIC 撤权重施，以及原播种／清理和实际
+筛选 CLI。视频未退役案例在同一外层事务中切换实际调用角色，验证 23514 与全行不变，
+最后回滚整组夹具；未伪造真实路由退役证明。首次夹具误把旧输入当新受理行并试图
+直接退役，围栏正确拒绝后影响两个播种案例，失败记录保留；修正后只补跑失败／
+未执行的九项，复用此前通过十项。3933 项其他输入及六个已通过新案例函数体保持。
+纯检查共 62 项及 24 子检查，Node 自检通过；首次混合根目录误选 pytest 配置导致
+九项 API 异步用例未执行，已按 API 配置单独补跑通过，未重复累计。
+
+源码 `6d3aedfdd` 的 API／worker 各匹配 3896 项 COPY 输入、2109 项运行文件和五项
+固定夹具，队列匹配 30 项输入／26 项安装资源；均重新构建并通过离线非 editable
+安装核对。Identity／publisher 的 218／74 项输入不变，复用原镜像。冷组合首次通过，
+0 失败／错误／跳过，106.730 秒，4299 项源码输入保持。恢复前后，普通 API 容器
+都验证私表 DELETE 为 false，在 caller 事务内通过新能力删除 pending 和原 completed
+行，回滚后确认新行不存在、原完成行及 result／progress 完整恢复。原创建围栏、行锁／
+局部刷新、五项领域查询、去重／历史、六个真实导出包、队列故障与取消／重放继续通过。
+完整 `0330 → 0189 → 0330`、37 项安装函数／冻结回滚与清理通过。补充一项真实非
+测试库验收：在验收器自有 PostgreSQL 中创建带独占标记的 `_dev` 探针库，仅安装
+冻结函数与 Jobs schema，直接调用返回 42501 和精确库名拒绝原因，先于任何 Workspace／
+作业表访问；核对 OID／owner／标记及零连接后删除。新用例通过，3934 项输入不变，
+自有资源清理无误。仅新增 QA，运行 SQL／授权／消费者及既有工件未变，复用前述十九
+项和冷组合资格；不重复构建或恢复。OpenAPI 精确保持，文档构建通过。
+
+规范收据 `.worktree/jobs-delete-qualification.json` 的 SHA-256 为
+`db6de07b3dc6c6bfc15ebbee370de335ce53958a8938935d35a29145ee339a1b`，绑定
+90 份原始记录。非测试库补验收据 `.worktree/jobs-delete-non-test-guard.json` 的
+SHA-256 为 `eb9c2e6b2b86dc633e7177976b6327531dbfb33a5deb082bd805331093776944`，原未验证状态和原收据保留，不修改历史记录。两个子工作树的 32 份检查文件、补丁等价和源 bundle 已归档核验，再
+移除干净 worktree 及精确分支；主工作树与四个共享链接目标保持，自有资源清理无误。
+本组关闭普通 DELETE 与限定冷工件／恢复边界；完整 Jobs、SELECT／UPDATE、其他
+消息形状／领域恢复、主工作树／日常拓扑采用、生产容量和替代语言 provider 继续跟踪。
+训练与资产实现扩展继续暂缓。
+
+## Jobs 普通运行更新权限 {#jobs-update-credentials}
+
+普通 LAN／worktree 账号在宽授权后清除自身及 PUBLIC 的 Jobs 表级和全部当前列级
+UPDATE，并拒绝继承／owner 旁路。原生命周期命令、payload／result 投影及批量 owner
+更新保持；旧兼容列与显式时间戳覆写仍按原 invoker 检查拒绝。只读审计确认生产更新
+已走 owner，SQLAlchemy bulk update 只用于缓存同步；实际阻塞是两条筛选夹具赋值。
+
+固定 `aap-jobs-filter-fixtures/v1` 能力承接这两条原始字段投影，按 UUID 顺序写入，
+保留 UPDATE OF 字段、默认更新时间、空 started_at／completed_at 和失败 result。
+API 保留 invitation flush、最后完整 flush、审计和提交点，同步原缓存并过期更新时间。
+测试库名称、参数和固定返回计数都校验；缺失行使整个函数语句回滚。没有新增服务、
+运行角色、选择器、通用字段写入或训练／资产实现。
+
+两个隔离子任务分别完成 caller 与原生／Node 验收。父线复核在执行前修正新夹具的
+创建 view 初始值、Node 凭据序列化和行数组断言，并补实际触发字段／更新顺序对照。
+20 项原生用例首次全部通过，0 失败／错误／跳过，26.453 秒，3944 项输入不变；
+包含普通实际 LOGIN／Node、表／列拒绝、旧兼容字段拒绝、原生命周期更新、原 mapper
+触发字段／顺序、固定夹具事务／缺行原子性、两项实际非测试库拒绝、继承／PUBLIC
+撤权，以及原筛选种子、清理和实际 CLI。62 项纯检查及 24 子检查、Node 自检通过。
+
+源码 `b0b4aad25` 的 API／worker 各匹配 3906 项 COPY 输入、2115 项运行文件和五项
+固定夹具，队列匹配 33 项输入／29 项安装资源；三个工件均重新构建并通过离线核对。
+Identity／publisher 的 218／74 项输入未变，复用原镜像。冷组合首次通过，0 失败／错误／
+跳过，105.753 秒，4309 项输入保持。恢复前后，实际 API 都确认表／列 UPDATE 为
+false；原生命周期写入 result／payload／progress 并保留更新时间过期，原生私表写为
+42501，真实筛选 helper 完成两条固定投影且保留空时间戳，caller 回滚后原完成作业的
+结果／进度恢复。原创建／删除围栏、行锁／局部刷新、五项领域查询、历史／去重、六个
+真实导出包、故障 500／503、取消及终态重放继续通过。完整 `0331 → 0189 → 0331`、
+38 项冻结函数和自有资源清理通过；OpenAPI 保持，文档构建通过。
+
+规范收据 `.worktree/jobs-update-qualification.json` 的 SHA-256 为
+`318f13c36e3e7e9bba48236507b3a4546e3bde2a9122556472e9a54167cb008b`，绑定 56 份原始记录。
+Native 子任务的八份原始检查文件、两条源补丁等价和源 bundle 已归档，再移除两个
+干净 worktree 与精确分支。caller 子任务未保留要求的原始 stdout／hash，最终资格
+依据父线实际 pure／Native／cold 收据，未补造或把复跑当原始证据。主工作树和四个
+共享链接目标保持，清理无错误。
+
+普通 Jobs 的 INSERT／UPDATE／DELETE 私表写权限现均由 owner 能力承接。
+SELECT 仍保留，读取侧包含未迁移的共享幂等筛选锁、点云投影及暂缓领域的主键读取；
+其余 producer／消息形状、领域执行／恢复、完整模块和主环境采用继续跟踪。
+训练／主动学习与资产的数据集／存储实现扩展继续等待功能合并。
+
+## Jobs 动作幂等与点云读取 {#jobs-action-idempotency}
+
+复核发现上一组 UPDATE 撤权的验证未覆盖共享 helper 的筛选 FOR UPDATE：即使仍有
+SELECT，普通账号也会因缺少 UPDATE 返回 42501。原冷导出样本没有请求键，未触发
+这条路径。本组将其与 advisory 锁迁到 Jobs 固定能力；没有恢复私表 UPDATE，也没有
+改动数据集／存储业务。原未覆盖状态和上一组收据保留。
+
+`aap-jobs-action-idempotency/v1` 保持旧锁前缀／hash、当前项目／actor／kind／JSONB
+文本键，保留 created_at／id 倒序、全部匹配行等待锁和原标量首行行为。没有 LIMIT、
+新状态谓词或新业务授权。原空值判断、无 autoflush 锁调用、mapped 查询 autoflush、
+缓存 identity、请求摘要 409 及 caller 事务保持；普通角色获得两项固定能力，严格
+lifecycle／list／domain 角色集合未扩大。
+
+点云质量取消只投影现有 read_job 的 status／payload，继续读取数据库新值且不回填
+ORM 对象；分发使用默认 cached getter。尚未 flush 的缓存状态及 no_autoflush 行为
+有独立权限上下文对照。三个隔离子任务分别实现共享 helper、点云绑定和原生／Node
+验收，父线组合 SQL、权限和工件。
+
+11 个不同原生案例通过；首轮十项成功，一项夹具漏传 create_user 的 name，在准备
+阶段失败，修正后只补跑该项。66 项纯检查及 24 子检查、Node 合同自检通过。
+3954 项其他输入及原已通过函数体保持；本次所有者 SQL、授权和消费者在首轮即通过。
+
+源码 `6629016ff` 的 API／worker 各匹配 3917 项 COPY 输入、2121 项运行文件和五项
+固定夹具，队列匹配 36 项输入／32 项安装资源，均重建并通过离线非 editable 核对。
+Identity／publisher 的 218／74 项输入未变，复用原工件。冷组合首次通过，0 失败／错误／
+跳过，109.264 秒，4320 项输入不变。恢复前后，实际普通 API 调用两项动作能力并保持
+ORM identity、摘要 409 和点云窄投影，原行读取／写入围栏和函数次数均符合预期。
+
+真实所选任务导出新增带键样本：新请求 202、同键不同摘要 409、完成重放 202 且复用
+原 job ID，不再增加 broker 消息。恢复前后各验证一次；原六个真实 ZIP 下载、历史
+完成作业、三入口队列故障、协作取消及终态重放继续通过。完整 `0332 → 0189 → 0332`、
+40 项冻结函数与资源清理通过。OpenAPI 保持，文档构建通过。
+
+规范收据 `.worktree/jobs-action-qualification.json` 的 SHA-256 为
+`c00da86b4539ad8a70ae0786ac0079c8ea081e6f2c9b53c2e73fc316eb4a1436`，绑定
+69 份原始记录。三个子工作树的九份原始文件、源补丁等价及 bundle 已核验归档，
+再移除干净 worktree 与精确分支；共享 helper 子任务未保留原始 stdout，最终资格
+依据父线实际验收，未补造原始记录。主工作树和四个共享链接目标保持，清理无误。
+
+本组关闭共享动作锁读与点云 Jobs 读取；不全局撤销 SELECT。剩余七处主键读取属于
+暂缓的训练／主动学习或格式导入关联路径，其余 producer／消息形状与领域恢复仍待
+完成。集成 dev 模式未配置／未运行，验收进程由独立环境创建并销毁；完整 Jobs、
+主环境采用和生产容量仍未闭合。训练与资产实现扩展继续等待功能合并。
+
+## Notifications 即时发布与模块组合 {#notification-publication-owner}
+
+现有 publisher 新增可选 `aap-notifications-immediate-publication/v1` 私网接口，普通
+`publish_committed`／`publish_by_id`／`publish_sync` 的策略和错误处理移入 Notifications。
+API 保留借用 Session、通知缓存／过期字段、Jobs 范围及四项授权语句顺序，只传事件和
+该次受信事实；owner 再执行同一策略，不读取另一事务中不可见的行。普通最佳努力、
+终态提交前发布和按 ID 失败传播分别保留，不新增普通 outbox 或自动重试。
+
+独立发布服务使用原有函数数据库与 publish-only Redis 凭据，另加专用发布 bearer；
+API 显式选择远程地址后不回退本地 Redis。发布端从收件人 UUID 生成频道，并在读取
+body 前验证 bearer。客户端限制回复为 4096 字节，超时、超限和取消关闭连接。
+版本化 Schema、实际 HTTPX 流测试及原 API 调用兼容纯检查已有证据；这些不替代真实
+运行资格。四份 lock 使用固定工具更新，既有 registry 版本保持，未增加 registry 包。
+
+当前源码 `43468b130` 通过一个真实冷组合案例，耗时 74.328 秒，JUnit 零失败／错误／跳过；
+4,236 项输入运行前后未变。API、publisher、socket 与 Identity 均使用匹配 COPY 输入的
+独立镜像及受限凭据；API Redis 保留实际 cache／Kombu 队列与限定 fanout，拒绝通知频道
+直接发布、Lua 发布与管理命令。真实 REST／同源 WS、Node 原字节 HTTP 消费、普通发布、
+撤权、已读／删除／偏好同步、发布故障不创建普通 outbox、按 ID 失败不确认既有投递租约、
+终态提交前消息及回滚丢弃均通过。Node 是协议消费者，不是另一语言提供方。
+
+完整 PG dump／restore 后，两个不同管理员的待处理 outbox 租约由新进程以 attempt=2
+接管，通知 ID 保持；普通 employee 的收件箱不包含这些管理员通知，owner 收件箱也不
+包含另一管理员的通知。已读、删除与偏好状态保留，恢复后的新反馈通知再次经过远程
+publisher 和原 WS 地址送达。完整 `0326 → 0189 → 0326`、18 项已安装函数体／冻结 SQL
+与授权重施通过；验收器清理临时数据库、角色、Redis、存储身份和 PostgreSQL 容器，
+cleanup errors 为空。规范证据 `.worktree/notifications-module-cold-qualification.json`
+SHA-256 为 `2e897bcd9bc34343468a1859e0550bb838120449f61e54e0aee207210ac84caf`，
+绑定 62 份原始记录。
+
+六次失败收据原样保留：驱动镜像 tag 与 SHA 选择、任务可见性／项目级讨论不投递、受保护
+历史退场、管理员收件人夹具，以及原生 UUID／领取合同字段解析均分别定位修正。恢复案例
+保留任务、反馈与审计历史到自有数据库整体销毁，不删除保护关系来绕过退场错误；领取
+消息复用 owner 的类型化 decoder。既有操作矩阵不重跑或叠加重复计数。当前 API 离线
+校验 2,074 项已安装／应用／迁移／CLI 文件，publisher／socket／Identity 分别校验
+58／66／205 项包文件；这些工件检查与真实业务验收分别计量。
+
+本组关闭限定本地 Python 即时发布、当前模块组合与完整数据库恢复边界，不能代表完整
+替代语言 owner、AMD64、远程 CI 或生产容量；主工作树与日常拓扑未切换。训练、主动学习
+及资产的数据集／存储扩展继续待最新功能合并，Go 保持实验。
+
+两条并行子线的 242 份原始忽略证据及全部 patch-equivalent 提交已归档；验证过的
+增量 bundle SHA-256 为 `d6d2c76d66d398fbfd200ab7fb42860d570f1877e2ddc1fdcba0cb4a1254b3ae`。
+仅移除本组干净且已合入的 owner／recovery 工作区和分支；清理收据
+`9b59f314c9183be6316d83bf4bd3f63c0c8c8bd6f11f61261ad65e11f6f2b5b5`
+确认主工作树 HEAD／状态及四个共享目标未变。未合入的其他工作区保留，不为归档重跑原生案例。
+
+## Jobs 质量检查与修复／导入派发 {#jobs-quality-dispatch}
+
+既有 `QualityJobDispatcher` 保持同步端口，三类质量 run、Mask 修复／回滚及格式导入复用 `aap-jobs-queue/v1` 和原 `media` 路由。`JOBS_QUEUE_URL` 为空继续选择原 Celery 适配器；显式远程配置在实际派发时读取专用凭据，失败交给原 caller，不回退本地 broker。同步 HTTP 客户端沿用有界响应、超时、禁止重定向和环境代理、无 HTTP 自动重试的合同。run 保留原执行 ID；修复／导入仍在发布接受后由原 caller 回绑。
+
+10 项数据库／API 回归和 78 项队列／绑定／夹具纯检查通过，涵盖原事务、取消、单飞和失败落库；夹具修复后的 29 项是其中子集，不叠加计数。OpenAPI 导出不变。源码 `77bbdcec9` 的冷组合在完整数据库恢复前后分别由真实 API 容器发布六种消息，核对原参数、执行 ID、路由及无 worker 导入后只移除这六条探针；两次真实点云 HTTP 请求通过私网队列和 media worker 完成，实际读取限于三个 PCD 对象，产生缺帧、时序跳变和点数不足问题。单飞没有额外消息，owner 停机返回 503 并保留失败 run／job。旧质量 run 在恢复后仍可读；六个真实导出包及此前行／领域／私表写入守卫也已执行通过。其余五种质量变体只取得真实传输和注册签名证据，未宣称完整领域执行／恢复。
+
+首轮整例在这些检查之后因夹具一分钟内第六次登录返回 429，原整轮收据保持失败。夹具改为复用备份前的真实质量会话，凭据不写入收据；只补跑原有取消、远程 revoke、协作投递和终态重放。首次补验在业务检查之后因收尾断言漏传队列名失败，修正后独立窄用例完整通过，耗时 31.238 秒。没有重复已通过的质量、导出或完整恢复场景，也不把首轮整例改记为通过。
+
+最终 API／worker 工件基于 `97d60bfe9`，各核对 3,920 项 COPY 输入、2,121 项安装／应用／CLI 文件和五项运行夹具；相较首轮只有两处宿主测试文件改变，运行文件逐项相同。队列仍匹配 36 项输入和 32 项包文件，复用的 Identity／publisher 输入为 218／74。worker 数据库身份由受检容器配置确认是普通 `identity_api_consumer`，未声称观察其短暂任务连接。首轮整例和最终窄用例各有 4,323 项输入在运行中保持不变；完整 `0332 → 0189 → 0332`、四十项冻结函数及全部自有清理通过。
+
+规范收据 `.worktree/jobs-quality-qualification.json` 的 SHA-256 为 `024ca7d2aaa20312384d4abe984a67e1402bfa5bb4ea828c5be829efc3fe5d9a`，绑定九十项原始／派生记录。三棵子工作树在十七项原始检查文件、补丁等价及增量 bundle 核对后清理；主工作树和四个共享目标保持不变。本组关闭六项派发传输和代表性点云操作的限定本地边界，日常环境未切换。
+
+接受响应只证明 broker 发布返回。提交与发布之间的进程崩溃仍可能留下 pending run；修复／导入发布后回绑前的窗口也未闭合。动态队列、soft time limit、canvas、其他领域恢复、全局 SELECT 与完整 Jobs 继续跟踪；训练／主动学习及 Assets 数据集／存储实现等待最新功能合并，不扩大 Go 实验或宣称生产资格。
+
+## Jobs 视频追踪与取消后重投派发 {#jobs-video-tracker-dispatch}
+
+既有 `VideoTrackerJobDispatcher` 的同步接口复用有界 Jobs HTTP 客户端，以同一 job UUID 参数和现有 `gpu` 静态路由发送。API 与 Mask 修复 worker 使用同一工厂；空 `JOBS_QUEUE_URL` 保留原 Celery 绑定，显式远程配置只在派发时读取凭据，不导入 worker 或回退本地 broker。没有新协议、队列选项或服务。
+
+创建与纠正仍在接受发布后回绑执行 ID；取消仍先提交状态与单次审计，再对同一 job 重投，未确认返回原可重试 503。既有 Workspace 视频 worker 的授权、真实退役及丢进程重投资格继续保留，不重复计作本次队列证据。当前 14 项不同原生案例与 68 项纯检查通过，包含真实 Media 元数据、普通成员分段领取、两个追踪入口的派发故障响应及克隆 Media／恢复权威前置。回滚后审计使用已有路由 ID，避免失败响应再次触发 500；排队取消只接受精确取消异常并复用既有失败消息确认等待器，保持原 worker 行为。
+
+真实源库阶段已完成，包含私网 Jobs owner、gpu 路由、CPU 协议 peer 的六帧暂存与 scope 退役、队列故障时创建失败、排队取消提交／单次审计／同 job 重投和消息排空。完整 PostgreSQL 恢复后，旧追踪作业、汇总及保留输入已读回。组合案例整体仍失败于新注册项触发的既有恢复权威隔离，八份原始冷失败收据均保留；通过的阶段仅按原始属性复用，不改记成组合通过。
+
+实现检查点 `fb85886b6` 保持原控制进程存活，核对源容器移除、Media 进程退出、源库消费者会话及消息排空，使用实际观察摘要和原备份摘要调用现有恢复协调器。窄案例已证明克隆库在交接前拒绝新注册项、零控制上下文交接后允许提交；一个已就绪控制进程的真实交接与恢复后新 worker 尚未完成组合验收，按模块实现完成后集中执行。宿主机的测试传输仅将已知容器别名和端口映射到同一自有 loopback peer，不修复 Runtime 转发实现，也不伪造控制回复。
+
+规范检查点 `.worktree/jobs-tracker-implementation-checkpoint.json` 的 SHA-256 为 `46a3ef5f7bcdf7b116046fc68c120cb1a3859057181911ebd776528f4b78a598`，绑定 333 份原始／派生记录。最后冷工件核对 API／worker 各 3,925 项 COPY 输入、2,121 个运行文件及 5 个安装夹具，队列 36 项输入／32 个包文件；当前相对该工件仅修改三份宿主机 QA 文件。三个子工作树及分支在 73 份原始记录、补丁等价与两份源码 bundle 验证后移除，主工作树和四个共享链接保持不变。
+
+本组实现与已通过源库／读回阶段不代表完整 Jobs、纠正／修复全领域执行或生产容量资格。发布后执行 ID 回绑窗口、其他 producer／消息形态及七处暂缓领域读取仍开放；不新增推送、发布、日常拓扑切换或 Go 扩展。OpenAPI 保持不变。
+
+## Notifications 实现范围冻结 {#notifications-implementation-freeze}
+
+完整实现范围包括固定 PostgreSQL 数据能力、调用方事务绑定、即时发布、持久 publisher、WebSocket owner、现有 API／worker 适配及独立运行工件。代码缺口复核未发现阻止当前 Python 模块独立构建／部署的明确实现缺口；Identity、Workspace 和 Jobs 依赖通过公开能力组合，API 中的通知 UPDATE／DELETE 语句仅用于本地 ORM 缓存同步，不执行私表写入。现有已通过证据继续保留，本次不新增服务层或验收循环。
+
+实现冻结收据为 `.worktree/notifications-implementation-freeze.json`；它是只读代码复核，不是新的模块验收结果。后续按模块集中完成门槛审计及主工作树采用；不把替代语言完整提供方或生产容量视为本次已完成事项。
+
+## Notifications 主工作树采用候选 {#notifications-primary-adoption-candidate}
+
+独立采用候选以主工作树 `5421fa1af` 为基线，绑定提交 `7af05ae77` 与依赖闭合提交
+`e19247554` 已保存，候选工作树干净。完整 Python owner、即时／持久 publisher、socket、
+API／worker 兼容入口、共享 Identity 准入和 actor-status、分离凭据、SDK 原生 JSONB
+payload 及部署文档均已具备；只读装配复核未发现剩余部署接线缺口。主工作树未合入，
+日常数据库、运行进程与独立拓扑均未切换，不扩大 Go 或暂缓的训练／资产业务。
+
+候选完整保留 `0307 → 0325` 的十九项线性迁移，五十七份历史文件逐字节匹配已接受
+源码 `43468b130`，没有挑选、改号或引入 `0326` 后的 Jobs 改造。该链包含 Workspace、
+Audit 及视频输入保留，`0313` 会改变资产垃圾领取围栏；这项采用影响须与最新功能合并
+及既定资产暂缓范围一起处理，不能当成纯 Notifications 数据库升级直接应用日常库。
+候选保留主工作树原 Jobs 读取，避免把尚未闭合的 Jobs 模块整体带入。
+
+已有 Notifications 发布／组合／完整 PG 恢复资格继续保留：原收据的六十二份记录
+本轮重新核对哈希一致；候选 Notifications 运行源码与原接受源码逐字节相同，仅旧资源
+测试对最小 uvicorn 依赖的断言修正。当前基础批次通过包内二百二十四项不同案例
+（初轮二百二十三项通过，修正后仅重跑失败的一项）、Identity 准入四十八项、SDK／CLI／
+OpenAPI 五十项，以及候选本地导入／类型身份、三份锁文件、迁移图和授权结构检查。
+Notifications 定向 API 架构为两项通过、一项已移除旧模块跳过；宽范围检查停在主基线
+未改动的 Workspace import 边界，失败记录保留，不沿该问题扩大本轮范围。基础检查
+不替代候选整模块集中验收，没有重跑冷工件、迁移往返或完整恢复。
+
+本地检查点 `.worktree/notifications-primary-adoption-checkpoint.json` 的 SHA-256 为
+`0801ea51768914f39d25b18dc064baa69794cef0af1f40240e167c1b7e37bfbb`，绑定候选完整源码
+差异、原资格和原始成功／失败记录。实现候选和下述集中验收现已交付；主工作树合回、数据库
+采用和日常拓扑切换仍是各自独立状态，不新增无关 Runtime 修复。
+
+候选源码 `913d3fc5c` 已完成自己的完整冷组合及 `0325 → 0189 → 0325` 往返，
+不再借用 `43468b130`／0326 的资格代表候选。四个镜像使用候选实际 COPY 输入，
+API 核对 428 项安装文件、1,391 项应用／迁移文件、32 项 CLI 与四项夹具；独立
+socket、Identity 和 publisher 分别核对 66、205 和 58 项安装文件。安装均为非 editable，
+离线过程为禁网、只读、限权用户；运行测试继续使用原受限数据库及 Redis 能力。
+
+一个组合案例通过真实 REST、原 WS 地址桥接、Node HTTP 消费者的字节保留和越界抑制、
+偏好／已读／删除同步、终态提交前发布与回滚门禁、普通失败最佳努力语义，以及持久
+outbox 的备份后交接和恢复后新增事件。运行期间 3,374 项输入未变；所有自有资源和
+存储身份清理成功，零清理错误。原 0306 验收器只补入候选所需 Notifications 接线，
+没有引入不存在的 Audit／Workspace／Jobs 独立包或 0326 能力。最终启动器准备后重新
+应用授权，并实际确认私表、事实视图和 inbox 私有 helper 拒绝普通角色直接访问。
+
+规范候选收据位于候选工作树的 `.worktree/notifications-candidate-cold-qualification.json`，
+SHA-256 `4057783eab9b2713a345ef6f3b060b7336e7a622e369bc318ac3200573e9460f`；
+集成树检查点 `.worktree/notifications-candidate-current-qualification.json` 的 SHA-256 为
+`a16992c6859ecd50c8bdbe39ed466b9e855df848c30f0e79dd6bf2e2c4cb8b60`。
+两个准备阶段失败原样保留，分别为旧的必填 `$defs` 预检及连接检查的驱动 URL 格式；
+它们没有执行业务用例。包、共享准入和 SDK 的源码及原结果哈希重新核对后复用，
+没有重复 224／48／50 项组件检查；实际业务实现源码自 `e19247554` 起未改。
+
+本检查点关闭 Notifications Python 模块及候选的限定本地资格。主工作树仍未采用，
+日常数据库与拓扑未切换；用户已确认训练／资产相关功能尚未合并，继续保留候选，
+历史 0313 迁移的采用等待相关功能合并完成。Node 是实际 HTTP 消费者，未作为替代 owner；Go 仍仅实验。
+
+## Audit 当前实现检查点 {#audit-implementation-checkpoint}
+
+源码 `3c5d4b5c6` 集成完整维护与归档实现：`aap-audit-maintenance/v1` 和 `0333` 固定能力、
+调用方事务适配、独立一次性 CLI／锁定工件、分区与序列 owner、默认调用方直写收权、
+专用归档写入及管理员只读凭据。原 API／Celery 签名、权限和事务保持；已有追加、查询、
+事件／日聚合读取能力继续复用，没有新增 HTTP 服务、队列或 outbox。
+
+四个隔离实现提交分别为 `7dce87e84`、`4ff85de3b`、`26a95facf` 和 `3eb239897`，均已
+集成。父线补齐固定 SQL、原刷新 worker 绑定和 Compose secret 挂载，修正迟于收权的
+Audit 所有权回授；旧 Predictions／用户绩效仍需的 schema CREATE／TEMP 保留，避免
+沿本模块收权扩大为其他领域维护重构。新月分区只由 Audit owner 创建；快照锁与独立
+事务标记共同围住分区退役，上传失败不删除分区，数据库失败沿调用方事务回滚。
+
+集中基础批次通过三十九项包检查、两项归档读取绑定和二十二项资源检查。wheel／sdist
+构建、十项 wheel 资源与冻结 SQL／schema 精确核对、单一迁移头、核心依赖的非 editable
+安装和仓库外 CLI 启动通过，独立运行包不依赖 API、Celery 或 SQLAlchemy。OpenAPI
+实际重导未变化。PostgreSQL parser 只核对新函数与授权块语法，没有执行数据库权限、
+DDL 或锁；该基础检查点当时未运行原生回归；后续定向行为见下文，不能把基础检查当成完整模块资格。
+
+本地收据 `.worktree/audit-implementation-checkpoint.json` SHA-256 为
+`cfbd793e6f0f2ae4364e00a5cdd8f158144bff67fdd973d5b76c5cb8e4513766`，绑定源码、基础结果和
+工件。四个干净子工作树／分支在补丁等价与增量 bundle 核对、原始文件保留后已移除。
+主工作树仍为 `5421fa1af` 且干净；没有执行数据库或容器操作，也未切换日常维护调度。
+Learning 的父表私有读取按原暂缓范围保留；训练、资产数据集／存储及 Go 范围未扩大。
+真实权限、原生事务／中断恢复、冷装配与完整模块验收仍待集中完成。
+
+0366 已将筛选测试夹具的共享及 namespace 清理接入既有维护合同，原 API 不再直接删除
+Audit 私表。SQL 只允许 `_test`／`_e2e` 数据库和调用方已设置的不可变性维护标记，固定
+匹配 seed 路径与原有标记；调用失败向上返回，清理残留通过公开 `audit_events` 读取。
+函数升级与回退保持既有 owner／ACL，Learning 暂缓读取所需的父表 SELECT 保留。
+
+验收器已对齐 0366 最终函数体、冻结 SQL／schema 和测试注册，并使用既有单函数
+maintenance LOGIN 授权脚本；启动器重新准备资源后再次验证最终权限。受限角色、
+事务锁和回滚、共享／namespace 清理、非测试库拒绝及原筛选失败组成的必要定向行为批次已通过。
+
+集中冷验收入口为 `tests/test_audit_maintenance_module_live.py`：覆盖独立一次性 CLI、
+分离的归档写入／只读凭据、上传后提交前的进程丢失、孤儿对象重试及整库恢复，最后
+调用原 ASGI HTTP 归档接口。该入口使用现有资源归属和恢复 helpers，仅在显式选择
+Audit 冷验收时创建归档身份；它不代表冷 API 镜像或新语言提供方。
+HTTP 用户夹具在分区维护与恢复完成后才创建，避免未提交的用户写锁阻塞分区外键 DDL；
+种子分区创建使用五秒事务锁超时，夹具再次产生锁冲突时直接失败并保留诊断。
+本阶段先交付可接续输入，未执行的冷验收不计为通过；原追加／查询／日聚合及 Labeling
+既有证据按未改变的源码范围复用，不重跑整批。
+
+本阶段收据 `.worktree/audit-labeling-stage-closure.json`（SHA-256
+`cd2a228810cf20ee224b2c5ee29ffa6097d21a4ebfbe1b664cfd3486c2243c18`）绑定原生源码
+`966d826f2` 的七项定向检查，均无失败或跳过；维护 LOGIN 的函数唯一权限、现有／未来
+分区与实际序列／DDL 拒绝、owner／默认 ACL、快照锁等待与调用方回滚均通过，
+Learning 所需的父表 SELECT 保留。现有追加、查询、日聚合的同批前置操作也通过。
+0366→0189→0366、冻结 SQL 与最终权限复验通过，所有自有资源清理成功。
+
+首次尝试在进入用例前被写死的旧序列名阻断。最小 PostgreSQL 复现确认实际序列由
+`pg_get_serial_sequence` 返回，探针改用该名称后得到正确的 42501；没有为通过验收扩大
+任何角色权限。旧失败与被否定的权限假设均保存，其他已通过的业务批次没有重跑。
+
+Labeling 包与共享运行时相对原资格基线没有变化；API 源码的唯一变化是 Audit 夹具绑定，
+本阶段实际 HTTP 已覆盖。既有 Labeling 冷／worker／恢复证据保持原合格源码范围，
+不声明整个当前 API 镜像重新合格。Assets reset 及 Learning 私表读取继续暂缓。
+集中验收步骤、源文件哈希、镜像构建／离线结果的输入约束和待验证事项保存在
+`.worktree/audit-labeling-qualification-batch.json`；本阶段没有构建或运行新的冷镜像／完整恢复。
+
+## Audit 维护与归档冷验收 {#audit-maintenance-cold-qualification}
+
+维护／归档操作的限定本地资格已通过。源码 `6de1eb1b5` 使用已构建的独立 ARM64 镜像，
+镜像构建源为 `6c0259ed7`，两者运行输入逐项相同；中间只调整冷测试夹具及文档。
+非 editable 安装的 29 份包文件与冻结 SQL／schema 精确匹配；禁网离线检查、非 root、
+只读根文件系统及无 API／Celery／SQLAlchemy 运行依赖均通过。
+
+单个冷场景实际运行补分区、刷新与归档 CLI，使用单函数维护 LOGIN 和分离的归档桶
+LIST／PUT、LIST／GET 身份；拒绝 writer 读取／删除、reader 写入及双方访问其他桶。
+用例在上传成功、分区 DROP 尚未提交时终止真实 CLI，确认分区与归档事件回滚、对象保留；
+完整 PostgreSQL dump／restore 后由新进程接管，退役分区并只记录一次事件，再次执行不重复归档。
+原 ASGI 管理员列表／读取为 200，普通用户为 403，最大 bigint、原生 JSON 和 Unicode 保持。
+
+规范收据 `.worktree/audit-maintenance-cold-qualification.json` 的 SHA-256 为
+`25150a332e77705d6f17578b842ea9f88f228d2df86783545e5cabe02db5473c`，绑定 24 项证据。
+最终冷场景无失败、错误或跳过，3,131 项源码输入未变；0366→0189→0366、最终授权及
+全部自有数据库、容器、桶和归档身份清理通过。原生七项和 Labeling 既有证据按未变源码复用。
+首次等待由提前创建的未提交用户夹具阻塞分区 DDL，实测锁链后延后创建；后续种子内嵌 JSON
+被 SQLAlchemy 误识别为参数，使用原生测试已有的绑定方式修正。两个失败及最小复现均保留，
+修复提交为 `59146dbaa`、`6de1eb1b5`，没有扩大业务实现或任何角色权限。
+
+该结果不包含冷 API 镜像、对象存储灾难恢复、替代语言 owner 或生产容量。归档桶在
+PostgreSQL 恢复期间保留；主工作树、Notifications 候选、日常数据库和维护调度均未切换。
+完整模块状态及下一交付只以上方唯一台账为准。
+
+## Labeling 任务控制实现检查点 {#labeling-task-control-checkpoint}
+
+编辑锁和任务生命周期／审核证据使用 Labeling 包内的两个封闭 JSONB 命令，分别由
+`aap_labeling_v1.task_edit_lock_command(jsonb)` 和
+`aap_labeling_v1.task_workflow_command(jsonb)` 承接。公开 API 的授权、提交及响应保持；
+借用事务的 API 绑定只持有调用和 ORM 缓存同步，不把锁交给新的 HTTP 事务。
+生命周期、贡献者和视频段送审继续组合既有 Workspace 当前权限、计数、Audit、QC 与通知。
+
+普通 LAN／worktree 授权已在源码中增加两项 EXECUTE；专用可信 LOGIN 的授权脚本只开放
+这两个函数。Labeling owner 只新增所需 Task 状态／证据列及 TaskLock 租约写权限，Identity
+账号锁继续使用已有公开能力。冻结 SQL／schema 与安装包资源一起维护。本检查点不覆盖批次重置、
+无来源任务清理及其他 Task／Annotation 写入，不能提前
+全局撤销兼容访问，更不能把这组公共能力当作完整 Labeling 模块。
+
+源码集成提交为 `f5459f10a`、`4f32051fb`；父线补齐公共授权、验收脚本与安装资源，并修正
+编辑锁函数内 CASE 表达式的 PL/pgSQL 语法。49 项合同／贡献者／审核守卫、8 项验收脚本
+检查及 22 项资源工具单元检查通过。两份 SQL、两份 schema 与冻结迁移副本相同，wheel／
+sdist 各自包含这四项资源，335 条迁移只有一个 head。五份 SQL／授权文件及其 PL/pgSQL
+块仅通过语法核对，没有执行数据库权限或业务事务；OpenAPI 实际重导未变化。
+
+本地 `.worktree/labeling-task-control-checkpoint.json` 保存源码与原始结果绑定，保留最初
+缺失 SQL 资源和语法失败记录。两份 Native 回归已接入既有受限账号验收入口但未运行；
+真实权限、并发／回滚、冷装配和恢复按模块集中验收，不把上述基础检查记成独立运行资格。
+主工作树、日常数据库与独立拓扑未切换，训练、资产和 Go 的既定范围保持。
+
+## Labeling 人工标注实现检查点 {#labeling-annotation-writes-checkpoint}
+
+人工 Annotation 创建、字段更新、软删除及创建回执由固定命令持有；SceneTrack 身份、
+显式／推断区间、revision 与相机成员改类使用同一 Labeling owner。任务统计按启用、
+未取消、非相机成员重算，并在统计前持有 Task 锁，避免并发送审被旧状态覆盖。
+API 保留当前授权、来源／Mask 预检、心跳、Audit、Batch 联动及最终提交，所有 owner
+调用借用原连接及事务；当前修改不增加 HTTP 部署方式或提交点。
+
+ORM 绑定只同步 owner 已写入字段：主标注、级联相机／子项和轨迹缓存及时更新，其他
+待提交属性保留。Native 错误按 asyncpg 的实际异常链映射，原 SceneTrack 拒绝的 409
+原因与消息保留。Mask 修订触发器及 recorder 使用限定引用与固定搜索路径，仍以原
+调用者权限运行；新增升级／回滚资源不改变版本递增和历史快照规则。
+
+独立可信调用账号只开放三项固定函数；原 TaskControl 的两函数账号保持。源码已经
+提供对应 owner 列权限、LAN／worktree 授权及集中验收器接线，未对日常库应用。
+六个核心合同／数据客户端不依赖 API、SQLAlchemy、FastAPI 或 Celery；三个 schema、
+三个 Native SQL 和两份 Mask 支持 SQL 同时进入包及冻结资源，wheel／sdist 均逐字节匹配。
+338 条迁移只有一个 head，八份 SQL／授权文件及 PL/pgSQL 块通过语法核对。
+
+19 项纯合同／错误／缓存／验收脚本检查及 22 项资源工具单元检查通过；额外旧绑定
+用例因数据库夹具停在迁移配置加载，未执行迁移／SQL，原始失败保留，不扩大本轮环境
+修复。真实角色权限、原生并发／提交回滚、Mask、级联、冷装配与恢复待模块集中执行。
+OpenAPI 实际重导保持不变。证据由本地
+`.worktree/labeling-annotation-writes-checkpoint.json` 绑定。
+
+本检查点未关闭完整 Labeling；批量、切片／Mask、完整场景轨迹命令、导入、跨帧、预测
+及视频人工候选不在本组范围内。批量、视频框与批次的后续实现见下节；读取和整模块
+凭据也未闭合。主工作树、日常数据库及独立拓扑
+未切换；训练、资产数据集／存储及 Go 范围保持。
+
+## Labeling 编辑与批次实现检查点 {#labeling-editing-and-batch-checkpoint}
+
+批量 Annotation 更新、视频框转换／组合及 Batch 控制分别使用三个封闭命令。
+实际 API 继续借用原连接与事务，当前身份／Workspace 权限、Task／编辑锁、审核、审计、
+贡献者及统计顺序保留。Workspace 配置和成员读取复用既有公开能力，不新增私表访问。
+编辑账号仅开放两个函数，批次账号仅开放一个；旧任务控制和人工写入账号范围保持。
+
+批量操作保留完整轨迹改类、相机版本及属性来源；JSON 布尔／数值的递归相等规则沿用
+原 Python 判断。视频五类操作迁入 Labeling，旧几何模块的 27 个函数 AST 完全相同，
+原导入路径和两项服务签名保留。Batch 创建／维护、分包／分派、状态、审核、管理锁、
+计数、重置及清理写入已迁移。停用预测标注和解除父预测引用保持独立 UPDATE，保留
+Mask 历史；贡献者重置保留 JSON null，清理计数仍包含相机成员。
+
+源码集成提交为 `840996af3`、`d13dcc517`、`d95be3e60`、`823107773`；父线补齐实际
+委托、窄列权限、专用账号、安装／验收器接线和文档。48 项不同的基础检查、22 项资源
+单元检查通过；首轮三项新验证器测试断言错误地在基础角色函数中查找主流程创建的账号，
+原始失败保留，修正后仅补跑这三项，不重跑另 44 项。这里没有执行数据库 SQL。
+
+六项新 SQL／schema 与冻结资源一致，三份 schema 也与当前模型生成结果相符。wheel／sdist 的
+53 项包文件逐字节匹配，迁移图为 341 项、单一 head。七份 SQL／授权文件及 PL/pgSQL
+块只通过语法核对；OpenAPI 实际导出保持不变。证据由本地
+`.worktree/labeling-editing-checkpoint.json` 绑定；三份 Native 回归已接入自有数据库
+验收器但未运行，角色权限、并发／回滚、Mask 与故障恢复仍待模块集中验收。
+
+强制关闭 autoflush 且预先修改选中 Annotation 版本的外部调用，仍有版本意图兼容限制；
+当前批量 API 调用不使用该模式。本检查点未覆盖 `PredictionService.delete_for_tasks`；
+其 Prediction／Meta／FailedPrediction 删除已由下方预测操作组迁移，仍不代表完整 Labeling 闭合。
+其他剩余操作由上方唯一台账继续跟踪；主工作树、日常数据库及拓扑未切换，训练、资产
+数据集／存储与 Go 的既定范围保持。
+
+## Labeling 预测、轨迹命令与跨帧实现检查点 {#labeling-prediction-tracks-checkpoint}
+
+预测记录、场景轨迹命令、跨帧写入及人工预测写入分别使用四项封闭 Native 命令。
+实际调用继续借用原连接与事务，保留当前身份／项目权限、Task／编辑锁、审核轮次、
+源版本、统计、贡献者与审计顺序。预测账号开放记录、人工预测及固定分区维护三项函数，场景轨迹命令和跨帧账号
+各开放一个函数；旧任务控制、人工写入、编辑与批次账号的能力范围保持。
+
+`PredictionService` 的 Prediction／Meta／失败记录写入、dismiss／restore、任务／批次删除、
+导入来源清理及候选拒绝已迁移；来源清理保留失败记录，拒绝在锁内合并现有历史。
+预测计数仍同步 Task 更新时间。接受候选直接创建携带 AI 来源的 Annotation，避免额外
+UPDATE 改变 Mask 修订历史；二阶段属性写入和子标注来源更新各自保留原版本规则。
+场景轨迹的执行、撤销、幂等重放、历史与操作详情使用 owner 命令；预览、成员及轨迹详情
+读取尚未整体迁移。场景／帧关联只读取既有 Assets 公开空间投影，不增加私表授权。
+
+跨帧传播、批量传播与插值的实际 API 委托已经接入，运动补偿和原有几何规则迁入独立包，
+旧导入路径与调用签名保持。轨迹退役保留原墙上时间，其余原 ORM 更新时间保留事务时间。
+源码集成提交为 `2fdf8457f`、`ab5b738aa`、`0a38b658c`、`d84412ff0`，父线补齐人工预测写入、
+实际委托、owner 列权限、三组严格账号、普通安装授权、验收器与文档。
+
+34 项不同的纯合同／几何／绑定及验收器基础检查和 22 项资源工具检查通过。迁移图为
+345 项、单一 head，八项新 SQL／schema 与冻结资源一致；wheel／sdist 的 70 项包文件逐字节
+匹配。九份 SQL／授权文件及 PL/pgSQL 块通过语法检查，OpenAPI 实际导出保持不变。
+迁移时一处四元数乘法重排已恢复，九个原几何函数去除文档字符串后的 AST 相同，
+只补跑受影响的八项几何检查，不叠加计数。静态脚本缺少返回类型的处理和原始失败收据保留；
+基础证据由 `.worktree/labeling-prediction-tracks-checkpoint.json` 绑定。
+
+本组仅完成源码集成和基础检查；四份 Native 回归已接入自有数据库验收入口，尚未运行。
+数据库权限、并发／回滚、Mask、冷安装及恢复按模块集中验收。测试种子清理、草稿／孤儿
+清理及其余读写继续按上方唯一台账跟踪，不把这组操作当作完整 Labeling 模块。
+主工作树、日常数据库及独立拓扑未切换，训练、资产数据集／存储与 Go 的既定范围保持。
+
+## Labeling 草稿与配置孤儿清理实现说明 {#labeling-annotation-maintenance-checkpoint}
+
+原草稿 get／save 与配置孤儿清理使用一个固定 maintenance capability。候选、任务观察和最终
+锁后写入分开，保留 Batch → Task → Annotation 的锁序及目标改向拒绝；当前管理权／配置
+锁仍由原工作流持有。原方法签名、no-autoflush 读取、缓存刷新、Mask 触发器版本、贡献
+证据与统计顺序保留。专用账号仅能执行该函数，owner 只新增草稿列权限及固定 Task 快照读取。
+来源范围及草稿 Python JSON 相等语义的两项基础检查、SQL／PL/pgSQL 语法检查通过；原生
+角色／并发回归和两项原竞争夹具保留但未运行。独立运行／恢复按模块集中验收，日常环境未切换。
+
+## Labeling 讨论、Mask 与场景读取集成说明 {#labeling-discussion-mask-scene-checkpoint}
+
+0347–0349 的六个公共函数、三个内部标量 helper 及三张固定公开关系已接入参数化 owner
+和普通安装授权；三组专用可信账号分别限制为讨论两函数及四个只读投影、Mask 三函数、
+场景一函数，均不开放底表。验收器登记原生回归、函数体和公开关系 ABI，并保留独占库围栏。
+三个新增账号基础检查通过；九项包内／冻结资源一致，迁移图为 349 个单链 revision。
+SQL／PL/pgSQL 仅通过语法检查，未执行数据库、冷安装或恢复。各子线纯检查证据复用，
+不把源码集成视为完整 Labeling 模块资格；日常主工作树和运行拓扑未切换。
+
+## Labeling 剩余操作的组合装配 {#labeling-final-families-checkpoint}
+
+视频人工控制、导入／转换／多相机、核心读取、Mask 质检／修复／引用保留、点云／视频
+质检及无来源任务维护已汇入同一集成线。0350–0355 的 Native SQL 随 Labeling 工件
+分发；命令 JSON schema 及冻结副本对应同一合同。0352 用十二项固定公开关系提供原生
+列类型，用五项固定函数承接 Task／Batch／Annotation／VideoSegment 行锁；锁返回值使用明确的公开
+列序，不依赖历史底表物理列序。
+
+| 操作组                    | 专用账号 profile                          | 能力范围                                           |
+| ------------------------- | ----------------------------------------- | -------------------------------------------------- |
+| 视频人工控制              | `labeling-video-control-grants.sql`       | 两项封闭命令：Tracker 控制与 VideoSegment 生命周期 |
+| 导入与转换                | `labeling-annotation-transfer-grants.sql` | 一项封闭命令，四项 helper 仅 owner 可用            |
+| 核心读取                  | `labeling-core-read-grants.sql`           | 十二项 SELECT-only 公开关系及五项固定行锁          |
+| Mask 质检、修复及引用保留 | `labeling-mask-quality-grants.sql`        | 三项固定能力                                       |
+| 点云与视频质检            | `labeling-spatial-quality-grants.sql`     | 一项封闭命令                                       |
+| 无来源任务维护            | `labeling-task-maintenance-grants.sql`    | 一项封闭命令                                       |
+
+common owner grants 按实际固定 SQL 补齐本模块读写列；调用账号不持有私有底表、
+角色继承、CREATE 或 TEMP 权限。普通 LAN／worktree 绑定继续使用原调用方事务。
+VideoSegment 懒创建、锁过期归一化及 claim／heartbeat／release／submit／reopen／unassign
+写入由固定 Labeling 命令承接。准备分段仍使用可见任务语义，不要求标注写权限；Task 绑定
+与无 task_id 的兼容调用分别复用现有 Labeling 可见性及 Assets 源事实能力。生命周期转移在 owner 内重验任务与
+当前权限并锁定目标 segment，API 保留原提交点及 Task 审核证据顺序。
+`aap_assets_v1.video_chapter_facts` 仅公开章节 ID、素材 ID、标题与起止帧，SQL 资源
+同时随 Assets Media 包分发；底表五列只授权 Assets owner，Labeling owner 读取公开
+投影，质检专用账号仍只执行单函数。没有扩大数据集、存储或训练业务实施。
+
+0353 合并保留 0350 原子审核写入和范围锁，只接入质检专属读取；没有额外 scope 提交。
+0355 保留 Learning 证据 guard、讨论删除、BugReport 解绑及 Project 计数 bridge，
+Batch 计数 bridge 仅在既有清理方法调用的 Session 上注册，并只写发生变化的计数列。
+
+父线七项账号／公开关系元数据纯检查、四项合并位置回归通过；八组 SQL 副本、十组
+JSON schema 副本与生成器、单一迁移头及十七项 SQL／PLpgSQL 语法核对通过。
+这些结果不与子线基础检查重复相加，语法检查不证明数据库权限或运行行为。
+
+基础检查、冻结资源、授权登记与合并位置检查分别保留在
+`.worktree/labeling-final-families-*` 和 `.worktree/labeling-composed-read-check.*`。
+本检查点不代表原生数据库、冷工件、进程故障或备份恢复已通过；这些按完整模块集中
+执行。视频 worker 的中间状态及无锁读取、AI 路由溯源的 Inference 读取
+仍在上方唯一台账中，不据此宣称完整 Labeling 闭合，也未切换主工作树日常拓扑。
+
+批量编辑版本行为的生产调用审计确认：实际 API 的 `_AnnotationBulkUpdateSqlAdapter`
+先调用 `record_annotation_actor`，后进入 `AnnotationService.bulk_update`。贡献者 owner
+在原事务中无条件 `flush()`，外部 `no_autoflush` 不阻止它；这也是重构前已有的顺序。
+因此实际 API 中待提交的选中标注版本、相机成员版本和轨迹 revision 先落入原事务，
+Native 命令再逐行递增。没有为未使用的服务方法直调模式增加版本覆盖字段或额外 flush。
+`test_bulk_adapter_flushes_dirty_version_inside_no_autoflush` 已保存为数据库回归，留待
+完整模块集中执行；本次只做源码核对和案例收集，未将该案例记录为运行通过。
+
+Pool 溯源补充已集成 `4d90e5127`：实例仍复用 Inference 的既有非锁定读取，Pool 通过
+`aap_inference_v1.ai_mask_pool_reference_row(uuid)` 独立按主键返回十个既有字段。
+新能力不要求实例或成员关系存在，不获取行锁；缓存命中和读取顺序保持。
+`inference-pool-reference-grants.sql` 只给专用账号执行这一函数；旧 Health 十一函数
+和 Mask 三函数 profile 不变。0356 工件及该能力原生验收已登记，运行验收仍未执行。
+
+本轮完整读取扫描保存在 `.worktree/labeling-private-read-audit.json`。它是源码候选
+清单，包含原有 Native `from_statement` 包装器和暂缓／测试路径，不能把命中数量当作
+缺口数量；上表固定三组实际消费者迁移，完成前不再宣称只剩 worker 或溯源两处。
+
+后续读取闭合补充将 core-read 边界扩为十二个固定视图与五项行锁。相机轨迹、区间、
+视频分段及追踪作业仍归 Labeling；客户端对视图只有 SELECT，行锁由固定函数持有。
+单 Task 锁新增可选项目范围；集合 Task 锁保留单语句、有序 NOWAIT，并可带原项目／
+批次谓词；视频分段锁保留原素材范围与 blocking UPDATE。
+
+SQLAlchemy 的 `aliased(public_row)` 会回到私有 mapper 表，因此所有需要再次套别名
+的查询显式调用 `alias_core_row`。具名与匿名别名的编译检查正向验证公开 FROM 和 mapper
+identity；实体反馈过滤的四项旧表名断言也已改为公开关系及当前实体的正确关联。
+
+Mask 匿名上传的计数、advisory lock、预留、续期及认领已进入既有 0348 单函数。
+DB bookkeeping 保留 permit → 原任务 advisory lock → 原 autoflush → count／reserve →
+原成功 flush 顺序；只同步既有缓存行，不制造 Native 新行的 ORM 身份或全局 rollback hook。
+对象存储 I/O 与现有 GC 策略未改。原生权限／故障恢复仍按完整模块集中执行。
+
+最后三个写入适配器的预读补充已集成 `31f30cc66`，合并后统一了 worker 与人工路径的
+公共行导入。当前非暂缓读取源码组已汇合，进入集中运行验收准备；Learning／训练、
+测试及截图种子路径继续单列，未据此全局撤销所有 Labeling 私表权限。
+
+## Labeling 集中原生验收 {#labeling-native-cohort-acceptance}
+
+集中装配已在独占临时数据库完成 `0356 → 0189 → 0356`，冻结 SQL 安装／回滚、函数体
+与公开关系核对通过。安装清单按升级依赖排序，不再安装降级专用的 revision 支持文件；
+0337 的固定搜索路径／UTC 和 0338 的 owner 执行身份与严格授权配置一致。Audit 已持有
+其私有存储，Identity 删除／交接配置不再要求该 NOLOGIN owner 缺少所有者固有的列权限；
+普通 Identity 与专用客户端的审计表访问拒绝检查保持。此前准备失败记录继续保留。
+
+47 份选定文件首次完整执行 290 项，184 项通过、106 项失败；按共同根因修正后，仅重跑
+106 项失败，84 项通过、22 项仍失败，两轮均无 error／skip。不是整模块通过，也不把
+两个批次的测试次数叠加为不同案例。0352 的真实双连接 Task／Batch／Annotation NOWAIT
+竞争、有序集合锁、Segment 阻塞后释放，以及只读视图写入拒绝已通过。任务匹配预检字段、
+反馈公开投影别名、批次回复 data schema、JSON 对象计数和质量作业锁语义的修正已集成。
+
+继续修正过期 ORM 身份读取、批量通知调用、审计 tuple 序列化、Scene read 的 CASE 分支
+和谱系生成顺序后，最新定向 33 项通过 28 项、失败 5 项，未重跑无关通过案例。该批包含
+新增的状态分页与转换谱系案例，不能直接与旧批次相加。该批五项断点为 SceneTrack 请求
+构造、AI Mask 决策主键、QC upsert 别名、Mask 修复状态读取及转换 Native 用例清理。
+0354 的状态候选刷新与精确分页已分开，阶段标记可省略以保持原调用兼容；相机标注投影
+也补齐原版本事实。最新批次的数据库、Redis、桶、限定存储身份和临时 PostgreSQL
+均完成自有清理。当前案例结果和各次原始成功／失败回执由
+`.worktree/labeling-native-cohort-checkpoint.json` 绑定；未受修改影响的通过证据保持复用。
+
+最后五项断点已集中补验通过，没有 error／skip：SceneTrack 的写入比较快照去掉合同外的
+隐藏字段，回退所需隐藏状态仍由 owner 的 before-state 保留；AI Mask 决策由 owner 生成
+主键；QC upsert 按目标别名返回；修复完成后仅同步已经存在的 ORM 身份；转换测试按外键
+顺序清理自有标注。严格请求校验、外键、调用账号和事务边界均保留。最新临时 PostgreSQL、
+数据库、Redis、桶及限定存储身份全部清理，原始成功／失败回执继续保留。
+
+四批 JUnit 按完整案例标识去重，296 项选定案例均有最新通过观察；它是分批复用证据，
+不代表在一个提交上全量重跑，更不证明整模块已闭合。本地
+`.worktree/labeling-native-last-five-selection.json` 保存运行前源码摘要及补丁，
+`.worktree/labeling-native-cohort-checkpoint.json` 绑定各批原始证据和未完成门槛。
+
+当前 Labeling wheel／sdist 与非 editable 安装的 114 份资源逐字节匹配，含 24 份 SQL；
+隔离进程从安装包导入严格合同／数据客户端，不依赖 API、SQLAlchemy、Celery、Boto3 或
+Torch；116 项安装包测试通过。资格记录为
+`.worktree/labeling-native-current-package-qualification.json`。Inference 的 41 份包文件、
+279 项首轮通过及一项修正后补验仍保留，其 0356 Pool 受限账号原生读取也已通过。
+上述结果不代替完整模块冷容器、真实消费者完整凭据、进程故障或完整恢复资格，
+日常独立拓扑仍未切换，Learning／训练、资产数据集／存储与 Go 的既定范围保持。
+
+当前 Labeling owner 冷镜像基于 `cbf933df2`，266 项构建输入与 247 项安装运行文件逐项
+核对，包含依赖在内的 25 份 SQL。禁网、无挂载、只读、非 root 的隔离检查通过，保留
+独立 HTTP 装配及 CLI 入口，镜像中没有 API、ORM、Celery、S3 SDK 或 ML 依赖；证明容器
+已经清理。原始记录位于 `.worktree/labeling-native-current-owner-image-artifact.json`。
+这只关闭当前 owner 工件资格，尚未执行当前冷 API／worker 的跨进程真实消费或故障恢复。
+
+当前权限复核发现月度 `PredictionPartitionService.ensure_future_partitions` 仍直接执行
+分区 DDL，普通运行角色还持有预测分区树所有权与兼容宽 ACL。该操作属于 Labeling，
+在集中验收前由现有 owner 承接；`mv_user_perf_daily` 的既有刷新属于独立 Insights 例外，
+不与预测分区一起移交。别名频率和栅格 Mask 指标的旧表读取已改为既有公开关系，筛选、
+项目范围与指标失败回滚保持。暂缓的模型谱系和种子路径继续单列，不提前全局撤权。
+
+准备期 API 镜像已验证 2,360 项构建输入、757 项安装包资源和 1,539 项 API／迁移文件；
+隔离 API 环境也已确认实际加载非 editable Labeling。两处读取及待完成维护会改变候选，
+因此旧准备记录保留，最终工件在实现收口后统一更新，不把它当作新源码的冷运行资格。
+新的恢复门槛按源图确定迁移 head，并比较两个 Labeling schema 的函数、公开关系、规范化
+ACL、owner 和设置；SQL 静态检查通过，数据库恢复尚未执行。
+
+本地 `.worktree/labeling-readers-pure-result.json` 保留指标文件的 12 项通过及 1 项失败：
+两个受本次公开关系替换影响的行为均通过，失败来自内容验证的假 Session 未提供写入权限
+端口。该未改路径没有作为本轮读取迁移的扩修前置；实际别名 API、分区、冷请求和恢复仍
+留在同一集中验收批次。
+
+0357 的 `prediction_partition_command(jsonb)` 已接入包、冻结 SQL／schema、原月度
+worker 和预测账号的精确三函数配置。调用方只提交 UTC 月份，不能提供 SQL、表名或
+schema；owner 校验目标确为预测分区后才返回，保持原月份范围、事务及返回名称行为。
+common owner grants 将预测父表及现有分区树交给 NOLOGIN Labeling owner，并仅为该
+owner 的固定维护开放 public schema CREATE；普通 LOGIN 仍不继承 owner。LAN 不再
+把预测分区树所有权交回普通 API，Insights MV 的既有维护所有权单独保留，兼容表 ACL
+没有全局撤销。函数体、合同、安装清单、恢复选择和普通运行允许项均已登记。
+
+父线 31 项基础检查通过，0357 SQL／PLpgSQL 和包内副本核对通过；新的原生案例保存了
+分区创建、幂等、事务回滚、同名非分区拒绝及调用方原始 DDL 拒绝。这里尚未执行数据库
+DDL、0357 迁移往返、最终冷 API 请求或当前图的数据库恢复，不能把准备期工件当作最终
+资格，也不据此宣称完整 Labeling 最小权限闭合。
+
+## Labeling 当前候选验收 {#labeling-current-candidate-acceptance}
+
+0357 候选的 Labeling wheel／sdist、独立非 editable 安装与源码的 118 项资源逐字节相同，
+包含 25 项 SQL，116 项安装包测试通过。owner 冷镜像的 251 项安装文件与 API 冷镜像的
+761 项包文件、1,542 项 API／迁移文件均核对一致；禁网、只读、非 root 的离线检查通过。
+API 验收解释器使用隔离的写时复制环境及当前安装 wheel，原 API 虚拟环境保持原绑定。
+
+当前安装包消费者、原生能力与新增门槛首次集中运行 312 项，310 项通过、2 项失败。
+失败均在新夹具：源克隆调用了绑定父库的种子校验；冷请求的锁观察依赖特定 SQL
+文本，并遗漏租约／审计清理约束。种子改在经验证的父库创建后纳入完整 dump，锁观察改为
+持锁连接的真实 blocker PID，清理复用原有租约顺序与事务内审计清理授权。生产代码、
+外键、审计不可变守卫与运行工件均未因此修改。
+
+只补跑失败的两例后，恢复通过、冷 API 的全部业务断言通过，但审计夹具清理仍被不可变
+守卫拒绝；修正清理后仅补跑该例通过。三批按完整案例标识去重，312 项均有最新通过记录，
+不把重跑次数累加，也不声称在一个提交上全量通过。原始失败和成功证据由
+`.worktree/labeling-installed-selected-case-status.json` 与
+`.worktree/labeling-native-cohort-checkpoint.json` 绑定。
+
+真实冷 API 不挂载应用源码，实际使用 `identity_api_consumer` 及单独的
+`identity_auth_client`，通过 HTTP 验证缺少凭据、跨项目拒绝、Labeling 读取／创建、幂等
+重放、Task 锁等待和释放、外键及容器重启后的持久读取。完整 PG dump／restore 保留两项
+Labeling namespace 的函数、owner、规范化 ACL、设置、公开关系及列，以及非空 Task、
+Annotation 和创建回执；恢复后受限角色读取、写入／回滚通过，没有先重授权限来掩盖恢复
+缺口。0357→0189→0357、冻结能力核对及三批自有数据库、Redis、桶、IAM 与临时 PG 清理
+通过；临时 API／网络已清理，共享 MinIO 只断开本次网络端点。
+
+本轮关闭选定生产读取、预测分区维护及当前候选的安装消费／冷 API／PG 恢复能力。
+完整 Labeling 仍保留普通 API 的表、列和默认宽 ACL；暂缓模型谱系、截图种子和测试种子
+与未覆盖的冷 worker／进程丢失范围继续明确跟踪。上述证据不代替整模块最小凭据、所有
+消费者迁移或日常环境采用，也不代表生产容量、AMD64 或另一语言完整提供方资格。
+训练、资产数据集／存储与 Go 的既定范围保持，没有推送、发布或日常拓扑切换。
+
+## Labeling 普通写入调用收口 {#labeling-ordinary-write-closure}
+
+0358 的测试项目清理已接入固定 Labeling owner；0359 的旧上传 Task 创建及完成使用
+两项固定参数能力。创建保留 Task 默认值、序列及原提交位置；完成在当前 Task 锁内
+核对捕获目标，和图片准入共同提交或回滚。API 用回执同步缓存，不再依赖普通 ORM
+INSERT／状态 UPDATE。截图目录的 Task、Batch、Annotation 和 Prediction 读取复用现有
+公开关系及 autoflush helper。六项聚焦检查、SQL／PLpgSQL 解析与包内副本核对通过，
+真实数据库与消费者检查随本组迁移集中执行，旧 0357 冷工件不代替新增能力验收。
+
+0360 的 VideoSegment 建段、归一化及六类状态流转已接入同一封闭 owner 命令；保留原
+只读可见性、行锁后计时、调用方收紧特权及内部 taskless 行为。两组普通生产写入调用已
+汇合，并完成下述集中数据库／实际消费者检查；普通私表 ACL 尚未全局撤销。暂缓 Learning 代码没有额外
+INSERT／UPDATE／DELETE，但 Task／Batch 的 UPDATE 锁和反馈 Task／Annotation 的 SHARE 锁
+仍依赖底表更新权限；在迁移这些锁之前不能全局撤销 UPDATE，也不能把 UPDATE(id) 称为
+纯读取权限。训练、资产数据集／存储业务及 Go 实验范围保持。
+
+0362 为受隔离数据库保护的 E2E seed 增加固定 fixture owner 协议，覆盖 Batch、Task、Annotation、
+VideoTrackerJob、TaskDatasetItemLink 写入和反馈锚点更新；`_test_seed` 与筛选 seed 消费该协议，
+普通生产数据库不会授予执行权。`task_dataset_link.link_items` 复用同一 owner，公开 Task/link
+关系仍提供会话内干净 ORM 实体；命令不提交事务，seed 路由维持既有 UOW 边界。
+
+源码候选 `a5c6e02f4` 的一次集中检查执行 50 项：49 项通过，1 项失败，无错误或跳过。
+通过范围含实际上传 API 的权限／目标变化／准入回滚、分段 owner 严格双函数凭据、
+租约／提交／审核证据、只读准备、六类 taskless 操作、四连接并发建段、任务绑定拒绝、
+旧 worker 缓存绑定及 E2E 清理的相邻命名空间／退役门禁。源码在运行期间保持不变，
+`0360→0189→0360`、冻结能力核对及本次自有 PG、Redis、桶、IAM 清理通过。
+
+唯一失败在已有筛选夹具的 Audit 清理：普通账号直接 `DELETE audit_logs` 被 42501 拒绝，
+留下两条审计记录。该例已返回清理 HTTP 200，项目和模板删除断言通过，整例仍记失败；
+Audit 授权块及原始删除路径未随本组修改，不沿此失败扩大 Labeling 实现范围。
+原始收据及逐例状态由 `.worktree/labeling-ordinary-writes-checkpoint.json` 绑定，
+不重写旧的安装态候选证据，也不将 49 项源码通过计作整个模块或当前冷工件资格。
+
+本组两个隔离写入工作树已在补丁等价、干净状态及增量 bundle 校验后清理；有用证据保留
+在集成工作树，未改变主工作树、日常服务或部署拓扑。
+
+## Labeling 普通运行权限退出 {#labeling-private-runtime-acl}
+
+LAN 与 worktree 授权复用同一段固定 SQL：在兼容宽授权后撤销 Labeling 的 49 张私表、
+全部预测分区、现有列级授权、关联序列及两个显示编号序列的直接访问，同时保留公开关系
+读取和固定能力执行。公开视图不能通过表或列授权写入；继承角色或所有者身份仍能绕过
+围栏时整批授权失败并回滚。Mask GC 密钥、根引用／代次及批次结果载荷也在私表范围内。
+
+批次显示编号通过固定能力分配，沿用原序列及非事务性编号间隙，不再由 API 直接调用
+`nextval`。历史全局和 public／Labeling schema 的宽表、序列默认授权在相关 owner 范围内
+清除；迁移后刷新明确授权，不向后续新表自动授予运行账号访问权。部署与回退需要匹配
+消费者代码和授权，先排空旧直接读写进程；本实现没有应用到日常或生产环境。
+
+兼容读锁、E2E、截图及规模种子调用已完成源码集成，迁移保持单一 head。规模种子的
+批量 INSERT 在同一语句读取 Assets 三列公开关系，保留原排序及提交边界；截图维护
+保留固定作用域和 JSON null／SQL NULL 的旧证据语义，公开 ORM 结果保留原实体名。
+基础合同、SQL／PL/pgSQL、worktree 工具检查及本轮普通权限／实际消费者 Native 检查
+已完成。Assets reset 的旧来源清除方法没有在线 API／worker 调用，但手动
+`reset_datasets.py` 使用一般数据库配置且没有环境限定；它随暂缓的 Assets 维护调用
+单列，不把它记作已迁移，也不宣称所有运维入口已经闭合。
+
+本轮 57 个不同案例的最新结果为 56 通过、1 失败，无错误或跳过，分别来自首轮
+47 通过／10 失败、九项定点复验的 8 通过／1 失败，以及最后一项元数据复验通过。
+首轮六个验收问题（快照混入预检数据、变量覆盖、旧 SQL 故障注入点）已修正；截图的
+Python 浮点值守卫和公开 ORM 结果名也已恢复原行为。没有重复已通过的整组案例，
+也没有改写原始失败；唯一余项仍是上文的 Audit 夹具清理，不扩大 Labeling 修复范围。
+
+三轮都保持源码不变，完成 `0364 → 0189 → 0364`、冻结 SQL／关系／权限核对，
+PG、Redis、桶及限定存储身份清理均成功。逐例最新状态、三份来源提交和全部原始
+收据的哈希由 `.worktree/labeling-compatibility-native-checkpoint.json` 绑定；
+这不代表当前安装工件、完整数据恢复或整模块资格。
+
+源码 `82ee202d5` 的 wheel／sdist 与 135 项源码和资源一致，独立非编辑安装的 120 项
+包检查通过。API／worker 镜像的 778 项安装包文件和 1,565 项应用文件，以及独立
+video writer 的 268 项安装文件均与来源一致；这些安装与离线检查不替代业务运行验收。
+现有冷组合四例中，HTTP 撤权前置和真实 prefork worker 两例通过，覆盖成功、取消、
+停用／移除身份、子进程 SIGKILL 后重投和实际执行退役。恢复时效使用夹具控制的租约
+过期，不证明默认恢复延迟或整个容器丢失；已通过的 worker 不再重复运行。
+
+同轮冷 API 创建标注返回 500，完整恢复在刷新旧 `mv_user_perf_daily` 的私表依赖处
+失败；原始失败与成功均保留于 `.worktree/labeling-compatibility-cold-checkpoint.json`，
+自有资源清理无错误。创建、二次推理及视频转换的七处 Annotation 刷新现统一复用
+既有公开读取逻辑，先丢弃目标对象未提交改动，再保持同一 identity-map 对象和原事务；
+四项过期状态／缺失行检查通过。修正后的冷 API 和完整恢复已通过下述定点复验；
+Assets reset 维护调用与完整运维边界仍未闭合，整模块资格继续开放。
+
+效率物化视图现通过 `aap_labeling_v1.task_event_facts` 读取既有字段，保持原十列聚合
+和三项索引。替换前保存所有者及显式授权，重建时先清除创建角色的额外默认授权，
+以迁移身份刷新后恢复所有者并重放有效授权；回退使用相同顺序。当前配置只有所有者
+授权；若环境另有自定义授权，保留被授权者、权限及 grant option，但不承诺保留历史
+grantor 身份。没有重新开放 TaskEvent 私表读取，普通角色刷新及完整恢复已通过限定实测。
+
+本轮规范收据为 `.worktree/labeling-0365-runtime-qualification.json`，SHA-256
+`ff4e730523cfdc842cb1e1bdac59ba68eb266c3b222ac71d372b8865989a1513`。
+实际 API 镜像绑定源码 `dd20f5a49`，核对 778 项安装包文件与 1,566 项应用／迁移文件；
+后续仅验收器迁移头和旧测试权限断言变化，运行文件逐字节相同，因此复用该镜像。
+冷 API 的认证／越权、标注创建、Task 锁等待、幂等重放、外键及重启读取通过；非空
+Labeling 状态的整库备份恢复也通过。普通运行角色实际刷新效率 MV、拒绝私表读取
+和 Task 直接 UPDATE 的定点复验通过。两轮均完成 `0365 → 0189 → 0365`、冻结 SQL
+及权限核对，所有自有资源清理成功，零清理错误。
+
+加上源码 `82ee202d5` 已通过的两项真实 worker 用例，共五个不同案例的最新状态
+均通过；这是一组分批来源证据，不是当前提交一次全绿。保留原四例的两项失败、
+只补冷 API 日志的失败、迁移参数和旧验收 head 的两次准备阶段失败，以及旧宽权限
+断言失败；不改写原始状态。迁移参数问题已先在独占 PostgreSQL 中以最小 SQL 复现
+并验证 text 转换。当前代码、限定运行资格与主工作树采用分别记录；未切换日常拓扑。

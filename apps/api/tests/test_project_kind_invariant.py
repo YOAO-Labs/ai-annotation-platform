@@ -8,9 +8,8 @@
 from __future__ import annotations
 
 import pytest
-from fastapi import HTTPException
-
-from app.services.project_workspace import (
+from aap_workspace.configuration_policy import (
+    ConfigurationPolicyError,
     assert_project_kind_consistent,
     data_type_from_type_key,
     legacy_type_key_from_data_type,
@@ -36,14 +35,14 @@ def test_invariant_passes_when_either_missing():
 
 
 def test_invariant_raises_on_drift():
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(ConfigurationPolicyError) as exc:
         assert_project_kind_consistent("lidar", "image")
     assert exc.value.status_code == 422
     assert "media" in exc.value.detail.lower() or "媒体" in exc.value.detail
 
-    with pytest.raises(HTTPException):
+    with pytest.raises(ConfigurationPolicyError):
         assert_project_kind_consistent("image-det", "lidar")
-    with pytest.raises(HTTPException):
+    with pytest.raises(ConfigurationPolicyError):
         assert_project_kind_consistent("video-track", "image")
 
 

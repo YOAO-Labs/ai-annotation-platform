@@ -4,18 +4,21 @@ from types import SimpleNamespace
 import uuid
 
 import numpy as np
-from sqlalchemy import select, update
+from sqlalchemy import event, select, update
 
 from app.application.quality_execution import execute_point_cloud_quality
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
-from app.db.models.point_cloud_quality import PointCloudQualityIssue
+from app.db.models.point_cloud_quality import (
+    PointCloudQualityIssue,
+    PointCloudQualityRun,
+)
 from app.db.models.scene_track import SceneTrack, SceneTrackInterval
 from app.db.models.task import Task
 from aap_assets_catalog.spatial_values import SensorCalibration, calibration_digest
+from aap_workspace.point_quality_configuration_values import PointCloudQualityConfig
 from app.schemas.point_cloud_quality import (
-    PointCloudQualityConfig,
     PointCloudQualityRunRequest,
 )
 from app.services.point_cloud_quality.service import (
@@ -277,17 +280,31 @@ async def test_issue_status_filter_refreshes_stale_rows_before_pagination(
     db_session.add_all([stale_first, valid_second])
     await db_session.flush()
 
-    rows, total = await list_issues(
-        db_session,
-        project_id=project.id,
-        status="open",
-        limit=1,
-        offset=0,
-    )
+    statements = []
+
+    def record_statement(_connection, _cursor, statement, _parameters, _context, _many):
+        statements.append(statement.lower().lstrip())
+
+    engine = db_session.bind.sync_engine
+    event.listen(engine, "before_cursor_execute", record_statement)
+    try:
+        rows, total = await list_issues(
+            db_session,
+            project_id=project.id,
+            status="open",
+            limit=1,
+            offset=0,
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", record_statement)
 
     assert [row.id for row in rows] == [valid_second.id]
     assert total == 1
     assert stale_first.status == "stale"
+    assert not any(
+        statement.startswith("update point_cloud_quality_issues")
+        for statement in statements
+    )
 
 
 async def test_quality_run_singleflight_and_worker_track_findings(
@@ -324,7 +341,11 @@ async def test_quality_run_singleflight_and_worker_track_findings(
     await execute_point_cloud_quality(
         db_session, run_id=first.id, celery_task_id=job.celery_task_id
     )
-    summary = first.summary
+    persisted_first = await db_session.get(
+        PointCloudQualityRun, first.id, populate_existing=True
+    )
+    assert persisted_first.status == "completed", persisted_first.error_message
+    summary = persisted_first.summary
     codes = set(
         (
             await db_session.execute(
@@ -686,7 +707,11 @@ async def test_task_scope_skips_incomplete_track_rules_without_staling_scene_iss
     await execute_point_cloud_quality(
         db_session, run_id=task_run.id, celery_task_id=None
     )
-    summary = task_run.summary
+    persisted_task_run = await db_session.get(
+        PointCloudQualityRun, task_run.id, populate_existing=True
+    )
+    assert persisted_task_run.status == "completed", persisted_task_run.error_message
+    summary = persisted_task_run.summary
     await db_session.refresh(gap)
     assert summary["skips"]["track_rules:scope_incomplete"] == 1
     assert gap.last_seen_run_id == scene_run.id
@@ -717,3 +742,87 @@ async def test_cancel_probe_reads_database_instead_of_stale_identity_map(
     )
     assert job.status == "running"
     assert await _cancel_requested(db_session, run) is True
+
+
+async def test_issue_status_pages_use_refreshed_candidates_and_exact_filters(
+    db_session, super_admin
+):
+    user, _token = super_admin
+    project, scene, tasks, _track, annotations = await _seed_quality_scene(
+        db_session, owner_id=user.id
+    )
+    source = annotations[0]
+    common = {
+        "project_id": project.id,
+        "scene_id": scene.id,
+        "task_id": tasks[0].id,
+        "annotation_id": source.id,
+        "annotation_version": source.version,
+        "related_annotation_ids": [source.id],
+        "code": "low_point_count",
+        "frame_start": 0,
+        "frame_end": 0,
+        "metric": {"point_count": 0},
+        "threshold": {"minimum_points": 5},
+        "evidence": {},
+        "locator": {"task_id": str(tasks[0].id)},
+    }
+
+    def make_issue(
+        key: int, severity: str, severity_rank: int, *, stale_source: bool = False
+    ) -> PointCloudQualityIssue:
+        source_version = source.version + 1 if stale_source else source.version
+        return PointCloudQualityIssue(
+            **common,
+            source_versions={str(source.id): source_version},
+            severity=severity,
+            severity_rank=severity_rank,
+            dedupe_key=f"{key:064x}",
+        )
+
+    stale_blocker = make_issue(1, "blocker", 0, stale_source=True)
+    stale_warning = make_issue(2, "warning", 1, stale_source=True)
+    fresh_blocker = make_issue(3, "blocker", 0)
+    fresh_warning = make_issue(4, "warning", 1)
+    fresh_info = make_issue(5, "info", 2)
+    already_stale = make_issue(6, "info", 2)
+    already_stale.status = "stale"
+    db_session.add_all(
+        [
+            stale_blocker,
+            stale_warning,
+            fresh_blocker,
+            fresh_warning,
+            fresh_info,
+            already_stale,
+        ]
+    )
+    await db_session.flush()
+
+    stale_rows, stale_total = await list_issues(
+        db_session,
+        project_id=project.id,
+        status="stale",
+        limit=1,
+        offset=1,
+    )
+    assert [row.id for row in stale_rows] == [stale_warning.id]
+    assert stale_total == 3
+    assert stale_blocker.status == "stale"
+    assert stale_warning.status == "stale"
+    assert already_stale.status == "stale"
+
+    open_rows, open_total = await list_issues(
+        db_session,
+        project_id=project.id,
+        status="open",
+        limit=1,
+        offset=1,
+    )
+    assert [row.id for row in open_rows] == [fresh_warning.id]
+    assert open_total == 3
+    assert [fresh_blocker.status, fresh_warning.status, fresh_info.status] == [
+        "open",
+        "open",
+        "open",
+    ]

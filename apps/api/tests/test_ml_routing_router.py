@@ -1,11 +1,4 @@
-"""v0.23.3 ADR-0050 §C.4 · MLBackendRouter tests (off/observe behavior).
-
-P3 acceptance (plan §16): observe does not change the actual instance or result; all
-inference paths have would-select evidence. off mode behavior = v0.23.2. These tests
-focus on the router's mode semantics; the ledger Lua contract is tested separately
-(test_ml_routing_ledger.py) and the full first-party call-chain wiring lands in P3/P4
-via the actual routes/workers.
-"""
+"""Route adapter tests using committed topology and real durable admission."""
 
 from __future__ import annotations
 
@@ -13,7 +6,11 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+import pytest_asyncio
+from sqlalchemy import delete
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.config import settings
 from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
 from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBackendPool
 from app.services.ml_routing.contracts import (
@@ -23,7 +20,65 @@ from app.services.ml_routing.contracts import (
 from app.services.ml_routing.router import MLBackendRouter
 from app.services.ml_routing.ledger import RoutingLedger
 from tests.conftest import create_registry_with_pool
-from tests.factory import create_project
+from tests.factory import create_project, create_user
+from tests.labeling_class_query_helpers import assert_owned_test_database
+from tests.test_inference_routing_native import _cleanup, _connect
+
+
+@pytest_asyncio.fixture
+async def committed_routes(test_engine, monkeypatch):
+    await assert_owned_test_database(test_engine)
+    for name in (
+        "inference_routing_url",
+        "inference_routing_database_url",
+        "inference_routing_database_url_file",
+    ):
+        monkeypatch.setattr(settings, name, "")
+    owner = await _connect(test_engine)
+    receipts_before = set(
+        await owner.fetchval(
+            "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) "
+            "FROM aap_inference_routing_v1.command_receipts"
+        )
+    )
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    async with maker() as db:
+        actor = await create_user(
+            db, "super_admin", f"route-{uuid.uuid4()}@test.local", "Routing acceptance"
+        )
+        project = await create_project(db, owner_id=actor.id)
+        pool, legacy, other = await _seed_pool_with_two_members(db, project.id)
+        await db.commit()
+        pool_id = pool.id
+        registry_ids = (other.id, legacy.id)
+        try:
+            yield db, project, pool, legacy, other
+        finally:
+            await db.rollback()
+            try:
+                # Every row belongs to this fixture's committed world. Never
+                # commit the API request/savepoint fixture to expose topology.
+                for registry_id in registry_ids:
+                    await _cleanup(
+                        owner, {"registry_id": registry_id, "pool_id": pool_id}
+                    )
+                receipts_after = set(
+                    await owner.fetchval(
+                        "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) "
+                        "FROM aap_inference_routing_v1.command_receipts"
+                    )
+                )
+                await owner.execute(
+                    "DELETE FROM aap_inference_routing_v1.command_receipts "
+                    "WHERE id=ANY($1::uuid[])",
+                    list(receipts_after - receipts_before),
+                )
+                await db.delete(project)
+                await db.flush()
+                await db.delete(actor)
+                await db.commit()
+            finally:
+                await owner.close()
 
 
 async def _seed_pool_with_two_members(
@@ -54,9 +109,9 @@ async def _seed_pool_with_two_members(
     )
     db.add_all([r1, r2])
     await db.flush()
-    from app.services.ml_routing.capability import capability_fingerprint
+    from aap_inference.pool_capability import capability_fingerprint
 
-    fp = capability_fingerprint(caps)
+    fp = capability_fingerprint(caps["capabilities"])
     pool = MLBackendServicePool(
         name="sam3-pool",
         enabled=True,
@@ -84,14 +139,10 @@ async def _seed_pool_with_two_members(
 
 
 @pytest.mark.asyncio
-async def test_off_mode_returns_legacy_instance_without_lease(
-    db_session, super_admin
+async def test_off_mode_returns_legacy_instance_with_durable_scope(
+    committed_routes,
 ) -> None:
-    """off mode: acquire returns the pool's legacy_instance_id, no lease (behavior = v0.23.2)."""
-    user, _ = super_admin
-    proj = await create_project(db_session, owner_id=user.id)
-    pool, legacy, _ = await _seed_pool_with_two_members(db_session, proj.id)
-    await db_session.flush()
+    db_session, proj, pool, legacy, _ = committed_routes
 
     router = MLBackendRouter(db_session, ledger=None, mode=RouterMode.OFF)
     sel = await router.acquire(
@@ -99,22 +150,19 @@ async def test_off_mode_returns_legacy_instance_without_lease(
     )
     assert sel.rejection is None
     assert sel.instance_id == legacy.id
-    assert sel.lease is None  # off mode never acquires
+    assert sel.lease.scope.mode == "off"
+    assert await router.cancel(sel.lease)
 
 
 @pytest.mark.asyncio
-async def test_off_mode_respects_project_enablement(db_session, super_admin) -> None:
+async def test_off_mode_respects_project_enablement(committed_routes) -> None:
     """D4: a pool not enabled for the project is rejected even in off mode."""
-    user, _ = super_admin
-    proj = await create_project(db_session, owner_id=user.id)
-    pool, _, _ = await _seed_pool_with_two_members(db_session, proj.id)
+    db_session, proj, pool, _, _ = committed_routes
     # Remove the enablement row.
-    from sqlalchemy import delete
-
     await db_session.execute(
         delete(ProjectMLBackendPool).where(ProjectMLBackendPool.pool_id == pool.id)
     )
-    await db_session.flush()
+    await db_session.commit()
 
     router = MLBackendRouter(db_session, ledger=None, mode=RouterMode.OFF)
     sel = await router.acquire(
@@ -125,12 +173,10 @@ async def test_off_mode_respects_project_enablement(db_session, super_admin) -> 
 
 
 @pytest.mark.asyncio
-async def test_off_mode_rejects_disabled_pool(db_session, super_admin) -> None:
-    user, _ = super_admin
-    proj = await create_project(db_session, owner_id=user.id)
-    pool, _, _ = await _seed_pool_with_two_members(db_session, proj.id)
+async def test_off_mode_rejects_disabled_pool(committed_routes) -> None:
+    db_session, proj, pool, _, _ = committed_routes
     pool.enabled = False
-    await db_session.flush()
+    await db_session.commit()
 
     router = MLBackendRouter(db_session, ledger=None, mode=RouterMode.OFF)
     sel = await router.acquire(
@@ -141,19 +187,12 @@ async def test_off_mode_rejects_disabled_pool(db_session, super_admin) -> None:
 
 @pytest.mark.asyncio
 async def test_observe_returns_legacy_but_records_would_select(
-    db_session, super_admin
+    committed_routes,
 ) -> None:
     """observe: actual instance = legacy (unchanged); would_select recorded for diagnostics."""
-    import os
-
-    redis_url = os.environ.get("TEST_REDIS_URL", "redis://localhost:6379/15")
     ns = f"ml-router-test:{uuid.uuid4().hex[:8]}"
-    ledger = RoutingLedger.from_url(redis_url, namespace=ns)
-
-    user, _ = super_admin
-    proj = await create_project(db_session, owner_id=user.id)
-    pool, legacy, other = await _seed_pool_with_two_members(db_session, proj.id)
-    await db_session.flush()
+    ledger = RoutingLedger.from_url(settings.redis_url, namespace=ns)
+    db_session, proj, pool, legacy, _ = committed_routes
 
     try:
         router = MLBackendRouter(db_session, ledger=ledger, mode=RouterMode.OBSERVE)
@@ -162,23 +201,21 @@ async def test_observe_returns_legacy_but_records_would_select(
         )
         # Actual instance is still the legacy (off-mode dispatch preserved).
         assert sel.instance_id == legacy.id
-        assert sel.lease is None
+        assert sel.lease.scope.mode == "observe"
         # would_select evidence is recorded.
         assert sel.would_select is not None
         assert sel.diagnostics.get("eligible_count") == 2
+        assert await router.cancel(sel.lease)
     finally:
         await ledger.aclose()
 
 
 @pytest.mark.asyncio
 async def test_observe_does_not_break_when_ledger_unavailable(
-    db_session, super_admin
+    committed_routes,
 ) -> None:
     """observe ledger failure must never break actual dispatch (ADR-0050 §14)."""
-    user, _ = super_admin
-    proj = await create_project(db_session, owner_id=user.id)
-    pool, legacy, _ = await _seed_pool_with_two_members(db_session, proj.id)
-    await db_session.flush()
+    db_session, proj, pool, legacy, _ = committed_routes
 
     # ledger=None but mode=OBSERVE → would-select is skipped, legacy dispatch still works.
     router = MLBackendRouter(db_session, ledger=None, mode=RouterMode.OBSERVE)
@@ -186,22 +223,41 @@ async def test_observe_does_not_break_when_ledger_unavailable(
         pool.id, owner="test", operation="predict", project_id=proj.id
     )
     assert sel.instance_id == legacy.id
-    assert sel.lease is None
+    assert sel.lease.scope.mode == "observe"
+    assert await router.cancel(sel.lease)
 
 
 @pytest.mark.asyncio
-async def test_enforce_without_ledger_fails_closed(db_session, super_admin) -> None:
-    """enforce mode with no ledger → ROUTER_UNAVAILABLE (fail closed, D6/D17)."""
-    user, _ = super_admin
-    proj = await create_project(db_session, owner_id=user.id)
-    pool, _, _ = await _seed_pool_with_two_members(db_session, proj.id)
-    await db_session.flush()
+async def test_enforce_without_redis_reserves_durable_scope(committed_routes) -> None:
+    db_session, proj, pool, _, _ = committed_routes
 
     router = MLBackendRouter(db_session, ledger=None, mode=RouterMode.ENFORCE)
     sel = await router.acquire(
         pool.id, owner="test", operation="predict", project_id=proj.id
     )
-    assert sel.rejection == RejectionReason.ROUTER_UNAVAILABLE
+    assert sel.rejection is None
+    assert sel.lease.scope.mode == "enforce"
+    assert await router.cancel(sel.lease)
+
+
+@pytest.mark.asyncio
+async def test_unavailable_owner_fails_closed_without_redis_fallback(
+    committed_routes, monkeypatch
+) -> None:
+    from aap_inference_contract.routing import RoutingUnavailable
+
+    db_session, proj, pool, _, _ = committed_routes
+    route = MLBackendRouter(db_session, mode=RouterMode.ENFORCE)
+
+    async def unavailable(**_kwargs):
+        raise RoutingUnavailable()
+
+    monkeypatch.setattr(route.authority, "acquire", unavailable)
+    result = await route.acquire(
+        pool.id, owner="test", operation="predict", project_id=proj.id
+    )
+    assert result.rejection == RejectionReason.ROUTER_UNAVAILABLE
+    assert result.lease is None
 
 
 @pytest.mark.asyncio
@@ -219,26 +275,18 @@ async def test_pool_for_registry_resolves_singleton(db_session, super_admin) -> 
 
 @pytest.mark.asyncio
 async def test_unhealthy_member_excluded_from_would_select(
-    db_session, super_admin
+    committed_routes,
 ) -> None:
     """A member whose health is stale is not eligible (observe would-select reflects this)."""
-    import os
-
-    redis_url = os.environ.get("TEST_REDIS_URL", "redis://localhost:6379/15")
     ns = f"ml-router-test:{uuid.uuid4().hex[:8]}"
-    ledger = RoutingLedger.from_url(redis_url, namespace=ns)
-
-    user, _ = super_admin
-    proj = await create_project(db_session, owner_id=user.id)
-    pool, r1, r2 = await _seed_pool_with_two_members(db_session, proj.id)
+    ledger = RoutingLedger.from_url(settings.redis_url, namespace=ns)
+    db_session, proj, pool, r1, r2 = committed_routes
     # Make r2's health stale (older than max age).
-    from app.config import settings
-
     stale = datetime.now(UTC) - timedelta(
         seconds=settings.ml_backend_router_health_max_age_seconds + 10
     )
     r2.last_checked_at = stale
-    await db_session.flush()
+    await db_session.commit()
 
     try:
         router = MLBackendRouter(db_session, ledger=ledger, mode=RouterMode.OBSERVE)
@@ -248,5 +296,6 @@ async def test_unhealthy_member_excluded_from_would_select(
         # Only r1 is health-fresh → would_select must be r1.
         assert sel.would_select == r1.id
         assert sel.diagnostics.get("eligible_count") == 1
+        assert await router.cancel(sel.lease)
     finally:
         await ledger.aclose()

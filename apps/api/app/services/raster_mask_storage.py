@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import uuid
 from collections.abc import Awaitable
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -11,8 +12,20 @@ from typing import Any, TypeVar
 
 from botocore.exceptions import BotoCoreError, ClientError
 from pydantic import ValidationError
-from sqlalchemy import func, select, text, update
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import set_committed_value
+from sqlalchemy.orm.util import identity_key
+
+from aap_labeling.mask_edit_contract import (
+    MASK_EDIT_PROTOCOL,
+    MAX_MASK_UPLOAD_KEYS_PER_COMMAND,
+    ClaimRasterMaskUploads,
+    CountUnlinkedMaskUploads,
+    LockRasterMaskUploadTask,
+    ReadMaskUploadKeys,
+    ReserveRasterMaskUpload,
+)
 
 from aap_assets_mask_content.contract import (
     GetRequest,
@@ -23,6 +36,7 @@ from aap_assets_mask_content.contract import (
 )
 
 from app.db.models.dataset import DatasetItem
+from app.services.project_access import get_workspace_project
 from app.db.models.project import Project
 from app.db.models.raster_mask_upload import RasterMaskUpload
 from app.db.models.task import Task
@@ -32,6 +46,12 @@ from app.services.raster_mask_contract import (
     RasterMaskContractError as RasterMaskContractError,
 )
 from app.services.mask_content import mask_content_owner
+from app.services.labeling_core_read_relations import (
+    get_core_row,
+    lock_task_for_core_read,
+    task_row,
+)
+from app.services.labeling_mask_edit import mask_edit_command
 from app.services.mask_gc import (
     begin_mask_content_write,
     lock_mask_write_epochs,
@@ -190,9 +210,7 @@ async def preflight_mask_payload_for_write(
             reason="mask_task_context_missing",
             message="mask persistence requires an existing task",
         )
-    current_task = await db.scalar(
-        select(Task).where(Task.id == task.id).execution_options(populate_existing=True)
-    )
+    current_task = await get_core_row(db, task_row, task.id, populate_existing=True)
     if current_task is None:
         raise RasterMaskContractError(
             status_code=409,
@@ -209,7 +227,9 @@ async def _validate_mask_payload_for_task(
     db: AsyncSession, task: Task, geometries: list[dict[str, Any]]
 ) -> None:
     if any(geometry.get("type") == "raster_mask" for geometry in geometries):
-        project = await db.get(Project, task.project_id, populate_existing=True)
+        project = await get_workspace_project(
+            db, project_id=task.project_id, populate_existing=True
+        )
         assert_raster_mask_write_enabled(project)
 
     for geometry in geometries:
@@ -448,15 +468,16 @@ async def lock_raster_mask_references(
                 ),
             )
     if task_id is not None and references:
-        await db.execute(
-            update(RasterMaskUpload)
-            .where(
-                RasterMaskUpload.task_id == task_id,
-                RasterMaskUpload.object_key.in_(sorted(references)),
-                RasterMaskUpload.linked_at.is_(None),
-            )
-            .values(linked_at=func.now())
+        result = await mask_edit_command(
+            db,
+            ClaimRasterMaskUploads(
+                schema=MASK_EDIT_PROTOCOL,
+                operation="claim_raster_mask_uploads",
+                task_id=task_id,
+                object_keys=sorted(references),
+            ),
         )
+        _sync_cached_upload_fields(db, result.uploads, "linked_at")
     return sorted(references)
 
 
@@ -502,39 +523,58 @@ async def reserve_raster_mask_upload(
 ) -> int:
     """Reserve one task-owned anonymous upload under a transaction-scoped lock."""
     await begin_mask_content_write(db, [object_key])
-    await db.execute(
-        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
-        {"key": f"aap:raster-mask-upload:{task_id}"},
-    )
-    existing = (
-        await db.execute(
-            select(RasterMaskUpload).where(
-                RasterMaskUpload.task_id == task_id,
-                RasterMaskUpload.object_key == object_key,
-            )
+    # The legacy ORM SELECT acquired this transaction lock before its implicit
+    # autoflush. Keep that UOW boundary around the new owner call explicitly.
+    with db.no_autoflush:
+        await mask_edit_command(
+            db,
+            LockRasterMaskUploadTask(
+                schema=MASK_EDIT_PROTOCOL,
+                operation="lock_raster_mask_upload_task",
+                task_id=task_id,
+            ),
         )
-    ).scalar_one_or_none()
-    current = int(
-        (
-            await db.execute(
-                select(func.count(RasterMaskUpload.id)).where(
-                    RasterMaskUpload.task_id == task_id,
-                    RasterMaskUpload.linked_at.is_(None),
-                )
-            )
-        ).scalar()
-        or 0
-    )
-    if existing is not None:
-        # A successful same-key upload renews grace even when the blob is old.
-        existing.created_at = func.clock_timestamp()
+    if db.autoflush:
         await db.flush()
-        return current
-    if current >= limit:
-        raise ValueError(f"mask orphan quota exceeded ({current}/{limit})")
-    db.add(RasterMaskUpload(task_id=task_id, object_key=object_key))
+    upload_id = uuid.uuid4()
+    result = await mask_edit_command(
+        db,
+        ReserveRasterMaskUpload(
+            schema=MASK_EDIT_PROTOCOL,
+            operation="reserve_raster_mask_upload",
+            task_id=task_id,
+            upload_id=upload_id,
+            object_key=object_key,
+            limit=limit,
+        ),
+    )
+    if not result.reserved:
+        raise ValueError(f"mask orphan quota exceeded ({result.count}/{limit})")
+    if result.upload is not None and result.upload.id != upload_id:
+        _sync_cached_upload_fields(db, [result.upload], "created_at")
     await db.flush()
-    return current + 1
+    return result.count
+
+
+async def count_unlinked_mask_uploads(db: AsyncSession, task_id: Any) -> int:
+    """Return the exact count used by the task's anonymous Mask upload quota."""
+    result = await mask_edit_command(
+        db,
+        CountUnlinkedMaskUploads(
+            schema=MASK_EDIT_PROTOCOL,
+            operation="count_unlinked_mask_uploads",
+            task_id=task_id,
+        ),
+    )
+    return result.count
+
+
+def _sync_cached_upload_fields(db, rows, field: str) -> None:
+    """Synchronize only upload entities already present in the Session identity map."""
+    for row in rows:
+        cached = db.identity_map.get(identity_key(RasterMaskUpload, ident=row.id))
+        if cached is not None:
+            set_committed_value(cached, field, getattr(row, field))
 
 
 async def validate_mask_geometry_for_task(
@@ -737,14 +777,13 @@ async def prepare_mask_payload_for_write(
     # Verify bytes before taking a Task lock; only SQL reference/upload locks are
     # acquired below. Migrated callers pass a preflight receipt from before their
     # own business locks, while simple callers use the preflight above.
-    task = (
-        await db.execute(
-            select(Task)
-            .where(Task.id == task.id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
+    task = await lock_task_for_core_read(
+        db,
+        task.id,
+        lock_mode="update",
+        nowait=False,
+        populate_existing=True,
+    )
     if task is None:
         raise RasterMaskContractError(
             status_code=409,
@@ -775,19 +814,21 @@ async def prepare_mask_payload_for_write(
         )
         required = sorted(required_upload_keys or set())
         if required:
-            owned = set(
-                (
-                    await db.execute(
-                        select(RasterMaskUpload.object_key)
-                        .where(
-                            RasterMaskUpload.task_id == task.id,
-                            RasterMaskUpload.object_key.in_(required),
-                        )
-                        .order_by(RasterMaskUpload.object_key)
-                        .with_for_update()
-                    )
-                ).scalars()
-            )
+            owned: set[str] = set()
+            for offset in range(0, len(required), MAX_MASK_UPLOAD_KEYS_PER_COMMAND):
+                result = await mask_edit_command(
+                    db,
+                    ReadMaskUploadKeys(
+                        schema=MASK_EDIT_PROTOCOL,
+                        operation="read_reserved_mask_uploads",
+                        task_id=task.id,
+                        object_keys=required[
+                            offset : offset + MAX_MASK_UPLOAD_KEYS_PER_COMMAND
+                        ],
+                        lock=True,
+                    ),
+                )
+                owned.update(result.object_keys)
             missing = [key for key in required if key not in owned]
             if missing:
                 raise RasterMaskContractError(
@@ -797,15 +838,16 @@ async def prepare_mask_payload_for_write(
                     object_keys=missing,
                 )
         if committed_keys:
-            await db.execute(
-                update(RasterMaskUpload)
-                .where(
-                    RasterMaskUpload.task_id == task.id,
-                    RasterMaskUpload.object_key.in_(committed_keys),
-                    RasterMaskUpload.linked_at.is_(None),
-                )
-                .values(linked_at=func.now())
+            result = await mask_edit_command(
+                db,
+                ClaimRasterMaskUploads(
+                    schema=MASK_EDIT_PROTOCOL,
+                    operation="claim_raster_mask_uploads",
+                    task_id=task.id,
+                    object_keys=committed_keys,
+                ),
             )
+            _sync_cached_upload_fields(db, result.uploads, "linked_at")
     except RasterMaskContractError:
         raise
     except (KeyError, ValueError) as exc:

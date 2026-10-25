@@ -5,18 +5,19 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
+from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.task_workflow_errors import TaskWorkflowError
-from app.application.task_workflow_locks import lock_row_nowait, lock_rows_nowait
+from app.application.task_workflow_locks import lock_core_nowait
 from app.db.enums import PlatformRole, ProjectRole
 from app.db.models.annotation import Annotation
 from app.db.models.annotation_feedback import AnnotationFeedback
 from app.db.models.mask_qc import MaskQCIssue
 from app.db.models.point_cloud_quality import PointCloudQualityIssue
 from app.db.models.task import Task
-from app.db.models.task_batch import TaskBatch
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.identity_contracts import IdentityActorFacts
 from app.schemas.annotation_feedback import (
@@ -36,13 +37,23 @@ from app.services.discussion_notifications import (
     prepare_feedback_status_notifications,
 )
 from app.services.feedback import FeedbackService
-from app.services.mask_qc.service import effective_issue_status
+from app.services.mask_qc.service import effective_issue_status, load_mask_qc_issue
 from app.services.notification import NotificationService
 from app.services.point_cloud_quality.service import refresh_issue_staleness
-from app.services.workspace_contract import ProjectAccess
+from app.services.labeling_spatial_quality import quality_row, spatial_quality_data
+from aap_workspace_contract.access import ProjectAccess
 from app.services.project_access import (
     lock_current_project_access,
     resolve_project_access_by_id,
+)
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    execute_core_read,
+    get_core_row,
+    lock_annotation_rows_for_core_read,
+    lock_batch_rows_for_core_read,
+    lock_task_for_core_read,
+    task_row,
 )
 
 logger = logging.getLogger(__name__)
@@ -286,7 +297,7 @@ class AnnotationFeedbackWorkflow:
             )
         await self.db.commit()
         await NotificationService(self.db).publish_committed(pending_notifications)
-        await self.db.refresh(entry)
+        entry = await self.feedback.refresh(entry)
         _project, output_access = await resolve_project_access_by_id(
             self.db, actor_id=actor.id, project_id=entry.project_id
         )
@@ -403,7 +414,7 @@ class AnnotationFeedbackWorkflow:
             )
         await self.db.commit()
         await NotificationService(self.db).publish_committed(pending_notifications)
-        await self.db.refresh(updated)
+        updated = await self.feedback.refresh(updated)
         return FeedbackMutationResult(
             entry=updated,
             project_role=access.project_role,
@@ -497,7 +508,7 @@ class AnnotationFeedbackWorkflow:
         )
         await self.db.commit()
         await NotificationService(self.db).publish_committed(pending_notifications)
-        await self.db.refresh(reply)
+        reply = await self.feedback.refresh(reply)
         _project, output_access = await resolve_project_access_by_id(
             self.db, actor_id=actor.id, project_id=root.project_id
         )
@@ -534,9 +545,7 @@ class AnnotationFeedbackWorkflow:
             project_id=root_snapshot.project_id,
             task_id=root_snapshot.task_id,
         )
-        root = await self.db.get(
-            AnnotationFeedback, root_snapshot.id, populate_existing=True
-        )
+        root = await self.feedback.get(root_snapshot.id, populate_existing=True)
         if root is None:
             raise TaskWorkflowError(404, _FEEDBACK_UNAVAILABLE)
         return root
@@ -550,7 +559,7 @@ class AnnotationFeedbackWorkflow:
                 issue_id = uuid.UUID(str(mask_qc_issue_id))
             except (TypeError, ValueError):
                 return False
-            issue = await self.db.get(MaskQCIssue, issue_id, populate_existing=True)
+            issue = await load_mask_qc_issue(self.db, issue_id=issue_id)
             if issue is None:
                 return False
             return await effective_issue_status(self.db, issue) != "stale"
@@ -560,8 +569,13 @@ class AnnotationFeedbackWorkflow:
                 issue_id = uuid.UUID(str(point_cloud_issue_id))
             except (TypeError, ValueError):
                 return False
-            issue = await self.db.get(
-                PointCloudQualityIssue, issue_id, populate_existing=True
+            data = await spatial_quality_data(
+                self.db, "get_point_issue", issue_id=issue_id
+            )
+            issue = (
+                quality_row(PointCloudQualityIssue, data["row"])
+                if data["row"]
+                else None
             )
             if issue is None:
                 return False
@@ -618,33 +632,42 @@ class AnnotationFeedbackWorkflow:
             return None
         with self.db.no_autoflush:
             target = (
-                await self.db.execute(
-                    select(Task.project_id, Task.batch_id).where(Task.id == task_id)
+                await execute_core_read(
+                    self.db,
+                    select(task_row.project_id, task_row.batch_id).where(
+                        task_row.id == task_id
+                    ),
                 )
             ).one_or_none()
         if target is None or target.project_id != project_id:
             raise TaskWorkflowError(404, missing_detail)
         target_batch_id = target.batch_id
         if target_batch_id is not None:
-            batch = await lock_row_nowait(
+            batches = await lock_core_nowait(
                 self.db,
-                select(TaskBatch)
-                .where(
-                    TaskBatch.id == target_batch_id,
-                    TaskBatch.project_id == project_id,
-                )
-                .with_for_update(nowait=True)
-                .execution_options(populate_existing=True),
+                lambda: lock_batch_rows_for_core_read(
+                    self.db,
+                    [target_batch_id],
+                    project_id=project_id,
+                    lock_mode="update",
+                    nowait=True,
+                    populate_existing=True,
+                ),
                 reason="feedback_batch_busy",
             )
+            batch = batches[0] if batches else None
             if batch is None:
                 raise TaskWorkflowError(404, missing_detail)
-        task = await lock_row_nowait(
+        task = await lock_core_nowait(
             self.db,
-            select(Task)
-            .where(Task.id == task_id, Task.project_id == project_id)
-            .with_for_update(nowait=True)
-            .execution_options(populate_existing=True),
+            lambda: lock_task_for_core_read(
+                self.db,
+                task_id,
+                project_id=project_id,
+                lock_mode="update",
+                nowait=True,
+                populate_existing=True,
+            ),
             reason="feedback_task_busy",
         )
         if task is None:
@@ -664,14 +687,18 @@ class AnnotationFeedbackWorkflow:
     ) -> Annotation | None:
         if annotation_id is None:
             return None
-        annotation = await lock_row_nowait(
+        annotations = await lock_core_nowait(
             self.db,
-            select(Annotation)
-            .where(Annotation.id == annotation_id)
-            .with_for_update(nowait=True)
-            .execution_options(populate_existing=True),
+            lambda: lock_annotation_rows_for_core_read(
+                self.db,
+                [annotation_id],
+                lock_mode="update",
+                nowait=True,
+                populate_existing=True,
+            ),
             reason="feedback_annotation_busy",
         )
+        annotation = annotations[0] if annotations else None
         if annotation is None:
             raise TaskWorkflowError(
                 404, "Annotation not found" if creating else _FEEDBACK_UNAVAILABLE
@@ -693,8 +720,8 @@ class AnnotationFeedbackWorkflow:
     ) -> Annotation | None:
         if annotation_id is None:
             return None
-        annotation = await self.db.get(
-            Annotation, annotation_id, populate_existing=True
+        annotation = await get_core_row(
+            self.db, annotation_row, annotation_id, populate_existing=True
         )
         if (
             annotation is None
@@ -706,10 +733,11 @@ class AnnotationFeedbackWorkflow:
 
     async def _read_task_fresh(self, task_id: uuid.UUID) -> Task | None:
         return (
-            await self.db.execute(
-                select(Task)
-                .where(Task.id == task_id)
-                .execution_options(populate_existing=True)
+            await execute_core_read(
+                self.db,
+                select(task_row)
+                .where(task_row.id == task_id)
+                .execution_options(populate_existing=True),
             )
         ).scalar_one_or_none()
 
@@ -749,36 +777,14 @@ class AnnotationFeedbackWorkflow:
     async def _read_feedback_snapshot(
         self, entry_id: uuid.UUID
     ) -> _FeedbackSnapshot | None:
-        row = (
-            await self.db.execute(
-                select(
-                    AnnotationFeedback.id,
-                    AnnotationFeedback.kind,
-                    AnnotationFeedback.anchor_type,
-                    AnnotationFeedback.project_id,
-                    AnnotationFeedback.task_id,
-                    AnnotationFeedback.annotation_id,
-                    AnnotationFeedback.anchor_position,
-                    AnnotationFeedback.thread_parent_id,
-                    AnnotationFeedback.is_active,
-                ).where(AnnotationFeedback.id == entry_id)
-            )
-        ).one_or_none()
+        row = await self.feedback.read_snapshot(entry_id)
         return _FeedbackSnapshot(*row) if row is not None else None
 
     async def _lock_feedback_lineage(
         self, snapshots: list[_FeedbackSnapshot]
     ) -> tuple[AnnotationFeedback, AnnotationFeedback]:
         ids = sorted({snapshot.id for snapshot in snapshots})
-        rows = await lock_rows_nowait(
-            self.db,
-            select(AnnotationFeedback)
-            .where(AnnotationFeedback.id.in_(ids))
-            .order_by(AnnotationFeedback.id)
-            .with_for_update(nowait=True)
-            .execution_options(populate_existing=True),
-            reason="feedback_busy",
-        )
+        rows = await self.feedback.lock_lineage(ids)
         by_id = {row.id: row for row in rows}
         if len(by_id) != len(ids):
             raise TaskWorkflowError(404, _FEEDBACK_UNAVAILABLE)
@@ -808,26 +814,36 @@ class AnnotationFeedbackWorkflow:
         return entry, root
 
     async def _lock_mask_qc_issue(self, issue_id: uuid.UUID) -> MaskQCIssue | None:
-        return await lock_row_nowait(
-            self.db,
-            select(MaskQCIssue)
-            .where(MaskQCIssue.id == issue_id)
-            .with_for_update(nowait=True)
-            .execution_options(populate_existing=True),
-            reason="feedback_mask_qc_issue_busy",
-        )
+        try:
+            with self.db.no_autoflush:
+                return await load_mask_qc_issue(
+                    self.db,
+                    issue_id=issue_id,
+                    lock=True,
+                    nowait=True,
+                    flush_before=False,
+                )
+        except HTTPException as exc:
+            if exc.status_code == 409 and exc.detail == {"reason": "task_busy"}:
+                raise TaskWorkflowError(
+                    409, {"reason": "feedback_mask_qc_issue_busy"}
+                ) from exc
+            raise
 
     async def _lock_point_cloud_issue(
         self, issue_id: uuid.UUID
     ) -> PointCloudQualityIssue | None:
-        return await lock_row_nowait(
-            self.db,
-            select(PointCloudQualityIssue)
-            .where(PointCloudQualityIssue.id == issue_id)
-            .with_for_update(nowait=True)
-            .execution_options(populate_existing=True),
-            reason="feedback_point_cloud_issue_busy",
-        )
+        try:
+            data = await spatial_quality_data(
+                self.db, "lock_point_issue", issue_id=issue_id
+            )
+        except DBAPIError as exc:
+            if getattr(exc.orig, "sqlstate", None) in {"55P03", "40P01", "40001"}:
+                raise TaskWorkflowError(
+                    409, {"reason": "feedback_point_cloud_issue_busy"}
+                ) from exc
+            raise
+        return quality_row(PointCloudQualityIssue, data["row"]) if data["row"] else None
 
     async def _assert_reply_anchor_is_current(
         self,

@@ -1,0 +1,808 @@
+{
+  "$defs": {
+    "TaskLockAcquireCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-task-locks/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "action": {
+          "const": "acquire",
+          "title": "Action",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "ttl": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ttl"
+        },
+        "force_takeover": {
+          "title": "Force Takeover",
+          "type": "boolean"
+        }
+      },
+      "required": ["schema", "action", "task_id", "user_id", "ttl", "force_takeover"],
+      "title": "TaskLockAcquireCommand",
+      "type": "object"
+    },
+    "TaskLockAssertWriteCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-task-locks/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "action": {
+          "const": "assert_write_allowed",
+          "title": "Action",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "action", "task_id", "user_id"],
+      "title": "TaskLockAssertWriteCommand",
+      "type": "object"
+    },
+    "TaskLockBatchFinalCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-task-locks/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "action": {
+          "const": "batch_final_write_available",
+          "title": "Action",
+          "type": "string"
+        },
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "allow_own": {
+          "title": "Allow Own",
+          "type": "boolean"
+        },
+        "allowed_statuses": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Statuses",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "action", "batch_id", "actor_id", "allow_own", "allowed_statuses"],
+      "title": "TaskLockBatchFinalCommand",
+      "type": "object"
+    },
+    "TaskLockCleanupCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-task-locks/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "action": {
+          "const": "cleanup_expired",
+          "title": "Action",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Id"
+        }
+      },
+      "required": ["schema", "action", "task_id"],
+      "title": "TaskLockCleanupCommand",
+      "type": "object"
+    },
+    "TaskLockHeartbeatCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-task-locks/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "action": {
+          "const": "heartbeat",
+          "title": "Action",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "ttl": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ttl"
+        }
+      },
+      "required": ["schema", "action", "task_id", "user_id", "ttl"],
+      "title": "TaskLockHeartbeatCommand",
+      "type": "object"
+    },
+    "TaskLockReadCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-task-locks/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "action": {
+          "enum": ["is_locked", "active_lock", "active_locks"],
+          "title": "Action",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "action", "task_id"],
+      "title": "TaskLockReadCommand",
+      "type": "object"
+    },
+    "TaskLockReleaseCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-task-locks/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "action": {
+          "const": "release",
+          "title": "Action",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "action", "task_id", "user_id"],
+      "title": "TaskLockReleaseCommand",
+      "type": "object"
+    },
+    "TaskLockScopeCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-task-locks/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "action": {
+          "const": "lock_scope",
+          "title": "Action",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "action", "task_id"],
+      "title": "TaskLockScopeCommand",
+      "type": "object"
+    },
+    "TaskLockTryFinalScopeCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-task-locks/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "action": {
+          "const": "try_final_scope",
+          "title": "Action",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "action", "task_id"],
+      "title": "TaskLockTryFinalScopeCommand",
+      "type": "object"
+    },
+    "TaskLockRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "task_id", "user_id", "expire_at", "unique_id", "created_at"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "task_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "user_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "expire_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "unique_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  },
+  "discriminator": {
+    "mapping": {
+      "acquire": "#/$defs/TaskLockAcquireCommand",
+      "active_lock": "#/$defs/TaskLockReadCommand",
+      "active_locks": "#/$defs/TaskLockReadCommand",
+      "assert_write_allowed": "#/$defs/TaskLockAssertWriteCommand",
+      "batch_final_write_available": "#/$defs/TaskLockBatchFinalCommand",
+      "cleanup_expired": "#/$defs/TaskLockCleanupCommand",
+      "heartbeat": "#/$defs/TaskLockHeartbeatCommand",
+      "is_locked": "#/$defs/TaskLockReadCommand",
+      "lock_scope": "#/$defs/TaskLockScopeCommand",
+      "release": "#/$defs/TaskLockReleaseCommand",
+      "try_final_scope": "#/$defs/TaskLockTryFinalScopeCommand"
+    },
+    "propertyName": "action"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/TaskLockScopeCommand"
+    },
+    {
+      "$ref": "#/$defs/TaskLockTryFinalScopeCommand"
+    },
+    {
+      "$ref": "#/$defs/TaskLockAcquireCommand"
+    },
+    {
+      "$ref": "#/$defs/TaskLockReleaseCommand"
+    },
+    {
+      "$ref": "#/$defs/TaskLockHeartbeatCommand"
+    },
+    {
+      "$ref": "#/$defs/TaskLockAssertWriteCommand"
+    },
+    {
+      "$ref": "#/$defs/TaskLockReadCommand"
+    },
+    {
+      "$ref": "#/$defs/TaskLockCleanupCommand"
+    },
+    {
+      "$ref": "#/$defs/TaskLockBatchFinalCommand"
+    }
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-labeling-task-locks/v1",
+  "title": "Labeling task edit-lock commands",
+  "x-postgresql-functions": {
+    "aap_labeling_v1.task_edit_lock_command(jsonb)": {
+      "argument_types": ["jsonb"],
+      "returns": "jsonb",
+      "owner": "labeling",
+      "security_definer": true,
+      "fixed_targets": [
+        "public.task_locks",
+        "public.tasks",
+        "aap_identity_v1.lock_accounts_share(uuid[],boolean)"
+      ],
+      "caller_transaction_required": true,
+      "same_transaction_advisory_lock": true,
+      "task_scope_key": "aap:task-edit-lock:<task UUID>",
+      "table_access": {
+        "public.task_locks": {
+          "select": ["id", "task_id", "user_id", "expire_at", "unique_id", "created_at"],
+          "insert": ["id", "task_id", "user_id", "expire_at", "unique_id"],
+          "update": ["expire_at"],
+          "delete": true
+        }
+      },
+      "actions": [
+        "acquire",
+        "active_lock",
+        "active_locks",
+        "assert_write_allowed",
+        "batch_final_write_available",
+        "cleanup_expired",
+        "heartbeat",
+        "is_locked",
+        "lock_scope",
+        "release",
+        "try_final_scope"
+      ]
+    }
+  },
+  "x-native-data-reply-schema": {
+    "oneOf": [
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schema", "action", "ok", "data"],
+        "properties": {
+          "schema": {
+            "const": "aap-labeling-task-locks-data/v1"
+          },
+          "action": {
+            "const": "lock_scope"
+          },
+          "ok": {
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["locked"],
+            "properties": {
+              "locked": {
+                "const": true
+              }
+            }
+          }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schema", "action", "ok", "data"],
+        "properties": {
+          "schema": {
+            "const": "aap-labeling-task-locks-data/v1"
+          },
+          "action": {
+            "const": "try_final_scope"
+          },
+          "ok": {
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["available"],
+            "properties": {
+              "available": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schema", "action", "ok", "data"],
+        "properties": {
+          "schema": {
+            "const": "aap-labeling-task-locks-data/v1"
+          },
+          "action": {
+            "const": "acquire"
+          },
+          "ok": {
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["considered_ids", "deleted_ids", "lock"],
+            "properties": {
+              "lock": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/TaskLockRecord"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "considered_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "deleted_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schema", "action", "ok", "data"],
+        "properties": {
+          "schema": {
+            "const": "aap-labeling-task-locks-data/v1"
+          },
+          "action": {
+            "const": "release"
+          },
+          "ok": {
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["lock", "released"],
+            "properties": {
+              "released": {
+                "type": "boolean"
+              },
+              "lock": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/TaskLockRecord"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schema", "action", "ok", "data"],
+        "properties": {
+          "schema": {
+            "const": "aap-labeling-task-locks-data/v1"
+          },
+          "action": {
+            "const": "heartbeat"
+          },
+          "ok": {
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["lock", "renewed"],
+            "properties": {
+              "renewed": {
+                "type": "boolean"
+              },
+              "lock": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/TaskLockRecord"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schema", "action", "ok", "data"],
+        "properties": {
+          "schema": {
+            "const": "aap-labeling-task-locks-data/v1"
+          },
+          "action": {
+            "const": "assert_write_allowed"
+          },
+          "ok": {
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["deleted_ids", "locks", "owner_id"],
+            "properties": {
+              "owner_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "deleted_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "locks": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/TaskLockRecord"
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schema", "action", "ok", "data"],
+        "properties": {
+          "schema": {
+            "const": "aap-labeling-task-locks-data/v1"
+          },
+          "action": {
+            "const": "is_locked"
+          },
+          "ok": {
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["deleted_ids", "lock", "locked", "user_id"],
+            "properties": {
+              "locked": {
+                "type": "boolean"
+              },
+              "user_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "lock": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/TaskLockRecord"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "deleted_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schema", "action", "ok", "data"],
+        "properties": {
+          "schema": {
+            "const": "aap-labeling-task-locks-data/v1"
+          },
+          "action": {
+            "const": "active_lock"
+          },
+          "ok": {
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["deleted_ids", "lock"],
+            "properties": {
+              "lock": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/TaskLockRecord"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "deleted_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schema", "action", "ok", "data"],
+        "properties": {
+          "schema": {
+            "const": "aap-labeling-task-locks-data/v1"
+          },
+          "action": {
+            "const": "active_locks"
+          },
+          "ok": {
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["deleted_ids", "locks"],
+            "properties": {
+              "locks": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/TaskLockRecord"
+                }
+              },
+              "deleted_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schema", "action", "ok", "data"],
+        "properties": {
+          "schema": {
+            "const": "aap-labeling-task-locks-data/v1"
+          },
+          "action": {
+            "const": "cleanup_expired"
+          },
+          "ok": {
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["deleted_count", "deleted_ids"],
+            "properties": {
+              "deleted_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "deleted_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schema", "action", "ok", "data"],
+        "properties": {
+          "schema": {
+            "const": "aap-labeling-task-locks-data/v1"
+          },
+          "action": {
+            "const": "batch_final_write_available"
+          },
+          "ok": {
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["available"],
+            "properties": {
+              "available": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    ]
+  }
+}

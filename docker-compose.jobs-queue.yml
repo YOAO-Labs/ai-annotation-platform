@@ -1,0 +1,40 @@
+services:
+  jobs-queue:
+    image: aap-jobs-queue:local
+    build:
+      context: .
+      dockerfile: apps/jobs/Dockerfile.queue
+    environment:
+      JOBS_QUEUE_BROKER_URL_FILE: /run/secrets/jobs_queue_broker_url
+      JOBS_QUEUE_TOKEN_FILE: /run/secrets/jobs_queue_token
+      JOBS_QUEUE_HOST: 0.0.0.0
+      JOBS_QUEUE_PORT: "8190"
+    secrets:
+      - jobs_queue_broker_url
+      - jobs_queue_token
+    user: "10005:10005"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 1
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8190/health/ready', timeout=2)"
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+    depends_on:
+      redis:
+        condition: service_healthy
+
+secrets:
+  jobs_queue_broker_url:
+    file: ${JOBS_QUEUE_BROKER_URL_FILE:?Set the private Jobs queue broker URL file}
+  jobs_queue_token:
+    file: ${JOBS_QUEUE_TOKEN_FILE:?Set the private Jobs queue bearer file}

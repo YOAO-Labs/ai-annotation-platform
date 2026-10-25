@@ -13,32 +13,34 @@ from pydantic import ValidationError
 
 from aap_assets_catalog.spatial_values import SensorCalibration
 
+from aap_workspace.configuration_values import (
+    AttributeField,
+    AttributeSchema,
+    ClassConfigEntry,
+    KeypointNode,
+    KeypointSchema,
+    ToolBinding,
+    VideoModesConfig,
+)
 from app.schemas._jsonb_types import (
     AnnotationAttributes,
     Attachment,
     AuditDetail,
-    AttributeField,
-    AttributeSchema,
     BboxGeometry,
     Box3DGeometry,
     CanvasDrawing,
     CanvasShape,
-    ClassConfigEntry,
     CocoRleContent,
     CocoRleMaskRef,
     DatasetItemMetadata,
     Geometry,
     Keypoint,
     KeypointGeometry,
-    KeypointNode,
-    KeypointSchema,
     Mention,
     PointMaskGeometry,
     PolygonGeometry,
     PolylineGeometry,
     RotatedBboxGeometry,
-    ToolBinding,
-    VideoModesConfig,
     VideoTrackBbox,
     VideoTrackGeometry,
     VideoTrackKeyframe,
@@ -794,7 +796,7 @@ def test_dataset_item_metadata_empty_calibration_none():
 
 
 def test_map_retired_tool_unit_by_geometry():
-    from app.schemas._jsonb_types import map_retired_tool_unit
+    from aap_workspace.configuration_values import map_retired_tool_unit
 
     for gtype in (
         "polygon",

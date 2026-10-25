@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
+from sqlalchemy.orm import aliased
 from aap_identity.read_relation_contract import AccountProfile
 from app.deps import (
     assert_project_visible,
@@ -13,13 +14,11 @@ from app.deps import (
     require_roles,
 )
 from app.db.models.project import Project
-from app.db.models.task import Task
-from app.db.models.annotation import Annotation
-from app.db.models.audit_log import AuditLog
-from app.db.models.task_batch import TaskBatch
-from app.db.models.task_event import TaskEvent
+from app.services.audit_read_relations import audit_event
+from app.services.labeling_discussion_relations import task_event_facts
 from app.db.enums import ProjectRole, UserRole
 from app.services.project_aggregates import ANNOTATOR_ROLE, REVIEWER_ROLE
+from app.services.project_access import get_workspace_project
 from app.schemas.dashboard import (
     AdminDashboardStats,
     RegistrationDayPoint,
@@ -30,7 +29,6 @@ from app.schemas.dashboard import (
     BackendCostBreakdown,
 )
 from app.db.models.project_member import ProjectMember
-from app.db.models.prediction import Prediction, PredictionMeta, FailedPrediction
 from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
 from app.services.dashboard_stats import (
     _class_distribution,
@@ -45,6 +43,20 @@ from app.services.identity_read_relations import (
     account_profiles,
     read_account_profile,
     read_account_profiles,
+)
+from app.services.workspace_read_relations import (
+    project_facts,
+    project_member_facts,
+    project_rows,
+)
+
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    batch_row,
+    failed_prediction_row,
+    prediction_meta_row,
+    prediction_row,
+    task_row,
 )
 
 router = APIRouter()
@@ -70,7 +82,8 @@ async def admin_dashboard(
     for role, _ in users:
         role_distribution[role] = role_distribution.get(role, 0) + 1
 
-    projects_result = await db.execute(select(Project))
+    project_rows_alias = aliased(Project, project_rows(), adapt_on_names=True)
+    projects_result = await db.execute(select(project_rows_alias))
     projects = projects_result.scalars().all()
     total_projects = len(projects)
     projects_in_progress = sum(1 for p in projects if p.status == "in_progress")
@@ -78,13 +91,13 @@ async def admin_dashboard(
     projects_pending_review = sum(1 for p in projects if p.status == "pending_review")
     projects_archived = sum(1 for p in projects if p.status == "archived")
 
-    total_tasks_result = await db.execute(select(func.count()).select_from(Task))
+    total_tasks_result = await db.execute(select(func.count()).select_from(task_row))
     total_tasks = total_tasks_result.scalar() or 0
 
     total_annotations_result = await db.execute(
         select(func.count())
-        .select_from(Annotation)
-        .where(Annotation.is_active.is_(True))
+        .select_from(annotation_row)
+        .where(annotation_row.is_active.is_(True))
     )
     total_annotations = total_annotations_result.scalar() or 0
 
@@ -106,8 +119,8 @@ async def admin_dashboard(
     pre_annotated_batches = (
         await db.execute(
             select(func.count())
-            .select_from(TaskBatch)
-            .where(TaskBatch.status == BatchStatus.PRE_ANNOTATED)
+            .select_from(batch_row)
+            .where(batch_row.status == BatchStatus.PRE_ANNOTATED)
         )
     ).scalar() or 0
 
@@ -118,17 +131,17 @@ async def admin_dashboard(
     reg_rows = (
         await db.execute(
             select(
-                func.date_trunc("day", AuditLog.created_at).label("day"),
+                func.date_trunc("day", audit_event.created_at).label("day"),
                 func.count()
-                .filter(AuditLog.detail_json["method"].astext == "open_registration")
+                .filter(audit_event.detail_json["method"].astext == "open_registration")
                 .label("open_count"),
                 func.count()
-                .filter(AuditLog.detail_json.has_key("invitation_id"))  # noqa: W601
+                .filter(audit_event.detail_json.has_key("invitation_id"))  # noqa: W601
                 .label("invite_count"),
             )
             .where(
-                AuditLog.action == "user.register",
-                AuditLog.created_at >= cutoff_30d,
+                audit_event.action == "user.register",
+                audit_event.created_at >= cutoff_30d,
             )
             .group_by("day")
             .order_by("day")
@@ -190,7 +203,7 @@ async def _resolve_people_scope(
             raise HTTPException(
                 status_code=403, detail="project_admin 必须指定其管理的项目范围"
             )
-        proj = await db.get(Project, pid)
+        proj = await get_workspace_project(db, actor_id=None, project_id=pid)
         if proj is None or proj.owner_id != current_user.id:
             raise HTTPException(status_code=404, detail="项目不存在")
     elif pid is not None:
@@ -222,9 +235,9 @@ async def admin_people_list(
     """
     pid = await _resolve_people_scope(db, current_user, project)
     # 聚合级项目过滤片段（pid 为 None 时为空 → 全局，行为与改造前一致）。
-    ann_proj = [Annotation.project_id == pid] if pid else []
-    task_proj = [Task.project_id == pid] if pid else []
-    event_proj = [TaskEvent.project_id == pid] if pid else []
+    ann_proj = [annotation_row.project_id == pid] if pid else []
+    task_proj = [task_row.project_id == pid] if pid else []
+    event_proj = [task_event_facts.c.project_id == pid] if pid else []
 
     start, _end = _period_window(period)
     week_start = datetime.now(timezone.utc).replace(
@@ -243,11 +256,14 @@ async def admin_people_list(
             if role == "annotator"
             else ProjectRole.REVIEWER.value
         )
-        membership_scope = select(ProjectMember.user_id).where(
-            ProjectMember.role == target_role
+        member_facts = aliased(
+            ProjectMember, project_member_facts(), adapt_on_names=True
+        )
+        membership_scope = select(member_facts.user_id).where(
+            member_facts.role == target_role
         )
         if pid:
-            membership_scope = membership_scope.where(ProjectMember.project_id == pid)
+            membership_scope = membership_scope.where(member_facts.project_id == pid)
         user_q = user_q.where(account_profiles.c.id.in_(membership_scope))
     if q:
         like = f"%{q}%"
@@ -266,11 +282,14 @@ async def admin_people_list(
 
     # Per-user project roles for this scope (single query, no N+1): drives the
     # annotator/reviewer metric classification below.
+    role_membership = aliased(
+        ProjectMember, project_member_facts(), adapt_on_names=True
+    )
     role_rows = (
         await db.execute(
-            select(ProjectMember.user_id, ProjectMember.role).where(
-                ProjectMember.user_id.in_(user_ids),
-                *([ProjectMember.project_id == pid] if pid else []),
+            select(role_membership.user_id, role_membership.role).where(
+                role_membership.user_id.in_(user_ids),
+                *([role_membership.project_id == pid] if pid else []),
             )
         )
     ).all()
@@ -279,14 +298,17 @@ async def admin_people_list(
         user_roles_map.setdefault(member_user_id, set()).add(member_role)
 
     # 项目隶属计数
+    count_membership = aliased(
+        ProjectMember, project_member_facts(), adapt_on_names=True
+    )
     pm_rows = (
         await db.execute(
-            select(ProjectMember.user_id, func.count().label("n"))
+            select(count_membership.user_id, func.count().label("n"))
             .where(
-                ProjectMember.user_id.in_(user_ids),
-                *([ProjectMember.project_id == pid] if pid else []),
+                count_membership.user_id.in_(user_ids),
+                *([count_membership.project_id == pid] if pid else []),
             )
-            .group_by(ProjectMember.user_id)
+            .group_by(count_membership.user_id)
         )
     ).all()
     pm_count_map = {r.user_id: int(r.n) for r in pm_rows}
@@ -294,14 +316,14 @@ async def admin_people_list(
     # 标注吞吐（period 内）
     ann_rows = (
         await db.execute(
-            select(Annotation.user_id, func.count().label("n"))
+            select(annotation_row.user_id, func.count().label("n"))
             .where(
-                Annotation.user_id.in_(user_ids),
-                Annotation.is_active.is_(True),
-                Annotation.created_at >= start,
+                annotation_row.user_id.in_(user_ids),
+                annotation_row.is_active.is_(True),
+                annotation_row.created_at >= start,
                 *ann_proj,
             )
-            .group_by(Annotation.user_id)
+            .group_by(annotation_row.user_id)
         )
     ).all()
     ann_count_map = {r.user_id: int(r.n) for r in ann_rows}
@@ -309,14 +331,14 @@ async def admin_people_list(
     # 审核吞吐（reviewer）
     rev_rows = (
         await db.execute(
-            select(Task.reviewer_id, func.count().label("n"))
+            select(task_row.reviewer_id, func.count().label("n"))
             .where(
-                Task.reviewer_id.in_(user_ids),
-                Task.reviewed_at.isnot(None),
-                Task.reviewed_at >= start,
+                task_row.reviewer_id.in_(user_ids),
+                task_row.reviewed_at.isnot(None),
+                task_row.reviewed_at >= start,
                 *task_proj,
             )
-            .group_by(Task.reviewer_id)
+            .group_by(task_row.reviewer_id)
         )
     ).all()
     rev_count_map = {r.reviewer_id: int(r.n) for r in rev_rows}
@@ -324,29 +346,29 @@ async def admin_people_list(
     # 上周对比（标注员）
     last_week_rows = (
         await db.execute(
-            select(Annotation.user_id, func.count().label("n"))
+            select(annotation_row.user_id, func.count().label("n"))
             .where(
-                Annotation.user_id.in_(user_ids),
-                Annotation.is_active.is_(True),
-                Annotation.created_at >= last_week_start,
-                Annotation.created_at < week_start,
+                annotation_row.user_id.in_(user_ids),
+                annotation_row.is_active.is_(True),
+                annotation_row.created_at >= last_week_start,
+                annotation_row.created_at < week_start,
                 *ann_proj,
             )
-            .group_by(Annotation.user_id)
+            .group_by(annotation_row.user_id)
         )
     ).all()
     last_week_map = {r.user_id: int(r.n) for r in last_week_rows}
 
     this_week_rows = (
         await db.execute(
-            select(Annotation.user_id, func.count().label("n"))
+            select(annotation_row.user_id, func.count().label("n"))
             .where(
-                Annotation.user_id.in_(user_ids),
-                Annotation.is_active.is_(True),
-                Annotation.created_at >= week_start,
+                annotation_row.user_id.in_(user_ids),
+                annotation_row.is_active.is_(True),
+                annotation_row.created_at >= week_start,
                 *ann_proj,
             )
-            .group_by(Annotation.user_id)
+            .group_by(annotation_row.user_id)
         )
     ).all()
     this_week_map = {r.user_id: int(r.n) for r in this_week_rows}
@@ -355,16 +377,16 @@ async def admin_people_list(
     reopen_rows = (
         await db.execute(
             select(
-                Task.assignee_id,
+                task_row.assignee_id,
                 func.count().label("submitted_n"),
-                func.count().filter(Task.reopened_count > 0).label("reopened_n"),
+                func.count().filter(task_row.reopened_count > 0).label("reopened_n"),
             )
             .where(
-                Task.assignee_id.in_(user_ids),
-                Task.submitted_at.isnot(None),
+                task_row.assignee_id.in_(user_ids),
+                task_row.submitted_at.isnot(None),
                 *task_proj,
             )
-            .group_by(Task.assignee_id)
+            .group_by(task_row.assignee_id)
         )
     ).all()
     reopen_map = {
@@ -382,15 +404,15 @@ async def admin_people_list(
         de = ds + timedelta(days=1)
         rows = (
             await db.execute(
-                select(Annotation.user_id, func.count().label("n"))
+                select(annotation_row.user_id, func.count().label("n"))
                 .where(
-                    Annotation.user_id.in_(user_ids),
-                    Annotation.is_active.is_(True),
-                    Annotation.created_at >= ds,
-                    Annotation.created_at < de,
+                    annotation_row.user_id.in_(user_ids),
+                    annotation_row.is_active.is_(True),
+                    annotation_row.created_at >= ds,
+                    annotation_row.created_at < de,
                     *ann_proj,
                 )
-                .group_by(Annotation.user_id)
+                .group_by(annotation_row.user_id)
             )
         ).all()
         per_user = {r.user_id: int(r.n) for r in rows}
@@ -402,15 +424,15 @@ async def admin_people_list(
     active_rows = (
         await db.execute(
             select(
-                TaskEvent.user_id,
-                func.coalesce(func.sum(TaskEvent.duration_ms), 0).label("ms"),
+                task_event_facts.c.user_id,
+                func.coalesce(func.sum(task_event_facts.c.duration_ms), 0).label("ms"),
             )
             .where(
-                TaskEvent.user_id.in_(user_ids),
-                TaskEvent.started_at >= seven_d_start,
+                task_event_facts.c.user_id.in_(user_ids),
+                task_event_facts.c.started_at >= seven_d_start,
                 *event_proj,
             )
-            .group_by(TaskEvent.user_id)
+            .group_by(task_event_facts.c.user_id)
         )
     ).all()
     active_minutes_map = {r.user_id: int((r.ms or 0) // 60000) for r in active_rows}
@@ -511,10 +533,15 @@ async def admin_people_list(
 
     # 项目过滤：指定项目时只返回该项目成员（聚合数字已在上面按 pid 切分）。
     if pid:
+        allowed_membership = aliased(
+            ProjectMember, project_member_facts(), adapt_on_names=True
+        )
         allowed = (
             (
                 await db.execute(
-                    select(ProjectMember.user_id).where(ProjectMember.project_id == pid)
+                    select(allowed_membership.user_id).where(
+                        allowed_membership.project_id == pid
+                    )
                 )
             )
             .scalars()
@@ -606,9 +633,9 @@ async def admin_person_detail(
     项目范围的 timeline 只包含可验证归属的事件，过滤在最近 50 条限制之前。
     """
     pid = await _resolve_people_scope(db, current_user, project)
-    ann_proj = [Annotation.project_id == pid] if pid else []
-    task_proj = [Task.project_id == pid] if pid else []
-    event_proj = [TaskEvent.project_id == pid] if pid else []
+    ann_proj = [annotation_row.project_id == pid] if pid else []
+    task_proj = [task_row.project_id == pid] if pid else []
+    event_proj = [task_event_facts.c.project_id == pid] if pid else []
 
     try:
         uid = uuid.UUID(user_id)
@@ -622,11 +649,12 @@ async def admin_person_detail(
     # v0.12.6 (A3) 安全收口:project_admin 只能查其项目内的成员详情。否则可借任意
     # user_id + 自有 project 枚举他人存在性 + 读取全局 timeline(IDOR)。非成员 → 404。
     if current_user.role == UserRole.PROJECT_ADMIN and pid is not None:
+        member = aliased(ProjectMember, project_member_facts(), adapt_on_names=True)
         membership = (
             await db.execute(
-                select(ProjectMember).where(
-                    ProjectMember.project_id == pid,
-                    ProjectMember.user_id == uid,
+                select(member).where(
+                    member.project_id == pid,
+                    member.user_id == uid,
                 )
             )
         ).scalar_one_or_none()
@@ -641,11 +669,11 @@ async def admin_person_detail(
     throughput = (
         await db.execute(
             select(func.count())
-            .select_from(Annotation)
+            .select_from(annotation_row)
             .where(
-                Annotation.user_id == uid,
-                Annotation.is_active.is_(True),
-                Annotation.created_at >= start,
+                annotation_row.user_id == uid,
+                annotation_row.is_active.is_(True),
+                annotation_row.created_at >= start,
                 *ann_proj,
             )
         )
@@ -660,12 +688,12 @@ async def admin_person_detail(
         n = (
             await db.execute(
                 select(func.count())
-                .select_from(Annotation)
+                .select_from(annotation_row)
                 .where(
-                    Annotation.user_id == uid,
-                    Annotation.is_active.is_(True),
-                    Annotation.created_at >= ws,
-                    Annotation.created_at < we,
+                    annotation_row.user_id == uid,
+                    annotation_row.is_active.is_(True),
+                    annotation_row.created_at >= ws,
+                    annotation_row.created_at < we,
                     *ann_proj,
                 )
             )
@@ -676,12 +704,12 @@ async def admin_person_detail(
             await db.execute(
                 select(
                     func.count().label("sn"),
-                    func.count().filter(Task.reopened_count > 0).label("rn"),
+                    func.count().filter(task_row.reopened_count > 0).label("rn"),
                 ).where(
-                    Task.assignee_id == uid,
-                    Task.submitted_at.isnot(None),
-                    Task.submitted_at >= ws,
-                    Task.submitted_at < we,
+                    task_row.assignee_id == uid,
+                    task_row.submitted_at.isnot(None),
+                    task_row.submitted_at >= ws,
+                    task_row.submitted_at < we,
                     *task_proj,
                 )
             )
@@ -692,21 +720,25 @@ async def admin_person_detail(
         trend_quality.append(q)
 
     # 项目分布
+    project_facts_alias = project_facts()
     proj_rows = (
         await db.execute(
             select(
-                Annotation.project_id,
-                Project.name,
+                annotation_row.project_id,
+                project_facts_alias.c.name,
                 func.count().label("n"),
             )
-            .join(Project, Annotation.project_id == Project.id)
+            .join(
+                project_facts_alias,
+                annotation_row.project_id == project_facts_alias.c.id,
+            )
             .where(
-                Annotation.user_id == uid,
-                Annotation.is_active.is_(True),
-                Annotation.created_at >= start,
+                annotation_row.user_id == uid,
+                annotation_row.is_active.is_(True),
+                annotation_row.created_at >= start,
                 *ann_proj,
             )
-            .group_by(Annotation.project_id, Project.name)
+            .group_by(annotation_row.project_id, project_facts_alias.c.name)
             .order_by(func.count().desc())
         )
     ).all()
@@ -719,10 +751,10 @@ async def admin_person_detail(
     duration_rows = (
         (
             await db.execute(
-                select(TaskEvent.duration_ms).where(
-                    TaskEvent.user_id == uid,
-                    TaskEvent.kind == "annotate",
-                    TaskEvent.started_at >= start,
+                select(task_event_facts.c.duration_ms).where(
+                    task_event_facts.c.user_id == uid,
+                    task_event_facts.c.kind == "annotate",
+                    task_event_facts.c.started_at >= start,
                     *event_proj,
                 )
             )
@@ -756,13 +788,13 @@ async def admin_person_detail(
     timeline_rows = (
         (
             await db.execute(
-                select(AuditLog)
-                .where(AuditLog.actor_id == uid)
+                select(audit_event)
+                .where(audit_event.actor_id == uid)
                 .where(
                     _managed_audit_scope(current_user, project_id=pid) if pid else True
                 )
                 .where(
-                    AuditLog.action.in_(
+                    audit_event.action.in_(
                         [
                             "task.submit",
                             "task.approve",
@@ -772,7 +804,7 @@ async def admin_person_detail(
                         ]
                     )
                 )
-                .order_by(AuditLog.created_at.desc())
+                .order_by(audit_event.created_at.desc())
                 .limit(50)
             )
         )
@@ -800,13 +832,16 @@ async def admin_person_detail(
     quality_score = trend_quality[-1] if trend_quality else 50
     composite = int(round((min(100, throughput) + quality_score + 50) / 3))
 
+    project_membership_count = aliased(
+        ProjectMember, project_member_facts(), adapt_on_names=True
+    )
     proj_count = (
         await db.execute(
             select(func.count())
-            .select_from(ProjectMember)
+            .select_from(project_membership_count)
             .where(
-                ProjectMember.user_id == uid,
-                *([ProjectMember.project_id == pid] if pid else []),
+                project_membership_count.user_id == uid,
+                *([project_membership_count.project_id == pid] if pid else []),
             )
         )
     ).scalar() or 0
@@ -819,12 +854,12 @@ async def admin_person_detail(
     last_n = (
         await db.execute(
             select(func.count())
-            .select_from(Annotation)
+            .select_from(annotation_row)
             .where(
-                Annotation.user_id == uid,
-                Annotation.is_active.is_(True),
-                Annotation.created_at >= last_week_start,
-                Annotation.created_at < week_start_dt,
+                annotation_row.user_id == uid,
+                annotation_row.is_active.is_(True),
+                annotation_row.created_at >= last_week_start,
+                annotation_row.created_at < week_start_dt,
                 *ann_proj,
             )
         )
@@ -832,11 +867,11 @@ async def admin_person_detail(
     this_n = (
         await db.execute(
             select(func.count())
-            .select_from(Annotation)
+            .select_from(annotation_row)
             .where(
-                Annotation.user_id == uid,
-                Annotation.is_active.is_(True),
-                Annotation.created_at >= week_start_dt,
+                annotation_row.user_id == uid,
+                annotation_row.is_active.is_(True),
+                annotation_row.created_at >= week_start_dt,
                 *ann_proj,
             )
         )
@@ -900,37 +935,38 @@ async def prediction_cost_stats(
         main = (
             await db.execute(
                 select(
-                    func.count(Prediction.id).label("total"),
-                    func.avg(PredictionMeta.inference_time_ms).label("avg_ms"),
+                    func.count(prediction_row.id).label("total"),
+                    func.avg(prediction_meta_row.inference_time_ms).label("avg_ms"),
                     func.percentile_cont(0.5)
-                    .within_group(PredictionMeta.inference_time_ms.asc())
+                    .within_group(prediction_meta_row.inference_time_ms.asc())
                     .label("p50_ms"),
                     func.percentile_cont(0.95)
-                    .within_group(PredictionMeta.inference_time_ms.asc())
+                    .within_group(prediction_meta_row.inference_time_ms.asc())
                     .label("p95_ms"),
                     func.percentile_cont(0.99)
-                    .within_group(PredictionMeta.inference_time_ms.asc())
+                    .within_group(prediction_meta_row.inference_time_ms.asc())
                     .label("p99_ms"),
-                    func.coalesce(func.sum(PredictionMeta.total_cost), 0.0).label(
+                    func.coalesce(func.sum(prediction_meta_row.total_cost), 0.0).label(
                         "total_cost"
                     ),
-                    func.coalesce(func.sum(PredictionMeta.total_tokens), 0).label(
+                    func.coalesce(func.sum(prediction_meta_row.total_tokens), 0).label(
                         "total_tokens"
                     ),
                 )
-                .select_from(Prediction)
+                .select_from(prediction_row)
                 .outerjoin(
-                    PredictionMeta, PredictionMeta.prediction_id == Prediction.id
+                    prediction_meta_row,
+                    prediction_meta_row.prediction_id == prediction_row.id,
                 )
-                .where(Prediction.created_at >= cutoff)
+                .where(prediction_row.created_at >= cutoff)
             )
         ).one()
 
         # 失败数
         failed_count = (
             await db.execute(
-                select(func.count(FailedPrediction.id)).where(
-                    FailedPrediction.created_at >= cutoff
+                select(func.count(failed_prediction_row.id)).where(
+                    failed_prediction_row.created_at >= cutoff
                 )
             )
         ).scalar() or 0
@@ -939,28 +975,32 @@ async def prediction_cost_stats(
         rows = (
             await db.execute(
                 select(
-                    Prediction.ml_backend_id,
+                    prediction_row.ml_backend_id,
                     MLBackend.name,
-                    func.count(Prediction.id),
-                    func.coalesce(func.sum(PredictionMeta.total_cost), 0.0),
-                    func.avg(PredictionMeta.inference_time_ms),
+                    func.count(prediction_row.id),
+                    func.coalesce(func.sum(prediction_meta_row.total_cost), 0.0),
+                    func.avg(prediction_meta_row.inference_time_ms),
                 )
-                .select_from(Prediction)
+                .select_from(prediction_row)
                 .outerjoin(
-                    PredictionMeta, PredictionMeta.prediction_id == Prediction.id
+                    prediction_meta_row,
+                    prediction_meta_row.prediction_id == prediction_row.id,
                 )
-                .outerjoin(MLBackend, MLBackend.id == Prediction.ml_backend_id)
-                .where(Prediction.created_at >= cutoff)
-                .group_by(Prediction.ml_backend_id, MLBackend.name)
+                .outerjoin(MLBackend, MLBackend.id == prediction_row.ml_backend_id)
+                .where(prediction_row.created_at >= cutoff)
+                .group_by(prediction_row.ml_backend_id, MLBackend.name)
             )
         ).all()
 
         # 失败按 backend
         failed_by_backend_rows = (
             await db.execute(
-                select(FailedPrediction.ml_backend_id, func.count(FailedPrediction.id))
-                .where(FailedPrediction.created_at >= cutoff)
-                .group_by(FailedPrediction.ml_backend_id)
+                select(
+                    failed_prediction_row.ml_backend_id,
+                    func.count(failed_prediction_row.id),
+                )
+                .where(failed_prediction_row.created_at >= cutoff)
+                .group_by(failed_prediction_row.ml_backend_id)
             )
         ).all()
         failed_by_backend = {bid: int(c) for bid, c in failed_by_backend_rows}

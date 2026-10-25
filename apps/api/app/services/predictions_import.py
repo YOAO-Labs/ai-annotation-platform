@@ -28,12 +28,10 @@ import zipfile
 from typing import Any
 
 from pydantic import TypeAdapter, ValidationError
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.dataset import DatasetItem
-from app.db.models.prediction import Prediction, PredictionMeta
-from app.db.models.project import Project
+from app.services.project_access import get_workspace_project
 from app.schemas.aap_json import (
     AAPImportErrorEntry,
     AAPImportResult,
@@ -43,6 +41,7 @@ from app.schemas.aap_json import (
 )
 from app.schemas._jsonb_types import Geometry
 from app.services.prediction import PredictionService, derive_tool_unit_from_result
+from app.services.labeling_prediction_records import purge_imported_prediction_records
 from app.services.labeling_prediction_contract import (
     ApplyPredictionResultPort,
     ApplyPredictionResultRequest,
@@ -64,6 +63,8 @@ from app.services.raster_mask_storage import (
     store_mask_reference_objects,
     validate_mask_geometry_for_task,
 )
+from app.services.labeling_core_read_relations import prediction_row
+from app.services.labeling_scene import read_spatial_item_facts
 from app.utils.raster_mask_rle import coco_rle_area
 
 logger = logging.getLogger(__name__)
@@ -298,17 +299,36 @@ async def _purge_predictions(
             "source_scope must be one of: ml_backend, external_import, all"
         )
 
-    filters = [Prediction.project_id == project_id]
+    normalized_task_ids = None
     if task_ids is not None:
         normalized_task_ids = list(dict.fromkeys(task_ids))
         if not normalized_task_ids:
             return _empty_purge_counts()
-        filters.append(Prediction.task_id.in_(normalized_task_ids))
+
+    if not dry_run:
+        data = await purge_imported_prediction_records(
+            db,
+            project_id=project_id,
+            task_ids=normalized_task_ids,
+            source_scope=source_scope,
+        )
+        return {
+            "ml_backend": data.ml_backend,
+            "external_import": data.external_import,
+            "unknown": data.unknown,
+            "total": data.total,
+        }
+
+    filters = [prediction_row.project_id == project_id]
+    if normalized_task_ids is not None:
+        filters.append(prediction_row.task_id.in_(normalized_task_ids))
     if source_scope != "all":
-        filters.append(Prediction.source == source_scope)
+        filters.append(prediction_row.source == source_scope)
 
     target_rows = (
-        await db.execute(select(Prediction.id, Prediction.source).where(*filters))
+        await db.execute(
+            select(prediction_row.id, prediction_row.source).where(*filters)
+        )
     ).all()
     target_ids = [row[0] for row in target_rows]
     counts = _empty_purge_counts()
@@ -319,14 +339,6 @@ async def _purge_predictions(
     if not target_ids:
         return counts
 
-    if dry_run:
-        return counts
-
-    await db.execute(
-        delete(PredictionMeta).where(PredictionMeta.prediction_id.in_(target_ids))
-    )
-    await db.execute(delete(Prediction).where(Prediction.id.in_(target_ids)))
-    await db.flush()
     return counts
 
 
@@ -339,7 +351,7 @@ async def _hold_import_authority(
         bind_project_write_policy_resolver,
         restore_project_write_policy_failure,
     )
-    from app.services.workspace_contract import (
+    from aap_workspace_contract.access import (
         ProjectWritePolicyFailure,
         ProjectWritePolicyRequest,
     )
@@ -392,7 +404,7 @@ async def import_aap_json(
     result = AAPImportResult(dry_run=dry_run)
     svc: ApplyPredictionResultPort = PredictionService(db)
     stored_mask_keys: set[str] = set()
-    project = await db.get(Project, project_id)
+    project = await get_workspace_project(db, project_id=project_id)
 
     purged_tasks = purged_tasks if purged_tasks is not None else set()
 
@@ -819,7 +831,7 @@ async def import_coco(
 
     result = AAPImportResult(dry_run=dry_run)
     svc: ApplyPredictionResultPort = PredictionService(db)
-    project = await db.get(Project, project_id)
+    project = await get_workspace_project(db, project_id=project_id)
     purged_tasks = purged_tasks if purged_tasks is not None else set()
     stored_rle_references: dict[str, dict[str, Any]] = {}
 
@@ -1024,7 +1036,7 @@ async def import_yolo(
     except (zipfile.BadZipFile, OSError) as exc:
         raise ValueError(f"YOLO zip 文件无法解析: {exc}") from exc
 
-    project = await db.get(Project, project_id)
+    project = await get_workspace_project(db, project_id=project_id)
     project_classes = derive_classes_list(project.tool_bindings if project else None)
     class_names = _read_yolo_class_names(zf) or project_classes
     if not class_names:
@@ -1279,7 +1291,8 @@ async def _task_image_size(
 ) -> tuple[int, int] | None:
     if not getattr(task, "dataset_item_id", None):
         return None
-    item = await db.get(DatasetItem, task.dataset_item_id)
+    items, _ = await read_spatial_item_facts(db, [task.dataset_item_id])
+    item = items.get(task.dataset_item_id)
     if not item or not item.width or not item.height:
         return None
     if item.width <= 0 or item.height <= 0:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import task_access
@@ -14,17 +14,16 @@ from app.api.v1.tasks._shared import (
     require_task_annotation_write,
 )
 from app.db.models.async_job import AsyncJob
-from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.deps import get_db, get_current_user
-from app.services.workspace_contract import ProjectAccess
+from aap_workspace_contract.access import ProjectAccess
 from app.schemas.async_job import AsyncJobOut
 from app.schemas.cross_frame_job import CrossFrameJobCreate, CrossFrameJobListResponse
 from app.services import async_job as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
+from app.services.jobs_domain_query_data import JobsDomainQueryPostgresData
 from app.services.cross_frame_job import (
-    ACTIVE_STATUSES,
     CONTRACT_VERSION,
     JOB_KIND,
     load_source_annotations,
@@ -37,34 +36,39 @@ from app.services.labeling_scene import (
     resolve_task_scene_frames,
 )
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.project_access import get_workspace_project
+from app.services.labeling_core_read_relations import task_row
 
 
 router = APIRouter()
 
 
 async def _dispatch_job(db: AsyncSession, job: AsyncJob) -> AsyncJob:
+    execution_id = job.celery_task_id or str(uuid.uuid4())
+    async_job_svc.bind_execution_id(job, execution_id)
     await db.commit()
     try:
-        from app.workers.cross_frame_job import run_cross_frame_job
+        from app.services.jobs_queue import dispatch_job
 
-        queued = run_cross_frame_job.delay(str(job.id))
+        await dispatch_job(
+            task_name="app.workers.cross_frame_job.run_cross_frame_job",
+            execution_id=execution_id,
+            args=[str(job.id)],
+        )
     except Exception as exc:
-        await async_job_svc.mark_failed(
+        changed = await async_job_svc.mark_dispatch_failed(
             db, job.id, error="cross-frame job dispatch failed"
         )
-        await notify_job_terminal(db, job_id=job.id)
+        if changed:
+            await notify_job_terminal(db, job_id=job.id)
         await db.commit()
         raise HTTPException(
             status_code=503,
             detail="cross-frame worker is unavailable",
         ) from exc
-    current = await db.get(AsyncJob, job.id)
+    current = await async_job_svc.get_job(db, job.id, populate_existing=True)
     if current is None:
         raise HTTPException(status_code=500, detail="cross-frame job disappeared")
-    if not current.celery_task_id:
-        async_job_svc.bind_execution_id(current, str(queued.id))
-        await db.commit()
-        await db.refresh(current)
     return current
 
 
@@ -96,7 +100,9 @@ async def _create_job(
             status_code=422, detail="backward range must end before current frame"
         )
 
-    project = await db.get(Project, source_task.project_id)
+    project = await get_workspace_project(
+        db, actor_id=None, project_id=source_task.project_id
+    )
     if project is None:
         raise HTTPException(status_code=404, detail="Task not found")
     frame_task_map = await get_scene_frame_task_map(db, scene_frame.scene_id)
@@ -115,7 +121,9 @@ async def _create_job(
     ]
     task_rows = list(
         (
-            await db.execute(select(Task).where(Task.id.in_(candidate_task_ids)))
+            await db.execute(
+                select(task_row).where(task_row.id.in_(candidate_task_ids))
+            )
         ).scalars()
     )
     tasks_by_id = {
@@ -198,29 +206,13 @@ async def _create_job(
         "project_name": project.name,
     }
     payload["singleflight_key"] = singleflight_key(payload)
-    await db.execute(
-        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
-        {
-            "key": (
-                f"aap:cross-frame-singleflight:{current_user.id}:"
-                f"{payload['singleflight_key']}"
-            )
-        },
+    query_data = JobsDomainQueryPostgresData(db)
+    await query_data.lock_cross_frame_singleflight(
+        current_user.id, payload["singleflight_key"]
     )
-    existing = (
-        await db.execute(
-            select(AsyncJob)
-            .where(AsyncJob.kind == JOB_KIND)
-            .where(AsyncJob.user_id == current_user.id)
-            .where(AsyncJob.status.in_(ACTIVE_STATUSES))
-            .where(
-                AsyncJob.payload["singleflight_key"].astext
-                == payload["singleflight_key"]
-            )
-            .order_by(AsyncJob.created_at.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+    existing = await query_data.active_cross_frame_job(
+        current_user.id, payload["singleflight_key"]
+    )
     if existing is not None:
         return existing, False
     job = await async_job_svc.create_job(
@@ -277,23 +269,13 @@ async def list_cross_frame_jobs(
     scene_frame = (await resolve_task_scene_frames(db, [task.id]))[task.id]
     if scene_frame.scene_id is None:
         return CrossFrameJobListResponse(items=[], total=0)
-    stmt = (
-        select(AsyncJob)
-        .where(AsyncJob.kind == JOB_KIND)
-        .where(AsyncJob.user_id == current_user.id)
-        .where(AsyncJob.payload["scene_id"].astext == str(scene_frame.scene_id))
-        .order_by(AsyncJob.created_at.desc())
+    query_data = JobsDomainQueryPostgresData(db)
+    rows = await query_data.cross_frame_page(
+        current_user.id, str(scene_frame.scene_id), limit
     )
-    rows = list((await db.execute(stmt.limit(limit))).scalars())
-    total = (
-        await db.execute(
-            select(func.count())
-            .select_from(AsyncJob)
-            .where(AsyncJob.kind == JOB_KIND)
-            .where(AsyncJob.user_id == current_user.id)
-            .where(AsyncJob.payload["scene_id"].astext == str(scene_frame.scene_id))
-        )
-    ).scalar_one()
+    total = await query_data.cross_frame_count(
+        current_user.id, str(scene_frame.scene_id)
+    )
     return CrossFrameJobListResponse(
         items=[AsyncJobOut.model_validate(row) for row in rows], total=total
     )
@@ -315,7 +297,7 @@ async def retry_cross_frame_job(
     await task_access.assert_task_visible(
         db, anchor_task, current_user.id, access=access
     )
-    job = await db.get(AsyncJob, job_id)
+    job = await async_job_svc.get_job(db, job_id)
     if job is None or job.kind != JOB_KIND:
         raise HTTPException(status_code=404, detail="cross-frame job not found")
     if job.user_id != current_user.id:

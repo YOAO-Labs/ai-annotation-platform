@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from importlib.resources import files
 
 from aap_preannotation_results.retry_contract import (
     OPERATION,
@@ -10,11 +10,8 @@ from aap_preannotation_results.retry_contract import (
 )
 
 
-SCHEMA_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "src"
-    / "aap_preannotation_results"
-    / "prediction-retries.schema.json"
+SCHEMA_PATH = files("aap_preannotation_results").joinpath(
+    "prediction-retries.schema.json"
 )
 
 

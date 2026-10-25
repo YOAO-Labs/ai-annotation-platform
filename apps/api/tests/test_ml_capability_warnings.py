@@ -4,11 +4,11 @@
 越界值仍原样规范化 (零回归)、缺省 unknown 不误报、PROMPTS 派生集合等价旧硬编码。
 """
 
-from app.services.capability_registry import (
+from aap_inference.capability_registry import (
     PROMPTS_INTERACTIVE_ROUTE,
     PROMPTS_REQUIRES_INPUT,
 )
-from app.services.ml_capabilities import extract_capabilities
+from aap_inference import extract_capabilities
 
 
 def test_warnings_empty_for_valid_setup():

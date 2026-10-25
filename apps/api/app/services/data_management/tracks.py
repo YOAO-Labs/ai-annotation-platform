@@ -12,11 +12,9 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.db.models.annotation import Annotation
 from app.db.models.dataset import DatasetItem, Scene
 from app.db.models.project import Project
 from app.db.models.scene_track import SceneTrack, SceneTrackInterval
-from app.db.models.task import Task
 from app.db.models.user import User
 from app.schemas.data_manager import (
     DataManagerEntityLocation,
@@ -41,9 +39,16 @@ from app.services.data_management.entities import (
     task_dataset_item_id_expr,
 )
 from app.services.data_management.entity_filters import compile_entity_filter
-from app.services.project_kind import project_kind
+from aap_workspace.configuration_policy import project_kind
 from app.services.data_management.task_filters import visible_tasks_stmt
 from app.services.video_tracks import frame_is_outside
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    get_core_row,
+    scene_track_interval_row,
+    scene_track_row,
+    task_row,
+)
 
 
 def _encode_scene_ref(track_id: str) -> str:
@@ -72,8 +77,8 @@ def _json_array_length(column, key: str):
 def _keyframe_frame_expr(mode: str):
     guarded = case(
         (
-            func.jsonb_typeof(Annotation.geometry["keyframes"]) == "array",
-            Annotation.geometry["keyframes"],
+            func.jsonb_typeof(annotation_row.geometry["keyframes"]) == "array",
+            annotation_row.geometry["keyframes"],
         ),
         else_=literal([], type_=JSONB),
     )
@@ -90,31 +95,35 @@ def _keyframe_frame_expr(mode: str):
             )
         )
         .select_from(keyframes)
-        .correlate(Annotation)
+        .correlate(annotation_row)
         .scalar_subquery()
     )
 
 
 def _compact_sort(field: str):
     quality_count = case(
-        (_json_array_length(Annotation.geometry, "keyframes") == 0, 1), else_=0
+        (_json_array_length(annotation_row.geometry, "keyframes") == 0, 1), else_=0
     ) + case(
         (
-            Annotation.geometry["track_id"].astext.is_distinct_from(
-                Annotation.track_id
+            annotation_row.geometry["track_id"].astext.is_distinct_from(
+                annotation_row.track_id
             ),
             1,
         ),
         else_=0,
     )
     mapping = {
-        "track.track_id": Annotation.track_id,
-        "track.class_name": Annotation.class_name,
+        "track.track_id": annotation_row.track_id,
+        "track.class_name": annotation_row.class_name,
         "track.track_kind": literal("compact_video"),
         "track.start_frame": func.coalesce(_keyframe_frame_expr("start"), -1),
-        "track.occurrence_count": _json_array_length(Annotation.geometry, "keyframes"),
+        "track.occurrence_count": _json_array_length(
+            annotation_row.geometry, "keyframes"
+        ),
         "track.quality_issue_count": quality_count,
-        "track.outside_range_count": _json_array_length(Annotation.geometry, "outside"),
+        "track.outside_range_count": _json_array_length(
+            annotation_row.geometry, "outside"
+        ),
     }
     if field not in mapping:
         raise HTTPException(status_code=422, detail=f"Unsupported track sort: {field}")
@@ -407,10 +416,10 @@ class DataManagerTrackService:
 
     def _active(self, project_id: uuid.UUID):
         return and_(
-            Annotation.project_id == project_id,
-            Annotation.is_active.is_(True),
-            Annotation.was_cancelled.is_(False),
-            Annotation.track_id.is_not(None),
+            annotation_row.project_id == project_id,
+            annotation_row.is_active.is_(True),
+            annotation_row.was_cancelled.is_(False),
+            annotation_row.track_id.is_not(None),
         )
 
     async def query(
@@ -422,7 +431,7 @@ class DataManagerTrackService:
         project: Project,
         project_role: str | None = None,
     ) -> DataManagerTrackQueryResponse:
-        kind = project_kind(project)
+        kind = project_kind(project.data_type, project.scene_mode)
         if not (kind.scene_mode or kind.data_type == "video"):
             raise HTTPException(status_code=422, detail="Track lens is not supported")
         if kind.data_type == "video" and not kind.scene_mode:
@@ -457,16 +466,16 @@ class DataManagerTrackService:
             project_id, user, project, "dm_compact_visible", project_role=project_role
         )
         condition = compile_entity_filter(
-            payload.filter_json, Annotation, project=project, user=user
+            payload.filter_json, annotation_row, project=project, user=user
         )
         base = (
-            select(Annotation.id)
-            .select_from(Annotation)
-            .join(visible, visible.c.id == Annotation.task_id)
-            .join(Task, Task.id == Annotation.task_id)
+            select(annotation_row.id)
+            .select_from(annotation_row)
+            .join(visible, visible.c.id == annotation_row.task_id)
+            .join(task_row, task_row.id == annotation_row.task_id)
             .where(
                 self._active(project_id),
-                Annotation.annotation_type.in_(COMPACT_TRACK_TYPES),
+                annotation_row.annotation_type.in_(COMPACT_TRACK_TYPES),
                 condition,
             )
             .subquery("dm_compact_matches")
@@ -474,67 +483,69 @@ class DataManagerTrackService:
         total = int(await self.db.scalar(select(func.count()).select_from(base)) or 0)
         task_total = int(
             await self.db.scalar(
-                select(func.count(func.distinct(Annotation.task_id)))
-                .select_from(Annotation)
-                .join(base, base.c.id == Annotation.id)
+                select(func.count(func.distinct(annotation_row.task_id)))
+                .select_from(annotation_row)
+                .join(base, base.c.id == annotation_row.id)
             )
             or 0
         )
         distributions: dict[str, dict[str, int]] = defaultdict(dict)
         for dimension, column in (
-            ("class", Annotation.class_name),
-            ("source", Annotation.source),
-            ("tool_unit", Annotation.tool_unit_id),
-            ("type", Annotation.annotation_type),
+            ("class", annotation_row.class_name),
+            ("source", annotation_row.source),
+            ("tool_unit", annotation_row.tool_unit_id),
+            ("type", annotation_row.annotation_type),
         ):
             rows = await self.db.execute(
-                select(cast(column, String), func.count(Annotation.id))
-                .select_from(Annotation)
-                .join(base, base.c.id == Annotation.id)
+                select(cast(column, String), func.count(annotation_row.id))
+                .select_from(annotation_row)
+                .join(base, base.c.id == annotation_row.id)
                 .group_by(column)
             )
             distributions[dimension] = {str(value): int(count) for value, count in rows}
         quality_row = (
             await self.db.execute(
                 select(
-                    func.count(Annotation.id)
-                    .filter(_json_array_length(Annotation.geometry, "keyframes") == 0)
-                    .label("missing_keyframes"),
-                    func.count(Annotation.id)
+                    func.count(annotation_row.id)
                     .filter(
-                        Annotation.geometry["track_id"].astext.is_distinct_from(
-                            Annotation.track_id
+                        _json_array_length(annotation_row.geometry, "keyframes") == 0
+                    )
+                    .label("missing_keyframes"),
+                    func.count(annotation_row.id)
+                    .filter(
+                        annotation_row.geometry["track_id"].astext.is_distinct_from(
+                            annotation_row.track_id
                         )
                     )
                     .label("track_identity_mismatch"),
                 )
-                .select_from(Annotation)
-                .join(base, base.c.id == Annotation.id)
+                .select_from(annotation_row)
+                .join(base, base.c.id == annotation_row.id)
             )
         ).one()
         item = aliased(DatasetItem)
         sort_expr = _compact_sort(field)
         q = (
             select(
-                Annotation.id.label("annotation_id"),
-                Annotation.task_id,
-                Task.display_id.label("task_display_id"),
-                Task.batch_id,
-                Task.file_name,
+                annotation_row.id.label("annotation_id"),
+                annotation_row.task_id,
+                task_row.display_id.label("task_display_id"),
+                task_row.batch_id,
+                task_row.file_name,
                 item.id.label("dataset_item_id"),
-                Annotation.track_id,
-                Annotation.class_name,
-                Annotation.tool_unit_id,
-                Annotation.annotation_type,
-                Annotation.source,
-                Annotation.attributes,
-                Annotation.attributes_meta,
-                Annotation.geometry,
+                annotation_row.track_id,
+                annotation_row.class_name,
+                annotation_row.tool_unit_id,
+                annotation_row.annotation_type,
+                annotation_row.source,
+                annotation_row.attributes,
+                annotation_row.attributes_meta,
+                annotation_row.geometry,
                 sort_expr.label("_sort_value"),
             )
-            .select_from(Annotation)
-            .join(base, base.c.id == Annotation.id)
-            .join(Task, Task.id == Annotation.task_id)
+            .select_from(annotation_row)
+            .join(base, base.c.id == annotation_row.id)
+            .join(task_row, task_row.id == annotation_row.task_id)
             .outerjoin(item, item.id == task_dataset_item_id_expr())
         )
         if payload.cursor:
@@ -548,7 +559,7 @@ class DataManagerTrackService:
             q = q.where(
                 keyset_after(
                     sort_expr,
-                    Annotation.id,
+                    annotation_row.id,
                     direction=direction,
                     value=value,
                     tie=tie_id,
@@ -557,7 +568,7 @@ class DataManagerTrackService:
         order = sort_expr.desc() if direction == "desc" else sort_expr.asc()
         rows = (
             await self.db.execute(
-                q.order_by(order, Annotation.id.asc()).limit(payload.limit + 1)
+                q.order_by(order, annotation_row.id.asc()).limit(payload.limit + 1)
             )
         ).all()
         has_more = len(rows) > payload.limit
@@ -602,33 +613,33 @@ class DataManagerTrackService:
         scene = aliased(Scene)
         return (
             select(
-                Annotation.id.label("annotation_id"),
-                Annotation.task_id,
-                Task.display_id.label("task_display_id"),
-                Task.batch_id,
-                Task.file_name,
+                annotation_row.id.label("annotation_id"),
+                annotation_row.task_id,
+                task_row.display_id.label("task_display_id"),
+                task_row.batch_id,
+                task_row.file_name,
                 item.id.label("dataset_item_id"),
                 item.scene_id,
                 scene.name.label("scene_name"),
                 item.frame_index,
-                Annotation.track_id,
-                Annotation.scene_track_id,
-                Annotation.class_name,
-                Annotation.tool_unit_id,
-                Annotation.annotation_type,
-                Annotation.source,
-                Annotation.temporal_role,
-                Annotation.attributes,
-                Annotation.attributes_meta,
+                annotation_row.track_id,
+                annotation_row.scene_track_id,
+                annotation_row.class_name,
+                annotation_row.tool_unit_id,
+                annotation_row.annotation_type,
+                annotation_row.source,
+                annotation_row.temporal_role,
+                annotation_row.attributes,
+                annotation_row.attributes_meta,
             )
-            .select_from(Annotation)
-            .join(visible, visible.c.id == Annotation.task_id)
-            .join(Task, Task.id == Annotation.task_id)
+            .select_from(annotation_row)
+            .join(visible, visible.c.id == annotation_row.task_id)
+            .join(task_row, task_row.id == annotation_row.task_id)
             .outerjoin(item, item.id == task_dataset_item_id_expr())
             .outerjoin(scene, scene.id == item.scene_id)
             .where(
                 self._active(project_id),
-                Annotation.annotation_type.not_in(COMPACT_TRACK_TYPES),
+                annotation_row.annotation_type.not_in(COMPACT_TRACK_TYPES),
             )
         )
 
@@ -652,16 +663,16 @@ class DataManagerTrackService:
             project_role=project_role,
         )
         condition = compile_entity_filter(
-            payload.filter_json, Annotation, project=project, user=user
+            payload.filter_json, annotation_row, project=project, user=user
         )
         matched_keys = (
-            select(Annotation.track_id.label("track_id"))
-            .select_from(Annotation)
-            .join(visible, visible.c.id == Annotation.task_id)
-            .join(Task, Task.id == Annotation.task_id)
+            select(annotation_row.track_id.label("track_id"))
+            .select_from(annotation_row)
+            .join(visible, visible.c.id == annotation_row.task_id)
+            .join(task_row, task_row.id == annotation_row.task_id)
             .where(
                 self._active(project_id),
-                Annotation.annotation_type.not_in(COMPACT_TRACK_TYPES),
+                annotation_row.annotation_type.not_in(COMPACT_TRACK_TYPES),
                 condition,
             )
             .distinct()
@@ -783,7 +794,7 @@ class DataManagerTrackService:
                         user=user,
                         project=project,
                         project_role=project_role,
-                    ).where(Annotation.track_id.in_(ids))
+                    ).where(annotation_row.track_id.in_(ids))
                 )
             ).all()
         grouped: dict[str, list[Any]] = defaultdict(list)
@@ -796,7 +807,9 @@ class DataManagerTrackService:
             list(
                 (
                     await self.db.execute(
-                        select(SceneTrack).where(SceneTrack.id.in_(linked_track_ids))
+                        select(scene_track_row).where(
+                            scene_track_row.id.in_(linked_track_ids)
+                        )
                     )
                 ).scalars()
             )
@@ -808,11 +821,15 @@ class DataManagerTrackService:
             list(
                 (
                     await self.db.execute(
-                        select(SceneTrackInterval)
-                        .where(SceneTrackInterval.scene_track_id.in_(linked_track_ids))
+                        select(scene_track_interval_row)
+                        .where(
+                            scene_track_interval_row.scene_track_id.in_(
+                                linked_track_ids
+                            )
+                        )
                         .order_by(
-                            SceneTrackInterval.scene_track_id,
-                            SceneTrackInterval.start_frame,
+                            scene_track_interval_row.scene_track_id,
+                            scene_track_interval_row.start_frame,
                         )
                     )
                 ).scalars()
@@ -934,7 +951,7 @@ class DataManagerTrackService:
                     user=user,
                     project=project,
                     project_role=project_role,
-                ).where(Annotation.track_id == track_id)
+                ).where(annotation_row.track_id == track_id)
             )
         ).all()
         if not rows:
@@ -950,14 +967,18 @@ class DataManagerTrackService:
             (row.scene_track_id for row in rows if row.scene_track_id is not None),
             None,
         )
-        scene_track = await self.db.get(SceneTrack, linked_id) if linked_id else None
+        scene_track = (
+            await get_core_row(self.db, scene_track_row, linked_id)
+            if linked_id
+            else None
+        )
         presence_intervals = (
             list(
                 (
                     await self.db.execute(
-                        select(SceneTrackInterval)
-                        .where(SceneTrackInterval.scene_track_id == linked_id)
-                        .order_by(SceneTrackInterval.start_frame)
+                        select(scene_track_interval_row)
+                        .where(scene_track_interval_row.scene_track_id == linked_id)
+                        .order_by(scene_track_interval_row.start_frame)
                     )
                 ).scalars()
             )
@@ -1002,8 +1023,8 @@ class DataManagerTrackService:
         item = aliased(DatasetItem)
         rows = await self.db.execute(
             select(item.scene_id, item.frame_index)
-            .select_from(Task)
-            .join(visible, visible.c.id == Task.id)
+            .select_from(task_row)
+            .join(visible, visible.c.id == task_row.id)
             .join(item, item.id == task_dataset_item_id_expr())
             .where(
                 item.scene_id.in_(scene_ids),
@@ -1030,28 +1051,28 @@ class DataManagerTrackService:
         row = (
             await self.db.execute(
                 select(
-                    Annotation.id.label("annotation_id"),
-                    Annotation.task_id,
-                    Task.display_id.label("task_display_id"),
-                    Task.batch_id,
+                    annotation_row.id.label("annotation_id"),
+                    annotation_row.task_id,
+                    task_row.display_id.label("task_display_id"),
+                    task_row.batch_id,
                     item.id.label("dataset_item_id"),
-                    Annotation.track_id,
-                    Annotation.class_name,
-                    Annotation.tool_unit_id,
-                    Annotation.annotation_type,
-                    Annotation.source,
-                    Annotation.attributes,
-                    Annotation.attributes_meta,
-                    Annotation.geometry,
+                    annotation_row.track_id,
+                    annotation_row.class_name,
+                    annotation_row.tool_unit_id,
+                    annotation_row.annotation_type,
+                    annotation_row.source,
+                    annotation_row.attributes,
+                    annotation_row.attributes_meta,
+                    annotation_row.geometry,
                 )
-                .select_from(Annotation)
-                .join(visible, visible.c.id == Annotation.task_id)
-                .join(Task, Task.id == Annotation.task_id)
+                .select_from(annotation_row)
+                .join(visible, visible.c.id == annotation_row.task_id)
+                .join(task_row, task_row.id == annotation_row.task_id)
                 .outerjoin(item, item.id == task_dataset_item_id_expr())
                 .where(
                     self._active(project_id),
-                    Annotation.id == annotation_id,
-                    Annotation.annotation_type.in_(COMPACT_TRACK_TYPES),
+                    annotation_row.id == annotation_id,
+                    annotation_row.annotation_type.in_(COMPACT_TRACK_TYPES),
                 )
             )
         ).one_or_none()

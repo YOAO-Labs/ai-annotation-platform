@@ -10,10 +10,10 @@ from app.application.async_job_contracts import (
     AsyncJobOperationFailure,
     JobCancellationPort,
 )
+from app.services.project_access import get_workspace_project
 from app.application.job_terminal import reconcile_domain_terminal
 from app.application.task_creation_errors import raise_task_creation_http_failure
-from app.db.models.async_job import AsyncJob, AsyncJobStatus
-from app.db.models.project import Project
+from app.db.models.async_job import AsyncJobStatus
 from app.services import async_job as jobs, async_job_access
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services import cross_frame_job, mask_repair, prediction, sample_evaluations
@@ -67,7 +67,7 @@ class SqlJobCancellation(JobCancellationPort):
     async def cancel(self, *, job_id: uuid.UUID, actor_id: uuid.UUID) -> str:
         try:
             db = self._db
-            job = await db.get(AsyncJob, job_id)
+            job = await jobs.get_job(db, job_id)
             if job is None:
                 raise HTTPException(status_code=404, detail="async_job not found")
             payload = job.payload if isinstance(job.payload, dict) else {}
@@ -114,7 +114,7 @@ class SqlJobCancellation(JobCancellationPort):
                 return result.status
 
             if job.kind == "sample_evaluation":
-                project = await db.get(Project, job.project_id)
+                project = await get_workspace_project(db, project_id=job.project_id)
                 if project is None:
                     raise HTTPException(status_code=404, detail="项目不存在")
                 await lock_project_manager(db, actor_id, project.id)

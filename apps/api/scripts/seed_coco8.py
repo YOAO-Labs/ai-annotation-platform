@@ -202,13 +202,17 @@ async def seed_coco8(
     from sqlalchemy import select
 
     from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
-    from app.db.models.project import Project
+    from app.services.workspace_seed_data import (
+        create_media_seed_project,
+        register_seed_project_projection,
+        seed_projects,
+    )
     from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
     from app.services.predictions_import import import_yolo
     from app.services.storage import storage_service
 
     existing = await db.scalar(
-        select(Project).where(Project.display_id == PROJECT_DISPLAY_ID)
+        select(seed_projects).where(seed_projects.display_id == PROJECT_DISPLAY_ID)
     )
     if existing:
         # 幂等补绑定:旧 P-COCO8 只有 bbox,补齐 旋转框 / 折线 / 区域 工具单位(已存在的不覆盖)。
@@ -217,6 +221,7 @@ async def seed_coco8(
         if added:
             for unit in added:
                 tb[unit] = EXTRA_TOOL_BINDINGS[unit]
+            register_seed_project_projection(db, existing.id)
             existing.tool_bindings = tb  # 重新赋值以标记 JSONB 列为 dirty
             db.add(existing)
             return {"project": PROJECT_DISPLAY_ID, "added_tool_units": added}
@@ -226,25 +231,15 @@ async def seed_coco8(
     if not fixture.exists():
         raise FileNotFoundError(f"coco8 夹具缺失: {fixture}")
 
-    project = Project(
-        display_id=PROJECT_DISPLAY_ID,
-        name="COCO8 图片检测 (dev)",
-        type_label="图像 · 目标检测",
-        type_key="image-det",
-        data_type="image",
-        owner_id=owner_id,
-        ai_enabled=True,
-        tool_bindings={
-            "bbox": {
-                "enabled": True,
-                "classes": [
-                    {"name": name, "order": idx} for idx, name in enumerate(COCO_NAMES)
-                ],
-            },
-            **EXTRA_TOOL_BINDINGS,
+    tool_bindings = {
+        "bbox": {
+            "enabled": True,
+            "classes": [
+                {"name": name, "order": idx} for idx, name in enumerate(COCO_NAMES)
+            ],
         },
-    )
-    db.add(project)
+        **EXTRA_TOOL_BINDINGS,
+    }
 
     ds = Dataset(
         display_id=DATASET_DISPLAY_ID,
@@ -254,8 +249,14 @@ async def seed_coco8(
         created_by=owner_id,
     )
     db.add(ds)
-    await db.flush()
-    project_id = project.id
+    project_id = await create_media_seed_project(
+        db,
+        kind="coco8",
+        display_id=PROJECT_DISPLAY_ID,
+        name="COCO8 图片检测 (dev)",
+        owner_id=owner_id,
+        tool_bindings=tool_bindings,
+    )
 
     bucket = storage_service.datasets_bucket
 

@@ -1,0 +1,618 @@
+{
+  "$defs": {
+    "AiMaskAcceptData": {
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AiMaskDecisionData"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "annotation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Annotation Id"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Version"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Updated At"
+        },
+        "affected": {
+          "title": "Affected",
+          "type": "integer"
+        }
+      },
+      "required": ["decision", "annotation_id", "version", "updated_at", "affected"],
+      "title": "AiMaskAcceptData",
+      "type": "object"
+    },
+    "AiMaskDecisionData": {
+      "additionalProperties": false,
+      "properties": {
+        "found": {
+          "title": "Found",
+          "type": "boolean"
+        },
+        "request_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Request Digest"
+        },
+        "candidate_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Candidate Id"
+        },
+        "content_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Content Digest"
+        },
+        "prediction_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Prediction Id"
+        },
+        "prediction_created_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Prediction Created At"
+        },
+        "annotation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Annotation Id"
+        },
+        "source_annotation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Annotation Id"
+        },
+        "source_version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Version"
+        },
+        "result_version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Result Version"
+        },
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        },
+        "response_json": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Response Json"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expires At"
+        }
+      },
+      "required": [
+        "found",
+        "request_digest",
+        "candidate_id",
+        "content_digest",
+        "prediction_id",
+        "prediction_created_at",
+        "annotation_id",
+        "source_annotation_id",
+        "source_version",
+        "result_version",
+        "actor_id",
+        "response_json",
+        "expires_at"
+      ],
+      "title": "AiMaskDecisionData",
+      "type": "object"
+    },
+    "ExpireAiMaskDecisions": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-ai-mask-accept/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "expire_decisions",
+          "title": "Operation",
+          "type": "string"
+        },
+        "now": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Now"
+        }
+      },
+      "required": ["schema", "operation", "now"],
+      "title": "ExpireAiMaskDecisions",
+      "type": "object"
+    },
+    "FindAiMaskDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-ai-mask-accept/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "find_decision",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "title": "Idempotency Key",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "task_id", "idempotency_key"],
+      "title": "FindAiMaskDecision",
+      "type": "object"
+    },
+    "RecordAiMaskDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-ai-mask-accept/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "record_decision",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "expected_batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Batch Id"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "idempotency_key": {
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        },
+        "candidate_id": {
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "content_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Content Digest",
+          "type": "string"
+        },
+        "prediction_id": {
+          "format": "uuid",
+          "title": "Prediction Id",
+          "type": "string"
+        },
+        "prediction_created_at": {
+          "format": "date-time",
+          "title": "Prediction Created At",
+          "type": "string"
+        },
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "source_annotation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Annotation Id"
+        },
+        "source_version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Version"
+        },
+        "result_version": {
+          "title": "Result Version",
+          "type": "integer"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "response_json": {
+          "additionalProperties": true,
+          "title": "Response Json",
+          "type": "object"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "task_id",
+        "project_id",
+        "expected_batch_id",
+        "expected_status",
+        "expected_review_round_id",
+        "idempotency_key",
+        "request_digest",
+        "candidate_id",
+        "content_digest",
+        "prediction_id",
+        "prediction_created_at",
+        "annotation_id",
+        "source_annotation_id",
+        "source_version",
+        "result_version",
+        "actor_id",
+        "response_json"
+      ],
+      "title": "RecordAiMaskDecision",
+      "type": "object"
+    },
+    "RefineAiMaskAnnotation": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-ai-mask-accept/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "refine_annotation",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "expected_batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Batch Id"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "expected_version": {
+          "minimum": 1,
+          "title": "Expected Version",
+          "type": "integer"
+        },
+        "video_segment_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Video Segment Id"
+        },
+        "annotation_type": {
+          "enum": ["raster_mask", "video_track_mask"],
+          "title": "Annotation Type",
+          "type": "string"
+        },
+        "prediction_id": {
+          "format": "uuid",
+          "title": "Prediction Id",
+          "type": "string"
+        },
+        "class_name": {
+          "title": "Class Name",
+          "type": "string"
+        },
+        "geometry": {
+          "additionalProperties": true,
+          "title": "Geometry",
+          "type": "object"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Track Id"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Confidence"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "expected_batch_id",
+        "expected_status",
+        "expected_review_round_id",
+        "annotation_id",
+        "expected_version",
+        "video_segment_id",
+        "annotation_type",
+        "prediction_id",
+        "class_name",
+        "geometry",
+        "track_id",
+        "confidence"
+      ],
+      "title": "RefineAiMaskAnnotation",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "aap-labeling-ai-mask-accept/v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "request": {
+      "discriminator": {
+        "mapping": {
+          "expire_decisions": "#/$defs/ExpireAiMaskDecisions",
+          "find_decision": "#/$defs/FindAiMaskDecision",
+          "record_decision": "#/$defs/RecordAiMaskDecision",
+          "refine_annotation": "#/$defs/RefineAiMaskAnnotation"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/FindAiMaskDecision"
+        },
+        {
+          "$ref": "#/$defs/RecordAiMaskDecision"
+        },
+        {
+          "$ref": "#/$defs/RefineAiMaskAnnotation"
+        },
+        {
+          "$ref": "#/$defs/ExpireAiMaskDecisions"
+        }
+      ],
+      "title": "Request"
+    },
+    "data": {
+      "$ref": "#/$defs/AiMaskAcceptData"
+    }
+  },
+  "required": ["schema", "ok", "request", "data"],
+  "title": "_Reply",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-labeling-ai-mask-accept/v1",
+  "x-postgresql-functions": ["aap_labeling_v1.ai_mask_accept_command(jsonb)"]
+}

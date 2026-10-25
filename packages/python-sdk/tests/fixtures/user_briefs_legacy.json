@@ -1,0 +1,103 @@
+{
+  "source": "actual legacy database-backed UserBrief serialization",
+  "global": {
+    "0a969979-5d5d-5e40-becc-79803bd85a7a": {
+      "id": "0a969979-5d5d-5e40-becc-79803bd85a7a",
+      "name": "",
+      "email": "empty@briefs-baseline.test",
+      "role": "viewer",
+      "avatar_initial": "E",
+      "avatar_ref": null
+    },
+    "0b6ea6af-a4f7-566c-b1ef-312dfb2ea13f": {
+      "id": "0b6ea6af-a4f7-566c-b1ef-312dfb2ea13f",
+      "name": "Owner",
+      "email": "owner@briefs-baseline.test",
+      "role": "project_admin",
+      "avatar_initial": "O",
+      "avatar_ref": null
+    },
+    "40435fe3-457b-5d37-ac5a-a239d35671ad": {
+      "id": "40435fe3-457b-5d37-ac5a-a239d35671ad",
+      "name": " \t",
+      "email": "inactive@briefs-baseline.test",
+      "role": "employee",
+      "avatar_initial": "?",
+      "avatar_ref": null
+    },
+    "676477ec-5759-5771-997f-ecd48048ac25": {
+      "id": "676477ec-5759-5771-997f-ecd48048ac25",
+      "name": "  \u6807\u6ce8 \ud83d\ude00",
+      "email": "staff@briefs-baseline.test",
+      "role": "employee",
+      "avatar_initial": "\u6807",
+      "avatar_ref": "preset:pixel-12"
+    },
+    "a027ed57-0fa4-53e2-9804-26ae4891a94f": {
+      "id": "a027ed57-0fa4-53e2-9804-26ae4891a94f",
+      "name": "\u0301a",
+      "email": "combining@briefs-baseline.test",
+      "role": "annotator",
+      "avatar_initial": "\u0301",
+      "avatar_ref": null
+    },
+    "c04e3396-b3fa-53db-a326-801812157bb6": {
+      "id": "c04e3396-b3fa-53db-a326-801812157bb6",
+      "name": "\u00dfeta",
+      "email": "historical@briefs-baseline.test",
+      "role": "reviewer",
+      "avatar_initial": "SS",
+      "avatar_ref": "upload:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  },
+  "project": {
+    "0a969979-5d5d-5e40-becc-79803bd85a7a": {
+      "id": "0a969979-5d5d-5e40-becc-79803bd85a7a",
+      "name": "",
+      "email": "empty@briefs-baseline.test",
+      "role": "viewer",
+      "avatar_initial": "E",
+      "avatar_ref": null
+    },
+    "0b6ea6af-a4f7-566c-b1ef-312dfb2ea13f": {
+      "id": "0b6ea6af-a4f7-566c-b1ef-312dfb2ea13f",
+      "name": "Owner",
+      "email": "owner@briefs-baseline.test",
+      "role": "project_admin",
+      "avatar_initial": "O",
+      "avatar_ref": null
+    },
+    "40435fe3-457b-5d37-ac5a-a239d35671ad": {
+      "id": "40435fe3-457b-5d37-ac5a-a239d35671ad",
+      "name": " \t",
+      "email": "inactive@briefs-baseline.test",
+      "role": "employee",
+      "avatar_initial": "?",
+      "avatar_ref": null
+    },
+    "676477ec-5759-5771-997f-ecd48048ac25": {
+      "id": "676477ec-5759-5771-997f-ecd48048ac25",
+      "name": "  \u6807\u6ce8 \ud83d\ude00",
+      "email": "staff@briefs-baseline.test",
+      "role": "reviewer",
+      "avatar_initial": "\u6807",
+      "avatar_ref": "preset:pixel-12"
+    },
+    "a027ed57-0fa4-53e2-9804-26ae4891a94f": {
+      "id": "a027ed57-0fa4-53e2-9804-26ae4891a94f",
+      "name": "\u0301a",
+      "email": "combining@briefs-baseline.test",
+      "role": "annotator",
+      "avatar_initial": "\u0301",
+      "avatar_ref": null
+    },
+    "c04e3396-b3fa-53db-a326-801812157bb6": {
+      "id": "c04e3396-b3fa-53db-a326-801812157bb6",
+      "name": "\u00dfeta",
+      "email": "historical@briefs-baseline.test",
+      "role": "annotator",
+      "avatar_initial": "SS",
+      "avatar_ref": "upload:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  }
+}

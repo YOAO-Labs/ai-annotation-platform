@@ -11,7 +11,7 @@ import uuid
 import pytest
 
 
-from app.services.ml_routing import capability as cap
+from aap_inference import pool_capability as cap
 from app.services.ml_routing import policy as swrr
 
 
@@ -130,7 +130,7 @@ def test_fingerprint_is_sha256_hex_64() -> None:
 def test_canonical_snapshot_field_order_fixed() -> None:
     """Canonical snapshot must always present the frozen field set (deterministic encoding)."""
     canon = cap.canonicalize_capability({"model_ids": ["sam3"]})
-    from app.services.ml_routing.capability import _CANONICAL_FIELDS
+    from aap_inference.pool_capability import _CANONICAL_FIELDS
 
     assert set(canon.keys()) == set(_CANONICAL_FIELDS)
 
@@ -153,7 +153,7 @@ def test_variant_axes_normalized_and_sorted() -> None:
 
 
 def _production_caps(*, model_id: str = "detector", task: str = "detection") -> dict:
-    from app.services.ml_capabilities import extract_capabilities
+    from aap_inference import extract_capabilities
 
     result = extract_capabilities(
         {

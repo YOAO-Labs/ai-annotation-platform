@@ -1,0 +1,1574 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-inference-routing/v1",
+  "title": "Inference durable routing authority wire",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/RoutingCommand"
+    },
+    {
+      "$ref": "#/$defs/RoutingResult"
+    },
+    {
+      "$ref": "#/$defs/RoutingStatusRequest"
+    },
+    {
+      "$ref": "#/$defs/RoutingRuntimeRequest"
+    },
+    {
+      "$ref": "#/$defs/RoutingRuntimeResult"
+    }
+  ],
+  "$defs": {
+    "RoutingCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "request_id", "operation", "body"],
+      "properties": {
+        "schema": {
+          "const": "aap-inference-routing/v1"
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "operation": {
+          "enum": [
+            "acquire",
+            "video_acquire",
+            "begin",
+            "settle",
+            "heartbeat",
+            "close",
+            "scope_status",
+            "reconcile",
+            "prepare_control",
+            "finish_control",
+            "begin_control",
+            "settle_control"
+          ]
+        },
+        "body": {
+          "type": "object"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "acquire"
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/AcquireBody"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "video_acquire"
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/VideoAcquireBody"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "begin"
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/BeginBody"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "settle"
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/SettleBody"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "heartbeat"
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/ScopeCapabilityBody"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "close"
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/CloseBody"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "scope_status"
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/ScopeCapabilityBody"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "reconcile"
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/ReconcileBody"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "prepare_control"
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/PrepareControlBody"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "finish_control"
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/FinishControlBody"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "begin_control"
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/BeginControlBody"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "settle_control"
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/SettleControlBody"
+              }
+            }
+          }
+        }
+      ],
+      "x-command-fingerprint": "SHA-256 of canonical UTF-8 JSON with request_id removed, ensure_ascii=false, sorted keys, and compact separators."
+    },
+    "AcquireBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pool_id",
+        "registry_id",
+        "project_id",
+        "mode",
+        "required_instance_id",
+        "owner",
+        "operation"
+      ],
+      "properties": {
+        "pool_id": {
+          "type": ["string", "null"],
+          "format": "uuid"
+        },
+        "registry_id": {
+          "type": ["string", "null"],
+          "format": "uuid"
+        },
+        "project_id": {
+          "type": ["string", "null"],
+          "format": "uuid"
+        },
+        "mode": {
+          "enum": ["off", "observe", "enforce", "direct"]
+        },
+        "required_instance_id": {
+          "type": ["string", "null"],
+          "format": "uuid"
+        },
+        "owner": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "operation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 96
+        }
+      }
+    },
+    "BeginBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope_id", "capability", "attempt_id", "method", "path", "transport_subject"],
+      "properties": {
+        "scope_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "capability": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
+          "writeOnly": true,
+          "x-sensitive": true
+        },
+        "attempt_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "pattern": "^[A-Za-z0-9!#$%&'*+.^_`|~-]+$"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^/(?!/)(?!.*://)[^\\u0000-\\u0020\\u007F]*$"
+        },
+        "transport_subject": {
+          "type": "string",
+          "minLength": 1,
+          "writeOnly": true,
+          "x-sensitive": true,
+          "description": "Opaque encrypted transport identity, never plaintext endpoint or credentials."
+        }
+      }
+    },
+    "SettleBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope_id", "capability", "attempt_id", "kind", "status_code", "reason"],
+      "properties": {
+        "scope_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "capability": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
+          "writeOnly": true,
+          "x-sensitive": true
+        },
+        "attempt_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "kind": {
+          "enum": ["response", "uncertain"]
+        },
+        "status_code": {
+          "type": ["integer", "null"],
+          "minimum": 100,
+          "maximum": 599
+        },
+        "reason": {
+          "type": ["string", "null"],
+          "maxLength": 96,
+          "pattern": "^[a-z][a-z0-9_]{0,95}$"
+        }
+      }
+    },
+    "ScopeCapabilityBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope_id", "capability"],
+      "properties": {
+        "scope_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "capability": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
+          "writeOnly": true,
+          "x-sensitive": true
+        }
+      }
+    },
+    "CloseBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope_id", "capability", "outcome"],
+      "properties": {
+        "scope_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "capability": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
+          "writeOnly": true,
+          "x-sensitive": true
+        },
+        "outcome": {
+          "enum": ["success", "error", "cancel"]
+        }
+      }
+    },
+    "ReconcileBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["registry_id", "control_id"],
+      "properties": {
+        "registry_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "control_id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "ExpectedTopology": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["registry_id", "member_id", "pool_id", "routing_generation", "traffic_state"],
+      "properties": {
+        "registry_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "member_id": {
+          "type": ["string", "null"],
+          "format": "uuid"
+        },
+        "pool_id": {
+          "type": ["string", "null"],
+          "format": "uuid"
+        },
+        "routing_generation": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "traffic_state": {
+          "enum": ["active", "draining", "disabled", null]
+        }
+      }
+    },
+    "PrepareControlBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["registry_id", "control_id", "kind", "expected_topology"],
+      "properties": {
+        "registry_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "control_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "kind": {
+          "enum": ["unload", "reload"]
+        },
+        "expected_topology": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/ExpectedTopology"
+            }
+          ]
+        }
+      }
+    },
+    "FinishControlBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["control_id", "capability"],
+      "properties": {
+        "control_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "capability": {
+          "type": "string",
+          "minLength": 1,
+          "writeOnly": true,
+          "x-sensitive": true
+        }
+      }
+    },
+    "BeginControlBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["control_id", "capability", "attempt_id", "method", "path", "transport_subject"],
+      "properties": {
+        "control_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "capability": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
+          "writeOnly": true,
+          "x-sensitive": true
+        },
+        "attempt_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "pattern": "^[A-Za-z0-9!#$%&'*+.^_`|~-]+$"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^/(?!/)(?!.*://)[^\\u0000-\\u0020\\u007F]*$"
+        },
+        "transport_subject": {
+          "type": "string",
+          "minLength": 1,
+          "writeOnly": true,
+          "x-sensitive": true,
+          "description": "Opaque encrypted transport identity, never plaintext endpoint or credentials."
+        }
+      }
+    },
+    "SettleControlBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["control_id", "capability", "attempt_id", "kind", "status_code", "reason"],
+      "properties": {
+        "control_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "capability": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
+          "writeOnly": true,
+          "x-sensitive": true
+        },
+        "attempt_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "kind": {
+          "enum": ["response", "uncertain"]
+        },
+        "status_code": {
+          "type": ["integer", "null"],
+          "minimum": 100,
+          "maximum": 599
+        },
+        "reason": {
+          "type": ["string", "null"],
+          "maxLength": 96,
+          "pattern": "^[a-z][a-z0-9_]{0,95}$"
+        }
+      }
+    },
+    "RoutingScopeView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "pool_id",
+        "registry_id",
+        "project_id",
+        "mode",
+        "owner",
+        "operation",
+        "generation",
+        "config_revision",
+        "eligibility_revision",
+        "authority_epoch",
+        "state",
+        "closed",
+        "heartbeat_deadline_ms",
+        "capability"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "pool_id": {
+          "type": ["string", "null"],
+          "format": "uuid"
+        },
+        "registry_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "project_id": {
+          "type": ["string", "null"],
+          "format": "uuid"
+        },
+        "mode": {
+          "enum": ["off", "observe", "enforce", "direct"]
+        },
+        "owner": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "operation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 96
+        },
+        "generation": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "config_revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "eligibility_revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "authority_epoch": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "state": {
+          "enum": [
+            "reserved",
+            "active",
+            "uncertain",
+            "finished",
+            "cancelled",
+            "expired",
+            "reconciled"
+          ]
+        },
+        "closed": {
+          "type": "boolean"
+        },
+        "heartbeat_deadline_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "capability": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
+          "x-sensitive": true
+        }
+      }
+    },
+    "RoutingAttemptView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attempt_id", "state", "status_code", "reason"],
+      "properties": {
+        "attempt_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "state": {
+          "enum": ["active", "response", "uncertain", "reconciled"]
+        },
+        "status_code": {
+          "type": ["integer", "null"],
+          "minimum": 100,
+          "maximum": 599
+        },
+        "reason": {
+          "type": ["string", "null"],
+          "maxLength": 96,
+          "pattern": "^[a-z][a-z0-9_]{0,95}$"
+        }
+      }
+    },
+    "RoutingControlView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["control_id", "registry_id", "kind", "phase", "capability"],
+      "properties": {
+        "control_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "registry_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "kind": {
+          "enum": ["unload", "reload"]
+        },
+        "phase": {
+          "enum": ["prepared", "draining", "completed", "uncertain"]
+        },
+        "capability": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
+          "x-sensitive": true
+        }
+      }
+    },
+    "RoutingEpochView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["control_id", "registry_id", "phase", "authority_epoch", "backend_incarnation"],
+      "properties": {
+        "control_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "registry_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "phase": {
+          "enum": ["prepared", "draining", "drained", "bound", "completed", "uncertain"]
+        },
+        "authority_epoch": {
+          "type": ["string", "null"],
+          "format": "uuid"
+        },
+        "backend_incarnation": {
+          "type": ["string", "null"],
+          "format": "uuid"
+        }
+      }
+    },
+    "RoutingBeginResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attempt_id", "scope", "headers"],
+      "properties": {
+        "attempt_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "scope": {
+          "$ref": "#/$defs/RoutingScopeView"
+        },
+        "headers": {
+          "$ref": "#/$defs/AdmissionHeaders"
+        }
+      }
+    },
+    "RoutingBeginControlResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attempt_id", "control", "headers"],
+      "properties": {
+        "attempt_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "control": {
+          "$ref": "#/$defs/RoutingControlView"
+        },
+        "headers": {
+          "$ref": "#/$defs/AdmissionHeaders"
+        }
+      }
+    },
+    "AdmissionHeaders": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "maxProperties": 0
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["X-AAP-Route-Admission"],
+          "properties": {
+            "X-AAP-Route-Admission": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384,
+              "pattern": "^[!-~]+$",
+              "x-sensitive": true
+            }
+          }
+        }
+      ]
+    },
+    "RoutingScopeStatusResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "attempts"],
+      "properties": {
+        "scope": {
+          "$ref": "#/$defs/RoutingScopeView"
+        },
+        "attempts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RoutingAttemptView"
+          }
+        }
+      }
+    },
+    "RoutingRejectedResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "reason"],
+      "properties": {
+        "kind": {
+          "const": "rejected"
+        },
+        "reason": {
+          "enum": [
+            "pool_unavailable",
+            "pool_not_enabled",
+            "pool_saturated",
+            "generation_mismatch",
+            "scope_unavailable",
+            "scope_expired",
+            "scope_closed",
+            "transport_changed",
+            "management_busy",
+            "member_not_draining",
+            "member_not_quiescent",
+            "continuity_unverified",
+            "backend_not_ready",
+            "invalid_command"
+          ]
+        }
+      }
+    },
+    "RoutingResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "request_id", "command_sha256", "operation", "state", "result"],
+      "properties": {
+        "schema": {
+          "const": "aap-inference-routing-result/v1"
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "command_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "operation": {
+          "enum": [
+            "acquire",
+            "video_acquire",
+            "begin",
+            "settle",
+            "heartbeat",
+            "close",
+            "scope_status",
+            "reconcile",
+            "prepare_control",
+            "finish_control",
+            "begin_control",
+            "settle_control"
+          ]
+        },
+        "state": {
+          "enum": ["caller_pending", "committed", "unknown"]
+        },
+        "result": {}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "unknown"
+              }
+            },
+            "required": ["state"]
+          },
+          "then": {
+            "properties": {
+              "result": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "result": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "acquire"
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "if": {
+              "properties": {
+                "state": {
+                  "enum": ["caller_pending", "committed"]
+                }
+              },
+              "required": ["state"]
+            },
+            "then": {
+              "properties": {
+                "result": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/RoutingScopeView"
+                    },
+                    {
+                      "$ref": "#/$defs/RoutingRejectedResult"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "video_acquire"
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "if": {
+              "properties": {
+                "state": {
+                  "enum": ["caller_pending", "committed"]
+                }
+              },
+              "required": ["state"]
+            },
+            "then": {
+              "properties": {
+                "result": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/RoutingScopeView"
+                    },
+                    {
+                      "$ref": "#/$defs/RoutingRejectedResult"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "begin"
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "if": {
+              "properties": {
+                "state": {
+                  "enum": ["caller_pending", "committed"]
+                }
+              },
+              "required": ["state"]
+            },
+            "then": {
+              "properties": {
+                "result": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/RoutingBeginResult"
+                    },
+                    {
+                      "$ref": "#/$defs/RoutingRejectedResult"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "settle"
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "if": {
+              "properties": {
+                "state": {
+                  "enum": ["caller_pending", "committed"]
+                }
+              },
+              "required": ["state"]
+            },
+            "then": {
+              "properties": {
+                "result": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/RoutingAttemptView"
+                    },
+                    {
+                      "$ref": "#/$defs/RoutingRejectedResult"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "heartbeat"
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "if": {
+              "properties": {
+                "state": {
+                  "enum": ["caller_pending", "committed"]
+                }
+              },
+              "required": ["state"]
+            },
+            "then": {
+              "properties": {
+                "result": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/RoutingScopeView"
+                    },
+                    {
+                      "$ref": "#/$defs/RoutingRejectedResult"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "close"
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "if": {
+              "properties": {
+                "state": {
+                  "enum": ["caller_pending", "committed"]
+                }
+              },
+              "required": ["state"]
+            },
+            "then": {
+              "properties": {
+                "result": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/RoutingScopeView"
+                    },
+                    {
+                      "$ref": "#/$defs/RoutingRejectedResult"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "scope_status"
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "if": {
+              "properties": {
+                "state": {
+                  "enum": ["caller_pending", "committed"]
+                }
+              },
+              "required": ["state"]
+            },
+            "then": {
+              "properties": {
+                "result": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/RoutingScopeStatusResult"
+                    },
+                    {
+                      "$ref": "#/$defs/RoutingRejectedResult"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "reconcile"
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "if": {
+              "properties": {
+                "state": {
+                  "enum": ["caller_pending", "committed"]
+                }
+              },
+              "required": ["state"]
+            },
+            "then": {
+              "properties": {
+                "result": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/RoutingEpochView"
+                    },
+                    {
+                      "$ref": "#/$defs/RoutingRejectedResult"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "prepare_control"
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "if": {
+              "properties": {
+                "state": {
+                  "enum": ["caller_pending", "committed"]
+                }
+              },
+              "required": ["state"]
+            },
+            "then": {
+              "properties": {
+                "result": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/RoutingControlView"
+                    },
+                    {
+                      "$ref": "#/$defs/RoutingRejectedResult"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "finish_control"
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "if": {
+              "properties": {
+                "state": {
+                  "enum": ["caller_pending", "committed"]
+                }
+              },
+              "required": ["state"]
+            },
+            "then": {
+              "properties": {
+                "result": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/RoutingControlView"
+                    },
+                    {
+                      "$ref": "#/$defs/RoutingRejectedResult"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "begin_control"
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "if": {
+              "properties": {
+                "state": {
+                  "enum": ["caller_pending", "committed"]
+                }
+              },
+              "required": ["state"]
+            },
+            "then": {
+              "properties": {
+                "result": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/RoutingBeginControlResult"
+                    },
+                    {
+                      "$ref": "#/$defs/RoutingRejectedResult"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "settle_control"
+              }
+            },
+            "required": ["operation"]
+          },
+          "then": {
+            "if": {
+              "properties": {
+                "state": {
+                  "enum": ["caller_pending", "committed"]
+                }
+              },
+              "required": ["state"]
+            },
+            "then": {
+              "properties": {
+                "result": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/RoutingAttemptView"
+                    },
+                    {
+                      "$ref": "#/$defs/RoutingRejectedResult"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "RoutingStatusRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "request_id", "command_sha256", "operation"],
+      "properties": {
+        "schema": {
+          "const": "aap-inference-routing-status/v1"
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "command_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "operation": {
+          "enum": [
+            "acquire",
+            "video_acquire",
+            "begin",
+            "settle",
+            "heartbeat",
+            "close",
+            "scope_status",
+            "reconcile",
+            "prepare_control",
+            "finish_control",
+            "begin_control",
+            "settle_control"
+          ]
+        }
+      }
+    },
+    "RoutingRuntimeRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "request_id", "registry_ids"],
+      "properties": {
+        "schema": {
+          "const": "aap-inference-routing-runtime/v1"
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "registry_ids": {
+          "type": "array",
+          "maxItems": 512,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    },
+    "RoutingRuntimeRegistryView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "registry_id",
+        "open_scopes",
+        "active_attempts",
+        "uncertain_attempts",
+        "continuity",
+        "authority_epoch",
+        "backend_incarnation",
+        "control_id"
+      ],
+      "properties": {
+        "registry_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "open_scopes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "active_attempts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "uncertain_attempts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "continuity": {
+          "enum": ["unverified", "ready"]
+        },
+        "authority_epoch": {
+          "type": ["string", "null"],
+          "format": "uuid"
+        },
+        "backend_incarnation": {
+          "type": ["string", "null"],
+          "format": "uuid"
+        },
+        "control_id": {
+          "type": ["string", "null"],
+          "format": "uuid"
+        }
+      }
+    },
+    "RoutingRuntimeResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "request_id", "observed_at", "registries"],
+      "properties": {
+        "schema": {
+          "const": "aap-inference-routing-runtime-result/v1"
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "(Z|\\+00:00)$"
+        },
+        "registries": {
+          "type": "array",
+          "maxItems": 512,
+          "items": {
+            "$ref": "#/$defs/RoutingRuntimeRegistryView"
+          }
+        }
+      }
+    },
+    "RoutingVideoExecutionProof": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "worker_id": {
+          "format": "uuid",
+          "title": "Worker Id",
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        }
+      },
+      "required": ["job_id", "run_id", "worker_id", "generation", "lease_token"],
+      "title": "RoutingVideoExecutionProof",
+      "type": "object"
+    },
+    "VideoAcquireBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pool_id",
+        "registry_id",
+        "project_id",
+        "mode",
+        "required_instance_id",
+        "owner",
+        "operation",
+        "execution"
+      ],
+      "properties": {
+        "pool_id": {
+          "type": ["string", "null"],
+          "format": "uuid"
+        },
+        "registry_id": {
+          "type": ["string", "null"],
+          "format": "uuid"
+        },
+        "project_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "mode": {
+          "enum": ["off", "observe", "enforce", "direct"]
+        },
+        "required_instance_id": {
+          "type": ["string", "null"],
+          "format": "uuid"
+        },
+        "owner": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "operation": {
+          "const": "tracker"
+        },
+        "execution": {
+          "$ref": "#/$defs/RoutingVideoExecutionProof"
+        }
+      },
+      "description": "owner must equal tracker:<execution.job_id>; project_id must match the frozen Labeling input scope."
+    }
+  },
+  "x-request-max-bytes": 1048576,
+  "x-reply-max-bytes": 1048576,
+  "x-native-policy": {
+    "schema": "aap-inference-routing-native/v1",
+    "data_protocol": "aap-inference-routing-data/v1",
+    "transaction": "caller_owned",
+    "functions": [
+      "aap_inference_routing_v1.routing_policy()",
+      "aap_inference_routing_v1.routing_step(text,text)"
+    ],
+    "actions": [
+      "command_status",
+      "record_command",
+      "admission_snapshot",
+      "reserve_scope",
+      "scope_status",
+      "begin_attempt",
+      "settle_attempt",
+      "heartbeat_scope",
+      "close_scope",
+      "quiescence",
+      "prepare_control",
+      "finish_control",
+      "prepare_epoch",
+      "finish_epoch",
+      "capture_transport_subject",
+      "open_transport_subject",
+      "begin_control_attempt",
+      "settle_control_attempt",
+      "runtime_snapshot"
+    ]
+  }
+}

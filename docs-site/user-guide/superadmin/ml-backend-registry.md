@@ -2,7 +2,7 @@
 audience: [super_admin]
 type: how-to
 status: stable
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-21
 ---
 
 # ML Backend 注册（全局注册表）
@@ -18,17 +18,17 @@ ML Backend 是平台对接外部推理服务的契约层。注册表是**全局*
 
 ![注册表单全貌含 max_concurrency/extra_params](../images/superadmin/ml-backend/register-form.png)
 
-| 字段         | 含义                                     | 约束                                                                                                                    |
-| ------------ | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| 名称         | 显示名                                   | 无全局唯一性约束（`ml_backends` 表无 UNIQUE 索引）                                                                      |
-| URL          | Backend HTTP 入口                        | **全局唯一**（同一 URL 只能注册一次）；**不能填 loopback**（详见下）                                                    |
-| 交互式       | 是否支持工作台一键推理                   | 布尔开关，默认关                                                                                                        |
-| API Key      | 可选，header `Authorization: Bearer ...` | —                                                                                                                       |
-| GPU 物理资源 | 稳定 `gpu_resource_id`                   | 从运维显式配置的逐卡资源中选择；留空不等于已确认 CPU                                                                    |
-| 显存预算     | `vram_budget_mb`                         | 与 GPU 资源成对填写，正整数 MiB，不得超过该卡 `allocatable_mb`                                                          |
-| 驱逐优先级   | `eviction_priority`                      | 数值越大越难被驱逐，可为负数，不是请求队列优先级                                                                        |
-| 最大并发     | `max_concurrency`                        | 1–32；始终作为单进程 / 事件循环的本地背压；`ML_BACKEND_ROUTER_MODE=enforce` 时还作为 Redis route lease 的跨进程实例上限 |
-| 额外参数     | JSON 扩展字段                            | 不得与上述强类型字段冲突                                                                                                |
+| 字段         | 含义                                     | 约束                                                                                                             |
+| ------------ | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| 名称         | 显示名                                   | 无全局唯一性约束（`ml_backends` 表无 UNIQUE 索引）                                                               |
+| URL          | Backend HTTP 入口                        | **全局唯一**（同一 URL 只能注册一次）；**不能填 loopback**（详见下）                                             |
+| 交互式       | 是否支持工作台一键推理                   | 布尔开关，默认关                                                                                                 |
+| API Key      | 可选，header `Authorization: Bearer ...` | —                                                                                                                |
+| GPU 物理资源 | 稳定 `gpu_resource_id`                   | 从运维显式配置的逐卡资源中选择；留空不等于已确认 CPU                                                             |
+| 显存预算     | `vram_budget_mb`                         | 与 GPU 资源成对填写，正整数 MiB，不得超过该卡 `allocatable_mb`                                                   |
+| 驱逐优先级   | `eviction_priority`                      | 数值越大越难被驱逐，可为负数，不是请求队列优先级                                                                 |
+| 最大并发     | `max_concurrency`                        | 1–32；始终作为单进程 / 事件循环的本地背压；`ML_BACKEND_ROUTER_MODE=enforce` 时还作为持久路由准入的跨进程实例上限 |
+| 额外参数     | JSON 扩展字段                            | 不得与上述强类型字段冲突                                                                                         |
 
 > **已删除的虚构字段**：`type`（类型选择器）、默认 prompt、默认阈值均**不是**注册表单的真实字段。backend 类型由 backend 自身通过 `/setup` 声明，不在注册时指定。`max_concurrency` 由表单单独填写后保存到 `extra_params` JSONB；其他扩展参数仍在高级 JSON 中编辑。
 
@@ -75,7 +75,7 @@ POST   /admin/ml-integrations/registry/:registry_id/health   # 健康检查（�
 GET    /admin/ml-integrations/all                        # 全局列表（新建项目向导复用）
 ```
 
-每个全局 backend 注册后会自动得到一个 singleton 服务池（ADR-0050），池内含一个 active 成员指向该实例。off 模式下行为与单实例完全一致；当 `ML_BACKEND_ROUTER_MODE=observe|enforce` 时，路由器在该池内选择实例。详见 [ADR-0050 服务池与请求路由](../../dev/adr/archive/0050-ml-backend-service-pools-and-request-routing)。
+每个全局 backend 注册后会自动得到一个 singleton 服务池（ADR-0050），池内含一个 active 成员指向该实例。off／observe 模式沿用 legacy 实例选择，enforce 模式在合格成员中分配请求；停止接流和执行安全检查始终生效。详见 [ADR-0050 服务池与请求路由](../../dev/adr/archive/0050-ml-backend-service-pools-and-request-routing)。
 
 ## 服务池管理（超管）
 
@@ -99,16 +99,22 @@ POST   /admin/ml-integrations/service-pools/:pool_id/members/:registry_id/capabi
 
 **drain / resume 语义**：
 
-- **drain**：成员 `traffic_state` 从 `active` 切到 `draining`，停止接收**新** route lease；已在飞的请求继续完成。幂等。
+- **drain**：成员 `traffic_state` 从 `active` 切到 `draining`，停止接收新的执行；已在飞的请求继续完成。幂等。
 - **resume**：`draining` 切回 `active`，恢复接流。幂等。`disabled` 成员不能直接 resume；这类状态需要先审核能力变更。
 - drain / resume **只影响路由接流**，不触发模型权重卸载（那是 GPU 仲裁的 residency drain，独立）。
-- 当 `ML_BACKEND_ROUTER_MODE != enforce` 时，drain 只是预配置，不会真正改变路由行为——运行时观测会标记为「未生效」。
+- off／observe 模式仍使用 legacy 实例，但该成员进入 `draining` 后也不再接受新的执行。已经开始并固定实例的跟踪作业可以完成既有工作。
 
 **加入成员**：被加入的实例必须与池内现有成员 capability 指纹 exact match（同 `models[]` 模型目录、请求 schema、variant 组合和 tracker 等稳定能力，排除 URL/GPU/VRAM/residency 等运行态字段）。不匹配返回 `HTTP 409` 并附结构化 diff。对已在池内的成员再次 PUT 会更新权重，不会重置已有的 traffic state。同一实例不能同时属于两个服务池。
 
 **审核能力变更**：健康刷新发现 `/setup` 的路由合同与服务池基线不一致时，平台会自动把成员设为 `disabled`；若它是 legacy 实例，还会关闭服务池。超管可在「服务池」展开成员或「实例」操作菜单中选择「审核能力变更」，查看旧/新指纹与 canonical 字段差异。确认时平台会重新执行健康与 `/setup` 探测，并校验候选指纹没有在审核期间再次变化；池内若仍有能力不一致的 active / draining 成员则拒绝。验证通过后，新基线、成员 `active` 状态、路由代际和可选的服务池启用在同一事务中提交。若实例已经回滚到原基线，则只恢复成员与服务池，不改写基线。该操作只接受明确审核过的合同，不会自动放行 capability superset。
 
-**卸载 / 移除成员 / 删除**：纳管实例必须先进入 `draining`，并且只有在路由模式为 `enforce`、路由账本新鲜、清理过期 lease 后 exact `inflight=0` 时才会放行。账本失联、字段缺失或陈旧都会失败关闭，不会被当作零。删除服务池前必须逐一安全移除所有成员，空池才可删除。
+**卸载 / 移除成员 / 删除**：纳管实例必须先进入 `draining`。新鲜的零在途观测只允许提交卸载请求，服务端还会核验后台执行和控制状态；超时、通信中断、缓存清空或租约过期均不能证明任务已经结束。管理结果未确认时保持阻塞。升级后需先由运维完成[后端控制绑定](../../api/guides/inference-runtime#持久路由执行权)，再管理实例；无法确认时返回冲突或服务不可用。删除服务池前必须逐一安全移除所有成员，空池才可删除。
+
+GPU 自动驱逐在卸载回包丢失后仍会复查健康状态。只有新鲜且匹配的实际卸载证据才能回收预算；检查失败或状态无法确认时，继续保留未决状态与预算。
+
+移除成员或删除实例时，若安全检查后成员被恢复接流、移到其他池或路由代次改变，返回409；请重新读取状态、drain 并重试。删除清理项目主绑定遇到正在保存的项目配置时，也返回409并回滚整个删除。项目配置等待服务池期间所选实例被删除或移走，同样拒绝本次保存；刷新清单后重新选择。
+
+加入、移除、drain 和 resume 成功后返回已提交的最新服务池状态。若连接中断、没有收到结果，先读取服务池详情核对成员和路由代际，再决定下一步；再次移除已不存在的成员会返回404。
 
 ## 项目启用
 
@@ -128,7 +134,9 @@ POST   /admin/ml-integrations/service-pools/:pool_id/members/:registry_id/capabi
 
 ## 删除
 
-物理删除全局 backend 是**超管职责**（`DELETE /admin/ml-integrations/registry/:registry_id`）。删除前若有正在运行的预测 job、未完成 GPU retirement，或者路由安全门无法证明成员已停流且 inflight 归零，都会返回冲突或服务不可用错误并保留数据。条件全部满足后，删除会解除该实例的服务池成员关系；若它是 legacy 实例，所属池会停用并清除项目主绑定。历史预测仍按外键策略保留可追溯性。
+物理删除全局 backend 是**超管职责**（`DELETE /admin/ml-integrations/registry/:registry_id`）。删除前若有正在运行的预测 job、未完成 GPU retirement，或者管理安全检查尚未确认停止接流和后台任务结束，都会返回冲突或服务不可用错误并保留数据。条件全部满足后，删除会解除该实例的服务池成员关系；若它是 legacy 实例，所属池会停用并清除项目主绑定。历史预测仍按外键策略保留可追溯性。
+
+从未纳管 GPU 的普通后端可在上述检查通过后正常删除；具有 GPU 历史的实例仍须完成相应退役与回收流程。
 
 项目管理员不能物理删除全局 backend，只能在项目设置里**取消勾选启用**让它对本项目停用（不影响其它项目）。
 
@@ -151,7 +159,7 @@ POST   /admin/ml-integrations/service-pools/:pool_id/members/:registry_id/capabi
 - **观测（observe）**：`GET /admin/ml-integrations/observe` 直连 env 配的 ML Backend 容器，不需要项目注册即可看健康 / 变体目录。
 - **试启动（smoke-test）**：`POST /admin/ml-integrations/observe/smoke-test`，只有新协议 residency 能严格证明所有 pool / builder / borrower 已空时才预热指定变体并自动还原；旧协议会同时保守检查图像池、视频池与活跃会话。
 - **GPU 资源诊断**：超管可查看逐卡容量、静态预算、desired → effective mode 及配置 blocker。`observe` 仅记录影子决策，不会拒绝、排队或驱逐请求。
-- **`max_concurrency`**：写入 `extra_params.max_concurrency`；本地 semaphore 始终生效，`ML_BACKEND_ROUTER_MODE=enforce` 时再由 Redis route lease 把 API 与多个 Celery worker 收口到同一实例上限。GPU 仲裁的逐资源 effective mode 管显存准入与驱逐，是另一条独立门禁。
+- **`max_concurrency`**：写入 `extra_params.max_concurrency`；本地 semaphore 始终生效，`ML_BACKEND_ROUTER_MODE=enforce` 时再由持久路由 owner 把 API 与多个 Celery worker 收口到同一实例上限。GPU 仲裁的逐资源 effective mode 管显存准入与驱逐，是另一条独立门禁。
 
 ## 相关
 

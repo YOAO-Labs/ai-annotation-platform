@@ -26,10 +26,8 @@ from app.services.display_id import next_display_id
 from app.services.assets_media import browser_media_url
 from app.services.image_source_references import image_source_references
 from app.services.assets_spatial_views import spatial_item_references
-from app.services.project_kind import (
-    dataset_has_scenes,
-    media_kind_aliases,
-)
+from aap_workspace.configuration_policy import media_kind_aliases
+from app.services.project_kind import dataset_has_scenes
 from app.services.storage import TRUSTED_NUSCENES_PREFIX, storage_service
 from app.services.task_creation_contract import (
     DatasetAssociationFacts,

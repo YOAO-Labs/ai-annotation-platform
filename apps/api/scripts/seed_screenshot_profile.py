@@ -11,21 +11,27 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import make_transient, make_transient_to_detached
+from sqlalchemy.orm.attributes import set_committed_value
+from sqlalchemy.orm.util import identity_key
 
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
 from app.db.models.prediction import Prediction, PredictionMeta
 from app.db.models.project import Project
-from app.db.models.project_member import ProjectMember
+from app.services.seed_membership_data import SeedMembershipWrites
+from app.services.workspace_seed_data import (
+    pin_seed_project_timestamps,
+    register_project_counter_projection,
+    register_seed_project_projection,
+    seed_members,
+    seed_projects,
+)
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.services.identity_commands import IdentityCommandService
-from app.services.annotation_evidence import (
-    clear_review_contributor_evidence,
-    freeze_review_contributor_evidence,
-)
 from app.application.project_deletion import (
     delete_project as delete_project_transaction,
 )
@@ -39,6 +45,34 @@ from app.services.screenshot_seed_spec import (
 from aap_assets_catalog.spatial_contract import SetDatasetAxisRequest
 from app.services.assets_spatial import AssetsSpatialGateway
 from app.services.storage import storage_service
+from aap_labeling.screenshot_operations_contract import (
+    LinkSeedTasksToBatches,
+    PinSeedTaskTimestamps,
+    ReconcileSeedAnnotations,
+    ReconcileSeedBatches,
+    ReconcileSeedPredictions,
+    ResetSeedTasks,
+    SCREENSHOT_OPERATIONS_PROTOCOL,
+    SeedAnnotation,
+    SeedBatch,
+    SeedBatchCounters,
+    SeedTaskBatch,
+    SeedTaskEvidence,
+    SeedTaskReset,
+    SeedTaskState,
+    SetImageSeedTaskState,
+    SyncSeedBatchCounters,
+    SeedTaskTimestamp,
+)
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    batch_row,
+    execute_core_read,
+    prediction_row,
+    prediction_meta_row,
+    task_row,
+)
+from app.services.labeling_screenshot_operations import screenshot_operations_command
 
 try:
     from seed_coco8 import COCO_NAMES, EXTRA_TOOL_BINDINGS
@@ -349,7 +383,7 @@ async def prepare_screenshot_seed(
     adopt_keys: set[str] = set()
     for logical_key, spec in PROJECT_SPECS.items():
         project = await db.scalar(
-            select(Project).where(Project.display_id == spec.display_id)
+            select(seed_projects).where(seed_projects.display_id == spec.display_id)
         )
         dataset = await db.scalar(
             select(Dataset).where(Dataset.display_id == spec.dataset_display_id)
@@ -418,7 +452,7 @@ async def _resolve_owned_resources(
     projects = list(
         (
             await db.execute(
-                select(Project).where(Project.display_id == spec.display_id)
+                select(seed_projects).where(seed_projects.display_id == spec.display_id)
             )
         ).scalars()
     )
@@ -512,11 +546,12 @@ async def _resolve_owned_resources(
         managed_item_ids.add(item.id)
         task_rows = list(
             (
-                await db.execute(
-                    select(Task).where(
-                        Task.project_id == project.id,
-                        Task.dataset_item_id == item.id,
-                    )
+                await execute_core_read(
+                    db,
+                    select(task_row).where(
+                        task_row.project_id == project.id,
+                        task_row.dataset_item_id == item.id,
+                    ),
                 )
             ).scalars()
         )
@@ -528,13 +563,14 @@ async def _resolve_owned_resources(
 
     linked_task_item_ids = set(
         (
-            await db.execute(
-                select(Task.dataset_item_id)
-                .join(DatasetItem, DatasetItem.id == Task.dataset_item_id)
+            await execute_core_read(
+                db,
+                select(task_row.dataset_item_id)
+                .join(DatasetItem, DatasetItem.id == task_row.dataset_item_id)
                 .where(
-                    Task.project_id == project.id,
+                    task_row.project_id == project.id,
                     DatasetItem.dataset_id == dataset.id,
-                )
+                ),
             )
         ).scalars()
     )
@@ -547,29 +583,31 @@ async def _resolve_owned_resources(
 
 async def _reconcile_members(
     db: AsyncSession, project: Project, users: dict[str, uuid.UUID]
-) -> None:
+) -> SeedMembershipWrites:
     assigned_by = users["project_admin"]
+    writes = SeedMembershipWrites(db)
     for user_key, role in (("annotator", "annotator"), ("reviewer", "reviewer")):
         user = users[user_key]
+        await writes.flush_before_read()
         member = await db.scalar(
-            select(ProjectMember).where(
-                ProjectMember.project_id == project.id,
-                ProjectMember.user_id == user,
+            select(seed_members).where(
+                seed_members.project_id == project.id,
+                seed_members.user_id == user,
             )
         )
         if member is None:
-            member = ProjectMember(
+            writes.add(
                 project_id=project.id,
                 user_id=user,
                 role=role,
                 assigned_by=assigned_by,
                 assigned_at=FIXED_TIME,
             )
-            db.add(member)
         else:
-            member.role = role
-            member.assigned_by = assigned_by
-            member.assigned_at = FIXED_TIME
+            writes.change(
+                member, role=role, assigned_by=assigned_by, assigned_at=FIXED_TIME
+            )
+    return writes
 
 
 async def _reconcile_batches(
@@ -578,13 +616,15 @@ async def _reconcile_batches(
     dataset: Dataset,
     tasks: dict[str, Task],
     users: dict[str, uuid.UUID],
+    membership_writes: SeedMembershipWrites,
 ) -> dict[str, TaskBatch]:
     spec = PROJECT_SPECS["image_demo"]
     expected_display_ids = {batch_spec.display_id for batch_spec in spec.batches}
     existing_display_ids = set(
         (
-            await db.execute(
-                select(TaskBatch.display_id).where(TaskBatch.project_id == project.id)
+            await execute_core_read(
+                db,
+                select(batch_row.display_id).where(batch_row.project_id == project.id),
             )
         ).scalars()
     )
@@ -594,14 +634,16 @@ async def _reconcile_batches(
             f"{project.display_id}: unexpected batches {unexpected}; rerun with --repair"
         )
     batches: dict[str, TaskBatch] = {}
+    batch_requests = []
     for batch_spec in spec.batches:
         rows = list(
             (
-                await db.execute(
-                    select(TaskBatch).where(
-                        TaskBatch.project_id == project.id,
-                        TaskBatch.display_id == batch_spec.display_id,
-                    )
+                await execute_core_read(
+                    db,
+                    select(batch_row).where(
+                        batch_row.project_id == project.id,
+                        batch_row.display_id == batch_spec.display_id,
+                    ),
                 )
             ).scalars()
         )
@@ -618,29 +660,84 @@ async def _reconcile_batches(
         batch = (
             rows[0]
             if rows
-            else TaskBatch(project_id=project.id, display_id=batch_spec.display_id)
+            else TaskBatch(
+                id=uuid.uuid4(), project_id=project.id, display_id=batch_spec.display_id
+            )
         )
-        batch.dataset_id = dataset.id
-        batch.name = batch_spec.name
-        batch.description = "screenshots seed managed batch"
-        batch.status = batch_spec.status
-        batch.priority = 50
-        batch.annotator_id = annotator
-        batch.reviewer_id = reviewer
-        batch.assigned_user_ids = [
+        assigned_user_ids = tuple(
             str(user) for user in (annotator, reviewer) if user is not None
-        ]
-        batch.created_by = users["project_admin"]
-        batch.created_at = FIXED_TIME
-        batch.updated_at = FIXED_TIME
-        if not rows:
-            db.add(batch)
+        )
+        batch_requests.append(
+            SeedBatch(
+                id=batch.id,
+                existing=bool(rows),
+                display_id=batch_spec.display_id,
+                name=batch_spec.name,
+                status=batch_spec.status,
+                annotator_id=annotator,
+                reviewer_id=reviewer,
+                assigned_user_ids=assigned_user_ids,
+            )
+        )
         batches[batch_spec.key] = batch
-    await db.flush()
+    await screenshot_operations_command(
+        db,
+        ReconcileSeedBatches(
+            schema=SCREENSHOT_OPERATIONS_PROTOCOL,
+            operation="reconcile_seed_batches",
+            project_id=project.id,
+            dataset_id=dataset.id,
+            created_by=users["project_admin"],
+            fixed_time=FIXED_TIME,
+            batches=tuple(batch_requests),
+        ),
+    )
+    for batch_spec in spec.batches:
+        batch = batches[batch_spec.key]
+        annotator = (
+            users.get(batch_spec.annotator_key) if batch_spec.annotator_key else None
+        )
+        reviewer = (
+            users.get(batch_spec.reviewer_key) if batch_spec.reviewer_key else None
+        )
+        set_committed_value(batch, "dataset_id", dataset.id)
+        set_committed_value(batch, "name", batch_spec.name)
+        set_committed_value(batch, "description", "screenshots seed managed batch")
+        set_committed_value(batch, "status", batch_spec.status)
+        set_committed_value(batch, "priority", 50)
+        set_committed_value(batch, "annotator_id", annotator)
+        set_committed_value(batch, "reviewer_id", reviewer)
+        set_committed_value(
+            batch,
+            "assigned_user_ids",
+            [str(value) for value in (annotator, reviewer) if value is not None],
+        )
+        set_committed_value(batch, "created_by", users["project_admin"])
+        set_committed_value(batch, "created_at", FIXED_TIME)
+        set_committed_value(batch, "updated_at", FIXED_TIME)
+    await membership_writes.flush()
 
     task_specs = {task_spec.key: task_spec for task_spec in spec.tasks}
+    task_links = []
     for key, task in tasks.items():
-        task.batch_id = batches[task_specs[key].batch_key].id
+        task_links.append(
+            SeedTaskBatch(
+                task_id=task.id,
+                batch_id=batches[task_specs[key].batch_key].id,
+            )
+        )
+    await screenshot_operations_command(
+        db,
+        LinkSeedTasksToBatches(
+            schema=SCREENSHOT_OPERATIONS_PROTOCOL,
+            operation="link_seed_tasks_to_batches",
+            project_id=project.id,
+            tasks=tuple(task_links),
+        ),
+    )
+    for link in task_links:
+        task = next(value for value in tasks.values() if value.id == link.task_id)
+        set_committed_value(task, "batch_id", link.batch_id)
     return batches
 
 
@@ -648,74 +745,116 @@ async def _reconcile_predictions(
     db: AsyncSession, project: Project, tasks: dict[str, Task]
 ) -> None:
     model_version = f"screenshot-seed:{SEED_REVISION}"
-    managed = list(
-        (
-            await db.execute(
-                select(Prediction).where(
-                    Prediction.project_id == project.id,
-                    Prediction.model_version == model_version,
-                )
-            )
-        ).scalars()
-    )
+    managed_rows = (
+        await execute_core_read(
+            db,
+            select(
+                prediction_row.id,
+                prediction_row.task_id,
+                prediction_row.created_at,
+            ).where(
+                prediction_row.project_id == project.id,
+                prediction_row.model_version == model_version,
+            ),
+        )
+    ).all()
     predicted_task = tasks["predicted"]
-    keep = [
-        prediction for prediction in managed if prediction.task_id == predicted_task.id
-    ]
+    keep = [row for row in managed_rows if row.task_id == predicted_task.id]
     if len(keep) != 1:
         raise ScreenshotSeedReconcileError(
             "image_demo.predicted: expected one managed imported prediction"
         )
-    remove = [prediction for prediction in managed if prediction.id != keep[0].id]
-    if remove:
-        prediction_ids = [prediction.id for prediction in remove]
-        await db.execute(
-            update(Annotation)
-            .where(Annotation.parent_prediction_id.in_(prediction_ids))
-            .values(parent_prediction_id=None)
-        )
-        await db.execute(
-            delete(PredictionMeta).where(
-                PredictionMeta.prediction_id.in_(prediction_ids)
+    remove = [row for row in managed_rows if row.id != keep[0].id]
+    remove_ids = [row.id for row in remove]
+    removed_meta_ids = []
+    keep_meta_ids = []
+    detached_annotation_ids = []
+    if remove_ids or keep[0].created_at != FIXED_TIME:
+        meta_rows = (
+            await execute_core_read(
+                db,
+                select(prediction_meta_row.id, prediction_meta_row.prediction_id).where(
+                    prediction_meta_row.prediction_id.in_([*remove_ids, keep[0].id])
+                ),
             )
+        ).all()
+        removed_meta_ids = [
+            row.id for row in meta_rows if row.prediction_id in remove_ids
+        ]
+        keep_meta_ids = [row.id for row in meta_rows if row.prediction_id == keep[0].id]
+    if remove_ids:
+        detached_annotation_ids = list(
+            (
+                await execute_core_read(
+                    db,
+                    select(annotation_row.id).where(
+                        annotation_row.parent_prediction_id.in_(remove_ids)
+                    ),
+                )
+            ).scalars()
         )
-        await db.execute(delete(Prediction).where(Prediction.id.in_(prediction_ids)))
-
     task_ids = [task.id for task in tasks.values()]
     unmanaged_count = await db.scalar(
         select(func.count())
-        .select_from(Prediction)
+        .select_from(prediction_row)
         .where(
-            Prediction.task_id.in_(task_ids),
-            or_(
-                Prediction.model_version.is_(None),
-                Prediction.model_version != model_version,
-            ),
+            prediction_row.task_id.in_(task_ids),
+            prediction_row.model_version.is_distinct_from(model_version),
         )
     )
     if unmanaged_count:
         raise ScreenshotSeedReconcileError(
             "image_demo contains non-seed predictions; rerun with --repair"
         )
-    prediction = keep[0]
-    if prediction.created_at != FIXED_TIME:
-        # created_at is a partition key referenced by PredictionMeta. Move this
-        # owned fixture within the same transaction, temporarily clearing the
-        # nullable FK component, then restoring it without losing import metadata.
-        await db.execute(
-            update(PredictionMeta)
-            .where(PredictionMeta.prediction_id == prediction.id)
-            .values(prediction_created_at=None)
+    await screenshot_operations_command(
+        db,
+        ReconcileSeedPredictions(
+            schema=SCREENSHOT_OPERATIONS_PROTOCOL,
+            operation="reconcile_seed_predictions",
+            project_id=project.id,
+            task_ids=tuple(task_ids),
+            predicted_task_id=predicted_task.id,
+            keep_prediction_id=keep[0].id,
+            remove_prediction_ids=tuple(sorted(remove_ids, key=str)),
+            model_version=model_version,
+            fixed_time=FIXED_TIME,
+        ),
+    )
+    for row in remove:
+        cached = db.identity_map.get(
+            identity_key(Prediction, ident=(row.id, row.created_at))
         )
-        prediction.created_at = FIXED_TIME
-        await db.flush()
-        await db.execute(
-            update(PredictionMeta)
-            .where(PredictionMeta.prediction_id == prediction.id)
-            .values(prediction_created_at=FIXED_TIME, created_at=FIXED_TIME)
+        if cached is not None:
+            db.expunge(cached)
+    for meta_id in removed_meta_ids:
+        cached = db.identity_map.get(identity_key(PredictionMeta, ident=meta_id))
+        if cached is not None:
+            db.expunge(cached)
+    for annotation_id in detached_annotation_ids:
+        cached_annotation = db.identity_map.get(
+            identity_key(Annotation, ident=annotation_id)
         )
+        if cached_annotation is not None:
+            set_committed_value(cached_annotation, "parent_prediction_id", None)
+    if keep[0].created_at != FIXED_TIME:
+        cached = db.identity_map.get(
+            identity_key(Prediction, ident=(keep[0].id, keep[0].created_at))
+        )
+        if cached is not None:
+            db.expunge(cached)
+            make_transient(cached)
+            set_committed_value(cached, "created_at", FIXED_TIME)
+            make_transient_to_detached(cached)
+            db.add(cached)
+        for meta_id in keep_meta_ids:
+            cached_meta = db.identity_map.get(
+                identity_key(PredictionMeta, ident=meta_id)
+            )
+            if cached_meta is not None:
+                set_committed_value(cached_meta, "prediction_created_at", FIXED_TIME)
+                set_committed_value(cached_meta, "created_at", FIXED_TIME)
     for key, task in tasks.items():
-        task.total_predictions = 1 if key == "predicted" else 0
+        set_committed_value(task, "total_predictions", 1 if key == "predicted" else 0)
 
 
 async def _reconcile_annotations(
@@ -731,7 +870,9 @@ async def _reconcile_annotations(
     task_ids = [task.id for task in tasks.values()]
     existing = list(
         (
-            await db.execute(select(Annotation).where(Annotation.task_id.in_(task_ids)))
+            await execute_core_read(
+                db, select(annotation_row).where(annotation_row.task_id.in_(task_ids))
+            )
         ).scalars()
     )
     unmanaged = [
@@ -744,91 +885,192 @@ async def _reconcile_annotations(
             "image_demo contains non-seed annotations; rerun with --repair"
         )
     by_id = {annotation.id: annotation for annotation in existing}
+    annotation_requests = []
     for index, (key, annotation_id) in enumerate(managed_ids.items()):
         task = tasks[key]
         annotation = by_id.get(annotation_id)
-        if annotation is None:
-            annotation = Annotation(id=annotation_id)
-            db.add(annotation)
-        annotation.task_id = task.id
-        annotation.project_id = project.id
-        annotation.user_id = users["annotator"]
-        annotation.source = "manual"
-        annotation.annotation_type = "bbox"
-        annotation.tool_unit_id = "bbox"
-        annotation.class_name = "car"
-        annotation.geometry = {
-            "type": "bbox",
-            "x": 0.18 + index * 0.05,
-            "y": 0.45,
-            "w": 0.24,
-            "h": 0.2,
-        }
-        annotation.attributes = {"seed_managed_by": SEED_MANAGED_BY}
-        annotation.is_active = True
-        annotation.was_cancelled = False
-        annotation.ground_truth = key == "completed"
-        annotation.created_at = FIXED_TIME + timedelta(hours=3 + index)
-        annotation.updated_at = annotation.created_at
+        annotation_requests.append(
+            SeedAnnotation(
+                id=annotation_id,
+                task_id=task.id,
+                user_id=users["annotator"],
+                geometry={
+                    "type": "bbox",
+                    "x": 0.18 + index * 0.05,
+                    "y": 0.45,
+                    "w": 0.24,
+                    "h": 0.2,
+                },
+                ground_truth=key == "completed",
+                created_at=FIXED_TIME + timedelta(hours=3 + index),
+            )
+        )
 
+    task_evidence = []
     for key, task in tasks.items():
         has_annotation = key in managed_ids
-        task.total_annotations = 1 if has_annotation else 0
-        task.is_labeled = has_annotation
-        # Every surviving annotation was reconciled above to its declared author;
-        # this complete owned fixture is not a legacy task with unknown history.
-        task.annotation_contributor_ids = (
-            [str(users["annotator"])] if has_annotation else []
-        )
+        annotation_contributors = (str(users["annotator"]),) if has_annotation else ()
         if task.status in {"review", "completed"}:
-            task.review_round_id = uuid.uuid5(task.id, "screenshot-review-round")
-            freeze_review_contributor_evidence(task, submitter_id=users["annotator"])
+            review_round_id = uuid.uuid5(task.id, "screenshot-review-round")
+            review_contributors = annotation_contributors
+            review_submitter = users["annotator"]
         else:
-            task.review_round_id = None
-            clear_review_contributor_evidence(task)
+            review_round_id = None
+            review_contributors = None
+            review_submitter = None
+        task_evidence.append(
+            SeedTaskEvidence(
+                task_id=task.id,
+                status=task.status,
+                review_round_id=review_round_id,
+                annotation_contributor_ids=annotation_contributors,
+                review_contributor_ids=review_contributors,
+                review_submitter_id=review_submitter,
+            )
+        )
+
+    await screenshot_operations_command(
+        db,
+        ReconcileSeedAnnotations(
+            schema=SCREENSHOT_OPERATIONS_PROTOCOL,
+            operation="reconcile_seed_annotations",
+            project_id=project.id,
+            annotations=tuple(annotation_requests),
+            tasks=tuple(task_evidence),
+            annotator_id=users["annotator"],
+            fixed_time=FIXED_TIME,
+        ),
+    )
+    for annotation_request in annotation_requests:
+        annotation = by_id.get(annotation_request.id)
+        if annotation is None:
+            continue
+        set_committed_value(annotation, "task_id", annotation_request.task_id)
+        set_committed_value(annotation, "project_id", project.id)
+        set_committed_value(annotation, "user_id", annotation_request.user_id)
+        set_committed_value(annotation, "source", "manual")
+        set_committed_value(annotation, "annotation_type", "bbox")
+        set_committed_value(annotation, "tool_unit_id", "bbox")
+        set_committed_value(annotation, "class_name", "car")
+        set_committed_value(annotation, "geometry", annotation_request.geometry)
+        set_committed_value(
+            annotation, "attributes", {"seed_managed_by": SEED_MANAGED_BY}
+        )
+        set_committed_value(annotation, "is_active", True)
+        set_committed_value(annotation, "was_cancelled", False)
+        set_committed_value(annotation, "ground_truth", annotation_request.ground_truth)
+        set_committed_value(annotation, "created_at", annotation_request.created_at)
+        set_committed_value(annotation, "updated_at", annotation_request.created_at)
+    evidence_by_id = {evidence.task_id: evidence for evidence in task_evidence}
+    for task in tasks.values():
+        has_annotation = task.id in {item.task_id for item in annotation_requests}
+        evidence = evidence_by_id[task.id]
+        set_committed_value(task, "total_annotations", int(has_annotation))
+        set_committed_value(task, "is_labeled", has_annotation)
+        set_committed_value(
+            task,
+            "annotation_contributor_ids",
+            list(evidence.annotation_contributor_ids or ()),
+        )
+        set_committed_value(task, "review_round_id", evidence.review_round_id)
+        set_committed_value(
+            task,
+            "review_contributor_ids",
+            list(evidence.review_contributor_ids)
+            if evidence.review_contributor_ids is not None
+            else None,
+        )
+        set_committed_value(task, "review_submitter_id", evidence.review_submitter_id)
 
 
-def _set_task_state(tasks: dict[str, Task], users: dict[str, uuid.UUID]) -> None:
+async def _set_task_state(
+    db: AsyncSession,
+    project: Project,
+    tasks: dict[str, Task],
+    users: dict[str, uuid.UUID],
+) -> None:
     specs = PROJECT_SPECS["image_demo"].tasks
+    states = []
     for index, task_spec in enumerate(specs):
         task = tasks[task_spec.key]
         assigned_at = FIXED_TIME + timedelta(hours=1)
         submitted_at = FIXED_TIME + timedelta(hours=4)
         reviewed_at = FIXED_TIME + timedelta(hours=6)
-        task.sequence_order = index
-        task.status = task_spec.status
-        task.assignee_id = (
-            users[task_spec.assignee_key] if task_spec.assignee_key else None
+        assignee_id = users[task_spec.assignee_key] if task_spec.assignee_key else None
+        reviewer_id = users[task_spec.reviewer_key] if task_spec.reviewer_key else None
+        state = SeedTaskState(
+            task_id=task.id,
+            status=task_spec.status,
+            sequence_order=index,
+            assignee_id=assignee_id,
+            reviewer_id=reviewer_id,
+            assigned_at=assigned_at if assignee_id else None,
+            submitted_at=(
+                submitted_at if task_spec.status in {"review", "completed"} else None
+            ),
+            reviewer_claimed_at=(
+                submitted_at + timedelta(minutes=20)
+                if task_spec.key in {"review", "completed"}
+                else None
+            ),
+            reviewed_at=reviewed_at if task_spec.status == "completed" else None,
         )
-        task.reviewer_id = (
-            users[task_spec.reviewer_key] if task_spec.reviewer_key else None
-        )
-        task.assigned_at = assigned_at if task.assignee_id else None
-        task.submitted_at = (
-            submitted_at if task.status in {"review", "completed"} else None
-        )
-        task.reviewer_claimed_at = (
-            submitted_at + timedelta(minutes=20)
-            if task_spec.key in {"review", "completed"}
-            else None
-        )
-        task.reviewed_at = reviewed_at if task.status == "completed" else None
-        task.reject_reason = None
-        task.reject_reason_type = None
-        task.skip_reason = None
-        task.skipped_at = None
+        states.append(state)
+    await screenshot_operations_command(
+        db,
+        SetImageSeedTaskState(
+            schema=SCREENSHOT_OPERATIONS_PROTOCOL,
+            operation="set_image_seed_task_state",
+            project_id=project.id,
+            tasks=tuple(states),
+        ),
+    )
+    for state in states:
+        task = next(value for value in tasks.values() if value.id == state.task_id)
+        for field in (
+            "status",
+            "sequence_order",
+            "assignee_id",
+            "reviewer_id",
+            "assigned_at",
+            "submitted_at",
+            "reviewer_claimed_at",
+            "reviewed_at",
+        ):
+            set_committed_value(task, field, getattr(state, field))
+        for field in (
+            "reject_reason",
+            "reject_reason_type",
+            "skip_reason",
+            "skipped_at",
+        ):
+            set_committed_value(task, field, None)
 
 
-def _sync_counters(
-    project: Project, batches: dict[str, TaskBatch], tasks: dict[str, Task]
+async def _sync_counters(
+    db: AsyncSession,
+    project: Project,
+    batches: dict[str, TaskBatch],
+    tasks: dict[str, Task],
 ) -> None:
+    register_project_counter_projection(db, project.id)
+    batch_requests = []
+    batch_values = {}
     for key, batch in batches.items():
         batch_tasks = [task for task in tasks.values() if task.batch_id == batch.id]
-        batch.total_tasks = len(batch_tasks)
-        batch.completed_tasks = sum(task.status == "completed" for task in batch_tasks)
-        batch.review_tasks = sum(task.status == "review" for task in batch_tasks)
-        batch.approved_tasks = batch.completed_tasks if key == "completed" else 0
-        batch.rejected_tasks = 0
+        values = {
+            "total_tasks": len(batch_tasks),
+            "completed_tasks": sum(task.status == "completed" for task in batch_tasks),
+            "review_tasks": sum(task.status == "review" for task in batch_tasks),
+            "approved_tasks": (
+                sum(task.status == "completed" for task in batch_tasks)
+                if key == "completed"
+                else 0
+            ),
+            "rejected_tasks": 0,
+        }
+        batch_values[batch.id] = values
+        batch_requests.append(SeedBatchCounters(id=batch.id, batch_key=key))
     all_tasks = list(tasks.values())
     project.total_tasks = len(all_tasks)
     project.completed_tasks = sum(task.status == "completed" for task in all_tasks)
@@ -839,6 +1081,31 @@ def _sync_counters(
         "assigned": sum(batch.annotator_id is not None for batch in batches.values()),
         "in_review": sum(batch.status == "reviewing" for batch in batches.values()),
     }
+    await screenshot_operations_command(
+        db,
+        SyncSeedBatchCounters(
+            schema=SCREENSHOT_OPERATIONS_PROTOCOL,
+            operation="sync_seed_batch_counters",
+            project_id=project.id,
+            task_ids=tuple(task.id for task in tasks.values()),
+            batches=tuple(batch_requests),
+        ),
+    )
+    for batch_id, values in batch_values.items():
+        batch = next(value for value in batches.values() if value.id == batch_id)
+        for field, value in values.items():
+            set_committed_value(batch, field, value)
+    updated_rows = (
+        await execute_core_read(
+            db,
+            select(batch_row.id, batch_row.updated_at).where(
+                batch_row.id.in_([batch.id for batch in batches.values()])
+            ),
+        )
+    ).all()
+    updated_by_id = {row.id: row.updated_at for row in updated_rows}
+    for batch in batches.values():
+        set_committed_value(batch, "updated_at", updated_by_id[batch.id])
 
 
 def _task_display_id(logical_key: str, index: int) -> str:
@@ -849,28 +1116,53 @@ def _task_display_id(logical_key: str, index: int) -> str:
 async def _pin_screenshot_timestamps(
     db: AsyncSession,
     resources: dict[str, tuple[Project, Dataset, dict[str, Task]]],
+    membership_writes: SeedMembershipWrites | None = None,
 ) -> None:
     # Flush counters, annotations and backend changes before explicit updates;
     # an ORM assignment before autoflush can be overwritten by onupdate=now().
-    await db.flush()
+    if membership_writes is None:
+        await db.flush()
+    else:
+        await membership_writes.flush()
     for logical_key, (project, dataset, tasks) in resources.items():
-        for model, resource in ((Project, project), (Dataset, dataset)):
-            await db.execute(
-                update(model)
-                .where(model.id == resource.id)
-                .values(created_at=FIXED_TIME, updated_at=FIXED_TIME)
-            )
+        await pin_seed_project_timestamps(
+            db, project, created_at=FIXED_TIME, updated_at=FIXED_TIME
+        )
+        await db.execute(
+            update(Dataset)
+            .where(Dataset.id == dataset.id)
+            .values(created_at=FIXED_TIME, updated_at=FIXED_TIME)
+        )
+        task_timestamps = []
         for index, task_spec in enumerate(PROJECT_SPECS[logical_key].tasks):
             task = tasks[task_spec.key]
             created_at = FIXED_TIME + timedelta(minutes=index)
             updated_at = (
                 task.reviewed_at or task.submitted_at or task.assigned_at or created_at
             )
-            await db.execute(
-                update(Task)
-                .where(Task.id == task.id)
-                .values(created_at=created_at, updated_at=updated_at)
+            task_timestamps.append(
+                SeedTaskTimestamp(
+                    project_id=project.id,
+                    project_display_id=PROJECT_SPECS[logical_key].display_id,
+                    task_id=task.id,
+                    created_at=created_at,
+                    updated_at=updated_at,
+                )
             )
+        await screenshot_operations_command(
+            db,
+            PinSeedTaskTimestamps(
+                schema=SCREENSHOT_OPERATIONS_PROTOCOL,
+                operation="pin_seed_task_timestamps",
+                tasks=tuple(task_timestamps),
+            ),
+        )
+        for timestamp in task_timestamps:
+            task = next(
+                value for value in tasks.values() if value.id == timestamp.task_id
+            )
+            set_committed_value(task, "created_at", timestamp.created_at)
+            set_committed_value(task, "updated_at", timestamp.updated_at)
 
 
 async def finalize_screenshot_seed_timestamps(
@@ -1112,8 +1404,11 @@ async def reconcile_screenshot_seed(
         for logical_key, (_, _, tasks) in resources.items()
         for index, task_spec in enumerate(PROJECT_SPECS[logical_key].tasks)
     }
-    collisions = await db.execute(
-        select(Task.id, Task.display_id).where(Task.display_id.in_(expected_task_ids))
+    collisions = await execute_core_read(
+        db,
+        select(task_row.id, task_row.display_id).where(
+            task_row.display_id.in_(expected_task_ids)
+        ),
     )
     for task_id, display_id in collisions:
         if expected_task_ids[display_id] != task_id:
@@ -1123,6 +1418,7 @@ async def reconcile_screenshot_seed(
 
     axis_updates: list[tuple[uuid.UUID, str]] = []
     for logical_key, (project, dataset, tasks) in resources.items():
+        register_seed_project_projection(db, project.id)
         project_state = PROJECT_STATE[logical_key]
         dataset_state = DATASET_STATE[logical_key]
         for field in (
@@ -1156,26 +1452,52 @@ async def reconcile_screenshot_seed(
             )
             or 0
         )
+        reset_tasks = []
         for index, task_spec in enumerate(PROJECT_SPECS[logical_key].tasks):
             task = tasks[task_spec.key]
-            task.display_id = _task_display_id(logical_key, index)
-            task.sequence_order = index
-            task.status = task_spec.status
-            task.assignee_id = None
-            task.reviewer_id = None
-            task.batch_id = None
-            task.assigned_at = None
-            task.submitted_at = None
-            task.reviewer_claimed_at = None
-            task.reviewed_at = None
-            task.reject_reason = None
-            task.reject_reason_type = None
-            task.skip_reason = None
-            task.skipped_at = None
-            task.total_annotations = 0
-            task.total_predictions = 0
-            task.is_labeled = False
+            reset_tasks.append(
+                SeedTaskReset(
+                    id=task.id,
+                    file_path=task_spec.file_path,
+                    display_id=_task_display_id(logical_key, index),
+                    sequence_order=index,
+                    status=task_spec.status,
+                )
+            )
+        await screenshot_operations_command(
+            db,
+            ResetSeedTasks(
+                schema=SCREENSHOT_OPERATIONS_PROTOCOL,
+                operation="reset_seed_tasks",
+                project_id=project.id,
+                project_display_id=PROJECT_SPECS[logical_key].display_id,
+                tasks=tuple(reset_tasks),
+            ),
+        )
+        for reset in reset_tasks:
+            task = next(value for value in tasks.values() if value.id == reset.id)
+            for field, value in {
+                "display_id": reset.display_id,
+                "sequence_order": reset.sequence_order,
+                "status": reset.status,
+                "assignee_id": None,
+                "reviewer_id": None,
+                "batch_id": None,
+                "assigned_at": None,
+                "submitted_at": None,
+                "reviewer_claimed_at": None,
+                "reviewed_at": None,
+                "reject_reason": None,
+                "reject_reason_type": None,
+                "skip_reason": None,
+                "skipped_at": None,
+                "total_annotations": 0,
+                "total_predictions": 0,
+                "is_labeled": False,
+            }.items():
+                set_committed_value(task, field, value)
         if logical_key != "image_demo":
+            register_project_counter_projection(db, project.id)
             project.total_tasks = len(tasks)
             project.completed_tasks = 0
             project.review_tasks = 0
@@ -1183,15 +1505,16 @@ async def reconcile_screenshot_seed(
             project.batch_summary = {}
 
     image_project, image_dataset, image_tasks = resources["image_demo"]
-    await _reconcile_members(db, image_project, users)
+    membership_writes = await _reconcile_members(db, image_project, users)
+    await membership_writes.flush_before_read()
     image_batches = await _reconcile_batches(
-        db, image_project, image_dataset, image_tasks, users
+        db, image_project, image_dataset, image_tasks, users, membership_writes
     )
-    _set_task_state(image_tasks, users)
+    await _set_task_state(db, image_project, image_tasks, users)
     await _reconcile_predictions(db, image_project, image_tasks)
     await _reconcile_annotations(db, image_project, image_tasks, users)
-    _sync_counters(image_project, image_batches, image_tasks)
-    await _pin_screenshot_timestamps(db, resources)
+    await _sync_counters(db, image_project, image_batches, image_tasks)
+    await _pin_screenshot_timestamps(db, resources, membership_writes)
     await db.flush()
     spatial = AssetsSpatialGateway(db)
     for dataset_id, axis_convention in axis_updates:

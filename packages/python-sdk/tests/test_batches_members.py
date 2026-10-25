@@ -1,5 +1,6 @@
 import json
 import uuid
+from pathlib import Path
 from uuid import uuid4
 
 import httpx
@@ -15,12 +16,27 @@ from ai_annotation.models import (
     Me,
     Member,
     ProjectMemberRolePreview,
+    UserBrief,
 )
 
 from .conftest import API
 
 PID = str(uuid4())
 BID = str(uuid4())
+
+
+@pytest.mark.parametrize("scope", ["global", "project"])
+def test_user_briefs_accept_actual_legacy_serialization(scope):
+    captured = json.loads(
+        (Path(__file__).parent / "fixtures/user_briefs_legacy.json").read_text()
+    )
+    briefs = captured[scope]
+    for key, payload in briefs.items():
+        brief = UserBrief.model_validate(payload)
+        assert str(brief.id) == key
+        assert brief.model_dump(mode="json") == payload
+    assert any(brief["avatar_initial"] == "SS" for brief in briefs.values())
+    assert any(brief["avatar_initial"] == "?" for brief in briefs.values())
 
 
 def _batch(**extra) -> dict:
@@ -353,6 +369,21 @@ def test_list_members(client, respx_mock):
     assert members[0].user_name == "张三"
     assert members[0].role == "annotator"
     assert members[0].platform_role == "employee"
+
+
+def test_list_members_accepts_captured_legacy_serialization(client, respx_mock):
+    captured = json.loads(
+        (
+            Path(__file__).parent / "fixtures/project_member_profiles_legacy.json"
+        ).read_text()
+    )["list_response"]
+    respx_mock.get(f"{API}/projects/{PID}/members").mock(
+        return_value=httpx.Response(200, json=captured)
+    )
+    members = client.members.list(PID)
+    assert [str(item.id) for item in members] == [item["id"] for item in captured]
+    for actual, expected in zip(members, captured, strict=True):
+        assert actual.model_dump(mode="json") == expected
 
 
 def test_add_and_remove_member(client, respx_mock):

@@ -208,7 +208,7 @@ async def test_scene_timeline_hides_cross_batch_task_details(
         assigned_by=admin.id,
     )
     other_anno = await create_user(
-        db_session, "annotator", f"other-{uuid.uuid4().hex[:6]}@test.local", "Other"
+        db_session, "employee", f"other-{uuid.uuid4().hex[:6]}@test.local", "Other"
     )
     mine = await create_batch(db_session, project_id=project.id, status="active")
     mine.annotator_id = anno.id

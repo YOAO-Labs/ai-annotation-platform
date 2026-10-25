@@ -22,6 +22,16 @@ def _task() -> SimpleNamespace:
     return SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
 
 
+def _db(annotation) -> SimpleNamespace:
+    return SimpleNamespace(
+        identity_map={},
+        autoflush=False,
+        execute=AsyncMock(
+            return_value=SimpleNamespace(scalar_one_or_none=lambda: annotation)
+        ),
+    )
+
+
 def _annotation(task: SimpleNamespace) -> SimpleNamespace:
     return SimpleNamespace(
         id=uuid.uuid4(),
@@ -43,7 +53,7 @@ async def test_resolver_replaces_authorized_locator_without_exposing_object_key(
 ) -> None:
     task = _task()
     annotation = _annotation(task)
-    db = SimpleNamespace(get=AsyncMock(return_value=annotation))
+    db = _db(annotation)
     validate = AsyncMock()
     load = AsyncMock(return_value=RLE)
     monkeypatch.setattr(
@@ -69,6 +79,7 @@ async def test_resolver_replaces_authorized_locator_without_exposing_object_key(
     assert prepared["mask_prompt"]["rle"] == RLE
     assert prepared["mask_prompt"]["source_annotation_id"] == str(annotation.id)
     assert "object_key" not in prepared["mask_prompt"]
+    assert "aap_labeling_v1.annotation_rows" in str(db.execute.await_args.args[0])
     validate.assert_awaited_once()
     load.assert_awaited_once()
 
@@ -89,7 +100,7 @@ async def test_resolver_rejects_cross_task_and_stale_sources() -> None:
     task = _task()
     annotation = _annotation(task)
     annotation.task_id = uuid.uuid4()
-    db = SimpleNamespace(get=AsyncMock(return_value=annotation))
+    db = _db(annotation)
     locator = {
         "mask_prompt_source": {
             "annotation_id": str(annotation.id),
@@ -124,7 +135,7 @@ async def test_resolver_maps_storage_failure_without_leaking_content(
 ) -> None:
     task = _task()
     annotation = _annotation(task)
-    db = SimpleNamespace(get=AsyncMock(return_value=annotation))
+    db = _db(annotation)
     monkeypatch.setattr(
         "app.services.ai_mask_prompt.validate_mask_geometry_for_task",
         AsyncMock(),

@@ -83,6 +83,46 @@ class IdentityTests(unittest.TestCase):
 
 
 class EnvironmentTests(unittest.TestCase):
+    def test_every_identity_settings_database_selector_is_overridden(self):
+        import ast
+        from worktree_env import isolated_environment, load_identity, topology
+
+        source = Path(__file__).resolve().parents[1] / "apps/api/app/config.py"
+        settings = next(
+            node
+            for node in ast.parse(source.read_text()).body
+            if isinstance(node, ast.ClassDef) and node.name == "Settings"
+        )
+        selectors = {
+            node.target.id.upper()
+            for node in settings.body
+            if isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id.startswith(("identity_", "notification_publish_"))
+            and node.target.id.endswith(("database_url", "database_url_file"))
+        }
+        self.assertGreater(len(selectors), 30)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            resources = topology(root, load_identity(root, create=True), "test")
+            inherited = {
+                key: "shared-owner-secret"
+                for name in selectors
+                for key in (name, name.lower())
+            }
+            env = isolated_environment(
+                resources,
+                database_url="postgresql+asyncpg://runtime:fixture@localhost:5432/db",
+                migration_database_url="postgresql+asyncpg://owner:fixture@localhost:5432/db",
+                minio_endpoint="localhost:9000",
+                redis_port=6391,
+                inherited=inherited,
+            )
+            for name in selectors:
+                self.assertEqual(env.get(name), "", name)
+                self.assertNotIn(name.lower(), env)
+            self.assertNotIn("shared-owner-secret", env.values())
+
     def test_overrides_all_mutable_targets_without_changing_shared_settings(self):
         import worktree_env
 
@@ -101,6 +141,30 @@ class EnvironmentTests(unittest.TestCase):
                 "ASSETS_MASK_CONTENT_URL": "http://shared-content.test",
                 "LABELING_MASK_GC_URL": "http://shared-labeling.test",
                 "LABELING_MASK_GC_TOKEN": "shared-test-token",
+                "identity_url": "http://shared-identity.test",
+                "IDENTITY_TOKEN": "shared-identity-token",
+                "notification_socket_url": "ws://shared-notifications.test:8180",
+                "notification_publication_url": "http://shared-publisher.test:8181",
+                "notification_publication_token": "shared-publication-token",
+                "notification_publication_token_file": "/shared/publication-token",
+                "IDENTITY_AUTH_DATABASE_URL": "postgresql://shared/identity",
+                "IDENTITY_AUTH_DATABASE_URL_FILE": "/shared/identity-dsn",
+                "IDENTITY_KEY_DATABASE_URL": "postgresql://shared/key-commands",
+                "IDENTITY_KEY_DATABASE_URL_FILE": "/shared/key-dsn",
+                "IDENTITY_SESSION_DATABASE_URL": "postgresql://shared/sessions",
+                "IDENTITY_SESSION_DATABASE_URL_FILE": "/shared/session-dsn",
+                "IDENTITY_ACCOUNT_DATABASE_URL": "postgresql://shared/accounts",
+                "IDENTITY_ACCOUNT_DATABASE_URL_FILE": "/shared/account-dsn",
+                "IDENTITY_PRESENCE_DATABASE_URL": "postgresql://shared/presence",
+                "IDENTITY_PRESENCE_DATABASE_URL_FILE": "/shared/presence-dsn",
+                "IDENTITY_RECOVERY_DATABASE_URL": "postgresql://shared/recovery",
+                "IDENTITY_RECOVERY_DATABASE_URL_FILE": "/shared/recovery-dsn",
+                "IDENTITY_RECOVERY_MAIL_KEY": "shared-mail-key",
+                "IDENTITY_RECOVERY_MAIL_KEY_FILE": "/shared/mail-key",
+                "IDENTITY_MAIL_DATABASE_URL": "postgresql://shared/mail",
+                "IDENTITY_MAIL_DATABASE_URL_FILE": "/shared/mail-dsn",
+                "IDENTITY_MAIL_SETTINGS_DATABASE_URL": "postgresql://shared/mail-settings",
+                "IDENTITY_MAIL_SETTINGS_DATABASE_URL_FILE": "/shared/mail-settings-dsn",
                 "DUCKDB_PATH": "/shared/analytics.duckdb",
                 "MINIO_PUBLIC_URL": "http://localhost:9000",
                 "MINIO_PROXY_TARGET": "http://shared:9000",
@@ -136,6 +200,14 @@ class EnvironmentTests(unittest.TestCase):
             self.assertTrue(env["DUCKDB_PATH"].startswith(resources["directory"]))
             self.assertEqual(env["ML_BACKEND_OBSERVE_URLS"], "[]")
             self.assertNotIn("assets_mask_cleanup_url", env)
+            self.assertNotIn("identity_url", env)
+            self.assertNotIn("notification_socket_url", env)
+            for key in (
+                "notification_publication_url",
+                "notification_publication_token",
+                "notification_publication_token_file",
+            ):
+                self.assertNotIn(key, env)
             for key in (
                 "ASSETS_MASK_CONTENT_URL",
                 "ASSETS_MASK_CONTENT_TOKEN",
@@ -143,6 +215,30 @@ class EnvironmentTests(unittest.TestCase):
                 "ASSETS_MASK_CLEANUP_TOKEN",
                 "LABELING_MASK_GC_URL",
                 "LABELING_MASK_GC_TOKEN",
+                "IDENTITY_URL",
+                "IDENTITY_TOKEN",
+                "NOTIFICATION_SOCKET_URL",
+                "NOTIFICATION_PUBLICATION_URL",
+                "NOTIFICATION_PUBLICATION_TOKEN",
+                "NOTIFICATION_PUBLICATION_TOKEN_FILE",
+                "IDENTITY_AUTH_DATABASE_URL",
+                "IDENTITY_AUTH_DATABASE_URL_FILE",
+                "IDENTITY_KEY_DATABASE_URL",
+                "IDENTITY_KEY_DATABASE_URL_FILE",
+                "IDENTITY_SESSION_DATABASE_URL",
+                "IDENTITY_SESSION_DATABASE_URL_FILE",
+                "IDENTITY_ACCOUNT_DATABASE_URL",
+                "IDENTITY_ACCOUNT_DATABASE_URL_FILE",
+                "IDENTITY_PRESENCE_DATABASE_URL",
+                "IDENTITY_PRESENCE_DATABASE_URL_FILE",
+                "IDENTITY_RECOVERY_DATABASE_URL",
+                "IDENTITY_RECOVERY_DATABASE_URL_FILE",
+                "IDENTITY_RECOVERY_MAIL_KEY",
+                "IDENTITY_RECOVERY_MAIL_KEY_FILE",
+                "IDENTITY_MAIL_DATABASE_URL",
+                "IDENTITY_MAIL_DATABASE_URL_FILE",
+                "IDENTITY_MAIL_SETTINGS_DATABASE_URL",
+                "IDENTITY_MAIL_SETTINGS_DATABASE_URL_FILE",
             ):
                 self.assertEqual(env[key], "")
             self.assertEqual(env["PATH"], "/bin")

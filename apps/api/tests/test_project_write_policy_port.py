@@ -15,7 +15,7 @@ from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.user import User
 from app.services import predictions_import, project_access, project_write_guard
-from app.services.workspace_contract import (
+from aap_workspace_contract.access import (
     ProjectAccess,
     ProjectWritePolicyFailure,
     ProjectWritePolicyRequest,

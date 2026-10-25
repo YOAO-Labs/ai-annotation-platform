@@ -138,7 +138,8 @@ async def test_create_ml_backend_activates_singleton_pool(
     )
     assert pool is not None
     assert pool.enabled is True
-    assert pool.routing_generation == 2
+    # Pool activation and the project-binding trigger each advance the fence.
+    assert pool.routing_generation == 3
 
 
 async def test_project_out_drops_ml_backend_limit(

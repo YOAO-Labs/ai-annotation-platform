@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -97,6 +98,13 @@ async def test_normalize_externalizes_inline_and_native_masks_once(monkeypatch):
         async def get(self, model, identity, **_kwargs):
             lookups.append((model.__name__, identity))
             return task if model.__name__ == "Task" else project
+
+    async def read_project(_db, *, project_id, populate_existing):
+        assert project_id == request.project_id and populate_existing
+        lookups.append(("Project", project_id))
+        return project
+
+    monkeypatch.setattr(batch_result_masks, "get_workspace_project", read_project)
 
     async def validate_geometry(_db, checked_task, geometry):
         geometry_checks.append((checked_task, geometry))
@@ -202,6 +210,10 @@ async def test_normalize_propagates_content_fence_without_mutating_or_committing
     )
     task = SimpleNamespace(id=request.task_id, project_id=request.project_id)
     project = SimpleNamespace(id=request.project_id)
+
+    monkeypatch.setattr(
+        batch_result_masks, "get_workspace_project", AsyncMock(return_value=project)
+    )
 
     class Session:
         async def get(self, model, *_args, **_kwargs):

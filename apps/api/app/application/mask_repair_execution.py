@@ -5,13 +5,16 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from aap_inference import extract_capabilities
 from aap_protocol_v2 import MAX_MASK_RESPONSE_BYTES
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.annotation import Annotation
-from app.db.models.dataset import DatasetItem
-from app.db.models.mask_repair_batch import MaskRepairBatch
-from app.db.models.task import Task
+from app.services.assets_media_summary import AssetsTaskMediaSummaryReader
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    get_core_row,
+    task_row,
+)
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.identity_contracts import IdentityActorStatus
 from app.schemas.video_tracker_job import VideoMaskCorrectionRequest
@@ -23,6 +26,7 @@ from app.services.mask_repair import (
     fail_repair_rollback,
     finish_repair_execution,
     finish_repair_rollback,
+    load_repair_batch,
     record_repair_candidate,
     record_repair_shard_failure,
     rollback_repair_shard,
@@ -30,8 +34,8 @@ from app.services.mask_repair import (
     store_repair_result_rle,
 )
 from app.services.ml_backend import MLBackendService
-from app.services.ml_capabilities import extract_capabilities
 from app.services.ml_client import MLBackendClient
+from app.services.inference_limits import capability_limits_from_settings
 from app.services.ml_interaction_proxy import (
     normalize_native_mask_response,
     prepare_interactive_context,
@@ -61,8 +65,10 @@ async def _run_sam_candidate(
     job_id: uuid.UUID,
     dispatch_context_factory,
 ) -> dict[str, Any]:
-    task = await db.get(Task, uuid.UUID(str(item["task_id"])))
-    annotation = await db.get(Annotation, uuid.UUID(str(item["annotation_id"])))
+    task = await get_core_row(db, task_row, uuid.UUID(str(item["task_id"])))
+    annotation = await get_core_row(
+        db, annotation_row, uuid.UUID(str(item["annotation_id"]))
+    )
     if task is None or annotation is None or not annotation.is_active:
         raise RuntimeError("candidate_source_missing")
     from app.services.labeling_write_scope import capture_labeling_write_scope
@@ -97,18 +103,18 @@ async def _run_sam_candidate(
             "output_geometry": "mask",
             **({"model_id": action["model_id"]} if action.get("model_id") else {}),
         },
-        extract_capabilities(setup),
+        extract_capabilities(setup, limits=capability_limits_from_settings()),
         task_id=str(task.id),
         requested_backend_id=str(backend_id),
     )
-    dataset_item = (
-        await db.get(DatasetItem, task.dataset_item_id)
+    media_summary = (
+        await AssetsTaskMediaSummaryReader(db).one(task.dataset_item_id)
         if task.dataset_item_id is not None
         else None
     )
     expected_size = (
-        (int(dataset_item.width), int(dataset_item.height))
-        if dataset_item is not None and dataset_item.width and dataset_item.height
+        (int(media_summary[0]), int(media_summary[1]))
+        if media_summary is not None and media_summary[0] and media_summary[1]
         else None
     )
     client = RoutedMLBackendClient(
@@ -193,8 +199,10 @@ async def _run_tracker_candidate(
     actor: IdentityActorStatus,
     dispatcher: VideoTrackerJobDispatcher,
 ) -> dict[str, Any]:
-    task = await db.get(Task, uuid.UUID(str(item["task_id"])))
-    annotation = await db.get(Annotation, uuid.UUID(str(item["annotation_id"])))
+    task = await get_core_row(db, task_row, uuid.UUID(str(item["task_id"])))
+    annotation = await get_core_row(
+        db, annotation_row, uuid.UUID(str(item["annotation_id"]))
+    )
     if task is None or annotation is None or not annotation.is_active:
         raise RuntimeError("candidate_source_missing")
     if int(annotation.version or 1) != int(item["source_version"]):
@@ -286,7 +294,7 @@ async def run_mask_repair(
             ):
                 await db.commit()
                 return
-            batch = await db.get(MaskRepairBatch, repair_id)
+            batch = await load_repair_batch(db, batch_id=repair_id)
             if batch is None:
                 raise RuntimeError("mask repair batch disappeared")
             if batch.async_job_id != async_job_id:
@@ -348,7 +356,7 @@ async def run_mask_repair(
             ):
                 await db.commit()
                 return
-            batch = await db.get(MaskRepairBatch, repair_id)
+            batch = await load_repair_batch(db, batch_id=repair_id)
             if batch is None:
                 raise RuntimeError("mask repair batch disappeared")
             if batch.async_job_id != async_job_id:
@@ -451,7 +459,7 @@ async def run_mask_repair_rollback(
     rollback_job_id: uuid.UUID | None = None
     try:
         async with session_factory() as db:
-            batch = await db.get(MaskRepairBatch, repair_id)
+            batch = await load_repair_batch(db, batch_id=repair_id)
             rollback_job_id = batch.rollback_async_job_id if batch is not None else None
             rollback_state = await begin_repair_rollback(
                 db,
@@ -465,7 +473,7 @@ async def run_mask_repair_rollback(
         for shard_id, shard_result in reversed(completed_shards):
             failed_shard_id = shard_id
             async with session_factory() as db:
-                batch = await db.get(MaskRepairBatch, repair_id)
+                batch = await load_repair_batch(db, batch_id=repair_id)
                 actor = (
                     await IdentityAccountLockData(db).read_actor_status(
                         batch.requested_by_id

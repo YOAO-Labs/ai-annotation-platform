@@ -3,7 +3,7 @@ audience: [dev, ops]
 type: reference
 since: v0.9.0
 status: stable
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-21
 ---
 
 # ML Backend
@@ -46,13 +46,15 @@ URL 校验拒绝 host 精确为 `localhost / 127.0.0.1 / 0.0.0.0 / ::1`（[ADR 0
 
 删除不会把未知运行态当作空闲。若仍有运行中的预测任务、未完成 GPU retirement，或无法证明成员处于 `ML_BACKEND_ROUTER_MODE=enforce`、`draining` 且新鲜路由账本中的 exact `inflight=0`，接口返回 409/503 并保留记录。满足门禁后才解除服务池成员关系和项目主绑定；历史预测按外键策略继续保留可追溯性。
 
+删除和成员移除会在写锁内重验安全检查时观察到的成员 ID、所属池、路由代次及接流状态。变化返回409，`detail.error_code=ml_backend_topology_changed`，须重新读取、drain 并重试。删除清理项目主绑定遇争用时返回409，`detail.reason=project_busy`，整个调用事务回滚。项目／模板配置等待池锁后若所选成员已离开该池，同样通过现有配置冲突返回409；不会继续启用旧池。
+
 ## 健康检查
 
 注册前可用 `/probe` 测试远端 `/health` 与 `/setup`，不会写数据库。请求的 `url` 必须是有效 HTTP(S) 地址，携带合法 host 与端口，不得包含内嵌凭据（用户名/密码）、查询参数（`?`）、fragment（`#`）或控制字符，否则返回 422；网络错误使用安全错误分类，不回显目标 URL 或令牌。注册后的 `/registry/:registry_id/health` 会刷新连接状态、能力快照和 singleton 服务池能力指纹；能力合同漂移时，相关成员会停止接流等待重新校验。远端暂时不可达不会阻断创建，但 registry 会显示错误状态。
 
 ## 项目启用与主后端
 
-每个项目从全局注册表勾选启用 backend，并设主后端。
+每个项目从全局注册表勾选启用 backend，并设主后端。项目启用在取得项目与服务池锁后重新核验成员归属和池资格；等待期间池被停用或成员被移走，返回409并要求刷新后重试。
 
 启用 / 覆盖（项目作用域）：
 

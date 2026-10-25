@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import uuid
 from contextlib import asynccontextmanager
 
@@ -113,6 +114,12 @@ async def _seed_cleanup_world(
 
 
 async def _drop_cleanup_world(maker, world: dict) -> None:
+    if os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") == "1":
+        from tests.labeling_class_query_helpers import assert_owned_test_database
+
+        await assert_owned_test_database(maker.kw["bind"])
+        # Retain immutable Audit rows and their actors until owned database disposal.
+        return
     async with maker() as cleanup:
         project_ids = [world["project_id"]]
         if world["foreign_project_id"] is not None:
@@ -272,14 +279,16 @@ async def test_cleanup_rejects_annotation_task_retarget_after_candidate_read(
 ):
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     world = await _seed_cleanup_world(maker, retarget=True)
-    import app.services.annotation as annotation_service
+    from app.services.labeling_annotation_maintenance import (
+        LabelingAnnotationMaintenanceService,
+    )
 
-    lock_rows = annotation_service._lock_schema_cleanup_rows
+    command = LabelingAnnotationMaintenanceService._command
     retargeted = False
 
-    async def retarget_at_task_lock(db, statement, *, reason):
+    async def retarget_at_cleanup_command(self, request):
         nonlocal retargeted
-        if reason == "task_busy" and not retargeted:
+        if request.operation == "cleanup_schema" and not retargeted:
             async with maker() as mover:
                 await mover.execute(
                     update(Annotation)
@@ -288,12 +297,12 @@ async def test_cleanup_rejects_annotation_task_retarget_after_candidate_read(
                 )
                 await mover.commit()
             retargeted = True
-        return await lock_rows(db, statement, reason=reason)
+        return await command(self, request)
 
     monkeypatch.setattr(
-        annotation_service,
-        "_lock_schema_cleanup_rows",
-        retarget_at_task_lock,
+        LabelingAnnotationMaintenanceService,
+        "_command",
+        retarget_at_cleanup_command,
     )
     try:
         async with _asgi_client_for_maker(app_module, maker) as client:
@@ -327,14 +336,16 @@ async def test_cleanup_rejects_task_project_retarget_after_candidate_read(
 ):
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     world = await _seed_cleanup_world(maker, foreign_project=True)
-    import app.services.annotation as annotation_service
+    from app.services.labeling_annotation_maintenance import (
+        LabelingAnnotationMaintenanceService,
+    )
 
-    lock_rows = annotation_service._lock_schema_cleanup_rows
+    command = LabelingAnnotationMaintenanceService._command
     retargeted = False
 
-    async def retarget_at_task_lock(db, statement, *, reason):
+    async def retarget_at_cleanup_command(self, request):
         nonlocal retargeted
-        if reason == "task_busy" and not retargeted:
+        if request.operation == "cleanup_schema" and not retargeted:
             async with maker() as mover:
                 await mover.execute(
                     update(Task)
@@ -343,12 +354,12 @@ async def test_cleanup_rejects_task_project_retarget_after_candidate_read(
                 )
                 await mover.commit()
             retargeted = True
-        return await lock_rows(db, statement, reason=reason)
+        return await command(self, request)
 
     monkeypatch.setattr(
-        annotation_service,
-        "_lock_schema_cleanup_rows",
-        retarget_at_task_lock,
+        LabelingAnnotationMaintenanceService,
+        "_command",
+        retarget_at_cleanup_command,
     )
     try:
         async with _asgi_client_for_maker(app_module, maker) as client:

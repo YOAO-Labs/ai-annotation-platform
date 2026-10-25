@@ -27,17 +27,27 @@ from app.deps import (
     require_scopes,
     require_active_task_actor,
 )
-from app.services.workspace_contract import (
+from aap_workspace_contract.access import (
     ProjectAccess,
     ProjectCapability,
 )
 from app.services.project_access import (
     assert_capability,
+    get_workspace_project,
     resolve_project_access,
 )
-from app.schemas.mask_qc import (
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    execute_core_read,
+    get_core_row,
+    lock_task_for_core_read,
+    task_row,
+)
+from aap_workspace.mask_configuration_values import (
     MASK_QC_RULE_CODES,
     MaskCompareBaseline,
+)
+from app.schemas.mask_qc import (
     MaskCompareOut,
     MaskQCIssueOut,
     MaskQCIssuePage,
@@ -65,6 +75,8 @@ from app.services.mask_qc.service import (
     dispatch_mask_qc_run,
     effective_issue_status,
     effective_issue_statuses,
+    load_mask_qc_issue,
+    load_mask_qc_issues,
     list_issues,
     task_qc_summary,
 )
@@ -79,6 +91,7 @@ from app.services.mask_repair import (
     record_repair_dispatch_task,
     request_repair_rollback,
     resume_repair_batch,
+    load_repair_batch,
 )
 from app.services.identity_contracts import IdentityActorFacts
 
@@ -101,7 +114,7 @@ async def _resolve_task_review_access(
     ``lock=True`` acquires the membership ``FOR SHARE`` for a write boundary.
     """
 
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, actor_id=None, project_id=task.project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
     access = await resolve_project_access(
@@ -113,14 +126,13 @@ async def _resolve_task_review_access(
 
 async def _lock_task_nowait(db: AsyncSession, task_id: uuid.UUID) -> Task:
     try:
-        task = (
-            await db.execute(
-                select(Task)
-                .where(Task.id == task_id)
-                .with_for_update(nowait=True)
-                .execution_options(populate_existing=True)
-            )
-        ).scalar_one_or_none()
+        task = await lock_task_for_core_read(
+            db,
+            task_id,
+            lock_mode="update",
+            nowait=True,
+            populate_existing=True,
+        )
     except DBAPIError as exc:
         if getattr(exc.orig, "sqlstate", None) in {"55P03", "40P01", "40001"}:
             raise HTTPException(
@@ -212,11 +224,12 @@ async def _assert_run_scope_visible(
         task_ids = set(request.task_ids)
     else:
         rows = (
-            await db.execute(
-                select(Annotation.id, Annotation.task_id).where(
-                    Annotation.project_id == project.id,
-                    Annotation.id.in_(request.annotation_ids),
-                )
+            await execute_core_read(
+                db,
+                select(annotation_row.id, annotation_row.task_id).where(
+                    annotation_row.project_id == project.id,
+                    annotation_row.id.in_(request.annotation_ids),
+                ),
             )
         ).all()
         if {row.id for row in rows} != set(request.annotation_ids):
@@ -225,11 +238,12 @@ async def _assert_run_scope_visible(
 
     rows = list(
         (
-            await db.execute(
-                select(Task).where(
-                    Task.project_id == project.id,
-                    Task.id.in_(task_ids),
-                )
+            await execute_core_read(
+                db,
+                select(task_row).where(
+                    task_row.project_id == project.id,
+                    task_row.id.in_(task_ids),
+                ),
             )
         ).scalars()
     )
@@ -254,6 +268,10 @@ async def create_run(
         require_project_capability(ProjectCapability.REVIEW_WRITE.value)
     ),
 ) -> MaskQCRunOut:
+    access = await resolve_project_access(
+        db, actor_id=current_user.id, project=project, lock_membership=True
+    )
+    assert_capability(access, ProjectCapability.REVIEW_WRITE.value)
     await _assert_run_scope_visible(
         db, project=project, user=current_user, access=access, request=body
     )
@@ -274,7 +292,6 @@ async def create_run(
             )
         except MaskQCError as exc:
             _raise_mask_qc_error(exc)
-    await db.refresh(run)
     return _run_out(run, reused=not created)
 
 
@@ -305,14 +322,16 @@ async def get_project_issues(
 
     allowed_task_ids: set[uuid.UUID] | None = None
     if task_id is not None:
-        task = await db.get(Task, task_id)
+        task = await get_core_row(db, task_row, task_id)
         if task is None or task.project_id != project.id:
             raise HTTPException(status_code=404, detail="Task not found")
         await task_access.assert_task_visible(db, task, current_user.id, access=access)
     elif not access.is_manager:
         all_task_ids = list(
             (
-                await db.execute(select(Task.id).where(Task.project_id == project.id))
+                await execute_core_read(
+                    db, select(task_row.id).where(task_row.project_id == project.id)
+                )
             ).scalars()
         )
         allowed_task_ids = await task_access.visible_task_ids(
@@ -358,7 +377,7 @@ async def get_task_summary(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> TaskMaskQCSummary:
-    task = await db.get(Task, task_id)
+    task = await get_core_row(db, task_row, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     project, access = await _resolve_task_review_access(
@@ -461,7 +480,7 @@ async def get_issue_region_content(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> Response:
-    issue = await db.get(MaskQCIssue, issue_id)
+    issue = await load_mask_qc_issue(db, issue_id=issue_id)
     if issue is None:
         raise HTTPException(status_code=404, detail="Mask QC issue not found")
     annotation, task = await _load_visible_compare_annotation(
@@ -498,10 +517,10 @@ async def get_issue(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> MaskQCIssueOut:
-    issue = await db.get(MaskQCIssue, issue_id)
+    issue = await load_mask_qc_issue(db, issue_id=issue_id)
     if issue is None:
         raise HTTPException(status_code=404, detail="Mask QC issue not found")
-    task = await db.get(Task, issue.task_id)
+    task = await get_core_row(db, task_row, issue.task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     _project, access = await _resolve_task_review_access(
@@ -518,10 +537,10 @@ async def patch_issue(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> MaskQCIssueOut:
-    issue = await db.get(MaskQCIssue, issue_id)
+    issue = await load_mask_qc_issue(db, issue_id=issue_id)
     if issue is None:
         raise HTTPException(status_code=404, detail="Mask QC issue not found")
-    task = await db.get(Task, issue.task_id, populate_existing=True)
+    task = await get_core_row(db, task_row, issue.task_id, populate_existing=True)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     # Account-first: resolve the locked membership before any resource lock, then
@@ -531,14 +550,22 @@ async def patch_issue(
     )
     task = await _lock_task_nowait(db, task.id)
     try:
-        issue = (
-            await db.execute(
-                select(MaskQCIssue)
-                .where(MaskQCIssue.id == issue_id)
-                .with_for_update(nowait=True)
-                .execution_options(populate_existing=True)
+        with db.no_autoflush:
+            issue = await load_mask_qc_issue(
+                db,
+                issue_id=issue_id,
+                lock=True,
+                nowait=True,
+                flush_before=False,
             )
-        ).scalar_one()
+        if issue is None:
+            raise HTTPException(status_code=404, detail="Mask QC issue not found")
+    except HTTPException as exc:
+        if exc.status_code == 409 and exc.detail == {"reason": "task_busy"}:
+            raise HTTPException(
+                status_code=409, detail={"reason": "mask_qc_issue_busy"}
+            ) from exc
+        raise
     except DBAPIError as exc:
         if getattr(exc.orig, "sqlstate", None) in {"55P03", "40P01", "40001"}:
             raise HTTPException(
@@ -557,7 +584,6 @@ async def patch_issue(
     except MaskQCError as exc:
         _raise_mask_qc_error(exc)
     await db.commit()
-    await db.refresh(issue)
     return await _issue_out(db, issue)
 
 
@@ -569,19 +595,14 @@ async def _assert_repair_issues_visible(
     access: ProjectAccess,
     issue_ids: list[uuid.UUID],
 ) -> None:
-    rows = list(
-        (
-            await db.execute(
-                select(MaskQCIssue).where(
-                    MaskQCIssue.project_id == project.id,
-                    MaskQCIssue.id.in_(issue_ids),
-                )
-            )
-        ).scalars()
-    )
+    rows = await load_mask_qc_issues(db, project_id=project.id, issue_ids=issue_ids)
     task_ids = sorted({row.task_id for row in rows}, key=str)
     tasks = list(
-        (await db.execute(select(Task).where(Task.id.in_(task_ids)))).scalars()
+        (
+            await execute_core_read(
+                db, select(task_row).where(task_row.id.in_(task_ids))
+            )
+        ).scalars()
     )
     for task in tasks:
         await task_access.assert_task_visible(db, task, user.id, access=access)
@@ -594,23 +615,33 @@ async def _load_visible_repair_batch(
     user: User | IdentityActorFacts,
     lock: bool = False,
 ) -> MaskRepairBatch:
-    batch = await db.get(MaskRepairBatch, repair_id)
+    batch = await load_repair_batch(db, batch_id=repair_id)
     if batch is None:
         raise HTTPException(status_code=404, detail="Mask repair batch not found")
-    project = await db.get(Project, batch.project_id)
+    project = await get_workspace_project(
+        db, actor_id=None, project_id=batch.project_id
+    )
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
     access = await resolve_project_access(
         db, actor_id=user.id, project=project, lock_membership=lock
     )
     _assert_review_authority(access)
+    if lock:
+        batch = await load_repair_batch(db, batch_id=repair_id, lock=True)
+        if batch is None or batch.project_id != project.id:
+            raise HTTPException(status_code=404, detail="Mask repair batch not found")
     task_ids = {
         uuid.UUID(str(item["task_id"]))
         for item in (batch.plan_json or {}).get("items") or []
         if item.get("task_id")
     }
     tasks = list(
-        (await db.execute(select(Task).where(Task.id.in_(task_ids)))).scalars()
+        (
+            await execute_core_read(
+                db, select(task_row).where(task_row.id.in_(task_ids))
+            )
+        ).scalars()
     )
     if len(tasks) != len(task_ids):
         raise HTTPException(status_code=404, detail="Mask repair task not found")
@@ -669,6 +700,10 @@ async def dry_run_mask_repairs(
         require_project_capability(ProjectCapability.REVIEW_WRITE.value)
     ),
 ) -> MaskRepairDryRunResponse:
+    access = await resolve_project_access(
+        db, actor_id=current_user.id, project=project, lock_membership=True
+    )
+    assert_capability(access, ProjectCapability.REVIEW_WRITE.value)
     await _assert_repair_issues_visible(
         db,
         project=project,
@@ -749,7 +784,6 @@ async def execute_mask_repairs(
         await _dispatch_repair_or_fail(
             db, batch=batch, rollback=False, dispatcher=quality_dispatcher
         )
-    await db.refresh(batch)
     return batch_out(batch)
 
 
@@ -800,7 +834,6 @@ async def resume_mask_repairs(
     await _dispatch_repair_or_fail(
         db, batch=batch, rollback=False, dispatcher=quality_dispatcher
     )
-    await db.refresh(batch)
     return batch_out(batch)
 
 
@@ -844,5 +877,4 @@ async def rollback_mask_repairs(
     await _dispatch_repair_or_fail(
         db, batch=batch, rollback=True, dispatcher=quality_dispatcher
     )
-    await db.refresh(batch)
     return batch_out(batch)

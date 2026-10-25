@@ -1154,7 +1154,7 @@ async def import_nuscenes(
     project_display_id = project_display_id or _derived_display_id(
         "P-NU-", dataset_name
     )
-    project = await NuScenesImportWorkflow(db).create_project_and_tasks(
+    project_id = await NuScenesImportWorkflow(db).create_project_and_tasks(
         dataset_id=ds.id,
         project_display_id=project_display_id,
         project_name=project_name or f"nuScenes {dataset_name}",
@@ -1164,7 +1164,7 @@ async def import_nuscenes(
 
     return {
         "dataset_id": ds.id,
-        "project_id": project.id,
+        "project_id": project_id,
         "scenes": report_scenes,
         "total_items": total_items,
     }
