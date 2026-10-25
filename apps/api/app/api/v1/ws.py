@@ -22,7 +22,11 @@ from app.services.identity_gateway import get_identity_gateway
 if TYPE_CHECKING:
     from aap_identity.contract import Principal
 
-from app.services.labeling_core_read_relations import get_core_row, task_row
+from app.services.labeling_core_read_relations import (
+    get_core_row,
+    task_row,
+    video_tracker_job_row,
+)
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -443,11 +447,10 @@ async def video_tracker_job_socket(
         user_uuid = actor.actor_id
         from app.services import task_access
         from app.db.base import async_session
-        from app.db.models.video_tracker_job import VideoTrackerJob
 
         async with async_session() as db:
             user = await IdentityAccountLockData(db).read_actor_status(user_uuid)
-            job = await db.get(VideoTrackerJob, job_id)
+            job = await get_core_row(db, video_tracker_job_row, job_id)
             task = (
                 await get_core_row(db, task_row, job.task_id)
                 if job is not None

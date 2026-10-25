@@ -125,7 +125,10 @@ from app.api.v1.tasks._shared import (
 )
 from aap_workspace_contract.access import ProjectAccess
 from app.services.identity_contracts import IdentityActorFacts
-from app.services.labeling_core_read_relations import lock_task_for_core_read
+from app.services.labeling_core_read_relations import (
+    lock_task_for_core_read,
+    video_segment_row,
+)
 
 router = APIRouter()
 
@@ -515,17 +518,15 @@ async def submit_video_segment(
         )
     except TaskWorkflowError as exc:
         _raise_task_workflow_error(exc)
-    from app.db.models.dataset import VideoSegment
-
     neighbors = list(
         (
             await db.execute(
-                select(VideoSegment).where(
-                    VideoSegment.dataset_item_id == ctx.dataset_item_id,
-                    VideoSegment.segment_index.in_(
+                select(video_segment_row).where(
+                    video_segment_row.dataset_item_id == ctx.dataset_item_id,
+                    video_segment_row.segment_index.in_(
                         [body.segment_index - 1, body.segment_index + 1]
                     ),
-                    VideoSegment.status == "completed",
+                    video_segment_row.status == "completed",
                 )
             )
         )
