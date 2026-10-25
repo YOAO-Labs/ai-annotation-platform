@@ -5,6 +5,35 @@
 
 原始§5／工程任务第2项现由E12-B3交付临时输入的真实写删增量及跨盘点对账，B4接入集中托管原件新增，B5接入四类媒体缓存新增，B6接入独立导出媒体新增，B7接入导出ZIP写入净变化，B8接入报告附件受控新增，B9接入头像／评论附件／指南图片／持久RLE／审计归档受控新增，B10接入冻结文件／主动学习保留图片／评估报告／脱敏日志的覆盖写入净变化，B11接入独立导出媒体的准确版本删除，B12接入缩略图／头像／报告附件实际删除观测，B13接入完整缓存／金字塔／视频派生物／ZIP按键删除的当前内容净变化；其他生产者及附件／训练等移除增量仍未完整覆盖。原有LIST快照、额度预约与Creation／Retirement责任账本分别保留，不能将其中任一累计或部分覆盖冒充全平台物理增量；B3及后续切片已交付原§5／工程任务第2项的增量流水与周期对账框架。未覆盖入口如实保留，不以继续追加producer名称、消除所有unknown或提供推算总量作为A5、其他切片或E12整项收口的新增前置；其余原始故事／验收仍分别核对。
 
+## 本轮定稿：E12-A6 原图与预览分项失败率
+
+2026-10-26，基于干净`014a68772`对照原稿§6及工程任务第3项实施。A4的稀疏故障次数／恢复状态保持，新增成功分母与明确窗口；不按当前样本状态或故障行数计算率。整套实施及提交已有授权，保留人工3100／8100、原业务／对象／文件，不改共享配置、依赖、镜像或发布版本。
+
+1. **固定口径**：统计当日UTC `[00:00, measured_at]` 内已记录的完成尝试，不称滚动24小时或全平台请求成功率。原图包含`scan_snapshot`和`reference_snapshot`实际严格回源阶段；登记两次真实安全复读计两次，缓存命中、目录列举、短探针和调用前客户端SHA／权限错误不计。成功须通过原有最终身份／内容／Key复查及提交；失败只收安全白名单中的源打开、缺失、读取、内容／图像核验错误。配置漂移、维护／回收准入、容量槽、取消、未收尾及未知异常不当成源失败。
+2. **预览口径**：只在`directory_previews.prepare`真正执行新encode／create前建立内存尝试，ready复用和策略关闭不计。`PreparedPreview`携带该尝试；登记最终commit成功后按实际发布的ready／failed分别结算一次。撤权、回滚、历史重放、取消及不确定收尾不补造结果；不在两个A4 token或每次generate调用上重复累计。严格原件与原有预览失败不回滚原件的行为保持。
+3. **薄聚合模型**：0261新增`StorageObservationBucket`，复合主键为UTC日期、location_id、source_id、metric（`original_read`／`preview_generate`），保存成功／失败数及首次／最近观测时间。无父FK、路径、请求／文件明细、节点或配置cohort，不增加逐请求账本。每日窗口包含当日各配置的真实观察，不能据此宣称当前位置健康；A4既有current／historical诊断独立保留。历史不回填成功分母，应用回退保留汇总，非空表拒绝破坏性降级。
+4. **观测边界**：新`storage_observation_rates`提供`begin(location_id, source_id, metric)`、`finish(db, attempt, outcome)`、`failure_outcome(exc)`及`visible_rates(db, location, actor)`。outcome为success／failure／None；内存尝试在首次结算前加锁消费，None只排除、不写库，不重试旁路计数。独立事务使用原子UPSERT累加，锁等待250ms、语句1秒、协作预算2秒；不接管调用者事务。计数或准备失败只丢失该观察并记录固定脱敏提示，不改变原业务结果、取消或物理收尾。晚结果按完成时UTC日期入桶，不沿用A4会丢弃旧序号的恢复水位；覆盖明确为`recorded_attempts_only`。
+5. **现有API与UI**：GET `/storage-locations/{id}/faults`保留当前manager、Key、位置前后复核及可见来源裁剪，增加可空`rates`；独立于故障state和分页。汇总在独立只读短事务以同一SQL的服务器时刻计算，失败不毒化原故障列表事务，不触源或写业务。DTO含measured_at／window_start／window_end、timezone=UTC、unit=attempt、coverage，以及两metric各自success_count／failure_count／total_count／failure_rate；无分母时rate=null，旧响应缺失时未知。现有`StorageFaultsPanel`在位置居中详情内增加两行率及实际分母，灰提示展示窗口／覆盖及非当前健康含义；旧响应、坏数据和零分母不显示0%。保留刷新、筛选分页、深链、撤权隐藏、迟到隔离与焦点，不新建仪表盘或通知系统。
+6. **直接回归窄修**：`reference_snapshot.admitted()`当前在缓存回调执行后才初始化`source_context`，有效完整缓存命中可能产生未绑定闭包错误。将初始化提前，并用实际执行on_acquired的缓存回归验证；不扩展缓存策略、Tracker或其他消费者。
+
+```text
+authorized strict source reads / actual new preview preparation
+                    |                 |
+                    +---- one in-memory attempt ----+
+                                                    |
+                           existing validation / final commit
+                                                    |
+                                  independent UTC-day UPSERT
+                                                    |
+                    existing authorized faults GET (DB only)
+                                                    |
+                    existing centered location diagnostics
+```
+
+范围超过8文件，分三个基于同一设计提交的隔离工作树。API负责新`db/models/storage_observation_rate.py`、模型导入、`0261_storage_observation_rates.py`、`services/storage_observation_rates.py`、现有storage_location schema／router、`test_storage_observation_rates.py`／迁移测试及OpenAPI；Core负责`dataset_content.py`、`dataset_references.py`、`directory_previews.py`、必要的`storage_fault_events.py`窄参数、新读取／预览测试和既有缓存回归；Web负责`api/storage.ts`、`components/connections/StorageFaultsPanel.tsx`及测试，必要时只适配父摘要fixture。主树负责正式用户／API／架构说明、README／DEV／CHANGELOG、本计划与队列、生成类型、整合、人工刷新和资源清理。无新端点、任务、环境变量或依赖。
+
+验证限本片及相关既有回归：纯计数的首次健康、零分母、UTC换日、并发／晚结果／重复结算、旁路失败不污染调用者、源授权／GET只读及列表筛选分页独立；两种真实源读取的成败／双复读、缓存命中／回调、未知／取消／收尾排除；预览新生成／失败发布／复用／回滚。只用核实归属的一次性test数据库，按case身份保存实际退出和JUnit后清中间产物。所属dev用小型真实目录完成HTTP完整读取成功／缺失与独立Worker登记生成，预览失败在真实DB领域流程中用明确受控编码失败验证，不新增外部提供方故障资格。真实页面检查两个分项、无分母、刷新／筛选及明暗宽窄；不为分页制造全平台故障。主树迁移及API／两Worker刷新前核对空闲与指纹，保留原端口与数据，结束清理所属资源／浏览器／私密产物并正常提交。通过后按原始矩阵核对E12收口，不增加全producer、全消费者、训练测量、未知生产目标或新SLO。
+
 ## 后续缺口复核：原图与预览的分项失败率
 
 2026-10-26 对照原稿§6，下一项仅补“原图不可读率与预览失败率分别统计”。现有A4保存故障次数、去重与恢复状态，健康请求不产生状态行；这些计数没有成功分母和时间窗，不能称为失败率。后续沿已有严格读取及预览链明确观察范围、时间窗和成功／失败计数，复用现有授权、脱敏与诊断展示，不扩展全消费者、通知渠道或生产SLO。
