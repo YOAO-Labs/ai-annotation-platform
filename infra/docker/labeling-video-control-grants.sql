@@ -1,4 +1,4 @@
--- Grant a Labeling video control data LOGIN exactly one owner command.
+-- Grant a Labeling video control data LOGIN exactly two owner commands.
 -- Run after migrations, module-data-grants.sql and lan-production-grants.sql.
 -- psql -v expected_database=annotation_test -v migration_role=owner \
 --   -v labeling_owner=labeling_code -v video_control_role=labeling_video_control_client \
@@ -51,7 +51,8 @@ BEGIN
         RAISE EXCEPTION 'Labeling owner and caller LOGIN have unsafe membership';
     END IF;
     FOREACH v_signature IN ARRAY ARRAY[
-        'aap_labeling_v1.video_control_command(jsonb)'
+        'aap_labeling_v1.video_control_command(jsonb)',
+        'aap_labeling_v1.video_segment_lifecycle_command(jsonb)'
     ] LOOP
     v_function := pg_catalog.to_regprocedure(v_signature);
     IF v_function IS NULL OR NOT EXISTS (
@@ -100,8 +101,11 @@ $revoke$;
 
 REVOKE ALL ON FUNCTION aap_labeling_v1.video_control_command(jsonb)
     FROM :"video_control_role", PUBLIC;
+REVOKE ALL ON FUNCTION aap_labeling_v1.video_segment_lifecycle_command(jsonb)
+    FROM :"video_control_role", PUBLIC;
 GRANT USAGE ON SCHEMA aap_labeling_v1 TO :"video_control_role";
-GRANT EXECUTE ON FUNCTION aap_labeling_v1.video_control_command(jsonb)
+GRANT EXECUTE ON FUNCTION aap_labeling_v1.video_control_command(jsonb),
+    aap_labeling_v1.video_segment_lifecycle_command(jsonb)
     TO :"video_control_role";
 
 DO $verify$
@@ -109,7 +113,8 @@ DECLARE
     v_client oid := (SELECT oid FROM pg_catalog.pg_roles
                           WHERE rolname=current_setting('aap.video_control_role'));
     v_allowed oid[] := ARRAY[
-        pg_catalog.to_regprocedure('aap_labeling_v1.video_control_command(jsonb)')
+        pg_catalog.to_regprocedure('aap_labeling_v1.video_control_command(jsonb)'),
+        pg_catalog.to_regprocedure('aap_labeling_v1.video_segment_lifecycle_command(jsonb)')
     ];
     v_relation record;
 BEGIN
@@ -123,7 +128,7 @@ BEGIN
            SELECT FROM pg_catalog.unnest(v_allowed) AS capability(oid)
            WHERE NOT pg_catalog.has_function_privilege(v_client,capability.oid,'EXECUTE')
        ) THEN
-        RAISE EXCEPTION 'Labeling video control data LOGIN is missing its exact one-function profile';
+        RAISE EXCEPTION 'Labeling video control data LOGIN is missing its exact two-function profile';
     END IF;
     IF EXISTS (
         SELECT FROM pg_catalog.pg_proc AS function

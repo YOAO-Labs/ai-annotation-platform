@@ -17,6 +17,13 @@ from aap_labeling.video_control_contract import (
     StartWorkerJob,
     VideoControlCommand,
     VideoControlUnavailable,
+    ClaimVideoSegment,
+    HeartbeatVideoSegment,
+    PrepareVideoSegments,
+    ReleaseVideoSegment,
+    ReopenVideoSegment,
+    SubmitVideoSegment,
+    UnassignVideoSegment,
 )
 from aap_labeling.video_control_data import VideoControlDataClient
 from app.db.models.dataset import VideoSegment
@@ -33,15 +40,40 @@ class VideoControlRejected(RuntimeError):
         super().__init__(str(detail))
 
 
+VideoSegmentLifecycleCommand = (
+    ClaimVideoSegment
+    | HeartbeatVideoSegment
+    | PrepareVideoSegments
+    | ReleaseVideoSegment
+    | ReopenVideoSegment
+    | SubmitVideoSegment
+    | UnassignVideoSegment
+)
+
+
 async def video_control_command(db: AsyncSession, request: VideoControlCommand):
     if db.autoflush:
         await db.flush()
+    statement = (
+        "SELECT aap_labeling_v1.video_segment_lifecycle_command(CAST(:request AS jsonb))"
+        if isinstance(
+            request,
+            (
+                ClaimVideoSegment,
+                HeartbeatVideoSegment,
+                PrepareVideoSegments,
+                ReleaseVideoSegment,
+                ReopenVideoSegment,
+                SubmitVideoSegment,
+                UnassignVideoSegment,
+            ),
+        )
+        else "SELECT aap_labeling_v1.video_control_command(CAST(:request AS jsonb))"
+    )
 
     async def execute(payload: str):
         return await db.scalar(
-            text(
-                "SELECT aap_labeling_v1.video_control_command(CAST(:request AS jsonb))"
-            ),
+            text(statement),
             {"request": payload},
         )
 
@@ -67,6 +99,12 @@ async def video_control_command(db: AsyncSession, request: VideoControlCommand):
         if sqlstate in {"55P03", "40P01", "40001"}:
             raise VideoControlRejected(409, {"reason": "task_busy"}) from exc
         raise
+
+
+async def video_segment_lifecycle_command(
+    db: AsyncSession, request: VideoSegmentLifecycleCommand
+):
+    return await video_control_command(db, request)
 
 
 async def video_control_job(
@@ -115,6 +153,7 @@ __all__ = [
     "VideoControlRejected",
     "video_control_command",
     "video_control_job",
+    "video_segment_lifecycle_command",
     "video_control_worker_segment",
     "refresh_video_control_task",
 ]

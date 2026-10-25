@@ -327,7 +327,7 @@ async def get_video_manifest_v2(
         file_type=task.file_type,
         dataset_item_id=task.dataset_item_id,
     )
-    return await build_video_manifest_v2(db, ctx, str(request.base_url))
+    return await build_video_manifest_v2(db, ctx, str(request.base_url), task=task)
 
 
 @router.get("/{task_id}/video/segments", response_model=VideoSegmentsResponse)
@@ -345,7 +345,7 @@ async def get_video_segments(
         file_type=task.file_type,
         dataset_item_id=task.dataset_item_id,
     )
-    return await list_video_segments(db, ctx)
+    return await list_video_segments(db, ctx, task=task)
 
 
 @router.post(
@@ -371,7 +371,9 @@ async def claim_video_segment(
     )
     project = await get_workspace_project(db, actor_id=None, project_id=task.project_id)
     privileged = bool(project and is_privileged_for_project(current_user, project))
-    body = await claim_segment(db, ctx, segment_id, current_user, privileged=privileged)
+    body = await claim_segment(
+        db, ctx, segment_id, current_user, privileged=privileged, task=task
+    )
     await AuditService.log(
         db,
         actor=current_user,
@@ -410,7 +412,7 @@ async def heartbeat_video_segment(
     project = await get_workspace_project(db, actor_id=None, project_id=task.project_id)
     privileged = bool(project and is_privileged_for_project(current_user, project))
     body = await heartbeat_segment(
-        db, ctx, segment_id, current_user, privileged=privileged
+        db, ctx, segment_id, current_user, privileged=privileged, task=task
     )
     await AuditService.log(
         db,
@@ -450,7 +452,7 @@ async def release_video_segment(
     project = await get_workspace_project(db, actor_id=None, project_id=task.project_id)
     privileged = bool(project and is_privileged_for_project(current_user, project))
     body = await release_segment(
-        db, ctx, segment_id, current_user, privileged=privileged
+        db, ctx, segment_id, current_user, privileged=privileged, task=task
     )
     await AuditService.log(
         db,
@@ -663,7 +665,9 @@ async def unassign_video_segment(
         file_type=task.file_type,
         dataset_item_id=task.dataset_item_id,
     )
-    body = await unassign_segment(db, ctx, segment_id)
+    body = await unassign_segment(
+        db, ctx, segment_id, task=task, actor_id=current_user.id
+    )
     await mark_boundary_runs_stale(db, segment_id)
     await db.commit()
     return body

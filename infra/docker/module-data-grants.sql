@@ -614,7 +614,7 @@ GRANT UPDATE (annotation_id, annotation_version, class_name, evidence, last_seen
 GRANT INSERT (async_job_id, config_digest, config_revision, config_snapshot, id, progress_pct, project_id, requested_by_id, scope_json, singleflight_key, source_snapshot, source_snapshot_digest, status, summary) ON public.point_cloud_quality_runs TO :"labeling_owner";
 GRANT UPDATE (completed_at, error_message, progress_pct, started_at, status, summary, updated_at) ON public.point_cloud_quality_runs TO :"labeling_owner";
 GRANT INSERT (dataset_item_id, end_frame, id, segment_index, start_frame, status) ON public.video_segments TO :"labeling_owner";
-GRANT UPDATE (lock_expires_at, locked_at, locked_by, status, updated_at) ON public.video_segments TO :"labeling_owner";
+GRANT UPDATE (assignee_id, lock_expires_at, locked_at, locked_by, status, updated_at) ON public.video_segments TO :"labeling_owner";
 GRANT DELETE ON public.video_track_quality_issues TO :"labeling_owner";
 GRANT INSERT (code, frame_end, frame_start, id, left_annotation_id, metric, right_annotation_id, run_id) ON public.video_track_quality_issues TO :"labeling_owner";
 GRANT INSERT (async_job_id, id, input_digest, input_snapshot, left_segment_id, metrics, pairs, progress_pct, requested_by_id, right_segment_id, sampling_digest, status, task_id) ON public.video_track_quality_runs TO :"labeling_owner";
@@ -2773,6 +2773,8 @@ ALTER FUNCTION aap_labeling_v1._scene_read_annotation_json(uuid,uuid,uuid,text,t
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.video_control_command(jsonb)
     OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.video_segment_lifecycle_command(jsonb)
+    OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.annotation_transfer_command(jsonb)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1._annotation_transfer_exact_fields(jsonb,text[])
@@ -3129,6 +3131,8 @@ GRANT EXECUTE ON FUNCTION
     aap_workspace_v1.lock_media_project_access(uuid,uuid),
     aap_workspace_v1.read_media_video_collaboration_policy(uuid),
     aap_workspace_v1.read_media_managed_projects(uuid,uuid[])
+    TO :"labeling_owner";
+GRANT EXECUTE ON FUNCTION aap_assets_v1.read_media_source(uuid,uuid,uuid)
     TO :"labeling_owner";
 GRANT EXECUTE ON FUNCTION
     aap_labeling_v1.read_spatial_camera_roles(uuid[]),

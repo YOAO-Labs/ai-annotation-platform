@@ -124,7 +124,7 @@ async def get_video_manifest(
         task_id=task.id,
         project_id=task.project_id,
     )
-    return await build_video_manifest_v2(db, ctx, str(request.base_url))
+    return await build_video_manifest_v2(db, ctx, str(request.base_url), task=task)
 
 
 @router.get("/{dataset_item_id}/segments", response_model=VideoSegmentsResponse)
@@ -140,7 +140,7 @@ async def get_video_segments(
         task_id=task.id,
         project_id=task.project_id,
     )
-    return await list_video_segments(db, ctx)
+    return await list_video_segments(db, ctx, task=task)
 
 
 @router.get(

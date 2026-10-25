@@ -2404,17 +2404,21 @@ SQL／PL/pgSQL 仅通过语法检查，未执行数据库、冷安装或恢复�
 列类型，用五项固定函数承接 Task／Batch／Annotation／VideoSegment 行锁；锁返回值使用明确的公开
 列序，不依赖历史底表物理列序。
 
-| 操作组                    | 专用账号 profile                          | 能力范围                                  |
-| ------------------------- | ----------------------------------------- | ----------------------------------------- |
-| 视频人工控制              | `labeling-video-control-grants.sql`       | 一项封闭命令                              |
-| 导入与转换                | `labeling-annotation-transfer-grants.sql` | 一项封闭命令，四项 helper 仅 owner 可用   |
-| 核心读取                  | `labeling-core-read-grants.sql`           | 十二项 SELECT-only 公开关系及五项固定行锁 |
-| Mask 质检、修复及引用保留 | `labeling-mask-quality-grants.sql`        | 三项固定能力                              |
-| 点云与视频质检            | `labeling-spatial-quality-grants.sql`     | 一项封闭命令                              |
-| 无来源任务维护            | `labeling-task-maintenance-grants.sql`    | 一项封闭命令                              |
+| 操作组                    | 专用账号 profile                          | 能力范围                                           |
+| ------------------------- | ----------------------------------------- | -------------------------------------------------- |
+| 视频人工控制              | `labeling-video-control-grants.sql`       | 两项封闭命令：Tracker 控制与 VideoSegment 生命周期 |
+| 导入与转换                | `labeling-annotation-transfer-grants.sql` | 一项封闭命令，四项 helper 仅 owner 可用            |
+| 核心读取                  | `labeling-core-read-grants.sql`           | 十二项 SELECT-only 公开关系及五项固定行锁          |
+| Mask 质检、修复及引用保留 | `labeling-mask-quality-grants.sql`        | 三项固定能力                                       |
+| 点云与视频质检            | `labeling-spatial-quality-grants.sql`     | 一项封闭命令                                       |
+| 无来源任务维护            | `labeling-task-maintenance-grants.sql`    | 一项封闭命令                                       |
 
 common owner grants 按实际固定 SQL 补齐本模块读写列；调用账号不持有私有底表、
 角色继承、CREATE 或 TEMP 权限。普通 LAN／worktree 绑定继续使用原调用方事务。
+VideoSegment 懒创建、锁过期归一化及 claim／heartbeat／release／submit／reopen／unassign
+写入由固定 Labeling 命令承接。准备分段仍使用可见任务语义，不要求标注写权限；Task 绑定
+与无 task_id 的兼容调用分别复用现有 Labeling 可见性及 Assets 源事实能力。生命周期转移在 owner 内重验任务与
+当前权限并锁定目标 segment，API 保留原提交点及 Task 审核证据顺序。
 `aap_assets_v1.video_chapter_facts` 仅公开章节 ID、素材 ID、标题与起止帧，SQL 资源
 同时随 Assets Media 包分发；底表五列只授权 Assets owner，Labeling owner 读取公开
 投影，质检专用账号仍只执行单函数。没有扩大数据集、存储或训练业务实施。

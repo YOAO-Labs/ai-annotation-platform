@@ -229,6 +229,125 @@
       "title": "CheckReviewScopesData",
       "type": "object"
     },
+    "ClaimVideoSegment": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "expected_batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Batch Id"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "expected_task_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Task Status"
+        },
+        "lock_ttl_seconds": {
+          "title": "Lock Ttl Seconds",
+          "type": "integer"
+        },
+        "now": {
+          "format": "date-time",
+          "title": "Now",
+          "type": "string"
+        },
+        "operation": {
+          "const": "claim_segment",
+          "title": "Operation",
+          "type": "string"
+        },
+        "privileged": {
+          "title": "Privileged",
+          "type": "boolean"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "segment_id": {
+          "format": "uuid",
+          "title": "Segment Id",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Id"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "expected_batch_id",
+        "expected_task_status",
+        "expected_review_round_id",
+        "dataset_item_id",
+        "segment_id",
+        "privileged",
+        "now",
+        "lock_ttl_seconds"
+      ],
+      "title": "ClaimVideoSegment",
+      "type": "object"
+    },
     "CreateJob": {
       "additionalProperties": false,
       "properties": {
@@ -554,6 +673,125 @@
       },
       "required": ["schema", "operation", "cutoff"],
       "title": "ExpireCandidates",
+      "type": "object"
+    },
+    "HeartbeatVideoSegment": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "expected_batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Batch Id"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "expected_task_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Task Status"
+        },
+        "lock_ttl_seconds": {
+          "title": "Lock Ttl Seconds",
+          "type": "integer"
+        },
+        "now": {
+          "format": "date-time",
+          "title": "Now",
+          "type": "string"
+        },
+        "operation": {
+          "const": "heartbeat_segment",
+          "title": "Operation",
+          "type": "string"
+        },
+        "privileged": {
+          "title": "Privileged",
+          "type": "boolean"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "segment_id": {
+          "format": "uuid",
+          "title": "Segment Id",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Id"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "expected_batch_id",
+        "expected_task_status",
+        "expected_review_round_id",
+        "dataset_item_id",
+        "segment_id",
+        "privileged",
+        "now",
+        "lock_ttl_seconds"
+      ],
+      "title": "HeartbeatVideoSegment",
       "type": "object"
     },
     "ListTimeline": {
@@ -1127,6 +1365,83 @@
       "title": "OperateKeyframe",
       "type": "object"
     },
+    "PrepareVideoSegments": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "frame_count": {
+          "minimum": 1,
+          "title": "Frame Count",
+          "type": "integer"
+        },
+        "now": {
+          "format": "date-time",
+          "title": "Now",
+          "type": "string"
+        },
+        "operation": {
+          "const": "prepare_segments",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "segment_size_frames": {
+          "minimum": 1,
+          "title": "Segment Size Frames",
+          "type": "integer"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Id"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "dataset_item_id",
+        "frame_count",
+        "segment_size_frames",
+        "now"
+      ],
+      "title": "PrepareVideoSegments",
+      "type": "object"
+    },
     "ReadActiveCorrection": {
       "additionalProperties": false,
       "properties": {
@@ -1400,6 +1715,223 @@
       "title": "ReadWorkerSegment",
       "type": "object"
     },
+    "ReleaseVideoSegment": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "expected_batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Batch Id"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "expected_task_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Task Status"
+        },
+        "now": {
+          "format": "date-time",
+          "title": "Now",
+          "type": "string"
+        },
+        "operation": {
+          "const": "release_segment",
+          "title": "Operation",
+          "type": "string"
+        },
+        "privileged": {
+          "title": "Privileged",
+          "type": "boolean"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "segment_id": {
+          "format": "uuid",
+          "title": "Segment Id",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Id"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "expected_batch_id",
+        "expected_task_status",
+        "expected_review_round_id",
+        "dataset_item_id",
+        "segment_id",
+        "privileged",
+        "now"
+      ],
+      "title": "ReleaseVideoSegment",
+      "type": "object"
+    },
+    "ReopenVideoSegment": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "expected_batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Batch Id"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "expected_task_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Task Status"
+        },
+        "operation": {
+          "const": "reopen_segment",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "segment_id": {
+          "format": "uuid",
+          "title": "Segment Id",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Id"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "expected_batch_id",
+        "expected_task_status",
+        "expected_review_round_id",
+        "dataset_item_id",
+        "segment_id"
+      ],
+      "title": "ReopenVideoSegment",
+      "type": "object"
+    },
     "ReviewSourceVersion": {
       "additionalProperties": false,
       "properties": {
@@ -1605,6 +2137,223 @@
       },
       "required": ["schema", "operation", "job_id", "celery_task_id", "started_at"],
       "title": "StartWorkerJob",
+      "type": "object"
+    },
+    "SubmitVideoSegment": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "expected_batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Batch Id"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "expected_task_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Task Status"
+        },
+        "now": {
+          "format": "date-time",
+          "title": "Now",
+          "type": "string"
+        },
+        "operation": {
+          "const": "submit_segment",
+          "title": "Operation",
+          "type": "string"
+        },
+        "privileged": {
+          "title": "Privileged",
+          "type": "boolean"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "segment_id": {
+          "format": "uuid",
+          "title": "Segment Id",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Id"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "expected_batch_id",
+        "expected_task_status",
+        "expected_review_round_id",
+        "dataset_item_id",
+        "segment_id",
+        "privileged",
+        "now"
+      ],
+      "title": "SubmitVideoSegment",
+      "type": "object"
+    },
+    "UnassignVideoSegment": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "expected_batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Batch Id"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "expected_task_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Task Status"
+        },
+        "operation": {
+          "const": "unassign_segment",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "segment_id": {
+          "format": "uuid",
+          "title": "Segment Id",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Id"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "expected_batch_id",
+        "expected_task_status",
+        "expected_review_round_id",
+        "dataset_item_id",
+        "segment_id"
+      ],
+      "title": "UnassignVideoSegment",
       "type": "object"
     },
     "VideoAnnotationRecord": {
@@ -2015,6 +2764,28 @@
       "title": "VideoControlWorkerSegmentData",
       "type": "object"
     },
+    "VideoSegmentLifecycleData": {
+      "additionalProperties": false,
+      "properties": {
+        "changed": {
+          "title": "Changed",
+          "type": "boolean"
+        },
+        "segment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VideoSegmentRecord"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["segment", "changed"],
+      "title": "VideoSegmentLifecycleData",
+      "type": "object"
+    },
     "VideoSegmentRecord": {
       "additionalProperties": false,
       "properties": {
@@ -2406,9 +3177,11 @@
           "apply_review": "#/$defs/ApplyReview",
           "cancel_job": "#/$defs/CancelJob",
           "check_review_scopes": "#/$defs/CheckReviewScopes",
+          "claim_segment": "#/$defs/ClaimVideoSegment",
           "create_job": "#/$defs/CreateJob",
           "ensure_segments": "#/$defs/EnsureSegments",
           "expire_candidates": "#/$defs/ExpireCandidates",
+          "heartbeat_segment": "#/$defs/HeartbeatVideoSegment",
           "list_timeline": "#/$defs/ListTimeline",
           "lock_review_annotations": "#/$defs/LockReviewAnnotations",
           "lock_review_job": "#/$defs/LockReviewJob",
@@ -2416,6 +3189,7 @@
           "mark_enqueue_failed": "#/$defs/MarkEnqueueFailed",
           "mark_enqueued": "#/$defs/MarkEnqueued",
           "operate_keyframe": "#/$defs/OperateKeyframe",
+          "prepare_segments": "#/$defs/PrepareVideoSegments",
           "read_active_correction": "#/$defs/ReadActiveCorrection",
           "read_annotations": "#/$defs/ReadAnnotations",
           "read_job": "#/$defs/ReadJob",
@@ -2423,8 +3197,12 @@
           "read_task_jobs": "#/$defs/ReadTaskJobs",
           "read_worker_job": "#/$defs/ReadWorkerJob",
           "read_worker_segment": "#/$defs/ReadWorkerSegment",
+          "release_segment": "#/$defs/ReleaseVideoSegment",
+          "reopen_segment": "#/$defs/ReopenVideoSegment",
           "save_keyframe": "#/$defs/SaveKeyframe",
-          "start_worker_job": "#/$defs/StartWorkerJob"
+          "start_worker_job": "#/$defs/StartWorkerJob",
+          "submit_segment": "#/$defs/SubmitVideoSegment",
+          "unassign_segment": "#/$defs/UnassignVideoSegment"
         },
         "propertyName": "operation"
       },
@@ -2464,6 +3242,27 @@
         },
         {
           "$ref": "#/$defs/EnsureSegments"
+        },
+        {
+          "$ref": "#/$defs/PrepareVideoSegments"
+        },
+        {
+          "$ref": "#/$defs/ClaimVideoSegment"
+        },
+        {
+          "$ref": "#/$defs/HeartbeatVideoSegment"
+        },
+        {
+          "$ref": "#/$defs/ReleaseVideoSegment"
+        },
+        {
+          "$ref": "#/$defs/SubmitVideoSegment"
+        },
+        {
+          "$ref": "#/$defs/ReopenVideoSegment"
+        },
+        {
+          "$ref": "#/$defs/UnassignVideoSegment"
         },
         {
           "$ref": "#/$defs/CheckReviewScopes"
@@ -2517,6 +3316,9 @@
     "check_review_scopes": {
       "$ref": "#/$defs/CheckReviewScopesData"
     },
+    "claim_segment": {
+      "$ref": "#/$defs/VideoSegmentLifecycleData"
+    },
     "create_job": {
       "$ref": "#/$defs/VideoTrackerJobRecord"
     },
@@ -2525,6 +3327,9 @@
     },
     "expire_candidates": {
       "$ref": "#/$defs/VideoControlExpiryData"
+    },
+    "heartbeat_segment": {
+      "$ref": "#/$defs/VideoSegmentLifecycleData"
     },
     "list_timeline": {
       "$ref": "#/$defs/VideoControlTimelineData"
@@ -2563,6 +3368,9 @@
     },
     "operate_keyframe": {
       "$ref": "#/$defs/VideoControlAnnotationWriteData"
+    },
+    "prepare_segments": {
+      "$ref": "#/$defs/VideoControlSegmentsData"
     },
     "read_active_correction": {
       "oneOf": [
@@ -2606,6 +3414,12 @@
     "read_worker_segment": {
       "$ref": "#/$defs/VideoControlWorkerSegmentData"
     },
+    "release_segment": {
+      "$ref": "#/$defs/VideoSegmentLifecycleData"
+    },
+    "reopen_segment": {
+      "$ref": "#/$defs/VideoSegmentLifecycleData"
+    },
     "save_keyframe": {
       "$ref": "#/$defs/VideoControlAnnotationWriteData"
     },
@@ -2618,7 +3432,16 @@
           "type": "null"
         }
       ]
+    },
+    "submit_segment": {
+      "$ref": "#/$defs/VideoSegmentLifecycleData"
+    },
+    "unassign_segment": {
+      "$ref": "#/$defs/VideoSegmentLifecycleData"
     }
   },
-  "x-postgresql-functions": ["aap_labeling_v1.video_control_command(jsonb)"]
+  "x-postgresql-functions": [
+    "aap_labeling_v1.video_control_command(jsonb)",
+    "aap_labeling_v1.video_segment_lifecycle_command(jsonb)"
+  ]
 }

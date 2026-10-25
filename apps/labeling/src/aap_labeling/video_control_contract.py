@@ -22,6 +22,9 @@ from .annotation_write_contract import _json_bytes
 
 VIDEO_CONTROL_PROTOCOL = "aap-labeling-video-control/v1"
 VIDEO_CONTROL_FUNCTION = "aap_labeling_v1.video_control_command(jsonb)"
+VIDEO_SEGMENT_LIFECYCLE_FUNCTION = (
+    "aap_labeling_v1.video_segment_lifecycle_command(jsonb)"
+)
 MAX_VIDEO_CONTROL_REQUEST_BYTES = 135_266_304
 
 
@@ -273,6 +276,11 @@ class VideoControlWorkerSegmentData(_Closed):
     segment_count: StrictInt = Field(ge=0)
 
 
+class VideoSegmentLifecycleData(_Closed):
+    segment: VideoSegmentRecord | None
+    changed: StrictBool
+
+
 class VideoControlExpiryData(_Closed):
     expired: StrictInt = Field(ge=0)
 
@@ -330,6 +338,62 @@ class EnsureSegments(_Command):
     segment_size_frames: StrictInt = Field(ge=1)
     now: AwareDatetime
     count_segments: StrictBool = True
+
+
+class PrepareVideoSegments(_Command):
+    operation: Literal["prepare_segments"]
+    task_id: uuid.UUID | None
+    project_id: uuid.UUID | None
+    actor_id: uuid.UUID
+    dataset_item_id: uuid.UUID
+    frame_count: StrictInt = Field(ge=1)
+    segment_size_frames: StrictInt = Field(ge=1)
+    now: AwareDatetime
+
+
+class _VideoSegmentLifecycleCommand(_Command):
+    task_id: uuid.UUID | None
+    project_id: uuid.UUID | None
+    actor_id: uuid.UUID
+    expected_batch_id: uuid.UUID | None
+    expected_task_status: StrictStr | None
+    expected_review_round_id: uuid.UUID | None
+    dataset_item_id: uuid.UUID
+    segment_id: uuid.UUID
+
+
+class ClaimVideoSegment(_VideoSegmentLifecycleCommand):
+    operation: Literal["claim_segment"]
+    privileged: StrictBool
+    now: AwareDatetime
+    lock_ttl_seconds: StrictInt
+
+
+class HeartbeatVideoSegment(_VideoSegmentLifecycleCommand):
+    operation: Literal["heartbeat_segment"]
+    privileged: StrictBool
+    now: AwareDatetime
+    lock_ttl_seconds: StrictInt
+
+
+class ReleaseVideoSegment(_VideoSegmentLifecycleCommand):
+    operation: Literal["release_segment"]
+    privileged: StrictBool
+    now: AwareDatetime
+
+
+class SubmitVideoSegment(_VideoSegmentLifecycleCommand):
+    operation: Literal["submit_segment"]
+    privileged: StrictBool
+    now: AwareDatetime
+
+
+class ReopenVideoSegment(_VideoSegmentLifecycleCommand):
+    operation: Literal["reopen_segment"]
+
+
+class UnassignVideoSegment(_VideoSegmentLifecycleCommand):
+    operation: Literal["unassign_segment"]
 
 
 class ExpireCandidates(_Command):
@@ -450,6 +514,13 @@ VideoControlCommand = Annotated[
     | ReadSegments
     | ReadWorkerSegment
     | EnsureSegments
+    | PrepareVideoSegments
+    | ClaimVideoSegment
+    | HeartbeatVideoSegment
+    | ReleaseVideoSegment
+    | SubmitVideoSegment
+    | ReopenVideoSegment
+    | UnassignVideoSegment
     | CheckReviewScopes
     | ExpireCandidates
     | CreateJob
@@ -529,10 +600,42 @@ def _decode_result(request: VideoControlCommand, data: Any):
         return VideoControlSegmentsData.model_validate_json(
             json.dumps(data, ensure_ascii=True, allow_nan=False)
         ).model_dump(mode="python")
+    if isinstance(request, PrepareVideoSegments):
+        result = VideoControlSegmentsData.model_validate_json(
+            json.dumps(data, ensure_ascii=True, allow_nan=False)
+        )
+        if any(
+            segment.dataset_item_id != request.dataset_item_id
+            for segment in result.segments
+        ):
+            raise VideoControlUnavailable()
+        return result.model_dump(mode="python")
     if isinstance(request, ReadWorkerSegment):
         return VideoControlWorkerSegmentData.model_validate_json(
             json.dumps(data, ensure_ascii=True, allow_nan=False)
         ).model_dump(mode="python")
+    if isinstance(
+        request,
+        (
+            ClaimVideoSegment,
+            HeartbeatVideoSegment,
+            ReleaseVideoSegment,
+            SubmitVideoSegment,
+            ReopenVideoSegment,
+            UnassignVideoSegment,
+        ),
+    ):
+        result = VideoSegmentLifecycleData.model_validate_json(
+            json.dumps(data, ensure_ascii=True, allow_nan=False)
+        )
+        if result.segment is not None and (
+            result.segment.id != request.segment_id
+            or result.segment.dataset_item_id != request.dataset_item_id
+        ):
+            raise VideoControlUnavailable()
+        if result.segment is None and result.changed:
+            raise VideoControlUnavailable()
+        return result.model_dump(mode="python")
     if isinstance(request, ExpireCandidates):
         return VideoControlExpiryData.model_validate_json(
             json.dumps(data, ensure_ascii=True, allow_nan=False)
@@ -591,13 +694,17 @@ def video_control_schema() -> dict[str, Any]:
     schema = _REPLY.json_schema()
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
     schema["$id"] = VIDEO_CONTROL_PROTOCOL
-    schema["x-postgresql-functions"] = [VIDEO_CONTROL_FUNCTION]
+    schema["x-postgresql-functions"] = [
+        VIDEO_CONTROL_FUNCTION,
+        VIDEO_SEGMENT_LIFECYCLE_FUNCTION,
+    ]
     for model in (
         VideoTrackerJobRecord,
         VideoAnnotationRecord,
         VideoSegmentRecord,
         VideoControlSegmentsData,
         VideoControlWorkerSegmentData,
+        VideoSegmentLifecycleData,
         CheckReviewScopesData,
         VideoControlExpiryData,
         VideoControlAnnotationWriteData,
@@ -610,6 +717,7 @@ def video_control_schema() -> dict[str, Any]:
     annotation = {"$ref": "#/$defs/VideoAnnotationRecord"}
     segment_data = {"$ref": "#/$defs/VideoControlSegmentsData"}
     worker_segment_data = {"$ref": "#/$defs/VideoControlWorkerSegmentData"}
+    segment_lifecycle_data = {"$ref": "#/$defs/VideoSegmentLifecycleData"}
     schema["x-data-contracts"] = {
         "read_job": job,
         "read_worker_job": {"oneOf": [job, {"type": "null"}]},
@@ -628,6 +736,13 @@ def video_control_schema() -> dict[str, Any]:
         "read_segments": segment_data,
         "read_worker_segment": worker_segment_data,
         "ensure_segments": segment_data,
+        "prepare_segments": segment_data,
+        "claim_segment": segment_lifecycle_data,
+        "heartbeat_segment": segment_lifecycle_data,
+        "release_segment": segment_lifecycle_data,
+        "submit_segment": segment_lifecycle_data,
+        "reopen_segment": segment_lifecycle_data,
+        "unassign_segment": segment_lifecycle_data,
         "check_review_scopes": {"$ref": "#/$defs/CheckReviewScopesData"},
         "expire_candidates": {"$ref": "#/$defs/VideoControlExpiryData"},
         "create_job": job,
@@ -647,11 +762,13 @@ __all__ = [
     "VIDEO_CONTROL_PROTOCOL",
     "MAX_VIDEO_CONTROL_REQUEST_BYTES",
     "ApplyReview",
+    "ClaimVideoSegment",
     "CancelJob",
     "CheckReviewScopes",
     "CreateJob",
     "ExpireCandidates",
     "EnsureSegments",
+    "HeartbeatVideoSegment",
     "LockReviewAnnotations",
     "LockReviewJob",
     "LockWorkerJob",
@@ -659,6 +776,7 @@ __all__ = [
     "MarkEnqueueFailed",
     "MaskReviewScopeWrite",
     "OperateKeyframe",
+    "PrepareVideoSegments",
     "ReadAnnotations",
     "ReadActiveCorrection",
     "ReadJob",
@@ -666,12 +784,18 @@ __all__ = [
     "ReadTaskJobs",
     "ReadWorkerJob",
     "ReadWorkerSegment",
+    "ReleaseVideoSegment",
+    "ReopenVideoSegment",
     "ReviewSourceVersion",
     "SaveKeyframe",
     "SourceAnnotationWrite",
     "NewTrackWrite",
     "StartWorkerJob",
+    "SubmitVideoSegment",
+    "UnassignVideoSegment",
     "VideoControlCommand",
+    "VideoSegmentLifecycleData",
+    "VIDEO_SEGMENT_LIFECYCLE_FUNCTION",
     "VideoControlUnavailable",
     "VideoControlWorkerSegmentData",
     "decode_video_control_command",

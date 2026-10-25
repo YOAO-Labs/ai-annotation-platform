@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -13,18 +14,27 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from aap_labeling.video_control_contract import (
     ApplyReview,
+    ClaimVideoSegment,
+    HeartbeatVideoSegment,
     LockWorkerJob,
+    PrepareVideoSegments,
     ReadWorkerJob,
     ReadWorkerSegment,
+    ReleaseVideoSegment,
+    ReopenVideoSegment,
     StartWorkerJob,
+    SubmitVideoSegment,
+    UnassignVideoSegment,
     SourceAnnotationWrite,
 )
 from aap_labeling.video_control_data import VideoControlDataClient
 from aap_owner_data.postgres import verify_function_only_role
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import VideoSegment
+from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.video_tracker_job import VideoTrackerJob
+from tests.factory import create_user
 from tests.test_video_input_authorities_native import _seed_video_task
 from tests.workspace_project_query_helpers import _dsn
 
@@ -108,7 +118,10 @@ async def test_candidate_accept_uses_owner_and_preserves_outer_rollback(test_eng
         await verify_function_only_role(
             connection,
             schema="aap_labeling_v1",
-            functions={("video_control_command", "jsonb")},
+            functions={
+                ("video_control_command", "jsonb"),
+                ("video_segment_lifecycle_command", "jsonb"),
+            },
             role=_ROLE,
         )
         with pytest.raises(asyncpg.InsufficientPrivilegeError):
@@ -279,7 +292,10 @@ async def test_worker_video_controls_keep_locks_and_caller_commit(test_engine):
         await verify_function_only_role(
             connection,
             schema="aap_labeling_v1",
-            functions={("video_control_command", "jsonb")},
+            functions={
+                ("video_control_command", "jsonb"),
+                ("video_segment_lifecycle_command", "jsonb"),
+            },
             role=_ROLE,
         )
         for table in ("public.video_tracker_jobs", "public.video_segments"):
@@ -395,6 +411,320 @@ async def test_worker_video_controls_keep_locks_and_caller_commit(test_engine):
             )
             if task_id is not None:
                 await cleanup.execute(delete(Task).where(Task.id == task_id))
+            if item_id is not None:
+                await cleanup.execute(
+                    text("DELETE FROM public.dataset_items WHERE id=:id"),
+                    {"id": item_id},
+                )
+            if dataset_id is not None:
+                await cleanup.execute(
+                    text("DELETE FROM public.datasets WHERE id=:id"),
+                    {"id": dataset_id},
+                )
+            if project_id is not None:
+                await cleanup.execute(
+                    text("DELETE FROM public.projects WHERE id=:id"),
+                    {"id": project_id},
+                )
+            if actor_id is not None:
+                await cleanup.execute(
+                    text("DELETE FROM public.users WHERE id=:id"),
+                    {"id": actor_id},
+                )
+
+
+async def test_video_segment_lifecycle_uses_owner_and_preserves_outer_transaction(
+    test_engine,
+):
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    actor_id = None
+    project_id = None
+    dataset_id = None
+    item_id = None
+    task_id = None
+    connection = None
+    annotator_id = None
+    viewer_id = None
+    try:
+        async with maker.begin() as db:
+            actor_id, project, dataset_id, item_id, task_id = await _seed_video_task(
+                db, status="pending"
+            )
+            project_id = project.id
+            project.video_collaboration = {"enabled": True}
+            viewer = await create_user(
+                db,
+                "employee",
+                f"video-segment-viewer-{uuid.uuid4().hex[:10]}@example.test",
+                "Video segment viewer",
+            )
+            viewer_id = viewer.id
+            db.add(
+                ProjectMember(
+                    id=uuid.uuid4(),
+                    project_id=project_id,
+                    user_id=viewer_id,
+                    role="viewer",
+                    assigned_by=actor_id,
+                )
+            )
+            annotator = await create_user(
+                db,
+                "employee",
+                f"video-segment-native-{uuid.uuid4().hex[:10]}@example.test",
+                "Video segment annotator",
+            )
+            annotator_id = annotator.id
+            db.add(
+                ProjectMember(
+                    id=uuid.uuid4(),
+                    project_id=project_id,
+                    user_id=annotator_id,
+                    role="annotator",
+                    assigned_by=actor_id,
+                )
+            )
+            task = await db.get(Task, task_id)
+            task.status = "in_progress"
+            task.assignee_id = annotator_id
+            await db.flush()
+            task_scope = {
+                "task_id": task.id,
+                "project_id": task.project_id,
+                "expected_batch_id": task.batch_id,
+                "expected_task_status": task.status,
+                "expected_review_round_id": task.review_round_id,
+                "dataset_item_id": item_id,
+            }
+            preparation_scope = {
+                "task_id": task.id,
+                "project_id": task.project_id,
+                "actor_id": viewer_id,
+                "dataset_item_id": item_id,
+            }
+
+        connection = await asyncpg.connect(
+            _dsn(test_engine, "AAP_MODULE_DATA_LABELING_VIDEO_CONTROL_URL", _ROLE),
+            timeout=5,
+            command_timeout=10,
+        )
+        assert await connection.fetchval("SELECT current_user") == _ROLE
+        await verify_function_only_role(
+            connection,
+            schema="aap_labeling_v1",
+            functions={
+                ("video_control_command", "jsonb"),
+                ("video_segment_lifecycle_command", "jsonb"),
+            },
+            role=_ROLE,
+        )
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await connection.fetchval("SELECT id FROM public.video_segments LIMIT 1")
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await connection.execute(
+                "UPDATE public.video_segments SET status='open' WHERE dataset_item_id=$1",
+                item_id,
+            )
+
+        async def execute(payload):
+            return await connection.fetchval(
+                "SELECT aap_labeling_v1.video_segment_lifecycle_command($1::jsonb)",
+                payload,
+            )
+
+        client = VideoControlDataClient(execute)
+        preparation = PrepareVideoSegments(
+            schema="aap-labeling-video-control/v1",
+            operation="prepare_segments",
+            **preparation_scope,
+            frame_count=360,
+            segment_size_frames=180,
+            now=datetime.now(timezone.utc),
+        )
+        transaction = connection.transaction()
+        await transaction.start()
+        rolled_back = await client.command(preparation)
+        assert rolled_back["segment_count"] == 2
+        await transaction.rollback()
+        async with maker() as db:
+            assert (
+                await db.scalar(
+                    text(
+                        "SELECT count(*) FROM public.video_segments WHERE dataset_item_id=:id"
+                    ),
+                    {"id": item_id},
+                )
+                == 0
+            )
+
+        prepared = await client.command(preparation)
+        assert prepared["segment_count"] == 2
+        assert [row["segment_index"] for row in prepared["segments"]] == [0, 1]
+        segment_id = prepared["segments"][0]["id"]
+        async with test_engine.begin() as seed_assignment:
+            await seed_assignment.execute(
+                text(
+                    "UPDATE public.video_segments SET assignee_id=:actor,status='assigned' "
+                    "WHERE id=:segment"
+                ),
+                {"actor": annotator_id, "segment": segment_id},
+            )
+        now = datetime.now(timezone.utc)
+        target = task_scope | {"actor_id": annotator_id, "segment_id": segment_id}
+        manager_target = task_scope | {"actor_id": actor_id, "segment_id": segment_id}
+
+        with pytest.raises(asyncpg.PostgresError) as missing_lease:
+            await client.command(
+                SubmitVideoSegment(
+                    schema="aap-labeling-video-control/v1",
+                    operation="submit_segment",
+                    privileged=False,
+                    **target,
+                    now=now,
+                )
+            )
+        assert missing_lease.value.message == "aap_video_control_error"
+        assert json.loads(missing_lease.value.detail)["detail"] == {
+            "reason": "video_segment_lease_required"
+        }
+        with pytest.raises(asyncpg.PostgresError) as unassign_forbidden:
+            await client.command(
+                UnassignVideoSegment(
+                    schema="aap-labeling-video-control/v1",
+                    operation="unassign_segment",
+                    **target,
+                )
+            )
+        assert unassign_forbidden.value.message == "aap_video_control_error"
+        assert json.loads(unassign_forbidden.value.detail)["detail"] == (
+            "reviewer privilege required"
+        )
+        async with maker() as db:
+            row = await db.get(VideoSegment, segment_id)
+            assert row.status == "assigned"
+            assert row.assignee_id == annotator_id
+
+        claim = ClaimVideoSegment(
+            schema="aap-labeling-video-control/v1",
+            operation="claim_segment",
+            privileged=False,
+            **target,
+            now=now,
+            lock_ttl_seconds=300,
+        )
+        transaction = connection.transaction()
+        await transaction.start()
+        rolled_back_claim = await client.command(claim)
+        assert rolled_back_claim["segment"]["status"] == "locked"
+        await transaction.rollback()
+        async with maker() as db:
+            row = await db.get(VideoSegment, segment_id)
+            assert row.status == "assigned"
+            assert row.assignee_id == annotator_id
+            assert row.locked_by is None
+
+        claimed = await client.command(claim)
+        assert claimed["changed"] is True
+        assert claimed["segment"]["assignee_id"] == annotator_id
+        assert claimed["segment"]["locked_by"] == annotator_id
+        heartbeat = await client.command(
+            HeartbeatVideoSegment(
+                schema="aap-labeling-video-control/v1",
+                operation="heartbeat_segment",
+                privileged=False,
+                **target,
+                now=now + timedelta(seconds=1),
+                lock_ttl_seconds=300,
+            )
+        )
+        assert heartbeat["segment"]["locked_at"] == claimed["segment"]["locked_at"]
+        released = await client.command(
+            ReleaseVideoSegment(
+                schema="aap-labeling-video-control/v1",
+                operation="release_segment",
+                privileged=False,
+                **target,
+                now=now + timedelta(seconds=2),
+            )
+        )
+        assert released["segment"]["status"] == "assigned"
+        assert released["segment"]["locked_by"] is None
+
+        claimed = await client.command(
+            ClaimVideoSegment(
+                schema="aap-labeling-video-control/v1",
+                operation="claim_segment",
+                privileged=False,
+                **target,
+                now=now + timedelta(seconds=3),
+                lock_ttl_seconds=300,
+            )
+        )
+        assert claimed["segment"]["status"] == "locked"
+        submitted = await client.command(
+            SubmitVideoSegment(
+                schema="aap-labeling-video-control/v1",
+                operation="submit_segment",
+                privileged=False,
+                **target,
+                now=now + timedelta(seconds=4),
+            )
+        )
+        assert submitted["changed"] is True
+        assert submitted["segment"]["status"] == "completed"
+        duplicate = await client.command(
+            SubmitVideoSegment(
+                schema="aap-labeling-video-control/v1",
+                operation="submit_segment",
+                privileged=False,
+                **target,
+                now=now + timedelta(seconds=5),
+            )
+        )
+        assert duplicate["changed"] is False
+
+        reopened = await client.command(
+            ReopenVideoSegment(
+                schema="aap-labeling-video-control/v1",
+                operation="reopen_segment",
+                **manager_target,
+            )
+        )
+        assert reopened["segment"]["status"] == "assigned"
+        unassigned = await client.command(
+            UnassignVideoSegment(
+                schema="aap-labeling-video-control/v1",
+                operation="unassign_segment",
+                **manager_target,
+            )
+        )
+        assert unassigned["segment"]["status"] == "open"
+        assert unassigned["segment"]["assignee_id"] is None
+    finally:
+        if connection is not None:
+            await connection.close()
+        async with test_engine.begin() as cleanup:
+            if item_id is not None:
+                await cleanup.execute(
+                    text("DELETE FROM public.video_segments WHERE dataset_item_id=:id"),
+                    {"id": item_id},
+                )
+            if task_id is not None:
+                await cleanup.execute(delete(Task).where(Task.id == task_id))
+            if project_id is not None and annotator_id is not None:
+                await cleanup.execute(
+                    text("DELETE FROM public.project_members WHERE project_id=:id"),
+                    {"id": project_id},
+                )
+                await cleanup.execute(
+                    text("DELETE FROM public.users WHERE id=:id"),
+                    {"id": annotator_id},
+                )
+            if viewer_id is not None:
+                await cleanup.execute(
+                    text("DELETE FROM public.users WHERE id=:id"),
+                    {"id": viewer_id},
+                )
             if item_id is not None:
                 await cleanup.execute(
                     text("DELETE FROM public.dataset_items WHERE id=:id"),

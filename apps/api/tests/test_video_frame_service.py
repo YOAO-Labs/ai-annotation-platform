@@ -483,19 +483,42 @@ async def test_video_context_values_survive_rollback_without_lazy_loads(
 async def test_taskless_video_context_keeps_taskless_segment_behavior(
     db_session, super_admin
 ):
-    from app.services.video_segment_service import ensure_segments, submit_segment
+    from app.services.video_segment_service import (
+        claim_segment,
+        ensure_segments,
+        heartbeat_segment,
+        release_segment,
+        reopen_segment,
+        submit_segment,
+        unassign_segment,
+    )
 
     user, _ = super_admin
     task, item = await _make_video_task(db_session, user.id)
     ctx = await _context_for_item(db_session, item.id)
     assert ctx.task_id is None
     segments = await ensure_segments(db_session, ctx)
+    segment_id = segments[0].id
 
-    result = await submit_segment(
-        db_session, ctx, segments[0].id, user, privileged=True
+    claimed = await claim_segment(db_session, ctx, segment_id, user, privileged=True)
+    assert claimed.status == "locked"
+    heartbeat = await heartbeat_segment(
+        db_session, ctx, segment_id, user, privileged=True
     )
+    assert heartbeat.status == "locked"
+    released = await release_segment(db_session, ctx, segment_id, user, privileged=True)
+    assert released.status == "assigned"
+    assert released.locked_by is None
+    await claim_segment(db_session, ctx, segment_id, user, privileged=True)
+
+    result = await submit_segment(db_session, ctx, segment_id, user, privileged=True)
 
     assert result.status == "completed"
+    reopened = await reopen_segment(db_session, ctx, segment_id, actor_id=user.id)
+    assert reopened.status == "assigned"
+    unassigned = await unassign_segment(db_session, ctx, segment_id, actor_id=user.id)
+    assert unassigned.status == "open"
+    assert unassigned.assignee_id is None
     assert task.status == "pending"
 
 

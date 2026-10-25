@@ -6,7 +6,11 @@ from pathlib import Path
 import pytest
 
 from aap_labeling.video_control_contract import (
+    VIDEO_CONTROL_FUNCTION,
+    VIDEO_SEGMENT_LIFECYCLE_FUNCTION,
+    ClaimVideoSegment,
     CheckReviewScopes,
+    PrepareVideoSegments,
     LockWorkerJob,
     ReadJob,
     ReadWorkerJob,
@@ -236,6 +240,103 @@ def test_video_control_schema_snapshots_match_the_closed_contract():
     expected = video_control_schema()
     for snapshot in (
         root / "apps/labeling/src/aap_labeling/video-control.schema.json",
-        root / "apps/api/alembic/sql/0350_labeling_video_control.schema.json",
+        root / "apps/api/alembic/sql/0360_labeling_video_segment_lifecycle.schema.json",
     ):
         assert json.loads(snapshot.read_text()) == expected
+    assert expected["x-postgresql-functions"] == [
+        VIDEO_CONTROL_FUNCTION,
+        VIDEO_SEGMENT_LIFECYCLE_FUNCTION,
+    ]
+    assert (
+        root / "apps/api/alembic/sql/0360_labeling_video_segment_lifecycle.sql"
+    ).read_bytes() == (
+        root
+        / "apps/labeling/src/aap_labeling/sql/0360_labeling_video_segment_lifecycle.sql"
+    ).read_bytes()
+
+
+@pytest.mark.asyncio
+async def test_segment_preparation_and_lifecycle_replies_are_closed_and_bound():
+    actor_id = uuid.uuid4()
+    item_id = uuid.uuid4()
+    segment_id = uuid.uuid4()
+    now = datetime.now(timezone.utc)
+    segment = {
+        "id": str(segment_id),
+        "dataset_item_id": str(item_id),
+        "segment_index": 0,
+        "start_frame": 0,
+        "end_frame": 179,
+        "assignee_id": str(actor_id),
+        "status": "locked",
+        "locked_by": str(actor_id),
+        "locked_at": now.isoformat(),
+        "lock_expires_at": now.isoformat(),
+        "created_at": now.isoformat(),
+        "updated_at": now.isoformat(),
+    }
+    preparation = PrepareVideoSegments(
+        schema="aap-labeling-video-control/v1",
+        operation="prepare_segments",
+        task_id=None,
+        project_id=None,
+        actor_id=actor_id,
+        dataset_item_id=item_id,
+        frame_count=180,
+        segment_size_frames=180,
+        now=now,
+    )
+
+    async def prepared(payload):
+        return {
+            "schema": "aap-labeling-video-control/v1",
+            "ok": True,
+            "request": json.loads(payload),
+            "data": {"segments": [segment], "segment_count": 1},
+        }
+
+    prepared_result = await VideoControlDataClient(prepared).command(preparation)
+    assert prepared_result["segments"][0]["id"] == segment_id
+    assert prepared_result["segments"][0]["dataset_item_id"] == item_id
+
+    claim = ClaimVideoSegment(
+        schema="aap-labeling-video-control/v1",
+        operation="claim_segment",
+        privileged=False,
+        task_id=uuid.uuid4(),
+        project_id=uuid.uuid4(),
+        actor_id=actor_id,
+        expected_batch_id=None,
+        expected_task_status="in_progress",
+        expected_review_round_id=None,
+        dataset_item_id=item_id,
+        segment_id=segment_id,
+        now=now,
+        lock_ttl_seconds=300,
+    )
+
+    async def claimed(payload):
+        return {
+            "schema": "aap-labeling-video-control/v1",
+            "ok": True,
+            "request": json.loads(payload),
+            "data": {"segment": segment, "changed": True},
+        }
+
+    result = await VideoControlDataClient(claimed).command(claim)
+    assert result["segment"]["id"] == segment_id
+    assert result["changed"] is True
+
+    async def mismatched(payload):
+        return {
+            "schema": "aap-labeling-video-control/v1",
+            "ok": True,
+            "request": json.loads(payload),
+            "data": {
+                "segment": segment | {"id": str(uuid.uuid4())},
+                "changed": True,
+            },
+        }
+
+    with pytest.raises(VideoControlUnavailable):
+        await VideoControlDataClient(mismatched).command(claim)
