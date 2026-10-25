@@ -19,9 +19,10 @@ const labels: Record<string, string> = {
   unreferenced_groups: "未发现引用",
 };
 const unknownLabels: Record<string, string> = {
-  training_versions: "训练快照",
-  active_learning_rounds: "主动学习历史",
-  reference_aliases: "引用别名",
+  unknown_training_versions: "训练快照",
+  unknown_active_learning_rounds: "主动学习历史",
+  unknown_reference_aliases: "引用别名",
+  unknown_operations: "未确认定位的活动读取",
 };
 const statuses = {
   idle: "尚未核对",

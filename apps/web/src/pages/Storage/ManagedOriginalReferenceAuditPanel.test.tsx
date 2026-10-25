@@ -47,7 +47,12 @@ function result(): ReferenceReconciliationOut {
       blocked_groups: 1,
       unreferenced_groups: 2,
     },
-    unknown: { training_versions: 1, active_learning_rounds: 0, reference_aliases: 2 },
+    unknown: {
+      unknown_training_versions: 1,
+      unknown_active_learning_rounds: 0,
+      unknown_reference_aliases: 2,
+      unknown_operations: 0,
+    },
     deltas: [{ metric: "protected_groups", before: 3, after: 2, change: -1 }],
     error_code: null,
   };
@@ -104,6 +109,20 @@ it("shows actual group counts, unknown coverage and bounded drift separately fro
   fireEvent.click(screen.getByText("查看与上次成功核对的差异"));
   expect(screen.getByText("受引用保护：3 → 2（-1）")).toBeInTheDocument();
   expect(screen.getByText(/最近成功：/)).toBeInTheDocument();
+});
+
+it("shows unknown physical-operation coverage from the final backend metric names", async () => {
+  state.unknown = {
+    unknown_training_versions: 1,
+    unknown_active_learning_rounds: 2,
+    unknown_reference_aliases: 3,
+    unknown_operations: 4,
+  };
+  mount();
+  await expand();
+  expect(
+    screen.getByText(/未知覆盖：训练快照 1 · 主动学习历史 2 · 引用别名 3 · 未确认定位的活动读取 4/),
+  ).toHaveTextContent("未知不能视为零引用");
 });
 
 it("starts an observation explicitly and does not duplicate or automatically reclaim", async () => {
