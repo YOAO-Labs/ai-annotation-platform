@@ -199,7 +199,7 @@ import-from-connection (202)
 
 ## 内容身份与兼容回填
 
-外部连接器仍负责复制导入，StorageService 继续持有平台对象存储凭据并执行 I/O。内部 storage_locations/storage_bindings 记录默认平台位置和九用途的固定桶，不复制连接器密码，也没有变更用途绑定的公开入口。配置与固定记录不符时登记会失败；切换桶或 endpoint 前应独立完成历史对象定位、迁移与对账。
+外部连接器仍负责复制导入，StorageService 继续持有平台对象存储凭据并执行 I/O。内部 storage_locations/storage_bindings 记录默认平台位置和九用途的桶，不复制连接器密码。目前仅头像用途开放受控的新写入位置变更，其余用途仍保持固定映射。配置与固定记录不符时登记会失败；切换桶或 endpoint 前应独立完成历史对象定位、迁移与对账。
 
 每个 DatasetItem 可反向关联一份 DatasetAsset 内容修订及 DatasetAssetLocation。新上传、ZIP 与连接器复制使用独立上传 UUID 的稳定托管键，新 Item 在 metadata.storage_relative_path 保存逻辑相对路径，供 Scene、点云帧分组和导出复用；扫描保留真实键并单独分配重名后缀。托管根下 `_objects/<upload UUID>/` 为平台写入保留区，手工导入目录应放在该保留区以外，普通 UUID 场景目录完整保留。已核验内容以 SHA-256 和大小固定，数据库拒绝修改；派生图片继续由 ImagePyramidAsset/generation 管理。
 
@@ -217,6 +217,29 @@ cd apps/api
 全量目标用 `--all-datasets`。dry-run/verify 使用数据库 READ ONLY，并核对默认位置配置和全部九用途；缺失 bootstrap 也计入配置错误。apply 按最多 500 条的批次提交，JSONL 只含 ID/计数/错误码。中断后可原命令重跑；`--after <item UUID>` 从已报告游标后继续，最终须不带游标全量 verify，覆盖恢复期间新增的样本。
 
 退出码：0 表示该模式检查无待处理错误；1 表示配置/定位不一致或 verify 尚有待映射项；2 表示运行异常，已提交批次保留。dry-run 的 pending 数允许非零；映射工具不执行字节校验。应用回退保留 Alembic 0194；仅尚无内容身份和用途绑定的未使用 schema 可 downgrade，已使用则明确拒绝。
+
+### 显式补算旧托管原件
+
+`scripts/verify_legacy_dataset_assets.py` 在定位回填后建立当前原件的 SHA-256 基线。它不证明当前字节与历史标注时相同；历史摘要未知时，应先由数据负责人核对原件，再决定是否应用。工具不会搬移、覆盖或删除原件，也不更改样本、任务、标注、项目关联或历史冻结快照。
+
+在选定数据库与平台存储配置的 API 环境内执行：
+
+```bash
+cd apps/api
+.venv/bin/python scripts/verify_legacy_dataset_assets.py \
+  --preview --dataset-id <UUID> --batch-size 100 --output /secure/legacy-plan.jsonl
+# 核对清单中的 Item、Asset、SHA-256 和大小后，按同一清单应用
+.venv/bin/python scripts/verify_legacy_dataset_assets.py \
+  --apply-plan /secure/legacy-plan.jsonl
+```
+
+也可用 `--item-id <UUID>` 选单项，或显式 `--all-datasets`。批次最多500项，按 Item UUID 分页；预览的 `--after <UUID>` 可缩小续查范围。清单以0600权限独占创建，不覆盖旧文件，仅含业务ID、SHA、大小和不透明指纹，不含物理定位或凭据；应按内部数据保管。预览不发布内容身份，但会写入并收尾访问台账，因此不是数据库 READ ONLY 模式。
+
+预览及应用分别读取完整原件：单项最多5GiB，按分块计算SHA，读取预算60秒，客户端单次传输等待15秒；超时／取消等待物理读取真实结束，不提交该项。HEAD、条件 GET、完整长度及末次当前 HEAD 必须一致，条件读取不受支持时拒绝。应用前先验证并冻结整份清单；缺失尾记录、校验和不符或非法条目均在首项发布前拒绝。随后逐项重读并比较SHA／大小、Item／Asset身份、精确定位、配置、生命周期与维护修订；有变化须重新预览，不按当前桶补猜路径。
+
+应用只把原有 `unverified` Asset 及其唯一旧托管副本发布为 `verified`／`present`，同事务写入 `dataset_content.verify`，目的为 `legacy_current_baseline`。已核验内容不能通过此工具重绑定；重放同一清单返回 `already_verified`，这仅表示身份已发布，不表示再次检查了当前原件。批量预览跳过已核验项，外部引用不适用。未映射项先执行定位回填；原件缺失、旧大小不符、配置变化或定位歧义保持未知状态并报告。
+
+退出码0表示所选清单无失败；1表示逐项失败或原预览中仍有失败项，成功项已经单独提交；2表示清单／运行异常。中断或锁竞争后可重跑完整清单，已成功项幂等跳过；未完成的预览文件不能直接应用，应生成新文件。清单SHA用于发现文件变化，不是历史内容证明或签名授权。
 
 设计决策见 [ADR 0091](/dev/adr/archive/0091-dataset-content-and-location-identity)，接口见[数据集上传与扫描](/api/guides/datasets)。
 

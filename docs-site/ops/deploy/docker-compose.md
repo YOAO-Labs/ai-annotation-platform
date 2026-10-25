@@ -463,7 +463,7 @@ docker compose -f docker-compose.yml -f docker-compose.hostvols.yml up -d
    curl -fsS https://app.example.com/api/v1/health/minio | jq
    curl -fsS https://app.example.com/api/v1/health/celery | jq
    ```
-5. **回滚预案**：`git checkout <旧 commit>` 后 `up -d --build` 重新构建旧镜像；含迁移时先 `docker compose ... exec api alembic downgrade -1`。MinIO 数据通常向前兼容；audit_logs 触发器 downgrade 已写在 0032 迁移里。
+5. **回退预案**：先停止写入并按具体迁移说明选择兼容的应用版本，保留已使用的内容身份、来源、用途绑定和归属账本；不能对含迁移的升级统一执行 `alembic downgrade -1`。已有映射或不可逆屏障时保留当前 schema，采用应用回退或向前修复。旧应用不理解外部引用时，不得让它接管这些记录的写入、删除或后台清理，必要时保持受控只读。只有明确允许降级、数据条件满足且已在一次性环境演练的迁移，才按指定目标执行降级；不要用 `stamp` 绕过屏障。回退前的数据库与对象存储备份必须保留，详见[内容身份决策](/dev/adr/archive/0091-dataset-content-and-location-identity)与[升级指南](/ops/upgrade-guide)。
 
 ---
 

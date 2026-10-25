@@ -60,7 +60,7 @@ AI Annotation Platform 把项目管理、Data Manager、多模态标注工作台
 
 超级管理员可在外部存储位置详情展开[维护影响](./docs-site/user-guide/datasets/storage-connections.md#位置维护影响)，查看已保存的业务关系、活动工作与副本账本，以及位置停用、人员授权和配置修订的实际边界。位置使用范围和缓存配置先预览差异与影响，再在五分钟内确认；提交会复核权限、配置及关系，拒绝失效确认。
 
-数据集上传按稳定身份隔离原图，同名不同内容保留为独立文件；改名不移动已有原图。旧数据可按真实对象键回填内容与位置映射，参见[数据集上传与扫描](./docs-site/api/guides/datasets.md)及[兼容回填](./docs-site/dev/concepts/storage-connections.md#内容身份与兼容回填)。
+数据集上传按稳定身份隔离原图，同名不同内容保留为独立文件；改名不移动已有原图。旧数据可按真实对象键回填内容与位置映射；未知摘要可先预览当前原件，再显式应用SHA-256补算，保留旧任务身份。参见[数据集上传与扫描](./docs-site/api/guides/datasets.md)、[兼容回填](./docs-site/dev/concepts/storage-connections.md#内容身份与兼容回填)及[旧托管原件补算](./docs-site/dev/concepts/storage-connections.md#显式补算旧托管原件)。
 
 [3D 质量检查](./docs-site/user-guide/workbench/3d-box.md#3d-质量检查)按已登记 PCD 原件的保存位置、完整 SHA-256、大小与坐标约定读取，持续复核审核员的任务可见性；全部读取和解析真实收尾后才统一提交问题、运行结果与通知。取消、权限或来源变化不发布半轮问题，已有人工判定保留。缺少原件合同的旧待执行／执行中运行在派发或重放时标为过期，不回源补证；历史结果仍可查看，旧原件相关问题需重新扫描。
 
