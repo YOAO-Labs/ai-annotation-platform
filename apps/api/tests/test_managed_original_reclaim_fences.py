@@ -340,7 +340,7 @@ async def test_only_valid_current_attempt_can_exclude_its_exact_operation(
 
 
 async def test_saved_s3_reference_remains_a_training_root_after_alias_item_deleted(
-    db_session, super_admin, s3_world
+    db_session, super_admin, s3_world, monkeypatch
 ):
     from sqlalchemy import delete, select
     from app.db.models.dataset import DatasetItem
@@ -386,6 +386,23 @@ async def test_saved_s3_reference_remains_a_training_root_after_alias_item_delet
         [sample],
         managed_original_contract=1,
         source_lineage_contract={"schema": 1, "scope": "accepted-reference"},
+    )
+    await fence.protect_snapshot_references(db_session, {"samples": [sample]})
+    from unittest.mock import AsyncMock
+
+    guard = AsyncMock(
+        side_effect=HTTPException(
+            409, detail={"code": "managed_original_reclaim_claimed"}
+        )
+    )
+    with monkeypatch.context() as scoped:
+        scoped.setattr(fence, "shared", guard)
+        with pytest.raises(HTTPException) as claimed:
+            await fence.protect_snapshot_references(db_session, {"samples": [sample]})
+    assert claimed.value.detail["code"] == "managed_original_reclaim_claimed"
+    assert guard.await_args.args[1:] == (
+        entry.observed["bucket"],
+        entry.observed["key"],
     )
     await db_session.execute(
         delete(DatasetItem).where(DatasetItem.id == result["item_id"])
@@ -535,6 +552,9 @@ async def test_unresolvable_retained_reference_is_unknown_instead_of_zero_roots(
         }
         fields["source_lineage_contract"] = {"schema": 1, "scope": "accepted-reference"}
     await version(db_session, project.id, [sample], **fields)
+    with pytest.raises(HTTPException) as missing:
+        await fence.protect_snapshot_references(db_session, {"samples": [sample]})
+    assert missing.value.detail["code"] == "managed_original_reference_unknown"
     result = await observation.observe(db_session, row.id)
     assert result["unknown"]["unknown_training_versions"] == 1
     assert "unknown_training_versions" in result["blockers"]

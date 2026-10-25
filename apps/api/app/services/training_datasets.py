@@ -250,13 +250,17 @@ async def finalize_selection(db, prepared):
             raise TrainingDatasetError(
                 "preflight_changed", "数据已变化，请重新预检", status_code=409
             )
-        from app.services.managed_original_reclaim_fence import protect_source
+        from app.services.managed_original_reclaim_fence import (
+            protect_source,
+            protect_snapshot_references,
+        )
 
         for source in sorted(
             prepared.sources.values(),
             key=lambda source: (source.bucket or "", source.object_key),
         ):
             await protect_source(db, source)
+        await protect_snapshot_references(db, current)
     originals.clock(authority)
     return prepared.snapshot, prepared.report
 
