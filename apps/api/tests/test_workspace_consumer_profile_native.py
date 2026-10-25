@@ -211,6 +211,40 @@ async def test_profile_closes_private_columns_receipts_helpers_and_sequences(
     async with _world(test_engine) as (owner, api, _role, _url):
         async with api() as db:
             await _assert_closed(db)
+            assert not await db.scalar(
+                text(
+                    "SELECT has_table_privilege(current_user,'public.task_events','SELECT') "
+                    "OR has_any_column_privilege(current_user,'public.task_events','SELECT')"
+                )
+            )
+            assert await db.scalar(
+                text(
+                    "SELECT has_table_privilege(current_user,"
+                    "'aap_labeling_v1.task_event_facts','SELECT')"
+                )
+            )
+            mv_source = await db.scalar(
+                text(
+                    "SELECT pg_catalog.lower(pg_catalog.pg_get_viewdef("
+                    "'public.mv_user_perf_daily'::regclass,true))"
+                )
+            )
+            assert "aap_labeling_v1.task_event_facts" in mv_source
+            assert "public.task_events" not in mv_source
+            assert not await db.scalar(
+                text(
+                    "SELECT EXISTS ("
+                    "SELECT FROM pg_catalog.pg_class AS relation "
+                    "CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE("
+                    "relation.relacl,pg_catalog.acldefault('r',relation.relowner))) AS acl "
+                    "WHERE relation.oid='public.mv_user_perf_daily'::regclass "
+                    "AND acl.grantee=0 AND acl.privilege_type='SELECT')"
+                )
+            )
+            await db.execute(
+                text("REFRESH MATERIALIZED VIEW public.mv_user_perf_daily")
+            )
+            await db.commit()
             functions = (
                 await db.execute(
                     text(
