@@ -875,6 +875,10 @@ PYTHONPATH=. uv run python scripts/seed.py --profile online-training
 
 ### 托管原件保留账本
 
+准确版本受控回收须先应用迁移0260，再刷新所属API、default队列Worker及Beat，核对回收和引用核对任务实际注册；挂载源码不需要重建镜像。引用核对每日运行，也可由超级管理员手动提交，只保存DB观察，不自动删除。回收必须经独立预览确认，已登记逻辑位置停止且真实访问排空后，由绑定当前attempt/task/Gate修订的专用许可执行准确版本读删；普通停止位置仍不开放写入。
+
+回退应用保留新增attempt、claim/tombstone、核对状态及相关约束。可能发出DELETE或物理关闭不确定时，不能删责任记录、按TTL清零或强行恢复位置访问。恢复保留准确版本、历史回执及旧目标，不自动续跑；当前部署下重新预览并复验保护。未版本化、`null`版本或缺少创建证据的历史原件继续保留；详见[准确版本回收](docs-site/dev/concepts/storage-connections.md#准确版本回收与引用栅栏)。
+
 迁移0216新增独立原件位置记录。部署先向核实归属的目标应用迁移，再刷新实际执行Dataset/Item删除代码的API与Worker；无依赖或镜像变化时不重建镜像。旧代码删除不会生成新记录，不能将升级前或未登记的原件解释为已覆盖。
 
 删除前的capture与业务删除同事务，无独立提交或对象I/O。没有保留策略时`retain_until=null`表示无限期保护；预演不签发物理执行凭证。回退保留账本，有记录时拒绝0216降级。离线恢复映射须包含该物理owner，未知身份拒绝静默映射；详见[原件保留合同](docs-site/dev/concepts/storage-connections.md#托管原件移除后的保留证据)。

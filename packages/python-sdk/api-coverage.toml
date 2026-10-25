@@ -519,6 +519,12 @@ watched_tags = ["projects", "guide-assets", "datasets", "batches", "tasks", "ann
 "POST /api/v1/storage/managed-original-retirements/{retirement_id}/retention" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/storage/managed-original-retirements/{retirement_id}/verifications" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/storage/managed-original-retirements/{retirement_id}/verifications" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/storage/managed-original-retirements/{retirement_id}/reclaims" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage/managed-original-retirements/{retirement_id}/reclaim-preview" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage/managed-original-retirements/{retirement_id}/reclaims" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage/managed-original-reclaims/{attempt_id}/redispatch" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/storage/managed-original-reference-reconciliation" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage/managed-original-reference-reconciliation" = { status = "excluded", reason = "web-only" }
 
 "GET /api/v1/storage-locations/bindings/audit-archive/candidates" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/storage-locations/bindings/audit-archive/change-preview" = { status = "excluded", reason = "web-only" }

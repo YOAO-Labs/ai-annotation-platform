@@ -60,7 +60,7 @@ AI Annotation Platform 把项目管理、Data Manager、多模态标注工作台
 
 [图片金字塔](./docs-site/dev/concepts/image-pyramid-assets.md)使用已登记原件的保存位置和完整 SHA 核验，每次租约固定独立派生输出。读取、缩略图与清理沿用该归属；旧无归属代需要在原件登记后重新生成，未知旧文件保留待核对。后台生成继续检查发起者的 Task 可见性与凭据，不增加数据集管理权限要求；目录与原地引用限制保持。
 
-删除托管数据集或样本时，平台在同一事务保留已登记原件的位置证据。超级管理员可在“平台对象占用”展开[托管原件保留与回收预演](./docs-site/user-guide/datasets/storage-connections.md#托管原件保留与回收预演)，查看保留记录和当前引用，并在居中详情中预览确认期限设置、备份/迁移保留要求及显式解除。未指定期限按无限期保护，相关记录共同保护；详情还可显式启动[原件完整核验](./docs-site/user-guide/datasets/storage-connections.md#核验原件完整内容)，保存与历史摘要比较的观测，不提供物理删除许可。
+删除托管数据集或样本时，平台在同一事务保留已登记原件的位置证据。超级管理员可在“平台对象占用”展开[托管原件保留与回收预演](./docs-site/user-guide/datasets/storage-connections.md#托管原件保留与回收预演)，查看当前引用并确认期限、备份/迁移要求及显式解除；未指定期限按无限期保护。详情支持[原件完整核验](./docs-site/user-guide/datasets/storage-connections.md#核验原件完整内容)，以及单独预览确认的[准确版本受控回收](./docs-site/user-guide/datasets/storage-connections.md#受控回收准确版本)。回收须重新检查创建回执、保留、引用和真实访问排空；每日或手动引用核对只保存观察，不自动删除。
 
 存储位置详情的[来源诊断](./docs-site/user-guide/datasets/storage-connections.md#位置内的来源诊断)将当前已采纳的源索引规模与平台对象字节分开，同一文件跨数据集和重叠来源去重，缺证据时保留未知。原地引用样本的原件观测、预览生成记录、扫描及预检进展独立展示，可定位到对应来源、轮次和后台任务；刷新只读已有记录，不进行实时存储探测。
 

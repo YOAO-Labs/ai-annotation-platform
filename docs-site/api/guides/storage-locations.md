@@ -443,7 +443,7 @@ GET接受`limit=20`（1至100）及`offset=0`（0至1000000），返回`retireme
 
 预览返回`before/after`共同保护摘要、`shortens_retention`、动作及`hold_id/hold_kind/reference_code`、观测/到期时间和`impact_token`。提交额外携带该令牌，返回当前State；每次成功动作只将目标policy_revision递增一次。令牌绑定操作者、当前Key权威、锚点/规范候选/原因/修订、平台配置和完整peer/hold指纹；确认期间截止时间已到也拒绝。错误包括401/403、404缺失或非原锚点、409冲突/锁忙/过期/重复以及422输入或过去期限；失败不留半状态。
 
-所有保留控制写入按User→Key→保守locator组事务锁→锚点→hold排序，不锁任意peer或业务对象。新业务删除仍可能并发追加默认无限期断言；摘要是提交时重查的观测，不是捕获或物理执行屏障。成功审计保存安全前后摘要、原因、修订与确认时间，不保存物理路径或令牌。所有结果固定`coverage=declared_requirements_only`、`execution_permission=false`；空要求列表、解除或策略到期不能证明独占所有权、真实恢复点、迁移或现场最小副本已获资格。
+所有保留控制写入按User→Key→保守locator组事务锁→锚点→hold排序，不锁任意peer或业务对象。捕获、引用发布和独立回收共用同组事务边界；设置结果仍只是当前观测。成功审计保存安全前后摘要、原因、修订与确认时间，不保存物理路径或令牌。结果固定`coverage=declared_requirements_only`、`execution_permission=false`；空要求列表、解除或策略到期本身都不是删除许可或真实备份证明。
 
 ## 托管原件完整核验
 
@@ -456,6 +456,31 @@ GET接受`limit=20`（1至100）及`offset=0`（0至1000000），返回`retireme
 通过`POST /api/v1/async-jobs/{job_id}/cancel`取消，授权同样要求当前超级管理员与全权Key。pending可直接取消；running返回`status=cancel_requested`，实际读取收尾后才终态。进程丢失或关闭不确定保留operation责任，信号/超时不会自动清空；未收尾期间不可重新启动同锚点。
 
 `context_matches`仅说明已记录锚点与配置仍适用，不承诺对象此刻未被覆盖。SHA匹配仍不是独占所有权、最小副本、可恢复备份或物理删除许可；所有结果维持`execution_permission=false`，不调整期限或声明要求。配置/定位在恢复后变化，旧观测按历史保留且不再匹配，需要显式核验新目标。
+
+## 托管原件准确版本回收
+
+以下接口要求当前超级管理员及API Key全权`*`，不接受任意桶、键或VersionId作为删除目标：
+
+| 方法 | 路径                                                                           | 用途                            |
+| ---- | ------------------------------------------------------------------------------ | ------------------------------- |
+| GET  | `/api/v1/storage/managed-original-retirements/{retirement_id}/reclaims`        | 有界回收历史及当前阻断原因      |
+| POST | 同一路径                                                                       | 确认预览并创建独立任务，返回202 |
+| POST | `/api/v1/storage/managed-original-retirements/{retirement_id}/reclaim-preview` | 纯数据库预览                    |
+| POST | `/api/v1/storage/managed-original-reclaims/{attempt_id}/redispatch`            | 显式重派原pending任务，返回202  |
+
+预览接收去首尾空白后8至1000字符的`reason`；终态重试另传`retry_of_id`。返回`retirement_id/measured_at/expires_at/eligible/blockers/impact_token/expected_size_bytes/version_id/creation_id/location_id/irreversible=true`。令牌有效五分钟，绑定操作者/Key、规范原因、完整保护/配置、准确创建版本及停止位置修订；存在阻断时不给执行令牌。提交携带同一原因、重试身份及`impact_token`，返回`retirement_id/reclaim_id/async_job_id/existing`；过期或变化须重新预览。
+
+历史`limit`为1至100，默认20；`offset`为0至1000000。返回`can_preview/blockers/max_bytes/timeout_seconds/items/total/limit/offset/has_more`；条目包含准确创建版本、Job/重试关系、状态/阶段/结果、请求与收尾时间、`delete_started/absence_proven/unsettled_operation`，不外露对象地址或权限证明。状态包含`unknown`，不把删除应答丢失解释为未执行。
+
+仅已退役、条件创建并完整核验且责任结清、准确非`null`版本的Dataset托管原件可以进入执行。按Creation保存地址解析，不以当前用途绑定替换。全部同键记录期限已结束、所有支持的当前/冻结引用及保留要求均无保护，且相关真实访问排空后，才原子认领；未知历史和未完成迁移继续阻断。任务完整读取准确版本SHA/大小，提交删除intent后只删除该版本并确认缺失，最多5GiB、256KiB分块、60秒协作预算。
+
+`POST /api/v1/async-jobs/{job_id}/cancel`复用当前超管/全权Key授权；pending可直接取消，running先登记请求并等待真实收尾。可能发出DELETE后保持tombstone，晚到ACK不因取消或撤权消失；未结清责任禁止重试或恢复位置访问。已结清的失败/取消/未知任务可重新预览同一物理目标的新attempt，已成功版本不重删。准确版本缺失只有存在先前删除intent时才作为恢复确认，不能把首次就缺失算作本次回收字节。
+
+## 托管原件引用核对
+
+`GET /api/v1/storage/managed-original-reference-reconciliation`只读取最近状态；同路径`POST`显式提交DB核对任务并返回202，授权同上。返回`status/async_job_id/measured_at/last_success_at/counts/unknown/deltas/error_code`。`counts`包含登记断言、物理保守组及受引用保护、保留中、阻断、无引用组；最多六条指标变化，不冒充逐对象释放清单。首次没有观测时计数保持空，失败保留上次成功时间与观察。
+
+相同任务每天由Beat提交一次；重复pending派发沿同一身份，状态发布受Job/task围栏保护。核对完整重查数据库支持的引用/策略关系，不访问对象、不修改期限、不自动DELETE。观察结果不替代每次回收的事务重查，未登记来源与未知快照不据此变为已覆盖。
 
 ## 上传头像的固定位置
 
