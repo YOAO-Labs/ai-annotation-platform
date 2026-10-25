@@ -195,6 +195,7 @@ http {{
     server {{
         listen 80;
         server_name _;
+        keepalive_timeout 0;
         location ~ ^/(minio|api)(/|$) {{ return 403; }}
         location / {{
             {restriction}

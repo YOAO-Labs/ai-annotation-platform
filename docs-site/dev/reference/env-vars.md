@@ -4,7 +4,7 @@ audience: [dev, ops]
 type: reference
 since: v0.9.0
 status: stable
-last_reviewed: 2026-10-24
+last_reviewed: 2026-10-26
 ---
 
 # 环境变量参考
@@ -53,6 +53,8 @@ last_reviewed: 2026-10-24
 | `MINIO_PUBLIC_URL` | `/minio` | 浏览器可达的 MinIO 根地址。DEV 用同源 /minio，由 Vite :3000 代理到 localhost:9000，远程浏览器无需额外打通 9000 端口。生产应改为完整外网 URL。 容器中的 ML Backend 访问地址仍由 ML_BACKEND_STORAGE_HOST 独立控制。 |
 | `MINIO_ACCESS_KEY` | `minioadmin` | MinIO 访问密钥（相当于 AWS Access Key ID） 沿用 compose 自带 minio 时，这两项同时作为 minio 容器的 root 凭据（docker-compose.yml 绑定）， 后端/worker 与 minio 容器自动共用同一份；用托管 S3/OSS 时填对方的 AK/SK 即可。 |
 | `MINIO_SECRET_KEY` | `minioadmin` | MinIO 密钥（相当于 AWS Secret Access Key）；生产环境务必更换 |
+| `AAP_SOURCE_FENCE_ACCESS_KEY` | `—` | 仅原生源端封闭运维命令使用，在操作进程中导出，不加入API或Worker配置。 |
+| `AAP_SOURCE_FENCE_SECRET_KEY` | `—` | 显式登记来源的root密钥，不写入描述文件、状态或报告。 |
 | `MINIO_BUCKET` | `annotations` | 存放标注文件（图片、音频等）的桶名称 |
 | `MINIO_DATASETS_BUCKET` | `datasets` | 数据集源文件桶（图片/视频/文本原始文件） |
 | `MINIO_BUG_REPORTS_BUCKET` | `bug-reports` | Bug 反馈截图桶（180 天 lifecycle） |

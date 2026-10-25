@@ -341,6 +341,8 @@ class Controller:
     def _native(call, *args):
         try:
             return call(*args)
+        except FenceError:
+            raise
         except Exception:
             raise FenceError("native_operation_failed") from None
 

@@ -56,6 +56,64 @@ last_reviewed: 2026-10-26
 
 关闭窗口先停止新专用准入；存在未收尾操作时保留关闭中与来源阻断，实际归零后再次关闭才恢复普通准入。任务取消不会自动重开来源，硬中断不按TTL清除许可。窗口独立于AsyncJob保留，已有窗口事实时不能破坏性降级schema；应用回退应保留0258和全部保存责任。
 
+## MinIO 原生源端封闭
+
+`scripts/storage_source_fence.py` 在部署方已登记的 Docker 拓扑上控制真正的源端写入口与进程，适用于本机回环 HTTP 入口。它独立于上述应用窗口；当前应用不接受该命令的 JSON 作为全源停写证明，也不会因此开放最终业务切换。
+
+### 登记受控拓扑
+
+先由运维建立唯一 S3 入口，保留原签名使用的主机与端口。源容器只连接一个 `Internal=true` 私有 Docker 网络，不发布 S3 或控制台端口；网络只含源与入口两个容器。入口另连一个独立的非内部 bridge 网络，该网络仅含入口，用于发布回环端口；设置 `net.ipv4.ip_forward=0`，不提供跨网络路由。应用、浏览器和外部写入方都经过入口。宿主机与 Docker 管理员属于可信运维边界，命令不防止管理员另建入口或改写底层卷。
+
+源使用 `minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e`，仅将具名数据卷挂到 `/data`。入口使用 `nginx@sha256:dc5069ad14f19660b141b21236140b91656bf89bbc3e2417c70ae650cd66104c`，入口程序为 `nginx`、参数为 `-g 'daemon off;'`，将一个配置目录只读挂到 `/etc/nginx`，发布 `127.0.0.1:<原端口>:80`。配置目录权限为 `0700`，其中无密钥的 `nginx.conf` 为 `0644`。配置内容由 `storage_source_fence_docker.gateway_config(source_ip, readonly=False)` 生成，保留 Host 和原始 URI，关闭请求缓冲；不转发控制台或管理路径。
+
+每项资源都必须带 `aap.source-fence.owner`（同一随机32位小写十六进制标识）、`aap.source-fence.checkout`（当前仓库真实绝对路径）和 `aap.source-fence.role` 标签。源、入口、私有网络、入口网络、数据卷的角色依次为 `source / gateway / network / frontend / data`。命令持续核对精确容器和网络 ID、卷、镜像、挂载、成员及入口端口，不按名称自动接管当前9000服务。HTTPS、外部反代、多节点 MinIO及有其他直达通道的拓扑不由此适配器证明。
+
+在权限为 `0700` 的私有目录保存 `0600` JSON 描述文件，不放凭据。状态文件固定为入口配置目录父级的 `fence-state.json`，同一物理入口始终共用同一日志和跨进程锁，不能改路径再初始化一套控制状态：
+
+| 字段                                                | 内容                                                             |
+| --------------------------------------------------- | ---------------------------------------------------------------- |
+| `schema`                                            | `aap.storage-source-fence-config/v1`                             |
+| `owner / checkout`                                  | 上述共同标签值                                                   |
+| `source_container / gateway_container / network_id` | 实际64位 Docker ID                                               |
+| `gateway_frontend_network_id`                       | 独立入口 bridge 网络的准确64位 ID                                |
+| `source_volume_name`                                | 源具名数据卷的准确名称                                           |
+| `gateway_config_directory`                          | 上述配置目录的真实绝对路径                                       |
+| `public_endpoint`                                   | 保持原主机／端口的 `http://127.0.0.1:<端口>`                     |
+| `purpose_buckets`                                   | 九用途到实际桶名的完整映射，允许共用桶；不得漏掉源上的其他业务桶 |
+
+根凭据只由当前命令进程的 `AAP_SOURCE_FENCE_ACCESS_KEY / AAP_SOURCE_FENCE_SECRET_KEY` 环境变量取得，不存入描述文件、状态或报告。需要 Docker 管理权限、现有 `mc` 和当前 API 虚拟环境；不构建后端镜像、不改应用 `.env`，不使用全局 `~/.mc`。
+
+### 封闭、核对与恢复
+
+```sh
+apps/api/.venv/bin/python scripts/storage_source_fence.py init \
+  --config /private/source.json --state /private/fence-state.json
+apps/api/.venv/bin/python scripts/storage_source_fence.py preview \
+  --config /private/source.json --state /private/fence-state.json
+# 使用 init/status 返回的最新 revision 和本次操作的 UUID。
+apps/api/.venv/bin/python scripts/storage_source_fence.py seal \
+  --config /private/source.json --state /private/fence-state.json \
+  --expected-revision 1 --operation-id 540546ac-c81b-4f9d-81a2-8a8a4cc9c434
+apps/api/.venv/bin/python scripts/storage_source_fence.py status \
+  --config /private/source.json --state /private/fence-state.json
+```
+
+封闭先持久记录意图，再将入口切为只允许 GET／HEAD 并真正重启入口，终止旧入口进程。保存原生命周期规则及已观察的准确 multipart 上传ID后，禁用并回读全部规则；停止整个源容器、确认进程已退出再启动，按保存ID和当前列表逐个终止 multipart，并通过 ListParts 返回 NoSuchUpload 确认，然后再执行一次完整进程屏障。已签发的 PUT／Complete URL、root、普通账号及匿名写入均受同一入口约束；已经接受的请求由进程退出收尾。命令不会删除完整对象、历史版本或删除标记，未完成上传的终止属于本操作的明确变更范围。
+
+最后重启后重新核验全局 tier 为空、站点复制关闭、桶复制无配置、全部实际对象版本没有 Restore 状态、当前可恢复批处理作业为空，以及规则仍被禁用、已保存上传均不可继续、源卷当前 multipart 元数据残留为零和源进程代次／入口配置未变。已有当前与非当前过期规则的非空源可以使用；不支持的后台写入者或观测失败明确拒绝，不解释成“没有”。这些检查只针对本次源端对象稳定性，不要求清零历史业务定位或旧 tier／MRF 记录。
+
+固定 MinIO 构建的全桶 multipart 列表来自内存缓存，重启后为空不能证明磁盘上传已消失。命令保留重启前实际观察的准确ID并逐个核验；最终对 `/data/.minio.sys/multipart` 做有界只读元数据检查，补住列表未覆盖或停止前才落盘的上传。发现未映射残留或无法完整检查时拒绝封存，不猜对象键、不删除完整对象。该限制见[固定源码的列表实现](https://github.com/minio/minio/blob/07c3a429bfed433e49018cb0f78a52145d4bedeb/cmd/erasure-server-pool.go#L1718)。
+
+`held=true` 是成功实际观测的结果，附观测时刻；状态文件本身没有永久证明效力。状态、快照及锁位于私有目录，采用修订 CAS、操作 UUID 和跨进程锁。发生中断或原生应答未知时保持封闭责任，按最新修订和同一操作 UUID 续跑；不会自动解封。若源已停止但尚未重启，续跑先确认原进程已退出并重新建立只读入口，再启动原源容器；只读的 `status / preview` 不启动容器。`status` 重新检查真实状态，配置漂移会使证明失效。任何未知结果均先核对现有进程和日志，不另建同名源或删除状态文件。
+
+需要恢复写入时，显式执行 `release`，传入最新 `--expected-revision` 和另一个 `--operation-id` UUID。命令先使证明失效，再按原规则和已禁用快照核对恢复生命周期，成功后才恢复入口写入。规则被其他运维修改时拒绝覆盖，保持责任供核实。该步骤只恢复原生入口，不关闭应用维护窗口；最终清单、增量复制和业务切换仍须各自完成。
+
+### 本地原生验收
+
+纯检查使用 `PYTHONDONTWRITEBYTECODE=1 apps/api/.venv/bin/python -m unittest discover -s scripts -p 'test_storage_source_fence_*.py'`。真实验收入口为 `apps/api/.venv/bin/python scripts/verify_storage_source_fence.py --manifest /private/owner.json --summary /private/result.json`，两个文件均须不存在且父目录为 `0700`。它只创建随机所属的容器、卷、网络与回环端口，不读取应用配置或连接现有数据库／MinIO。它使用带历史版本、删除标记、既有规则、multipart 和已接受慢 PUT 的非空源，验证硬退出续跑、拒写、最终源清单与对象复制、准确读取及显式恢复。
+
+私有 owner 清单保留真实资源 ID，正常结束按精确归属清理；验收进程被硬杀后，使用该脚本的 `--cleanup --manifest <原清单> --summary <新的私有汇总文件>` 恢复清理，不能按名称前缀批量删除。保留脱敏有界汇总，清理原始凭据、日志、报告和临时配置。此演练不代表应用路由已切换、真实 TLS 或生产迁移已经通过。
+
 ## 执行与核对
 
 使用当前 checkout 的 API 虚拟环境，显式加载目标部署的数据库与 S3 配置。命令读取已有 `MINIO_*` 配置，不新增配置变量。数据库账号须能查询用途绑定、位置／连接的非凭据配置及异步任务；对象账号只需读取配置、列举桶版本／未完成上传和读取对象版本的权限。命令不会调用建桶、修改规则、上传或删除操作。

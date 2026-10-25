@@ -8,7 +8,7 @@ an existing store. The operator CLI and its durable journal remain unmodified.
 from __future__ import annotations
 
 import argparse
-from contextlib import ExitStack
+from contextlib import ExitStack, closing
 import datetime as dt
 import hashlib
 import ipaddress
@@ -336,18 +336,47 @@ def fence_cli(
         # Only the fixture injects death, after a real process barrier and before
         # Controller can save its acknowledgement. There is no CLI fault switch.
         wrapper = """
-import os, sys
+import json, os, sys
 sys.path.insert(0, sys.argv.pop(1))
+trace_path = sys.argv.pop(1)
 import storage_source_fence as cli
 from storage_source_fence_docker import DockerAdapter
 original = DockerAdapter.barrier
+def cached_uploads(self):
+    with self._client() as client:
+        return sum(len(client.list_multipart_uploads(Bucket=bucket, MaxUploads=1000).get('Uploads', []))
+                   for bucket in set(self.config['purpose_buckets'].values()))
 def barrier(self):
+    with self._client() as client:
+        bucket = self.config['purpose_buckets']['annotations']
+        key = 'probes/late-create'
+        upload = client.create_multipart_upload(Bucket=bucket, Key=key)['UploadId']
+        client.upload_part(Bucket=bucket, Key=key, UploadId=upload, PartNumber=1, Body=b'late-owned-part')
+    late_path = os.path.join(os.path.dirname(trace_path), 'late-upload.json')
+    fd = os.open(late_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, 'w') as stream:
+        json.dump({'Bucket': bucket, 'Key': key, 'UploadId': upload}, stream)
+        stream.flush()
+        os.fsync(stream.fileno())
+    before = cached_uploads(self)
     original(self)
+    after = cached_uploads(self)
+    fd = os.open(trace_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, 'w') as stream:
+        json.dump({'cached_before_restart': before, 'cached_after_restart': after}, stream)
+        stream.flush()
+        os.fsync(stream.fileno())
     os._exit(73)
 DockerAdapter.barrier = barrier
 raise SystemExit(cli.main())
 """
-        invocation = [sys.executable, "-c", wrapper, str(ROOT / "scripts")]
+        invocation = [
+            sys.executable,
+            "-c",
+            wrapper,
+            str(ROOT / "scripts"),
+            str(config.parent / "barrier-counts.json"),
+        ]
     result = subprocess.run(
         [*invocation, *arguments],
         cwd=ROOT,
@@ -364,9 +393,13 @@ raise SystemExit(cli.main())
     require(isinstance(value, dict), "fence_cli_response")
     if expected == 0:
         require(not result.stderr, "fence_cli_stderr")
+        fields = (
+            {"schema", "counts"}
+            if action == "preview"
+            else {"schema", "revision", "phase", "held", "observed_at", "counts"}
+        )
         require(
-            set(value)
-            == {"schema", "revision", "phase", "held", "observed_at", "counts"},
+            set(value) == fields,
             "fence_summary_fields",
         )
     return value
@@ -511,25 +544,25 @@ def writable_probes(s3, ordinary, endpoint, bucket):
 def rejected_writes(s3, ordinary, bucket, signed_put, signed_complete, xml, anonymous):
     from botocore.exceptions import ClientError
 
-    for signed, method, payload in (
-        (signed_put, "PUT", b"denied"),
-        (signed_complete, "POST", xml),
-        (anonymous, "PUT", b"denied"),
+    observed = {}
+    for name, signed, method, payload in (
+        ("signed_put", signed_put, "PUT", b"denied"),
+        ("signed_complete", signed_complete, "POST", xml),
+        ("anonymous_put", anonymous, "PUT", b"denied"),
     ):
-        require(
-            request(signed, method=method, body=payload)[0] == 403,
-            "signed_write_not_fenced",
-        )
-    for writer in (s3, ordinary):
+        observed[name] = request(signed, method=method, body=payload)[0]
+        require(observed[name] == 405, "signed_write_not_fenced")
+    for name, writer in (("root_put", s3), ("ordinary_put", ordinary)):
         try:
             writer.put_object(Bucket=bucket, Key="probes/denied", Body=b"denied")
         except ClientError as exc:
-            require(
-                exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 403,
-                "write_rejection_status",
+            observed[name] = exc.response.get("ResponseMetadata", {}).get(
+                "HTTPStatusCode"
             )
+            require(observed[name] == 405, "write_rejection_status")
         else:
             raise ContractError("credential_write_not_fenced")
+    return observed
 
 
 def copy_while_held(
@@ -737,9 +770,9 @@ def run_fixture(owner, summary):
     target_endpoint = f"http://127.0.0.1:{host_port(owner, target_container, 9000)}"
     limits = Limits(connect_timeout_seconds=3, read_timeout_seconds=15)
     with ExitStack() as stack:
-        s3 = stack.enter_context(client(endpoint, *credentials, limits))
+        s3 = stack.enter_context(closing(client(endpoint, *credentials, limits)))
         target = stack.enter_context(
-            client(target_endpoint, *target_credentials, limits)
+            closing(client(target_endpoint, *target_credentials, limits))
         )
         until_ready(s3)
         until_ready(target)
@@ -778,7 +811,9 @@ def run_fixture(owner, summary):
         ordinary_credentials = ordinary_account(
             owner, private_endpoint, credentials, buckets.values()
         )
-        ordinary = stack.enter_context(client(endpoint, *ordinary_credentials, limits))
+        ordinary = stack.enter_context(
+            closing(client(endpoint, *ordinary_credentials, limits))
+        )
         probe_bucket = buckets["annotations"]
         signed_put, signed_complete, xml, anonymous = writable_probes(
             s3, ordinary, endpoint, probe_bucket
@@ -835,6 +870,13 @@ def run_fixture(owner, summary):
                 crash=True,
                 expected=73,
             )
+            cached = json.loads((config.parent / "barrier-counts.json").read_bytes())
+            require(
+                set(cached) == {"cached_before_restart", "cached_after_restart"}
+                and all(type(value) is int and value >= 0 for value in cached.values()),
+                "cached_upload_observation_invalid",
+            )
+            summary["multipart_cache_observation"] = cached
             interrupted = fence_cli(config, state, environment, "status")
             require(
                 interrupted["phase"] == "sealing" and interrupted["held"] is False,
@@ -852,24 +894,70 @@ def run_fixture(owner, summary):
                 owner.verified(source)["State"]["StartedAt"] != generation_before,
                 "real_barrier_not_exercised",
             )
-            status = fence_cli(
+            owner.action(source, "stop", "--time", "1")
+            stopped = owner.verified(source)["State"]
+            require(
+                stopped["Running"] is False and stopped["Pid"] == 0,
+                "stopped_source_boundary_not_exercised",
+            )
+            denied = fence_cli(
                 config,
                 state,
                 environment,
                 "seal",
                 revision=interrupted["revision"],
                 operation=operation,
+                expected=2,
             )
+            require(
+                denied.get("code") == "source_multipart_metadata_remaining",
+                "hidden_multipart_not_rejected",
+            )
+            unknown = json.loads(state.read_bytes())
+            require(
+                unknown["phase"] == "uncertain"
+                and unknown["intent"]["step"] == "verify",
+                "hidden_multipart_responsibility_lost",
+            )
+            late = json.loads((config.parent / "late-upload.json").read_bytes())
+            require(set(late) == {"Bucket", "Key", "UploadId"}, "late_upload_invalid")
+            with closing(client(private_endpoint, *credentials, limits)) as operator:
+                require(
+                    len(operator.list_parts(**late).get("Parts", [])) == 1,
+                    "hidden_upload_not_readable",
+                )
+                operator.abort_multipart_upload(**late)
+                try:
+                    operator.list_parts(**late)
+                except Exception as exc:
+                    require(
+                        getattr(exc, "response", {}).get("Error", {}).get("Code")
+                        == "NoSuchUpload",
+                        "late_upload_unconfirmed",
+                    )
+                else:
+                    raise ContractError("late_upload_still_present")
+            status = fence_cli(
+                config,
+                state,
+                environment,
+                "seal",
+                revision=unknown["revision"],
+                operation=operation,
+            )
+            summary["hidden_multipart_rejected_and_resolved"] = True
+            summary["stopped_source_resumed"] = True
         finally:
             slow.close()
         require(status["held"] is True, "source_not_held")
+        summary["sealed_counts"] = status["counts"]
         matching_generation(owner, source, state)
         aborted = status["counts"].get("aborted_uploads")
         require(
             type(aborted) is int and aborted >= 2, "multipart_abort_receipt_missing"
         )
         summary["stage"] = "fenced_observations"
-        rejected_writes(
+        summary["write_rejections"] = rejected_writes(
             s3, ordinary, probe_bucket, signed_put, signed_complete, xml, anonymous
         )
         require(object_facts(s3, buckets.values()) == before, "source_versions_changed")
@@ -1064,6 +1152,32 @@ def main(argv=None):
         exit_code = 0
     except BaseException as exc:
         summary["error_code"] = safe_error(exc)
+        response = getattr(exc, "response", {})
+        provider_code = response.get("Error", {}).get("Code")
+        if provider_code in {
+            "NoSuchKey",
+            "NoSuchVersion",
+            "NoSuchBucket",
+            "SignatureDoesNotMatch",
+            "AccessDenied",
+            "MethodNotAllowed",
+            "InvalidAccessKeyId",
+            "InternalError",
+            "ServiceUnavailable",
+            "InvalidArgument",
+            "InvalidRequest",
+            "400",
+            "403",
+            "404",
+            "405",
+            "500",
+            "502",
+            "503",
+        }:
+            summary["provider_error_code"] = provider_code
+        http_status = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+        if type(http_status) is int and 100 <= http_status <= 599:
+            summary["provider_http_status"] = http_status
         summary["failure_site"] = failure_site(exc)
         exit_code = 130 if isinstance(exc, KeyboardInterrupt) else 1
     finally:

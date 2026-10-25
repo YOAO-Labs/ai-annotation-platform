@@ -731,6 +731,18 @@ with Journal(path, sys.argv[2], create=True) as journal:
             self.assert_code("native_operation_failed", controller.preview)
             self.assertEqual(json.loads(self.path.read_bytes())["phase"], "uncertain")
 
+    def test_safe_native_code_explains_why_sealing_remains_uncertain(self):
+        adapter = Adapter(self.path)
+        adapter.fail = "verify"
+        adapter.error = FenceError("source_multipart_metadata_remaining")
+        with self.create() as journal:
+            controller = Controller(journal, adapter)
+            self.assert_code(
+                "source_multipart_metadata_remaining", lambda: controller.seal(1, SEAL)
+            )
+            self.assertEqual(journal.data["phase"], "uncertain")
+            self.assertFalse(controller.status()["held"])
+
     def test_unsavable_new_fact_does_not_prevent_durable_unknown(self):
         adapter = Adapter(self.path)
         original = Journal.save
