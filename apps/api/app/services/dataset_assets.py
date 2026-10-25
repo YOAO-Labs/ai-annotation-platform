@@ -61,14 +61,20 @@ async def validate_legacy_bindings(db):
         binding = bindings.get(purpose)
         if binding is None:
             errors.append(f"missing_binding:{purpose}")
-        elif purpose in {"avatars", "bug-reports"} and binding.generation >= 2:
+        elif (
+            purpose in {"avatars", "bug-reports", "audit-archive"}
+            and binding.generation >= 2
+        ):
+            from app.services.audit_archive_storage import AuditArchiveStorageError
             from app.services.avatar_storage import AvatarStorageError
             from app.services.bug_attachment_storage import BugAttachmentStorageError
 
             if purpose == "avatars":
                 from app.services.avatar_storage_target import target_for
-            else:
+            elif purpose == "bug-reports":
                 from app.services.bug_attachment_storage_target import target_for
+            else:
+                from app.services.audit_archive_storage_target import target_for
 
             target_location = await db.get(
                 StorageLocation, binding.location_id, populate_existing=True
@@ -77,7 +83,11 @@ async def validate_legacy_bindings(db):
                 target = await target_for(db, target_location, require_enabled=False)
                 if binding.bucket != target.bucket:
                     errors.append(f"binding_mismatch:{purpose}")
-            except (AvatarStorageError, BugAttachmentStorageError):
+            except (
+                AvatarStorageError,
+                BugAttachmentStorageError,
+                AuditArchiveStorageError,
+            ):
                 errors.append(f"binding_mismatch:{purpose}")
         elif (
             binding.location_id != LEGACY_LOCATION_ID

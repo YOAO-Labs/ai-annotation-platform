@@ -20,7 +20,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
 AUDIT_ARCHIVE_STORAGE_REF_CHECK = """
-COALESCE((
+(COALESCE((
     jsonb_typeof(storage_ref) = 'object'
     AND storage_ref ?& ARRAY['schema','purpose','location_id','config_revision',
         'binding_generation','endpoint_url','bucket','object_key','storage_identity']
@@ -41,7 +41,38 @@ COALESCE((
     AND storage_ref->>'object_key' = year::text || '/' || lpad(month::text,2,'0') || '/' || id::text || '.jsonl.gz'
     AND jsonb_typeof(storage_ref->'storage_identity') = 'string'
     AND storage_ref->>'storage_identity' ~ '^[0-9a-f]{64}$'
-), false)
+), false)) OR (COALESCE((
+    jsonb_typeof(storage_ref) = 'object'
+    AND storage_ref ?& ARRAY['schema','purpose','location_id','config_revision',
+        'binding_generation','endpoint_url','bucket','object_key','storage_identity']
+    AND storage_ref - ARRAY['schema','purpose','location_id','config_revision',
+        'binding_generation','endpoint_url','bucket','object_key','storage_identity']::text[] = '{}'::jsonb
+    AND storage_ref->'schema' = '2'::jsonb AND storage_ref->>'schema' = '2'
+    AND storage_ref->>'purpose' = 'audit-archive'
+    AND jsonb_typeof(storage_ref->'location_id') = 'string' AND storage_ref->>'location_id' ~ '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$'
+    AND jsonb_typeof(storage_ref->'config_revision') = 'number' AND storage_ref->>'config_revision' ~ '^[1-9][0-9]*$'
+    AND jsonb_typeof(storage_ref->'binding_generation') = 'number' AND storage_ref->>'binding_generation' ~ '^[1-9][0-9]*$' AND (storage_ref->>'binding_generation')::numeric >= 2
+    AND jsonb_typeof(storage_ref->'endpoint_url') = 'string'
+    AND storage_ref->>'endpoint_url' ~ '^https?://[^[:space:]/?#@]+$'
+    AND position(chr(92) in (storage_ref->>'endpoint_url')) = 0
+    AND jsonb_typeof(storage_ref->'bucket') = 'string'
+    AND length(storage_ref->>'bucket') BETWEEN 1 AND 255
+    AND storage_ref->>'bucket' !~ '[[:space:]/?#@]'
+    AND position(chr(92) in (storage_ref->>'bucket')) = 0
+    AND jsonb_typeof(storage_ref->'object_key') = 'string'
+    AND octet_length(storage_ref->>'object_key') <= 1024
+    AND (
+      (storage_ref->>'location_id' = '4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7'
+       AND storage_ref->>'config_revision' = '1' AND storage_ref->>'object_key' = year::text || '/' || lpad(month::text,2,'0') || '/' || id::text || '.jsonl.gz')
+      OR (storage_ref->>'location_id' <> '4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7'
+       AND storage_ref->>'object_key' !~ '[[:cntrl:]]'
+       AND position(chr(92) in (storage_ref->>'object_key')) = 0
+       AND storage_ref->>'object_key' !~ '(^|/)[.][.]?(/|$)|//'
+       AND storage_ref->>'object_key' ~ ('(^|/)_aap_managed/audit-archive/' || year::text || '/' || lpad(month::text,2,'0') || '/' || id::text || '[.]jsonl[.]gz$'))
+    )
+    AND jsonb_typeof(storage_ref->'storage_identity') = 'string'
+    AND storage_ref->>'storage_identity' ~ '^[0-9a-f]{64}$'
+), false))
 """
 
 AUDIT_ARCHIVE_MONTH_CHECK = """
@@ -94,6 +125,7 @@ class AuditArchiveOutput(Base):
             postgresql_where=text("state='ready'"),
         ),
         Index("ix_audit_archive_job", "job_id"),
+        Index("ix_audit_archive_location", text("(storage_ref->>'location_id')")),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(

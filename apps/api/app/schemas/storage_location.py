@@ -271,6 +271,7 @@ class StorageBindingOut(BaseModel):
         "legacy_mapping_locked",
         "reviewed_avatar_switch",
         "reviewed_bug_attachment_switch",
+        "reviewed_audit_archive_switch",
     ]
 
 
@@ -360,6 +361,51 @@ class BugAttachmentBindingPreview(BaseModel):
     previous: StorageBindingOut
     target: BugAttachmentBindingTarget
     history: BugAttachmentBindingHistory
+    capabilities: dict[str, bool]
+    can_apply: bool
+    measured_at: datetime
+    expires_at: datetime
+    impact_token: str
+
+
+class AuditArchiveBindingCandidate(BaseModel):
+    location_id: uuid.UUID
+    name: str
+    config_revision: int
+
+
+class AuditArchiveBindingCandidates(BaseModel):
+    items: list[AuditArchiveBindingCandidate]
+    total: int
+
+
+class AuditArchiveBindingChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_generation: int = Field(ge=1)
+    target_location_id: uuid.UUID
+    target_config_revision: int = Field(ge=1)
+
+
+class AuditArchiveBindingApply(AuditArchiveBindingChange):
+    impact_token: str = Field(min_length=1, max_length=8192)
+
+
+class AuditArchiveBindingTarget(AuditArchiveBindingCandidate):
+    bucket: str
+    key_prefix: str
+    connection_revision: int | None = None
+
+
+class AuditArchiveBindingHistory(BaseModel):
+    pending: int
+    ready: int
+
+
+class AuditArchiveBindingPreview(BaseModel):
+    purpose: Literal["audit-archive"] = "audit-archive"
+    previous: StorageBindingOut
+    target: AuditArchiveBindingTarget
+    history: AuditArchiveBindingHistory
     capabilities: dict[str, bool]
     can_apply: bool
     measured_at: datetime

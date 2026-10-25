@@ -33,12 +33,12 @@ last_reviewed: 2026-10-25
 
 `GET /bindings`只读返回九种平台用途，即使共桶或未配置仍逐行保留，不初始化配置、不探测对象存储。每行包含`purpose / location_id / bucket / generation / state`，并提供：
 
-| 字段                       | 当前值与含义                                                                                                                                |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `location_config_revision` | 关联位置的实际配置修订；无关联位置为null，与用途绑定`generation`独立。                                                                      |
-| `read_policy`              | `consumer_owned_compatibility`：各业务负责对象读取；已固定位置的对象按记录读取，其他入口保留既有兼容路径。                                  |
-| `write_policy`             | `deployment_mapping`：新写入采用当前兼容部署映射；头像和报告附件为`current_binding`，采用当前已登记绑定。两者均不赋予引用来源适配器写权限。 |
-| `change_policy`            | `legacy_mapping_locked`：用途映射锁定；头像为`reviewed_avatar_switch`、报告附件为`reviewed_bug_attachment_switch`，支持下述受控切换。       |
+| 字段                       | 当前值与含义                                                                                                                                                                     |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `location_config_revision` | 关联位置的实际配置修订；无关联位置为null，与用途绑定`generation`独立。                                                                                                           |
+| `read_policy`              | `consumer_owned_compatibility`：各业务负责对象读取；已固定位置的对象按记录读取，其他入口保留既有兼容路径。                                                                       |
+| `write_policy`             | `deployment_mapping`：新写入采用当前兼容部署映射；头像、报告附件和审计归档为`current_binding`，采用当前已登记绑定。两者均不赋予引用来源适配器写权限。                            |
+| `change_policy`            | `legacy_mapping_locked`：用途映射锁定；头像为`reviewed_avatar_switch`、报告附件为`reviewed_bug_attachment_switch`、审计归档为`reviewed_audit_archive_switch`，支持下述受控切换。 |
 
 `state=configured`只表示用途映射符合已支持的配置合同，不证明位置在线、对象可读、历史定位全覆盖或迁移完成。`missing / mismatch`保留其原有含义；策略字段描述当前路由规则，不提供写入或迁移许可。客户端遇到未提供的新字段应显示未知，不能从位置读取能力推断平台写策略。权限仍为当前超级管理员与`datasets:read`。
 
@@ -50,7 +50,7 @@ last_reviewed: 2026-10-25
 
 ## 头像用途切换
 
-仅当前有效超级管理员可修改，API Key 要求 `datasets:write`。报告附件使用下述独立切换端点，其余七用途保持锁定。
+仅当前有效超级管理员可修改，API Key 要求 `datasets:write`。报告附件和审计归档使用下述独立切换端点，其余六用途保持锁定。
 
 | 方法  | 路径                               | 行为                                                                                         |
 | ----- | ---------------------------------- | -------------------------------------------------------------------------------------------- |
@@ -70,7 +70,17 @@ last_reviewed: 2026-10-25
 
 `history` 只返回已登记上传的 `pending / ready / retired`，不扫描历史报告或以未知历史附件阻断 `can_apply`。缺 owner 的旧键依旧由附件下载和绑定入口拒绝。预览成功后只变更新分配目标；已分配 pending 和旧 ready／retired 均按保存 owner 处理，不要求先排空。位置、连接、用途代次、维护代次、操作者／Key 或影响事实变化返回冲突，必须重新预览。
 
-目标限定 legacy 或已登记全局 S3，桶和前缀不由请求任意指定。新目标使用连接基前缀下 `_aap_managed/bug-reports/`；公开 `storageKey` 保持 `bug-report-attachments/{owner_uuid}/{upload_uuid}.{ext}`，内部物理定位和凭据不写入报告 DTO。仅此用途与头像可切换，其他七用途保持锁定。
+目标限定 legacy 或已登记全局 S3，桶和前缀不由请求任意指定。新目标使用连接基前缀下 `_aap_managed/bug-reports/`；公开 `storageKey` 保持 `bug-report-attachments/{owner_uuid}/{upload_uuid}.{ext}`，内部物理定位和凭据不写入报告 DTO。此用途与头像、审计归档可切换，其他六用途保持锁定。
+
+## 审计归档用途切换
+
+仅当前超级管理员与现有 `datasets:write` 凭据可修改。三个入口为 `GET /bindings/audit-archive/candidates`、`POST /bindings/audit-archive/change-preview`、`PATCH /bindings/audit-archive`。候选分页、请求字段、真实探针、五分钟确认和竞争冲突规则与上述用途一致；确认令牌仅限审计归档，不能跨用途复用。
+
+`history` 返回所有已登记归档的 `pending / ready` 数量。切换前已分配的 pending 和已发布 ready 永久保留原位置，后续分配才使用新绑定，不要求先排空 pending。预览不扫描或认领缺少独立归属的旧对象。
+
+新目标限定默认托管位置或已登记的全局 S3，物理键位于连接基前缀下 `_aap_managed/audit-archive/{YYYY}/{MM}/{archive_uuid}.jsonl.gz`。公开归档列表继续返回 `{YYYY}/{MM}/{archive_uuid}.jsonl.gz`。历史读取使用保存的物理地址和当前连接凭据；密钥轮换无需修改旧归档，端点、桶或前缀改向仍拒绝。所有 pending／ready 归档保护位置及连接不被重定向或删除。
+
+该用途不提供归档删除或历史搬迁。完整读取沿用 HEAD、IfMatch、SHA 与解压语义核验，不增加供应商版本历史读取要求；恢复边界见[存储恢复](/ops/deploy/storage-recovery#审计归档用途切换的部署顺序)。其余六用途保持锁定。
 
 ## 登记和修改
 

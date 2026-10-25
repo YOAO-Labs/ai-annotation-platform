@@ -455,6 +455,8 @@ async def remap_storage(
             str(row.id),
         )
     for row in await db.scalars(select(AuditArchiveOutput)):
+        if not isinstance(row.storage_ref, dict) or row.storage_ref.get("schema") != 1:
+            raise WorktreeError("九桶恢复不覆盖审计归档新位置或代次")
         try:
             owner = audit_archive_storage.resolve(row)
         except ValueError:

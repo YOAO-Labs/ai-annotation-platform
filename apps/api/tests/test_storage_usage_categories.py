@@ -118,7 +118,11 @@ async def test_saved_family_helpers_classify_actual_listed_size(index):
 
 @pytest.mark.parametrize(
     "service_name,purpose",
-    [("avatar_storage", "avatars"), ("bug_attachment_storage", "bug-reports")],
+    [
+        ("avatar_storage", "avatars"),
+        ("bug_attachment_storage", "bug-reports"),
+        ("audit_archive_storage", "audit-archive"),
+    ],
 )
 @pytest.mark.parametrize("external_endpoint", [False, True])
 async def test_prefixed_owner_saved_endpoint_prevents_same_bucket_key_alias(

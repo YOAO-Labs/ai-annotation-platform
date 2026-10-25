@@ -2,6 +2,7 @@ import { apiClient } from "./client";
 import type {
   StorageBindingOut,
   BugAttachmentBindingPreview,
+  AuditArchiveBindingPreview,
   AvatarBindingApply,
   AvatarBindingCandidates,
   AvatarBindingChange,
@@ -150,7 +151,7 @@ export const storageApi = {
   applyAvatarBinding: (payload: AvatarBindingApply) =>
     apiClient.patch<StorageBindingOut>("/storage-locations/bindings/avatars", payload),
   bindingCandidates: (
-    purpose: "avatars" | "bug-reports",
+    purpose: "avatars" | "bug-reports" | "audit-archive",
     offset: number,
     signal?: AbortSignal,
     limit = 20,
@@ -158,20 +159,26 @@ export const storageApi = {
     purpose === "avatars"
       ? storageApi.avatarBindingCandidates(offset, signal, limit)
       : apiClient.get<AvatarBindingCandidates>(
-          `/storage-locations/bindings/bug-reports/candidates?limit=${limit}&offset=${offset}`,
+          `/storage-locations/bindings/${purpose}/candidates?limit=${limit}&offset=${offset}`,
           { signal },
         ),
-  previewBinding: (purpose: "avatars" | "bug-reports", payload: AvatarBindingChange) =>
+  previewBinding: (
+    purpose: "avatars" | "bug-reports" | "audit-archive",
+    payload: AvatarBindingChange,
+  ) =>
     purpose === "avatars"
       ? storageApi.previewAvatarBinding(payload)
-      : apiClient.post<BugAttachmentBindingPreview>(
-          "/storage-locations/bindings/bug-reports/change-preview",
+      : apiClient.post<BugAttachmentBindingPreview | AuditArchiveBindingPreview>(
+          `/storage-locations/bindings/${purpose}/change-preview`,
           payload,
         ),
-  applyBinding: (purpose: "avatars" | "bug-reports", payload: AvatarBindingApply) =>
+  applyBinding: (
+    purpose: "avatars" | "bug-reports" | "audit-archive",
+    payload: AvatarBindingApply,
+  ) =>
     purpose === "avatars"
       ? storageApi.applyAvatarBinding(payload)
-      : apiClient.patch<StorageBindingOut>("/storage-locations/bindings/bug-reports", payload),
+      : apiClient.patch<StorageBindingOut>(`/storage-locations/bindings/${purpose}`, payload),
   probes: (id: string, signal?: AbortSignal) =>
     apiClient.get<StorageProbeOut[]>(`/storage-locations/${id}/probes`, { signal }),
   health: () => apiClient.get<StorageHealthResponse>("/storage/health"),

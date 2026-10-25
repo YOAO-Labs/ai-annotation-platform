@@ -1,4 +1,4 @@
-"""Registered S3 targets and physical probes for the two reviewed purposes."""
+"""Registered S3 targets and physical probes for the reviewed purposes."""
 
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -13,7 +13,7 @@ from app.services import connector_guard, storage_access
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.sources.s3_reference import S3Access
 
-PURPOSES = {"avatars", "bug-reports"}
+PURPOSES = {"avatars", "bug-reports", "audit-archive"}
 
 
 def owner_module(purpose):
@@ -25,6 +25,10 @@ def owner_module(purpose):
         from app.services import bug_attachment_storage
 
         return bug_attachment_storage
+    if purpose == "audit-archive":
+        from app.services import audit_archive_storage
+
+        return audit_archive_storage
     raise ValueError("Unsupported managed S3 purpose")
 
 
@@ -34,6 +38,8 @@ def error(purpose, suffix):
         (owners.AvatarStorageError, "avatar_storage_")
         if purpose == "avatars"
         else (owners.BugAttachmentStorageError, "bug_attachment_storage_")
+        if purpose == "bug-reports"
+        else (owners.AuditArchiveStorageError, "audit_archive_storage_")
     )
     return cls(prefix + suffix)
 
@@ -105,7 +111,7 @@ async def target_for(db, location, *, purpose, require_enabled=True):
         if (
             location.config_revision != 1
             or (
-                purpose == "bug-reports"
+                purpose in {"bug-reports", "audit-archive"}
                 and type(location.config.get("use_ssl")) is not bool
             )
             or location.config
@@ -120,7 +126,11 @@ async def target_for(db, location, *, purpose, require_enabled=True):
             owners._runtime_endpoint(),
             getattr(
                 owners.storage_service,
-                "avatars_bucket" if purpose == "avatars" else "bug_reports_bucket",
+                {
+                    "avatars": "avatars_bucket",
+                    "bug-reports": "bug_reports_bucket",
+                    "audit-archive": "audit_archive_bucket",
+                }[purpose],
             ),
             "",
             purpose=purpose,

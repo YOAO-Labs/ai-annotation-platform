@@ -74,6 +74,7 @@ async def register_connection(db, connection):
 
 
 async def location_is_referenced(db, location_id):
+    from app.db.models.audit_archive_output import AuditArchiveOutput
     from app.db.models.avatar_upload import AvatarUpload
     from app.db.models.bug_attachment_upload import BugAttachmentUpload
     from app.db.models.dataset_source import DatasetSource
@@ -99,6 +100,13 @@ async def location_is_referenced(db, location_id):
             .where(
                 BugAttachmentUpload.storage_ref["location_id"].astext
                 == str(location_id)
+            )
+            .limit(1)
+        )
+        or await db.scalar(
+            select(AuditArchiveOutput.id)
+            .where(
+                AuditArchiveOutput.storage_ref["location_id"].astext == str(location_id)
             )
             .limit(1)
         )
@@ -646,13 +654,15 @@ async def binding_rows(db):
                 else ("mismatch" if mismatch else "configured"),
                 "read_policy": "consumer_owned_compatibility",
                 "write_policy": "current_binding"
-                if purpose in {"avatars", "bug-reports"}
+                if purpose in {"avatars", "bug-reports", "audit-archive"}
                 else "deployment_mapping",
                 "change_policy": "reviewed_avatar_switch"
                 if purpose == "avatars"
                 else (
                     "reviewed_bug_attachment_switch"
                     if purpose == "bug-reports"
+                    else "reviewed_audit_archive_switch"
+                    if purpose == "audit-archive"
                     else "legacy_mapping_locked"
                 ),
             }
