@@ -18,6 +18,7 @@ from app.db.models.dataset import DatasetItem, VideoChunk, VideoFrameCache
 from app.db.models.storage_maintenance import StorageOperation
 from app.db.models.video_derivative import VideoDerivativeOutput as Output
 from app.services import storage_access
+from app.services import key_removal_accounting as removal
 from app.services import video_derivative_originals as originals
 from app.services import video_derivative_storage as physical
 from app.services.content_snapshot import ContentError
@@ -118,7 +119,16 @@ async def claim(db, output, ttl_seconds=900):
 
 
 @asynccontextmanager
-async def access(db, receipt, guard, *, require_enabled=True, single_attempt=False):
+async def access(
+    db,
+    receipt,
+    guard,
+    *,
+    require_enabled=True,
+    single_attempt=False,
+    on_acquired=None,
+    owned=False,
+):
     """Own client construction through actual close under an independent permit."""
     owner = physical.resolve(receipt)
     factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
@@ -133,15 +143,19 @@ async def access(db, receipt, guard, *, require_enabled=True, single_attempt=Fal
         async with await storage_access.acquire(
             session, location_id, purpose(receipt.id), expected_revision=revision
         ) as permit:
+            if on_acquired is not None:
+                await on_acquired(permit)
             await guard(permit.revision)
             context = (
                 physical.open_storage(
-                    **({"single_attempt": True} if single_attempt else {})
+                    **({"single_attempt": True} if single_attempt else {}),
+                    **({"owned": True} if owned else {}),
                 )
                 if target is None
                 else physical.open_storage(
                     target=target,
                     **({"single_attempt": True} if single_attempt else {}),
+                    **({"owned": True} if owned else {}),
                 )
             )
             entered = []
@@ -467,6 +481,14 @@ async def reconcile(db, *, limit=100, grace_seconds=3600):
             await db.commit()
             if published:
                 continue
+            accounting = removal.recorder(
+                db, receipt, producer="video_derivative_removals", purpose="media_cache"
+            )
+            owned_permit = None
+
+            async def acquired(permit):
+                nonlocal owned_permit
+                owned_permit = permit
 
             async def guarded(revision):
                 _, _, _, current = await _lock_context(db, identifier)
@@ -496,13 +518,33 @@ async def reconcile(db, *, limit=100, grace_seconds=3600):
                 )
                 await db.commit()
 
-            async with access(db, receipt, guarded, require_enabled=False) as client:
-                count = await originals.physical(
-                    physical.delete_output,
-                    client,
+            failure, count = None, None
+            try:
+                async with access(
+                    db,
                     receipt,
-                    timeout=originals.JOB_SECONDS,
-                )
+                    guarded,
+                    require_enabled=False,
+                    on_acquired=acquired,
+                    owned=True,
+                ) as client:
+                    count = await originals.physical(
+                        physical.delete_output,
+                        client,
+                        receipt,
+                        timeout=originals.JOB_SECONDS,
+                        accounting=accounting,
+                    )
+            except BaseException as exc:
+                failure = exc
+            failure = await removal.finish(
+                accounting,
+                failure,
+                settled=owned_permit is not None
+                and getattr(owned_permit, "_settled", False) is True,
+            )
+            if failure is not None:
+                raise failure
             _, _, _, current = await _lock_context(db, identifier)
             if (
                 current is None

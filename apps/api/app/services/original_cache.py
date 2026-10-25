@@ -32,6 +32,7 @@ from app.db.models.original_cache import (
 from app.services import content_snapshot as snapshots
 from app.services import media_cache_storage as saved_storage
 from app.services import media_cache_accounting
+from app.services import key_removal_accounting as removal
 from app.services import storage_access
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.prediction_inputs import settled_io
@@ -308,7 +309,7 @@ async def prepare_target(db, record, *, require_enabled=True):
 
 
 @contextmanager
-def physical_storage(record):
+def physical_storage(record, *, owned=False):
     """Open only inside the caller's existing physical admission."""
     target = record._target
     if record.location_id == LEGACY_LOCATION_ID:
@@ -338,7 +339,7 @@ def physical_storage(record):
     else:
         from types import SimpleNamespace
 
-        context = target.client(read_timeout=15)
+        context = target.client(read_timeout=15, **({"owned": True} if owned else {}))
         try:
             client = context.__enter__()
         except BaseException as exc:
@@ -919,29 +920,55 @@ async def purge(factory, identity):
         await db.commit()
         if not matched:
             return "deferred"
+    accounting, owned_permit, failure = None, None, None
     try:
+        accounting = removal.Recorder(
+            factory,
+            "original_cache_removals",
+            record.id,
+            record._target.endpoint_url,
+            record.bucket,
+            purpose="media_cache",
+        )
         async with factory() as permit_db:
             async with await storage_access.acquire(
                 permit_db,
                 record.location_id,
                 "original_cache_cleanup",
                 expected_revision=record._target_maintenance_revision,
-            ):
+            ) as owned_permit:
 
                 def remove():
-                    with physical_storage(record) as storage:
-                        storage.client.delete_object(
-                            Bucket=record.bucket, Key=object_key(record)
+                    with physical_storage(record, owned=True) as storage:
+                        key = object_key(record)
+                        observation = removal.Observation(
+                            accounting, storage.client, key
                         )
+                        response = observation.submit(
+                            lambda: storage.client.delete_object(
+                                Bucket=record.bucket, Key=key
+                            )
+                        )
+                        observation.complete(response)
 
                 await settled_io(remove)
-    except Exception as exc:
+    except BaseException as exc:
+        failure = exc
+    if accounting is not None:
+        failure = await removal.finish(
+            accounting,
+            failure,
+            settled=getattr(owned_permit, "_settled", False) is True,
+        )
+    if failure is not None:
+        if not isinstance(failure, Exception):
+            raise failure
         async with factory() as db:
             current = await db.get(Entry, identity)
             if current:
                 current.error_code = (
                     "storage_identity_changed"
-                    if isinstance(exc, saved_storage.MediaCacheStorageError)
+                    if isinstance(failure, saved_storage.MediaCacheStorageError)
                     else "storage_cleanup_failed"
                 )
                 await db.commit()

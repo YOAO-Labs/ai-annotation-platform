@@ -23,6 +23,7 @@ from app.services import (
     export_zip_accounting,
     storage_access,
 )
+from app.services import key_removal_accounting as removal
 
 log = logging.getLogger(__name__)
 _FACTS = (
@@ -654,18 +655,40 @@ async def _cleanup_one(db, identifier, counters):
     if bundle is not None:
         await export_media_retirement.delete_zip(db, bundle, receipt)
     else:
-        await storage_access.run(
-            db,
-            uuid.UUID(owner.ref["location_id"]),
-            "export_delete_" + receipt.id.hex,
-            export_storage.delete,
-            receipt,
-            **(
-                {"target": await export_storage.io_target(db, receipt)}
-                if receipt.storage_ref["schema"] == 2
-                else {}
-            ),
+        accounting = removal.recorder(
+            db, receipt, producer="export_zip_removals", purpose="temporary"
         )
+        owned_permit, failure = None, None
+
+        async def acquired(permit):
+            nonlocal owned_permit
+            owned_permit = permit
+
+        try:
+            await storage_access.run(
+                db,
+                uuid.UUID(owner.ref["location_id"]),
+                "export_delete_" + receipt.id.hex,
+                export_storage.delete,
+                receipt,
+                accounting=accounting,
+                on_acquired=acquired,
+                **(
+                    {"target": await export_storage.io_target(db, receipt)}
+                    if receipt.storage_ref["schema"] == 2
+                    else {}
+                ),
+            )
+        except BaseException as exc:
+            failure = exc
+        failure = await removal.finish(
+            accounting,
+            failure,
+            settled=owned_permit is not None
+            and getattr(owned_permit, "_settled", False) is True,
+        )
+        if failure is not None:
+            raise failure
     current, current_bundle = await _cleanup_locked(db, identifier)
     linked_ended = (
         current_bundle is not None

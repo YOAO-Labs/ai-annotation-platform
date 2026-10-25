@@ -555,12 +555,22 @@ def write(output, path, *, target=None, accounting=None) -> None:
         raise _unavailable(exc) from None
 
 
-def delete(output, *, target=None) -> None:
+def delete(output, *, target=None, accounting=None) -> None:
     """Delete only the precise object of a caller's committed retirement."""
     owner = resolve(output)
     try:
-        with client_context(output, target) as client:
-            if target is None:
+        with client_context(output, target, owned=accounting is not None) as client:
+            if accounting is not None:
+                from app.services.key_removal_accounting import Observation
+
+                observation = Observation(accounting, client, owner.object_key)
+                response = observation.submit(
+                    lambda: client.delete_object(
+                        Bucket=owner.bucket, Key=owner.object_key
+                    )
+                )
+                observation.complete(response)
+            elif target is None:
                 storage_service.delete_object(owner.object_key, bucket=owner.bucket)
             else:
                 client.delete_object(Bucket=owner.bucket, Key=owner.object_key)

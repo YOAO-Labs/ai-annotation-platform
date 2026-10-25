@@ -6,12 +6,14 @@ migration execution; this module never starts a runtime or creates a database.
 """
 
 from copy import deepcopy
+import asyncio
 from datetime import timedelta
 import hashlib
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import uuid
 
+from botocore.config import Config
 import pytest
 from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
@@ -41,6 +43,18 @@ from app.services.storage import storage_service
 from app.workers import image_pyramid as worker
 from tests.test_image_pyramid_storage import Provider
 from tests.training_original_fixtures import image_bytes
+
+
+def gc_provider(monkeypatch):
+    from app.services import storage
+
+    provider = Provider()
+    provider.meta.config = Config(retries={"max_attempts": 3})
+    provider.close = lambda: None
+    monkeypatch.setattr(
+        storage, "StorageService", lambda **kwargs: SimpleNamespace(client=provider)
+    )
+    return provider
 
 
 def _ref(identifier, *, bucket="saved-pyramid-output-cache"):
@@ -605,21 +619,21 @@ def same_transaction_gc(monkeypatch):
         )
         if on_acquired is not None:
             await on_acquired(permit)
-        return call(*args, **kwargs)
+        return await asyncio.to_thread(call, *args, **kwargs)
 
     monkeypatch.setattr(storage_access, "run", admitted)
     return calls
 
 
 async def test_gc_preserves_unknown_legacy_generations_without_default_bucket_scan(
-    db_session, registered, same_transaction_gc
+    db_session, registered, same_transaction_gc, monkeypatch
 ):
     asset, generation = await _lineage(db_session, registered, legacy=True)
     generation.status = "failed"
     generation.updated_at = service.utcnow() - timedelta(days=10)
     asset.building_generation = None
     await db_session.flush()
-    provider = Provider()
+    provider = gc_provider(monkeypatch)
     provider.objects[
         (
             storage_service.media_cache_bucket,
@@ -636,7 +650,7 @@ async def test_gc_preserves_unknown_legacy_generations_without_default_bucket_sc
 
 
 async def test_gc_keeps_unsettled_attempt_owner_and_its_objects(
-    db_session, registered, same_transaction_gc
+    db_session, registered, same_transaction_gc, monkeypatch
 ):
     row = await _new_output(db_session, old=True)
     operation = StorageOperation(
@@ -649,7 +663,7 @@ async def test_gc_keeps_unsettled_attempt_owner_and_its_objects(
     db_session.add(operation)
     await db_session.flush()
     operation_id = operation.id
-    provider = Provider()
+    provider = gc_provider(monkeypatch)
     provider.objects[
         (row.storage_ref["bucket"], physical.resolve(row).key("overview.webp"))
     ] = b"still-live"
@@ -662,7 +676,7 @@ async def test_gc_keeps_unsettled_attempt_owner_and_its_objects(
 
 
 async def test_gc_starts_published_orphan_grace_before_deleting_signed_assets(
-    db_session, registered, same_transaction_gc
+    db_session, registered, same_transaction_gc, monkeypatch
 ):
     row = await _new_output(db_session, old=True)
     inventory, payloads = _inventory(row)
@@ -671,7 +685,7 @@ async def test_gc_starts_published_orphan_grace_before_deleting_signed_assets(
     await db_session.flush()
     row.updated_at = service.utcnow() - timedelta(days=2)
     await db_session.flush()
-    provider = Provider()
+    provider = gc_provider(monkeypatch)
     provider.objects.update(
         {(row.storage_ref["bucket"], key): raw for key, raw in payloads.items()}
     )
@@ -684,10 +698,10 @@ async def test_gc_starts_published_orphan_grace_before_deleting_signed_assets(
 
 
 async def test_gc_deletes_only_the_saved_bucket_and_uuid_prefix(
-    db_session, registered, same_transaction_gc
+    db_session, registered, same_transaction_gc, monkeypatch
 ):
     row = await _new_output(db_session, old=True)
-    provider = Provider()
+    provider = gc_provider(monkeypatch)
     key = physical.resolve(row).key("overview.webp")
     foreign_key = physical.prefix_for(uuid.uuid4()) + "overview.webp"
     provider.objects[(row.storage_ref["bucket"], key)] = b"owned-attempt"
@@ -711,10 +725,10 @@ async def test_gc_deletes_only_the_saved_bucket_and_uuid_prefix(
 
 
 async def test_gc_retains_owner_when_physical_delete_cannot_verify_empty(
-    db_session, registered, same_transaction_gc
+    db_session, registered, same_transaction_gc, monkeypatch
 ):
     row = await _new_output(db_session, old=True)
-    provider = Provider()
+    provider = gc_provider(monkeypatch)
     provider.ignore_delete = True
     key = physical.resolve(row).key("overview.webp")
     provider.objects[(row.storage_ref["bucket"], key)] = b"retained-by-provider"

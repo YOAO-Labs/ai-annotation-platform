@@ -108,6 +108,9 @@ def export_objects(monkeypatch):
             client=SimpleNamespace(
                 head_object=objects.head,
                 get_object=objects.get,
+                delete_object=lambda **params: objects.delete_object(
+                    params["Key"], bucket=params["Bucket"]
+                ),
                 upload_file=lambda path, bucket, key, ExtraArgs: objects.upload_file(
                     path, key, bucket=bucket, content_type=ExtraArgs["ContentType"]
                 ),

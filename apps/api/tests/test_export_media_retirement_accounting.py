@@ -235,6 +235,7 @@ async def test_zip_delete_does_not_allocate_media_recorder(monkeypatch):
         retirement.export_storage, "io_target", AsyncMock(return_value=None)
     )
     monkeypatch.setattr(retirement.export_storage, "delete", Mock())
+    monkeypatch.setattr(retirement.key_removal, "recorder", Mock(return_value=None))
 
     from contextlib import asynccontextmanager
 
@@ -244,7 +245,7 @@ async def test_zip_delete_does_not_allocate_media_recorder(monkeypatch):
 
     monkeypatch.setattr(transfer, "_session", session)
     await retirement._physical_delete(None, receipt, zip_output=output)
-    retirement.export_storage.delete.assert_called_once_with(output)
+    retirement.export_storage.delete.assert_called_once_with(output, accounting=None)
 
 
 async def mutations(db, row):

@@ -1,9 +1,9 @@
 # EPIC-12：运维观测、容量口径与备份恢复
 
-> 状态：approved；E12-A1/A2/A3、E12-A4 四类本地来源故障去重与恢复观测、E09-B1/B2、E12-B1 离线隔离恢复试点、E12-B2 外部原件保护责任、E12-C1 本地目录扫描基线、E12-C2／E09-B4 已采纳源索引规模、E12-C3 平台对象分项、E12-C4 原图读取与 E12-C5 增量同步本地基线、E12-B3 首个生产者的当前对象增量账目与周期对账、E12-B4 托管原件集中新增、E12-B5 四类媒体缓存受控新增、E12-B6 独立导出媒体受控新增、E12-B7 导出 ZIP 写入净变化、E12-B8 报告附件受控新增、E12-B9 五类条件创建对象增量、E12-B10 四类服务端训练归属对象覆盖写入、E12-B11 独立导出媒体准确版本删除增量及 E12-B12 缩略图／头像／报告附件删除观测已完成；A3／A4 限本地来源故障观测，B2 为声明及本地恢复保留，完整E12仍为部分交付，其余切片待独立复核，不分配发布版本。
+> 状态：approved；E12-A1/A2/A3、E12-A4 四类本地来源故障去重与恢复观测、E09-B1/B2、E12-B1 离线隔离恢复试点、E12-B2 外部原件保护责任、E12-C1 本地目录扫描基线、E12-C2／E09-B4 已采纳源索引规模、E12-C3 平台对象分项、E12-C4 原图读取与 E12-C5 增量同步本地基线、E12-B3 首个生产者的当前对象增量账目与周期对账、E12-B4 托管原件集中新增、E12-B5 四类媒体缓存受控新增、E12-B6 独立导出媒体受控新增、E12-B7 导出 ZIP 写入净变化、E12-B8 报告附件受控新增、E12-B9 五类条件创建对象增量、E12-B10 四类服务端训练归属对象覆盖写入、E12-B11 独立导出媒体准确版本删除增量、E12-B12 缩略图／头像／报告附件删除观测及 E12-B13 当前缓存／ZIP 按键删除净变化已完成；A3／A4 限本地来源故障观测，B2 为声明及本地恢复保留，完整E12仍为部分交付，其余切片待独立复核，不分配发布版本。
 > 晋升基线：`5b764eaa5`；工作树干净，保留 `1822b025369a33f4` 的 dev 人工验收环境，不重建后端镜像。
 
-原始§5／工程任务第2项现由E12-B3交付临时输入的真实写删增量及跨盘点对账，B4接入集中托管原件新增，B5接入四类媒体缓存新增，B6接入独立导出媒体新增，B7接入导出ZIP写入净变化，B8接入报告附件受控新增，B9接入头像／评论附件／指南图片／持久RLE／审计归档受控新增，B10接入冻结文件／主动学习保留图片／评估报告／脱敏日志的覆盖写入净变化，B11接入独立导出媒体的准确版本删除，B12接入缩略图／头像／报告附件实际删除观测；其他生产者及媒体缓存／ZIP／训练等移除增量仍未完整覆盖。原有LIST快照、额度预约与Creation／Retirement责任账本分别保留，不能将其中任一累计或部分覆盖冒充全平台物理增量；完整工程任务仍未勾完，也不是其他切片的新前置。
+原始§5／工程任务第2项现由E12-B3交付临时输入的真实写删增量及跨盘点对账，B4接入集中托管原件新增，B5接入四类媒体缓存新增，B6接入独立导出媒体新增，B7接入导出ZIP写入净变化，B8接入报告附件受控新增，B9接入头像／评论附件／指南图片／持久RLE／审计归档受控新增，B10接入冻结文件／主动学习保留图片／评估报告／脱敏日志的覆盖写入净变化，B11接入独立导出媒体的准确版本删除，B12接入缩略图／头像／报告附件实际删除观测，B13接入完整缓存／金字塔／视频派生物／ZIP按键删除的当前内容净变化；其他生产者及附件／训练等移除增量仍未完整覆盖。原有LIST快照、额度预约与Creation／Retirement责任账本分别保留，不能将其中任一累计或部分覆盖冒充全平台物理增量；完整工程任务仍未勾完，也不是其他切片的新前置。
 
 ## 本轮定稿：E12-B13 当前缓存与 ZIP 按键删除净变化
 
@@ -13,13 +13,29 @@
 
 返回marker必须未见于before，after完整集合只比before新增该marker，原有版本身份／大小／ETag／时间均保持，after.current必须恰为返回marker，HEAD与版本集合均一致；满足后才确认after.size-before.size。当前对象被隐藏为负，已不存在或已是marker可为零；不把版本大小直接计负量，不声称实际版本删除。证据仅增加delete_marker_created／returned_version及前后快照，physical_outcome保持unknown，不伪造physical deleted。无版本、可变null marker、重试、多发送、无hook、缺权限、丢ACK、前后并发或收尾不明均保持unknown；不修改请求参数、不注入VersionId、不新增版本GC，旧B11及B12准确版本／key-only行为保持。
 
-接入`original_cache.purge`、`image_pyramid_storage.delete`及objects.reconcile、`video_derivative_storage.delete_output`及objects.reconcile、`export_storage.delete`及export_media_retirement的ZIP分支。producer为original_cache_removals／image_pyramid_removals／video_derivative_removals／export_zip_removals；owner为各自Entry／Output.id，前三purpose为media_cache，ZIP为temporary。地址来自已验证保存ref；旧无ref的完整缓存使用原prepare_target核验的实际endpoint与保存bucket，直接沿既有factory构造Recorder，不能取当前用途绑定猜地址。
+接入`original_cache.purge`、`image_pyramid_storage.delete`及objects.reconcile、`video_derivative_storage.delete_output`及objects.reconcile、`export_storage.delete`及export_outputs.\_cleanup_one／export_media_retirement的ZIP分支。producer为original_cache_removals／image_pyramid_removals／video_derivative_removals／export_zip_removals；owner为各自Entry／Output.id，前三purpose为media_cache，ZIP为temporary。地址来自已验证保存ref；旧无ref的完整缓存使用原prepare_target核验的实际endpoint与保存bucket，直接沿既有factory构造Recorder，不能取当前用途绑定猜地址。
 
 只有显式accounting使用已有或窄扩展的owned client选项，保留原Config／重试／超时，不把single_attempt用于记账。视频access仅增加可选on_acquired及owned，捕获真实permit后继续原完整guard；其余沿现有acquire／admitted／transfer permit。每次owner在原生线程／client及实际permit结清后独立finish，随后才原业务发布；异常路径同样保留已发生事实，普通发布异常不改变原结果、新取消排空后传播。前缀循环逐对象保存意图及事实，后续失败或最终空前缀校验失败不抹去前项；原租约、保留、读回／空前缀证明、返回数量和错误类型保持。没有实际DELETE的提前返回不造意图。
 
-三个隔离树基于同一设计提交：core负责新helper、schema四producer、pyramid／video／ZIP三个physical接缝及必要owned选项和专项；owners负责对应三个异步owner及回归；original-cache负责完整缓存同文件physical／purge、旧ref兼容与专项。core先提交真实helper依赖，两owner树先接依赖再验证。主树负责容量摘要、README／CHANGELOG／用户／API／开发文档、codegen、整合、人工环境及提交。UI按明确删除producer说明按键删除及历史版本仍保留，仅在声明export_zip_removals时移除旧ZIP未覆盖文案；无迁移、依赖、配置、镜像、新公开端点／字段或版本变更。
+三个隔离树基于同一设计提交：core负责新helper、schema四producer、pyramid／video／ZIP三个physical接缝及必要owned选项和专项；owners负责金字塔／视频及独立、关联两条ZIP异步owner及回归；original-cache负责完整缓存同文件physical／purge、旧ref兼容与专项。core先提交真实helper依赖，两owner树先接依赖再验证。主树负责容量摘要、README／CHANGELOG／用户／API／开发文档、codegen、整合、人工环境及提交。UI按明确删除producer说明按键删除及历史版本仍保留，仅在声明export_zip_removals时移除旧ZIP未覆盖文案；无迁移、依赖、配置、镜像、新公开端点／字段或版本变更。
 
 验证新marker的负／零、无版本及null未知、现有marker／同prefix邻键、原版本被改／并发新增、参数漂移／重复发送／无ACK、意图／发布失败、部分清理和真实native／client／permit／取消收尾；真实PG／MinIO只用小对象验证四条生产删除链及意图先于发送，不重做完整生成、解码、导出Job、训练或既有格式资格。按所属test资源运行相关原清理回归，保持失败归因。正常代码／文档检查后，在人工0257任务空闲时刷新准确所属服务，验证26生产者及明暗宽窄实际摘要，原业务／对象／文件指纹保持；清理一次性资源、私密输出及等价整合临时树后提交。coverage仍partial、projected_total_bytes仍null，整套Epic继续活动。
+
+## E12-B13 Outcome：当前缓存与 ZIP 按键删除净变化
+
+2026-10-26，helper来源`16080492b`、三个physical来源`00e8ba0c5`、完整缓存来源`66ad081e0`与四输出owner来源`16a1c794d`及本树UI／正式文档同次集成，18个后端文件与冻结来源逐字节相等。四producer覆盖完整原图缓存、金字塔、视频派生物及ZIP实际key-only DELETE，ZIP独立与关联媒体两个owner均使用ExportOutput.id，其他各用自身Entry／Output.id；分类为media_cache／temporary。旧无ref完整缓存沿原prepare_target验证的endpoint／保存bucket与既有factory，不按当前用途绑定猜目标。原参数、重试、超时、资格／引用／租约／保留guard及原空前缀／返回／业务结果保持，仅显式记账选择独占client。
+
+新Observation继承B11耐久意图、SDK钩子及不阻断业务的complete，Recorder／finish直接复用，不改共享begin或原准确版本证明。只有一次准确key-only发送、200／204 ACK、DeleteMarker=True及不可变非null新marker，完整前后集合恰新增该marker、旧行保持且当前HEAD一致，才确认当前可见内容大小差；不补造physical deleted或历史磁盘释放。缺权、无hook、null、重试、回执或并发不明保持unknown，意图失败不开始DELETE。三个输出与完整缓存都在真实native／client／permit后独立发布；前缀部分失败、后置拒绝或业务回滚保留前项事实，逐候选不借用旧recorder或permit。
+
+只读复核发现linked ZIP沿用旧owner的settlement异常分支：已存在业务错误时，新取消被旧错误吞掉。直接影响本次链路，先用同一真实Permit.\_settle等待／排空节点复现exit1，再同文件窄加三行优先新BaseException并继承unsettled；同node定向exit0，正常关闭错误的原优先规则保持。最终冻结差异补审无新增发现，没有展开其他消费者专项。
+
+主树独立解析八组最终JUnit并按case key去重：core71、cache45、owners60，共176项不同后端全部通过（132新增、44相关旧回归），无最终失败／错误／跳过。12项真实PG／MinIO小对象验证三个physical的schema1／2、版本化与旧NULL ref完整缓存，以及pyramid／video／独立ZIP／关联ZIP四生产cleanup；marker隐藏当前内容确认负量并保留原版本，旧未版本化保存bucket保持unknown。真实SDK事件前耐久pending已落库，真实client关闭且实际operation结清后发布。首轮缓存造数触及原immutable/check约束，仅修为直接插入历史夹具；不放松产品guard。未重做完整生成、解码、导出Job、格式、模型、GPU、规模测量或远端CI。
+
+主树36项不同Web最终通过：首轮34通过、两个新增文字空白断言失败，改为一致“的按键删除”后仅三项新增定向补验通过；4项SDK合同、codegen及正常类型／Web lint／CSS tokens／OpenAPI检查通过。207项frontmatter、208篇可读性、209页导航与标准文档构建通过，构建38.30秒。README、CHANGELOG Unreleased及用户storage-connections／API storage-locations／开发storage-buckets同步；UI只按响应声明按键观测、明确历史版本保留，不从写入或其他删除producer推断本类覆盖。E07原始最终停写／专用源只读／历史路由的实际代码缺口另写入E07计划，未追加为本片前置。
+
+人工0257与原3100／8100保留；任务空闲后一次刷新准确所属监督服务与绑定Beat，两Worker各注册75任务，API／Web及doctor健康。真实GET声明26生产者，coverage仍partial、projected_total_bytes仍null。1440×1000／390×844明暗四组合截图、11px弱化说明、无横向溢出均通过；披露开合时固定页头覆盖自动化点击，定位实际main滚动容器后只定向完成开合与采集，没有重跑已完成四组合或修改产品。无页面异常、控制台错误或已观察HTTP错误，577请求中4条无状态不计成功；五个非只读API请求均为本地应答的无关在线心跳，账号偏好与周期计划未改。最终177张业务表9,234行、24个对象版本／删除标记及16份文件完整指纹保持。
+
+三树所属test资源按owner销毁，主树独立核验九个mode的数据库、Redis、各九桶及manifest均不存在；私密认证／原始请求／截图／日志、测试与构建中间物、等价整合临时树按归属清理，只保留有界脱敏摘要。无迁移、依赖、配置、镜像、新公开字段／端点、版本、推送或发布。附件／训练等清理、外部签名写入、迁移复制与外部变动按原始要求继续核对，完整E12与整套Epic仍活动；不以新增消费者或更大资格工程扩大收口条件。
 
 ## 本轮定稿：E12-B12 缩略图、头像与报告附件删除观测
 

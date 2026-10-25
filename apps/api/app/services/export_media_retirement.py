@@ -22,6 +22,7 @@ from app.services import export_media_removal_accounting as removal
 from app.services import export_media_storage as physical
 from app.services import export_media_transfer as transfer
 from app.services import export_storage, storage_access
+from app.services import key_removal_accounting as key_removal
 from app.services.content_snapshot import ContentError
 
 log = logging.getLogger(__name__)
@@ -350,9 +351,13 @@ async def _physical_delete(db, receipt, *, zip_output=None):
         else:
             async with transfer._session(db) as owned:
                 target = await export_storage.io_target(owned, zip_output)
+            accounting = key_removal.recorder(
+                db, zip_output, producer="export_zip_removals", purpose="temporary"
+            )
             await transfer.physical_work(
                 export_storage.delete,
                 zip_output,
+                accounting=accounting,
                 **({"target": target} if target is not None else {}),
             )
         await transfer._async(_guard(db, receipt, permit, zip_output=zip_output))
@@ -364,6 +369,9 @@ async def _physical_delete(db, receipt, *, zip_output=None):
                 await transfer._settle(permit)
             except BaseException as closing:
                 if failure is None:
+                    failure = closing
+                elif not isinstance(closing, Exception):
+                    transfer._uncertainty(closing, failure)
                     failure = closing
                 else:
                     transfer._uncertainty(failure, closing)

@@ -534,7 +534,7 @@ async def test_database_pending_zip_and_media_retire_independently_legacy_pendin
     await db.commit()
     deleted = []
     monkeypatch.setattr(
-        export_storage, "delete", lambda receipt: deleted.append(receipt.id)
+        export_storage, "delete", lambda receipt, **kwargs: deleted.append(receipt.id)
     )
     client = objects(monkeypatch, row)
     assert (await export_outputs.cleanup(db))["outputs_deleted"] == 1
@@ -577,7 +577,7 @@ async def test_database_zip_cleanup_observes_bundle_reads_at_any_location_before
     await db.commit()
     deleted = []
     monkeypatch.setattr(
-        export_storage, "delete", lambda receipt: deleted.append(receipt.id)
+        export_storage, "delete", lambda receipt, **kwargs: deleted.append(receipt.id)
     )
     result = await export_outputs.cleanup(db, limit=1)
     assert result["outputs_deleted"] == 1 and deleted == [outputs[3].id]

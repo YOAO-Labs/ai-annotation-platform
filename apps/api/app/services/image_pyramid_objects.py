@@ -20,6 +20,7 @@ from app.db.models.image_pyramid import (
 from app.db.models.storage_maintenance import StorageOperation
 from app.services import image_pyramid_originals as originals
 from app.services import image_pyramid_storage as physical
+from app.services import key_removal_accounting as removal
 from app.services import storage_access
 from app.services.content_snapshot import ContentError
 from app.services.storage import storage_service
@@ -484,8 +485,14 @@ async def reconcile(db, storage):
         receipt = snapshot(output)
         try:
             target = await physical.transport_target(db, receipt, require_enabled=False)
+            accounting = removal.recorder(
+                db, receipt, producer="image_pyramid_removals", purpose="media_cache"
+            )
+            owned_permit = None
 
             async def admitted(permit):
+                nonlocal owned_permit
+                owned_permit = permit
                 current = await db.scalar(
                     select(Output)
                     .where(Output.id == identifier)
@@ -518,29 +525,46 @@ async def reconcile(db, storage):
 
             def remove():
                 if target is not None:
-                    with physical.open_storage(target=target) as owned:
-                        return physical.delete(owned, receipt)
-                owned = storage
+                    with physical.open_storage(target=target, owned=True) as owned:
+                        return physical.delete(owned, receipt, accounting=accounting)
+                owned = None
                 try:
-                    if owned is None:
-                        from app.services.storage import StorageService
+                    from app.services.storage import StorageService
 
-                        try:
-                            owned = StorageService()
-                        except BaseException as exc:
-                            raise storage_access.mark_unsettled(exc)
-                    return physical.delete(owned, receipt)
+                    try:
+                        owned = StorageService(
+                            **(
+                                {"client_config": storage.client.meta.config}
+                                if storage is not None
+                                else {}
+                            )
+                        )
+                    except BaseException as exc:
+                        raise storage_access.mark_unsettled(exc)
+                    return physical.delete(owned, receipt, accounting=accounting)
                 finally:
-                    if storage is None and owned is not None:
+                    if owned is not None:
                         storage_access.close_registered(owned.client)
 
-            count = await storage_access.run(
-                db,
-                uuid.UUID(receipt.storage_ref["location_id"]),
-                purpose(identifier),
-                remove,
-                on_acquired=admitted,
+            failure, count = None, None
+            try:
+                count = await storage_access.run(
+                    db,
+                    uuid.UUID(receipt.storage_ref["location_id"]),
+                    purpose(identifier),
+                    remove,
+                    on_acquired=admitted,
+                )
+            except BaseException as exc:
+                failure = exc
+            failure = await removal.finish(
+                accounting,
+                failure,
+                settled=owned_permit is not None
+                and getattr(owned_permit, "_settled", False) is True,
             )
+            if failure is not None:
+                raise failure
             current = await db.scalar(
                 select(Output)
                 .where(Output.id == identifier)

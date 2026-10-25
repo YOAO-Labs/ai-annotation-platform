@@ -632,3 +632,65 @@ it("limits removal text to declared families and preserves older response exclus
   expect(screen.getByText(/附件退休和清理尚未计入/)).toBeVisible();
   expect(screen.getByText(/不能据此推算平台总占用/)).toBeVisible();
 });
+
+it("explains declared current-key removal separately from physical version deletion", () => {
+  render(
+    <StorageUsageAccounting
+      accounting={{
+        ...accounting,
+        producers: [
+          "original_cache_removals",
+          "image_pyramid_removals",
+          "video_derivative_removals",
+          "export_zip_removals",
+          "export_media_removals",
+        ],
+      }}
+      onAccessDenied={mocks.denied}
+    />,
+  );
+  open();
+  expect(
+    screen.getByText(/已接入完整原图缓存、图像金字塔、视频派生物、导出 ZIP的按键删除观测/),
+  ).toHaveTextContent("仅明确创建不可变删除标记且前后证据完整时计当前内容变化，历史版本仍保留");
+  expect(screen.getByText(/已接入独立导出媒体版本删除观测/)).toHaveTextContent("不代表磁盘释放量");
+  expect(screen.queryByText(/ZIP 清理尚未计入/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/受控新增/)).not.toBeInTheDocument();
+  expect(screen.getByText("部分覆盖")).toBeVisible();
+});
+
+it("keeps old cleanup exclusions when a response does not declare key-removal coverage", () => {
+  const view = render(
+    <StorageUsageAccounting
+      accounting={{ ...accounting, producers: ["original_cache_removals", "future_removal"] }}
+      onAccessDenied={mocks.denied}
+    />,
+  );
+  open();
+  expect(screen.getByText(/已接入完整原图缓存的按键删除观测/)).toHaveTextContent(
+    "重试或证据不明保持未知",
+  );
+  expect(screen.queryByText(/图像金字塔|视频派生物|导出 ZIP的按键删除/)).not.toBeInTheDocument();
+  view.rerender(
+    <StorageUsageAccounting
+      accounting={{ ...accounting, producers: ["export_media_removals", "export_zip_outputs"] }}
+      onAccessDenied={mocks.denied}
+    />,
+  );
+  expect(screen.queryByText(/按键删除观测/)).not.toBeInTheDocument();
+  expect(screen.getByText(/ZIP 清理尚未计入/)).toBeVisible();
+});
+
+it("does not infer independent media deletion from ZIP removal", () => {
+  render(
+    <StorageUsageAccounting
+      accounting={{ ...accounting, producers: ["export_zip_removals", "export_media_outputs"] }}
+      onAccessDenied={mocks.denied}
+    />,
+  );
+  open();
+  expect(screen.getByText(/已接入导出 ZIP的按键删除观测/)).toBeVisible();
+  expect(screen.getByText(/独立媒体清理尚未计入/)).toBeVisible();
+  expect(screen.queryByText(/已接入独立导出媒体版本删除观测/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/ZIP 和导出清理尚未计入/)).not.toBeInTheDocument();
+});

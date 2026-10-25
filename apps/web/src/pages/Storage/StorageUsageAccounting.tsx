@@ -45,6 +45,12 @@ const OBJECT_REMOVAL_PRODUCERS = [
   ["avatar_removals", "头像"],
   ["bug_attachment_removals", "报告附件"],
 ] as const;
+const KEY_REMOVAL_PRODUCERS = [
+  ["original_cache_removals", "完整原图缓存"],
+  ["image_pyramid_removals", "图像金字塔"],
+  ["video_derivative_removals", "视频派生物"],
+  ["export_zip_removals", "导出 ZIP"],
+] as const;
 const field =
   "w-full min-w-0 rounded-md border border-input bg-background px-2 py-1.5 text-sm text-foreground";
 
@@ -93,6 +99,10 @@ function AccountingOwner({ accounting, reconciliation, schedule, onAccessDenied 
   const objectRemovals = OBJECT_REMOVAL_PRODUCERS.filter(([producer]) =>
     accounting?.producers.includes(producer),
   ).map(([, label]) => label);
+  const keyRemovals = KEY_REMOVAL_PRODUCERS.filter(([producer]) =>
+    accounting?.producers.includes(producer),
+  ).map(([, label]) => label);
+  const exportZipRemovals = accounting?.producers.includes("export_zip_removals");
   const avatarRemovals = accounting?.producers.includes("avatar_removals");
 
   useEffect(() => {
@@ -192,15 +202,19 @@ function AccountingOwner({ accounting, reconciliation, schedule, onAccessDenied 
               <li>
                 {exportMediaRemovals
                   ? "已接入独立导出媒体受控新增。"
-                  : accounting.producers.includes("export_zip_outputs")
-                    ? "已接入独立导出媒体受控新增；导出清理尚未计入。"
-                    : "已接入独立导出媒体受控新增；ZIP 和导出清理尚未计入。"}
+                  : exportZipRemovals
+                    ? "已接入独立导出媒体受控新增；独立媒体清理尚未计入。"
+                    : accounting.producers.includes("export_zip_outputs")
+                      ? "已接入独立导出媒体受控新增；导出清理尚未计入。"
+                      : "已接入独立导出媒体受控新增；ZIP 和导出清理尚未计入。"}
               </li>
             )}
             {exportMediaRemovals && (
               <li>
                 已接入独立导出媒体版本删除观测；按删除前后当前内容计净变化，显露旧版本也会计量。
-                证据或收尾不明保持未知，ZIP 清理尚未计入，不代表磁盘释放量。
+                {exportZipRemovals
+                  ? "证据或收尾不明保持未知，不代表磁盘释放量。"
+                  : "证据或收尾不明保持未知，ZIP 清理尚未计入，不代表磁盘释放量。"}
               </li>
             )}
             {accounting?.producers.includes("export_zip_outputs") && (
@@ -222,6 +236,9 @@ function AccountingOwner({ accounting, reconciliation, schedule, onAccessDenied 
             )}
             {objectRemovals.length > 0 && (
               <li>{`已接入${objectRemovals.join("、")}版本删除观测；证据完整才计当前内容净变化，无固定版本、重试或收尾不明保持未知。`}</li>
+            )}
+            {keyRemovals.length > 0 && (
+              <li>{`已接入${keyRemovals.join("、")}的按键删除观测；仅明确创建不可变删除标记且前后证据完整时计当前内容变化，历史版本仍保留。重试或证据不明保持未知。`}</li>
             )}
             {trainingProducers.length > 0 && (
               <li>{`已接入${trainingProducers.join("、")}写入观测；证据完整才计覆盖净变化，重试或版本证据不明保持未知。执行器直传和清理尚未计入。`}</li>

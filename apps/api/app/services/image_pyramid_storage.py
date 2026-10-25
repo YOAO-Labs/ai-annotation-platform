@@ -415,11 +415,13 @@ def _translate(exc):
 
 
 @contextmanager
-def open_storage(*, target, single_attempt=False):
+def open_storage(*, target, single_attempt=False, owned=False):
     """Open and close the registered transport inside the caller's permit."""
     try:
         context = target.client(
-            read_timeout=30, **({"single_attempt": True} if single_attempt else {})
+            read_timeout=30,
+            **({"single_attempt": True} if single_attempt else {}),
+            **({"owned": True} if owned else {}),
         )
         client = context.__enter__()
     except BaseException as exc:
@@ -598,7 +600,7 @@ def signed_url(storage, output, key, expires):
     )
 
 
-def delete(storage, output):
+def delete(storage, output, *, accounting=None):
     """Delete only this saved UUID prefix and prove it is empty afterwards."""
     owner = resolve(output)
     client = _client(storage, owner)
@@ -607,7 +609,16 @@ def delete(storage, output):
         objects = _objects(client, owner, deadline)
         for key in objects:
             _budget(deadline)
-            client.delete_object(Bucket=owner.bucket, Key=key)
+            if accounting is None:
+                client.delete_object(Bucket=owner.bucket, Key=key)
+            else:
+                from app.services.key_removal_accounting import Observation
+
+                observation = Observation(accounting, client, key)
+                response = observation.submit(
+                    lambda: client.delete_object(Bucket=owner.bucket, Key=key)
+                )
+                observation.complete(response)
         if _objects(client, owner, deadline):
             _reject("integrity_mismatch")
         return len(objects)

@@ -285,12 +285,14 @@ def _translate(exc):
 
 
 @contextmanager
-def open_storage(factory=None, *, target=None, single_attempt=False):
+def open_storage(factory=None, *, target=None, single_attempt=False, owned=False):
     """Keep constructor/close uncertainty inside the caller's output permit."""
     if target is not None:
         try:
             context = target.client(
-                read_timeout=30, **({"single_attempt": True} if single_attempt else {})
+                read_timeout=30,
+                **({"single_attempt": True} if single_attempt else {}),
+                **({"owned": True} if owned else {}),
             )
             client = context.__enter__()
         except BaseException as exc:
@@ -701,14 +703,23 @@ def signed_url(storage, output, key, expires=3600):
         raise _translate(exc) from None
 
 
-def delete_output(storage, output):
+def delete_output(storage, output, *, accounting=None):
     """Delete only the saved UUID prefix after the caller retires its owner."""
     owner = resolve(output)
     client = _client(storage, owner)
     try:
         objects = _objects(client, owner)
         for key in objects:
-            client.delete_object(Bucket=owner.bucket, Key=key)
+            if accounting is None:
+                client.delete_object(Bucket=owner.bucket, Key=key)
+            else:
+                from app.services.key_removal_accounting import Observation
+
+                observation = Observation(accounting, client, key)
+                response = observation.submit(
+                    lambda: client.delete_object(Bucket=owner.bucket, Key=key)
+                )
+                observation.complete(response)
         if _objects(client, owner):
             _reject("integrity_mismatch")
         return len(objects)
