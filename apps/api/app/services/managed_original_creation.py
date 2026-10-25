@@ -1319,5 +1319,8 @@ async def attach(db, item, creation_id):
         or replica.storage_ref != original_ref(row)
     ):
         reject("managed_original_creation_attachment_mismatch")
+    from app.services.managed_original_reclaim_fence import shared
+
+    await shared(db, row["bucket"], row["object_key"])
     replica.creation_id = creation_id
     await db.flush()

@@ -208,6 +208,9 @@ async def register_item_asset(
     await db.execute(
         select(DatasetItem.id).where(DatasetItem.id == item.id).with_for_update()
     )
+    from app.services.managed_original_reclaim_fence import shared
+
+    await shared(db, binding.bucket, item.file_path)
     asset = await db.scalar(
         select(DatasetAsset)
         .where(DatasetAsset.dataset_item_id == item.id)

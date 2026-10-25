@@ -306,14 +306,17 @@ async def _locked_anchor(db, retirement_id):
     ).one_or_none()
     if locator is None:
         raise HTTPException(404, "Retirement assertion not found")
-    if not await db.scalar(
-        select(
-            func.pg_try_advisory_xact_lock(
-                func.hashtextextended(group_lock_identity(*locator), 0)
-            )
-        )
-    ):
-        reject("managed_retention_busy")
+    from app.services.managed_original_reclaim_fence import exclusive, shared
+
+    # Policy mutations remain serialized with one another. The shared boundary
+    # first checks the durable claim, using the same identity as GC/publication.
+    try:
+        await shared(db, *locator)
+        await exclusive(db, *locator)
+    except HTTPException as exc:
+        if exc.detail == {"code": "managed_original_reclaim_busy"}:
+            reject("managed_retention_busy")
+        raise
     try:
         async with db.begin_nested():
             anchor = await db.scalar(

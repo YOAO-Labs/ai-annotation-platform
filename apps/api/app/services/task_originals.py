@@ -285,6 +285,9 @@ async def publish(db, task, allocation, created):
     # These are the caller's short final configuration/Gate locks. The separate
     # owner transaction only references already committed immutable evidence.
     await creation._validate(db, row, lock=True)
+    from app.services.managed_original_reclaim_fence import shared
+
+    await shared(db, row["bucket"], row["object_key"])
     saved = await _durable_owner(db, values)
     owner = TaskOriginal(**saved)
     task.original_id = owner.id

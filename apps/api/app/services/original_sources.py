@@ -419,6 +419,15 @@ async def read_target(db, source):
 
 async def read_options(db, source, *, read_timeout=30):
     """Keep legacy transport and old callback signatures unchanged."""
+    from app.services.managed_original_reclaim_fence import protect_source
+
+    # The caller has already registered its physical Permit. If GC won before
+    # admission this rejects its claim; if this check wins, that durable operation
+    # protects the subsequent I/O even after the business relation is unlinked.
+    async with AsyncSession(
+        bind=storage_access.engine(db), expire_on_commit=False, autoflush=False
+    ) as owned:
+        await protect_source(owned, source)
     if source.location_id == LEGACY_LOCATION_ID:
         return {}
     target = await read_target(db, source)

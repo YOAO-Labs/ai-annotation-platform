@@ -200,6 +200,11 @@ async def scan_snapshot(
         if before_io is not None:
             await before_io(db)
         await db.commit()  # No database locks span filesystem I/O.
+        from app.services.managed_original_reclaim_fence import protect_observed_read
+
+        async def reclaimed_guard():
+            await protect_observed_read(db, expected, anchor)
+
         snapshot = await snapshots.capture_from_location(
             db,
             location.id,
@@ -215,6 +220,7 @@ async def scan_snapshot(
             expected_revision=run.snapshot.get("maintenance_revision", 1),
             node_id=node,
             purpose="scan_content",
+            on_acquired=reclaimed_guard,
         )
     try:
         (
@@ -564,6 +570,11 @@ async def quality_snapshot(
                 await validate()
                 await db.commit()
                 access.check_clock(None, key)
+                from app.services.managed_original_reclaim_fence import (
+                    protect_observed_read,
+                )
+
+                await protect_observed_read(db, locator["expected"], locator["anchor"])
                 snapshot = await snapshots.capture_for_quality(
                     lambda: reference_storage.content_file(
                         locator["config"],

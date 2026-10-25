@@ -200,6 +200,9 @@ async def recheck(db, authority, source, *, commit=True, guard=None):
     )
     if current != source:
         raise ContentError("content_binding_changed")
+    from app.services.managed_original_reclaim_fence import protect_source
+
+    await protect_source(db, current)
     if commit:
         await db.commit()
     access.check_clock(authority.proof, authority.key)

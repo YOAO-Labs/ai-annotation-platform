@@ -656,6 +656,9 @@ async def apply_reference(db, source, run, entry, dataset, actor):
     """Apply one already locked and verified identity; the caller owns commit."""
     from app.services.dataset import DatasetService
     from app.services.audit import AuditService
+    from app.services.managed_original_reclaim_fence import protect_reference
+
+    await protect_reference(db, run, entry)
 
     path_digest = entry.path_digest
     receipt = entry.verified_content
@@ -976,6 +979,14 @@ async def reference_snapshot(
             except BaseException:
                 admission_failed = True
                 raise
+        if source_context is not None:
+            from app.services.managed_original_reclaim_fence import (
+                protect_observed_read,
+            )
+
+            await protect_observed_read(
+                db, source_context["expected"], source_context["anchor"]
+            )
 
     if cache_factory:
         from sqlalchemy.exc import SQLAlchemyError

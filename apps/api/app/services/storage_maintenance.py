@@ -218,6 +218,10 @@ async def review(db, location_id, payload, actor, api_key_id, *, initialize=Fals
     target = TRANSITIONS.get((current_state, payload.operation))
     if target is None:
         reject("storage_maintenance_transition_invalid")
+    if payload.operation == "resume":
+        from app.services.managed_original_reclaim_fence import require_resumable
+
+        await require_resumable(db, location_id)
     connection = (
         await db.get(StorageConnection, where.connection_id, populate_existing=True)
         if where.connection_id

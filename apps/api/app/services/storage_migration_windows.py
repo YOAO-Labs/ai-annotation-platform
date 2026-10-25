@@ -278,6 +278,10 @@ async def transition(db, window_id, actor, body, *, api_key_id=None, request=Non
             return await item(db, row)
         reject("migration_window_state_invalid")
     current = await gate(db, row, exclusive=True)
+    if body.action == "close":
+        from app.services.managed_original_reclaim_fence import require_resumable
+
+        await require_resumable(db, row.source_location_id)
     count = await operations(db, row)
     stamp = await db.scalar(select(func.statement_timestamp()))
     if body.action == "stop":

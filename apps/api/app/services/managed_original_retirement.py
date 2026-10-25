@@ -204,6 +204,12 @@ async def capture_managed_original_retirements(db, *, dataset_id, item_id=None):
     result = await db.stream(statement)
     try:
         async for rows in result.mappings().partitions(500):
+            from app.services.managed_original_reclaim_fence import shared
+
+            for bucket, key in sorted(
+                {(row["bucket"], row["object_key"]) for row in rows}
+            ):
+                await shared(db, bucket, key)
             await db.execute(
                 insert(ManagedOriginalRetirement)
                 .values([await _saved_assertion(db, row) for row in rows])
