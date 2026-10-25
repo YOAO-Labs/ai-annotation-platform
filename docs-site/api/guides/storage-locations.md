@@ -364,7 +364,7 @@ limits为每次执行预算：`max_object_bytes`默认256MiB、最大1GiB；`max
 
 ### 增量账目与周期对账
 
-`BucketsResponse.accounting` 为可空固定摘要：`confirmed_added_bytes`、`confirmed_removed_bytes`、`net_change_bytes`、`pending_operation_count` 和 `unknown_operation_count`。当前 `producers=[prediction_inputs, managed_original_creation, thumbnail_outputs, original_cache, image_pyramid_outputs, video_derivative_outputs, export_media_outputs, export_zip_outputs, bug_attachment_uploads, avatar_uploads, comment_attachment_uploads, guide_asset_uploads, raster_mask_objects, audit_archive_outputs]`，固定 `scope=current_objects`、`coverage=partial`、`projected_total_bytes=null`。已确认事件按准确物理地址及操作身份幂等累计，不从额度预约、业务删除或当前绑定补算历史；新增字节与移除字节分别为非负值，净变化可为负数。
+`BucketsResponse.accounting` 为可空固定摘要：`confirmed_added_bytes`、`confirmed_removed_bytes`、`net_change_bytes`、`pending_operation_count` 和 `unknown_operation_count`。当前 `producers=[prediction_inputs, managed_original_creation, thumbnail_outputs, original_cache, image_pyramid_outputs, video_derivative_outputs, export_media_outputs, export_zip_outputs, bug_attachment_uploads, avatar_uploads, comment_attachment_uploads, guide_asset_uploads, raster_mask_objects, audit_archive_outputs, training_dataset_outputs, active_learning_media, sample_evaluation_reports, training_redacted_logs]`，固定 `scope=current_objects`、`coverage=partial`、`projected_total_bytes=null`。已确认事件按准确物理地址及操作身份幂等累计，不从额度预约、业务删除或当前绑定补算历史；新增字节与移除字节分别为非负值，净变化可为负数。
 
 托管原件生产者复用 Creation 最终条件 PUT／CompleteMultipart：冻结地址及该次尝试的意图与 writing 原子提交，覆盖 Dataset 各 origin、Task 和辅助原件。四个媒体缓存生产者覆盖共享缩略图、完整原图缓存、金字塔和视频派生物的逐对象条件 PUT；多对象部分失败时分别保留已发生事实，不以整个生成任务成功代替物理回执。
 
@@ -375,6 +375,8 @@ limits为每次执行预算：`max_object_bytes`默认256MiB、最大1GiB；`max
 `bug_attachment_uploads`以BugAttachmentUpload.id为owner、分类`other_platform`，覆盖共享报告附件上传入口的受控新增。每次条件PUT前独立持久化一个意图，保留原SDK配置和重试；仅一次实际发送、明确成功回执、不可变非null版本、既有准确版本完整读回与当前HEAD一致且原生资源／permit真正收尾时确认新增。只在明确单次412时记本窗口零，多次发送、409、丢回执、无hook、版本或关闭不明保留unknown。后续撤权、ready发布失败或业务回滚不抹去物理事实；普通账目发布异常不改变业务结果，取消先排空再传播。附件退休／清理及历史对象尚未补算。
 
 `avatar_uploads`、`comment_attachment_uploads`、`guide_asset_uploads`、`raster_mask_objects`、`audit_archive_outputs`覆盖对应五类条件创建入口，分类均为`other_platform`。owner为头像上传token无损转换的UUID及其余各自保存责任UUID，不用用户、项目或Job代替。RLE使用stored SHA／大小，归档使用压缩文件字节。每次实际PUT前独立保存意图；完整读回版本必须与单次明确成功ACK的不可变非null版本相同，当前HEAD及实际资源／permit收尾均确认后才计新增。明确单次条件412只计本窗口零；重试后412、409、缺hook、无ACK或关闭不明保持unknown。RLE现有412后读取及ready复用保持，未PUT的复用不补账。归档还等待外层输入文件关闭；后续业务拒绝或发布失败仍保留物理事实。退休／清理和未接入写入者继续不完整覆盖。
+
+`training_dataset_outputs`覆盖TrainingDatasetVersion的media／RLE mask／ZIP，分类`training_version`；`active_learning_media`、`sample_evaluation_reports`、`training_redacted_logs`分别使用ActiveLearningRound、SampleEvaluationRun、TrainingRun的UUID，分类`other_platform`，地址来自本次已核验owner，历史attempt不跟随当前绑定。四类均为无条件覆盖，复用ZIP的单次final发送、明确ACK、完整准确版本读回及前后有界版本集合证明，只确认新旧当前内容大小之差，不直接累计上传大小。原SDK重试／分段／metadata保持，观测缺权、版本／回执不明为unknown；仅记账发布普通失败不改变原业务结果。冻结等待整轮目录／stage及permit，主动学习等待输入stage及permit；评估正常结束和停止报告两入口均接入，脱敏新输出增加旁路完整核验，观测失败不增加下载权限前置。执行器签名直传、浏览器暂存、迁移复制及物理移除仍未计入本片。
 
 对于条件创建生产者，完整 SHA／大小读回、返回不可变非 null 版本与当前 HEAD 一致且原生收尾完成后才记新增。412 只记该次零，无版本、应答不明或版本替换保持 unknown；后续业务回滚不抹去物理事实。原件退役和 Reclamation 没有实际 DELETE，因此不计移除；媒体缓存本片只接新增，现有按 key 清理、退休或业务行删除也不补造移除量。浏览器暂存、其他生产者和外部写入仍未覆盖，GET 不访问物理源或触发盘点。
 

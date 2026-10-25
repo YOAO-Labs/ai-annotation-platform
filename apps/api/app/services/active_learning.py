@@ -39,6 +39,8 @@ from app.services.async_job_notify import notify_job_terminal
 from app.services.batch import BatchService
 from app.services.storage import storage_service as storage
 from app.services import training_storage_io as storage_io
+from app.services import training_write_accounting as write_accounting
+from contextlib import nullcontext
 from app.services.training_dataset_bridge import (
     TrainingDatasetError,
     content_digest,
@@ -405,7 +407,7 @@ def media_descriptor(round, sample):
     }
 
 
-def read_retained_png(round, sample, *, transport=None):
+def read_retained_png(round, sample, *, transport=None, observation=None):
     transport = storage if transport is None else transport
     owner = owners.resolve(round)
     artifact = media_descriptor(round, sample)
@@ -432,6 +434,8 @@ def read_retained_png(round, sample, *, transport=None):
         }
     ):
         raise ValueError("Retained source identity differs")
+    if observation is not None:
+        observation.readback(response)
     return png
 
 
@@ -443,62 +447,82 @@ async def prepare_image(db, round, sample, *, guard=None):
     permit = await originals.storage_access.acquire(
         db, location_id, "active_learning_media"
     )
-    async with permit:
-        await originals.check(db, context, guard=guard)
+    accounting, failure = None, None
+    try:
+        async with permit:
+            await originals.check(db, context, guard=guard)
 
-        def retained_or_missing(transport):
-            # Classify the exact provider result before S3Access translates it.
-            # A failed client close still raises before any fallback can begin.
-            try:
-                return read_retained_png(round, sample, transport=transport)
-            except ClientError as exc:
-                if exc.response.get("Error", {}).get("Code") in {
-                    "404",
-                    "NoSuchKey",
-                    "NotFound",
-                }:
-                    return None
-                raise
+            def retained_or_missing(transport):
+                # Classify the exact provider result before S3Access translates it.
+                # A failed client close still raises before any fallback can begin.
+                try:
+                    return read_retained_png(round, sample, transport=transport)
+                except ClientError as exc:
+                    if exc.response.get("Error", {}).get("Code") in {
+                        "404",
+                        "NoSuchKey",
+                        "NotFound",
+                    }:
+                        return None
+                    raise
 
-        png = await originals.bounded_thread(
-            storage_io.physical,
-            target,
-            retained_or_missing,
-        )
-        if png is None:
-            if round.spec.get("original_contract") != 1:
-                raise originals.ContentError("original_input_unrecorded") from None
-            async with originals.input_image(
-                db, context, sample["snapshot"], guard=guard
-            ) as (png, media, _source):
-                if any(
-                    media[key] != sample[key]
-                    for key in (
-                        "sha256",
-                        "width",
-                        "height",
-                        "size_bytes",
-                        "derived_sha256",
-                        "preprocessing",
+            png = await originals.bounded_thread(
+                storage_io.physical,
+                target,
+                retained_or_missing,
+            )
+            if png is None:
+                if round.spec.get("original_contract") != 1:
+                    raise originals.ContentError("original_input_unrecorded") from None
+                async with originals.input_image(
+                    db, context, sample["snapshot"], guard=guard
+                ) as (png, media, _source):
+                    if any(
+                        media[key] != sample[key]
+                        for key in (
+                            "sha256",
+                            "width",
+                            "height",
+                            "size_bytes",
+                            "derived_sha256",
+                            "preprocessing",
+                        )
+                    ):
+                        raise ValueError("Current source differs from the frozen round")
+                    await originals.check(db, context, guard=guard)
+                    accounting = write_accounting.recorder(
+                        db,
+                        owner,
+                        round.id,
+                        producer="active_learning_media",
+                        purpose="other_platform",
                     )
-                ):
-                    raise ValueError("Current source differs from the frozen round")
-                await originals.check(db, context, guard=guard)
-                await originals.bounded_thread(
-                    storage_io.physical,
-                    target,
-                    lambda transport: _store_png(
-                        round, sample, owner, png, transport=transport
-                    ),
-                )
-        await originals.check(db, context, commit=False, guard=guard)
-        if owners.resolve(round) != owner:
-            raise originals.ContentError("content_binding_changed")
-        await originals.storage_access.check(
-            db, location_id, expected_revision=permit.revision, lock=True
+                    await originals.bounded_thread(
+                        storage_io.physical,
+                        target,
+                        lambda transport: _store_png(
+                            round, sample, owner, png, transport=transport
+                        ),
+                        accounting=accounting,
+                    )
+            await originals.check(db, context, commit=False, guard=guard)
+            if owners.resolve(round) != owner:
+                raise originals.ContentError("content_binding_changed")
+            await originals.storage_access.check(
+                db, location_id, expected_revision=permit.revision, lock=True
+            )
+            await db.commit()
+            originals.access.check_clock(context.proof, context.key)
+    except BaseException as exc:
+        failure = exc
+    if accounting is not None:
+        failure = await write_accounting.finish(
+            accounting,
+            failure,
+            settled=getattr(permit, "_settled", False) is True,
         )
-        await db.commit()
-        originals.access.check_clock(context.proof, context.key)
+    if failure is not None:
+        raise failure
     return png
 
 
@@ -506,20 +530,37 @@ def _store_png(round, sample, owner, png, *, transport=None):
     transport = storage if transport is None else transport
     artifact = media_descriptor(round, sample)
     owners.expect_media(owner, sample["ordinal"], artifact["key"])
-    transport.client.put_object(
-        Bucket=owner.bucket,
-        Key=artifact["key"],
-        Body=png,
-        ContentType="image/png",
-        Metadata={
-            "round-id": str(round.id),
-            "ordinal": str(sample["ordinal"]),
-            "source-sha256": sample["sha256"],
-            "sha256": artifact["sha256"],
-        },
+    accounting = getattr(transport, "_write_accounting", None)
+    observation = (
+        write_accounting.Observation(
+            accounting,
+            transport.client,
+            artifact["key"],
+            {"sha256": artifact["sha256"], "size_bytes": len(png)},
+        )
+        if accounting is not None
+        else None
     )
-    if read_retained_png(round, sample, transport=transport) != png:
+    with observation.hooks() if observation is not None else nullcontext():
+        transport.client.put_object(
+            Bucket=owner.bucket,
+            Key=artifact["key"],
+            Body=png,
+            ContentType="image/png",
+            Metadata={
+                "round-id": str(round.id),
+                "ordinal": str(sample["ordinal"]),
+                "source-sha256": sample["sha256"],
+                "sha256": artifact["sha256"],
+            },
+        )
+    if (
+        read_retained_png(round, sample, transport=transport, observation=observation)
+        != png
+    ):
         raise ValueError("Published PNG differs from the frozen input")
+    if observation is not None:
+        observation.complete()
 
 
 def successful_evidence(round, attempt, row, result):

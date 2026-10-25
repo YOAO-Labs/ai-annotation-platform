@@ -78,6 +78,10 @@ class StorageUsageAccountingSummary(BaseModel):
             "guide_asset_uploads",
             "raster_mask_objects",
             "audit_archive_outputs",
+            "training_dataset_outputs",
+            "active_learning_media",
+            "sample_evaluation_reports",
+            "training_redacted_logs",
         ]
     )
     confirmed_added_bytes: int = 0

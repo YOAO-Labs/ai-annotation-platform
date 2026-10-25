@@ -46,6 +46,7 @@ def read_json_artifact(
     required_metadata=None,
     node_budget=100000,
     string_budget=8192,
+    observation=None,
 ):
     global _cache_bytes
     transport = storage if transport is None else transport
@@ -68,6 +69,8 @@ def read_json_artifact(
             raise ValueError("Evaluation artifact identity mismatch")
     finally:
         storage_access.close_registered(response["Body"])
+    if observation is not None:
+        observation.readback(response)
     key = (spec["sha256"], PARSER_REVISION, node_budget, string_budget)
     with _lock:
         if key in _cache:

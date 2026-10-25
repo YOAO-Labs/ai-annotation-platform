@@ -34,6 +34,12 @@ const CONDITIONAL_PRODUCERS = [
   ["raster_mask_objects", "持久掩码"],
   ["audit_archive_outputs", "审计归档"],
 ] as const;
+const TRAINING_PRODUCERS = [
+  ["training_dataset_outputs", "冻结训练文件"],
+  ["active_learning_media", "主动学习保留图片"],
+  ["sample_evaluation_reports", "样本评估报告"],
+  ["training_redacted_logs", "脱敏日志"],
+] as const;
 const field =
   "w-full min-w-0 rounded-md border border-input bg-background px-2 py-1.5 text-sm text-foreground";
 
@@ -73,6 +79,9 @@ function AccountingOwner({ accounting, reconciliation, schedule, onAccessDenied 
     accounting?.producers.includes(producer),
   ).map(([, label]) => label);
   const conditionalProducers = CONDITIONAL_PRODUCERS.filter(([producer]) =>
+    accounting?.producers.includes(producer),
+  ).map(([, label]) => label);
+  const trainingProducers = TRAINING_PRODUCERS.filter(([producer]) =>
     accounting?.producers.includes(producer),
   ).map(([, label]) => label);
 
@@ -188,6 +197,9 @@ function AccountingOwner({ accounting, reconciliation, schedule, onAccessDenied 
             )}
             {conditionalProducers.length > 0 && (
               <li>{`已接入${conditionalProducers.join("、")}受控新增；重试或回执不明保持未知，退休和清理尚未计入。`}</li>
+            )}
+            {trainingProducers.length > 0 && (
+              <li>{`已接入${trainingProducers.join("、")}写入观测；证据完整才计覆盖净变化，重试或版本证据不明保持未知。执行器直传和清理尚未计入。`}</li>
             )}
           </ul>
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">

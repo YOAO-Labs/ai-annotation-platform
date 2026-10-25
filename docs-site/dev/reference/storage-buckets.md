@@ -168,6 +168,10 @@ Celery default worker 执行盘点，Beat 每 30 秒回收超过 120 秒租约�
 
 五类均在实际PUT前独立保存意图，将原完整reader的核验版本与PUT ACK关联；归档旁路观察HEAD／GET／后置HEAD的版本，保留压缩字节和原语义核验。仅单次明确成功、不可变非null版本、完整内容和当前HEAD一致时允许正量，且原生线程、Body、client及实际permit必须结清。单次明确412为本次零，重试、无hook、版本／关闭不明仍unknown。归档保持文件Body、声明上限和单PUT算法，由外层文件owner在业务发布及输入文件关闭后收尾账目；业务失败不抹去物理写入，关闭失败不确认增量。取消先排空再传播，普通账目发布失败保留未决记录而不改原业务结果。训练／直传等其余入口和物理移除继续独立推进，接线声明不能代替完整覆盖或删除许可。
 
+服务端训练写入共用`training_write_accounting`，直接复用已有ZIP Observation和条件写的取消安全finish，不复制版本集合算法或改变旧helper。`training_storage_io`只在显式accounting存在时打开所属独占client，保留原Config／重试，并把sidecar留在局部bound transport；普通读取与签名不改。冻结文件producer为`training_dataset_outputs`、owner为TrainingDatasetVersion.id、purpose为`training_version`；主动学习保留PNG、样本评估报告及脱敏日志分别为`active_learning_media`、`sample_evaluation_reports`、`training_redacted_logs`，owner为各自Round／EvaluationRun／TrainingRun UUID，purpose为`other_platform`。记录使用实际owner.ref，历史attempt保存地址优先于今日Run绑定。
+
+无条件PUT与managed multipart均在实际调用前保存独立意图；保留真实发送与ACK，原完整reader仅旁路交出实际GET响应版本。只有单次明确final提交、不可变非null版本、完整SHA／大小和前后版本集合只新增该返回版本且当前HEAD相符时，确认新旧当前大小差；等长重写零、可证明缩小为负，缺权限／重试／版本不明保留unknown。冻结worker在整轮临时目录、输入stage、client、线程及实际permit收尾后finish；主动学习在输入stage和permit退出后finish；评估的正常与停止报告经共享run收尾，日志下载在同一callback内补新输出的有界旁路完整读回。后续业务失败不抹掉写入，普通观测／发布失败不改变成功业务；原生关闭不明遵循已有permit保护。保留副本直接复用不补账，执行器／浏览器签名直传及物理移除仍明确未覆盖，不把完成回调或HEAD存在解释成本次新增。
+
 盘点页每次最多1,000对象，保存准确key、实际大小和观测窗口；不解码key，不以ETag代替摘要。稳定代次为AsyncJob UUID，执行块的fence代次仅用于拒绝迟到发布。整桶成功才替换基准和对账，保留两个成功代次及当前暂存；重复key、失败和取消不发布不完整基准。数据库按对象比较两次观测，只有完全位于观测之间的已确认事件参与增量核对；跨窗口／pending／unknown及首次无基准单列未知。没有接入的写入方和外部变化只称未解释变化，不宣称精确账目漂移或物理磁盘容量。GET仅返回持久固定摘要。
 
 周期计划存于 `storage_usage_schedules`，默认关闭，管理员通过显式PUT授权开启，间隔1至168小时。已有30秒recover任务复核保存的授权及范围并调度，避免重叠，撤权／配置变化暂停，不能自动换操作者。应用迁移0246后刷新执行盘点、临时输入与托管原件写入的Worker；媒体记账接线改变时也要刷新实际执行缓存／派生物写入的Worker，无镜像或依赖变化。回退先关闭计划，再回退保留schema的旧应用；显式降级仅允许新增表为空，禁止丢弃流水及基准。

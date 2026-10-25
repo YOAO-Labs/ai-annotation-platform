@@ -26,7 +26,11 @@ from app.db.models.training_dataset import TrainingDatasetVersion
 from app.services import async_job as jobs
 from app.services.async_job_notify import notify_job_terminal
 from app.services.storage import storage_service
-from app.services import training_dataset_storage, training_storage_io
+from app.services import (
+    training_dataset_storage,
+    training_storage_io,
+    training_write_accounting,
+)
 from app.services import training_dataset_originals as originals
 from app.services import storage_access
 from app.services.training_dataset_bridge import content_digest
@@ -117,7 +121,14 @@ def file_digest(path: Path) -> str:
 
 
 def verify_output(
-    bucket, key, expected_sha256, expected_size, *, snapshot_digest=None, transport=None
+    bucket,
+    key,
+    expected_sha256,
+    expected_size,
+    *,
+    snapshot_digest=None,
+    transport=None,
+    observation=None,
 ):
     """Read back the actual saved object, without trusting its SHA metadata."""
     destination = transport or storage_service
@@ -146,6 +157,40 @@ def verify_output(
         raise TrainingDatasetError(
             "training_output_mismatch", "训练文件写回内容校验失败"
         )
+    if observation is not None:
+        observation.readback(response)
+
+
+def _upload_output(
+    destination, bucket, key, digest, size, upload, *, snapshot_digest=None
+):
+    accounting = getattr(destination, "_write_accounting", None)
+    observation = (
+        training_write_accounting.Observation(
+            accounting,
+            destination.client,
+            key,
+            {"sha256": digest, "size_bytes": size},
+        )
+        if accounting is not None
+        else None
+    )
+    if observation is None:
+        upload()
+    else:
+        with observation.hooks():
+            upload()
+    verify_output(
+        bucket,
+        key,
+        digest,
+        size,
+        snapshot_digest=snapshot_digest,
+        transport=destination,
+        observation=observation,
+    )
+    if observation is not None:
+        observation.complete()
 
 
 def materialize_image(
@@ -258,21 +303,21 @@ def materialize_image(
             "image_dimensions_changed", "图片尺寸与冻结的标注坐标范围不一致"
         )
     if not preserved:
-        destination.client.upload_file(
-            str(path),
-            bucket,
-            key,
-            ExtraArgs={
-                "Metadata": {"snapshot-digest": snapshot_digest, "sha256": digest}
-            },
-        )
-        verify_output(
+        _upload_output(
+            destination,
             bucket,
             key,
             digest,
             size,
+            lambda: destination.client.upload_file(
+                str(path),
+                bucket,
+                key,
+                ExtraArgs={
+                    "Metadata": {"snapshot-digest": snapshot_digest, "sha256": digest}
+                },
+            ),
             snapshot_digest=snapshot_digest,
-            transport=destination,
         )
     if sample.get("raster_contract"):
         # Independently retained training object, under the same version prefix
@@ -281,18 +326,19 @@ def materialize_image(
         mask_path = directory / f"{sample['task_id']}.json"
         with storage_access.closing_registered(mask_path.open("w")) as target:
             target.write(instance_rle_text(payload))
-        destination.upload_file(
-            str(mask_path),
-            f"{prefix}/masks/{sample['task_id']}.json",
-            bucket=bucket,
-            content_type="application/json",
-        )
-        verify_output(
+        mask_key = f"{prefix}/masks/{sample['task_id']}.json"
+        _upload_output(
+            destination,
             bucket,
-            f"{prefix}/masks/{sample['task_id']}.json",
+            mask_key,
             file_digest(mask_path),
             mask_path.stat().st_size,
-            transport=destination,
+            lambda: destination.upload_file(
+                str(mask_path),
+                mask_key,
+                bucket=bucket,
+                content_type="application/json",
+            ),
         )
     return {
         **({"mask_path": str(mask_path)} if sample.get("raster_contract") else {}),
@@ -306,11 +352,15 @@ def materialize_image(
     }
 
 
-def _materialize_image(target, *args, **kwargs):
+def _materialize_image(target, *args, accounting=None, **kwargs):
     if target is None:
+        if accounting is not None:
+            training_dataset_storage._reject("training_storage_binding_unproven")
         return materialize_image(*args, **kwargs)
     return training_storage_io.physical(
-        target, lambda bound: materialize_image(*args, transport=bound, **kwargs)
+        target,
+        lambda bound: materialize_image(*args, transport=bound, **kwargs),
+        **({"accounting": accounting} if accounting is not None else {}),
     )
 
 
@@ -326,6 +376,7 @@ async def materialize_sample(
     authority=None,
     guard=None,
     target=None,
+    accounting=None,
 ):
     """Try retained bytes first, then resolve an authorized reference if needed."""
     owner = training_dataset_storage.resolve(version)
@@ -334,7 +385,7 @@ async def materialize_sample(
             "training_storage_invalid_key", "冻结前缀与版本归属不一致", status_code=409
         )
     owner.contains(f"{prefix}/media/{sample['task_id']}")
-    if target is None and owner.key_prefix:
+    if target is None and (owner.key_prefix or accounting is not None):
         target = await training_storage_io.prepare(db, owner)
 
     async def checkpoint():
@@ -357,6 +408,7 @@ async def materialize_sample(
             snapshot_digest,
             directory,
             bucket=owner.bucket,
+            accounting=accounting,
             timeout=120,
         )
         await checkpoint()
@@ -382,6 +434,7 @@ async def materialize_sample(
                 snapshot_digest,
                 directory,
                 bucket=owner.bucket,
+                accounting=accounting,
                 verified_original=stage,
                 timeout=120,
             )
@@ -413,6 +466,7 @@ async def materialize_sample(
             snapshot_digest,
             directory,
             bucket=owner.bucket,
+            accounting=accounting,
             verified_reference=content,
             timeout=120,
         )
@@ -466,6 +520,50 @@ async def build_dataset(
 
 async def _build_dataset(
     version_id, job_id, attempt_id, session_factory, node_id=None, celery_task_id=None
+) -> None:
+    accounting = _BuildAccounting()
+    failure = None
+    try:
+        await _build_dataset_contents(
+            version_id,
+            job_id,
+            attempt_id,
+            session_factory,
+            node_id,
+            celery_task_id,
+            accounting=accounting,
+        )
+    except BaseException as exc:
+        failure = exc
+        raise
+    finally:
+        if accounting.recorder is not None:
+            original = failure if failure is not None else accounting.failure
+            publishing = await training_write_accounting.finish(
+                accounting.recorder,
+                original,
+                settled=getattr(accounting.permit, "_settled", False) is True,
+            )
+            if publishing is not None and publishing is not original:
+                raise publishing
+
+
+@dataclass
+class _BuildAccounting:
+    recorder: object = None
+    permit: object = None
+    failure: BaseException | None = None
+
+
+async def _build_dataset_contents(
+    version_id,
+    job_id,
+    attempt_id,
+    session_factory,
+    node_id=None,
+    celery_task_id=None,
+    *,
+    accounting,
 ) -> None:
     prefix = None
     owner = None
@@ -528,11 +626,19 @@ async def _build_dataset(
             parent_manifest = parent.manifest if parent else None
             await db.commit()
             target = await training_storage_io.prepare(db, owner)
+            accounting.recorder = training_write_accounting.recorder(
+                db,
+                owner,
+                version_id,
+                producer="training_dataset_outputs",
+                purpose="training_version",
+            )
             permit = await storage_access.acquire(
                 db,
                 uuid.UUID(owner.ref["location_id"]),
                 originals.output_purpose(version_id),
             )
+            accounting.permit = permit
             async with permit:
                 with originals.temporary_directory(prefix="aap-training-") as temporary:
                     directory = Path(temporary)
@@ -562,6 +668,7 @@ async def _build_dataset(
                                 authority=authority,
                                 guard=guard,
                                 target=target,
+                                accounting=accounting.recorder,
                             )
                         )
                         if media[-1].pop("_source_backed", False):
@@ -585,28 +692,25 @@ async def _build_dataset(
                     )
                     owner = training_dataset_storage.resolve(version)
                     package_key = owner.key(f"attempts/{attempt_id}/dataset.zip")
-                    await originals.physical(
-                        training_storage_io.physical,
-                        target,
-                        lambda bound: bound.upload_file(
-                            str(package),
-                            package_key,
-                            bucket=owner.bucket,
-                            content_type="application/zip",
-                        ),
-                    )
                     package_digest = await originals.physical(file_digest, package)
                     package_size = package.stat().st_size
                     await originals.physical(
                         training_storage_io.physical,
                         target,
-                        lambda bound: verify_output(
+                        lambda bound: _upload_output(
+                            bound,
                             owner.bucket,
                             package_key,
                             package_digest,
                             package_size,
-                            transport=bound,
+                            lambda: bound.upload_file(
+                                str(package),
+                                package_key,
+                                bucket=owner.bucket,
+                                content_type="application/zip",
+                            ),
                         ),
+                        accounting=accounting.recorder,
                     )
                 await assert_dataset_authority(db, version)
                 await originals.check(db, authority)
@@ -644,9 +748,11 @@ async def _build_dataset(
                 originals.clock(authority)
                 await db.commit()
                 published = True
-        except Superseded:
+        except Superseded as exc:
+            accounting.failure = exc
             await db.rollback()
         except (Exception, asyncio.CancelledError) as exc:
+            accounting.failure = exc
             unsettled = getattr(exc, "storage_operation_unsettled", False)
             if isinstance(exc, HTTPException) and exc.status_code in {401, 403}:
                 detail = exc.detail if isinstance(exc.detail, dict) else {}

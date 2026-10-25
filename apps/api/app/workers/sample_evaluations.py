@@ -283,6 +283,13 @@ async def finish(factory, attempt_id, claim_id):
             lambda transport: service.upload_report(
                 run, attempt, report, transport=transport
             ),
+            accounting=service.write_accounting.recorder(
+                db,
+                service.owners.resolve(run),
+                run.id,
+                producer="sample_evaluation_reports",
+                purpose="other_platform",
+            ),
         )
     try:
         async with factory() as db:
@@ -478,6 +485,13 @@ async def settle_cancel(factory, run_id):
                 "sample_evaluation_write",
                 lambda transport: service.upload_report(
                     current, attempt, report, transport=transport
+                ),
+                accounting=service.write_accounting.recorder(
+                    db,
+                    service.owners.resolve(current),
+                    current.id,
+                    producer="sample_evaluation_reports",
+                    purpose="other_platform",
                 ),
             )
     candidate = artifact

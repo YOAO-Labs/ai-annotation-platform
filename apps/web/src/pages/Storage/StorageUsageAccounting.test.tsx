@@ -484,3 +484,49 @@ it("does not infer other conditional writers from one declared writer or an unkn
   expect(screen.queryByText(/已接入指南图片受控新增/)).not.toBeInTheDocument();
   expect(screen.getByText(/不能据此推算平台总占用/)).toBeVisible();
 });
+
+it("explains server training overwrites without claiming executor uploads or deletion", () => {
+  render(
+    <StorageUsageAccounting
+      accounting={{
+        ...accounting,
+        producers: [
+          "training_dataset_outputs",
+          "active_learning_media",
+          "sample_evaluation_reports",
+          "training_redacted_logs",
+        ],
+      }}
+      onAccessDenied={mocks.denied}
+    />,
+  );
+  open();
+  expect(
+    screen.getByText(/已接入冻结训练文件、主动学习保留图片、样本评估报告、脱敏日志写入观测/),
+  ).toHaveTextContent(
+    "证据完整才计覆盖净变化，重试或版本证据不明保持未知。执行器直传和清理尚未计入。",
+  );
+  expect(screen.getByText("部分覆盖")).toBeVisible();
+  expect(screen.getByText(/不能据此推算平台总占用/)).toBeVisible();
+  expect(screen.queryByText(/已接入托管原件受控新增/)).not.toBeInTheDocument();
+});
+
+it("limits server training descriptions to explicitly declared producers", () => {
+  const view = render(
+    <StorageUsageAccounting
+      accounting={{ ...accounting, producers: ["training_redacted_logs", "future_training"] }}
+      onAccessDenied={mocks.denied}
+    />,
+  );
+  open();
+  expect(screen.getByText(/已接入脱敏日志写入观测/)).toBeVisible();
+  expect(screen.queryByText(/冻结训练文件|主动学习保留图片|样本评估报告/)).not.toBeInTheDocument();
+  view.rerender(
+    <StorageUsageAccounting
+      accounting={{ ...accounting, producers: ["future_training"] }}
+      onAccessDenied={mocks.denied}
+    />,
+  );
+  expect(screen.queryByText(/已接入脱敏日志写入观测/)).not.toBeInTheDocument();
+  expect(screen.getByText(/不能据此推算平台总占用/)).toBeVisible();
+});

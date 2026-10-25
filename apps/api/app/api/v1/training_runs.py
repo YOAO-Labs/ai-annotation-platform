@@ -568,7 +568,17 @@ async def download_artifact(
             }
 
         return await service.storage_io.run(
-            db, owner, "training_artifact_download", redacted_download
+            db,
+            owner,
+            "training_artifact_download",
+            redacted_download,
+            accounting=observations.write_accounting.recorder(
+                db,
+                owner,
+                run.id,
+                producer="training_redacted_logs",
+                purpose="other_platform",
+            ),
         )
 
     def download(transport):

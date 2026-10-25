@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from app.services import training_storage_io as storage_io
+from app.services import training_write_accounting as write_accounting
+from contextlib import nullcontext
 from app.services import storage_access
 
 import hashlib
@@ -278,18 +280,46 @@ def redacted_log(run, attempt, name, artifact, *, transport=None):
     key = training.artifact_key(
         owner, attempt.id, f"redacted-logs/{name}.{output_sha}.log"
     )
-    transport.client.put_object(
-        Bucket=owner.bucket,
-        Key=key,
-        Body=bytes(output),
-        ContentType="text/plain; charset=utf-8",
-        Metadata={
-            "sha256": output_sha,
-            "attempt-id": str(attempt.id),
-            "source-sha256": artifact["sha256"],
-            "redaction-revision": str(REDACTION_REVISION),
-        },
+    accounting = getattr(transport, "_write_accounting", None)
+    observation = (
+        write_accounting.Observation(
+            accounting,
+            transport.client,
+            key,
+            {"sha256": output_sha, "size_bytes": len(output)},
+        )
+        if accounting is not None
+        else None
     )
+    with observation.hooks() if observation is not None else nullcontext():
+        transport.client.put_object(
+            Bucket=owner.bucket,
+            Key=key,
+            Body=bytes(output),
+            ContentType="text/plain; charset=utf-8",
+            Metadata={
+                "sha256": output_sha,
+                "attempt-id": str(attempt.id),
+                "source-sha256": artifact["sha256"],
+                "redaction-revision": str(REDACTION_REVISION),
+            },
+        )
+    if observation is not None:
+        try:
+            verified = transport.client.get_object(Bucket=owner.bucket, Key=key)
+            with storage_access.closing_registered(verified["Body"]) as body:
+                raw = body.read(len(output) + 1)
+                if (
+                    len(raw) != len(output)
+                    or hashlib.sha256(raw).hexdigest() != output_sha
+                ):
+                    raise ValueError("Redacted output identity differs")
+            observation.readback(verified)
+        except Exception as exc:
+            if getattr(exc, "storage_operation_unsettled", False):
+                raise
+            # Read permission and observational uncertainty do not gate downloads.
+        observation.complete()
     return {
         "key": key,
         "sha256": output_sha,

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from app.services import training_storage_io as storage_io
+from app.services import training_write_accounting as write_accounting
+from contextlib import nullcontext
 from app.services import storage_access
 
 from aap_task_contract import normalize_task
@@ -730,13 +732,25 @@ def upload_report(run, attempt, report, *, transport=None):
         "size_bytes": len(raw),
     }
     owners.expect_report(owner, attempt.id, artifact["key"], sha)
-    transport.client.put_object(
-        Bucket=owner.bucket,
-        Key=artifact["key"],
-        Body=raw,
-        ContentType="application/json",
-        Metadata=report_metadata(run, attempt),
+    accounting = getattr(transport, "_write_accounting", None)
+    observation = (
+        write_accounting.Observation(
+            accounting,
+            transport.client,
+            artifact["key"],
+            artifact,
+        )
+        if accounting is not None
+        else None
     )
+    with observation.hooks() if observation is not None else nullcontext():
+        transport.client.put_object(
+            Bucket=owner.bucket,
+            Key=artifact["key"],
+            Body=raw,
+            ContentType="application/json",
+            Metadata=report_metadata(run, attempt),
+        )
     if (
         read_json_artifact(
             artifact,
@@ -745,10 +759,13 @@ def upload_report(run, attempt, report, *, transport=None):
             transport=transport,
             required_metadata=report_metadata(run, attempt),
             node_budget=engine.REPORT_NODE_BUDGET,
+            observation=observation,
         )
         != report
     ):
         raise ValueError("Uploaded evaluation report differs")
+    if observation is not None:
+        observation.complete()
     return artifact
 
 
