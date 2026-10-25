@@ -5,6 +5,7 @@ import type {
   BugAttachmentBindingPreview,
   ExportBindingPreview,
   ImportBindingPreview,
+  DatasetBindingPreview,
   StorageBindingOut,
 } from "@/api/generated/types.gen";
 import { ApiError } from "@/api/client";
@@ -634,4 +635,124 @@ it("clears an import target that disappeared before its probe completed", async 
   expect(await within(dialog).findByRole("alert")).toHaveTextContent("目标位置已不存在");
   expect(within(dialog).getByRole("combobox", { name: "目标存储位置" })).toHaveValue("");
   expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
+});
+
+function datasetReview(): DatasetBindingPreview {
+  return {
+    ...reviewed(),
+    purpose: "datasets",
+    previous: {
+      ...binding,
+      purpose: "datasets",
+      bucket: "datasets-a",
+      change_policy: "reviewed_dataset_switch",
+    },
+    target: {
+      ...target,
+      connection_revision: 4,
+      bucket: "datasets-b",
+      key_prefix: "company/_aap_managed/datasets/",
+    },
+    history: {
+      asset_locations: 1,
+      creation_allocations: 2,
+      auxiliary_originals: 3,
+      retirements: 4,
+    },
+    capabilities: {
+      conditional_write: true,
+      full_read: true,
+      delete: true,
+      empty_put: true,
+      multipart: true,
+    },
+    impact_token: "reviewed-dataset-switch",
+  };
+}
+function mountDataset() {
+  const client = createTestQueryClient();
+  clients.push(client);
+  const onApplied = vi.fn().mockResolvedValue(undefined);
+  render(
+    <QueryClientProvider client={client}>
+      <StorageBindingChangeButton
+        purpose="datasets"
+        binding={datasetReview().previous}
+        onApplied={onApplied}
+      />
+    </QueryClientProvider>,
+  );
+  return onApplied;
+}
+async function openDataset() {
+  fireEvent.click(screen.getByRole("button", { name: "切换数据集原件位置" }));
+  const dialog = screen.getByRole("dialog", { name: "切换数据集原件存储位置" });
+  await within(dialog).findByRole("option", { name: target.name });
+  fireEvent.change(within(dialog).getByRole("combobox", { name: "目标存储位置" }), {
+    target: { value: target.location_id },
+  });
+  fireEvent.click(within(dialog).getByRole("button", { name: "验证并预览" }));
+  return dialog;
+}
+
+it("reviews dataset allocation and saved owners before explicitly switching new originals", async () => {
+  api.previewBinding.mockResolvedValueOnce(datasetReview());
+  const onApplied = mountDataset();
+  const dialog = await openDataset();
+  await within(dialog).findByRole("region", { name: "数据集原件绑定变更预览" });
+  expect(api.bindingCandidates).toHaveBeenCalledWith("datasets", 0, expect.any(AbortSignal), 20);
+  expect(api.previewBinding).toHaveBeenCalledWith("datasets", {
+    expected_generation: 2,
+    target_location_id: target.location_id,
+    target_config_revision: 7,
+  });
+  expect(within(dialog).getByText(/仅后续新分配的数据集原件及辅助原件/)).toHaveTextContent(
+    "已有原件和在途上传保留原位置，数据集改名不改变文件路径",
+  );
+  expect(within(dialog).getByText(/原件位置记录 1 · 写入分配 2/)).toBeInTheDocument();
+  expect(within(dialog).getByText(/辅助原件 3 · 退役记录 4/)).toBeInTheDocument();
+  expect(within(dialog).getByText(/切换不会搬迁文件/)).toBeInTheDocument();
+  expect(within(dialog).getByText(/空文件通过 · 分段上传通过/)).toBeInTheDocument();
+  const select = within(dialog).getByRole("combobox", { name: "目标存储位置" });
+  const hint = document.getElementById(select.getAttribute("aria-describedby")!);
+  expect(hint).toHaveClass("text-xs", "text-muted-foreground");
+  expect(hint).toHaveTextContent("空文件和分段上传的条件写入");
+  expect(within(select).queryByText(/条件写入/)).not.toBeInTheDocument();
+  expect(api.applyBinding).not.toHaveBeenCalled();
+  fireEvent.click(within(dialog).getByRole("button", { name: "确认切换" }));
+  await waitFor(() => expect(onApplied).toHaveBeenCalledTimes(1));
+  expect(api.applyBinding).toHaveBeenCalledWith("datasets", {
+    expected_generation: 2,
+    target_location_id: target.location_id,
+    target_config_revision: 7,
+    impact_token: "reviewed-dataset-switch",
+  });
+  expect(pushToast).toHaveBeenCalledWith({
+    msg: "数据集原件绑定已更新，后续新分配使用新位置",
+    kind: "success",
+  });
+});
+
+it("rejects another purpose's preview when switching dataset originals", async () => {
+  api.previewBinding.mockResolvedValueOnce(importReview());
+  mountDataset();
+  const dialog = await openDataset();
+  expect(await within(dialog).findByRole("alert")).toHaveTextContent("用途绑定或目标配置已变化");
+  expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
+  expect(api.applyBinding).not.toHaveBeenCalled();
+});
+
+it.each([
+  ["dataset_binding_target_missing", "目标位置已不存在"],
+  ["dataset_storage_conditions_unsupported", "目标不支持条件写入"],
+  ["dataset_storage_unavailable", "检查连接、读写权限及分段上传能力"],
+])("keeps dataset confirmation disabled after %s", async (code, message) => {
+  api.previewBinding.mockRejectedValueOnce(new ApiError(409, "Unavailable", { code }));
+  mountDataset();
+  const dialog = await openDataset();
+  expect(await within(dialog).findByRole("alert")).toHaveTextContent(message);
+  if (code === "dataset_binding_target_missing")
+    expect(within(dialog).getByRole("combobox", { name: "目标存储位置" })).toHaveValue("");
+  expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
+  expect(api.applyBinding).not.toHaveBeenCalled();
 });
