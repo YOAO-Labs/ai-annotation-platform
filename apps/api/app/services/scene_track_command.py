@@ -621,7 +621,6 @@ def _member_state(row: SceneAnnotationRecord) -> dict:
         "scene_track_id": str(row.scene_track_id) if row.scene_track_id else None,
         "class_name": row.class_name,
         "is_active": row.is_active,
-        "is_hidden": row.is_hidden,
         "temporal_role": row.temporal_role,
         "sensor_role": row.sensor_role,
         "version": int(row.version or 1),

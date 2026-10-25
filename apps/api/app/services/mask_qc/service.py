@@ -1117,7 +1117,7 @@ async def resolve_repair_issue(
     actor_id: uuid.UUID,
 ) -> None:
     """Resolve a QC issue atomically with its accepted repair mutation."""
-    await quality_data_command(
+    data = await quality_data_command(
         db,
         ResolveRepairedMaskQCIssue(
             schema=QUALITY_DATA_PROTOCOL,
@@ -1127,3 +1127,13 @@ async def resolve_repair_issue(
             decided_at=datetime.now(timezone.utc),
         ),
     )
+    if not isinstance(data, dict) or not data.get("changed"):
+        return
+    row = data.get("row")
+    issue = db.identity_map.get(
+        MaskQCIssue.__mapper__.identity_key_from_primary_key((issue_id,))
+    )
+    if issue is not None and isinstance(row, dict):
+        resolved = model_from_quality_row(MaskQCIssue, row)
+        for field in ("status", "resolved_by_id", "resolved_at", "updated_at"):
+            set_committed_value(issue, field, getattr(resolved, field))

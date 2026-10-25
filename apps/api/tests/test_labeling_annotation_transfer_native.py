@@ -405,5 +405,8 @@ async def test_conversion_owner_inserts_lineage_after_operation_with_native_id(
             await connection.close()
         if task_id is not None:
             async with maker.begin() as db:
+                await db.execute(
+                    delete(Annotation).where(Annotation.task_id == task_id)
+                )
                 await db.execute(delete(Task).where(Task.id == task_id))
         await _cleanup(maker, world)
