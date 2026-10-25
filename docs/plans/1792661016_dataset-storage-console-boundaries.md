@@ -7,6 +7,43 @@
 
 2026-10-25，B8及null槽位清理修复、B9审计归档、B10导出切换均已合入主树；B10来源提交为`7f1d390df`，合入提交为`ffefc3edd`，Creation窄修`c8924d4a0`保持。人工环境已应用0248，原3100／8100、两Worker及绑定Beat按原常驻服务刷新；迁移前后170表9,230行、九桶24个版本／删除标记及12个源文件的全部内容摘要保持。应用源码与已验收隔离提交一致，三个导出绑定端点及实际Vite源码已确认服务于当前树。C6万条辅助测量已停止，不再作为合入前置；下文隔离实施期间的源码冻结与待集成说明仅为历史记录。完整E09按原始范围推进，annotations、datasets、media-cache、import、training五用途仍锁定。
 
+## 本轮定稿：E02-B18／E09-B11 导入暂存新写入位置切换
+
+2026-10-25，基于干净`3d2707543`复核原始E02-S04／AC05、AC10与E09-S05，沿整套实施／提交授权approved。下一阶段完整开放`import`的新分配绑定，覆盖预标临时输入、Dataset／Task直传暂存、Mask格式上传，以及三个仍调用`upload_crop_bytes`的旧帧／裁剪入口。只把存储地址接到集中owner，不改变模型、格式解析、结果或权限算法；不恢复万条训练测量，不启动Tracker、会话或审核专项，不把全消费者资格当作前置。完成后annotations、datasets、media-cache、training四用途仍按原合同锁定。
+
+### 保存归属与在途兼容
+
+复用已登记legacy／全局S3目标、加密连接凭据、白名单及已有五分钟预览确认。增加封闭import目标与地址适配，保存Location、分配代次、endpoint、bucket、准确物理key／prefix及身份摘要。仅分配读取当前绑定，沿既有连接→位置→用途锁序与切换串行；保存后所有读取、签名、写入、重试和已有清理都解析保存位置的当前凭据，正常轮换不改变地址。实际提供方I/O、DNS和client构建／关闭不放进最终SQL授权锁；源与目标分别沿现有维护许可，真实关闭／drain后才释放。完整物理key始终不超过1024个UTF-8字节，目标前缀须为最长既有owner后缀预留空间。
+
+| 现有入口                              | 本次完整存储合同                                                                                                                                                                                                                                                                                    |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PredictionInputLease                  | 保留contract1／2／3、旧schema1与原独立清单／版本／随机写入标记；新schema2接当前绑定，物理prefix包含受控import命名空间和原lease UUID路径。上传、完整核验、ML签名、末端元数据复核、盘点及准确版本清理共用保存归属，原预算、首次期限、unknown-close和账目合同保持。                                    |
+| 两条客户端帧接口与非图片secondary裁剪 | 用现有PredictionInputs包装已生成的帧／crop字节，一次请求独立UUID；只替换三个临时PUT及其URL，复用原限量、裁剪、模型派发、权限和结果提交。没有原件证明时不伪造canonical source_ref，不增加视频原件或Tracker资格。保留原错误、指标与返回结构。                                                         |
+| Dataset／Task direct Creation         | 现有Creation增加nullable staging_ref，暂存输入归属独立于最终原件归属。切换前分配A继续A，切换后新暂存B，最终原件仍写原定datasets／annotations位置。新引用在签发URL前与独立Creation一同持久化。                                                                                                       |
+| Mask格式上传及batch                   | upload-init先持久化独立MaskFormatUpload owner，保存project／uploader、logical key、content type、首次URL截止与准确引用；batch增加nullable staging_ref，从该上传固定复制。preflight、Worker与resume始终读保存位置，保持logical staged_object_key、SHA、plan／mapping／options digest和既有逐项幂等。 |
+
+Creation旧行继续校验完整保存configuration摘要；旧nullable staging_ref仅从记录中的configuration与staging_bucket／key解释legacy地址，不猜当前import绑定。当前配置比较只移除obsolete的import绑定依赖，datasets／annotations及最终原件实际配置约束保持；不能因无关import切换使已验证原件或非direct创建失效。
+
+Mask旧batch没有历史endpoint／版本记录，保留明确legacy-location解释与原logical key／SHA校验，不能转向当前B或声称历史版本已核验。旧upload-init后尚未preflight的键仅接受原project／uploader的legacy namespace，并在该次preflight固定为legacy；新upload-init必须先有durable owner。无需先全库盘点或迁移旧对象。保留首次preflight后15分钟receipt及现有resume期限，不借机改变重试策略。物理key与逻辑key分开，不修改格式adapter或解析器。
+
+### 跨端点暂存、签名与清理
+
+Creation使用保存源client完整检查暂存ETag、实际VersionId（若有）、大小与SHA，跨端点通过有界条件GET把准确源流交给原目标client的prepare_stream；不能向不同端点发单client UploadPartCopy。保留完整摘要、最终源观察、原条件Complete／空PUT及目标readback、独立Creation状态和账目；失败只沿既有准确MPU abort，不改原件业务发布。源／目标两个client均真实收尾，取消和未知关闭不提前释放责任。
+
+旧legacy签名保留browser／ML既有audience规则；外部目标直接按自身endpoint签名，不能借全局代理或签后改Host。签发或返回URL前保留当前授权和准确保存配置复核；首次截止不因用途切换或普通重试延长。外部endpoint须供真实上传方／ML访问，不新增网关或公共端点设置。
+
+PredictionInputs继续既有准确版本清理，因此目标探针覆盖本链实际需要的条件PUT、完整GET／SHA、准确DELETE、版本能力和受控前缀LIST／版本列举；不是新增性能或全提供方资格。Creation当前不删除远端暂存，Mask仅清本地临时目录；本片保持，不新增GC、周期任务或lifecycle，不声称新桶继承旧清理策略。所有状态的保存owner保护位置／连接不被改址或删除。平台当前盘点按准确endpoint＋bucket＋物理key识别新增归属，外部B不能计作A的总量；增量账目继续partial，不追加所有生产者。
+
+### 迁移、管理面与验证范围
+
+0250接0249：保留旧PredictionInput约束分支并允许新受控引用，Creation及Mask batch各增加nullable staging_ref，增加独立MaskFormatUpload表及准确位置引用索引，不从环境或当前绑定回填历史。仅当实际需要区分暂存维护代次时增加对应内部字段。含新事实时拒绝破坏性降级，应用回退保留schema和责任。九桶恢复对未支持的新引用／提供方版本／外部目标必须在任何映射写入前拒绝；只补直接所需的旧legacy映射或拒绝边界，不扩张成跨端点备份专项或全库恢复前置。
+
+新增import candidates／change-preview／PATCH三端点及DTO，权限、当前Key、配置修订、维护代次、确认失效和审计沿已开放用途。预览汇总四组保存责任，只影响后续分配，不要求在途输入排空。Web沿现有StorageBindingChangeButton居中Modal及StorageLocationsConsole开放第五用途，保留分页、13／11／15字号、label／hint分离、撤权隔离、Escape与焦点恢复，不新增页面或组件系统。
+
+准确源范围超过八文件，但属于一个用途的完整接线：新import_storage／import_storage_target／import_binding_change；现有managed_s3_target、dataset_assets、storage_location、storage_usage_categories及必要的既有维护影响接点；PredictionInput模型／prediction_inputs、ml_backends两帧入口、secondary_inference；Creation模型／service／writer、Dataset上传及task_uploads；新MaskFormatUpload与模型注册、MaskFormatImport、mask_formats API／service及其Worker；0250、StorageBinding DTO／路由、相关定向测试；Web storageApi／StorageBindingChangeButton／StorageLocationsConsole及测试；既有恢复映射的直接拒绝／兼容接点。同步OpenAPI／路由／本地类型／SDK排除、README／CHANGELOG、用户存储指南、API存储指南、存储架构／桶／恢复说明、E02和执行队列。无依赖、镜像、环境变量、新服务或Celery公开任务参数改动。
+
+隔离工作树、本地API虚拟环境、核实owner的可销毁test／e2e中验证旧／在途A与新B、三个原临时入口、Dataset／Task跨端点完成、Mask未preflight／已有batch／resume、当前凭据轮换和坏凭据拒绝、准确签名／清理、位置保护、预览竞争／撤权、迁移与恢复拒绝。只跑本片及受影响调用回归和技能要求的pipeline_validation，不重跑模型算法、训练测量或全消费者资格。真实HTTP／S3／所属Worker证明准确地址与内容；新增用途控件完成明暗×桌面／窄屏交互、请求／控制台／溢出及焦点检查。生成契约、类型／lint／CSS tokens、SDK四项合同、Ruff／格式、文档构建、正常钩子及最终diff检查后正常提交、合入；按原监督服务应用人工0250并刷新受影响Worker，保持3100／8100、Beat和原业务／文件摘要，按owner清理所属资源与任务树。完整E02／E09和整套Epic仍继续，不分配发布版本。
+
 ## 本轮定稿：E02-B17／E09-B10 导出新写入位置切换
 
 2026-10-25，基于主树 `b11185072`，继续原始 E02-S04／AC05、AC10 与 E09-S05，状态 approved。本片完整接通 export 用途的两个物理 owner：ExportOutput ZIP 与 ExportMediaBundle 图片／视频／LiDAR 独立媒体；ExportArtifact 仍仅是缓存索引。复用当前受控位置、真实探针、五分钟预览确认及居中弹窗，实施后另五用途保持锁定。只改变存储目标接线，不改导出算法、格式、模型、业务授权或缓存语义，不追加训练规模和全消费者资格。
