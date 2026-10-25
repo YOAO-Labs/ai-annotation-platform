@@ -8,6 +8,38 @@
 > 负责人角色：后端、运维、测试；产品负责人确认维护窗口与迁移范围。
 > 依赖：PoC 可独立启动；生产切换依赖 EPIC-01/02/05 的位置定位、用途绑定和读取兼容，以及 EPIC-12 的恢复演练。
 
+## 本轮定稿：E07-B 已保存业务定位与源清单关联
+
+2026-10-25，基于干净根`b3a4fc549`复核，状态approved，沿整套Epic实施／提交授权推进原始S02／§6。源对象清单已交付，但CLI的数据库观测只含绑定、位置种类和活动Job分组，逐对象业务引用及历史位置仍是unknown。本片交付真实保存owner的私有目录及与既有源报告的离线关联；不改写原源报告，不把该目录等同完整写入方、目标复制或迁移就绪。B8实现及修复`3e24a78c3`／`8855d66d3`已在隔离树完成验收，可作为新schema测试依赖；根应用仍在0244、C6原session27154保持冻结，不能提前合入应用。
+
+### 保存事实与关联合同
+
+新CLI独立读取已保存S3定位，覆盖所有状态，不按当前Binding或可见业务页筛选。以现有`storage_usage_categories.FAMILIES`的16类独立记录为定位起点，包括预测输入、金字塔、视频、导出媒体、训练版本／实验／预览、评估、选样、头像、报告／评论／指南附件、RLE、导出ZIP及审计归档；另覆盖Creation、Retirement、DatasetAssetLocation、TaskOriginal、DatasetAuxiliaryOriginal、DatasetSourcePreview、OriginalCacheEntry与TrainingStorageDeletion中的最终／暂存键、当前定位、历史声明与删除前缀。配置位置、用途绑定及其孤立关联也单列保存。家族列表和键规则可复用，分类器不能替代目录，强制比较当前端点的业务resolver也不能用来丢弃历史声明。
+
+目录明确区分保存声明、当前位置身份核对和源报告实际匹配。先使用保存的endpoint／bucket／完整key或prefix；引用只有storage_identity时，必须与已知候选endpoint计算结果一致才补充地址依据。恢复后的当前位置与创建／退休历史声明分别列出，不相互覆盖。已保存`inventory.objects`按预算展开精确键、版本、大小及SHA；预测输入的相对键仅按其自身保存前缀解释。缺owner、缺地址、未知schema或未展开的私有冻结文档明确计数和原因，不按当前桶猜补，不创建回填或消费者修复前置。
+
+数据库使用单个有超时的REPEATABLE READ READ ONLY快照，静态白名单字段、稳定主键分页；连接只取必要的endpoint／bucket／base_prefix／use_ssl等非凭据配置，不读取secret_enc、authority、token或完整业务payload。行数、页数、JSON展开、报告字节与总时长均有显式预算，超限封闭不完整目录。记录实际迁移revision；0244／0245共用原始投影，例如`to_jsonb(b)->>'object_version_id'`兼容旧表缺列，不以新ORM读取旧表。
+
+先关闭数据库事务，再流式验证既有源JSONL的摘要／完整性并关联。地址按endpoint＋bucket＋完整key＋版本精确区分，前缀保留真实边界；`null`单列为可覆盖槽位。结果区分准确版本、未固定版本的同键声明、前缀范围、所选源之外、未观测、冲突和无法定位。两个观测窗口不构成原子快照；目录没有匹配也只能称本目录未匹配，不能称孤儿或授予删除许可。关联过大的本地索引可使用所属私有临时文件并在结束清理，不把全部清单载入无限内存。
+
+新目录使用独立schema、0600独占创建及受摘要覆盖的summary／tail；终端只输出计数，不输出路径明细、凭据或签名地址。分别报告注册家族枚举完成、定位未知／未展开、源报告覆盖、冲突和截断；退出码不得把完整枚举偷换成所有业务定位正确。`migration_ready=false`及未知外部写入方／预签名上传／停写状态始终保留。现有三个对象清单脚本、其schema和C6冻结工具不变，无应用、公开API、数据库迁移、依赖、镜像或发布版本修改。
+
+```text
+saved owners / historical declarations -> read-only DB snapshot -> private reference JSONL
+selected source JSONL ------------------> digest + streaming join -> scoped matches / unknowns
+                                                                    no copy or cutover
+```
+
+### 准确文件与实施顺序
+
+共11文件，跨脚本、数据库读取适配、报告合同和正式运维说明，作为同一目录能力交付：新`scripts/storage_migration_references.py`、`scripts/inventory_storage_references.py`、`scripts/test_storage_migration_references.py`、`scripts/test_inventory_storage_references.py`、`scripts/verify_storage_references.py`；现有`docs-site/ops/deploy/storage-migration-inventory.md`、DEV、README、CHANGELOG Unreleased、本计划及执行队列。不得扩为应用消费者改造。
+
+修改代理使用从当前本地HEAD创建的独立树。为实际验证0244／0245，可仅在该树集成已验收B8两个依赖提交，父树保持不变；冲突仅处理已知执行队列状态，保留父树已完成C5／千样本C6与B8暂存事实。核对应用载荷与B8固定提交一致后，用仓库recipe准备该树本地venv及生成类型。最终交付只将本片11文件形成独立提交，父树可在C6运行期间集成tools/docs；B8应用仍需待冻结结束后独立合入和刷新。
+
+先验证纯解析、精确／前缀／版本及双报告完整性，再在该树核验归属的空test环境准备少量schema1／2、退休／孤立定位及同键不同端点／版本陷阱。新CLI实际使用只读数据库账号，关联真实小源报告，核对全部业务与对象指纹不变；在只有旧事实时往返0244／0245，分别验证缺列与新列分支，结束恢复head后按owner销毁。源端全版本、消费者链路和浏览器已验收部分不重跑。
+
+分层检查采用该树虚拟环境执行新增`test_*storage*references.py`，实际资格使用`verify_storage_references.py --report <private-path>`并沿现有工作树test归属守卫。Ruff／格式、受影响文档frontmatter／链接／可读性与构建、正常提交钩子和diff检查通过后提交；具体命令、预算和退出语义同步正式运维页。清理该树test及有界临时文件，保留父树3100／8100、两Worker／Beat和C6 test。回退仅停用新CLI及处理自有目录文件，没有业务状态、对象复制或用途绑定要撤销；完整E07及原始剩余要求继续保留。
+
 ## 当前实施：E07-A 源端只读迁移清单
 
 2026-10-25，基线 `848605a7a`。用户已授权推进整套Epic及当前环境可实施部分，尚未指定真实迁移目标。本片对应原始E07-S02／§6，并为AC02提供源端事实；不把未知目标当作源端盘点的阻塞，也不据本片标完完整S02或E07。
