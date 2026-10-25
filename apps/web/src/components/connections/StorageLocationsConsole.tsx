@@ -22,6 +22,7 @@ import { StorageLocationSourceSummary } from "./StorageLocationSourceSummary";
 import { StorageMaintenanceImpact } from "./StorageMaintenanceImpact";
 import { StorageLocationMaintenance } from "./StorageLocationMaintenance";
 import { StorageBindingChangeButton } from "./StorageBindingChangeButton";
+import { LocationHealthSummary, LocationSourceScale } from "./StorageLocationListSummary";
 import { safeDatasetReturn } from "@/components/datasets/storageNavigation";
 
 const PURPOSES = [
@@ -335,6 +336,13 @@ function ConsoleOwner() {
                 </span>
               </div>
               <div className="mb-3 flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  disabled={locations.isFetching}
+                  onClick={() => void locations.refetch()}
+                >
+                  {locations.isFetching ? "刷新中…" : "刷新列表"}
+                </Button>
                 {role === "super_admin" && (
                   <Button
                     size="sm"
@@ -368,21 +376,25 @@ function ConsoleOwner() {
                 </p>
               )}
               <div className={listStyles.scroll}>
-                <table className={listStyles.table} aria-label="存储位置列表">
-                  <thead>
+                <table className={`${listStyles.table} block sm:table`} aria-label="存储位置列表">
+                  <thead className="sr-only sm:not-sr-only">
                     <tr>
-                      <th>名称</th>
-                      <th>类型</th>
-                      <th>状态</th>
+                      <th>存储位置</th>
+                      <th>启用与维护</th>
+                      <th>节点健康</th>
+                      <th>已索引源规模</th>
                       <th className="text-right">操作</th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="block sm:table-row-group">
                     {locationData?.items.map((item) => (
-                      <tr key={item.id}>
-                        <td>
+                      <tr
+                        key={item.id}
+                        className="grid grid-cols-2 gap-x-3 py-2 sm:table-row sm:py-0"
+                      >
+                        <td className="min-w-0 sm:min-w-40">
                           <button
-                            className="text-sm font-medium text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            className="break-all text-left text-sm font-medium text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             onClick={(event) => {
                               dialogTrigger.current = event.currentTarget;
                               setCreateKind(null);
@@ -392,14 +404,35 @@ function ConsoleOwner() {
                           >
                             {item.name}
                           </button>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {KIND[item.kind] ?? item.kind}
+                          </p>
                         </td>
-                        <td>{KIND[item.kind] ?? item.kind}</td>
-                        <td>
+                        <td className="min-w-0 text-right sm:min-w-28 sm:text-left">
                           <Badge variant={item.enabled ? "success" : "outline"}>
                             {item.enabled ? "已启用" : "已停用"}
                           </Badge>
+                          {item.maintenance_state && item.maintenance_state !== "active" && (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {item.maintenance_state === "draining" ? "访问排空中" : "访问已停止"}
+                            </p>
+                          )}
                         </td>
-                        <td className="text-right">
+                        <td className="min-w-0 sm:min-w-44">
+                          <p className="mb-2 text-xs text-muted-foreground sm:hidden">节点健康</p>
+                          <LocationHealthSummary
+                            value={item.health}
+                            now={now}
+                            configRevision={item.config_revision}
+                          />
+                        </td>
+                        <td className="min-w-0 sm:min-w-44">
+                          <p className="mb-2 text-xs text-muted-foreground sm:hidden">
+                            已索引源规模
+                          </p>
+                          <LocationSourceScale value={item.source_usage} />
+                        </td>
+                        <td className="col-span-2 min-w-0 text-right sm:min-w-24">
                           <Button
                             size="sm"
                             aria-label={`查看 ${item.name} 详情`}
@@ -417,7 +450,7 @@ function ConsoleOwner() {
                     ))}
                     {locationData?.total === 0 && (
                       <tr>
-                        <td colSpan={4} className={listStyles.empty}>
+                        <td colSpan={5} className={listStyles.empty}>
                           暂无获授权的存储位置。
                         </td>
                       </tr>
@@ -425,6 +458,10 @@ function ConsoleOwner() {
                   </tbody>
                 </table>
               </div>
+              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                健康仅说明节点当时的探测结果。源规模按本位置可见的已采纳记录去重，不能与平台对象字节相加。
+                刷新只读取已有记录；站点和物理容量未提供，平台对象快照在“平台对象占用”单独展示。
+              </p>
               <ListPagination
                 label="存储位置"
                 page={page}

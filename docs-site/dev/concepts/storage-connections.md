@@ -37,6 +37,12 @@ last_reviewed: 2026-10-25
 
 ## 数据模型
 
+### 位置列表的持久摘要
+
+`GET /storage-locations`在可见位置分页后批量组装列表项：连接与访问维护状态、保存的节点探测，以及当前用户可见来源的已采纳索引规模。`StorageLocationHealth`按统一事务时间统计当前配置且未到期的节点结果，保留最近历史记录和最早有效到期时间；不把位置停用解释成网络故障。列表GET没有物理I/O，不调用每行详情或源扫描。
+
+`storage_source_usage.read_usage_page`将既有去重查询按位置分区，详情单位置统计也调用同一实现。候选关联和地址验证保留在SQL中，不把逐文件事实载入应用；跨位置域不混合，权限裁剪在聚合之前生效。列表的源观测时间、探测时间与查询计算时间各自保留，平台对象快照和未知物理容量继续使用独立口径。
+
 ### 独立 Task 原件
 
 DatasetItem托管原件继续由DatasetAsset/AssetLocation和原创建记录承担。独立Task直传没有DatasetItem，使用TaskOriginal保存当前annotations位置、完整SHA/大小和源写入回执；Task.original_id引用它，原件记录不FK业务Task/Project/User。历史点云即使没有直接dataset_item_id，也可能通过primary_lidar关联DatasetItem，不能仅凭NULL直接认定独立原件。

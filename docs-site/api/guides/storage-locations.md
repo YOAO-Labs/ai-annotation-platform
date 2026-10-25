@@ -29,6 +29,12 @@ last_reviewed: 2026-10-25
 | POST  | `/{id}/probe`          | 可见该位置的管理员；探测 API 或指定 Celery hostname                               |
 | GET   | `/{id}/probes`         | 可见该位置的管理员；查看按位置、修订、执行节点记录的证据                          |
 
+列表返回`StorageLocationList`，其`items`为`StorageLocationListItem`：保留位置原字段，并增加`health`和`source_usage`。详情`GET /{id}`继续返回`StorageLocationOut`。列表摘要按当前页可见位置批量查询数据库，不返回来源名称／路径，不启动探测、扫描或对象存储请求。
+
+`health`包含`observed_node_count`、`current_success_count`、`current_failure_count`、`stale_node_count`、nullable `latest`／`fresh_until`及`measured_at`。每个节点只使用其已保存最新记录，统一数据库事务时间判断当前配置和过期；计数与位置启用／维护状态独立。`latest`为最近保存的`StorageProbeOut`，不保证当前有效。`fresh_until`为当前有效记录中最早的到期时间，达到后应刷新摘要再使用有效计数。没有节点记录表示未知，旧配置或过期记录不冒充当前失败。
+
+`source_usage`复用`StorageSourceUsage`，与详情来源摘要按同一SQL语义计算当前可见、已采纳head的规模，按位置独立去重。`total_size_bytes=null`表示总量未知，`known_size_bytes`保留已确认部分；`observed_from/through`为文件观测区间，`measured_at`仅表示聚合时间。列表分页不截断单个位置的可见采纳范围，也不跨位置相加；不提供未经测量的位置物理容量或平台对象总量。
+
 ## 用途映射策略
 
 `GET /bindings`只读返回九种平台用途，即使共桶或未配置仍逐行保留，不初始化配置、不探测对象存储。每行包含`purpose / location_id / bucket / generation / state`，并提供：

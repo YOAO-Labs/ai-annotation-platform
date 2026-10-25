@@ -251,6 +251,12 @@ async def to_out(db, location, actor):
         if location.connection_id
         else None
     )
+    maintenance = await storage_access.state(db, location.id)
+    return location_out(location, actor, connection, maintenance)
+
+
+def location_out(location, actor, connection, maintenance):
+    """Project an already-loaded location without queries or provider access."""
     config = location.config or {}
     reference = location.kind == "filesystem" or (
         location.kind == "s3" and connection is not None
@@ -263,7 +269,6 @@ async def to_out(db, location, actor):
             reference = True
         except fs.FilesystemStorageError:
             pass
-    maintenance = await storage_access.state(db, location.id)
     actions = ["read"]
     if location.enabled and reference and maintenance["state"] == "active":
         actions.extend(["probe", "browse"])
@@ -651,13 +656,13 @@ async def store_probe(db, location, node_id, result, observed_at):
     )
 
 
-def probe_out(probe, location):
+def probe_out(probe, location, *, measured_at=None, include_disabled=False):
     result = probe.result
     expires_at = probe.observed_at + PROBE_TTL
     stale = (
         probe.config_revision != location.config_revision
-        or expires_at <= datetime.now(timezone.utc)
-        or not location.enabled
+        or expires_at <= (measured_at or datetime.now(timezone.utc))
+        or (not include_disabled and not location.enabled)
     )
     capabilities = result.get("capabilities", {})
     if stale:

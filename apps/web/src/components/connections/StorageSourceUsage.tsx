@@ -1,7 +1,7 @@
 import type { StorageSourceUsage as Usage } from "@/api/generated/types.gen";
 import { evidenceDate } from "./StorageSourceDiagnostics";
 
-function bytes(value: number) {
+export function formatSourceBytes(value: number) {
   if (value === 0) return "0 B";
   const unit = Math.min(4, Math.floor(Math.log(value) / Math.log(1024)));
   return `${(value / 1024 ** unit).toLocaleString("zh-CN", { maximumFractionDigits: 2 })} ${["B", "KiB", "MiB", "GiB", "TiB"][unit]}`;
@@ -18,7 +18,9 @@ export function StorageSourceUsage({ value }: { value?: Usage }) {
     <section aria-label="当前已采纳源索引规模" className="rounded-md border border-border p-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h3 className="text-sm font-semibold">当前已采纳源索引规模</h3>
-        <p className="text-sm font-medium tabular-nums">{complete ? bytes(total) : "总量未知"}</p>
+        <p className="text-sm font-medium tabular-nums">
+          {complete ? formatSourceBytes(total) : "总量未知"}
+        </p>
       </div>
       {value ? (
         <>
@@ -29,7 +31,7 @@ export function StorageSourceUsage({ value }: { value?: Usage }) {
           ) : (
             <p className="mt-2 text-sm tabular-nums">
               {complete ? "去重后" : "已确认部分"} {value.file_count.toLocaleString("zh-CN")} 个文件
-              {!complete && ` · ${bytes(value.known_size_bytes)}`}
+              {!complete && ` · ${formatSourceBytes(value.known_size_bytes)}`}
               {` · ${value.reference_count.toLocaleString("zh-CN")} 条采纳记录`}
               {value.duplicate_reference_count > 0 &&
                 ` · 合并 ${value.duplicate_reference_count.toLocaleString("zh-CN")} 条重复引用`}

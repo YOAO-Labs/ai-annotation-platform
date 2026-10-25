@@ -71,6 +71,48 @@ const location = {
   declared_capabilities: { read: true, write: false, reference: true },
   allowed_actions: ["read", "manage_location"],
 };
+const sourceUsage = {
+  scope: "visible_current_accepted_source_heads",
+  source: "accepted_source_index",
+  unit: "bytes",
+  coverage: "complete",
+  is_estimate: false,
+  deduplication_basis: "location_frozen_address_and_object_version",
+  includes_versions: false,
+  reference_count: 4,
+  file_count: 2,
+  duplicate_reference_count: 2,
+  known_size_bytes: 226,
+  total_size_bytes: 226,
+  unknown_reference_count: 0,
+  conflict_file_count: 0,
+  incomparable_file_count: 0,
+  inactive_reference_count: 0,
+  observed_from: "2026-10-01T00:00:00Z",
+  observed_through: "2026-10-02T00:00:00Z",
+  measured_at: "2026-10-25T00:00:00Z",
+};
+const listItem = {
+  ...location,
+  health: {
+    observed_node_count: 1,
+    current_success_count: 1,
+    current_failure_count: 0,
+    stale_node_count: 0,
+    latest: {
+      node_id: "api",
+      config_revision: 3,
+      observed_at: "2026-10-01T00:00:00Z",
+      expires_at: "2099-10-01T00:05:00Z",
+      ok: true,
+      code: "ok",
+      capabilities: { list: "verified" },
+    },
+    measured_at: "2026-10-25T00:00:00Z",
+    fresh_until: "2099-10-01T00:05:00Z",
+  },
+  source_usage: sourceUsage,
+};
 const clients: ReturnType<typeof createTestQueryClient>[] = [];
 afterEach(() => clients.splice(0).forEach((client) => client.clear()));
 function RouterState() {
@@ -101,7 +143,7 @@ beforeEach(() => {
   state.role = "super_admin";
   state.session = "session";
   state.revision = 1;
-  api.locationPage.mockResolvedValue({ items: [location], total: 21 });
+  api.locationPage.mockResolvedValue({ items: [listItem], total: 21 });
   api.location.mockResolvedValue(location);
   storage.probes.mockResolvedValue([
     {
@@ -295,6 +337,51 @@ it("does not read locations or detail for users without management access", () =
   expect(api.locationPage).not.toHaveBeenCalled();
   expect(api.location).not.toHaveBeenCalled();
   expect(storage.probes).not.toHaveBeenCalled();
+});
+
+it("shows persisted list summaries without issuing detail, probe or source requests", async () => {
+  mount("/storage");
+  const row = await screen.findByRole("row", { name: /Company archive/ });
+  expect(within(row).getByText("已停用")).toBeInTheDocument();
+  expect(within(row).getByText("探测通过")).toBeInTheDocument();
+  expect(within(row).getByText("226 B")).toBeInTheDocument();
+  expect(within(row).getByText("2 个文件")).toBeInTheDocument();
+  expect(within(row).getByText(/索引观测/)).toHaveTextContent(
+    new Date(sourceUsage.observed_through).toLocaleString("zh-CN"),
+  );
+  expect(api.locationPage).toHaveBeenCalledTimes(1);
+  expect(api.location).not.toHaveBeenCalled();
+  expect(storage.probes).not.toHaveBeenCalled();
+  expect(api.probe).not.toHaveBeenCalled();
+});
+
+it("retains stale list summaries on refresh failure and hides them after access revocation", async () => {
+  mount("/storage");
+  await screen.findByText("226 B");
+  api.locationPage.mockRejectedValue(new Error("offline"));
+  fireEvent.click(screen.getByRole("button", { name: "刷新列表" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("刷新失败，位置列表可能过期");
+  expect(screen.getByText("226 B")).toBeInTheDocument();
+  api.locationPage.mockRejectedValue(Object.assign(new Error("revoked"), { status: 403 }));
+  fireEvent.click(screen.getByRole("button", { name: "刷新列表" }));
+  await waitFor(() => expect(screen.queryByText("226 B")).not.toBeInTheDocument());
+  expect(screen.queryByText("Company archive")).not.toBeInTheDocument();
+  expect(api.probe).not.toHaveBeenCalled();
+});
+
+it("does not publish a previous session's late list summaries into the new session", async () => {
+  let resolve!: (value: unknown) => void;
+  api.locationPage.mockImplementationOnce(() => new Promise((done) => (resolve = done)));
+  const view = mount("/storage");
+  await waitFor(() => expect(api.locationPage).toHaveBeenCalledTimes(1));
+  api.locationPage.mockResolvedValue({ items: [], total: 0 });
+  state.session = "new-list-session";
+  state.revision++;
+  view.refresh();
+  await screen.findByText("暂无获授权的存储位置。");
+  await act(async () => resolve({ items: [listItem], total: 1 }));
+  expect(screen.queryByText("Company archive")).not.toBeInTheDocument();
+  expect(screen.queryByText("226 B")).not.toBeInTheDocument();
 });
 
 it("probes only the selected authorized location and refreshes persisted node observations", async () => {
