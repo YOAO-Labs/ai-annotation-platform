@@ -177,6 +177,7 @@ FUNCTION_BODY_ARTIFACTS = {
         for signature in NOTIFICATION_DELIVERY_READ_FUNCTIONS
     },
     "aap_audit_v1.refresh_audit_bi_mv()": "0322_audit_daily_projection.sql",
+    "aap_audit_v1.maintenance_command(jsonb)": "0366_audit_fixture_cleanup.sql",
     "aap_notifications_v1.append_job_terminal_notification(jsonb)": "0321_notifications_terminal_append.sql",
     "aap_audit_v1.query_events(pg_catalog.jsonb)": "0317_audit_query.sql",
     "aap_notifications_v1.delete_command(pg_catalog.jsonb)": "0318_notifications_delete.sql",
@@ -193,6 +194,7 @@ AUDIT_QUERY_ROLE = "audit_query_client"
 NOTIFICATION_READ_ROLE = "notification_read_client"
 AUDIT_READ_ROLE = "audit_read_client"
 AUDIT_DAILY_REFRESH_ROLE = "audit_daily_refresh_client"
+AUDIT_MAINTENANCE_ROLE = "audit_maintenance_client"
 JOBS_NOTIFICATION_SCOPE_ROLE = "jobs_notification_scope_client"
 READ_RELATION_SPECS = {
     "aap_labeling_v1.scene_track_rows": {
@@ -752,6 +754,7 @@ MODULE_ROLES = (
     NOTIFICATION_READ_ROLE,
     AUDIT_READ_ROLE,
     AUDIT_DAILY_REFRESH_ROLE,
+    AUDIT_MAINTENANCE_ROLE,
     JOBS_NOTIFICATION_SCOPE_ROLE,
     JOBS_LIST_QUERY_ROLE,
     JOBS_LIFECYCLE_ROLE,
@@ -944,6 +947,7 @@ SQL_ARTIFACTS = (
     "0330_jobs_fixture_cleanup.sql",
     "0331_jobs_filter_fixtures.sql",
     "0332_jobs_action_idempotency.sql",
+    "0333_audit_maintenance.sql",
     "0334_labeling_task_locks.sql",
     "0335_labeling_task_workflow.sql",
     "0336_labeling_annotation_statistics.sql",
@@ -976,6 +980,7 @@ SQL_ARTIFACTS = (
     "0362_labeling_e2e_fixture_writes.sql",
     "0363_labeling_screenshot_operations.sql",
     "0364_labeling_scale_seed_operations.sql",
+    "0366_audit_fixture_cleanup.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0362_labeling_e2e_fixture_writes.schema.json",
@@ -1133,6 +1138,7 @@ SCHEMA_ARTIFACTS = (
     "0330_jobs_fixture_cleanup.schema.json",
     "0331_jobs_filter_fixtures.schema.json",
     "0332_jobs_action_idempotency.schema.json",
+    "0333_audit_maintenance.schema.json",
     "0334_labeling_task_locks.schema.json",
     "0335_labeling_task_workflow.schema.json",
     "0336_labeling_annotation_statistics.schema.json",
@@ -1152,6 +1158,7 @@ SCHEMA_ARTIFACTS = (
     "0348_labeling_mask_revisions.schema.json",
     "0348_labeling_ai_mask_accept.schema.json",
     "0349_labeling_scene_read.schema.json",
+    "0366_audit_fixture_cleanup.schema.json",
 )
 TEST_FILES = (
     "tests/test_video_frame_service.py",
@@ -1165,6 +1172,9 @@ TEST_FILES = (
     "tests/test_labeling_mask_quality_native.py",
     "tests/test_labeling_spatial_quality_native.py",
     "tests/test_labeling_task_maintenance_native.py",
+    "tests/test_audit_maintenance_native.py",
+    "tests/test_audit_fixture_cleanup_native.py",
+    "tests/test_audit_maintenance_module_live.py",
     "tests/test_labeling_scale_seed_operations.py",
     "tests/test_scale_seed_workspace_native.py",
     "tests/test_workspace_e2e_native.py",
@@ -2916,6 +2926,184 @@ def _verify_audit_daily_projection_boundary(
     }
 
 
+def _verify_audit_maintenance_boundary(
+    container_id: str,
+    container_name: str,
+    container_identity: str,
+    *,
+    database: str,
+    owner_password: str,
+    runtime_password: str,
+    maintenance_password: str,
+    maintenance_url: str,
+) -> dict:
+    # Exercise the owner function itself so the ACL check also covers a child
+    # partition created after the ordinary runtime and maintenance grants were set.
+    for month in ("1999-03-01", "2098-04-01"):
+        request = json.dumps(
+            {
+                "schema": "aap-audit-maintenance/v1",
+                "operation": "ensure",
+                "month": month,
+            },
+            separators=(",", ":"),
+        )
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql="SELECT aap_audit_v1.maintenance_command('"
+            + request.replace("'", "''")
+            + "'::jsonb);",
+        )
+
+    async def verify_maintenance_login() -> None:
+        import asyncpg
+
+        from aap_owner_data.postgres import verify_function_only_role
+
+        connection = await asyncpg.connect(maintenance_url, timeout=5)
+        try:
+            await verify_function_only_role(
+                connection,
+                schema="aap_audit_v1",
+                functions={("maintenance_command", "jsonb")},
+                role=AUDIT_MAINTENANCE_ROLE,
+            )
+        finally:
+            await connection.close()
+
+    asyncio.run(verify_maintenance_login())
+    ownership = json.loads(
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=(
+                "SELECT json_build_object("
+                "'role_profile', (SELECT rolcanlogin AND NOT rolinherit "
+                "AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication "
+                "OR rolbypassrls) FROM pg_catalog.pg_roles "
+                f"WHERE rolname='{AUDIT_MAINTENANCE_ROLE}'),"
+                "'owner_parent', pg_catalog.pg_get_userbyid(parent.relowner),"
+                "'owner_current_partition', pg_catalog.pg_get_userbyid(current_partition.relowner),"
+                "'owner_future_partition', pg_catalog.pg_get_userbyid(future_partition.relowner),"
+                "'owner_sequence', pg_catalog.pg_get_userbyid(sequence.relowner),"
+                "'owner_temp', pg_catalog.has_database_privilege('audit_code',current_database(),'TEMP'),"
+                "'owner_public_create', pg_catalog.has_schema_privilege('audit_code','public','CREATE'),"
+                "'maintenance_connect', pg_catalog.has_database_privilege("
+                f"'{AUDIT_MAINTENANCE_ROLE}',current_database(),'CONNECT'),"
+                "'maintenance_no_create_or_temp', NOT pg_catalog.has_database_privilege("
+                f"'{AUDIT_MAINTENANCE_ROLE}',current_database(),'CREATE,TEMP'),"
+                "'maintenance_schema_usage_only', pg_catalog.has_schema_privilege("
+                f"'{AUDIT_MAINTENANCE_ROLE}','aap_audit_v1','USAGE') AND NOT "
+                "pg_catalog.has_schema_privilege("
+                f"'{AUDIT_MAINTENANCE_ROLE}','aap_audit_v1','CREATE'),"
+                "'maintenance_owns_no_objects', NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class "
+                f"WHERE relowner='{AUDIT_MAINTENANCE_ROLE}'::pg_catalog.regrole) "
+                "AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_namespace "
+                f"WHERE nspowner='{AUDIT_MAINTENANCE_ROLE}'::pg_catalog.regrole),"
+                "'default_audit_storage_private', NOT EXISTS ("
+                "SELECT 1 FROM pg_catalog.pg_default_acl AS defaults "
+                "CROSS JOIN LATERAL pg_catalog.aclexplode(defaults.defaclacl) AS acl "
+                "WHERE defaults.defaclrole='audit_code'::pg_catalog.regrole "
+                "AND defaults.defaclnamespace IN (0,'public'::pg_catalog.regnamespace) "
+                "AND defaults.defaclobjtype IN ('r','S') "
+                "AND acl.grantee<>'audit_code'::pg_catalog.regrole),"
+                "'runtime_audit_parent_select', pg_catalog.has_table_privilege("
+                "'legacy_runtime','public.audit_logs','SELECT')) "
+                "FROM pg_catalog.pg_class AS parent, pg_catalog.pg_class AS current_partition, "
+                "pg_catalog.pg_class AS future_partition, pg_catalog.pg_class AS sequence "
+                "WHERE parent.oid='public.audit_logs'::pg_catalog.regclass "
+                "AND current_partition.oid='public.audit_logs_y1999m03'::pg_catalog.regclass "
+                "AND future_partition.oid='public.audit_logs_y2098m04'::pg_catalog.regclass "
+                "AND sequence.oid=pg_catalog.pg_get_serial_sequence("
+                "'public.audit_logs','id')::pg_catalog.regclass;"
+            ),
+        )
+    )
+    expected_ownership = {
+        "role_profile": True,
+        "owner_parent": "audit_code",
+        "owner_current_partition": "audit_code",
+        "owner_future_partition": "audit_code",
+        "owner_sequence": "audit_code",
+        "owner_temp": True,
+        "owner_public_create": True,
+        "maintenance_connect": True,
+        "maintenance_no_create_or_temp": True,
+        "maintenance_schema_usage_only": True,
+        "maintenance_owns_no_objects": True,
+        "default_audit_storage_private": True,
+        "runtime_audit_parent_select": True,
+    }
+    if ownership != expected_ownership:
+        raise RuntimeError("Audit maintenance role, owner, or future ACL differs")
+
+    direct_statements = (
+        "INSERT INTO {relation} (id, action, created_at) "
+        "SELECT 9223372036854775806, 'probe.audit.denied', "
+        "TIMESTAMPTZ '1999-03-03 00:00:00+00' WHERE false",
+        "UPDATE {relation} SET action=action WHERE false",
+        "DELETE FROM {relation} WHERE false",
+    )
+    for username, password in (
+        ("legacy_runtime", runtime_password),
+        (AUDIT_MAINTENANCE_ROLE, maintenance_password),
+    ):
+        for relation in (
+            "public.audit_logs",
+            "public.audit_logs_y1999m03",
+            "public.audit_logs_y2098m04",
+        ):
+            for statement in direct_statements:
+                _assert_psql_permission_denied(
+                    container_id,
+                    container_name,
+                    container_identity,
+                    username=username,
+                    password=password,
+                    database=database,
+                    statement=statement.format(relation=relation),
+                )
+        ddl_statements = (
+            "SELECT pg_catalog.nextval('public.audit_logs_id_seq'::regclass)",
+            "CREATE TABLE public.audit_maintenance_denied_probe(id integer)",
+            "CREATE TABLE aap_audit_v1.audit_maintenance_denied_probe(id integer)",
+            "ALTER TABLE public.audit_logs ADD COLUMN audit_maintenance_denied_probe integer",
+        )
+        if username == AUDIT_MAINTENANCE_ROLE:
+            ddl_statements += (
+                "CREATE TEMP TABLE audit_maintenance_denied_probe(id integer)",
+            )
+        for statement in ddl_statements:
+            _assert_psql_permission_denied(
+                container_id,
+                container_name,
+                container_identity,
+                username=username,
+                password=password,
+                database=database,
+                statement=statement,
+            )
+
+    return {
+        "function_only_login": True,
+        "direct_partition_writes_denied": True,
+        "sequence_and_ddl_denied": True,
+        "owner_and_future_acl_verified": True,
+        "runtime_audit_parent_select_preserved": True,
+        "probe_partitions": ["audit_logs_y1999m03", "audit_logs_y2098m04"],
+        "ownership": ownership,
+    }
+
+
 async def _verify_inbox_grant_guards(owner_url: str, profile_sql: str) -> dict:
     import asyncpg
 
@@ -3251,6 +3439,7 @@ def _create_module_roles(
     notification_read_password: str,
     audit_read_password: str,
     audit_daily_refresh_password: str,
+    audit_maintenance_password: str,
     jobs_notification_scope_password: str,
     jobs_list_query_password: str,
     jobs_lifecycle_password: str,
@@ -3349,6 +3538,9 @@ def _create_module_roles(
             f"CREATE ROLE {AUDIT_DAILY_REFRESH_ROLE} LOGIN "
             f"PASSWORD '{audit_daily_refresh_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            f"CREATE ROLE {AUDIT_MAINTENANCE_ROLE} LOGIN "
+            f"PASSWORD '{audit_maintenance_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
             f"CREATE ROLE {JOBS_NOTIFICATION_SCOPE_ROLE} LOGIN "
             f"PASSWORD '{jobs_notification_scope_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
@@ -3361,7 +3553,8 @@ def _create_module_roles(
             'REVOKE TEMPORARY ON DATABASE :"expected_database" FROM PUBLIC;\n'
             'GRANT CONNECT ON DATABASE :"expected_database" TO '
             f'"{NOTIFICATION_READ_ROLE}", "{AUDIT_READ_ROLE}", '
-            f'"{AUDIT_DAILY_REFRESH_ROLE}", "{JOBS_NOTIFICATION_SCOPE_ROLE}";\n'
+            f'"{AUDIT_DAILY_REFRESH_ROLE}", "{AUDIT_MAINTENANCE_ROLE}", '
+            f'"{JOBS_NOTIFICATION_SCOPE_ROLE}";\n'
             'GRANT TEMPORARY ON DATABASE :"expected_database" TO '
             + ", ".join(
                 ("legacy_runtime",)
@@ -3386,6 +3579,7 @@ def _create_module_roles(
                         NOTIFICATION_READ_ROLE,
                         AUDIT_READ_ROLE,
                         AUDIT_DAILY_REFRESH_ROLE,
+                        AUDIT_MAINTENANCE_ROLE,
                         JOBS_NOTIFICATION_SCOPE_ROLE,
                         JOBS_LIST_QUERY_ROLE,
                         JOBS_LIFECYCLE_ROLE,
@@ -4048,6 +4242,13 @@ def main(argv: list[str] | None = None) -> int:
             "node_relation_check": False,
         },
         "audit_daily_projection": {"status": "not_checked"},
+        "audit_maintenance": {
+            "function_only_role_grant": False,
+            "direct_partition_writes_denied": False,
+            "sequence_and_ddl_denied": False,
+            "owner_and_future_acl_verified": False,
+            "runtime_audit_parent_select_preserved": False,
+        },
         "jobs_notification_scope": {
             "node_prerequisites": "not_checked",
             "api_relation_grant": False,
@@ -4565,6 +4766,9 @@ def main(argv: list[str] | None = None) -> int:
         audit_append_grants_path = ROOT / "infra/docker/audit-append-grants.sql"
         audit_query_grants_path = ROOT / "infra/docker/audit-query-grants.sql"
         audit_read_grants_path = ROOT / "infra/docker/audit-read-grants.sql"
+        audit_maintenance_grants_path = (
+            ROOT / "infra/docker/audit-maintenance-grants.sql"
+        )
         jobs_scope_grants_path = (
             ROOT / "infra/docker/jobs-notification-scope-grants.sql"
         )
@@ -4606,6 +4810,7 @@ def main(argv: list[str] | None = None) -> int:
             or not audit_append_grants_path.is_file()
             or not audit_query_grants_path.is_file()
             or not audit_read_grants_path.is_file()
+            or not audit_maintenance_grants_path.is_file()
             or not jobs_scope_grants_path.is_file()
             or not jobs_list_query_grants_path.is_file()
             or not jobs_lifecycle_grants_path.is_file()
@@ -4856,6 +5061,9 @@ def main(argv: list[str] | None = None) -> int:
         audit_append_grant_sql = audit_append_grants_path.read_text(encoding="utf-8")
         audit_query_grant_sql = audit_query_grants_path.read_text(encoding="utf-8")
         audit_read_grant_sql = audit_read_grants_path.read_text(encoding="utf-8")
+        audit_maintenance_grant_sql = audit_maintenance_grants_path.read_text(
+            encoding="utf-8"
+        )
         jobs_scope_grant_sql = jobs_scope_grants_path.read_text(encoding="utf-8")
         identity_account_grant_sql = identity_account_grants_path.read_text(
             encoding="utf-8"
@@ -4904,6 +5112,7 @@ def main(argv: list[str] | None = None) -> int:
         notification_read_password = f"notification-read-{secrets.token_hex(16)}"
         audit_read_password = f"audit-read-{secrets.token_hex(16)}"
         audit_daily_refresh_password = f"audit-daily-refresh-{secrets.token_hex(16)}"
+        audit_maintenance_password = f"audit-maintenance-{secrets.token_hex(16)}"
         jobs_notification_scope_password = f"jobs-scope-{secrets.token_hex(16)}"
         jobs_list_query_password = f"jobs-list-{secrets.token_hex(16)}"
         jobs_lifecycle_password = f"jobs-lifecycle-{secrets.token_hex(16)}"
@@ -4990,8 +5199,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0365"]:
-            raise RuntimeError("module-data acceptance requires migration head 0365")
+        if heads != ["0366"]:
+            raise RuntimeError("module-data acceptance requires migration head 0366")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         relation_sql_hashes = _read_relation_sql_input_sha256()
         evidence["migrations"]["read_relation_sql_input_sha256"] = relation_sql_hashes
@@ -5246,6 +5455,14 @@ def main(argv: list[str] | None = None) -> int:
             port=port,
             database=database,
         ).render_as_string(hide_password=False)
+        audit_maintenance_url = URL.create(
+            "postgresql",
+            username=AUDIT_MAINTENANCE_ROLE,
+            password=audit_maintenance_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
         audit_daily_refresh_url = URL.create(
             "postgresql",
             username=AUDIT_DAILY_REFRESH_ROLE,
@@ -5290,6 +5507,7 @@ def main(argv: list[str] | None = None) -> int:
             notification_read_password,
             audit_read_password,
             audit_daily_refresh_password,
+            audit_maintenance_password,
             jobs_notification_scope_password,
             jobs_list_query_password,
             jobs_lifecycle_password,
@@ -5602,6 +5820,23 @@ def main(argv: list[str] | None = None) -> int:
                 },
             )
 
+        def apply_audit_maintenance_grants() -> None:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=audit_maintenance_grant_sql,
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "audit_owner": "audit_code",
+                    "maintenance_role": AUDIT_MAINTENANCE_ROLE,
+                },
+            )
+
         def apply_jobs_scope_grants() -> None:
             _psql(
                 container_id,
@@ -5729,6 +5964,22 @@ def main(argv: list[str] | None = None) -> int:
         apply_audit_read_grants()
         evidence["audit_read_relations"]["api_relation_grant"] = True
         evidence["audit_read_relations"]["read_client_grant"] = True
+        phase = "install-audit-maintenance-grants"
+        apply_audit_maintenance_grants()
+        evidence["audit_maintenance"]["function_only_role_grant"] = True
+        phase = "verify-audit-maintenance-boundary"
+        evidence["audit_maintenance"].update(
+            _verify_audit_maintenance_boundary(
+                container_id,
+                container_name,
+                container_identity,
+                database=database,
+                owner_password=owner_password,
+                runtime_password=runtime_password,
+                maintenance_password=audit_maintenance_password,
+                maintenance_url=audit_maintenance_url,
+            )
+        )
         phase = "install-jobs-notification-scope-grants"
         apply_jobs_scope_grants()
         evidence["jobs_notification_scope"]["api_relation_grant"] = True
@@ -8508,6 +8759,7 @@ SELECT pg_catalog.jsonb_build_object(
                 "AAP_IDENTITY_BRIEFS_LIVE_ACCEPTANCE": "1",
                 "RUN_NATIVE_IMPORT_DELIVERY_LEASE_TEST": "1",
                 "AAP_MODULE_DATA_APPEND_URL": append_url,
+                "AAP_MODULE_DATA_AUDIT_MAINTENANCE_URL": audit_maintenance_url,
                 "AAP_MODULE_DATA_NOTIFICATION_DELIVERY_READ_URL": notification_delivery_read_url,
                 "AAP_MODULE_DATA_JOBS_LIST_QUERY_URL": jobs_list_query_url,
                 "AAP_MODULE_DATA_JOBS_LIFECYCLE_URL": jobs_lifecycle_url,
@@ -8681,6 +8933,7 @@ SELECT pg_catalog.jsonb_build_object(
                 apply_audit_append_grants()
                 apply_notification_read_grants(NOTIFICATION_READ_ROLE)
                 apply_audit_read_grants()
+                apply_audit_maintenance_grants()
                 apply_jobs_scope_grants()
                 for statement in (
                     *notification_private_statements,
@@ -8726,6 +8979,19 @@ SELECT pg_catalog.jsonb_build_object(
                     raise RuntimeError(
                         "module test preparation lost an owner read relation grant"
                     )
+                evidence["audit_maintenance"].update(
+                    _verify_audit_maintenance_boundary(
+                        container_id,
+                        container_name,
+                        container_identity,
+                        database=database,
+                        owner_password=owner_password,
+                        runtime_password=runtime_password,
+                        maintenance_password=audit_maintenance_password,
+                        maintenance_url=audit_maintenance_url,
+                    )
+                )
+                evidence["audit_maintenance"]["after_launcher_prepare"] = True
 
             with patch.object(backend, "prepare", prepare_fenced_resources):
                 exit_code = run_processes(backend, options)
