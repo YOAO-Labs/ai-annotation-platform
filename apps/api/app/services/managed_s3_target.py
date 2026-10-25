@@ -21,6 +21,7 @@ PURPOSES = {
     "import",
     "datasets",
     "media-cache",
+    "annotations",
 }
 
 
@@ -49,6 +50,10 @@ def owner_module(purpose):
         from app.services import media_cache_storage
 
         return media_cache_storage
+    if purpose == "annotations":
+        from app.services import annotations_storage
+
+        return annotations_storage
     if purpose == "datasets":
         from app.services import dataset_storage
 
@@ -69,6 +74,8 @@ def error(purpose, suffix):
         if purpose == "import"
         else (owners.MediaCacheStorageError, "media_cache_storage_")
         if purpose == "media-cache"
+        else (owners.AnnotationsStorageError, "annotations_storage_")
+        if purpose == "annotations"
         else (owners.DatasetStorageError, "dataset_storage_")
         if purpose == "datasets"
         else (owners.ExportStorageError, "export_storage_")
@@ -91,6 +98,10 @@ def managed_prefix(base, *, purpose="avatars"):
     result = (base + "/" if base else "") + f"_aap_managed/{purpose}/"
     if purpose == "media-cache":
         if len(result.encode("utf-8")) > 436:
+            raise error(purpose, "binding_unproven")
+        return result
+    if purpose == "annotations":
+        if len(result) > 896 or len(result.encode("utf-8")) > 920:
             raise error(purpose, "binding_unproven")
         return result
     if purpose == "datasets":
@@ -168,6 +179,7 @@ async def target_for(db, location, *, purpose, require_enabled=True):
                     "import",
                     "datasets",
                     "media-cache",
+                    "annotations",
                 }
                 and type(location.config.get("use_ssl")) is not bool
             )
@@ -191,6 +203,7 @@ async def target_for(db, location, *, purpose, require_enabled=True):
                     "import": "import_bucket",
                     "datasets": "datasets_bucket",
                     "media-cache": "media_cache_bucket",
+                    "annotations": "bucket",
                 }[purpose],
             ),
             "",

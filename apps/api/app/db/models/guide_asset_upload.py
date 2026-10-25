@@ -8,8 +8,9 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.db.models.annotations_storage_ref import annotations_ref_check
 
-GUIDE_ASSET_STORAGE_REF_CHECK = """
+LEGACY_GUIDE_ASSET_STORAGE_REF_CHECK = """
 COALESCE((
     jsonb_typeof(storage_ref) = 'object'
     AND storage_ref ?& ARRAY['schema','purpose','location_id','config_revision',
@@ -33,6 +34,14 @@ COALESCE((
     AND storage_ref->>'storage_identity' ~ '^[0-9a-f]{64}$'
 ), false)
 """
+GUIDE_ASSET_STORAGE_REF_CHECK = (
+    "("
+    + LEGACY_GUIDE_ASSET_STORAGE_REF_CHECK
+    + ") OR ("
+    + annotations_ref_check("'projects/' || project_id::text || '/guide/' || id::text")
+    + ")"
+)
+
 GUIDE_ASSET_FILE_NAME_CHECK = """
 length(file_name) BETWEEN 1 AND 255
 AND file_name NOT IN ('.','..')

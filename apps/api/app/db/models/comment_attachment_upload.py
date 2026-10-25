@@ -8,8 +8,9 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.db.models.annotations_storage_ref import annotations_ref_check
 
-COMMENT_ATTACHMENT_STORAGE_REF_CHECK = """
+LEGACY_COMMENT_ATTACHMENT_STORAGE_REF_CHECK = """
 COALESCE((
     jsonb_typeof(storage_ref) = 'object'
     AND storage_ref ?& ARRAY['schema','purpose','location_id','config_revision',
@@ -33,6 +34,16 @@ COALESCE((
     AND storage_ref->>'storage_identity' ~ '^[0-9a-f]{64}$'
 ), false)
 """
+COMMENT_ATTACHMENT_STORAGE_REF_CHECK = (
+    "("
+    + LEGACY_COMMENT_ATTACHMENT_STORAGE_REF_CHECK
+    + ") OR ("
+    + annotations_ref_check(
+        "'comment-attachments/' || annotation_id::text || '/' || id::text"
+    )
+    + ")"
+)
+
 COMMENT_ATTACHMENT_FILE_NAME_CHECK = """
 length(file_name) BETWEEN 1 AND 255
 AND file_name NOT IN ('.','..')
