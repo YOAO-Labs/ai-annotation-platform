@@ -176,9 +176,10 @@ async def upload(db, proof, project_id, data, mime_type, file_name):
         await db.commit()
         check_clock(proof)
         revision = None
+        target = None
 
         async def acquired(permit):
-            nonlocal revision
+            nonlocal revision, target
             actor = await reauthorize(db, proof)
             await lock_projects(
                 db, actor, [project_id], write_ids=[project_id], wait=True
@@ -191,13 +192,14 @@ async def upload(db, proof, project_id, data, mime_type, file_name):
             ):
                 reject()
             await reauthorize(db, proof)
+            target = await storage.io_target(db, receipt)
             await db.commit()
             check_clock(proof)
             revision = permit.revision
 
         def write_saved():
             check_clock(proof)
-            storage.write(storage_service.client, receipt, data)
+            storage.run_io(target, storage_service.client, "write", receipt, data)
 
         await storage_access.run(
             db,
@@ -316,19 +318,21 @@ async def read(db, actor, request, project_id, key):
         await db.commit()
         check_clock(proof)
         revision = None
+        target = None
 
         async def acquired(permit):
-            nonlocal revision
+            nonlocal revision, target
             actor = await reauthorize(db, proof)
             await _read_binding(db, actor, project_id, key, receipt=receipt)
             await reauthorize(db, proof)
+            target = await storage.io_target(db, receipt)
             await db.commit()
             check_clock(proof)
             revision = permit.revision
 
         def read_saved():
             check_clock(proof)
-            return storage.read(storage_service.client, receipt)
+            return storage.run_io(target, storage_service.client, "read", receipt)
 
         data = await storage_access.run(
             db,
@@ -410,7 +414,10 @@ async def _cleanup_one(db, identifier):
         return "retained"
     await db.commit()
 
+    target = None
+
     async def acquired(permit):
+        nonlocal target
         current = await locked_owner(db, identifier)
         if (
             current is None
@@ -420,15 +427,14 @@ async def _cleanup_one(db, identifier):
             or await _has_operation(db, receipt, excluding=permit.id)
         ):
             reject()
+        target = await storage.io_target(db, receipt)
         await db.commit()
 
     await storage_access.run(
         db,
         uuid.UUID(receipt.storage_ref["location_id"]),
         purpose("delete", receipt.id),
-        storage.delete,
-        storage_service.client,
-        receipt,
+        lambda: storage.run_io(target, storage_service.client, "delete", receipt),
         on_acquired=acquired,
     )
     current = await locked_owner(db, identifier)

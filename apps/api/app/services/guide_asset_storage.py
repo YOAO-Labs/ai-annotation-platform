@@ -2,30 +2,29 @@
 
 Only explicit allocation consults the current purpose binding. Existing records
 resolve their saved bucket, independently of the configured new-write bucket.
-Credentials remain owned by StorageService; legacy references are never guessed.
+Current credentials come from the saved registered location; legacy refs are not guessed.
 """
 
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass, field, make_dataclass
+from dataclasses import dataclass, field, make_dataclass, replace
 from datetime import datetime, timezone
 import hashlib
 import json
 import time
+import sys
 import uuid
 import re
 import unicodedata
 from urllib.parse import urlsplit
 
 from botocore.exceptions import ClientError
-from sqlalchemy import select
 
 from app.config import settings
 from app.schemas.guide_asset import ALLOWED_GUIDE_ASSET_TYPES, GuideAssetEntry
-from app.db.models.dataset_asset import StorageBinding, StorageLocation
-from app.services import storage_access
-from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
+from app.services import annotations_storage, storage_access
+from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.managed_original_retirement import managed_storage_identity
 from app.services.storage import storage_service
 
@@ -185,6 +184,14 @@ class Owner:
 
 
 def resolve_ref(ref, *, expected_key=None) -> Owner:
+    if isinstance(ref, dict) and type(ref.get("schema")) is int and ref["schema"] == 2:
+        try:
+            saved = annotations_storage.resolve_ref(ref, expected_key=expected_key)
+            if _KEY.fullmatch(saved.logical_key) is None:
+                _reject()
+        except ValueError:
+            _reject()
+        return Owner(saved.bucket, saved.object_key, saved.ref)
     if ref is None:
         _reject("guide_asset_storage_unpinned")
     if (
@@ -288,52 +295,59 @@ def _client(client, owner):
 
 
 async def allocate(db, record) -> dict:
-    """Create-only allocation; the caller persists the independent upload."""
-    key = key_for(record.project_id, record.id)
+    """Capture the current target; the caller durably owns it before provider I/O."""
     try:
-        await ensure_legacy_bindings(db)
+        return await annotations_storage.allocate(
+            db, key_for(record.project_id, record.id)
+        )
     except ValueError:
         _reject("guide_asset_storage_binding_unproven")
-    location = await db.get(StorageLocation, LEGACY_LOCATION_ID, populate_existing=True)
-    binding = await db.scalar(
-        select(StorageBinding)
-        .where(StorageBinding.purpose == "annotations")
-        .execution_options(populate_existing=True)
-    )
+
+
+async def io_target(db, record):
+    """Capture current credentials without changing the saved physical receipt."""
+    owner = resolve(record)
+    try:
+        ref = (
+            annotations_storage.legacy_ref(owner.bucket, owner.object_key)
+            if owner.ref["schema"] == 1
+            else owner.ref
+        )
+        return await annotations_storage.target_for_ref(db, ref)
+    except ValueError:
+        _reject()
+
+
+def run_io(target, client, operation, record, *args, **kwargs):
+    """Open and close the captured transport inside the caller's existing permit."""
+    owner = resolve(record)
+    ref = owner.ref
     if (
-        location is None
-        or location.id != LEGACY_LOCATION_ID
-        or location.kind != "s3"
-        or type(location.config_revision) is not int
-        or location.config_revision != 1
-        or location.enabled is not True
-        or not isinstance(location.config, dict)
-        or type(location.config.get("use_ssl")) is not bool
-        or location.config
-        != {"endpoint": settings.minio_endpoint, "use_ssl": settings.minio_use_ssl}
-        or binding is None
-        or binding.purpose != "annotations"
-        or binding.location_id != LEGACY_LOCATION_ID
-        or type(binding.generation) is not int
-        or binding.generation != 1
-        or binding.bucket != storage_service.bucket
+        str(target.location_id) != ref["location_id"]
+        or target.endpoint_url != ref["endpoint_url"]
+        or target.bucket != owner.bucket
+        or target.key_prefix != ref.get("key_prefix", "")
     ):
-        _reject("guide_asset_storage_binding_unproven")
-    endpoint = _runtime_endpoint()
-    return resolve_ref(
-        {
-            "schema": 1,
-            "purpose": "annotations",
-            "location_id": str(location.id),
-            "config_revision": location.config_revision,
-            "binding_generation": binding.generation,
-            "endpoint_url": endpoint,
-            "bucket": binding.bucket,
-            "object_key": key,
-            "storage_identity": managed_storage_identity(endpoint, binding.bucket),
-        },
-        expected_key=key,
-    ).ref
+        _reject()
+    if target.location_id == LEGACY_LOCATION_ID:
+        # Keep the existing explicit legacy-client injection for local callers.
+        target = replace(target, _legacy_client=client)
+    try:
+        context = target.client()
+        physical_client = context.__enter__()
+    except Exception as exc:
+        storage_access.mark_unsettled(exc)
+        raise _unavailable(exc) from None
+    try:
+        return globals()[operation](physical_client, record, *args, **kwargs)
+    finally:
+        try:
+            context.__exit__(*sys.exc_info())
+        except BaseException as exc:
+            storage_access.mark_unsettled(exc)
+            if isinstance(exc, Exception):
+                raise _unavailable(exc) from None
+            raise
 
 
 def _budget(deadline):
@@ -495,9 +509,9 @@ def delete(client, record, *, missing_ok=True) -> None:
 
 def entry(record) -> dict:
     """Use one JSON representation for persisted lists and wire responses."""
-    owner = resolve(record)
+    resolve(record)
     return GuideAssetEntry(
-        key=owner.object_key,
+        key=key_for(record.project_id, record.id),
         original_name=record.file_name,
         content_type=record.mime_type,
         size=record.size_bytes,

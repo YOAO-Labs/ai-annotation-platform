@@ -499,31 +499,18 @@ def test_delete_verifies_and_removes_only_saved_uuid_not_current_trap(provider):
     assert [action for action, _ in provider.calls] == ["head", "get", "head", "delete"]
 
 
-async def test_allocate_proves_current_binding_without_mutating_candidate(
+async def test_allocate_uses_shared_target_without_mutating_saved_candidate(
     provider, monkeypatch
 ):
-    location = SimpleNamespace(
-        id=LEGACY_LOCATION_ID,
-        kind="s3",
-        enabled=True,
-        config_revision=1,
-        config={"endpoint": settings.minio_endpoint, "use_ssl": settings.minio_use_ssl},
-    )
-    binding = SimpleNamespace(
-        purpose="annotations",
-        location_id=LEGACY_LOCATION_ID,
-        generation=1,
-        bucket="rle-current",
-    )
-    db = SimpleNamespace(
-        get=AsyncMock(return_value=location), scalar=AsyncMock(return_value=binding)
-    )
-    monkeypatch.setattr(storage, "ensure_legacy_bindings", AsyncMock())
-    row = record()
-    assert await storage.allocate(db, row) == locator(bucket="rle-current")
+    saved = {**locator(bucket="rle-current"), "schema": 2, "key_prefix": ""}
+    allocate = AsyncMock(return_value=saved)
+    monkeypatch.setattr(storage.annotations_storage, "allocate", allocate)
+    db, row = object(), record()
+    assert await storage.allocate(db, row) == saved
     assert row.storage_ref == locator()
+    allocate.assert_awaited_once_with(db, storage.key_for(row.id, row.storage_encoding))
     assert provider.calls == []
-    binding.generation = True
+    allocate.side_effect = ValueError("private target metadata")
     with pytest.raises(storage.RasterObjectStorageError) as caught:
         await storage.allocate(db, row)
     assert caught.value.code == "raster_object_storage_binding_unproven"
