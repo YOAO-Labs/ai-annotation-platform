@@ -284,6 +284,8 @@ def _verified_bytes(target, output):
     params = {"Bucket": saved.bucket, "Key": saved.key(RELATIVE_KEY)}
     if output.version_id not in (None, "null"):
         params["VersionId"] = output.version_id
+    if getattr(output, "etag", None) is not None:
+        params["IfMatch"] = output.etag
     with target.client(read_timeout=30) as client:
         response = client.get_object(**params)
         with storage_access.closing_registered(response["Body"]) as body:
@@ -293,6 +295,10 @@ def _verified_bytes(target, output):
             response.get("ResponseMetadata", {}).get("HTTPStatusCode") != 200
             or response.get("ContentRange") is not None
             or response.get("DeleteMarker")
+            or getattr(output, "etag", None) is not None
+            and response.get("ETag") != output.etag
+            or output.version_id not in (None, "null")
+            and response.get("VersionId") != output.version_id
             or response.get("ContentLength") != output.size_bytes
             or len(data) != output.size_bytes
             or len(data) > MAX_BYTES
@@ -300,6 +306,53 @@ def _verified_bytes(target, output):
             or hashlib.sha256(data).hexdigest() != output.sha256
         ):
             raise ContentError("thumbnail_content_changed")
+    return data
+
+
+async def read_bytes(db, output_id):
+    """Verify a ready saved output without committing caller-owned changes."""
+    factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
+    async with factory() as current:
+        output = await current.get(ThumbnailOutput, output_id)
+        if output is None or output.state != "ready" or output.uncertain_write:
+            raise ContentError("thumbnail_output_changed")
+        saved = owner(output)
+        revision = await storage_access.check(current, saved.location_id)
+        await current.commit()
+        async with await storage_access.acquire(
+            current, saved.location_id, purpose(output_id), expected_revision=revision
+        ):
+            async with original_sources._reads(current, True):
+                output = await current.get(
+                    ThumbnailOutput,
+                    output_id,
+                    populate_existing=True,
+                    with_for_update={"read": True, "nowait": True},
+                )
+            if (
+                output is None
+                or output.state != "ready"
+                or output.uncertain_write
+                or output.storage_ref != saved.ref
+            ):
+                raise ContentError("thumbnail_output_changed")
+            target = await media_cache_storage.target_for_ref(current, saved.ref)
+            await storage_access.check(
+                current, saved.location_id, expected_revision=revision
+            )
+            await current.commit()
+            pending = asyncio.create_task(
+                asyncio.to_thread(_verified_bytes, target, output)
+            )
+            try:
+                return await asyncio.shield(pending)
+            except BaseException as interrupted:
+                try:
+                    await storage_access.finish(pending)
+                except BaseException as late:
+                    if getattr(late, "storage_operation_unsettled", False):
+                        storage_access.mark_unsettled(interrupted)
+                raise
 
 
 async def thumbnail_url(db, owner_kind, owner_id, path):
@@ -335,18 +388,9 @@ async def thumbnail_url(db, owner_kind, owner_id, path):
             ):
                 return None
             saved = owner(output)
-            target = await media_cache_storage.target_for_ref(current, saved.ref)
             revision = await storage_access.check(current, saved.location_id)
             await current.commit()
-            await storage_access.run(
-                current,
-                saved.location_id,
-                "thumbnail_sign",
-                _verified_bytes,
-                target,
-                output,
-                expected_revision=revision,
-            )
+            await read_bytes(current, output.id)
             if await _business_pointer(
                 current, owner_kind, owner_id, path
             ) != pointer or source_facts(

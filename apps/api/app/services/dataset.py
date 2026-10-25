@@ -455,9 +455,8 @@ class DatasetService:
         await guard_source(self.db, dataset_id=dataset_id)
         from app.db.models.dataset_source import DatasetSourceItem, DatasetSourcePreview
 
-        directory_objects = tuple(
-            (row.bucket, row.object_key)
-            for row in await self.db.scalars(
+        preview_rows = list(
+            await self.db.scalars(
                 select(DatasetSourcePreview)
                 .join(
                     DatasetSourceItem,
@@ -477,6 +476,15 @@ class DatasetService:
                 )
             )
         )
+        from app.services.directory_previews import retire_output
+
+        for row in preview_rows:
+            await retire_output(self.db, row.thumbnail_output_id)
+        directory_objects = tuple(
+            (row.bucket, row.object_key)
+            for row in preview_rows
+            if row.thumbnail_output_id is None
+        )
         from app.services.managed_original_retirement import (
             capture_managed_original_retirements,
         )
@@ -489,6 +497,10 @@ class DatasetService:
     @staticmethod
     def cleanup_deleted_storage(cleanup: DatasetDeleteCleanup) -> None:
         for bucket, key in cleanup.directory_objects:
+            if bucket != storage_service.media_cache_bucket or not key.startswith(
+                "directory-previews/"
+            ):
+                continue
             try:
                 storage_service.delete_object(key, bucket=bucket)
             except Exception:
@@ -666,8 +678,14 @@ class DatasetService:
                 )
             )
         )
+        from app.services.directory_previews import retire_output
+
+        for row in previews:
+            await retire_output(self.db, row.thumbnail_output_id)
         self._directory_delete_keys = getattr(self, "_directory_delete_keys", []) + [
-            (row.bucket, row.object_key) for row in previews
+            (row.bucket, row.object_key)
+            for row in previews
+            if row.thumbnail_output_id is None
         ]
 
         from app.services.managed_original_retirement import (

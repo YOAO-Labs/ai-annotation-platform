@@ -53,6 +53,7 @@ class ThumbnailReads(unittest.TestCase):
                 state.params = params
                 return {
                     "Body": body,
+                    "VersionId": version,
                     "ContentLength": len(data),
                     "ResponseMetadata": {"HTTPStatusCode": 200},
                 }

@@ -236,7 +236,7 @@ async def test_native_cancellation_waits_for_owned_put_before_cleanup(
 
     db = db_session
     _, _, actor, dataset, _, source, scan, entry = content_world
-    dataset_id = dataset.id
+    dataset_id, source_id = dataset.id, source.id
     source.ownership_mode = "managed_copy" if stage == "original" else "reference"
     source.cache_policy = "none" if stage == "original" else "preview"
     await db.commit()
@@ -281,7 +281,22 @@ async def test_native_cancellation_waits_for_owned_put_before_cleanup(
     await db.rollback()
     assert file_open_at_finish == [True]
     if stage == "preview":
-        assert object_store == {}
+        from app.db.models.thumbnail_output import ThumbnailOutput
+        from app.services import thumbnail_outputs
+
+        output = await db.scalar(
+            select(ThumbnailOutput).where(ThumbnailOutput.owner_id == source_id)
+        )
+        assert output.state == "ready" and not output.uncertain_write
+        assert len(object_store) == 1
+        saved = thumbnail_outputs.owner(output)
+        assert (saved.bucket, saved.key("thumbnail.webp")) in object_store
+        assert not await db.scalar(
+            select(DatasetSourcePreview).where(
+                DatasetSourcePreview.source_id == source_id
+            )
+        )
+        assert not await db.scalar(select(DatasetItem.id))
     else:
         from app.db.models.managed_original_creation import ManagedOriginalCreation
 
@@ -296,7 +311,7 @@ async def test_native_cancellation_waits_for_owned_put_before_cleanup(
         assert not await db.scalar(select(DatasetItem.id))
 
 
-async def test_missing_preview_regenerates_and_delete_cleans_exact_keys(
+async def test_missing_preview_regenerates_and_delete_retires_saved_owner(
     db_session, content_world, object_store
 ):
     from app.services.dataset import DatasetService
@@ -317,13 +332,21 @@ async def test_missing_preview_regenerates_and_delete_cleans_exact_keys(
     assert first["item_id"] == second["item_id"]
     assert row.state == "ready" and row.object_key != old_key and row.generation == 2
     object_store[(storage_service.media_cache_bucket, "other-owner.webp")] = b"preserve"
+    output_id, bucket, key = row.thumbnail_output_id, row.bucket, row.object_key
     service = DatasetService(db)
     assert await service.delete_item(first["item_id"], dataset_id=dataset.id)
     await db.commit()
     await service.cleanup_directory_previews()
-    assert object_store == {
-        (storage_service.media_cache_bucket, "other-owner.webp"): b"preserve"
-    }
+    from app.db.models.thumbnail_output import ThumbnailOutput
+
+    output = await db.get(ThumbnailOutput, output_id, populate_existing=True)
+    assert output.state == "retiring"
+    assert (
+        object_store[storage_service.media_cache_bucket, "other-owner.webp"]
+        == b"preserve"
+    )
+    assert object_store[bucket, key]
+    assert len(object_store) == 2
 
 
 async def test_directory_media_never_uses_legacy_urls_or_pyramids(

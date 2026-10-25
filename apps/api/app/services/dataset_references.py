@@ -110,6 +110,7 @@ async def register_entry(
         final.close()
         raise snapshots.ContentError("reference_content_changed")
     prepared_copy = None
+    prepared_preview = None
     try:
         unlocked_source = await db.get(
             DatasetSource, initial_source.id, populate_existing=True
@@ -151,6 +152,9 @@ async def register_entry(
                     ),
                 },
             )
+        prepared_preview = await previews.prepare(
+            db, unlocked_source, unlocked_entry, final
+        )
         # Only current source, authority and publication facts are locked here.
         location, source, run, entry, node, anchor = await scan_context(
             db, run_id, path_digest, actor, lock=True, node_id=node_id
@@ -334,7 +338,12 @@ async def register_entry(
                     DatasetSourcePreview, (source.id, previous.path_digest)
                 )
                 if old_preview and old_preview.object_key:
-                    retired.append((old_preview.bucket, old_preview.object_key))
+                    if old_preview.thumbnail_output_id is not None:
+                        await previews.retire_output(
+                            db, old_preview.thumbnail_output_id
+                        )
+                    else:
+                        retired.append((old_preview.bucket, old_preview.object_key))
                 await db.delete(previous_mapping)
                 await db.flush()
                 registration_run = await db.get(
@@ -437,6 +446,7 @@ async def register_entry(
                 fault_anchor=anchor,
                 fault_maintenance_revision=run.snapshot.get("maintenance_revision", 1),
                 fault_validate=preview_fault_authority,
+                prepared=prepared_preview,
             )
         )
         await scans.validate_write_context(db, location, source, snapshot=run.snapshot)

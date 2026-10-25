@@ -419,13 +419,14 @@ async def _extract_video_frames(
 
 async def _cleanup_video_frame_assets() -> None:
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-    from app.services import storage_access, video_derivative_objects
+    from app.services import storage_access, thumbnail_cleanup, video_derivative_objects
 
     engine = create_async_engine(settings.database_url, echo=False)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with factory() as db:
             await video_derivative_objects.reconcile(db)
+            await thumbnail_cleanup.reconcile(db)
             await _refresh_video_asset_bytes(db)
     finally:
         await storage_access.finish(asyncio.create_task(engine.dispose()))
