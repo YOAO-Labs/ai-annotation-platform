@@ -231,12 +231,15 @@ async def test_metadata_best_effort_failure_restart_and_database_restore(
             # A refused connection to an owned bound socket exercises real enqueue failure.
             with socket.socket() as unavailable:
                 unavailable.bind(("127.0.0.1", 0))
+                refused_broker = f"redis://127.0.0.1:{unavailable.getsockname()[1]}/0"
                 denied = Celery(
                     "audit-refused-broker",
-                    broker=f"redis://127.0.0.1:{unavailable.getsockname()[1]}/0",
+                    broker=refused_broker,
                 )
                 try:
                     with monkeypatch.context() as patch:
+                        # Celery's environment selector overrides its constructor broker.
+                        patch.setenv("CELERY_BROKER_WRITE_URL", refused_broker)
                         patch.setattr(
                             persist_audit_entry,
                             "delay",
