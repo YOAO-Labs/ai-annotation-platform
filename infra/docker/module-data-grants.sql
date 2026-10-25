@@ -1009,6 +1009,53 @@ GRANT SELECT (
 GRANT UPDATE (id) ON public.task_dataset_item_links TO :"labeling_owner";
 GRANT USAGE ON SEQUENCE public.display_seq_tasks, public.display_seq_batches
     TO :"labeling_owner";
+
+-- Screenshot operational maintenance uses fixed project/task scopes and exact fields.
+GRANT SELECT (id, project_id, display_id, batch_id, status, total_predictions,
+    total_annotations, is_labeled, assignee_id, reviewer_id, assigned_at,
+    submitted_at, reviewer_claimed_at, reviewed_at, reject_reason,
+    reject_reason_type, skip_reason, skipped_at, sequence_order,
+    annotation_contributor_ids, review_round_id, review_contributor_ids,
+    review_submitter_id, created_at, updated_at)
+    ON public.tasks TO :"labeling_owner";
+GRANT UPDATE (display_id, sequence_order, status, assignee_id, reviewer_id,
+    batch_id, assigned_at, submitted_at, reviewer_claimed_at, reviewed_at,
+    reject_reason, reject_reason_type, skip_reason, skipped_at,
+    total_annotations, total_predictions, is_labeled,
+    annotation_contributor_ids, review_round_id, review_contributor_ids,
+    review_submitter_id, created_at, updated_at)
+    ON public.tasks TO :"labeling_owner";
+GRANT SELECT (id, project_id, dataset_id, display_id, name, description,
+    status, priority, assigned_user_ids, total_tasks, completed_tasks,
+    review_tasks, approved_tasks, rejected_tasks, created_by, created_at,
+    updated_at, annotator_id, reviewer_id)
+    ON public.task_batches TO :"labeling_owner";
+GRANT INSERT (id, project_id, dataset_id, display_id, name, description,
+    status, priority, annotator_id, reviewer_id, assigned_user_ids, created_by,
+    created_at, updated_at)
+    ON public.task_batches TO :"labeling_owner";
+GRANT UPDATE (dataset_id, name, description, status, priority, annotator_id,
+    reviewer_id, assigned_user_ids, created_by, created_at, updated_at,
+    total_tasks, completed_tasks, review_tasks, approved_tasks, rejected_tasks)
+    ON public.task_batches TO :"labeling_owner";
+GRANT SELECT (id, task_id, project_id, parent_prediction_id, is_active,
+    was_cancelled)
+    ON public.annotations TO :"labeling_owner";
+GRANT INSERT (id, task_id, project_id, user_id, source, annotation_type,
+    tool_unit_id, class_name, geometry, attributes, is_active, was_cancelled,
+    ground_truth, version, created_at, updated_at)
+    ON public.annotations TO :"labeling_owner";
+GRANT UPDATE (task_id, project_id, user_id, source, annotation_type,
+    tool_unit_id, class_name, geometry, attributes, is_active, was_cancelled,
+    ground_truth, created_at, updated_at)
+    ON public.annotations TO :"labeling_owner";
+GRANT UPDATE (created_at) ON public.predictions TO :"labeling_owner";
+GRANT UPDATE (prediction_created_at, created_at)
+    ON public.prediction_metas TO :"labeling_owner";
+GRANT DELETE ON public.video_tracker_jobs TO :"labeling_owner";
+GRANT SELECT (id, project_id, task_id, kind, author_id, body)
+    ON public.annotation_feedbacks TO :"labeling_owner";
+GRANT DELETE ON public.annotation_feedbacks TO :"labeling_owner";
 GRANT SELECT, INSERT, UPDATE ON public.task_append_operations TO :"labeling_owner";
 GRANT SELECT (
     id, actor_id, dataset_id, project_id, association_id, job_id, mode,
@@ -2783,6 +2830,8 @@ ALTER FUNCTION aap_labeling_v1._scene_read_annotation_json(uuid,uuid,uuid,text,t
 ALTER FUNCTION aap_labeling_v1.video_control_command(jsonb)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.video_segment_lifecycle_command(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.screenshot_operations_command(jsonb)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.annotation_transfer_command(jsonb)
     OWNER TO :"labeling_owner";

@@ -16,8 +16,9 @@ import sys
 import uuid
 from pathlib import Path
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm.attributes import set_committed_value
 
 _API_ROOT = Path(__file__).resolve().parent.parent
 if str(_API_ROOT) not in sys.path:
@@ -25,18 +26,34 @@ if str(_API_ROOT) not in sys.path:
 
 from app.config import settings  # noqa: E402
 from app.db.models.async_job import AsyncJob  # noqa: E402
-from app.db.models.annotation import Annotation  # noqa: E402
 from app.db.models.dataset import Dataset, ProjectDataset  # noqa: E402
 from app.services.project_access import get_workspace_project  # noqa: E402
-from app.db.models.prediction import Prediction, PredictionMeta  # noqa: E402
-from app.db.models.task import Task  # noqa: E402
-from app.db.models.video_tracker_job import VideoTrackerJob  # noqa: E402
 from app.services.batch import BatchService  # noqa: E402
 from app.services.screenshot_seed_spec import (  # noqa: E402
     PROJECT_SPECS,
     SEED_MANAGED_BY,
 )
 from app.workers.celery_app import celery_app  # noqa: E402
+from aap_labeling.screenshot_operations_contract import (  # noqa: E402
+    CleanupOCRRows,
+    DeleteOCRPredictions,
+    FinishOCRCleanup,
+    SCREENSHOT_OPERATIONS_PROTOCOL,
+)
+from aap_labeling.prediction_record_contract import (  # noqa: E402
+    DeletePredictionData,
+    PredictionIdentity,
+)
+from app.services.labeling_core_read_relations import (  # noqa: E402
+    execute_core_read,
+    get_core_row,
+    prediction_meta_row,
+    prediction_row,
+    task_row,
+    video_tracker_job_row,
+)
+from app.services.labeling_screenshot_operations import screenshot_operations_command  # noqa: E402
+from app.services.labeling_prediction_records import sync_deleted_prediction_records  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -71,7 +88,7 @@ async def assert_screenshot_scope(
             f"cleanup scope is not screenshot project {expected_display_id}: {project_id}"
         )
 
-    task = await db.get(Task, task_id)
+    task = await get_core_row(db, task_row, task_id)
     if task is None or task.project_id != project_id:
         raise RuntimeError(
             f"cleanup task does not belong to screenshot project: {task_id}"
@@ -132,14 +149,17 @@ async def cleanup(args: argparse.Namespace) -> dict[str, int]:
             tracker_job_ids = set(args.video_tracker_job_id)
             tracker_jobs = (
                 (
-                    await db.execute(
-                        select(VideoTrackerJob).where(
-                            VideoTrackerJob.id.in_(tracker_job_ids)
-                        )
+                    await execute_core_read(
+                        db,
+                        select(
+                            video_tracker_job_row.id,
+                            video_tracker_job_row.task_id,
+                            video_tracker_job_row.annotation_id,
+                            video_tracker_job_row.prompt,
+                            video_tracker_job_row.celery_task_id,
+                        ).where(video_tracker_job_row.id.in_(tracker_job_ids)),
                     )
-                )
-                .scalars()
-                .all()
+                ).all()
                 if tracker_job_ids
                 else []
             )
@@ -194,36 +214,36 @@ async def cleanup(args: argparse.Namespace) -> dict[str, int]:
                         file=sys.stderr,
                     )
 
-            if tracker_job_ids:
-                tracker_job_result = await db.execute(
-                    delete(VideoTrackerJob).where(
-                        VideoTrackerJob.id.in_(tracker_job_ids),
-                        VideoTrackerJob.task_id == args.task_id,
-                    )
-                )
-                video_tracker_jobs = tracker_job_result.rowcount or 0
-            else:
-                video_tracker_jobs = 0
-            annotation_result = await db.execute(
-                delete(Annotation).where(
-                    Annotation.id.in_(args.annotation_id),
-                    Annotation.task_id == args.task_id,
-                )
+            source_cleanup = await screenshot_operations_command(
+                db,
+                CleanupOCRRows(
+                    schema=SCREENSHOT_OPERATIONS_PROTOCOL,
+                    operation="cleanup_ocr_rows",
+                    project_key=args.project_key,
+                    project_id=args.project_id,
+                    task_id=args.task_id,
+                    tracker_job_ids=tuple(sorted(tracker_job_ids, key=str)),
+                    annotation_ids=tuple(sorted(args.annotation_id, key=str)),
+                ),
             )
-            task = await db.get(Task, args.task_id)
+            video_tracker_jobs = source_cleanup.counts["video_tracker_jobs"]
+            annotation_count = source_cleanup.counts["annotations"]
+            task = await get_core_row(db, task_row, args.task_id)
             if task is None:  # scope assertion above already guarantees this
                 raise RuntimeError(f"cleanup task disappeared: {args.task_id}")
             if args.prediction_id:
                 prediction_ids = set(args.prediction_id)
                 predictions = (
-                    (
-                        await db.execute(
-                            select(Prediction).where(Prediction.id.in_(prediction_ids))
-                        )
+                    await execute_core_read(
+                        db,
+                        select(
+                            prediction_row.id,
+                            prediction_row.task_id,
+                            prediction_row.project_id,
+                            prediction_row.created_at,
+                        ).where(prediction_row.id.in_(prediction_ids)),
                     )
-                    .scalars()
-                    .all()
-                )
+                ).all()
                 found_prediction_ids = {prediction.id for prediction in predictions}
                 if found_prediction_ids and found_prediction_ids != prediction_ids:
                     raise RuntimeError("cleanup prediction set is incomplete")
@@ -235,49 +255,71 @@ async def cleanup(args: argparse.Namespace) -> dict[str, int]:
                     raise RuntimeError(
                         "cleanup prediction is outside the screenshot task"
                     )
-                await db.execute(
-                    update(Annotation)
-                    .where(Annotation.parent_prediction_id.in_(prediction_ids))
-                    .values(parent_prediction_id=None)
+                meta_ids = list(
+                    (
+                        await execute_core_read(
+                            db,
+                            select(prediction_meta_row.id).where(
+                                prediction_meta_row.prediction_id.in_(prediction_ids)
+                            ),
+                        )
+                    ).scalars()
                 )
-                await db.execute(
-                    delete(PredictionMeta).where(
-                        PredictionMeta.prediction_id.in_(prediction_ids)
-                    )
+                prediction_cleanup = await screenshot_operations_command(
+                    db,
+                    DeleteOCRPredictions(
+                        schema=SCREENSHOT_OPERATIONS_PROTOCOL,
+                        operation="delete_ocr_predictions",
+                        project_key=args.project_key,
+                        project_id=args.project_id,
+                        task_id=args.task_id,
+                        prediction_ids=tuple(sorted(prediction_ids, key=str)),
+                    ),
                 )
-                prediction_result = await db.execute(
-                    delete(Prediction).where(
-                        Prediction.id.in_(prediction_ids),
-                        Prediction.task_id == args.task_id,
-                    )
-                )
-                remaining_predictions = await db.scalar(
-                    select(func.count())
-                    .select_from(Prediction)
-                    .where(Prediction.task_id == args.task_id)
-                )
-                task.total_predictions = remaining_predictions or 0
                 prediction_counts = {
-                    "predictions": prediction_result.rowcount or 0,
+                    "predictions": prediction_cleanup.counts["predictions"],
                     "failed_predictions": 0,
                     "ai_annotations_deactivated": 0,
                 }
+                sync_deleted_prediction_records(
+                    db,
+                    DeletePredictionData(
+                        operation="delete_for_tasks",
+                        predictions=prediction_counts["predictions"],
+                        failed_predictions=0,
+                        deleted_predictions=[
+                            PredictionIdentity(id=row.id, created_at=row.created_at)
+                            for row in predictions
+                        ],
+                        deleted_failed_prediction_ids=[],
+                        deleted_prediction_meta_ids=meta_ids,
+                    ),
+                )
+                set_committed_value(
+                    task,
+                    "total_predictions",
+                    prediction_cleanup.counts["remaining_predictions"],
+                )
             else:
                 prediction_counts = await BatchService(db).clean_task_predictions(
                     [args.task_id]
                 )
-            remaining_annotations = await db.scalar(
-                select(func.count())
-                .select_from(Annotation)
-                .where(
-                    Annotation.task_id == args.task_id,
-                    Annotation.is_active.is_(True),
-                    Annotation.was_cancelled.is_(False),
-                )
+            await screenshot_operations_command(
+                db,
+                FinishOCRCleanup(
+                    schema=SCREENSHOT_OPERATIONS_PROTOCOL,
+                    operation="finish_ocr_cleanup",
+                    project_key=args.project_key,
+                    project_id=args.project_id,
+                    task_id=args.task_id,
+                    expected_status=expected_task_status,
+                ),
             )
-            task.total_annotations = remaining_annotations or 0
-            task.is_labeled = bool(remaining_annotations)
-            task.status = expected_task_status
+            task = await get_core_row(
+                db, task_row, args.task_id, populate_existing=True
+            )
+            if task is None:
+                raise RuntimeError(f"cleanup task disappeared: {args.task_id}")
             if celery_task_ids:
                 job_result = await db.execute(
                     delete(AsyncJob).where(
@@ -304,7 +346,7 @@ async def cleanup(args: argparse.Namespace) -> dict[str, int]:
 
     return {
         **prediction_counts,
-        "annotations": annotation_result.rowcount or 0,
+        "annotations": annotation_count,
         "async_jobs": async_jobs,
         "video_tracker_jobs": video_tracker_jobs,
     }

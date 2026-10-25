@@ -27,10 +27,16 @@ from aap_labeling.prediction_record_contract import (
     RestoreFailedPrediction,
 )
 from aap_labeling.prediction_record_data import PredictionRecordDataClient
+from aap_labeling.screenshot_operations_contract import (
+    RestoreReviewReject,
+    SCREENSHOT_OPERATIONS_PROTOCOL,
+)
+from aap_labeling.screenshot_operations_data import ScreenshotOperationsDataClient
 from aap_owner_data.postgres import verify_function_only_role
 from app.db.models.prediction import FailedPrediction, Prediction, PredictionMeta
 from app.db.models.task import Task
 from tests.factory import create_project, create_task, create_user
+from tests.test_jobs_creation_runtime_native import _lan_runtime
 from tests.test_labeling_class_usage_reads_legacy import _cleanup_owned
 from tests.workspace_project_query_helpers import _dsn
 
@@ -366,3 +372,132 @@ async def test_prediction_partition_command_owns_monthly_ddl_and_rolls_back(
                 await observer.execute(text(f"DROP TABLE public.{expected_name}"))
     finally:
         await connection.close()
+
+
+async def test_screenshot_restore_uses_lan_runtime_and_caller_transaction(
+    test_engine,
+):
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    actor_ids: list[uuid.UUID] = []
+    project_ids: list[uuid.UUID] = []
+    task_ids: list[uuid.UUID] = []
+    project_id = task_id = reviewer_id = annotator_id = None
+    runtime = None
+    connection = None
+    review_round_id = uuid.uuid4()
+    try:
+        async with maker.begin() as db:
+            owner = await create_user(
+                db,
+                "project_admin",
+                f"screenshot-owner-{uuid.uuid4().hex}@example.test",
+                "Screenshot owner",
+            )
+            annotator = await create_user(
+                db,
+                "employee",
+                f"screenshot-annotator-{uuid.uuid4().hex}@example.test",
+                "Screenshot annotator",
+            )
+            reviewer = await create_user(
+                db,
+                "employee",
+                f"screenshot-reviewer-{uuid.uuid4().hex}@example.test",
+                "Screenshot reviewer",
+            )
+            actor_ids.extend([owner.id, annotator.id, reviewer.id])
+            annotator_id = annotator.id
+            reviewer_id = reviewer.id
+            project = await create_project(db, owner_id=owner.id)
+            project.display_id = "P-COCO8"
+            project.name = "真实道路场景（截图）"
+            project_id = project.id
+            project_ids.append(project.id)
+            task = await create_task(
+                db,
+                project_id=project.id,
+                display_id="T-SS-COCO8-005",
+                status="in_progress",
+            )
+            task.assignee_id = annotator.id
+            task.reviewer_id = reviewer.id
+            task.annotation_contributor_ids = [str(annotator.id)]
+            task.review_round_id = None
+            task.review_contributor_ids = None
+            task.review_submitter_id = None
+            task_id = task.id
+            task_ids.append(task.id)
+
+        runtime = await _lan_runtime(test_engine)
+        connection = await runtime.connect()
+        transaction = await connection.begin()
+        assert (
+            await connection.scalar(text("SELECT current_user"))
+            == "identity_api_consumer"
+        )
+        assert (
+            await connection.scalar(
+                text(
+                    "SELECT pg_catalog.has_function_privilege(current_user, "
+                    "'aap_labeling_v1.screenshot_operations_command(jsonb)', 'EXECUTE')"
+                )
+            )
+            is True
+        )
+        assert (
+            await connection.scalar(
+                text(
+                    "SELECT pg_catalog.has_table_privilege(current_user, 'public.tasks', 'SELECT')"
+                )
+            )
+            is False
+        )
+
+        async def execute(request_json):
+            return await connection.scalar(
+                text(
+                    "SELECT aap_labeling_v1.screenshot_operations_command(CAST(:request AS jsonb))"
+                ),
+                {"request": request_json},
+            )
+
+        client = ScreenshotOperationsDataClient(execute)
+        result = await client.command(
+            RestoreReviewReject(
+                schema=SCREENSHOT_OPERATIONS_PROTOCOL,
+                operation="restore_review_reject",
+                project_id=project_id,
+                task_id=task_id,
+                reviewer_id=reviewer_id,
+                expected_status="review",
+                review_round_id=review_round_id,
+                review_contributor_ids=(str(annotator_id),),
+                review_submitter_id=annotator_id,
+                reason_texts=(
+                    "车辆边界存在偏移，请重新贴合目标外沿。",
+                    "标注框偏移，请重新对齐目标边缘（演示）",
+                ),
+            )
+        )
+        assert result.operation == "restore_review_reject"
+        assert result.counts == {"feedbacks": 0, "tasks": 1}
+        await transaction.rollback()
+
+        async with maker() as db:
+            restored = await db.get(Task, task_id)
+            assert restored is not None
+            assert restored.status == "in_progress"
+            assert restored.review_round_id is None
+            assert restored.review_contributor_ids is None
+    finally:
+        if connection is not None:
+            await connection.close()
+        if runtime is not None:
+            await runtime.dispose()
+        if actor_ids or project_ids or task_ids:
+            await _cleanup_owned(
+                maker,
+                actor_ids=actor_ids,
+                project_ids=project_ids,
+                task_ids=task_ids,
+            )

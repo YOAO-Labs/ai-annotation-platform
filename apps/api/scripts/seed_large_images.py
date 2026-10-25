@@ -44,7 +44,7 @@ from app.db.base import async_session, engine
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
 from app.db.models.project import Project
 from app.services.workspace_seed_data import create_media_seed_project, seed_projects
-from app.db.models.task import Task
+from app.services.labeling_core_read_relations import execute_core_read, task_row
 from app.services.identity_commands import IdentityCommandService
 from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
 from app.services.assets_images import image_gateway, image_policy
@@ -447,11 +447,12 @@ async def _ensure_fixture_item(
 async def _task_map(project_id, item_ids: list) -> dict:
     async with async_session() as db:
         rows = (
-            await db.execute(
-                select(Task).where(
-                    Task.project_id == project_id,
-                    Task.dataset_item_id.in_(item_ids),
-                )
+            await execute_core_read(
+                db,
+                select(task_row).where(
+                    task_row.project_id == project_id,
+                    task_row.dataset_item_id.in_(item_ids),
+                ),
             )
         ).scalars()
         return {task.dataset_item_id: task for task in rows}
