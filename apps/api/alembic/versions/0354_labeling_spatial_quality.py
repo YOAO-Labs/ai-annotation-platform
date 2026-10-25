@@ -24,3 +24,4 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute("DROP FUNCTION aap_labeling_v1.spatial_quality_command(jsonb) RESTRICT")
+    op.execute("DROP VIEW aap_assets_v1.video_chapter_facts RESTRICT")

@@ -1,3 +1,11 @@
+CREATE VIEW aap_assets_v1.video_chapter_facts
+WITH (security_barrier = true)
+AS
+SELECT id, dataset_item_id, title, start_frame, end_frame
+FROM public.video_chapters;
+-- aap-statement-break
+REVOKE ALL ON TABLE aap_assets_v1.video_chapter_facts FROM PUBLIC;
+-- aap-statement-break
 CREATE FUNCTION aap_labeling_v1.spatial_quality_command(p_request jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -55,6 +63,9 @@ BEGIN
             v_required_keys := v_allowed_keys;
         WHEN 'read_video_task_segments' THEN
             v_allowed_keys := ARRAY['schema','action','task_id'];
+            v_required_keys := v_allowed_keys;
+        WHEN 'read_video_chapters' THEN
+            v_allowed_keys := ARRAY['schema','action','task_id','dataset_item_id'];
             v_required_keys := v_allowed_keys;
         WHEN 'find_point_run' THEN
             v_allowed_keys := ARRAY['schema','action','project_id','singleflight_key','statuses'];
@@ -466,6 +477,29 @@ BEGIN
                           AND NOT annotation_row.was_cancelled
                     )
                 ),'[]'::jsonb)
+            );
+        WHEN 'read_video_chapters' THEN
+            IF pg_catalog.jsonb_typeof(p_request -> 'task_id') <> 'string'
+               OR pg_catalog.jsonb_typeof(p_request -> 'dataset_item_id') <> 'string' THEN
+                RAISE EXCEPTION 'invalid Labeling spatial quality request' USING ERRCODE = '22023';
+            END IF;
+            v_data := pg_catalog.jsonb_build_object(
+                'chapters', COALESCE((
+                    SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
+                        'id', chapter_row.id,
+                        'title', chapter_row.title,
+                        'start_frame', chapter_row.start_frame,
+                        'end_frame', chapter_row.end_frame
+                    ) ORDER BY chapter_row.start_frame, chapter_row.id)
+                    FROM aap_assets_v1.video_chapter_facts AS chapter_row
+                    WHERE chapter_row.dataset_item_id = (p_request ->> 'dataset_item_id')::uuid
+                      AND EXISTS (
+                          SELECT 1
+                          FROM public.tasks AS task_row
+                          WHERE task_row.id = (p_request ->> 'task_id')::uuid
+                            AND task_row.dataset_item_id = chapter_row.dataset_item_id
+                      )
+                ), '[]'::jsonb)
             );
         WHEN 'find_point_run' THEN
             IF pg_catalog.jsonb_typeof(p_request -> 'project_id') <> 'string'

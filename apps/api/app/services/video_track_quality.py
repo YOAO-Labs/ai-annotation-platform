@@ -8,14 +8,12 @@ from typing import Any
 
 import numpy as np
 from scipy.optimize import linear_sum_assignment
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
 from app.services.project_access import get_workspace_project
 from app.db.models.async_job import AsyncJob, AsyncJobKind
 from app.db.models.task import Task
-from app.db.models.video_chapter import VideoChapter
 from app.db.models.video_track_quality import (
     VideoTrackQualityIssue,
     VideoTrackQualityRun,
@@ -521,21 +519,17 @@ async def metrics_with_current_chapters(
         }
         for issue in issues
     ]
-    chapters = (
-        list(
-            (
-                await db.execute(
-                    select(VideoChapter)
-                    .where(VideoChapter.dataset_item_id == task.dataset_item_id)
-                    .order_by(VideoChapter.start_frame, VideoChapter.id)
-                )
-            )
-            .scalars()
-            .all()
+    chapter_data = (
+        await spatial_quality_data(
+            db,
+            "read_video_chapters",
+            task_id=task.id,
+            dataset_item_id=task.dataset_item_id,
         )
         if task.dataset_item_id is not None
-        else []
+        else {"chapters": []}
     )
+    chapters = quality_records(chapter_data.get("chapters"))
     chapter_rows = []
     for chapter in chapters:
         counts = _issue_frame_counts(

@@ -1486,6 +1486,34 @@
       "title": "ReadVideoBoundary",
       "type": "object"
     },
+    "ReadVideoChapters": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-spatial-quality/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "action": {
+          "const": "read_video_chapters",
+          "title": "Action",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "action", "task_id", "dataset_item_id"],
+      "title": "ReadVideoChapters",
+      "type": "object"
+    },
     "ReadVideoTaskAnnotations": {
       "additionalProperties": false,
       "properties": {
@@ -2406,6 +2434,7 @@
       "read_video_annotations": "#/$defs/ReadVideoAnnotations",
       "read_video_boundary": "#/$defs/ReadVideoBoundary",
       "read_video_task_segments": "#/$defs/ReadVideoTaskSegments",
+      "read_video_chapters": "#/$defs/ReadVideoChapters",
       "read_video_task_annotations": "#/$defs/ReadVideoTaskAnnotations",
       "find_point_run": "#/$defs/QualityCommand_find_point_run",
       "create_point_run": "#/$defs/QualityCommand_create_point_run",
@@ -2453,6 +2482,9 @@
     },
     {
       "$ref": "#/$defs/ReadVideoTaskSegments"
+    },
+    {
+      "$ref": "#/$defs/ReadVideoChapters"
     },
     {
       "$ref": "#/$defs/ReadVideoTaskAnnotations"
@@ -2544,6 +2576,7 @@
     "read_video_task_annotations": ["annotations"],
     "read_video_boundary": ["segment_count", "segments"],
     "read_video_task_segments": ["segments"],
+    "read_video_chapters": ["chapters"],
     "find_point_run": ["row"],
     "create_point_run": ["row"],
     "get_point_run": ["row"],
@@ -2602,6 +2635,7 @@
         "read_quality_facts",
         "read_video_annotations",
         "read_video_boundary",
+        "read_video_chapters",
         "read_video_task_annotations",
         "read_video_task_segments",
         "reconcile_point_run",

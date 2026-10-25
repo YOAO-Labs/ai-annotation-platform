@@ -75,6 +75,12 @@ class ReadVideoTaskSegments(_Request):
     task_id: uuid.UUID
 
 
+class ReadVideoChapters(_Request):
+    action: Literal["read_video_chapters"]
+    task_id: uuid.UUID
+    dataset_item_id: uuid.UUID
+
+
 class ReadVideoTaskAnnotations(_Request):
     action: Literal["read_video_task_annotations"]
     task_id: uuid.UUID
@@ -228,6 +234,7 @@ SpatialQualityRequest: TypeAlias = Annotated[
     | ReadVideoAnnotations
     | ReadVideoBoundary
     | ReadVideoTaskSegments
+    | ReadVideoChapters
     | ReadVideoTaskAnnotations
     | QualityCommand,
     Field(discriminator="action"),
@@ -274,6 +281,10 @@ _ACTION_FIELDS: dict[str, tuple[set[str], set[str]]] = {
         {"task_id", "dataset_item_id", "left_segment_id", "right_segment_id"},
     ),
     "read_video_task_segments": ({"task_id"}, {"task_id"}),
+    "read_video_chapters": (
+        {"task_id", "dataset_item_id"},
+        {"task_id", "dataset_item_id"},
+    ),
     "read_video_task_annotations": ({"task_id"}, {"task_id"}),
     "find_point_run": (
         {"project_id", "singleflight_key", "statuses"},
@@ -522,6 +533,7 @@ _REPLY_KEYS: dict[str, frozenset[str]] = {
     "read_video_task_annotations": frozenset({"annotations"}),
     "read_video_boundary": frozenset({"segments", "segment_count"}),
     "read_video_task_segments": frozenset({"segments"}),
+    "read_video_chapters": frozenset({"chapters"}),
     "find_point_run": frozenset({"row"}),
     "create_point_run": frozenset({"row"}),
     "get_point_run": frozenset({"row"}),
@@ -573,6 +585,7 @@ def spatial_quality_json_schema() -> dict[str, object]:
         ("read_video_annotations", "ReadVideoAnnotations"),
         ("read_video_boundary", "ReadVideoBoundary"),
         ("read_video_task_segments", "ReadVideoTaskSegments"),
+        ("read_video_chapters", "ReadVideoChapters"),
         ("read_video_task_annotations", "ReadVideoTaskAnnotations"),
     ]
     variants = [{"$ref": f"#/$defs/{name}"} for _, name in source_models]
