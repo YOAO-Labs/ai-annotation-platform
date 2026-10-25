@@ -18,7 +18,7 @@ async def allocate(db, run) -> dict:
 
 
 async def adoption_candidate(db, run) -> dict:
-    """Discover only the persisted binding; never bootstrap or adopt content."""
+    """Discover legacy A only; never follow current allocation or adopt content."""
     return await _shared._adoption_candidate(db, run, purpose=_PURPOSE)
 
 
