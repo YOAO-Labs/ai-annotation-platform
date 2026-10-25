@@ -1928,7 +1928,7 @@
           "$ref": "#/$defs/QualityCommand/properties/track_filter"
         }
       },
-      "required": ["schema", "action", "limit", "offset", "project_id", "refresh_candidates"],
+      "required": ["schema", "action", "limit", "offset", "project_id"],
       "additionalProperties": false
     },
     "QualityCommand_mark_point_issues_stale": {

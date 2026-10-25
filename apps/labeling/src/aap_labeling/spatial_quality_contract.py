@@ -402,7 +402,7 @@ _ACTION_FIELDS: dict[str, tuple[set[str], set[str]]] = {
             "frame_filter",
             "allowed_task_ids",
         },
-        {"project_id", "limit", "offset", "refresh_candidates"},
+        {"project_id", "limit", "offset"},
     ),
     "mark_point_issues_stale": ({"stale_issue_ids"}, {"stale_issue_ids"}),
     "decide_point_issue": (

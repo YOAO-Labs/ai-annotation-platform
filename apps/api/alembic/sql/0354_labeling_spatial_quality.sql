@@ -91,7 +91,7 @@ BEGIN
             v_required_keys := v_allowed_keys;
         WHEN 'list_point_issues' THEN
             v_allowed_keys := ARRAY['schema','action','project_id','review_status','refresh_candidates','limit','offset','severity_filter','code_filter','scene_filter','task_filter','annotation_filter','track_filter','frame_filter','allowed_task_ids'];
-            v_required_keys := ARRAY['schema','action','project_id','refresh_candidates','limit','offset'];
+            v_required_keys := ARRAY['schema','action','project_id','limit','offset'];
         WHEN 'mark_point_issues_stale' THEN
             v_allowed_keys := ARRAY['schema','action','stale_issue_ids'];
             v_required_keys := v_allowed_keys;
@@ -780,7 +780,7 @@ BEGIN
             v_data := pg_catalog.jsonb_build_object('row', CASE WHEN v_issue.id IS NULL THEN NULL ELSE pg_catalog.to_jsonb(v_issue) END);
         WHEN 'list_point_issues' THEN
             IF pg_catalog.jsonb_typeof(p_request -> 'project_id') <> 'string'
-               OR pg_catalog.jsonb_typeof(p_request -> 'refresh_candidates') <> 'boolean'
+               OR (p_request ? 'refresh_candidates' AND pg_catalog.jsonb_typeof(p_request -> 'refresh_candidates') IS DISTINCT FROM 'boolean')
                OR pg_catalog.jsonb_typeof(p_request -> 'limit') <> 'number'
                OR pg_catalog.jsonb_typeof(p_request -> 'offset') <> 'number'
                OR (p_request ->> 'limit')::numeric <> pg_catalog.trunc((p_request ->> 'limit')::numeric)
@@ -804,7 +804,7 @@ BEGIN
                 RAISE EXCEPTION 'invalid Labeling spatial quality request' USING ERRCODE = '22023';
             END IF;
             v_filter_status := NULLIF(p_request ->> 'review_status','');
-            v_refresh_candidates := (p_request ->> 'refresh_candidates')::boolean;
+            v_refresh_candidates := COALESCE((p_request ->> 'refresh_candidates')::boolean, false);
             v_limit := (p_request ->> 'limit')::integer;
             v_offset := (p_request ->> 'offset')::integer;
             IF v_limit NOT BETWEEN 1 AND 5000 OR v_offset NOT BETWEEN 0 AND 100000 THEN
