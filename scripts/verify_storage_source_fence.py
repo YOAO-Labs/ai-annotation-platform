@@ -668,6 +668,7 @@ def run_fixture(owner, summary):
             ).encode(),
         )
     network = owner.resource("network", "network", args=("--internal",))
+    frontend = owner.resource("network", "frontend", args=("--driver", "bridge"))
     network_facts = owner.verified(network)
     subnet = ipaddress.ip_network(network_facts["IPAM"]["Config"][0]["Subnet"])
     require(subnet.version == 4 and subnet.num_addresses > 16, "fixture_ipv4_network")
@@ -693,17 +694,20 @@ def run_fixture(owner, summary):
     gateway_directory.mkdir(mode=0o700)
     nginx = gateway_directory / "nginx.conf"
     replace_config(nginx, gateway_config(source_ip, False))
-    gateway = owner.service(
-        "gateway",
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reservation:
+        reservation.bind(("127.0.0.1", 0))
+        public_port = reservation.getsockname()[1]
+    owner.role = "gateway"
+    gateway = owner.container(
         NGINX_IMAGE,
         args=(
             "--pull=never",
             "--network",
-            network["id"],
-            "--ip",
-            gateway_ip,
+            frontend["id"],
+            "--sysctl",
+            "net.ipv4.ip_forward=0",
             "--publish",
-            "127.0.0.1::80",
+            f"127.0.0.1:{public_port}:80",
             "--entrypoint",
             "nginx",
             "--volume",
@@ -711,6 +715,8 @@ def run_fixture(owner, summary):
         ),
         cmd=("-g", "daemon off;"),
     )
+    owner.action(gateway, "network", "connect", "--ip", gateway_ip, network["id"])
+    owner.start(gateway)
     endpoint = f"http://127.0.0.1:{host_port(owner, gateway, 80)}"
     private_endpoint = f"http://{source_ip}:9000"
     target_volume = owner.resource("volume", "target-data")
@@ -795,6 +801,7 @@ def run_fixture(owner, summary):
                     "source_container": source["id"],
                     "gateway_container": gateway["id"],
                     "network_id": network["id"],
+                    "gateway_frontend_network_id": frontend["id"],
                     "source_volume_name": volume["id"],
                     "gateway_config_directory": str(gateway_directory),
                     "public_endpoint": endpoint,
@@ -1013,6 +1020,19 @@ def interrupted(_signum, _frame):
     raise KeyboardInterrupt
 
 
+def failure_site(exc):
+    lines = []
+    frame = exc.__traceback__
+    while frame is not None and len(lines) < 64:
+        if (
+            Path(frame.tb_frame.f_code.co_filename).resolve()
+            == Path(__file__).resolve()
+        ):
+            lines.append(frame.tb_lineno)
+        frame = frame.tb_next
+    return {"type": type(exc).__name__, "lines": lines}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
@@ -1044,6 +1064,7 @@ def main(argv=None):
         exit_code = 0
     except BaseException as exc:
         summary["error_code"] = safe_error(exc)
+        summary["failure_site"] = failure_site(exc)
         exit_code = 130 if isinstance(exc, KeyboardInterrupt) else 1
     finally:
         if owner is not None:
