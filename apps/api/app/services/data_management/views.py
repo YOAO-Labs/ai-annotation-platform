@@ -60,7 +60,6 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from app.db.models.project import Project
 from app.db.models.project_task_view import ProjectTaskView
-from app.db.models.task import Task
 from app.db.models.user import User
 from app.services.assets_spatial_views import spatial_item_references
 from app.services.identity_contracts import IdentityActorFacts
@@ -525,7 +524,7 @@ def _scene_total_frames_sq() -> ColumnElement[int | None]:
             scene_item.c.scene_id == scene_id,
             scene_item.c.frame_index.is_not(None),
         )
-        .correlate(Task)
+        .correlate(task_row)
         .scalar_subquery()
     )
 
@@ -771,7 +770,7 @@ class TaskViewService:
             }
         requested.update(item.get("field", "") for item in sort_json or [])
         projection: list[Any] = [
-            Task,
+            task_row,
             _TASK_FIELD_MAP["task.assignee"].label("effective_assignee_id"),
             _TASK_FIELD_MAP["task.reviewer"].label("effective_reviewer_id"),
         ]

@@ -28,12 +28,9 @@ from sqlalchemy import (
     or_,
     select,
 )
-from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
 
-from app.db.models.annotation import Annotation
 from app.db.models.project import Project
-from app.db.models.task import Task
 from app.db.models.user import User
 from app.services.data_management.filter_tree import (
     _MAX_IN_VALUES,
@@ -55,6 +52,7 @@ from app.services.task_discussion import task_comment_count_sq
 from app.services.assets_spatial_views import spatial_item_references
 from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
 from app.services.labeling_core_read_relations import (
+    alias_core_row,
     annotation_row,
     batch_row,
     prediction_row,
@@ -81,14 +79,14 @@ _TASK_FIELD_MAP = {
         task_row.assignee_id,
         select(batch_row.annotator_id)
         .where(batch_row.id == task_row.batch_id)
-        .correlate(Task)
+        .correlate(task_row)
         .scalar_subquery(),
     ),
     "task.reviewer": func.coalesce(
         task_row.reviewer_id,
         select(batch_row.reviewer_id)
         .where(batch_row.id == task_row.batch_id)
-        .correlate(Task)
+        .correlate(task_row)
         .scalar_subquery(),
     ),
     "task.batch_id": task_row.batch_id,
@@ -155,7 +153,7 @@ def _compile_node(
             _compile_node(rule, project=project, user=user) for rule in other_rules
         ]
         if annotation_rules:
-            annotation = aliased(Annotation)
+            annotation = alias_core_row(annotation_row)
             clauses.append(
                 exists().where(
                     annotation.task_id == task_row.id,
@@ -1011,7 +1009,7 @@ def _primary_item_id_sq() -> ColumnElement[uuid.UUID | None]:
             task_dataset_item_link_row.role == "primary_lidar",
         )
         .limit(1)
-        .correlate(Task)
+        .correlate(task_row)
         .scalar_subquery()
     )
 
@@ -1025,7 +1023,7 @@ def _scene_id_sq() -> ColumnElement[uuid.UUID | None]:
             == func.coalesce(task_row.dataset_item_id, _primary_item_id_sq())
         )
         .limit(1)
-        .correlate(Task)
+        .correlate(task_row)
         .scalar_subquery()
     )
 
@@ -1039,7 +1037,7 @@ def _scene_frame_sq() -> ColumnElement[int | None]:
             == func.coalesce(task_row.dataset_item_id, _primary_item_id_sq())
         )
         .limit(1)
-        .correlate(Task)
+        .correlate(task_row)
         .scalar_subquery()
     )
 
@@ -1053,7 +1051,7 @@ def _scene_name_sq() -> ColumnElement[str | None]:
             == func.coalesce(task_row.dataset_item_id, _primary_item_id_sq())
         )
         .limit(1)
-        .correlate(Task)
+        .correlate(task_row)
         .scalar_subquery()
     )
 
@@ -1067,7 +1065,7 @@ def _dataset_id_sq() -> ColumnElement[uuid.UUID | None]:
             == func.coalesce(task_row.dataset_item_id, _primary_item_id_sq())
         )
         .limit(1)
-        .correlate(Task)
+        .correlate(task_row)
         .scalar_subquery()
     )
 
@@ -1081,7 +1079,7 @@ def _dataset_file_type_sq() -> ColumnElement[str | None]:
             == func.coalesce(task_row.dataset_item_id, _primary_item_id_sq())
         )
         .limit(1)
-        .correlate(Task)
+        .correlate(task_row)
         .scalar_subquery()
     )
 

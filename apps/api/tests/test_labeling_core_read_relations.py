@@ -164,6 +164,124 @@ def test_task_metrics_compose_only_public_labeling_rows():
     assert "FROM public.video_tracker_jobs" not in sql
 
 
+def test_data_manager_filters_keep_public_task_and_annotation_rows():
+    from app.services.data_management.entities import task_dataset_item_id_expr
+    from app.services.data_management.entity_filters import compile_entity_filter
+    from app.services.data_management.task_filters import (
+        _TASK_FIELD_MAP,
+        compile_filter,
+    )
+    from app.services.data_management.views import _scene_total_frames_sq
+
+    project = Project(
+        id=uuid.uuid4(),
+        owner_id=uuid.uuid4(),
+        display_id="P-CORE-READ-FILTER",
+        name="Core read filter contract",
+        type_label="Image",
+        type_key="image-det",
+        data_type="image",
+        scene_mode=False,
+        tool_bindings={"bbox": {"enabled": True, "classes": ["car"]}},
+    )
+    filter_json = {
+        "op": "and",
+        "rules": [{"field": "annotation.class_name", "op": "eq", "value": "car"}],
+    }
+    statement = (
+        select(
+            task_row.id,
+            _TASK_FIELD_MAP["task.assignee"],
+            _TASK_FIELD_MAP["task.reviewer"],
+            task_dataset_item_id_expr(),
+            _scene_total_frames_sq(),
+        )
+        .select_from(task_row)
+        .where(compile_filter(filter_json, project=project))
+    )
+    sql = str(statement.compile(dialect=postgresql.dialect()))
+
+    assert "FROM aap_labeling_v1.task_rows" in sql
+    assert "FROM aap_labeling_v1.batch_rows" in sql
+    assert "FROM aap_labeling_v1.annotation_rows AS" in sql
+    assert "FROM aap_labeling_v1.task_dataset_item_link_rows" in sql
+    assert "FROM tasks" not in sql
+    assert "FROM annotations" not in sql
+    assert "FROM task_batches" not in sql
+
+    entity_clause = compile_entity_filter(
+        filter_json["rules"][0], annotation_row, project=project
+    )
+    entity_sql = str(
+        select(annotation_row.id)
+        .select_from(annotation_row)
+        .where(entity_clause)
+        .compile(dialect=postgresql.dialect())
+    )
+    assert "FROM aap_labeling_v1.annotation_rows" in entity_sql
+    assert "FROM annotations" not in entity_sql
+
+
+@pytest.mark.asyncio
+async def test_task_event_batch_read_uses_one_public_task_query(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    from app.schemas.task_event import TaskEventIn
+    from app.services import task_event_ingestion
+
+    task_id = uuid.UUID("00000000-0000-0000-0000-000000000007")
+    project_id = uuid.UUID("00000000-0000-0000-0000-000000000008")
+    actor_id = uuid.UUID("00000000-0000-0000-0000-000000000009")
+    task = Task(
+        id=task_id,
+        project_id=project_id,
+        display_id="T-EVENT-1",
+        file_name="frame.jpg",
+        file_path="frame.jpg",
+    )
+
+    class TaskResult:
+        def scalars(self):
+            return iter((task,))
+
+    class TaskReadSession:
+        def __init__(self):
+            self.sql = []
+
+        async def execute(self, statement):
+            self.sql.append(str(statement.compile(dialect=postgresql.dialect())))
+            return TaskResult()
+
+    async def allow_event(_db, **kwargs):
+        return None
+
+    monkeypatch.setattr(task_event_ingestion, "assert_task_event_access", allow_event)
+    now = datetime.now(timezone.utc)
+    event = TaskEventIn(
+        task_id=task_id,
+        project_id=project_id,
+        kind="annotate",
+        started_at=now - timedelta(seconds=2),
+        ended_at=now - timedelta(seconds=1),
+        duration_ms=1000,
+    )
+    session = TaskReadSession()
+
+    accepted, rejected = await task_event_ingestion.validate_api_events(
+        session,
+        user=SimpleNamespace(id=actor_id),
+        events=[event],
+        now=now,
+    )
+
+    assert len(accepted) == 1
+    assert rejected == []
+    assert len(session.sql) == 1
+    assert "FROM aap_labeling_v1.task_rows" in session.sql[0]
+    assert "FROM tasks" not in session.sql[0]
+
+
 class _ReadResult:
     def scalar_one_or_none(self):
         return None

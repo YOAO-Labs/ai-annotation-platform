@@ -31,6 +31,7 @@ from aap_labeling.discussion_contract import (
     TaskEventInsertRow,
 )
 from app.services.labeling_discussion_data import task_event_command
+from app.services.labeling_core_read_relations import get_core_row, task_row
 
 MAX_EVENT_DURATION_MS = 4 * 60 * 60 * 1000
 MAX_ANNOTATION_COUNT = 1_000_000
@@ -266,7 +267,7 @@ async def validate_api_events(
     event_list = list(events)
     task_ids = {event.task_id for event in event_list}
     task_rows = (
-        await db.execute(select(Task).where(Task.id.in_(task_ids)))
+        await db.execute(select(task_row).where(task_row.id.in_(task_ids)))
         if task_ids
         else None
     )
@@ -433,7 +434,7 @@ async def validate_worker_event(
         return None
 
     user = await IdentityAccountLockData(db).read_actor_status(user_id)
-    task = await db.get(Task, task_id)
+    task = await get_core_row(db, task_row, task_id)
     if user is None or not user.is_active or task is None:
         return None
     if task.project_id != client_project_id:

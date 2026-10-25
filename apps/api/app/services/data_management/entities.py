@@ -10,10 +10,8 @@ from sqlalchemy import Integer, String, cast, func, literal, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.db.models.annotation import Annotation
 from app.db.models.dataset import DatasetItem, Scene
 from app.db.models.project import Project
-from app.db.models.task import Task
 from app.schemas.data_manager import (
     DataManagerEntityLocation,
     DataManagerEntityFacets,
@@ -55,7 +53,7 @@ def _primary_item_id_sq():
             task_dataset_item_link_row.role == "primary_lidar",
         )
         .limit(1)
-        .correlate(Task)
+        .correlate(task_row)
         .scalar_subquery()
     )
 
@@ -191,7 +189,7 @@ def _object_projection(created_by, item, scene):
         created_by.c.name.label("created_by_name"),
         annotation_row.created_at,
         annotation_row.updated_at,
-        _feedback_count_sq(Annotation).label("unresolved_feedback_count"),
+        _feedback_count_sq(annotation_row).label("unresolved_feedback_count"),
         item.id.label("dataset_item_id"),
         item.scene_id.label("scene_id"),
         scene.name.label("scene_name"),
@@ -249,7 +247,7 @@ class DataManagerObjectService:
             )
         sort_expr = _object_sort(field)
         condition = compile_entity_filter(
-            payload.filter_json, Annotation, project=project, user=user
+            payload.filter_json, annotation_row, project=project, user=user
         )
         base = self._base(project_id, user, project, project_role=project_role).where(
             condition
