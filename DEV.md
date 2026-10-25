@@ -271,6 +271,8 @@ apps/api/.venv/bin/python scripts/verify_worktree_recovery.py
 
 对象存储源端迁移清单使用当前API虚拟环境和显式部署配置：`apps/api/.venv/bin/python scripts/inventory_storage_migration.py --output /private/source.jsonl`；`--verify`可离线核对同一清单。对象账号可限制为只读，命令不会建桶或修改业务行。九用途处理选择、预算、退出码及一次性实际演练见[源端迁移清单](docs-site/ops/deploy/storage-migration-inventory.md)。
 
+已保存业务定位使用独立命令：`apps/api/.venv/bin/python scripts/inventory_storage_references.py --source-inventory /private/source.jsonl --output /private/references.jsonl`。它在有界只读数据库快照结束后关联同一份完整性核验的源报告，不访问S3，覆盖24类保存归属及历史／暂存／删除声明；未知、未展开与其他源保留。独立`--verify`只核对新目录。新检查为`PYTHONDONTWRITEBYTECODE=1 apps/api/.venv/bin/python -m unittest discover -s scripts -p 'test_*storage*references.py'`；实际只读DB资格使用上述手册中的`verify_storage_references.py`，仅在所属空test环境执行。
+
 ## Codex 会话启动硬件上下文
 
 仓库内的 `.codex/hooks.json` 会在 Codex 会话启动、恢复、清空或压缩后运行
