@@ -6,6 +6,7 @@ import type {
   BugAttachmentBindingPreview,
   AuditArchiveBindingPreview,
   ExportBindingPreview,
+  ImportBindingPreview,
   StorageBindingOut,
 } from "@/api/generated/types.gen";
 import { ApiError } from "@/api/client";
@@ -19,7 +20,7 @@ import { verifiedContentError } from "@/hooks/useVerifiedImage";
 import { storageAccessDenied } from "./storageQueryState";
 
 interface Props {
-  purpose: "avatars" | "bug-reports" | "audit-archive" | "export";
+  purpose: "avatars" | "bug-reports" | "audit-archive" | "export" | "import";
   binding: StorageBindingOut;
   onApplied: () => Promise<void>;
 }
@@ -44,6 +45,7 @@ function changeError(error: unknown, _purpose: Props["purpose"]): string {
       "bug_attachment_binding_unchanged",
       "audit_archive_binding_unchanged",
       "export_binding_unchanged",
+      "import_binding_unchanged",
     ].includes(code)
   )
     return "请选择与当前绑定不同的存储位置。";
@@ -53,6 +55,7 @@ function changeError(error: unknown, _purpose: Props["purpose"]): string {
       "bug_attachment_binding_target_missing",
       "audit_archive_binding_target_missing",
       "export_binding_target_missing",
+      "import_binding_target_missing",
     ].includes(code)
   )
     return "目标位置已不存在，请刷新候选位置后重新选择。";
@@ -62,6 +65,7 @@ function changeError(error: unknown, _purpose: Props["purpose"]): string {
       "bug_attachment_storage_binding_unproven",
       "audit_archive_storage_binding_unproven",
       "export_storage_binding_unproven",
+      "import_storage_binding_unproven",
     ].includes(code)
   )
     return "用途绑定或目标配置无法确认，请刷新存储配置后重新预览。";
@@ -72,6 +76,7 @@ function changeError(error: unknown, _purpose: Props["purpose"]): string {
       "bug_attachment_storage_conditions_unsupported",
       "audit_archive_storage_conditions_unsupported",
       "export_storage_conditions_unsupported",
+      "import_storage_conditions_unsupported",
     ].includes(code)
   )
     return "目标不支持条件写入，请选择支持该能力的存储位置。";
@@ -81,10 +86,13 @@ function changeError(error: unknown, _purpose: Props["purpose"]): string {
       "bug_attachment_storage_probe_cleanup_unproven",
       "audit_archive_storage_probe_cleanup_unproven",
       "export_storage_probe_cleanup_unproven",
+      "import_storage_probe_cleanup_unproven",
       "storage_operation_unsettled",
     ].includes(code)
   )
     return "验证操作尚未确认收尾，用途未切换。请管理员检查目标位置的测试对象和未收尾访问。";
+  if (code === "import_storage_versioning_required")
+    return "临时输入需要版本化存储，请启用目标桶版本控制并允许版本读取、删除和列举后重新预览。";
   if (code === "permission_denied")
     return "目标位置拒绝读写或删除，请检查连接凭据和访问权限后重新预览。";
   return verifiedContentError(error);
@@ -118,6 +126,7 @@ function ChangeOwner({
     "bug-reports": "报告附件",
     "audit-archive": "审计归档",
     export: "导出",
+    import: "导入暂存",
   }[purpose];
   const capture = useSessionGuard();
   const pushToast = useToastStore((state) => state.push);
@@ -133,6 +142,7 @@ function ChangeOwner({
     | BugAttachmentBindingPreview
     | AuditArchiveBindingPreview
     | ExportBindingPreview
+    | ImportBindingPreview
     | null
   >(null);
   const [busy, setBusy] = useState(false);
@@ -148,6 +158,7 @@ function ChangeOwner({
         "bug-reports": "bug-attachment-binding-candidates",
         "audit-archive": "audit-archive-binding-candidates",
         export: "export-binding-candidates",
+        import: "import-binding-candidates",
       }[purpose],
       session,
       page,
@@ -227,6 +238,7 @@ function ChangeOwner({
         "bug_attachment_binding_target_missing",
         "audit_archive_binding_target_missing",
         "export_binding_target_missing",
+        "import_binding_target_missing",
       ].includes(errorCode(failure))
     ) {
       setPreview(null);
@@ -301,7 +313,13 @@ function ChangeOwner({
       if (!owns()) return;
       setOpen(false);
       setPreview(null);
-      pushToast({ msg: `${noun}存储绑定已更新，后续新${noun}使用新位置`, kind: "success" });
+      pushToast({
+        msg:
+          purpose === "import"
+            ? "导入暂存绑定已更新，后续新分配使用新位置"
+            : `${noun}存储绑定已更新，后续新${noun}使用新位置`,
+        kind: "success",
+      });
       await onApplied();
     } catch (failure) {
       if (owns()) {
@@ -331,7 +349,7 @@ function ChangeOwner({
       <Modal
         open={open}
         onClose={close}
-        title={`切换${noun}存储位置`}
+        title={purpose === "import" ? "切换导入暂存位置" : `切换${noun}存储位置`}
         width={640}
         stopEscapePropagation
         returnFocusRef={trigger}
@@ -363,7 +381,11 @@ function ChangeOwner({
       >
         <div className="space-y-4 text-sm">
           <p className="text-xs leading-relaxed text-muted-foreground">
-            {purpose === "export" ? (
+            {purpose === "import" ? (
+              <>
+                仅后续新分配的导入暂存写入新位置。已有及在途上传、预标输入和格式导入继续使用原位置，最终原件位置不变。
+              </>
+            ) : purpose === "export" ? (
               <>
                 仅后续新分配的导出写入新位置。已有及已分配的 ZIP
                 和独立媒体保留原位置，下载期限不变。
@@ -422,6 +444,8 @@ function ChangeOwner({
                   选择已登记的全局 S3 位置。验证将实际写入、完整读回并删除一个测试对象。
                   {purpose === "export" &&
                     "同时验证对象和版本列举权限；外部端点须供浏览器及下载脚本访问。"}
+                  {purpose === "import" &&
+                    "同时验证版本读取、删除与列举能力；目标桶须启用版本控制，外部端点须供浏览器与模型服务访问。"}
                 </p>
               </div>
               {candidates.isFetching && (
@@ -481,7 +505,9 @@ function ChangeOwner({
                       </dd>
                     </div>
                     <div className="min-w-0">
-                      <dt className="text-xs text-muted-foreground">后续新{noun}位置</dt>
+                      <dt className="text-xs text-muted-foreground">
+                        {purpose === "import" ? "后续分配位置" : `后续新${noun}位置`}
+                      </dt>
                       <dd className="mt-1 break-words">{visiblePreview.target.name}</dd>
                       <dd className="mt-1 break-all text-xs text-muted-foreground">
                         桶 {visiblePreview.target.bucket} · 前缀{" "}
@@ -497,7 +523,23 @@ function ChangeOwner({
                     用途代次 {visiblePreview.previous.generation} →{" "}
                     {(visiblePreview.previous.generation ?? 0) + 1}
                   </p>
-                  {"zip_pending" in visiblePreview.history ? (
+                  {"lease_active" in visiblePreview.history ? (
+                    <div className="space-y-1 text-xs leading-relaxed text-muted-foreground">
+                      <p>
+                        预标临时输入：活动 {visiblePreview.history.lease_active} · 待清理{" "}
+                        {visiblePreview.history.lease_cleanup_pending} · 已清理{" "}
+                        {visiblePreview.history.lease_deleted}
+                      </p>
+                      <p>直传暂存：已分配 {visiblePreview.history.creation_staging}</p>
+                      <p>
+                        格式导入：已分配上传 {visiblePreview.history.mask_uploads} · 批次{" "}
+                        {visiblePreview.history.mask_batches}
+                      </p>
+                      <p>
+                        这些输入保留原位置。预标输入沿用已有清理；直传和格式导入暂存不自动删除。
+                      </p>
+                    </div>
+                  ) : "zip_pending" in visiblePreview.history ? (
                     <div className="space-y-1 text-xs leading-relaxed text-muted-foreground">
                       <p>
                         ZIP：待完成 {visiblePreview.history.zip_pending} · 可用{" "}
@@ -535,7 +577,7 @@ function ChangeOwner({
                     {visiblePreview.capabilities.conditional_write ? "通过" : "未通过"} · 完整读回
                     {visiblePreview.capabilities.full_read ? "通过" : "未通过"} · 删除
                     {visiblePreview.capabilities.delete ? "通过" : "未通过"}
-                    {purpose === "export" && (
+                    {(purpose === "export" || purpose === "import") && (
                       <>
                         {" "}
                         · 对象列举{visiblePreview.capabilities.list ? "通过" : "未通过"} · 版本列举
