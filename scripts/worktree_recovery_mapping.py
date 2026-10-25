@@ -153,6 +153,32 @@ async def remap_storage(
     ):
         raise WorktreeError("导入暂存含新归属，当前九桶恢复未覆盖其映射")
 
+    if (
+        await db.scalar(
+            select(DatasetAssetLocation.asset_id)
+            .where(DatasetAssetLocation.storage_ref.is_not(None))
+            .limit(1)
+        )
+        or await db.scalar(
+            select(DatasetAuxiliaryOriginal.id)
+            .where(DatasetAuxiliaryOriginal.storage_ref.is_not(None))
+            .limit(1)
+        )
+        or await db.scalar(
+            select(ManagedOriginalCreation.id)
+            .where(
+                ManagedOriginalCreation.owner_kind.in_(
+                    ("dataset", "dataset_auxiliary")
+                ),
+                ManagedOriginalCreation.configuration["original_ref"].astext.is_not(
+                    None
+                ),
+            )
+            .limit(1)
+        )
+    ):
+        raise WorktreeError("数据集原件含新归属，当前九桶恢复未覆盖其映射")
+
     mapping = bucket_mapping(source, target)
     planned = []
     ledger = []

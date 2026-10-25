@@ -657,6 +657,7 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
             )
         ]
         self.db = SimpleNamespace(
+            scalar=AsyncMock(return_value=None),
             get=AsyncMock(
                 return_value=SimpleNamespace(
                     kind="s3",

@@ -33,12 +33,12 @@ last_reviewed: 2026-10-25
 
 `GET /bindings`只读返回九种平台用途，即使共桶或未配置仍逐行保留，不初始化配置、不探测对象存储。每行包含`purpose / location_id / bucket / generation / state`，并提供：
 
-| 字段                       | 当前值与含义                                                                                                                                                                                                                                         |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `location_config_revision` | 关联位置的实际配置修订；无关联位置为null，与用途绑定`generation`独立。                                                                                                                                                                               |
-| `read_policy`              | `consumer_owned_compatibility`：各业务负责对象读取；已固定位置的对象按记录读取，其他入口保留既有兼容路径。                                                                                                                                           |
-| `write_policy`             | `deployment_mapping`：新写入采用当前兼容部署映射；头像、报告附件、审计归档、导出和导入暂存为`current_binding`，采用当前已登记绑定。两者均不赋予引用来源适配器写权限。                                                                                |
-| `change_policy`            | `legacy_mapping_locked`：用途映射锁定；头像为`reviewed_avatar_switch`、报告附件为`reviewed_bug_attachment_switch`、审计归档为`reviewed_audit_archive_switch`、导出为`reviewed_export_switch`、导入暂存为`reviewed_import_switch`，支持下述受控切换。 |
+| 字段                       | 当前值与含义                                                                                                                                                                                                                                                                                |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `location_config_revision` | 关联位置的实际配置修订；无关联位置为null，与用途绑定`generation`独立。                                                                                                                                                                                                                      |
+| `read_policy`              | `consumer_owned_compatibility`：各业务负责对象读取；已固定位置的对象按记录读取，其他入口保留既有兼容路径。                                                                                                                                                                                  |
+| `write_policy`             | `deployment_mapping`：新写入采用当前兼容部署映射；头像、报告附件、审计归档、导出、导入暂存和数据集原件为`current_binding`，采用当前已登记绑定。两者均不赋予引用来源适配器写权限。                                                                                                           |
+| `change_policy`            | `legacy_mapping_locked`：用途映射锁定；头像为`reviewed_avatar_switch`、报告附件为`reviewed_bug_attachment_switch`、审计归档为`reviewed_audit_archive_switch`、导出为`reviewed_export_switch`、导入暂存为`reviewed_import_switch`、数据集原件为`reviewed_dataset_switch`，支持下述受控切换。 |
 
 `state=configured`只表示用途映射符合已支持的配置合同，不证明位置在线、对象可读、历史定位全覆盖或迁移完成。`missing / mismatch`保留其原有含义；策略字段描述当前路由规则，不提供写入或迁移许可。客户端遇到未提供的新字段应显示未知，不能从位置读取能力推断平台写策略。权限仍为当前超级管理员与`datasets:read`。
 
@@ -64,11 +64,11 @@ last_reviewed: 2026-10-25
 
 仅新分配使用新目标，保存的预标输入、Dataset／Task直传暂存、Mask上传及batch保持原位置，后续完成／重试不重取当前绑定。最终原件的datasets／annotations位置独立，跨端点时由源client条件完整读取交给原目标写入链。Mask的logical object_key及格式计划保持，内部物理前缀不进入解析合同；旧无引用batch只按明确legacy位置及原SHA解释，不指向新目标。
 
-目标限默认位置或已登记全局S3，外部对象使用连接基前缀下`_aap_managed/import/`。外部上传／ML URL按该目标自身endpoint签名，不能使用全局代理改向；该端点须供调用方访问。正常密钥轮换使用当前位置凭据，已签URL仍受首次截止及提供方凭据撤销约束。预标输入继续原准确版本清理；直传与Mask暂存没有新增远端删除或GC。切换不复制历史输入，其余四用途仍锁定。
+目标限默认位置或已登记全局S3，外部对象使用连接基前缀下`_aap_managed/import/`。外部上传／ML URL按该目标自身endpoint签名，不能使用全局代理改向；该端点须供调用方访问。正常密钥轮换使用当前位置凭据，已签URL仍受首次截止及提供方凭据撤销约束。预标输入继续原准确版本清理；直传与Mask暂存没有新增远端删除或GC。切换不复制历史输入，其余三用途仍锁定。
 
 ## 头像用途切换
 
-仅当前有效超级管理员可修改，API Key 要求 `datasets:write`。报告附件、审计归档、导出和导入暂存使用下述独立切换端点，其余四用途保持锁定。
+仅当前有效超级管理员可修改，API Key 要求 `datasets:write`。报告附件、审计归档、导出、导入暂存和数据集原件使用下述独立切换端点，其余三用途保持锁定。
 
 | 方法  | 路径                               | 行为                                                                                         |
 | ----- | ---------------------------------- | -------------------------------------------------------------------------------------------- |
@@ -88,7 +88,7 @@ last_reviewed: 2026-10-25
 
 `history` 只返回已登记上传的 `pending / ready / retired`，不扫描历史报告或以未知历史附件阻断 `can_apply`。缺 owner 的旧键依旧由附件下载和绑定入口拒绝。预览成功后只变更新分配目标；已分配 pending 和旧 ready／retired 均按保存 owner 处理，不要求先排空。位置、连接、用途代次、维护代次、操作者／Key 或影响事实变化返回冲突，必须重新预览。
 
-目标限定 legacy 或已登记全局 S3，桶和前缀不由请求任意指定。新目标使用连接基前缀下 `_aap_managed/bug-reports/`；公开 `storageKey` 保持 `bug-report-attachments/{owner_uuid}/{upload_uuid}.{ext}`，内部物理定位和凭据不写入报告 DTO。此用途与头像、审计归档、导出、导入暂存可切换，其他四用途保持锁定。
+目标限定 legacy 或已登记全局 S3，桶和前缀不由请求任意指定。新目标使用连接基前缀下 `_aap_managed/bug-reports/`；公开 `storageKey` 保持 `bug-report-attachments/{owner_uuid}/{upload_uuid}.{ext}`，内部物理定位和凭据不写入报告 DTO。此用途与头像、审计归档、导出、导入暂存可切换，其他三用途保持锁定。
 
 ## 审计归档用途切换
 
@@ -98,7 +98,7 @@ last_reviewed: 2026-10-25
 
 新目标限定默认托管位置或已登记的全局 S3，物理键位于连接基前缀下 `_aap_managed/audit-archive/{YYYY}/{MM}/{archive_uuid}.jsonl.gz`。公开归档列表继续返回 `{YYYY}/{MM}/{archive_uuid}.jsonl.gz`。历史读取使用保存的物理地址和当前连接凭据；密钥轮换无需修改旧归档，端点、桶或前缀改向仍拒绝。所有 pending／ready 归档保护位置及连接不被重定向或删除。
 
-该用途不提供归档删除或历史搬迁。完整读取沿用 HEAD、IfMatch、SHA 与解压语义核验，不增加供应商版本历史读取要求；恢复边界见[存储恢复](/ops/deploy/storage-recovery#审计归档用途切换的部署顺序)。其余四用途保持锁定。
+该用途不提供归档删除或历史搬迁。完整读取沿用 HEAD、IfMatch、SHA 与解压语义核验，不增加供应商版本历史读取要求；恢复边界见[存储恢复](/ops/deploy/storage-recovery#审计归档用途切换的部署顺序)。其余三用途保持锁定。
 
 ## 登记和修改
 
@@ -363,3 +363,11 @@ GET接受`limit=20`（1至100）及`offset=0`（0至1000000），返回`retireme
 `history` 分别返回 ZIP 的 `zip_pending / zip_ready / zip_retired`，媒体包的 `media_building / media_ready / media_retiring / media_deleted`。真实探针返回 `conditional_write / full_read / delete / list / list_versions`。失败或未知收尾不切换；竞争变化返回冲突并要求重新预览。用途映射使用 `change_policy=reviewed_export_switch`。
 
 ZIP 和独立媒体包共同使用 export 绑定。仅新分配采用新目标，旧 ready、在途及缓存仍按保存位置读取；配套 ZIP 从媒体包继承位置。目标为默认托管位置或已登记的全局 S3，外部对象位于连接基前缀下 `_aap_managed/export/`。下载端点、固定七天期限及密钥轮换语义见[用户指南](/user-guide/datasets/storage-connections#切换导出的新写入位置)；未覆盖的新定位由[恢复工具](/ops/deploy/storage-recovery#导出用途切换的部署顺序)在修改映射前拒绝。
+
+## 数据集原件用途切换
+
+仅当前超级管理员和具有`datasets:write`的有效凭据可修改。入口为`GET /bindings/datasets/candidates`、`POST /bindings/datasets/change-preview`和`PATCH /bindings/datasets`；候选支持`limit / offset`。预览请求包含`expected_generation / target_location_id / target_config_revision`，确认再附五分钟有效的`impact_token`。令牌只用于datasets，并绑定当前操作者／Key、用途代次、目标配置、维护状态和影响事实，变化后需重新预览。绑定返回`write_policy=current_binding`及`change_policy=reviewed_dataset_switch`。
+
+响应`history`包含`asset_locations / creation_allocations / auxiliary_originals / retirements`四项元数据计数，不代表物理在线或迁移完成。目标限默认位置或已登记global S3；外部目标在连接基前缀下使用`_aap_managed/datasets/`。真实探针验证空PUT及非空multipart条件创建、完整读回与准确收尾，失败不改变绑定。完整对象键同时限制1000字符／1024 UTF-8字节；平台生成物理键，请求不能任意指定桶、键或宿主路径。
+
+切换只影响后续新分配。现有DatasetItem、辅助原件和在途Creation保持保存地址，读取在原有授权和内容校验下使用当前位置的当前凭据。正常密钥轮换不改冻结事实，当前绑定不参与旧原件定位；Task独立原件仍遵循锁定的annotations用途。此入口不搬迁、重签历史原件或授予物理回收许可；另外三用途保持锁定。
