@@ -2,7 +2,11 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { storageApi, type StorageFaultFilter } from "@/api/storage";
-import type { StorageFaultOut } from "@/api/generated/types.gen";
+import type {
+  StorageFaultOut,
+  StorageObservationRateCounts,
+  StorageObservationRates,
+} from "@/api/generated/types.gen";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -33,6 +37,139 @@ const SCOPE_LABELS = {
   historical: "历史配置或内容范围",
   unknown: "当前范围尚未确认",
 };
+
+function utcTime(value: string): number | null {
+  if (
+    typeof value !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|\+00:00)$/.test(value)
+  ) {
+    return null;
+  }
+  const time = Date.parse(value);
+  return Number.isFinite(time) && new Date(time).toISOString().slice(0, 19) === value.slice(0, 19)
+    ? time
+    : null;
+}
+
+function validWindow(
+  value: StorageObservationRates | null | undefined,
+): value is StorageObservationRates {
+  if (
+    !value ||
+    value.timezone !== "UTC" ||
+    value.unit !== "attempt" ||
+    value.coverage !== "recorded_attempts_only"
+  ) {
+    return false;
+  }
+  const start = utcTime(value.window_start);
+  const end = utcTime(value.window_end);
+  const measured = utcTime(value.measured_at);
+  return (
+    start !== null &&
+    end !== null &&
+    measured === end &&
+    start <= end &&
+    start % 86_400_000 === 0 &&
+    new Date(start).toISOString().slice(0, 10) === new Date(end).toISOString().slice(0, 10)
+  );
+}
+
+function validCounts(
+  value: StorageObservationRateCounts | null | undefined,
+): value is StorageObservationRateCounts {
+  if (!value) return false;
+  const {
+    success_count: success,
+    failure_count: failure,
+    total_count: total,
+    failure_rate: rate,
+  } = value;
+  if (
+    ![success, failure, total].every((count) => Number.isSafeInteger(count) && count >= 0) ||
+    success + failure !== total
+  ) {
+    return false;
+  }
+  return total === 0
+    ? rate === null
+    : typeof rate === "number" &&
+        Number.isFinite(rate) &&
+        rate >= 0 &&
+        rate <= 1 &&
+        (failure !== 0 || rate === 0) &&
+        (success !== 0 || rate === 1) &&
+        Math.abs(rate - failure / total) <= 1e-9;
+}
+
+const percent = new Intl.NumberFormat("zh-CN", { style: "percent", maximumFractionDigits: 2 });
+const failurePercent = (value: number) =>
+  value > 0 && value < 0.0001
+    ? "<0.01%"
+    : value < 1 && value > 0.9999
+      ? ">99.99%"
+      : percent.format(value);
+const utcDate = (value: string) => new Date(value).toISOString().slice(0, 19).replace("T", " ");
+
+function ObservationRates({ value }: { value: StorageObservationRates | null | undefined }) {
+  const window = validWindow(value) ? value : null;
+  return (
+    <div className="space-y-2">
+      <dl className="space-y-2" aria-label="当日已记录完成尝试">
+        {(
+          [
+            ["original_read", "原图不可读率"],
+            ["preview_generate", "预览失败率"],
+          ] as const
+        ).map(([metric, label]) => {
+          const counts = window?.[metric];
+          const valid = validCounts(counts);
+          return (
+            <div
+              key={metric}
+              role="group"
+              aria-label={label}
+              className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-4 gap-y-1"
+            >
+              <dt className="font-medium">{label}</dt>
+              <dd className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1 tabular-nums">
+                <span>
+                  {!valid
+                    ? "未知"
+                    : counts.total_count === 0
+                      ? "暂无可计算观测"
+                      : failurePercent(counts.failure_rate!)}
+                </span>
+                {valid && (
+                  <span className="text-xs leading-relaxed text-muted-foreground">
+                    成功 {counts.success_count} · 失败 {counts.failure_count} · 分母{" "}
+                    {counts.total_count}
+                  </span>
+                )}
+              </dd>
+            </div>
+          );
+        })}
+      </dl>
+      <div className="space-y-1 text-xs leading-relaxed text-muted-foreground">
+        {window ? (
+          <>
+            <p>
+              当日 UTC 窗口：{utcDate(window.window_start)} 至 {utcDate(window.window_end)}。
+            </p>
+            <p>服务器观测于 {utcDate(window.measured_at)} UTC。</p>
+          </>
+        ) : (
+          <p>当日 UTC 窗口与比率观测未知；尚未提供或数据无效。</p>
+        )}
+        <p>
+          失败率为失败 ÷（成功 + 失败），仅统计已记录的完成尝试，未记录调用的覆盖未知。
+          窗口可能包含旧配置，不代表当前健康；故障筛选和分页不改变此汇总。
+        </p>
+      </div>
+    </div>
+  );
+}
 
 interface Props {
   locationId: string;
@@ -71,6 +208,7 @@ function FaultsOwner({ locationId, returnTo, onJob }: Props) {
       <p className="text-xs leading-relaxed text-muted-foreground">
         只读已保存观测，不探测原件。没有记录不代表实时健康；恢复仅证明同一范围曾实际成功。
       </p>
+      {data && <ObservationRates value={data.rates} />}
       <div role="group" aria-label="故障状态" className="flex flex-wrap items-center gap-2">
         {FILTERS.map(([value, label]) => (
           <Button

@@ -54,6 +54,10 @@ last_reviewed: 2026-10-26
 
 查询参数：`state=active|recovered|all`（默认`active`）、`limit`（1–100，默认20）、`offset`（默认0）。响应为`items / total / counts / observation_only`；`counts.active`与`counts.recovered`按相同可见范围统计，不受状态筛选和分页影响，`observation_only`始终为true。条目包含安全关联UUID、来源名、类别、操作、首次／最近失败、恢复时间、已接收失败次数与默认处理角色；`responsible_user_id=null`表示尚未指定个人。不返回内部故障键、路径、对象键或提供方错误原文。
 
+响应还包含可空的`rates`，与故障列表筛选和分页独立，按相同当前来源权限裁剪。`measured_at / window_start / window_end`由数据库服务器时刻确定，窗口为当日UTC零点至观测时刻；`timezone=UTC`、`unit=attempt`、`coverage=recorded_attempts_only`。`original_read`和`preview_generate`各含`success_count / failure_count / total_count / failure_rate`，比例为失败数除以总数；总数为零时比例为null。旧响应缺失或`rates=null`均表示未知，不得显示为0%。汇总读取失败不影响既有故障列表，也不触发源I/O或计数写入。
+
+原图只计实际严格回源的完整读取；登记安全复读按实际次数计，缓存命中、列举、短探针和调用前错误排除。预览只计实际新生成且最终提交发布的结果，复用、关闭、回滚和历史重放排除。取消、撤权、配置漂移、未收尾及未知结果不补造失败或成功；历史不回填分母，旁路计数丢失不重试。该窗口包含当日不同配置下已记录的尝试，不表示当前配置健康，也不是全部请求或唯一文件的失败率。
+
 `scope_status=current|historical|unknown`仅表示已保存的配置／内容范围能否匹配，不是在线健康检查。新状态仅由本次接入的实际操作产生，不从旧审计补造。持续失败合并计数；首次发生与再次发生记录`storage.fault`，恢复记录`storage.fault.recovered`，明细带`fault_id`及`transition=opened|reopened|recovered`，可用`detail_key=fault_id`查询转换历史。
 
 恢复需要同一范围的实际成功及既有权限、配置、内容和发布复核。缓存命中原图、邻目标、变更后的期望内容或一般连接探针都不能清除故障。较旧或重复观测不覆盖已接受的新结果；成功不为从未发生故障的文件建状态行。首次失败尚未落库时的并发成功可能没有行可更新，随后晚到的首次失败保守保持active，待下一次同范围成功恢复。

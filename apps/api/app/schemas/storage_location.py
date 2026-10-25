@@ -775,8 +775,27 @@ class StorageFaultCounts(BaseModel):
     recovered: int
 
 
+class StorageObservationRateCounts(BaseModel):
+    success_count: int = Field(ge=0)
+    failure_count: int = Field(ge=0)
+    total_count: int = Field(ge=0)
+    failure_rate: float | None = Field(ge=0, le=1)
+
+
+class StorageObservationRates(BaseModel):
+    measured_at: datetime
+    window_start: datetime
+    window_end: datetime
+    timezone: Literal["UTC"]
+    unit: Literal["attempt"]
+    coverage: Literal["recorded_attempts_only"]
+    original_read: StorageObservationRateCounts
+    preview_generate: StorageObservationRateCounts
+
+
 class StorageFaultList(BaseModel):
     items: list[StorageFaultOut]
     total: int
     counts: StorageFaultCounts
+    rates: StorageObservationRates | None = None
     observation_only: Literal[True] = True

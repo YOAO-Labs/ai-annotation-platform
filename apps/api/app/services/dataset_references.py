@@ -24,6 +24,7 @@ from app.services import dataset_scans as scans
 from app.services import filesystem_storage as fs
 from app.services import reference_storage
 from app.services import storage_access, storage_fault_events
+from app.services import storage_observation_rates as rates
 from app.services import storage_location as locations
 from app.services.reference_keys import reference_key
 
@@ -474,6 +475,16 @@ async def register_entry(
         )
         committing = True
         await db.commit()
+        if prepared_preview is not None and preview is not None:
+            await rates.finish(
+                db,
+                prepared_preview.rate_attempt,
+                "success"
+                if preview.state == "ready"
+                else "failure"
+                if preview.state == "failed"
+                else None,
+            )
         if preview is not None and preview.state == "ready":
             await storage_fault_events.recover(
                 db, getattr(preview, "_fault_observation", None)
@@ -488,6 +499,8 @@ async def register_entry(
         raise
     finally:
         final.close()
+        if prepared_preview is not None:
+            await rates.finish(db, prepared_preview.rate_attempt, None)
 
 
 async def prepare_copy(
@@ -969,6 +982,7 @@ async def reference_snapshot(
         else None
     )
     snapshot = None
+    source_context = None
     admission_failed = False
 
     async def admitted():
@@ -1003,8 +1017,8 @@ async def reference_snapshot(
                 raise
             log.warning("Original cache lookup deferred asset=%s", context["asset_id"])
     from_source = snapshot is None
-    source_context = None
     observation = None
+    rate_attempt = None
     if from_source:
         fault_node = node_id or locations.api_node_id()
 
@@ -1033,44 +1047,60 @@ async def reference_snapshot(
             task_id=task_id,
             **{key: context[key] for key in ("item_id", "asset_id", "run_id")},
         )
-        async with storage_fault_events.observe(
-            db,
-            operation="reference_read",
-            observation=observation,
-            validate=fault_authority,
-            actor_id=actor.id,
-            task_id=task_id,
-            **{
-                key: context[key]
-                for key in ("location_id", "source_id", "item_id", "asset_id", "run_id")
-            },
-        ):
-            source_context = await reference_source_context(
+        rate_attempt = rates.begin(
+            context["location_id"], context["source_id"], "original_read"
+        )
+        try:
+            async with storage_fault_events.observe(
                 db,
-                item_id,
-                actor,
+                operation="reference_read",
+                observation=observation,
+                rate_attempt=rate_attempt,
+                validate=fault_authority,
+                actor_id=actor.id,
                 task_id=task_id,
-                node_id=node_id,
-                task_authorizer=task_authorizer,
-            )
-            if any(source_context.get(key) != value for key, value in context.items()):
-                raise snapshots.ContentError("content_binding_changed")
-            snapshot = await snapshots.capture_from_location(
-                db,
-                context["location_id"],
-                lambda: reference_storage.content_file(
-                    source_context["config"],
-                    source_context["base"],
-                    source_context["path"],
-                    expected_anchor=source_context["anchor"],
-                    expected=source_context["expected"],
-                    expected_source_identity=source_context["source_identity"],
-                ),
-                context["sha256"],
-                expected_revision=context["maintenance_revision"],
-                node_id=node_id,
-                on_acquired=admitted,
-            )
+                **{
+                    key: context[key]
+                    for key in (
+                        "location_id",
+                        "source_id",
+                        "item_id",
+                        "asset_id",
+                        "run_id",
+                    )
+                },
+            ):
+                source_context = await reference_source_context(
+                    db,
+                    item_id,
+                    actor,
+                    task_id=task_id,
+                    node_id=node_id,
+                    task_authorizer=task_authorizer,
+                )
+                if any(
+                    source_context.get(key) != value for key, value in context.items()
+                ):
+                    raise snapshots.ContentError("content_binding_changed")
+                snapshot = await snapshots.capture_from_location(
+                    db,
+                    context["location_id"],
+                    lambda: reference_storage.content_file(
+                        source_context["config"],
+                        source_context["base"],
+                        source_context["path"],
+                        expected_anchor=source_context["anchor"],
+                        expected=source_context["expected"],
+                        expected_source_identity=source_context["source_identity"],
+                    ),
+                    context["sha256"],
+                    expected_revision=context["maintenance_revision"],
+                    node_id=node_id,
+                    on_acquired=admitted,
+                )
+        except BaseException:
+            await rates.finish(db, rate_attempt, None)
+            raise
     try:
 
         async def validate():
@@ -1102,11 +1132,14 @@ async def reference_snapshot(
             await _retain_snapshot(original_cache, cache_factory, context, snapshot)
             await validate()
         if from_source:
+            await rates.finish(db, rate_attempt, "success")
             await storage_fault_events.recover(db, observation)
         return snapshot
     except BaseException:
         snapshot.close()
         raise
+    finally:
+        await rates.finish(db, rate_attempt, None)
 
 
 def _cache_factory(db):

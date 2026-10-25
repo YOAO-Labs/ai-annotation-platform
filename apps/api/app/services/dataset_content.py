@@ -18,6 +18,7 @@ from app.services import filesystem_storage as fs
 from app.services import storage_location as locations
 from app.services import reference_storage
 from app.services import storage_access, storage_fault_events
+from app.services import storage_observation_rates as rates
 from app.services.storage import storage_service
 
 
@@ -179,49 +180,57 @@ async def scan_snapshot(
         job_id=event_job_id or run.async_job_id,
         registration_id=event_registration_id,
     )
-    async with storage_fault_events.observe(
-        db,
-        operation="scan_content",
-        observation=observation,
-        validate=fault_authority,
-        actor_id=actor.id,
-        location_id=location.id,
-        source_id=source.id,
-        dataset_id=source.dataset_id,
-        run_id=run.id,
-        job_id=event_job_id or run.async_job_id,
-        registration_id=event_registration_id,
-    ):
-        config, base, path = (
-            await reference_storage.configuration(db, location),
-            source.config["relative_path"],
-            entry.relative_path,
-        )
-        if before_io is not None:
-            await before_io(db)
-        await db.commit()  # No database locks span filesystem I/O.
-        from app.services.managed_original_reclaim_fence import protect_observed_read
-
-        async def reclaimed_guard():
-            await protect_observed_read(db, expected, anchor)
-
-        snapshot = await snapshots.capture_from_location(
+    rate_attempt = rates.begin(location.id, source.id, "original_read")
+    try:
+        async with storage_fault_events.observe(
             db,
-            location.id,
-            lambda: reference_storage.content_file(
-                config,
-                base,
-                path,
-                expected_anchor=anchor,
-                expected=expected,
-                expected_source_identity=expected_source,
-            ),
-            digest,
-            expected_revision=run.snapshot.get("maintenance_revision", 1),
-            node_id=node,
-            purpose="scan_content",
-            on_acquired=reclaimed_guard,
-        )
+            operation="scan_content",
+            observation=observation,
+            rate_attempt=rate_attempt,
+            validate=fault_authority,
+            actor_id=actor.id,
+            location_id=location.id,
+            source_id=source.id,
+            dataset_id=source.dataset_id,
+            run_id=run.id,
+            job_id=event_job_id or run.async_job_id,
+            registration_id=event_registration_id,
+        ):
+            config, base, path = (
+                await reference_storage.configuration(db, location),
+                source.config["relative_path"],
+                entry.relative_path,
+            )
+            if before_io is not None:
+                await before_io(db)
+            await db.commit()  # No database locks span filesystem I/O.
+            from app.services.managed_original_reclaim_fence import (
+                protect_observed_read,
+            )
+
+            async def reclaimed_guard():
+                await protect_observed_read(db, expected, anchor)
+
+            snapshot = await snapshots.capture_from_location(
+                db,
+                location.id,
+                lambda: reference_storage.content_file(
+                    config,
+                    base,
+                    path,
+                    expected_anchor=anchor,
+                    expected=expected,
+                    expected_source_identity=expected_source,
+                ),
+                digest,
+                expected_revision=run.snapshot.get("maintenance_revision", 1),
+                node_id=node,
+                purpose="scan_content",
+                on_acquired=reclaimed_guard,
+            )
+    except BaseException:
+        await rates.finish(db, rate_attempt, None)
+        raise
     try:
         (
             current_location,
@@ -274,11 +283,14 @@ async def scan_snapshot(
                 status_code=200,
             )
         await db.commit()
+        await rates.finish(db, rate_attempt, "success")
         await storage_fault_events.recover(db, observation)
         return snapshot
     except BaseException:
         snapshot.close()
         raise
+    finally:
+        await rates.finish(db, rate_attempt, None)
 
 
 async def _reference_task_authorizer(db, task, actor):

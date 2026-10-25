@@ -47109,6 +47109,16 @@
             "title": "Observation Only",
             "type": "boolean"
           },
+          "rates": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StorageObservationRates"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "total": {
             "title": "Total",
             "type": "integer"
@@ -50094,6 +50104,98 @@
           "expected_revision"
         ],
         "title": "StorageMigrationWindowTransition",
+        "type": "object"
+      },
+      "StorageObservationRateCounts": {
+        "properties": {
+          "failure_count": {
+            "minimum": 0.0,
+            "title": "Failure Count",
+            "type": "integer"
+          },
+          "failure_rate": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Rate"
+          },
+          "success_count": {
+            "minimum": 0.0,
+            "title": "Success Count",
+            "type": "integer"
+          },
+          "total_count": {
+            "minimum": 0.0,
+            "title": "Total Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "success_count",
+          "failure_count",
+          "total_count",
+          "failure_rate"
+        ],
+        "title": "StorageObservationRateCounts",
+        "type": "object"
+      },
+      "StorageObservationRates": {
+        "properties": {
+          "coverage": {
+            "const": "recorded_attempts_only",
+            "title": "Coverage",
+            "type": "string"
+          },
+          "measured_at": {
+            "format": "date-time",
+            "title": "Measured At",
+            "type": "string"
+          },
+          "original_read": {
+            "$ref": "#/components/schemas/StorageObservationRateCounts"
+          },
+          "preview_generate": {
+            "$ref": "#/components/schemas/StorageObservationRateCounts"
+          },
+          "timezone": {
+            "const": "UTC",
+            "title": "Timezone",
+            "type": "string"
+          },
+          "unit": {
+            "const": "attempt",
+            "title": "Unit",
+            "type": "string"
+          },
+          "window_end": {
+            "format": "date-time",
+            "title": "Window End",
+            "type": "string"
+          },
+          "window_start": {
+            "format": "date-time",
+            "title": "Window Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "measured_at",
+          "window_start",
+          "window_end",
+          "timezone",
+          "unit",
+          "coverage",
+          "original_read",
+          "preview_generate"
+        ],
+        "title": "StorageObservationRates",
         "type": "object"
       },
       "StorageOriginalCounts": {

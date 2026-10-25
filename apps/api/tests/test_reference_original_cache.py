@@ -231,6 +231,49 @@ async def test_path_overwrite_still_reads_pinned_old_asset_from_complete_cache(
         image.close()
 
 
+async def test_real_cached_admission_has_initialized_source_context_and_no_read_count(
+    referenced_cache, test_engine, monkeypatch
+):
+    from unittest.mock import AsyncMock
+
+    from app.db.models.storage_observation_rate import StorageObservationBucket
+    from tests.test_storage_observation_readers import totals
+
+    w = referenced_cache
+    await seed_cache(w)
+    before = await totals(test_engine, w.source_id)
+    admitted = AsyncMock()
+    monkeypatch.setattr(
+        refs,
+        "reference_source_context",
+        AsyncMock(side_effect=AssertionError("complete cache must not read source")),
+    )
+    try:
+        async with w.factory() as db:
+            image = await refs.reference_snapshot(
+                db,
+                w.item_id,
+                w.actor,
+                task_id=w.task.id,
+                expected_sha256=w.sha,
+                on_acquired=admitted,
+            )
+            try:
+                assert image.file.read() == w.data
+            finally:
+                image.close()
+        admitted.assert_awaited_once()
+        assert await totals(test_engine, w.source_id) == before
+        refs.reference_source_context.assert_not_awaited()
+    finally:
+        async with test_engine.begin() as db:
+            await db.execute(
+                delete(StorageObservationBucket).where(
+                    StorageObservationBucket.source_id == w.source_id
+                )
+            )
+
+
 async def test_cached_original_does_not_grant_task_or_dataset_management(
     referenced_cache,
 ):

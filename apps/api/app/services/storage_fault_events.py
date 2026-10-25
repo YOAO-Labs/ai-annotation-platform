@@ -11,7 +11,7 @@ from sqlalchemy import insert, select, text
 from app.db.models.audit_log import AuditLog
 from app.db.models.user import User
 from app.middleware.request_id import request_id_var
-from app.services import storage_access
+from app.services import storage_access, storage_observation_rates as rates
 
 log = logging.getLogger(__name__)
 ACTION = "storage.fault"
@@ -114,7 +114,14 @@ async def report(
 
 @asynccontextmanager
 async def observe(
-    db, *, operation, actor_id=None, observation=None, validate=None, **identifiers
+    db,
+    *,
+    operation,
+    actor_id=None,
+    observation=None,
+    validate=None,
+    rate_attempt=None,
+    **identifiers,
 ):
     try:
         yield
@@ -134,6 +141,9 @@ async def observe(
                 observation=observation,
                 **identifiers,
             )
+        await rates.finish(
+            db, rate_attempt, rates.failure_outcome(exc) if permitted else None
+        )
         raise
 
 

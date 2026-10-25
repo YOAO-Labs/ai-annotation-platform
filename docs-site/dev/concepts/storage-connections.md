@@ -421,6 +421,16 @@ Worker 以 run generation、task/job ID、租约共同 fencing，逐成员事务
 
 扫描和预检分别按来源批量查询，活动轮次优先，并独立保留最近完整成功记录。配置匹配由当前修订判断，不外露 snapshot。AsyncJob 保留期不删除领域证据。整个 GET 无源 I/O、写入或后台派发，不需要迁移或刷新 Worker。
 
+### 原图与预览的窗口观测率
+
+`storage_observation_rates`为实际严格回源和新建预览提供独立的完成尝试计数。`scan_snapshot`与`reference_snapshot`的回源阶段建立内存尝试；成功在现有最终身份、内容、Key及提交核验后结算。缓存命中不计，登记的实际双复读分别计数。失败只接受受控的源打开、缺失、读取与图像内容错误；配置、业务准入、取消、未知异常及物理收尾不明均排除，不改变现有Permit、排空或严格读取行为。
+
+预览在`directory_previews.prepare`真正encode/create前建立尝试，由`PreparedPreview`携带，原登记最终commit成功后按发布的ready/failed一次结算。复用、策略关闭、历史重放、撤权与回滚不计；预览失败仍可保留已核验原件。单次尝试首次结算前加锁消费，旁路写入失败不重试，不将不确定提交补造为事实。
+
+迁移0261新增无父外键的`StorageObservationBucket`，主键为完成时UTC日期、Location、Source和metric，仅保存成功／失败数与首次／最近时间，无路径、请求、文件明细或配置cohort。独立事务以原子UPSERT累加，锁等待250ms、语句1秒、协作预算2秒；不提交或回滚调用者事务。历史不回填，应用回退保留汇总，非空表拒绝破坏性降级。
+
+现有faults GET在独立只读短事务中以同一SQL的服务器时间和当前来源ACL汇总当日UTC窗口；失败返回可空rates，不毒化原列表事务，state和分页只影响故障明细。零分母比例为null，覆盖为`recorded_attempts_only`。这与A4稀疏故障状态及其当前／历史配置判断独立；当天旧配置失败和新配置成功都保留在窗口中，不能解释为当前健康或完整请求覆盖。
+
 ## 外部原件责任声明
 
 `DatasetSource.external_protection` 保存责任方、恢复方式、内部参考编号和服务器登记主体／时间，`external_protection_revision` 从0开始独立递增。旧来源保持空声明；同一位置下不同来源可以有不同责任方。声明不放入 `source.config` 或位置配置，因此不会改变内容修订、规则证明、历史扫描、有效缓存或原件身份。

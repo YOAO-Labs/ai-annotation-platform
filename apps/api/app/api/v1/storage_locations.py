@@ -697,7 +697,7 @@ async def source_faults(
     db: AsyncSession = Depends(get_db),
     actor: User = Depends(manager),
 ):
-    from app.services import storage_fault_state
+    from app.services import storage_fault_state, storage_observation_rates
 
     actor = await require_manager(db, actor.id)
     proof = await key_authority(
@@ -708,6 +708,7 @@ async def source_faults(
     result = await storage_fault_state.visible_page(
         db, location, actor, state=state, limit=limit, offset=offset
     )
+    result["rates"] = await storage_observation_rates.visible_rates(db, location, actor)
     actor = await require_manager(db, actor.id)
     if actor.role != initial_role:
         raise HTTPException(403, detail={"code": "access_revoked"})

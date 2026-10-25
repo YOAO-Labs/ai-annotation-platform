@@ -2,17 +2,19 @@
 
 import hashlib
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import SimpleNamespace
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.models.dataset_source import DatasetSourcePreview, DatasetSourceItem
 from app.db.models.dataset_asset import DatasetAsset, StorageLocation
 from app.db.models.thumbnail_output import ThumbnailOutput
 from app.services import directory_policy as policy
 from app.services import storage_access, storage_fault_events, storage_location
+from app.services import storage_observation_rates as rates
 from app.services import thumbnail_outputs as outputs
 from app.services import original_sources
 from app.services.content_snapshot import ContentError, capture
@@ -117,6 +119,7 @@ class PreparedPreview:
     baseline: tuple | None
     reuse: bool = False
     output_id: object = None
+    rate_attempt: object = None
 
 
 async def prepare(db, source, entry, snapshot):
@@ -178,6 +181,10 @@ async def prepare(db, source, entry, snapshot):
                     )
         except Exception:
             pass
+    prepared = replace(
+        prepared,
+        rate_attempt=rates.begin(location.id, source.id, "preview_generate"),
+    )
     try:
         body = await encode(snapshot)
         output = await outputs.create(
@@ -193,11 +200,32 @@ async def prepare(db, source, entry, snapshot):
             prepared.revisions,
             prepared.baseline,
             output_id=output.id,
+            rate_attempt=prepared.rate_attempt,
         )
-    except Exception:
+    except Exception as exc:
         # The verified original can still be registered. The durable output owns
         # any uncertain physical write independently of this business transaction.
+        if (
+            getattr(exc, "storage_operation_unsettled", False)
+            or isinstance(
+                exc,
+                (
+                    HTTPException,
+                    SQLAlchemyError,
+                    outputs.media_cache_storage.MediaCacheStorageError,
+                ),
+            )
+            or isinstance(exc, ContentError)
+            and (
+                exc.code.startswith("storage_")
+                or exc.code in {"configuration_changed", "thumbnail_output_changed"}
+            )
+        ):
+            await rates.finish(db, prepared.rate_attempt, None)
         return prepared
+    except BaseException:
+        await rates.finish(db, prepared.rate_attempt, None)
+        raise
 
 
 async def output_for_row(db, row):
