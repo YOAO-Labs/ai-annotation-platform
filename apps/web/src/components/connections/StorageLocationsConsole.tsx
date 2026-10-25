@@ -36,6 +36,7 @@ const PURPOSES = [
   ["training", "冻结训练数据"],
 ] as const;
 const BINDING_CHANGE_POLICIES = {
+  annotations: "reviewed_annotations_switch",
   avatars: "reviewed_avatar_switch",
   "bug-reports": "reviewed_bug_attachment_switch",
   "audit-archive": "reviewed_audit_archive_switch",
@@ -261,7 +262,8 @@ function ConsoleOwner() {
                                   : binding?.state === "mismatch"
                                     ? "配置不匹配"
                                     : "未配置"}
-                              {(purpose === "avatars" ||
+                              {(purpose === "annotations" ||
+                                purpose === "avatars" ||
                                 purpose === "bug-reports" ||
                                 purpose === "audit-archive" ||
                                 purpose === "export" ||
@@ -286,6 +288,7 @@ function ConsoleOwner() {
                                           ["import-binding-candidates"],
                                           ["dataset-binding-candidates"],
                                           ["media-cache-binding-candidates"],
+                                          ["annotations-binding-candidates"],
                                           ["storage-buckets"],
                                         ].map((queryKey) => client.invalidateQueries({ queryKey })),
                                       );

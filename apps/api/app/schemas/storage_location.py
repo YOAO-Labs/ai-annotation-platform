@@ -276,6 +276,7 @@ class StorageBindingOut(BaseModel):
         "reviewed_import_switch",
         "reviewed_dataset_switch",
         "reviewed_media_cache_switch",
+        "reviewed_annotations_switch",
     ]
 
 
@@ -556,6 +557,54 @@ class DatasetBindingPreview(BaseModel):
     previous: StorageBindingOut
     target: DatasetBindingTarget
     history: DatasetBindingHistory
+    capabilities: dict[str, bool]
+    can_apply: bool
+    measured_at: datetime
+    expires_at: datetime
+    impact_token: str
+
+
+class AnnotationsBindingCandidate(BaseModel):
+    location_id: uuid.UUID
+    name: str
+    config_revision: int
+
+
+class AnnotationsBindingCandidates(BaseModel):
+    items: list[AnnotationsBindingCandidate]
+    total: int
+
+
+class AnnotationsBindingChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_generation: int = Field(ge=1)
+    target_location_id: uuid.UUID
+    target_config_revision: int = Field(ge=1)
+
+
+class AnnotationsBindingApply(AnnotationsBindingChange):
+    impact_token: str = Field(min_length=1, max_length=8192)
+
+
+class AnnotationsBindingTarget(AnnotationsBindingCandidate):
+    bucket: str
+    key_prefix: str
+    connection_revision: int | None = None
+
+
+class AnnotationsBindingHistory(BaseModel):
+    task_originals: int
+    creation_allocations: int
+    raster_mask_objects: int
+    comment_attachments: int
+    guide_assets: int
+
+
+class AnnotationsBindingPreview(BaseModel):
+    purpose: Literal["annotations"] = "annotations"
+    previous: StorageBindingOut
+    target: AnnotationsBindingTarget
+    history: AnnotationsBindingHistory
     capabilities: dict[str, bool]
     can_apply: bool
     measured_at: datetime

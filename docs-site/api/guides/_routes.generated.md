@@ -706,6 +706,9 @@
 | GET | `/bindings/datasets/candidates` |
 | POST | `/bindings/datasets/change-preview` |
 | PATCH | `/bindings/datasets` |
+| GET | `/bindings/annotations/candidates` |
+| POST | `/bindings/annotations/change-preview` |
+| PATCH | `/bindings/annotations` |
 | GET | `/bindings/media-cache/candidates` |
 | POST | `/bindings/media-cache/change-preview` |
 | PATCH | `/bindings/media-cache` |
@@ -1093,4 +1096,4 @@
 
 ---
 
-_共 98 模块 / 641 路由_
+_共 98 模块 / 644 路由_
