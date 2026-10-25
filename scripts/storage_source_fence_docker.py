@@ -942,8 +942,10 @@ class DockerAdapter:
         return uploads
 
     def _lifecycle_change(self, snapshot, *, restore):
-        self._observe()
+        source, _, _ = self._observe(stopped=restore)
         known_uploads = self._snapshot(snapshot)
+        if restore and source["State"]["Running"] is False:
+            self.readonly()
         if not restore:
             self.known_uploads = known_uploads
         with self._client() as client:
@@ -975,7 +977,10 @@ class DockerAdapter:
         self._lifecycle_change(snapshot, restore=True)
 
     def _gateway(self, readonly):
-        _, before, _ = self._observe()
+        source, before, _ = self._observe(stopped=True)
+        if not readonly and source["State"]["Running"] is False:
+            self._gateway(True)
+            source, before, _ = self._observe()
         data = gateway_config(self.source_ip, readonly)
         fd, name = tempfile.mkstemp(prefix=".nginx-", dir=self.directory)
         try:
@@ -995,13 +1000,23 @@ class DockerAdapter:
                 os.unlink(name)
         self._docker("restart", "--time", "5", self.config["gateway_container"])
         self.gateway_generation = None
-        _, after, content = self._observe()
+        source, after, content = self._observe(stopped=readonly)
         _require(
             content == data
             and before["State"]["StartedAt"] != after["State"]["StartedAt"],
             "native_gateway_unsettled",
         )
         self.gateway_generation = self._generation(after)
+        if readonly and source["State"]["Running"] is False:
+            self._docker("start", self.config["source_container"])
+            current, _, content = self._observe()
+            _require(
+                current["State"]["StartedAt"] != source["State"]["StartedAt"]
+                and content == data,
+                "native_source_unsettled",
+            )
+            self._ready()
+            self._observe()
 
     @_safe
     def readonly(self):

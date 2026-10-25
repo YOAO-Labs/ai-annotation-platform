@@ -470,6 +470,108 @@ class NativeTests(unittest.TestCase):
         self.assertEqual(receipt["stopped_pid"], 0)
         self.assertTrue(self.world.source["State"]["Running"])
 
+    def test_public_readonly_resumes_stopped_source_after_real_gateway_restart(self):
+        self.world.docker("stop", "--time", "5", self.world.config["source_container"])
+        self.world.calls.clear()
+        self.adapter.readonly()
+        changes = [
+            call[0] for call in self.world.calls if call[0] in {"restart", "start"}
+        ]
+        self.assertEqual(changes, ["restart", "start"])
+        self.assertTrue(self.world.source["State"]["Running"])
+        self.assertEqual(
+            self.adapter._files(), native.gateway_config(self.world.ip, True)
+        )
+        self.assertEqual(self.adapter.known_uploads, [])
+        self.use_client()
+        snapshot = self.adapter.prepare()
+        self.adapter.disable_lifecycle(snapshot)
+        self.adapter.barrier()
+
+    def test_restore_entry_restores_stopped_source_readonly_before_lifecycle(self):
+        self.use_client()
+        self.adapter.readonly()
+        bucket = self.client.buckets[0]
+        original = [{"ID": "old", "Status": "Enabled", "Expiration": {"Days": 1}}]
+        self.client.rules[bucket] = copy.deepcopy(original)
+        self.client.uploads[bucket] = [{"Key": "saved", "UploadId": "known"}]
+        snapshot = self.adapter.prepare()
+        self.adapter.disable_lifecycle(snapshot)
+        self.world.docker("stop", "--time", "5", self.world.config["source_container"])
+        self.world.calls.clear()
+        put = self.client.put_bucket_lifecycle_configuration
+
+        def restore(**kwargs):
+            self.assertTrue(self.world.source["State"]["Running"])
+            self.assertEqual(
+                self.adapter._files(), native.gateway_config(self.world.ip, True)
+            )
+            changes = [
+                call[0] for call in self.world.calls if call[0] in {"restart", "start"}
+            ]
+            self.assertEqual(changes, ["restart", "start"])
+            put(**kwargs)
+
+        self.client.put_bucket_lifecycle_configuration = restore
+        self.adapter.restore_lifecycle(snapshot)
+        self.assertEqual(self.client.rules[bucket], original)
+        self.assertEqual(self.adapter.known_uploads, snapshot["known_uploads"])
+        self.adapter.writable()
+        self.adapter.verify_open(snapshot)
+
+    def test_release_without_snapshot_starts_stopped_source_behind_readonly(self):
+        self.world.docker("stop", "--time", "5", self.world.config["source_container"])
+        self.world.calls.clear()
+        self.adapter.writable()
+        changes = [
+            call[0] for call in self.world.calls if call[0] in {"restart", "start"}
+        ]
+        self.assertEqual(changes, ["restart", "start", "restart"])
+        self.adapter.verify_open(None)
+
+    def test_readonly_resume_rejects_source_address_drift_before_ready(self):
+        self.world.docker("stop", "--time", "5", self.world.config["source_container"])
+        docker = self.world.docker
+        ready = []
+
+        def changed(*args):
+            result = docker(*args)
+            if args[0] == "start":
+                self.world.source["NetworkSettings"]["Networks"]["owned-network"][
+                    "IPAddress"
+                ] = "172.30.20.9"
+            return result
+
+        self.adapter._docker = changed
+        self.adapter._ready = lambda: ready.append(True)
+        self.code("native_address_changed", self.adapter.readonly)
+        self.assertEqual(ready, [])
+
+    def test_preview_and_observation_never_start_a_stopped_source(self):
+        self.use_client()
+        self.world.docker("stop", "--time", "5", self.world.config["source_container"])
+        self.world.calls.clear()
+        for call in (self.adapter.preview, self.adapter._observe):
+            with self.assertRaises(FenceError):
+                call()
+        self.assertFalse(
+            any(call[0] in {"restart", "start"} for call in self.world.calls)
+        )
+
+    def test_restore_invalid_snapshot_does_not_restart_stopped_source(self):
+        self.use_client()
+        self.adapter.readonly()
+        snapshot = self.adapter.prepare()
+        snapshot.pop("known_uploads")
+        self.world.docker("stop", "--time", "5", self.world.config["source_container"])
+        self.world.calls.clear()
+        self.code(
+            "native_snapshot_changed", lambda: self.adapter.restore_lifecycle(snapshot)
+        )
+        self.assertFalse(
+            any(call[0] in {"restart", "start"} for call in self.world.calls)
+        )
+
     def test_changed_source_ip_is_rejected(self):
         self.adapter._observe()
         self.world.source["NetworkSettings"]["Networks"]["owned-network"][
