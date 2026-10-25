@@ -47,6 +47,9 @@ async def test_shared_qualification_rejects_libre_before_any_profile_request(
 
 @pytest.fixture
 def objects(monkeypatch):
+    from tests.training_consumer_fixtures import mock_legacy_transport
+
+    mock_legacy_transport(monkeypatch)
     store = Objects()
     monkeypatch.setattr(service.storage, "client", store)
     monkeypatch.setattr(service.storage, "delete_prefix", store.delete_prefix)

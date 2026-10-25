@@ -1,6 +1,6 @@
 """Final best-weight evidence for one authorized, immutable execution attempt."""
 
-import asyncio
+from app.services import training_storage_io as storage_io
 import math
 
 from fastapi import HTTPException
@@ -221,7 +221,7 @@ def parse_evaluation(report, run, attempt, metrics, weights, offset, limit):
     )
 
 
-async def read_evaluation(run, attempt, offset, limit):
+async def read_evaluation(run, attempt, offset, limit, *, db):
     if attempt.status != "succeeded":
         raise HTTPException(status_code=409, detail="本次执行尚无成功发布的最终评估")
     artifacts = list(attempt.artifacts.values())
@@ -235,8 +235,13 @@ async def read_evaluation(run, attempt, offset, limit):
 
     owner = owner_for_attempt(run, attempt, metrics[0], weights[0])
     try:
-        report = await asyncio.to_thread(
-            read_json_artifact, metrics[0], attempt.id, bucket=owner.bucket
+        report = await storage_io.run(
+            db,
+            owner,
+            "training_evaluation_read",
+            lambda transport: read_json_artifact(
+                metrics[0], attempt.id, bucket=owner.bucket, transport=transport
+            ),
         )
         return parse_evaluation(
             report, run, attempt, metrics[0], weights[0], offset, limit

@@ -109,11 +109,14 @@ async def seed_source(db, owner, *, project=None):
 
 @pytest.fixture
 def controlled_artifacts(monkeypatch):
+    from tests.training_consumer_fixtures import mock_legacy_transport
+
+    mock_legacy_transport(monkeypatch)
     monkeypatch.setattr(service, "verify_artifact", Mock())
     monkeypatch.setattr(
         service,
         "read_json_artifact",
-        lambda *_, bucket: {
+        lambda *_, bucket, transport=None: {
             "summary": {"mAP50-95": 0.4},
             "validation_digest": "f" * 64,
             "evaluation": {
@@ -175,7 +178,7 @@ async def test_libre_registration_retains_native_gaps_and_immutable_runtime_qual
     monkeypatch.setattr(
         service,
         "read_json_artifact",
-        lambda *_, bucket: {
+        lambda *_, bucket, transport=None: {
             "validation_digest": run.config["validation_digest"],
             "evaluation": {
                 "framework": "libreyolo",
@@ -334,7 +337,7 @@ async def test_registration_is_immutable_idempotent_and_guards_source_storage(
     assert changed.status_code == 409
     delete_objects = Mock()
     monkeypatch.setattr(
-        "app.api.v1.training_runs.storage.delete_prefix", delete_objects
+        "app.services.storage.storage_service.delete_prefix", delete_objects
     )
     deleted = await httpx_client.delete(
         f"/api/v1/projects/{project.id}/training-runs/{run.id}", headers=headers(token)

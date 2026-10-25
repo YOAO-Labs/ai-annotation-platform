@@ -1,6 +1,6 @@
 """Commit training deletion before IO; retry through evaluation maintenance."""
 
-import asyncio
+from app.services import training_storage_io as storage_io
 import logging
 import re
 from datetime import datetime, timezone
@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 
 from app.db.models.training_storage_deletion import TrainingStorageDeletion
-from app.services.storage import storage_service as storage
 from app.services.training_dataset_bridge import TrainingDatasetError
 
 _UNRESOLVED_PREFIX = re.compile(
@@ -94,7 +93,18 @@ async def purge_requested(db, intent_id):
         )
     # Repeated prefix deletion is safe after crashes or an acknowledgement
     # commit failure. Keep the durable intent until both operations succeed.
-    await asyncio.to_thread(storage.delete_prefix, prefix, bucket=bucket)
+    if intent.storage_ref is None:
+        raise TrainingDatasetError(
+            "training_storage_unpinned",
+            "旧训练删除意图的端点尚未核实，未执行物理清理",
+            status_code=409,
+        )
+    await storage_io.run(
+        db,
+        owner,
+        "training_cleanup",
+        lambda transport: transport.delete_prefix(prefix, bucket=bucket),
+    )
     intent = await db.scalar(
         select(TrainingStorageDeletion)
         .where(TrainingStorageDeletion.id == intent_id)

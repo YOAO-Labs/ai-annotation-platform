@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-import asyncio
+from app.services import training_storage_io as storage_io
+from app.services import storage_access
+
 import hashlib
 import hmac
 import logging
@@ -159,7 +161,9 @@ def select_sources(version, seed):
                     task_id=task_id,
                     image_path=image_path,
                     label_path=f"labels/train/{task_id}.txt",
-                    media_key=f"projects/{version.project_id}/datasets/{version.id}/media/{task_id}",
+                    media_key=training_dataset_storage.resolve(version).key(
+                        f"media/{task_id}"
+                    ),
                     sha256=sha,
                     label_sha256=member["label_sha256"],
                     size_bytes=size,
@@ -369,14 +373,20 @@ async def assignment(db, preview, *, stop=False):
                 status_code=exc.status_code,
                 detail={"code": exc.code, "message": str(exc)},
             ) from None
-        urls = {
-            source["task_id"]: storage.client.generate_presigned_url(
-                "get_object",
-                Params={"Bucket": owner.bucket, "Key": source["media_key"]},
-                ExpiresIn=LIMITS["execution_seconds"],
-            )
-            for source in preview.spec["sources"]
-        }
+        await db.commit()
+        urls = await storage_io.run(
+            db,
+            owner,
+            "training_preview_assignment",
+            lambda transport: {
+                source["task_id"]: transport.client.generate_presigned_url(
+                    "get_object",
+                    Params={"Bucket": owner.bucket, "Key": source["media_key"]},
+                    ExpiresIn=LIMITS["execution_seconds"],
+                )
+                for source in preview.spec["sources"]
+            },
+        )
     return dict(
         preview_id=str(preview.id),
         lease_token=token_for(preview, preview.claim_id),
@@ -603,6 +613,16 @@ async def uploads(db, preview_id, body):
         raise HTTPException(status_code=409, detail="已授权的预览产物不能改写")
     preview.upload_inventory = inventory
     preview.put_expires_at = now() + timedelta(seconds=LIMITS["put_seconds"])
+    await db.commit()
+    return await storage_io.run(
+        db,
+        owner,
+        "training_preview_upload_urls",
+        lambda transport: _upload_urls(transport, owner, preview, inventory),
+    )
+
+
+def _upload_urls(transport, owner, preview, inventory):
     result = {}
     for name, spec in inventory.items():
         metadata = {
@@ -611,7 +631,7 @@ async def uploads(db, preview_id, body):
             "sha256": spec["sha256"],
         }
         result[name] = dict(
-            url=storage.client.generate_presigned_url(
+            url=transport.client.generate_presigned_url(
                 "put_object",
                 Params={
                     "Bucket": owner.bucket,
@@ -626,7 +646,7 @@ async def uploads(db, preview_id, body):
     return result
 
 
-def read_report(preview, artifacts=None):
+def read_report(preview, artifacts=None, *, transport=None):
     owner = storage_owner(preview)
     artifacts = preview.artifacts if artifacts is None else artifacts
     spec = artifacts.get("report.json")
@@ -637,6 +657,7 @@ def read_report(preview, artifacts=None):
         spec,
         preview.id,
         bucket=owner.bucket,
+        transport=transport,
         metadata_key="preview-id",
         required_metadata={
             "input-digest": preview.input_digest,
@@ -708,12 +729,13 @@ def validate_report(preview, artifacts, raw):
     return report
 
 
-def read_image(preview, output, artifacts=None):
+def read_image(preview, output, artifacts=None, *, transport=None):
+    transport = storage if transport is None else transport
     owner = storage_owner(preview)
     artifacts = preview.artifacts if artifacts is None else artifacts
     spec = artifacts[output.image]
     key = artifact_key(owner, output.image, spec["key"])
-    response = storage.client.get_object(Bucket=owner.bucket, Key=key)
+    response = transport.client.get_object(Bucket=owner.bucket, Key=key)
     target = tempfile.SpooledTemporaryFile(max_size=8 * 1024**2, mode="w+b")
     try:
         metadata = response.get("Metadata", {})
@@ -744,7 +766,7 @@ def read_image(preview, output, artifacts=None):
         target.close()
         raise
     finally:
-        response["Body"].close()
+        storage_access.close_registered(response["Body"])
 
 
 async def finish(db, preview_id, body):
@@ -765,18 +787,42 @@ async def finish(db, preview_id, body):
             name: {**spec, "key": artifact_key(owner, name)}
             for name, spec in preview.upload_inventory.items()
         }
+        await db.commit()
         try:
-            report = await asyncio.to_thread(read_report, preview, artifacts)
-            for output in report.outputs:
-                image = await asyncio.to_thread(read_image, preview, output, artifacts)
-                image.close()
+
+            def verify(transport):
+                report = read_report(preview, artifacts, transport=transport)
+                for output in report.outputs:
+                    image = read_image(preview, output, artifacts, transport=transport)
+                    storage_access.close_registered(image)
+
+            await storage_io.run(db, owner, "training_preview_verify", verify)
         except HTTPException:
             raise
         except Exception as exc:
             raise HTTPException(
                 status_code=422, detail="预览产物缺失、损坏或与冻结输入不符"
             ) from exc
-        preview.artifacts = artifacts
+        lease, preview = await fenced(db, preview_id, body, allow_terminal=True)
+        if preview.status in TERMINAL:
+            if preview.finish_digest != receipt:
+                raise HTTPException(status_code=409, detail="已结束的预览不能改写终态")
+            return preview
+        if (
+            lease.preview_id != preview.id
+            or storage_owner(preview).ref != owner.ref
+            or {
+                name: {**spec, "key": artifact_key(owner, name)}
+                for name, spec in preview.upload_inventory.items()
+            }
+            != artifacts
+        ):
+            raise HTTPException(status_code=409, detail="核验期间预览归属或清单已变化")
+        stop = due_to_stop(preview)
+        status = "cancelled" if stop else body.status
+        if status == "succeeded":
+            await training.authority(db, preview)
+            preview.artifacts = artifacts
     preview.finish_digest = receipt
     await terminal(db, preview, status, stop or body.error_message)
     lease.preview_id = None
@@ -794,7 +840,7 @@ async def cancel(db, preview):
         await jobs.request_cancel(db, preview.async_job_id)
 
 
-async def output(preview, *, include_report=True):
+async def output(preview, *, include_report=True, db):
     expired = preview.expires_at <= now()
     report = None
     if (
@@ -804,7 +850,13 @@ async def output(preview, *, include_report=True):
         and not expired
     ):
         try:
-            report = await asyncio.to_thread(read_report, preview)
+            owner = storage_owner(preview)
+            report = await storage_io.run(
+                db,
+                owner,
+                "training_preview_read",
+                lambda transport: read_report(preview, transport=transport),
+            )
         except HTTPException:
             raise
         except Exception as exc:
@@ -897,8 +949,14 @@ async def cleanup(db):
             log.warning("Preview cleanup blocked for %s (%s)", preview.id, exc.code)
             continue
         try:
-            await asyncio.to_thread(
-                storage.delete_prefix, owner.prefix, bucket=owner.bucket
+            await db.commit()
+            await storage_io.run(
+                db,
+                owner,
+                "training_preview_cleanup",
+                lambda transport: transport.delete_prefix(
+                    owner.prefix, bucket=owner.bucket
+                ),
             )
         except Exception:
             log.exception("Preview cleanup failed for %s", preview.id)

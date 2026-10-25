@@ -1,6 +1,5 @@
 """Owner-controlled registration, authenticated deployment, and release CAS."""
 
-import asyncio
 import uuid
 from typing import Literal
 
@@ -149,8 +148,6 @@ async def model_detail(
     for item in deployments:
         rendered = ModelDeploymentOut.model_validate(item).model_dump(mode="json")
         if item.status == "ready" and item.trial.get("task_id"):
-            from app.services.storage import storage_service
-
             if dataset is None:
                 dataset = await db.get(
                     TrainingDatasetVersion,
@@ -159,12 +156,16 @@ async def model_detail(
             owner, key = service.frozen_sample_location(
                 project.id, dataset, item.trial["task_id"]
             )
-            url = await asyncio.to_thread(
-                storage_service.generate_download_url,
-                key,
-                expires_in=600,
-                bucket=owner.bucket,
-                align=False,
+            url = await service.storage_io.run(
+                db,
+                owner,
+                "training_model_url",
+                lambda transport: transport.generate_download_url(
+                    key,
+                    expires_in=600,
+                    bucket=owner.bucket,
+                    align=False,
+                ),
             )
             rendered["trial"] = {**rendered["trial"], "sample_url": url}
         rendered_deployments.append(rendered)
@@ -310,15 +311,17 @@ async def download_model(
     await lock_owner(db, user, project)
     version = await service.load_version(db, project.id, version_id)
     owner = await service.owner_for_model(db, version)
-    from app.services.storage import storage_service
-
-    url = await asyncio.to_thread(
-        storage_service.generate_download_url,
-        version.artifact["key"],
-        expires_in=600,
-        bucket=owner.bucket,
-        download_name="best.pt",
-        align=False,
+    url = await service.storage_io.run(
+        db,
+        owner,
+        "training_model_url",
+        lambda transport: transport.generate_download_url(
+            version.artifact["key"],
+            expires_in=600,
+            bucket=owner.bucket,
+            download_name="best.pt",
+            align=False,
+        ),
     )
     return {
         "url": url,

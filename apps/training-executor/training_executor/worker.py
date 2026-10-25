@@ -99,6 +99,7 @@ def runtime_identity():
         pass
     return {
         "executor_protocol": 2,
+        "training_saved_prefix_schema": 2,
         "preview_protocol": 1,
         "observability_protocol": 1,
         "initialization_policy_digest": INITIALIZATION_POLICY_DIGEST,

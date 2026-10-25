@@ -597,7 +597,9 @@ async def test_optional_summary_identity_is_verified_without_blocking_failed_com
             ("observability.json", "telemetry"),
         )
     }
-    monkeypatch.setattr(training, "verify_artifact", lambda *args, bucket: None)
+    monkeypatch.setattr(
+        training, "verify_artifact", lambda *args, bucket, transport=None: None
+    )
     summary = {
         "protocol": 1,
         "run_id": str(run.id),
@@ -628,6 +630,9 @@ async def test_derived_log_download_serializes_deletion_and_observation_cascade(
 ):
     import asyncio
     import threading
+    from tests.training_consumer_fixtures import mock_legacy_transport
+
+    mock_legacy_transport(monkeypatch)
     from sqlalchemy import delete
     from sqlalchemy.ext.asyncio import async_sessionmaker
     from app.api.v1.training_runs import download_artifact, delete_run

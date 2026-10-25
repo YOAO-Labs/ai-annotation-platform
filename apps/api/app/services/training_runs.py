@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from app.services import training_storage_io as storage_io
+from app.services import storage_access
+
 from aap_task_contract import normalize_task, legacy_training_task
 from training_contract.catalog import definition_for_identity, instance_rle_capability
-import asyncio
 import hashlib
 import hmac
 import json
@@ -323,8 +325,10 @@ def requires_prepared_asset(framework, version, base):
 
 def input_runtime_compatible(config, runtime):
     try:
+        from training_contract.initialization import saved_prefix_compatible
+
         inputs = input_contract(config)
-        return (
+        return saved_prefix_compatible(config, runtime) and (
             inputs is None
             or runtime.get("input_receipt_policy_digest") == inputs["policy_digest"]
         )
@@ -800,10 +804,11 @@ async def fenced(db, attempt_id, fence: ExecutorFence, *, allow_terminal=False):
     return lease, run, attempt
 
 
-def internal_download(key, *, bucket=None, audience="internal"):
-    return storage.generate_download_url(
+def internal_download(key, *, bucket=None, audience="internal", transport=None):
+    transport = storage if transport is None else transport
+    return transport.generate_download_url(
         key,
-        bucket=storage.training_bucket if bucket is None else bucket,
+        bucket=transport.training_bucket if bucket is None else bucket,
         expires_in=600,
         align=False,
         audience=audience,
@@ -841,7 +846,6 @@ async def assignment(db, run, attempt, token):
         "lease_token": token,
         "config": run.config,
         "config_digest": run.config_digest,
-        "dataset_url": internal_download(dataset.package_key, bucket=owner.bucket),
         "resume": None,
     }
     if attempt.native_budget:
@@ -861,10 +865,7 @@ async def assignment(db, run, attempt, token):
         if checkpoint is None:
             raise HTTPException(status_code=409, detail="恢复来源缺少已核验检查点")
         attempt_storage_owner(run, parent, checkpoint["key"])
-        result["resume"] = {
-            **checkpoint,
-            "url": internal_download(checkpoint["key"], bucket=run_owner.bucket),
-        }
+        result["resume"] = {**checkpoint}
     elif run.config.get("initialization"):
         pin = run.config["initialization"]
         source_owner = await initialization.source_storage_owner(db, pin)
@@ -880,10 +881,34 @@ async def assignment(db, run, attempt, token):
         result["initialization"] = {
             **pin["artifact"],
             "source_digest": pin["source_digest"],
-            "url": internal_download(
-                pin["artifact"]["key"], bucket=source_owner.bucket
-            ),
         }
+    await db.commit()
+    result["dataset_url"] = await storage_io.run(
+        db,
+        owner,
+        "training_assignment",
+        lambda transport: internal_download(
+            dataset.package_key, bucket=owner.bucket, transport=transport
+        ),
+    )
+    if result["resume"] is not None:
+        result["resume"]["url"] = await storage_io.run(
+            db,
+            run_owner,
+            "training_assignment",
+            lambda transport: internal_download(
+                checkpoint["key"], bucket=run_owner.bucket, transport=transport
+            ),
+        )
+    elif "initialization" in result:
+        result["initialization"]["url"] = await storage_io.run(
+            db,
+            source_owner,
+            "training_assignment",
+            lambda transport: internal_download(
+                pin["artifact"]["key"], bucket=source_owner.bucket, transport=transport
+            ),
+        )
     return result
 
 
@@ -1144,11 +1169,21 @@ async def authorize_upload(db, attempt_id, body):
         await jobs.update_progress(
             db, run.async_job_id, 95, extra_payload={"stage": "uploading"}
         )
+    await db.commit()
+    return await storage_io.run(
+        db,
+        owner,
+        "training_upload_urls",
+        lambda transport: _upload_urls(transport, owner, attempt, inventory),
+    )
+
+
+def _upload_urls(transport, owner, attempt, inventory):
     result = {}
     for name, spec in inventory.items():
         key = artifact_key(owner, attempt.id, name)
         metadata = {"sha256": spec["sha256"], "attempt-id": str(attempt.id)}
-        url = storage.client.generate_presigned_url(
+        url = transport.client.generate_presigned_url(
             "put_object",
             Params={
                 "Bucket": owner.bucket,
@@ -1168,8 +1203,9 @@ async def authorize_upload(db, attempt_id, body):
     return result
 
 
-def verify_artifact(key, spec, attempt_id, *, bucket):
-    response = storage.client.get_object(Bucket=bucket, Key=key)
+def verify_artifact(key, spec, attempt_id, *, bucket, transport=None):
+    transport = storage if transport is None else transport
+    response = transport.client.get_object(Bucket=bucket, Key=key)
     try:
         if response["ContentLength"] != spec["size_bytes"] or response.get(
             "Metadata", {}
@@ -1185,10 +1221,11 @@ def verify_artifact(key, spec, attempt_id, *, bucket):
         if total != spec["size_bytes"] or digest.hexdigest() != spec["sha256"]:
             raise ValueError("Artifact digest mismatch")
     finally:
-        response["Body"].close()
+        storage_access.close_registered(response["Body"])
 
 
-def verify_native_artifact(run, attempt, artifacts):
+def verify_native_artifact(run, attempt, artifacts, *, transport=None):
+    transport = storage if transport is None else transport
     receipt = artifacts.get("native-config.json")
     if (
         not receipt
@@ -1199,11 +1236,11 @@ def verify_native_artifact(run, attempt, artifacts):
             "v2 success requires a bounded native configuration observation"
         )
     owner = attempt_storage_owner(run, attempt, receipt["key"])
-    response = storage.client.get_object(Bucket=owner.bucket, Key=receipt["key"])
+    response = transport.client.get_object(Bucket=owner.bucket, Key=receipt["key"])
     try:
         blob = json.loads(response["Body"].read(1024 * 1024 + 1))
     finally:
-        response["Body"].close()
+        storage_access.close_registered(response["Body"])
     if blob["config_digest"] != run.config_digest or bool(
         blob["runtime_options"]["resume"]
     ) != bool(attempt.resume_from_id):
@@ -1227,7 +1264,7 @@ def verify_native_artifact(run, attempt, artifacts):
         )
 
 
-def verify_input_artifact(run, attempt, artifacts):
+def verify_input_artifact(run, attempt, artifacts, *, transport=None):
     """Verify actual native admission through the existing saved-owner manifest."""
     if input_contract(run.config) is None:
         return
@@ -1237,7 +1274,9 @@ def verify_input_artifact(run, attempt, artifacts):
     from app.services.training_artifacts import read_json_artifact
 
     owner = attempt_storage_owner(run, attempt, spec["key"])
-    manifest = read_json_artifact(spec, attempt.id, bucket=owner.bucket)
+    manifest = read_json_artifact(
+        spec, attempt.id, bucket=owner.bucket, transport=transport
+    )
     if (
         manifest.get("run_id") != str(run.id)
         or manifest.get("attempt_id") != str(attempt.id)
@@ -1294,7 +1333,11 @@ async def finish(db, attempt_id, body):
             # An exact failed/stopped receipt settles the lease without guessing
             # where an old execution wrote. Its upload inventory remains durable.
     artifacts = {}
-    for name, spec in attempt.upload_inventory.items() if owner else ():
+    inventory = dict(attempt.upload_inventory) if owner else {}
+    saved_ref = owner.ref if owner else None
+    if owner and inventory:
+        await db.commit()
+    for name, spec in inventory.items():
         try:
             key = artifact_key(owner, attempt.id, name)
         except HTTPException:
@@ -1302,8 +1345,13 @@ async def finish(db, attempt_id, body):
                 raise
             continue
         try:
-            await asyncio.to_thread(
-                verify_artifact, key, spec, attempt.id, bucket=owner.bucket
+            await storage_io.run(
+                db,
+                owner,
+                "training_artifact_verify",
+                lambda transport: verify_artifact(
+                    key, spec, attempt.id, bucket=owner.bucket, transport=transport
+                ),
             )
         except Exception as exc:
             if status == "succeeded":
@@ -1316,7 +1364,14 @@ async def finish(db, attempt_id, body):
             from app.services.training_observability import verify_summary
 
             try:
-                await asyncio.to_thread(verify_summary, run, attempt, artifacts[name])
+                await storage_io.run(
+                    db,
+                    owner,
+                    "training_artifact_verify",
+                    lambda transport: verify_summary(
+                        run, attempt, artifacts[name], transport=transport
+                    ),
+                )
             except (ValueError, KeyError, TypeError) as exc:
                 if status == "succeeded":
                     raise HTTPException(
@@ -1333,18 +1388,49 @@ async def finish(db, attempt_id, body):
         raise HTTPException(status_code=422, detail="成功训练缺少必要产物")
     if status == "succeeded" and run.config.get("adapter_revision") == 2:
         try:
-            await asyncio.to_thread(verify_native_artifact, run, attempt, artifacts)
+            await storage_io.run(
+                db,
+                owner,
+                "training_artifact_verify",
+                lambda transport: verify_native_artifact(
+                    run, attempt, artifacts, transport=transport
+                ),
+            )
         except (ValueError, KeyError, TypeError) as exc:
             raise HTTPException(
                 status_code=422, detail="原生参数观测缺失或与冻结配置不符"
             ) from exc
     if status == "succeeded":
         try:
-            await asyncio.to_thread(verify_input_artifact, run, attempt, artifacts)
+            await storage_io.run(
+                db,
+                owner,
+                "training_artifact_verify",
+                lambda transport: verify_input_artifact(
+                    run, attempt, artifacts, transport=transport
+                ),
+            )
         except (ValueError, KeyError, TypeError, OSError) as exc:
             raise HTTPException(
                 status_code=422, detail="训练实际接纳成员回执缺失或与冻结清单不符"
             ) from exc
+    lease, run, attempt = await fenced(db, attempt_id, body, allow_terminal=True)
+    if attempt.status in TERMINAL:
+        if attempt.finish_request_digest != request_digest:
+            raise HTTPException(status_code=409, detail="已结束的执行不能改写终态")
+        return attempt
+    if (
+        lease.attempt_id != attempt.id
+        or (owner is not None and attempt.upload_inventory != inventory)
+        or (
+            saved_ref is not None
+            and attempt_storage_owner(run, attempt).ref != saved_ref
+        )
+    ):
+        raise HTTPException(status_code=409, detail="产物核验期间执行归属或清单已变化")
+    status = "cancelled" if run.status == "cancelling" else body.status
+    if status == "succeeded":
+        await authority(db, run)
     attempt.artifacts = artifacts
     attempt.native_accounting = body.native_accounting
     attempt.finish_request_digest = request_digest

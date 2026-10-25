@@ -265,6 +265,13 @@ async def world(monkeypatch, *, raster=False):
         manifest=manifest,
         package_sha256="2" * 64,
     )
+    from tests.test_training_preview_storage_flow import reference
+    from tests.training_consumer_fixtures import mock_legacy_transport
+
+    version.storage_ref = reference(
+        version.project_id, version.id, purpose="training-dataset"
+    )
+    mock_legacy_transport(monkeypatch)
     ref = {
         "task": "segment",
         "model_version_id": str(ids["model"]),
@@ -513,12 +520,22 @@ async def test_frozen_rle_truth_reads_the_sample_once_and_rejects_oversize_befor
         "instances": instances,
     }
     version = SimpleNamespace(manifest={"schema": 4})
+    from app.services import training_dataset_storage, training_storage_io
+
+    monkeypatch.setattr(training_dataset_storage, "resolve", lambda version: object())
+
+    async def retained_read(db, owner, purpose, callback):
+        return callback(object())
+
+    monkeypatch.setattr(training_storage_io, "run", retained_read)
     result = await service.frozen_mask_truth(
-        uuid.uuid4(), version, member, {}, ["shape"]
+        uuid.uuid4(), version, member, {}, ["shape"], db=None
     )
     assert len(result) == 2 and reader.call_count == 1
     reader.reset_mock()
     instances[0]["rle_bytes"] = masks.MAX_SAMPLE_RLE_BYTES + 1
     with pytest.raises(ValueError, match="RLE budget"):
-        await service.frozen_mask_truth(uuid.uuid4(), version, member, {}, ["shape"])
+        await service.frozen_mask_truth(
+            uuid.uuid4(), version, member, {}, ["shape"], db=None
+        )
     reader.assert_not_called()

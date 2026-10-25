@@ -30,6 +30,18 @@ from app.services.storage import storage_service
 from app.services.training_dataset_bridge import content_digest
 
 
+@pytest.fixture(autouse=True)
+def legacy_transport_boundary(monkeypatch):
+    # These pre-existing unit cases isolate business ownership from admission.
+    from app.services import training_storage_io
+    from app.services.storage import storage_service
+
+    async def run(db, owner, purpose, callback, *args, **kwargs):
+        return callback(storage_service, *args, **kwargs)
+
+    monkeypatch.setattr(training_storage_io, "run", run)
+
+
 class Objects:
     def __init__(self, endpoint):
         self.meta = SimpleNamespace(endpoint_url=endpoint)
@@ -305,7 +317,7 @@ async def test_creation_allocates_once_after_id_before_job_and_replay_never_adop
 
 async def test_input_urls_keep_dataset_owner_and_require_preview_owner_first(owned):
     row = owned.preview
-    db = SimpleNamespace(get=AsyncMock(return_value=owned.dataset))
+    db = SimpleNamespace(get=AsyncMock(return_value=owned.dataset), commit=AsyncMock())
     result = await previews.assignment(db, row)
     source = row.spec["sources"][0]
     assert result["source_urls"][source["task_id"]].startswith(
@@ -333,12 +345,12 @@ async def test_upload_and_success_finish_use_saved_bucket(owned, monkeypatch):
     monkeypatch.setattr(previews.training, "authority", AsyncMock())
     monkeypatch.setattr(previews, "terminal", AsyncMock())
     body = SimpleNamespace(artifacts=[PreviewArtifact(**spec) for spec in inventory])
-    urls = await previews.uploads(None, row.id, body)
+    urls = await previews.uploads(SimpleNamespace(commit=AsyncMock()), row.id, body)
     assert all(
         target["url"].startswith("https://owned-storage/old-preview/")
         for target in urls.values()
     )
-    await previews.finish(None, row.id, finish_body(row))
+    await previews.finish(SimpleNamespace(commit=AsyncMock()), row.id, finish_body(row))
     assert row.artifacts["preview-0.png"]["sha256"] == raw["outputs"][0]["sha256"]
     assert lease.preview_id is None
     assert all(bucket == "old-preview" for _, bucket, _ in owned.client.calls)
@@ -371,7 +383,7 @@ async def test_unknown_output_owner_rejects_uploads_and_success_without_io(
                 artifacts=[PreviewArtifact(**value) for value in inventory]
             ),
         ),
-        previews.finish(None, row.id, finish_body(row)),
+        previews.finish(SimpleNamespace(commit=AsyncMock()), row.id, finish_body(row)),
     ]:
         with pytest.raises(HTTPException) as error:
             await action
@@ -463,7 +475,7 @@ async def test_unknown_owner_preserves_metadata_but_refuses_image_route(
     row = owned.preview
     evidence(owned)
     row.status, row.storage_ref = "succeeded", None
-    assert (await previews.output(row)).report is None
+    assert (await previews.output(row, db=None)).report is None
     monkeypatch.setattr(api, "lock_owner", AsyncMock())
     monkeypatch.setattr(api, "load", AsyncMock(return_value=row))
     db = SimpleNamespace(commit=AsyncMock())
@@ -558,10 +570,12 @@ async def test_null_owner_heartbeat_and_terminal_receipt_can_settle(
         row.status = value
 
     monkeypatch.setattr(previews, "terminal", terminal)
-    await previews.finish(None, row.id, body)
+    await previews.finish(SimpleNamespace(commit=AsyncMock()), row.id, body)
     assert lease.preview_id is None
     assert row.status == ("cancelled" if status == "expired-success" else status)
-    assert await previews.finish(None, row.id, body) is row
+    assert (
+        await previews.finish(SimpleNamespace(commit=AsyncMock()), row.id, body) is row
+    )
     with pytest.raises(HTTPException) as error:
         await previews.finish(
             None, row.id, body.model_copy(update={"error_message": "changed receipt"})
@@ -602,7 +616,7 @@ async def test_cleanup_preserves_unknown_pending_and_leased_rows_and_continues_a
     calls = []
 
     def delete(prefix, *, bucket):
-        assert db.commit.await_count == 1
+        assert db.commit.await_count >= 2
         calls.append((bucket, prefix))
         if prefix == failed.storage_ref["prefix"]:
             raise OSError("temporary storage failure")

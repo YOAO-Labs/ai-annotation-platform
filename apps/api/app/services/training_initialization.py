@@ -1,6 +1,6 @@
 """Resolve immutable, same-project source weights independently of serving."""
 
-import asyncio
+from app.services import training_storage_io as storage_io
 import uuid
 
 from fastapi import HTTPException
@@ -181,8 +181,13 @@ async def source_pin(db, project_id, version_id):
         from app.services.training_evaluations import parse_evaluation
 
         try:
-            report = await asyncio.to_thread(
-                read_json_artifact, metrics[0], attempt.id, bucket=owner.bucket
+            report = await storage_io.run(
+                db,
+                owner,
+                "training_initialization_read",
+                lambda transport: read_json_artifact(
+                    metrics[0], attempt.id, bucket=owner.bucket, transport=transport
+                ),
             )
         except (BotoCoreError, ClientError, OSError) as exc:
             raise ValueError("分割初始化的真实来源评估对象不可用") from exc
@@ -244,7 +249,8 @@ async def source_storage_owner(db, pin):
         ) from None
 
 
-def verify_storage(pin, metrics, *, owner, full):
+def verify_storage(pin, metrics, *, owner, full, transport=None):
+    transport = storage if transport is None else transport
     from app.services.training_runs import verify_artifact
     from app.services.training_artifacts import read_json_artifact
 
@@ -255,9 +261,15 @@ def verify_storage(pin, metrics, *, owner, full):
     expect_attempt(owner, pin["attempt_id"], metrics["key"])
     if full:
         verify_artifact(
-            artifact["key"], artifact, pin["attempt_id"], bucket=owner.bucket
+            artifact["key"],
+            artifact,
+            pin["attempt_id"],
+            bucket=owner.bucket,
+            transport=transport,
         )
-        report = read_json_artifact(metrics, pin["attempt_id"], bucket=owner.bucket)
+        report = read_json_artifact(
+            metrics, pin["attempt_id"], bucket=owner.bucket, transport=transport
+        )
         if content_digest(report) != pin["evaluation"]["report_digest"]:
             raise ValueError("来源评估与候选注册时的报告不一致")
         if pin["task"] == SEGMENTATION and (
@@ -270,7 +282,7 @@ def verify_storage(pin, metrics, *, owner, full):
         ):
             raise ValueError("分割初始化真实报告的权重或评估器身份不一致")
     else:
-        head = storage.client.head_object(Bucket=owner.bucket, Key=artifact["key"])
+        head = transport.client.head_object(Bucket=owner.bucket, Key=artifact["key"])
         if (
             head["ContentLength"] != artifact["size_bytes"]
             or head.get("Metadata", {}).get("attempt-id") != pin["attempt_id"]
@@ -343,7 +355,14 @@ async def eligibility(
         }
     try:
         owner = await source_storage_owner(db, pin)
-        await asyncio.to_thread(verify_storage, pin, metrics, owner=owner, full=False)
+        await storage_io.run(
+            db,
+            owner,
+            "training_initialization_read",
+            lambda transport: verify_storage(
+                pin, metrics, owner=owner, full=False, transport=transport
+            ),
+        )
     except Exception:
         reasons.append("来源权重对象缺失或身份不符；不会使用其他权重替代")
     return {
@@ -387,7 +406,14 @@ async def resolve(
         raise HTTPException(status_code=409, detail=str(exc)[:500]) from exc
     try:
         owner = await source_storage_owner(db, pin)
-        await asyncio.to_thread(verify_storage, pin, metrics, owner=owner, full=full)
+        await storage_io.run(
+            db,
+            owner,
+            "training_initialization_read",
+            lambda transport: verify_storage(
+                pin, metrics, owner=owner, full=full, transport=transport
+            ),
+        )
     except Exception as exc:
         raise HTTPException(
             status_code=409, detail="初始化权重或评估对象校验失败，请检查保留的来源产物"
