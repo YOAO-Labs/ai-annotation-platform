@@ -2402,6 +2402,44 @@ def _create_mask_content_storage_scope(scope: dict, *, cleanup: bool) -> None:
     )
 
 
+def _create_audit_archive_storage_scope(scope: dict, *, read_only: bool) -> None:
+    bucket = f"arn:aws:s3:::{scope['bucket']}"
+    policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {"Effect": "Allow", "Action": ["s3:ListBucket"], "Resource": [bucket]},
+            {
+                "Effect": "Allow",
+                "Action": ["s3:GetObject" if read_only else "s3:PutObject"],
+                "Resource": [f"{bucket}/*"],
+            },
+        ],
+    }
+    _cleanup_mc(
+        scope,
+        ["admin", "user", "add", "scoped", scope["access_key"], scope["secret_key"]],
+    )
+    scope["user_created"] = True
+    _cleanup_mc(
+        scope,
+        ["admin", "policy", "create", "scoped", scope["policy"], "/dev/stdin"],
+        payload=json.dumps(policy),
+    )
+    scope["policy_created"] = True
+    _cleanup_mc(
+        scope,
+        [
+            "admin",
+            "policy",
+            "attach",
+            "scoped",
+            scope["policy"],
+            "--user",
+            scope["access_key"],
+        ],
+    )
+
+
 def _create_media_storage_scope(scope: dict, *, worker: bool) -> None:
     _cleanup_mc(
         scope,
@@ -4288,6 +4326,8 @@ def main(argv: list[str] | None = None) -> int:
             "media_worker_storage_identity_removed": False,
             "image_worker_storage_identity_removed": False,
             "api_bootstrap_storage_identity_removed": None,
+            "audit_archive_writer_storage_identity_removed": None,
+            "audit_archive_reader_storage_identity_removed": None,
             "mask_content_storage_identity_removed": None,
             "mask_cleanup_storage_identity_removed": None,
             "local_resources_destroyed": False,
@@ -4312,6 +4352,8 @@ def main(argv: list[str] | None = None) -> int:
     media_worker_storage = None
     image_worker_storage = None
     api_bootstrap_storage = None
+    audit_archive_writer_storage = None
+    audit_archive_reader_storage = None
     mask_content_storage = None
     mask_cleanup_storage = None
     resource_root = Path(
@@ -8665,6 +8707,36 @@ SELECT pg_catalog.jsonb_build_object(
         ]
         image_worker_storage["policy"] = "aap-images-worker-" + secrets.token_hex(8)
         _create_image_storage_scope(image_worker_storage)
+        if (
+            "tests/test_audit_maintenance_module_live.py" in selected_test_paths
+            and os.environ.get("AAP_AUDIT_MAINTENANCE_MODULE_ACCEPTANCE") == "1"
+        ):
+            bucket = resources["buckets"]["MINIO_AUDIT_ARCHIVE_BUCKET"]
+            tags = backend.s3.get_bucket_tagging(Bucket=bucket)["TagSet"]
+            if not any(
+                tag["Key"] == "aap-worktree-owner"
+                and tag["Value"] == resources["owner"]
+                for tag in tags
+            ):
+                raise RuntimeError("Audit archive bucket ownership differs")
+            audit_archive_writer_storage = _cleanup_storage_scope(backend)
+            audit_archive_writer_storage.update(
+                bucket=bucket, policy="aap-audit-archive-writer-" + secrets.token_hex(8)
+            )
+            _create_audit_archive_storage_scope(
+                audit_archive_writer_storage, read_only=False
+            )
+            audit_archive_reader_storage = _cleanup_storage_scope(backend)
+            audit_archive_reader_storage.update(
+                bucket=bucket, policy="aap-audit-archive-reader-" + secrets.token_hex(8)
+            )
+            _create_audit_archive_storage_scope(
+                audit_archive_reader_storage, read_only=True
+            )
+            evidence["audit_archive_storage"] = {
+                "bucket": bucket,
+                "separate_writer_and_reader_provisioned": True,
+            }
         if selected_test_paths & {
             "tests/test_labeling_video_writer_live.py",
             "tests/test_labeling_video_writer_containers.py",
@@ -8882,6 +8954,21 @@ SELECT pg_catalog.jsonb_build_object(
                 }
             )
         for label, scope in (
+            ("WRITE", audit_archive_writer_storage),
+            ("READ", audit_archive_reader_storage),
+        ):
+            if scope is not None:
+                resource_environment.update(
+                    {
+                        f"AAP_MODULE_DATA_AUDIT_ARCHIVE_{label}_ACCESS_KEY": scope[
+                            "access_key"
+                        ],
+                        f"AAP_MODULE_DATA_AUDIT_ARCHIVE_{label}_SECRET_KEY": scope[
+                            "secret_key"
+                        ],
+                    }
+                )
+        for label, scope in (
             ("CONTENT", mask_content_storage),
             ("CLEANUP", mask_cleanup_storage),
         ):
@@ -9008,6 +9095,8 @@ SELECT pg_catalog.jsonb_build_object(
         exit_code = 1
     finally:
         for label, scope in (
+            ("audit_archive_writer", audit_archive_writer_storage),
+            ("audit_archive_reader", audit_archive_reader_storage),
             ("mask_content", mask_content_storage),
             ("mask_cleanup", mask_cleanup_storage),
             ("api_bootstrap", api_bootstrap_storage),

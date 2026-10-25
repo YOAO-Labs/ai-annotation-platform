@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import os
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from aap_audit.maintenance_contract import MAINTENANCE_PROTOCOL
 from aap_audit.maintenance_postgres import AuditMaintenancePostgresData
@@ -147,3 +150,68 @@ async def test_filtering_fixture_cleanup_is_scoped_and_rollback_safe(db_session)
         ids["shared"],
         ids["wrong_path"],
     }
+
+
+@pytest.mark.skipif(
+    os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires verifier-owned disposable PostgreSQL",
+)
+async def test_filtering_fixture_cleanup_refuses_a_non_test_database(test_engine):
+    from tests.test_inference_backend_dependency_reads_restore import (
+        _create_owned_clone,
+        _drop_owned_clone,
+    )
+
+    database = "aap_audit_fixture_guard_" + uuid4().hex[:12]
+    ownership = "audit-fixture-guard:" + str(uuid4())
+    admin = create_async_engine(
+        test_engine.url.set(database="postgres"),
+        isolation_level="AUTOCOMMIT",
+        hide_parameters=True,
+    )
+    created = set()
+    clone = None
+    try:
+        await _create_owned_clone(admin, test_engine, database, ownership, [], created)
+        clone = create_async_engine(
+            test_engine.url.set(database=database), hide_parameters=True
+        )
+        async with clone.begin() as db:
+            assert await db.scalar(text("SELECT current_database()")) == database
+            await db.execute(text("CREATE SCHEMA aap_audit_v1"))
+            sql = (
+                Path(__file__).resolve().parents[1]
+                / "alembic/sql/0366_audit_fixture_cleanup.sql"
+            ).read_text()
+            await db.exec_driver_sql(sql)
+            await db.execute(
+                text(
+                    "REVOKE ALL ON FUNCTION aap_audit_v1.maintenance_command(jsonb) FROM PUBLIC"
+                )
+            )
+            await db.execute(text('SET LOCAL "app.allow_audit_update" = true'))
+            with pytest.raises(DBAPIError) as denied:
+                async with db.begin_nested():
+                    await db.scalar(
+                        text(
+                            "SELECT aap_audit_v1.maintenance_command(CAST(:request AS jsonb))"
+                        ),
+                        {
+                            "request": json.dumps(
+                                {
+                                    "schema": MAINTENANCE_PROTOCOL,
+                                    "operation": "cleanup_filtering_fixture_events",
+                                    "namespace": None,
+                                }
+                            )
+                        },
+                    )
+            assert denied.value.orig.sqlstate == "42501"
+    finally:
+        if clone is not None:
+            await clone.dispose()
+        try:
+            if database in created:
+                await _drop_owned_clone(admin, test_engine, database, ownership)
+        finally:
+            await admin.dispose()

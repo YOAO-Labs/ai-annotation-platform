@@ -163,6 +163,7 @@ async def test_original_workspace_fixture_rows(
         owned_cases.test_owned_cleanup_is_exact_idempotent_and_neighbour_safe,
         owned_cases.test_owned_rebuild_is_retry_safe,
         owned_cases.test_owned_filtering_fixture_is_namespaced_and_converges,
+        owned_cases.test_legacy_shared_filtering_cleanup_reports_exact_failures,
         owned_cases.test_owned_lidar_fixture_is_namespaced,
         owned_cases.test_owned_project_roles_fixture_is_namespaced,
         owned_cases.test_owned_cleanup_exposes_residuals_on_partial_failure,

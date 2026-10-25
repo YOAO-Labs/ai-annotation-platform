@@ -72,11 +72,15 @@ Compose 的数据库 `_FILE` 指向宿主 secret 文件；归档访问 key 的�
 
 ## 权限与采用
 
-先应用完整迁移到 `0333`，再安装 `module-data-grants.sql` 的 Audit NOLOGIN owner。
+先应用当前代码的完整迁移，再安装 `module-data-grants.sql` 的 Audit NOLOGIN owner。
 分区树与序列由 Audit owner 持有，创建未来固定月分区所需的 schema CREATE 和并发刷新
 所需的 TEMPORARY 留在该 owner。普通 API／worker 通过固定能力调用，默认授权入口
 撤销 Audit 私表及列写入、序列写入和分区所有权。Learning 暂缓消费者仍需要父表
 SELECT，因此不能据此宣称全部私表读取已退出。
+
+维护命令还承接原 E2E seed 路由的固定筛选夹具清理。该操作只允许 `_test`／`_e2e`
+数据库和调用方已开启的不可变性维护标记，只匹配原 seed 路径与共享标记或精确 namespace。
+它沿用调用方事务、回滚与错误传播，不提供普通审计历史删除能力，也不增加 CLI 子命令。
 
 独立维护 LOGIN 使用 `infra/docker/audit-maintenance-grants.sql`，仅开放一个函数。
 原追加、查询、读取专用授权继续保留。升级与回退须匹配代码和 owner 授权配置；不通过
