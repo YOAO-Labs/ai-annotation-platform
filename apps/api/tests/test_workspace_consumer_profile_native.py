@@ -276,8 +276,8 @@ async def test_profile_closes_private_columns_receipts_helpers_and_sequences(
                 "aap_workspace_v1.project_facts",
                 "aap_workspace_v1.project_member_facts",
             ]
-            # Unrelated owner capabilities and Labeling counters stay usable.
-            assert await db.scalar(
+            # Keep Labeling's private write boundary and public counters intact.
+            assert not await db.scalar(
                 text("SELECT has_table_privilege(current_user,'public.tasks','UPDATE')")
             )
             assert await db.scalar(
