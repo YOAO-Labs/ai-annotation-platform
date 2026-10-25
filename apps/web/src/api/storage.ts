@@ -10,7 +10,10 @@ import type {
   AvatarBindingPreview,
   StorageProbeOut,
   StorageUsageBreakdown,
+  StorageFaultList,
 } from "./generated/types.gen";
+
+export type StorageFaultFilter = "active" | "recovered" | "all";
 
 export interface StorageHealthResponse {
   status: string;
@@ -137,6 +140,11 @@ export interface VideoAssetRetryResponse {
 }
 
 export const storageApi = {
+  faults: (id: string, state: StorageFaultFilter, offset: number, signal?: AbortSignal) =>
+    apiClient.get<StorageFaultList>(
+      `/storage-locations/${id}/faults?${new URLSearchParams({ state, limit: "20", offset: String(offset) })}`,
+      { signal },
+    ),
   bindings: (signal?: AbortSignal) =>
     apiClient.get<StorageBindingOut[]>("/storage-locations/bindings", { signal }),
   avatarBindingCandidates: (offset: number, signal?: AbortSignal, limit = 20) =>

@@ -554,7 +554,12 @@ async def next_directory(db, run_id, task_id, fence):
     if location.kind == "s3":
         from app.services.s3_dataset_scan import next_page
 
-        return await next_page(db, location, source, run, job)
+        work = await next_page(db, location, source, run, job)
+        if work is not None:
+            work["_fault_observation"] = await scan_fault_observation(
+                db, location, source, run, job, work
+            )
+        return work
     base = select(DatasetScanEntry).where(
         DatasetScanEntry.run_id == run.id, DatasetScanEntry.kind == "directory"
     )
@@ -589,7 +594,7 @@ async def next_directory(db, run_id, task_id, fence):
         part for part in [source.config["relative_path"], entry.relative_path] if part
     )
     fs.relative_path(path)
-    return {
+    work = {
         "location_id": location.id,
         "maintenance_revision": run.snapshot.get("maintenance_revision", 1),
         "path_digest": entry.path_digest,
@@ -602,6 +607,33 @@ async def next_directory(db, run_id, task_id, fence):
         "identity": entry.observed.get("identity")
         or (source.root_identity if not entry.relative_path else None),
     }
+
+    work["_fault_observation"] = await scan_fault_observation(
+        db, location, source, run, job, work
+    )
+    return work
+
+
+async def scan_fault_observation(db, location, source, run, job, work):
+    from app.services import storage_fault_events
+
+    return await storage_fault_events.prepare(
+        db,
+        location=location,
+        source=source,
+        operation="scan",
+        actor_id=job.user_id,
+        node_id=source.config["node_id"]
+        if source.config["node_id"].startswith("worker:")
+        else "worker:" + source.config["node_id"],
+        anchor=run.snapshot["anchor"],
+        maintenance_revision=run.snapshot.get("maintenance_revision", 1),
+        path_digest=work.get("path_digest"),
+        target=[work["path"], work.get("cursor")],
+        expected=work.get("identity"),
+        run_id=run.id,
+        job_id=job.id,
+    )
 
 
 async def apply_directory(db, run_id, task_id, fence, work, manifest):
@@ -705,7 +737,9 @@ async def apply_directory(db, run_id, task_id, fence, work, manifest):
     job.result = {**run.counts, "complete": False}
 
 
-async def fail_attempt(db, run_id, task_id, fence, code, *, failure=None):
+async def fail_attempt(
+    db, run_id, task_id, fence, code, *, failure=None, observation=None
+):
     try:
         location, source, run, job = await run_context(db, run_id)
         if (
@@ -714,14 +748,20 @@ async def fail_attempt(db, run_id, task_id, fence, code, *, failure=None):
             and run.status == "running"
             and (run.generation, run.lease_token) == fence
         ):
+            permitted = True
+            try:
+                await fenced_context(db, run_id, task_id, fence)
+            except (HTTPException, fs.FilesystemStorageError, LostScanLease):
+                permitted = False
             await finish(db, run, job, "failed", code)
-            if failure is not None:
+            if failure is not None and permitted:
                 from app.services import storage_fault_events
 
                 await storage_fault_events.report(
                     db,
                     failure,
                     operation="scan",
+                    observation=observation,
                     actor_id=job.user_id,
                     location_id=location.id,
                     source_id=source.id,

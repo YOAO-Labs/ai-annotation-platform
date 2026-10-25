@@ -143,9 +143,47 @@ async def scan_snapshot(
     if location.kind in {"s3", "sftp"}:
         expected = None if refresh_unverified and receipt is None else dict(observed)
         expected_source = None
+    revision = (source.config_revision, location.config_revision)
+
+    async def fault_authority():
+        (
+            current_location,
+            current_source,
+            _,
+            _,
+            current_node,
+            current_anchor,
+        ) = await scan_context(db, run_id, path_digest, actor, node_id=node_id)
+        if (
+            revision
+            != (current_source.config_revision, current_location.config_revision)
+            or current_node != node
+            or current_anchor != anchor
+            or await key_authority(db, actor, api_key_id, scope) != key_proof
+        ):
+            raise snapshots.ContentError("configuration_changed")
+
+    observation = await storage_fault_events.prepare(
+        db,
+        location=location,
+        source=source,
+        operation="scan_content",
+        actor_id=actor.id,
+        node_id=node,
+        anchor=anchor,
+        maintenance_revision=run.snapshot.get("maintenance_revision", 1),
+        path_digest=path_digest,
+        expected=digest or expected,
+        target=[source.config["relative_path"], entry.relative_path],
+        run_id=run.id,
+        job_id=event_job_id or run.async_job_id,
+        registration_id=event_registration_id,
+    )
     async with storage_fault_events.observe(
         db,
         operation="scan_content",
+        observation=observation,
+        validate=fault_authority,
         actor_id=actor.id,
         location_id=location.id,
         source_id=source.id,
@@ -159,7 +197,6 @@ async def scan_snapshot(
             source.config["relative_path"],
             entry.relative_path,
         )
-        revision = (source.config_revision, location.config_revision)
         if before_io is not None:
             await before_io(db)
         await db.commit()  # No database locks span filesystem I/O.
@@ -231,6 +268,7 @@ async def scan_snapshot(
                 status_code=200,
             )
         await db.commit()
+        await storage_fault_events.recover(db, observation)
         return snapshot
     except BaseException:
         snapshot.close()

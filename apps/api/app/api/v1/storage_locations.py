@@ -3,6 +3,7 @@
 import asyncio
 from datetime import datetime, timezone
 import uuid
+from typing import Literal
 
 from celery.exceptions import TimeoutError as CeleryTimeoutError
 from celery.utils.nodenames import worker_direct
@@ -34,6 +35,7 @@ from app.schemas.storage_location import (
     AvatarBindingCandidates,
     AvatarBindingChange,
     AvatarBindingPreview,
+    StorageFaultList,
     StorageBindingOut,
     StorageDirectoryPage,
     StorageLocationList,
@@ -383,6 +385,41 @@ async def create_location(
     )
     await db.commit()
     return await svc.to_out(db, location, actor)
+
+
+@router.get("/{location_id}/faults", response_model=StorageFaultList)
+async def source_faults(
+    location_id: uuid.UUID,
+    request: Request,
+    state: Literal["active", "recovered", "all"] = "active",
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(manager),
+):
+    from app.services import storage_fault_state
+
+    actor = await require_manager(db, actor.id)
+    proof = await key_authority(
+        db, actor, getattr(request.state, "api_key_id", None), "datasets:read"
+    )
+    location = await svc.get_visible(db, location_id, actor)
+    initial_role = actor.role
+    result = await storage_fault_state.visible_page(
+        db, location, actor, state=state, limit=limit, offset=offset
+    )
+    actor = await require_manager(db, actor.id)
+    if actor.role != initial_role:
+        raise HTTPException(403, detail={"code": "access_revoked"})
+    await svc.get_visible(db, location_id, actor)
+    if (
+        await key_authority(
+            db, actor, getattr(request.state, "api_key_id", None), "datasets:read"
+        )
+        != proof
+    ):
+        raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+    return result
 
 
 @router.get("/{location_id}", response_model=StorageLocationOut)

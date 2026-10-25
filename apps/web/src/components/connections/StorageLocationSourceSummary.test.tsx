@@ -7,6 +7,11 @@ import { StorageLocationSourceSummary } from "./StorageLocationSourceSummary";
 const state = vi.hoisted(() => ({ role: "project_admin", session: "session", revision: 1 }));
 const api = vi.hoisted(() => ({ locationPage: vi.fn(), sourceSummary: vi.fn() }));
 vi.mock("@/api/datasetSources", () => ({ datasetSourcesApi: api }));
+vi.mock("./StorageFaultsPanel", () => ({
+  StorageFaultsPanel: ({ locationId }: { locationId: string }) => (
+    <output aria-label="故障观测位置">{locationId}</output>
+  ),
+}));
 vi.mock("@/hooks/usePermissions", () => ({ usePermissions: () => ({ role: state.role }) }));
 vi.mock("@/hooks/useSessionGuard", () => ({ useSessionRevision: () => state.revision }));
 vi.mock("@/stores/authStore", () => ({
@@ -138,6 +143,7 @@ it("queries one selected location, paginates sources/jobs independently and uses
   const link = await screen.findByRole("link", { name: "Vehicles / Fleet" });
   expect(link).toHaveAttribute("href", "/datasets/dataset?tab=sources&source=source");
   expect(screen.getByText("关联来源 · 25")).toBeInTheDocument();
+  expect(screen.getByLabelText("故障观测位置")).toHaveTextContent("location");
   fireEvent.click(screen.getByRole("button", { name: "下一页来源" }));
   await waitFor(() =>
     expect(api.sourceSummary).toHaveBeenCalledWith("location", 20, 0, expect.any(AbortSignal)),
@@ -185,6 +191,16 @@ it("links a super administrator to the current source fault history", async () =
     "href",
     "/audit?action=storage.fault&target_type=storage_location&detail_key=source_id&detail_value=source",
   );
+});
+
+it("keeps the independent fault view available when source-summary loading fails", async () => {
+  api.sourceSummary.mockRejectedValue({ status: 503 });
+  mount();
+  await screen.findByRole("option", { name: "CephFS · filesystem" });
+  fireEvent.change(screen.getByRole("combobox", { name: "查看关联来源的存储位置" }), {
+    target: { value: "location" },
+  });
+  expect(await screen.findByLabelText("故障观测位置")).toHaveTextContent("location");
 });
 
 it("does not expose global audit navigation to a project administrator", async () => {

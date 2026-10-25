@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db.models.audit_log import AuditLog
+from app.db.models.storage_fault import StorageFaultState
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset_source import DatasetSourceItem
 from app.db.models.user import User
@@ -42,6 +43,11 @@ async def rows(engine, location_id):
 
 async def clean(engine, location_id):
     async with engine.begin() as connection:
+        await connection.execute(
+            delete(StorageFaultState).where(
+                StorageFaultState.location_id == location_id
+            )
+        )
         await connection.execute(text("SET LOCAL app.allow_audit_update = 'true'"))
         await connection.execute(
             delete(AuditLog).where(

@@ -1,4 +1,4 @@
-"""Best-effort storage observations using the existing audit history."""
+"""Safe A3 history and ordered sparse source-fault transitions."""
 
 from contextlib import asynccontextmanager
 import asyncio
@@ -77,7 +77,9 @@ async def _persist(db, detail, actor_id, request_id):
         )
 
 
-async def report(db, exc, *, operation, actor_id=None, preview=False, **identifiers):
+async def report(
+    db, exc, *, operation, actor_id=None, preview=False, observation=None, **identifiers
+):
     """Call only with identities already resolved under the caller's authority."""
     try:
         fault = classify(exc, preview=preview)
@@ -98,6 +100,11 @@ async def report(db, exc, *, operation, actor_id=None, preview=False, **identifi
         request_id = request_id_var.get() or None
         if request_id and not re.fullmatch(r"[A-Za-z0-9_.:-]{1,36}", request_id):
             request_id = None
+        if observation is not None:
+            from app.services import storage_fault_state
+
+            if await storage_fault_state.record(db, observation, fault):
+                return
         async with asyncio.timeout(2):
             await _persist(db, detail, actor_id, request_id)
     except Exception:
@@ -106,9 +113,76 @@ async def report(db, exc, *, operation, actor_id=None, preview=False, **identifi
 
 
 @asynccontextmanager
-async def observe(db, *, operation, actor_id=None, **identifiers):
+async def observe(
+    db, *, operation, actor_id=None, observation=None, validate=None, **identifiers
+):
     try:
         yield
     except Exception as exc:
-        await report(db, exc, operation=operation, actor_id=actor_id, **identifiers)
+        permitted = True
+        if validate is not None:
+            try:
+                await validate()
+            except Exception:
+                permitted = False
+        if permitted:
+            await report(
+                db,
+                exc,
+                operation=operation,
+                actor_id=actor_id,
+                observation=observation,
+                **identifiers,
+            )
         raise
+
+
+async def _prepare(
+    db, *, location=None, source=None, operation, actor_id=None, **values
+):
+    from app.services import storage_fault_state
+
+    location_id, source_id = (
+        values.pop("location_id", None),
+        values.pop("source_id", None),
+    )
+    asset_id = values.get("asset_id")
+    evidence = {}
+    for key in IDENTIFIERS:
+        value = values.pop(key, None)
+        if value is not None:
+            evidence[key] = identifier(value)
+    if source is not None:
+        evidence.setdefault("dataset_id", identifier(source.dataset_id))
+    request_id = request_id_var.get() or None
+    if request_id and not re.fullmatch(r"[A-Za-z0-9_.:-]{1,36}", request_id):
+        request_id = None
+    if request_id is not None:
+        evidence["request_id"] = request_id
+    return await storage_fault_state.prepare(
+        db,
+        location=location,
+        source=source,
+        location_id=location_id,
+        source_id=source_id,
+        operation=operation,
+        asset_id=asset_id,
+        actor_id=identifier(actor_id),
+        request_id=request_id,
+        evidence=evidence,
+        **values,
+    )
+
+
+async def prepare(db, **values):
+    try:
+        return await _prepare(db, **values)
+    except Exception:
+        log.warning("Storage fault observation could not be prepared")
+        return None
+
+
+async def recover(db, observation):
+    from app.services import storage_fault_state
+
+    await storage_fault_state.record(db, observation)
