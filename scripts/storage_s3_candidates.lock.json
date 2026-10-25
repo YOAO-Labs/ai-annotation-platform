@@ -1,0 +1,57 @@
+{
+  "schema": "aap.storage-s3-candidate-lock/v1",
+  "recorded_at": "2026-10-25",
+  "candidates": [
+    {
+      "name": "seaweedfs",
+      "image": "chrislusf/seaweedfs@sha256:3015781a9ae31319033c5f25658270efb23fd0ec44e11ee7f24b378ee42bfc3a",
+      "image_tag_evidence": "4.49_large_disk_foundationdb",
+      "config_digest": "sha256:7c0de957db639d08927d22d765ceb4303f844b10167c2bee4969f4b01544bee6",
+      "platform": "linux/amd64",
+      "image_revision_label": "b97ed0f1014050c41b3a7f0b8c0c91f579a79998",
+      "image_version_label": "4.49_large_disk_foundationdb",
+      "source_repository": "https://github.com/seaweedfs/seaweedfs",
+      "release_tag": "4.49",
+      "release_tag_commit": "b65832bdc9bbbcf3682465b1be598627ac386206",
+      "license_id": "Apache-2.0",
+      "license_file": "docs/research/data/storage-s3-candidate-licenses/seaweedfs.txt",
+      "license_sha256": "d789d433cc11da163273d1e39be2e8fa67642f9a58ef220d3f258fa9c14ef613",
+      "license_source_url": "https://raw.githubusercontent.com/seaweedfs/seaweedfs/b97ed0f1014050c41b3a7f0b8c0c91f579a79998/LICENSE",
+      "entrypoint_evidence": ["/entrypoint.sh"],
+      "cmd_evidence": null,
+      "user_evidence": "seaweed",
+      "notes": [
+        "Published image variant differs from unavailable normal4.49tag; OCI revision and release-tag commit are distinct facts; no FoundationDB instance is configured."
+      ]
+    },
+    {
+      "name": "rustfs",
+      "image": "rustfs/rustfs@sha256:128220dc9382bac81940a1a9616ee8c274a3f3b8f647eedbeb50df5bb8b49922",
+      "image_tag_evidence": "1.0.3",
+      "config_digest": "sha256:cf1d7ba6108cd433dc8468d23b4361e644dc5424524481f5956bfd2dbc0f9b84",
+      "platform": "linux/amd64",
+      "image_revision_label": null,
+      "image_version_label": null,
+      "source_repository": "https://github.com/rustfs/rustfs",
+      "release_tag": "1.0.3",
+      "release_tag_commit": "331fb896285a7686f927baf8d9d4dc2d3d3a10a9",
+      "license_id": "Apache-2.0",
+      "license_file": "docs/research/data/storage-s3-candidate-licenses/rustfs.txt",
+      "license_sha256": "8ef87773cd6df917c9cf75bdb3075d92b78ad4cdf8e51d6c98030292442524d8",
+      "license_source_url": "https://raw.githubusercontent.com/rustfs/rustfs/331fb896285a7686f927baf8d9d4dc2d3d3a10a9/LICENSE",
+      "entrypoint_evidence": ["/entrypoint.sh"],
+      "cmd_evidence": ["rustfs"],
+      "user_evidence": "rustfs",
+      "notes": [
+        "OCI source revision label is absent; release source commit is not a binary-build attestation."
+      ]
+    }
+  ],
+  "proxy": {
+    "image": "nginx@sha256:dc5069ad14f19660b141b21236140b91656bf89bbc3e2417c70ae650cd66104c",
+    "platform": "linux/amd64"
+  },
+  "selection_ready": false,
+  "production_ready": false,
+  "license_file_base": "repository"
+}

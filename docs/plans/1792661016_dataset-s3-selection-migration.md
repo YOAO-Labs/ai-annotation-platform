@@ -8,6 +8,48 @@
 > 负责人角色：后端、运维、测试；产品负责人确认维护窗口与迁移范围。
 > 依赖：PoC 可独立启动；生产切换依赖 EPIC-01/02/05 的位置定位、用途绑定和读取兼容，以及 EPIC-12 的恢复演练。
 
+## 下一片定稿：E07-P1 双候选本地 S3 契约与运行基线
+
+2026-10-25，基线 `860128595`，沿整套实施授权推进原始 E07-S01／§5／AC01 的双候选本地实测。当前无真实生产部署目标，隔离 PoC 仍可直接实施；它与 E07-B2 初次复制、E12 增量账目及 C6 测量分别推进，不互相新增前置。只交付当前锁定构建的同场景报告，不选供应商、不改现有部署或业务用途。
+
+最小路径是运行上游兼容测试列表；本片复用上游矩阵作为输入，用仓库已有 boto3、实际 `StorageService`／签名实现及本地浏览器验证项目用到的参数、代理和错误处理，避免增加另一套依赖与部署服务。根应用、Compose、数据库、Redis、现有 MinIO 和人工3100／8100均保持；候选仅在所属短期容器、网络、卷与本地回环随机端口中运行，不重建任何后端镜像。
+
+### 真实构建锁定与许可
+
+已只读核对官方发布、Registry清单及其config blob的实际SHA。初始锁定linux/amd64的 SeaweedFS `4.49_large_disk_foundationdb`（manifest `3015781a9ae31319033c5f25658270efb23fd0ec44e11ee7f24b378ee42bfc3a`），RustFS `1.0.3`（manifest `128220dc9382bac81940a1a9616ee8c274a3f3b8f647eedbeb50df5bb8b49922`），代理使用已缓存 Nginx digest `dc5069ad14f19660b141b21236140b91656bf89bbc3e2417c70ae650cd66104c`。实际执行始终按digest和显式平台，不按可变tag拉取。
+
+SeaweedFS普通`4.49`镜像标签不存在；所选同版本变体的OCI源码声明是 `b97ed0f1014050c41b3a7f0b8c0c91f579a79998`，与GitHub发行tag提交 `b65832bdc9bbbcf3682465b1be598627ac386206`分别保存。其额外FoundationDB适配器不配置、不启动独立FoundationDB实例；报告保留实际变体，不能替代其他构建。RustFS发行tag提交为 `331fb896285a7686f927baf8d9d4dc2d3d3a10a9`，镜像没有OCI源码label，保留这一未知。首个运行探测另记录实际二进制版本，不能把tag、源码声明与二进制观测混成一项。
+
+两个所选源码修订的原始Apache-2.0许可文件、来源URL与完整SHA进入固定输入；SeaweedFS许可SHA为 `d789d433cc11da163273d1e39be2e8fa67642f9a58ef220d3f258fa9c14ef613`，RustFS为 `8ef87773cd6df917c9cf75bdb3075d92b78ad4cdf8e51d6c98030292442524d8`。来源：[SeaweedFS发行](https://github.com/seaweedfs/seaweedfs/releases/tag/4.49)、[所选构建源码许可](https://github.com/seaweedfs/seaweedfs/blob/b97ed0f1014050c41b3a7f0b8c0c91f579a79998/LICENSE)、[RustFS发行](https://github.com/rustfs/rustfs/releases/tag/1.0.3)、[源码许可](https://github.com/rustfs/rustfs/blob/331fb896285a7686f927baf8d9d4dc2d3d3a10a9/LICENSE)。[SeaweedFS S3矩阵](https://github.com/seaweedfs/seaweedfs/wiki/Amazon-S3-API)与[RustFS矩阵](https://docs.rustfs.com/en/reference/s3-compatibility)是测试输入，矩阵宣称不代替实际结果。
+
+### 同一测试合同
+
+两候选顺序使用相同确定性夹具、4 CPU／8 GiB容器上限、相同代理配置和协议用例；每候选默认最多256个对象、各方向实际正文累计1 GiB、15分钟协作时限，网络连接3秒／读取15秒、SDK不自动重试，启动／重启分别最多120／60秒。记录主机、Docker、Python／boto3、源码指纹、镜像／平台、实际时间窗口及同时运行的C6等负载，不推断生产SLO或用厂商跑分替代实测。
+
+- 基础及版本：真实PUT／GET／HEAD、元数据、前缀／版本分页、空对象、中文／百分号等应用可用原始键、删除、版本覆盖与固定旧版本读取、mutable null、删除标记、精确版本删除、条件GET／HEAD、并发条件PUT只成功一次。字面`../`类提供方不接受的键由纯寻址检查明确覆盖，不能为通过放松应用路径合同。ETag单独记录，完整SHA才是正文证据。
+- multipart：建立、两份至少5 MiB的part、分页核对、错误完成拒绝／正确重试、最终完整SHA、未完成上传中断及abort后absence；中断不能出现误认成功或部分正文。加密能力另报告实际探测与当前平台使用状态，不引入KMS或生产密钥作为本片前置，不将未执行加密场景写成通过。
+- 媒体与签名：用当前 `StorageService` 生成内部／ML与浏览器签名，明确绝对公共Host保留及相对前缀剥离／内部Host恢复两条真实Nginx路由。读取实际生成的图片、短MP4与ZIP并核对完整SHA及可解码／成员CRC；Range／Content-Length／Content-Range、条件拒绝、签名篡改、错误凭据和真正过期的原有效签名分别测试。这里验证存储服务及媒体格式，不宣称已有冻结业务版本完成迁移。
+- 浏览器：独立临时页面从同源相对路由及不同回环Origin实际执行预签名PUT、GET／Range、CORS预检、Content-Type、允许暴露的响应头和拒绝后新签名重试；记录零新增异常及有界结果，私有签名不进入截图／终端／报告。优先已安装agent-browser及独立所属session，结束关闭该session。
+- 生命周期：调用当前应用实际规则配置并回读，证明可重建帧／导出前缀与持久预览、头像及归档的不同范围；只回读规则不能称实际到期已通过。当前原生到期清理、真实TLS入口、磁盘满、多节点故障和滚动升级仍在报告原始矩阵中标为not_run／未资格化，留在E07原始范围，不伪造本片成功，也不阻断独立初次复制。
+- 本地运行：固定已确认对象与版本后真实重启、写入中强杀，恢复后确认原有正文及元数据保持，未确认写入只允许缺失或完整对象。停稳后备份所属同提供方数据卷，恢复到新的所属卷并逐保存版本回读；不把这种同版本卷恢复称为MinIO跨供应商磁盘格式迁移。记录同一批小图片／混合大小对象单路与四路PUT／GET延迟、实际字节、HTTP失败、CPU和RSS采样范围，保留共享主机及采样峰值限制。
+
+每个案例都有passed／failed／not_supported／not_run／inconclusive、具体阶段／脱敏错误码、证据和原始§5类别映射。分开执行完成、上述本地基线是否通过、未覆盖类别和完整选型资格；完整§5仍有未执行项时 `selection_ready=false`、`production_ready=false`。失败如实记录，不能删案例、改错误期望、跳过实际浏览器或替换平台实现获得通过。后续按原始矩阵补齐生产拓扑／原生过期／故障及升级证据，再形成供应商选择ADR；本片不把这些原始剩余项变成E12或E07-B2的新门槛。
+
+```text
+fixed image + source/license facts -> owned candidate / same proxy
+same fixture + current StorageService -> signed access -> browser / internal reader
+owned restart + same-provider volume backup ----------> exact body/version checks
+all observations ------------------------------------> scoped comparison report
+```
+
+### 所属资源、准确范围与验证
+
+专用CLI只使用固定候选与临时生成凭据，不读取或连接已有数据库／S3业务服务。先持久化所属nonce、创建的容器／卷／网络／会话精确ID和镜像，清理前核对checkout绑定、创建记录及owner label，不凭名称前缀猜测归属。凭据只在0600私有文件／子进程env，日志私有且有界；不把Docker完整Env、provider消息或签名URL写入报告。所有退出路径收尾自己的资源，硬杀遗留提供同一manifest的显式cleanup入口，发现其他owner／使用者时拒绝删除。镜像作为固定测试依赖缓存保留，容器／卷／网络／浏览器session、暂存、原始日志与构建缓存按归属清理，仅保留正式报告及有界私有核验摘要。
+
+共15文件：`scripts/storage_s3_candidates.lock.json`；`docs/research/data/storage-s3-candidate-licenses/seaweedfs.txt`、`rustfs.txt`；新 `scripts/storage_s3_contract.py`、`scripts/verify_storage_candidates.py`、`scripts/test_storage_s3_contract.py`、`scripts/test_verify_storage_candidates.py`；新正式 `docs-site/ops/deploy/storage-candidate-poc.md`；现有侧栏 `docs-site/.vitepress/navigation/ops.ts`、运维首页、DEV、README、CHANGELOG、本计划与执行队列。许可路径按仓库根解析，原始文件字节及SHA保持，不作格式归一化。前三份固定输入先随本合同提交；代码修改代理须在此后当前本地HEAD创建的独立树实施，其余应用／冻结八脚本不变。
+
+纯检查针对有意义的报告判定、损坏／不匹配lock及许可、错误响应／分页／正文和元数据、预算、敏感信息排除、资源owner／label不符与清理中断；实际双候选报告按同一入口执行，记录所有失败及未覆盖，不能用fake client替代提供方或浏览器。完成相关代码／文档检查、正常钩子和diff，核对全部资源absence后提交。停止PoC即可回退，不改既有业务配置；完整E07、供应商选择及生产迁移继续保留活动状态。
+
 ## 下一片定稿：E07-B2 本地初次复制与可恢复核验
 
 2026-10-25，基线 `67ce6847f`，对应原始 E07-S03／§6、§7.3、§8“切换前失败”及 AC03／AC05。E07-A／B 的源端和保存定位目录已交付，下一片直接实现本地初次复制，不等待未指定的生产目标。原计划 E07-C 仍指生产切换与退役；本片不改绑定、业务定位或冻结manifest，不将复制成功等同于停写、切换或回滚完成。
