@@ -14,6 +14,10 @@
 
 基于`c490aad54`沿原始S04／AC05、AC10推进annotations新分配，复用独立Task原件、RLE对象、评论附件和指南图片的现有责任及认证读取／清理。旧schema1／NULL与在途地址保持，Task新增nullable保存引用，普通标注geometry仍在数据库；training继续锁定。准确字段、逻辑键兼容、0253、控制面、文件范围与有界验收以[E09-B14合同](1792661016_dataset-storage-console-boundaries.md#本轮定稿e02-b21e09-b14-标注文件新分配位置切换)为准，沿既有整套实施／提交授权approved；不展开Tracker、会话、审核或模型专项。人工继续0252／七用途，完整合同通过后再合入刷新。
 
+## 本轮定稿：E02-B22／E09-B15 训练文件新分配位置切换
+
+当前`c59846ea0`上八用途已交付，下一片沿原始S04／AC05、AC10仅补training五组既有owner及删除意图的保存目标／当前凭据接线，详细合同见[E09-B15](1792661016_dataset-storage-console-boundaries.md#本轮定稿e02-b22e09-b15-训练文件新分配位置切换)。本片迁移0254接0253；不增加模型执行、万条训练或全恢复资格。历史NULL显式核验、schema1及来源证据保持，人工继续0253／八用途，实施与验收待完成。
+
 ## 本轮定稿：E02-B20／E09-B13 媒体缓存新分配位置切换
 
 基于`0e0ee279c`沿原始S04／AC05、AC10继续media-cache用途。复用原图缓存、金字塔和视频派生owner；目录预览与普通Dataset／Task缩略图补共享耐久输出，旧及在途地址保持。只补地址、当前凭据、同源浏览器读回、引用保护和既有清理，annotations／training仍锁定；不增加算法、Tracker／审核、渲染资格或规模测量。准确schema、字段、接口和验证以[E09-B13合同](1792661016_dataset-storage-console-boundaries.md#本轮定稿e02-b20e09-b13-媒体缓存新分配位置切换)为准，沿既有整套实施／提交授权执行。

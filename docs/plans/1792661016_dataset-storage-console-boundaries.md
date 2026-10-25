@@ -3,6 +3,55 @@
 > 状态：E09-A、B1–B14已完成各自本地交付；B14标注文件新分配切换已完成隔离验收、主树集成与人工0253刷新。头像、报告附件、审计归档、导出、导入暂存、数据集原件、媒体缓存和标注文件八用途可受控切换，training仍锁定；Mask旧摘要问题已窄修并验证实际标注发布。位置影响、配置确认、逻辑维护与原件保留／核验沿既有E11交付；实际迁移与物理退役未完成，完整E09继续活动，不分配发布版本。
 > 转入日期：2026-10-22；A 切片验收：2026-10-23；初始调研基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 
+## 本轮定稿：E02-B22／E09-B15 训练文件新分配位置切换
+
+2026-10-25，基于`c59846ea0`复核原始E02-S04／AC05、AC10及E09-S05／§4.4，沿用户整套实施／提交授权approved。当前八用途已交付；本片仅开放最后的training新分配位置，已有和在途文件继续使用保存地址。范围是文件存储接线，不执行训练／试用／评估模型、不补原生资格、不做万条测量、节点缓存或跨目标整库恢复。
+
+### 现有owner与兼容合同
+
+| 责任                    | 本片范围                                                                                                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| TrainingDatasetVersion  | 数据包、冻结媒体／mask、已有准备Worker和数据分析／下载；后续派发和重试保留Version地址。                                                                       |
+| TrainingRun             | Attempt、checkpoint、产物和派生脱敏日志共用Run地址；数据包、续训、初始化来源Run可以分别处于不同目标。模型登记／下载／安装只传递来源地址，不增加模型执行验收。 |
+| TrainingPreview         | 自己的图片／报告和现有TTL／PUT窗口清理；输入Version与输出Preview独立选取保存目标。                                                                            |
+| SampleEvaluationRun     | 现有报告PUT／读回、持久删除请求及未发布候选清理；Attempt不另分配存储。                                                                                        |
+| ActiveLearningRound     | 保留PNG的HEAD／条件GET／PUT和完整读回；当前没有Round物理GC入口，本片不新增。                                                                                  |
+| TrainingStorageDeletion | 只保留现有Version／Run的独立删除责任；沿保存完整前缀重试，业务删除不丢失原目标。                                                                              |
+
+五组owner复用training_dataset_storage及四个薄adapter；不新增owner表、GC、任务、环境变量或依赖。新schema2在原精确11字段上增加key_prefix，共12字段：schema、purpose、location_id、config_revision、binding_generation、endpoint_url、bucket、prefix、storage_identity、origin、evidence、key_prefix。purpose仍为各family的training-dataset／training-run／training-preview／sample-evaluation／active-learning，控制Binding才是training。新分配写origin=new、evidence=null；schema1与verified-retained证据原样保留，旧NULL仍要求显式核验，不能由普通读取／重试默默接管。
+
+物理prefix为受控根加既有projects/{project}/{family}/{owner}/；prefix_for保持原逻辑前缀，Owner.prefix表示实际完整前缀，并提供纯派生的logical_prefix供已有项目／owner校验。resolve_ref的expected_prefix继续表示实际完整前缀；按record解析另核对逻辑project／owner关系，不能因为加根而接受其他owner。\_safe_key／contains保持安全非空后代及S3完整key的1024 UTF-8字节边界。
+
+外部目标的受控根含base_prefix及`_aap_managed/training/`，最多266个Unicode字符／707个UTF-8字节，不做Unicode正规化。legacy A的新schema2分配允许key_prefix为空、config_revision=1，binding_generation取当前代次，回切A的新代次同样合法；旧schema1继续固定原代次1。依据现有500字符的package_key／Deletion.prefix／Preview.media_key／初始化key合同：数据包逻辑key149字符、最长初始化权重234字符，后者限定根266字符；最长Run派生日志317字节限定根707字节。保留这些现有接口和列宽，不以放宽上限掩盖新根溢出。
+
+### 新分配、历史核验与实际I/O
+
+新分配从当前training Binding取得目标，按Connection→Location→Binding短事务复核并在原业务事务保存owner；持久提交后才进行provider I/O。复用managed_s3_target、已登记全局S3、加密当前凭据和白名单；保存的配置代次只描述分配事实，正常凭据轮换不改引用、冻结snapshot／manifest、内容SHA或首次期限。实时endpoint／bucket／完整受控根必须仍匹配保存事实；禁止把外部ref仅转成bucket后交给全局A client，也不能全局替换storage_service.client。
+
+旧NULL的显式storage-pin候选独立取已登记legacy A Location、实际平台端点与部署training_bucket，继续原完整保留副本核验、permit和Location／业务上下文复核。解除候选及最终复核对今天Binding的依赖；切B后仍只能核验A，不能把未知历史引向B。无旧引用不是切换的新全库接管门槛，也不代表历史对象已可读取。
+
+沿各调用准备当前transport sidecar，实际打开／关闭client与body放入对应存储访问许可；没有现成目标许可的直接路径复用storage_access，不新增责任模型。原件Source许可／业务围栏与目标许可分别保持。保留直传URL、PUT窗口、上传inventory和发布复核的现行期限；不声称平台维护可以撤回已经签发的外部URL。未知I/O收尾继续保留现有责任，不补偿盲删。
+
+接线覆盖training_dataset Worker的物化／上传／读回／失败收尾，training_dataset_analysis、训练数据下载；training_runs.assignment／internal_download／authorize_upload／finish与下载；training_artifacts的有界JSON读回及training_evaluations／training_observability／training_initialization／trained_models的直接来源读取；三个辅助family的实际I/O与现有清理；training_storage_cleanup的保存目标。修正preview素材key、evaluation report_prefix／候选清理项目解析、active-learning media_descriptor及两个删除入口的逻辑前缀硬编码。仅处理物理定位，不重构这些业务状态机或算法。
+
+### 仅根地址相关的Executor兼容
+
+共享training_contract.initialization.validate_pin保留旧无根分支、PIN_KEYS、模型policy和摘要语义，只添加严格受控training根的key校验。Executor runtime_identity声明`training_saved_prefix_schema=2`；缺失按1。API仅对带根初始化来源检查该能力，新领取、原租约恢复和resume均覆盖，防止旧镜像的key验证器领取不支持的输入；既有executor_protocol、模型policy digest和image_digest不能替代这项地址能力。
+
+当前预览创建不包含初始化来源，旧Executor把media_key当不透明内容，继续通过各Task签名URL下载；不能给所有rooted预览附加这项能力门槛。现用Executor不自动升级，源码与轻量协议检查在本片完成；真实镜像／GPU部署仍如实保留为独立部署状态，不升级模型资格policy，不把重建或真实训练变成本片前置。
+
+### 控制、迁移、保护与有界验收
+
+复用居中Binding Modal、超级管理员／Key scopes、分页候选、实际探针、五分钟预览、锁内确认／审计和权限／配置／历史复核。新增TrainingBinding系列DTO及`/storage-locations/bindings/training`、`/candidates`、`/change-preview`，write_policy=current_binding、change_policy=reviewed_training_switch。history按全部保存状态分列training_versions、training_runs、training_previews、sample_evaluations、active_learning_rounds、deletion_intents；可解释各类未固定数量，不相加冒充对象总数，不要求先全库补认。
+
+探针按当前真实物理需求验证微小普通PUT、非空MPU、完整读回、精确前缀LIST与批量DeleteObjects／收尾。复用managed target与有界probe辅助，不额外要求datasets条件／空文件写、版本化桶、历史版本列举或提供商性能。保留现行当前对象前缀清理边界，不扩大成不可变版本GC。
+
+0254接0253，扩展五组及Deletion现有地址／前缀CHECK，并对六组新schema2引用增加不可变保护，restore GUC也不能改写；不回填或重写旧schema1证据。新事实存在时拒绝破坏性downgrade。location_is_referenced覆盖六组全部保存状态，usage按实际endpoint／bucket／完整key及受控根分类；B不计入A盘点。九桶恢复在首次映射修改前拒绝新训练地址／绑定事实，包括回切A和删除意图；旧schema1映射语义保持，不增加跨目标完整恢复验收。
+
+本片跨同一用途的五组既有owner和直接消费者，超过8文件／3组件；采用隔离基础／消费者／控制面实施再集中验收，人工环境在完整交付前保持0253／八用途。同步OpenAPI、本树生成类型、SDK三个web-only管理端点及现有maintenance-risk storage-pin、README／CHANGELOG、训练API与存储用户／API／开发／桶／恢复说明。检索并修正相关旧锁定叙述，保留历史计划的当时状态。
+
+测试只用核对owner的可销毁test／e2e和小型合成文件：旧NULL／schema1保持，已分配在途A、新B、回切A、五组保存地址、混合来源签名、当前凭据轮换／撤销、坏目标／竞争／维护拒绝与现有准确清理；共享初始化仅做旧／新地址验证及新领取／恢复能力围栏，不执行模型。正式浏览器检查明暗×桌面／窄屏、真实预览／确认／错误、Escape／焦点及请求。正常提交后再集成0254，停所属Beat、确认Worker空闲、冻结业务旧字段／对象版本／源文件并核对迁移保持，恢复原3100／8100、两Worker／Beat。完成后销毁本片资源／中间产物，不重建后端镜像、不推送或发布；E02／E09是否整项收口仍按原始矩阵核对。
+
 ## 本轮定稿：E02-B21／E09-B14 标注文件新分配位置切换
 
 2026-10-25，基于干净`c490aad54`复核原始E02-S04／AC05、AC10及E09-S05／§4.4，沿用户整套实施／提交授权approved。上一片media-cache已合入并刷新人工0252，当前七用途可切换；本片仅开放annotations新分配，training继续锁定。不改标注画布、Tracker、会话、审核、模型、RLE编码或Mask格式算法，也不增加规模测量、渲染资格或全恢复前置。
