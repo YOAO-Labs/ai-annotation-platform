@@ -274,6 +274,7 @@ class StorageBindingOut(BaseModel):
         "reviewed_audit_archive_switch",
         "reviewed_export_switch",
         "reviewed_import_switch",
+        "reviewed_dataset_switch",
     ]
 
 
@@ -507,6 +508,53 @@ class ImportBindingPreview(BaseModel):
     previous: StorageBindingOut
     target: ImportBindingTarget
     history: ImportBindingHistory
+    capabilities: dict[str, bool]
+    can_apply: bool
+    measured_at: datetime
+    expires_at: datetime
+    impact_token: str
+
+
+class DatasetBindingCandidate(BaseModel):
+    location_id: uuid.UUID
+    name: str
+    config_revision: int
+
+
+class DatasetBindingCandidates(BaseModel):
+    items: list[DatasetBindingCandidate]
+    total: int
+
+
+class DatasetBindingChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_generation: int = Field(ge=1)
+    target_location_id: uuid.UUID
+    target_config_revision: int = Field(ge=1)
+
+
+class DatasetBindingApply(DatasetBindingChange):
+    impact_token: str = Field(min_length=1, max_length=8192)
+
+
+class DatasetBindingTarget(DatasetBindingCandidate):
+    bucket: str
+    key_prefix: str
+    connection_revision: int | None = None
+
+
+class DatasetBindingHistory(BaseModel):
+    asset_locations: int
+    creation_allocations: int
+    auxiliary_originals: int
+    retirements: int
+
+
+class DatasetBindingPreview(BaseModel):
+    purpose: Literal["datasets"] = "datasets"
+    previous: StorageBindingOut
+    target: DatasetBindingTarget
+    history: DatasetBindingHistory
     capabilities: dict[str, bool]
     can_apply: bool
     measured_at: datetime

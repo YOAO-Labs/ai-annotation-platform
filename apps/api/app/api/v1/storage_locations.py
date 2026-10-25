@@ -23,6 +23,10 @@ from app.schemas.storage_location import (
     ExportBindingCandidates,
     ExportBindingChange,
     ExportBindingPreview,
+    DatasetBindingApply,
+    DatasetBindingCandidates,
+    DatasetBindingChange,
+    DatasetBindingPreview,
     ImportBindingApply,
     ImportBindingCandidates,
     ImportBindingChange,
@@ -379,6 +383,60 @@ async def apply_import_binding(
     actor: User = Depends(super_admin),
 ):
     from app.services import import_binding_change as change
+
+    try:
+        result = await change.apply(
+            db,
+            payload,
+            actor,
+            api_key_id=getattr(request.state, "api_key_id", None),
+            request=request,
+        )
+    except change.PUBLIC_ERRORS as exc:
+        raise change.http_error(exc) from None
+    await db.commit()
+    return result
+
+
+@router.get("/bindings/datasets/candidates", response_model=DatasetBindingCandidates)
+async def dataset_binding_candidates(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(super_admin),
+    limit: int = Query(20, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    from app.services import dataset_binding_change as change
+
+    return await change.candidates(db, limit=limit, offset=offset)
+
+
+@router.post("/bindings/datasets/change-preview", response_model=DatasetBindingPreview)
+async def preview_dataset_binding(
+    payload: DatasetBindingChange,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(super_admin),
+):
+    from app.services import dataset_binding_change as change
+
+    try:
+        result = await change.preview(
+            db, payload, actor, api_key_id=getattr(request.state, "api_key_id", None)
+        )
+    except change.PUBLIC_ERRORS as exc:
+        raise change.http_error(exc) from None
+    await db.commit()
+    return result
+
+
+@router.patch("/bindings/datasets", response_model=StorageBindingOut)
+async def apply_dataset_binding(
+    payload: DatasetBindingApply,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(super_admin),
+):
+    from app.services import dataset_binding_change as change
 
     try:
         result = await change.apply(

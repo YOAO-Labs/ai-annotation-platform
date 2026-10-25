@@ -685,7 +685,14 @@ async def binding_rows(db):
                 "read_policy": "consumer_owned_compatibility",
                 "write_policy": "current_binding"
                 if purpose
-                in {"avatars", "bug-reports", "audit-archive", "export", "import"}
+                in {
+                    "avatars",
+                    "bug-reports",
+                    "audit-archive",
+                    "export",
+                    "import",
+                    "datasets",
+                }
                 else "deployment_mapping",
                 "change_policy": "reviewed_avatar_switch"
                 if purpose == "avatars"
@@ -698,6 +705,8 @@ async def binding_rows(db):
                     if purpose == "export"
                     else "reviewed_import_switch"
                     if purpose == "import"
+                    else "reviewed_dataset_switch"
+                    if purpose == "datasets"
                     else "legacy_mapping_locked"
                 ),
             }

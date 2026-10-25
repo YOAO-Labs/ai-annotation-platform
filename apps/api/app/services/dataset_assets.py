@@ -62,12 +62,21 @@ async def validate_legacy_bindings(db):
         if binding is None:
             errors.append(f"missing_binding:{purpose}")
         elif (
-            purpose in {"avatars", "bug-reports", "audit-archive", "export", "import"}
+            purpose
+            in {
+                "avatars",
+                "bug-reports",
+                "audit-archive",
+                "export",
+                "import",
+                "datasets",
+            }
             and binding.generation >= 2
         ):
             from app.services.audit_archive_storage import AuditArchiveStorageError
             from app.services.export_storage import ExportStorageError
             from app.services.import_storage import ImportStorageError
+            from app.services.dataset_storage import DatasetStorageError
             from app.services.avatar_storage import AvatarStorageError
             from app.services.bug_attachment_storage import BugAttachmentStorageError
 
@@ -79,6 +88,8 @@ async def validate_legacy_bindings(db):
                 from app.services.audit_archive_storage_target import target_for
             elif purpose == "import":
                 from app.services.import_storage_target import target_for
+            elif purpose == "datasets":
+                from app.services.dataset_storage_target import target_for
             else:
                 from app.services.export_storage_target import target_for
 
@@ -95,6 +106,7 @@ async def validate_legacy_bindings(db):
                 AuditArchiveStorageError,
                 ExportStorageError,
                 ImportStorageError,
+                DatasetStorageError,
             ):
                 errors.append(f"binding_mismatch:{purpose}")
         elif (
