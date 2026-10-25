@@ -367,12 +367,12 @@ async def _verify_daily(engine, action, yesterday):
         assert rows == [(yesterday.date(), 1)]
 
 
-async def _verify_archive_job(engine, task_id, result):
+async def _verify_archive_job(engine, task_id, result, notification_count):
     async with engine.connect() as db:
         row = (
             await db.execute(
                 text(
-                    "SELECT status,user_id,project_id,payload,result FROM public.async_jobs WHERE celery_task_id=:id AND kind='audit_archive'"
+                    "SELECT id,status,user_id,project_id,payload,result FROM public.async_jobs WHERE celery_task_id=:id AND kind='audit_archive'"
                 ),
                 {"id": task_id},
             )
@@ -381,7 +381,17 @@ async def _verify_archive_job(engine, task_id, result):
             row.status == "completed" and row.user_id is None and row.project_id is None
         )
         assert row.payload == {"retain_months": 12} and row.result == result
-        assert await db.scalar(text("SELECT count(*) FROM public.notifications")) == 0
+        assert (
+            await db.scalar(text("SELECT count(*) FROM public.notifications"))
+            == notification_count
+        )
+        assert (
+            await db.scalar(
+                text("SELECT count(*) FROM public.notifications WHERE target_id=:id"),
+                {"id": row.id},
+            )
+            == 0
+        )
 
 
 async def test_installed_beat_maintenance_consumers_recover_archive_after_restore(
@@ -428,7 +438,9 @@ async def test_installed_beat_maintenance_consumers_recover_archive_after_restor
                 "SELECT has_table_privilege('legacy_runtime','public.audit_logs','SELECT')"
             )
         )
-        assert await db.scalar(text("SELECT count(*) FROM public.notifications")) == 0
+        notification_count = await db.scalar(
+            text("SELECT count(*) FROM public.notifications")
+        )
     resources = _verified_resource_manifest(test_engine, test_engine.url)
     bucket = resources["buckets"]["MINIO_AUDIT_ARCHIVE_BUCKET"]
     writer = _local_s3_client(settings, *_credentials("WRITE"))
@@ -528,7 +540,21 @@ async def test_installed_beat_maintenance_consumers_recover_archive_after_restor
                 )
                 tasks = [r for r in active[stack["node_name"]] if r["id"] == lost_id]
                 assert len(tasks) == 1
-                program = "import os,sys;from pathlib import Path;pid=int(sys.argv[1]);assert pid>1;parent=next(l.split()[1] for l in Path('/proc/'+str(pid)+'/status').read_text().splitlines() if l.startswith('PPid:'));assert parent=='1';os.kill(pid,9)"
+                program = """
+import os,sys,time
+from pathlib import Path
+pid=int(sys.argv[1]);assert pid>1
+status=Path('/proc/'+str(pid)+'/status')
+assert next(l.split()[1] for l in status.read_text().splitlines() if l.startswith('PPid:'))=='1'
+os.kill(pid,9)
+deadline=time.monotonic()+5
+while True:
+ try:content=status.read_text()
+ except FileNotFoundError:break
+ if any(l.startswith('State:') and l.split()[1]=='Z' for l in content.splitlines()):break
+ assert time.monotonic()<deadline
+ time.sleep(.01)
+"""
                 _docker(
                     "exec",
                     stack["worker"],
@@ -570,7 +596,7 @@ async def test_installed_beat_maintenance_consumers_recover_archive_after_restor
                 )
                 assert (
                     await db.scalar(text("SELECT count(*) FROM public.notifications"))
-                    == 0
+                    == notification_count
                 )
             assert await asyncio.to_thread(_broker_state, sender, "maintenance") == {
                 "queue_size": 0,
@@ -620,7 +646,10 @@ async def test_installed_beat_maintenance_consumers_recover_archive_after_restor
                         and result["total_rows"] == 1
                     )
                     await _verify_archive_job(
-                        engine, ids["archive-old-audit-partitions"], result
+                        engine,
+                        ids["archive-old-audit-partitions"],
+                        result,
+                        notification_count,
                     )
                     await _verify_daily(engine, daily_action, yesterday)
                     async with engine.connect() as db:
@@ -655,7 +684,10 @@ async def test_installed_beat_maintenance_consumers_recover_archive_after_restor
                         "total_rows": 0,
                     }
                     await _verify_archive_job(
-                        engine, ids["archive-old-audit-partitions"], repeat
+                        engine,
+                        ids["archive-old-audit-partitions"],
+                        repeat,
+                        notification_count,
                     )
                     dispatches.extend(stack["dispatches"])
             finally:
@@ -685,6 +717,7 @@ async def test_installed_beat_maintenance_consumers_recover_archive_after_restor
                     "original_task_routes_and_signatures": True,
                     "completed_utc_day_only": True,
                     "prefork_sigkill_after_put_and_db_rollback": True,
+                    "child_exit_observed_before_unblocking": True,
                     "uncommitted_job_rolled_back": True,
                     "whole_database_restore_then_explicit_redrive": True,
                     "jobs_completed_and_system_no_recipient_preserved": True,
