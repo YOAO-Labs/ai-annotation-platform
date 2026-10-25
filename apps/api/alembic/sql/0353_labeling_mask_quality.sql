@@ -626,7 +626,7 @@ BEGIN
         SELECT EXISTS (
             SELECT 1 FROM public.mask_qc_issues AS issue
             WHERE issue.id=(p_request ->> 'issue_id')::uuid
-              AND pg_catalog.jsonb_object_length(COALESCE(issue.source_versions,'{}'::jsonb)) > 0
+              AND (SELECT pg_catalog.count(*) FROM pg_catalog.jsonb_object_keys(COALESCE(issue.source_versions,'{}'::jsonb)) AS object_keys(key)) > 0
               AND NOT EXISTS (
                   SELECT 1 FROM pg_catalog.jsonb_each_text(issue.source_versions) AS source(id,version)
                   LEFT JOIN public.annotations AS annotation ON annotation.id=source.id::uuid

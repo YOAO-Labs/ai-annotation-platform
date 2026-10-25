@@ -196,7 +196,7 @@ BEGIN
         ELSE
             RAISE EXCEPTION 'invalid Labeling scene read request' USING ERRCODE = '22023';
     END CASE;
-    IF pg_catalog.jsonb_object_length(p_request) <> v_required_key_count
+    IF (SELECT pg_catalog.count(*) FROM pg_catalog.jsonb_object_keys(p_request) AS object_keys(key)) <> v_required_key_count
        OR NOT (p_request ?& v_required_keys) THEN
         RAISE EXCEPTION 'invalid Labeling scene read request' USING ERRCODE = '22023';
     END IF;

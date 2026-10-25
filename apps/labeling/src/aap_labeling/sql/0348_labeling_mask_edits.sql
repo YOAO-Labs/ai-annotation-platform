@@ -882,7 +882,7 @@ BEGIN
         FOR v_reference IN SELECT value FROM jsonb_array_elements(p_request -> 'references') AS refs(value)
         LOOP
             IF jsonb_typeof(v_reference) IS DISTINCT FROM 'object'
-               OR jsonb_object_length(v_reference) <> 3
+               OR (SELECT pg_catalog.count(*) FROM pg_catalog.jsonb_object_keys(v_reference) AS object_keys(key)) <> 3
                OR jsonb_typeof(v_reference -> 'annotation_id') IS DISTINCT FROM 'string'
                OR jsonb_typeof(v_reference -> 'annotation_version') IS DISTINCT FROM 'number'
                OR v_reference ->> 'annotation_version' !~ '^[1-9][0-9]*$'

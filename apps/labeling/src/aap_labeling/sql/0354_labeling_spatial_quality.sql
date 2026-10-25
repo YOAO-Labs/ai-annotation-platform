@@ -574,7 +574,7 @@ BEGIN
             END IF;
             v_status := p_request ->> 'status';
             IF v_status = 'start' THEN
-                IF pg_catalog.jsonb_object_length(p_request) <> 5 OR NOT (p_request ?& ARRAY['started_at']) OR pg_catalog.jsonb_typeof(p_request -> 'started_at') <> 'string' THEN
+                IF (SELECT pg_catalog.count(*) FROM pg_catalog.jsonb_object_keys(p_request) AS object_keys(key)) <> 5 OR NOT (p_request ?& ARRAY['started_at']) OR pg_catalog.jsonb_typeof(p_request -> 'started_at') <> 'string' THEN
                     RAISE EXCEPTION 'invalid Labeling spatial quality request' USING ERRCODE = '22023';
                 END IF;
                 UPDATE public.point_cloud_quality_runs AS row
@@ -583,7 +583,7 @@ BEGIN
                 WHERE row.id = (p_request ->> 'run_id')::uuid
                 RETURNING * INTO v_run;
             ELSIF v_status = 'progress' THEN
-                IF pg_catalog.jsonb_object_length(p_request) <> 5 OR NOT (p_request ?& ARRAY['progress_pct']) OR pg_catalog.jsonb_typeof(p_request -> 'progress_pct') <> 'number' OR (p_request ->> 'progress_pct')::numeric NOT BETWEEN 0 AND 100 OR (p_request ->> 'progress_pct')::numeric <> pg_catalog.trunc((p_request ->> 'progress_pct')::numeric) THEN
+                IF (SELECT pg_catalog.count(*) FROM pg_catalog.jsonb_object_keys(p_request) AS object_keys(key)) <> 5 OR NOT (p_request ?& ARRAY['progress_pct']) OR pg_catalog.jsonb_typeof(p_request -> 'progress_pct') <> 'number' OR (p_request ->> 'progress_pct')::numeric NOT BETWEEN 0 AND 100 OR (p_request ->> 'progress_pct')::numeric <> pg_catalog.trunc((p_request ->> 'progress_pct')::numeric) THEN
                     RAISE EXCEPTION 'invalid Labeling spatial quality request' USING ERRCODE = '22023';
                 END IF;
                 UPDATE public.point_cloud_quality_runs AS row
@@ -592,7 +592,7 @@ BEGIN
                 WHERE row.id = (p_request ->> 'run_id')::uuid
                 RETURNING * INTO v_run;
             ELSIF v_status = 'summary' THEN
-                IF pg_catalog.jsonb_object_length(p_request) <> 5 OR NOT (p_request ? 'summary') OR pg_catalog.jsonb_typeof(p_request -> 'summary') <> 'object' THEN
+                IF (SELECT pg_catalog.count(*) FROM pg_catalog.jsonb_object_keys(p_request) AS object_keys(key)) <> 5 OR NOT (p_request ? 'summary') OR pg_catalog.jsonb_typeof(p_request -> 'summary') <> 'object' THEN
                     RAISE EXCEPTION 'invalid Labeling spatial quality request' USING ERRCODE = '22023';
                 END IF;
                 UPDATE public.point_cloud_quality_runs AS row
@@ -600,7 +600,7 @@ BEGIN
                 WHERE row.id = (p_request ->> 'run_id')::uuid
                 RETURNING * INTO v_run;
             ELSIF v_status = 'completed' THEN
-                IF pg_catalog.jsonb_object_length(p_request) <> 7 OR NOT (p_request ?& ARRAY['progress_pct','summary','completed_at']) OR pg_catalog.jsonb_typeof(p_request -> 'progress_pct') <> 'number' OR (p_request ->> 'progress_pct')::numeric NOT BETWEEN 0 AND 100 OR (p_request ->> 'progress_pct')::numeric <> pg_catalog.trunc((p_request ->> 'progress_pct')::numeric) OR pg_catalog.jsonb_typeof(p_request -> 'summary') <> 'object' OR pg_catalog.jsonb_typeof(p_request -> 'completed_at') <> 'string' THEN
+                IF (SELECT pg_catalog.count(*) FROM pg_catalog.jsonb_object_keys(p_request) AS object_keys(key)) <> 7 OR NOT (p_request ?& ARRAY['progress_pct','summary','completed_at']) OR pg_catalog.jsonb_typeof(p_request -> 'progress_pct') <> 'number' OR (p_request ->> 'progress_pct')::numeric NOT BETWEEN 0 AND 100 OR (p_request ->> 'progress_pct')::numeric <> pg_catalog.trunc((p_request ->> 'progress_pct')::numeric) OR pg_catalog.jsonb_typeof(p_request -> 'summary') <> 'object' OR pg_catalog.jsonb_typeof(p_request -> 'completed_at') <> 'string' THEN
                     RAISE EXCEPTION 'invalid Labeling spatial quality request' USING ERRCODE = '22023';
                 END IF;
                 UPDATE public.point_cloud_quality_runs AS row
@@ -613,7 +613,7 @@ BEGIN
                 IF NOT (p_request ? 'completed_at') OR pg_catalog.jsonb_typeof(p_request -> 'completed_at') <> 'string'
                    OR (v_status IN ('stale','failed') AND (NOT (p_request ? 'error_message') OR pg_catalog.jsonb_typeof(p_request -> 'error_message') <> 'string'))
                    OR (v_status = 'cancelled' AND p_request ? 'error_message')
-                   OR pg_catalog.jsonb_object_length(p_request) <> (CASE WHEN v_status = 'cancelled' THEN 5 ELSE 6 END) THEN
+                   OR (SELECT pg_catalog.count(*) FROM pg_catalog.jsonb_object_keys(p_request) AS object_keys(key)) <> (CASE WHEN v_status = 'cancelled' THEN 5 ELSE 6 END) THEN
                     RAISE EXCEPTION 'invalid Labeling spatial quality request' USING ERRCODE = '22023';
                 END IF;
                 UPDATE public.point_cloud_quality_runs AS row
@@ -661,7 +661,7 @@ BEGIN
                     WHERE pg_catalog.jsonb_typeof(ids.value) <> 'string'
                )
                OR pg_catalog.jsonb_typeof(p_request -> 'source_versions') <> 'object'
-               OR pg_catalog.jsonb_object_length(p_request -> 'source_versions') > 20000
+               OR (SELECT pg_catalog.count(*) FROM pg_catalog.jsonb_object_keys(p_request -> 'source_versions') AS object_keys(key)) > 20000
                OR EXISTS (
                     SELECT 1 FROM pg_catalog.jsonb_each(p_request -> 'source_versions') AS versions(key,value)
                     WHERE pg_catalog.jsonb_typeof(versions.value) <> 'number'
@@ -1092,7 +1092,7 @@ BEGIN
             END IF;
             v_status := p_request ->> 'status';
             IF v_status = 'running' THEN
-                IF pg_catalog.jsonb_object_length(p_request) <> 6 OR NOT (p_request ?& ARRAY['started_at','progress_pct']) OR pg_catalog.jsonb_typeof(p_request -> 'started_at') <> 'string' OR pg_catalog.jsonb_typeof(p_request -> 'progress_pct') <> 'number' OR (p_request ->> 'progress_pct')::numeric NOT BETWEEN 0 AND 100 OR (p_request ->> 'progress_pct')::numeric <> pg_catalog.trunc((p_request ->> 'progress_pct')::numeric) THEN
+                IF (SELECT pg_catalog.count(*) FROM pg_catalog.jsonb_object_keys(p_request) AS object_keys(key)) <> 6 OR NOT (p_request ?& ARRAY['started_at','progress_pct']) OR pg_catalog.jsonb_typeof(p_request -> 'started_at') <> 'string' OR pg_catalog.jsonb_typeof(p_request -> 'progress_pct') <> 'number' OR (p_request ->> 'progress_pct')::numeric NOT BETWEEN 0 AND 100 OR (p_request ->> 'progress_pct')::numeric <> pg_catalog.trunc((p_request ->> 'progress_pct')::numeric) THEN
                     RAISE EXCEPTION 'invalid Labeling spatial quality request' USING ERRCODE = '22023';
                 END IF;
                 UPDATE public.video_track_quality_runs AS row
@@ -1100,7 +1100,7 @@ BEGIN
                     progress_pct=(p_request ->> 'progress_pct')::integer,updated_at=pg_catalog.transaction_timestamp()
                 WHERE row.id=(p_request ->> 'run_id')::uuid RETURNING * INTO v_video_run;
             ELSIF v_status IN ('completed','empty_overlap') THEN
-                IF pg_catalog.jsonb_object_length(p_request) <> 8 OR NOT (p_request ?& ARRAY['metrics','pairs','progress_pct','completed_at']) OR pg_catalog.jsonb_typeof(p_request -> 'metrics') <> 'object' OR pg_catalog.jsonb_typeof(p_request -> 'pairs') <> 'array' OR pg_catalog.jsonb_typeof(p_request -> 'progress_pct') <> 'number' OR (p_request ->> 'progress_pct')::numeric NOT BETWEEN 0 AND 100 OR (p_request ->> 'progress_pct')::numeric <> pg_catalog.trunc((p_request ->> 'progress_pct')::numeric) OR pg_catalog.jsonb_typeof(p_request -> 'completed_at') <> 'string' THEN
+                IF (SELECT pg_catalog.count(*) FROM pg_catalog.jsonb_object_keys(p_request) AS object_keys(key)) <> 8 OR NOT (p_request ?& ARRAY['metrics','pairs','progress_pct','completed_at']) OR pg_catalog.jsonb_typeof(p_request -> 'metrics') <> 'object' OR pg_catalog.jsonb_typeof(p_request -> 'pairs') <> 'array' OR pg_catalog.jsonb_typeof(p_request -> 'progress_pct') <> 'number' OR (p_request ->> 'progress_pct')::numeric NOT BETWEEN 0 AND 100 OR (p_request ->> 'progress_pct')::numeric <> pg_catalog.trunc((p_request ->> 'progress_pct')::numeric) OR pg_catalog.jsonb_typeof(p_request -> 'completed_at') <> 'string' THEN
                     RAISE EXCEPTION 'invalid Labeling spatial quality request' USING ERRCODE = '22023';
                 END IF;
                 UPDATE public.video_track_quality_runs AS row
@@ -1110,7 +1110,7 @@ BEGIN
                     updated_at=pg_catalog.transaction_timestamp()
                 WHERE row.id=(p_request ->> 'run_id')::uuid RETURNING * INTO v_video_run;
             ELSIF v_status = 'accepted' THEN
-                IF pg_catalog.jsonb_object_length(p_request) <> 7 OR NOT (p_request ?& ARRAY['accepted_by_id','accepted_at','pairs']) OR pg_catalog.jsonb_typeof(p_request -> 'accepted_by_id') <> 'string' OR pg_catalog.jsonb_typeof(p_request -> 'accepted_at') <> 'string' OR pg_catalog.jsonb_typeof(p_request -> 'pairs') <> 'array' THEN
+                IF (SELECT pg_catalog.count(*) FROM pg_catalog.jsonb_object_keys(p_request) AS object_keys(key)) <> 7 OR NOT (p_request ?& ARRAY['accepted_by_id','accepted_at','pairs']) OR pg_catalog.jsonb_typeof(p_request -> 'accepted_by_id') <> 'string' OR pg_catalog.jsonb_typeof(p_request -> 'accepted_at') <> 'string' OR pg_catalog.jsonb_typeof(p_request -> 'pairs') <> 'array' THEN
                     RAISE EXCEPTION 'invalid Labeling spatial quality request' USING ERRCODE = '22023';
                 END IF;
                 UPDATE public.video_track_quality_runs AS row
@@ -1122,7 +1122,7 @@ BEGIN
                 IF NOT (p_request ? 'stale_at') OR pg_catalog.jsonb_typeof(p_request -> 'stale_at') <> 'string'
                    OR (p_request ? 'completed_at' AND pg_catalog.jsonb_typeof(p_request -> 'completed_at') <> 'string')
                    OR (p_request ? 'error_message' AND pg_catalog.jsonb_typeof(p_request -> 'error_message') <> 'string')
-                   OR pg_catalog.jsonb_object_length(p_request) NOT IN (5,6,7) THEN
+                   OR (SELECT pg_catalog.count(*) FROM pg_catalog.jsonb_object_keys(p_request) AS object_keys(key)) NOT IN (5,6,7) THEN
                     RAISE EXCEPTION 'invalid Labeling spatial quality request' USING ERRCODE = '22023';
                 END IF;
                 UPDATE public.video_track_quality_runs AS row
@@ -1132,7 +1132,7 @@ BEGIN
                     updated_at=pg_catalog.transaction_timestamp()
                 WHERE row.id=(p_request ->> 'run_id')::uuid RETURNING * INTO v_video_run;
             ELSIF v_status = 'failed' THEN
-                IF pg_catalog.jsonb_object_length(p_request) <> 6 OR NOT (p_request ?& ARRAY['error_message','completed_at']) OR pg_catalog.jsonb_typeof(p_request -> 'error_message') <> 'string' OR pg_catalog.jsonb_typeof(p_request -> 'completed_at') <> 'string' THEN
+                IF (SELECT pg_catalog.count(*) FROM pg_catalog.jsonb_object_keys(p_request) AS object_keys(key)) <> 6 OR NOT (p_request ?& ARRAY['error_message','completed_at']) OR pg_catalog.jsonb_typeof(p_request -> 'error_message') <> 'string' OR pg_catalog.jsonb_typeof(p_request -> 'completed_at') <> 'string' THEN
                     RAISE EXCEPTION 'invalid Labeling spatial quality request' USING ERRCODE = '22023';
                 END IF;
                 UPDATE public.video_track_quality_runs AS row
@@ -1156,7 +1156,7 @@ BEGIN
             FOR v_item IN SELECT value FROM pg_catalog.jsonb_array_elements(p_request -> 'issue_rows') AS input_rows(value)
             LOOP
                 IF pg_catalog.jsonb_typeof(v_item) <> 'object'
-                   OR pg_catalog.jsonb_object_length(v_item) <> 7
+                   OR (SELECT pg_catalog.count(*) FROM pg_catalog.jsonb_object_keys(v_item) AS object_keys(key)) <> 7
                    OR NOT (v_item ?& ARRAY['id','left_annotation_id','right_annotation_id','code','frame_start','frame_end','metric'])
                    OR pg_catalog.jsonb_typeof(v_item -> 'id') <> 'string'
                    OR pg_catalog.jsonb_typeof(v_item -> 'code') <> 'string'
