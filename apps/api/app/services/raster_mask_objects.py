@@ -243,23 +243,24 @@ async def _initial(db, facts, guarded):
 
 
 async def _io(db, receipt, revision, operation, storage, *args, state="ready"):
+    target = None
+
     async def acquired(permit):
+        nonlocal target
         async with _session(db) as session:
             row = (await _owners(session, [receipt.id], read=True)).get(receipt.id)
             _current(row, receipt, state)
             await _gate(session, receipt, revision)
             if permit.revision != revision:
                 _reject()
+            target = await physical.io_target(session, receipt)
             await _commit(session)
 
     return await storage_access.run(
         db,
         _location(receipt),
         purpose(operation, receipt.id),
-        getattr(physical, operation),
-        storage.client,
-        receipt,
-        *args,
+        lambda: physical.run_io(target, storage.client, operation, receipt, *args),
         expected_revision=revision,
         on_acquired=acquired,
     )
@@ -549,22 +550,24 @@ async def _gc_one(db, receipt, cutoff, storage):
             return "retired"
         await _commit(session)
 
+    target = None
+
     async def acquired(permit):
+        nonlocal target
         async with _session(db) as session:
             row = await _gc_owner(session, receipt, cutoff, excluded=permit.id)
             if row is None or row.state != "retired":
                 _reject()
             await _gate(session, receipt, revision)
             _attempt(row)
+            target = await physical.io_target(session, receipt)
             await _commit(session)
 
     await storage_access.run(
         db,
         _location(receipt),
         purpose("delete", receipt.id),
-        physical.delete,
-        storage.client,
-        receipt,
+        lambda: physical.run_io(target, storage.client, "delete", receipt),
         expected_revision=revision,
         on_acquired=acquired,
     )
