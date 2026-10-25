@@ -397,3 +397,37 @@ async def test_get_core_row_queries_the_public_relation_when_uncached():
     assert await get_core_row(session, task_row, row_id) is None
     assert "FROM aap_labeling_v1.task_rows" in session.sql[0]
     assert "FROM public.tasks" not in session.sql[0]
+
+
+@pytest.mark.asyncio
+async def test_get_core_annotation_row_queries_the_public_relation_when_uncached():
+    session = _ReadSession()
+    session.identity_map = {}
+    row_id = uuid.UUID("00000000-0000-0000-0000-000000000010")
+
+    assert await get_core_row(session, annotation_row, row_id) is None
+    assert "FROM aap_labeling_v1.annotation_rows" in session.sql[0]
+
+
+@pytest.mark.asyncio
+async def test_video_tracker_task_lock_uses_fixed_nowait_owner_helper(monkeypatch):
+    from app.services.video_tracking import runner
+
+    task_id = uuid.UUID("00000000-0000-0000-0000-000000000011")
+    db = object()
+    locked_task = object()
+    call = {}
+
+    async def lock_task(db_arg, task_id_arg, **kwargs):
+        call.update(db=db_arg, task_id=task_id_arg, **kwargs)
+        return locked_task
+
+    monkeypatch.setattr(runner, "lock_task_for_core_read", lock_task)
+
+    assert await runner._lock_task_bounded(db, task_id) is locked_task
+    assert call == {
+        "db": db,
+        "task_id": task_id,
+        "nowait": True,
+        "populate_existing": True,
+    }

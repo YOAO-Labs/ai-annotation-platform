@@ -27,6 +27,7 @@ from app.db.models.annotation import Annotation
 from app.db.models.task import Task
 from app.services.annotation_evidence import record_annotation_actor
 from app.services.labeling_annotation_statistics import update_annotation_statistics
+from app.services.labeling_core_read_relations import annotation_row
 
 
 def _native_error_fields(error: BaseException):
@@ -145,10 +146,13 @@ class LabelingVideoBBoxEditingService:
         if not annotation_ids:
             return
         unique_ids = list(dict.fromkeys(annotation_ids))
-        columns = [Annotation.id, *(getattr(Annotation, field) for field in fields)]
+        columns = [
+            annotation_row.id,
+            *(getattr(annotation_row, field) for field in fields),
+        ]
         with self.db.no_autoflush:
             result = await self.db.execute(
-                select(*columns).where(Annotation.id.in_(unique_ids))
+                select(*columns).where(annotation_row.id.in_(unique_ids))
             )
         rows = {row.id: row for row in result}
         loaded = {
@@ -172,7 +176,9 @@ class LabelingVideoBBoxEditingService:
             rows = (
                 (
                     await self.db.execute(
-                        select(Annotation).where(Annotation.id.in_(annotation_ids))
+                        select(annotation_row).where(
+                            annotation_row.id.in_(annotation_ids)
+                        )
                     )
                 )
                 .scalars()

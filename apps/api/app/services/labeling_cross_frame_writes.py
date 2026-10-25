@@ -36,6 +36,11 @@ from aap_labeling.cross_frame_write_policy import (
 
 from app.db.models.annotation import Annotation
 from app.db.models.task import Task
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    get_core_row,
+    task_row,
+)
 from app.services.annotation_evidence import (
     record_annotation_actor,
     record_annotation_actors_for_tasks,
@@ -404,15 +409,15 @@ class LabelingCrossFrameWriteService:
         user_id: uuid.UUID,
         override_psr: dict | None = None,
     ) -> tuple[Annotation, bool]:
-        src = await self.db.get(
-            Annotation, source_annotation_id, populate_existing=True
+        src = await get_core_row(
+            self.db, annotation_row, source_annotation_id, populate_existing=True
         )
         if src is None or not src.is_active:
             raise HTTPException(status_code=404, detail="source annotation not found")
-        target_task = await self.db.get(Task, target_task_id)
+        target_task = await get_core_row(self.db, task_row, target_task_id)
         if target_task is None:
             raise HTTPException(status_code=404, detail="target task not found")
-        src_task = await self.db.get(Task, src.task_id)
+        src_task = await get_core_row(self.db, task_row, src.task_id)
         if src_task is None:
             raise HTTPException(status_code=404, detail="source task not found")
 
@@ -470,11 +475,11 @@ class LabelingCrossFrameWriteService:
             rows = list(
                 (
                     await self.db.execute(
-                        select(Annotation)
-                        .where(Annotation.task_id == source_task_id)
-                        .where(Annotation.is_active.is_(True))
-                        .where(Annotation.geometry["type"].astext == "box_3d")
-                        .order_by(Annotation.created_at, Annotation.id)
+                        select(annotation_row)
+                        .where(annotation_row.task_id == source_task_id)
+                        .where(annotation_row.is_active.is_(True))
+                        .where(annotation_row.geometry["type"].astext == "box_3d")
+                        .order_by(annotation_row.created_at, annotation_row.id)
                         .execution_options(populate_existing=True)
                     )
                 ).scalars()
@@ -489,8 +494,8 @@ class LabelingCrossFrameWriteService:
             rows = list(
                 (
                     await self.db.execute(
-                        select(Annotation)
-                        .where(Annotation.id.in_(annotation_ids))
+                        select(annotation_row)
+                        .where(annotation_row.id.in_(annotation_ids))
                         .execution_options(populate_existing=True)
                     )
                 ).scalars()
@@ -510,10 +515,10 @@ class LabelingCrossFrameWriteService:
                 )
             rows = [by_id[annotation_id] for annotation_id in annotation_ids]
 
-        src_task = await self.db.get(Task, source_task_id)
+        src_task = await get_core_row(self.db, task_row, source_task_id)
         if src_task is None:
             raise HTTPException(status_code=404, detail="source task not found")
-        target_task = await self.db.get(Task, target_task_id)
+        target_task = await get_core_row(self.db, task_row, target_task_id)
         if target_task is None:
             raise HTTPException(status_code=404, detail="target task not found")
         await record_annotation_actor(self.db, target_task, user_id)
@@ -593,8 +598,8 @@ class LabelingCrossFrameWriteService:
 
         if from_task_id == to_task_id:
             raise HTTPException(status_code=422, detail="插值区间两端不能是同一 task")
-        from_task = await self.db.get(Task, from_task_id)
-        to_task = await self.db.get(Task, to_task_id)
+        from_task = await get_core_row(self.db, task_row, from_task_id)
+        to_task = await get_core_row(self.db, task_row, to_task_id)
         if from_task is None or to_task is None:
             raise HTTPException(status_code=404, detail="task not found")
         if from_task.project_id != to_task.project_id:
@@ -632,11 +637,11 @@ class LabelingCrossFrameWriteService:
             rows = list(
                 (
                     await self.db.execute(
-                        select(Annotation)
-                        .where(Annotation.task_id == task_id)
-                        .where(Annotation.track_id == track_id)
-                        .where(Annotation.is_active.is_(True))
-                        .where(Annotation.geometry["type"].astext == "box_3d")
+                        select(annotation_row)
+                        .where(annotation_row.task_id == task_id)
+                        .where(annotation_row.track_id == track_id)
+                        .where(annotation_row.is_active.is_(True))
+                        .where(annotation_row.geometry["type"].astext == "box_3d")
                         .execution_options(populate_existing=True)
                     )
                 ).scalars()
@@ -668,7 +673,7 @@ class LabelingCrossFrameWriteService:
 
         mid_tasks: dict[int, Task] = {}
         for frame in mid_frames:
-            task = await self.db.get(Task, frame_to_task[frame])
+            task = await get_core_row(self.db, task_row, frame_to_task[frame])
             if task is None:
                 continue
             if assert_task_visible is not None:
@@ -701,10 +706,10 @@ class LabelingCrossFrameWriteService:
         for frame, mid_task in mid_tasks.items():
             existing = await self.db.scalar(
                 select(func.count())
-                .select_from(Annotation)
-                .where(Annotation.task_id == mid_task.id)
-                .where(Annotation.track_id == track_id)
-                .where(Annotation.is_active.is_(True))
+                .select_from(annotation_row)
+                .where(annotation_row.task_id == mid_task.id)
+                .where(annotation_row.track_id == track_id)
+                .where(annotation_row.is_active.is_(True))
             )
             if existing:
                 skipped_frames.append(frame)

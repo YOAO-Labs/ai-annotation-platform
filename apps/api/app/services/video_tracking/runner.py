@@ -103,6 +103,11 @@ from app.services.video_tracking.execution import (
 )
 from app.services.video_tracking.journal import TrackerWindowJournal
 from app.services.video_tracking.writer import commit_tracker_outcome
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    get_core_row,
+    lock_task_for_core_read,
+)
 from app.services.video_tracking.control import (
     VideoControlRejected,
     video_control_command,
@@ -1765,14 +1770,12 @@ async def _lock_task_bounded(db: AsyncSession, task_id: uuid.UUID):
     from sqlalchemy.exc import DBAPIError
 
     try:
-        return (
-            await db.execute(
-                select(Task)
-                .where(Task.id == task_id)
-                .with_for_update(nowait=True)
-                .execution_options(populate_existing=True)
-            )
-        ).scalar_one_or_none()
+        return await lock_task_for_core_read(
+            db,
+            task_id,
+            nowait=True,
+            populate_existing=True,
+        )
     except DBAPIError as exc:
         if _busy_lock_error(exc):
             raise TrackerJobStateConflict("task is busy", reason="task_locked") from exc
@@ -3465,7 +3468,9 @@ async def _run_tracker_job_claimed(
         # v0.22.1 · B · 源轨迹可选: 无源检测 (job.annotation_id is None) 时不加载 source,
         # 种子来自 prompt (text/seeds), 主实例落库时新建。
         annotation = (
-            await db.get(Annotation, job.annotation_id) if job.annotation_id else None
+            await get_core_row(db, annotation_row, job.annotation_id)
+            if job.annotation_id
+            else None
         )
         if job.annotation_id and (annotation is None or not annotation.is_active):
             raise ValueError("Annotation not found")
