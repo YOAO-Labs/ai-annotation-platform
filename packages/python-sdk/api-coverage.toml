@@ -505,3 +505,6 @@ watched_tags = ["projects", "guide-assets", "datasets", "batches", "tasks", "ann
 "GET /api/v1/storage-locations/bindings/audit-archive/candidates" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/storage-locations/bindings/audit-archive/change-preview" = { status = "excluded", reason = "web-only" }
 "PATCH /api/v1/storage-locations/bindings/audit-archive" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/storage-locations/bindings/export/candidates" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage-locations/bindings/export/change-preview" = { status = "excluded", reason = "web-only" }
+"PATCH /api/v1/storage-locations/bindings/export" = { status = "excluded", reason = "web-only" }

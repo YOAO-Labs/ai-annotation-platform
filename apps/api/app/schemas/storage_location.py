@@ -272,6 +272,7 @@ class StorageBindingOut(BaseModel):
         "reviewed_avatar_switch",
         "reviewed_bug_attachment_switch",
         "reviewed_audit_archive_switch",
+        "reviewed_export_switch",
     ]
 
 
@@ -406,6 +407,56 @@ class AuditArchiveBindingPreview(BaseModel):
     previous: StorageBindingOut
     target: AuditArchiveBindingTarget
     history: AuditArchiveBindingHistory
+    capabilities: dict[str, bool]
+    can_apply: bool
+    measured_at: datetime
+    expires_at: datetime
+    impact_token: str
+
+
+class ExportBindingCandidate(BaseModel):
+    location_id: uuid.UUID
+    name: str
+    config_revision: int
+
+
+class ExportBindingCandidates(BaseModel):
+    items: list[ExportBindingCandidate]
+    total: int
+
+
+class ExportBindingChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_generation: int = Field(ge=1)
+    target_location_id: uuid.UUID
+    target_config_revision: int = Field(ge=1)
+
+
+class ExportBindingApply(ExportBindingChange):
+    impact_token: str = Field(min_length=1, max_length=8192)
+
+
+class ExportBindingTarget(ExportBindingCandidate):
+    bucket: str
+    key_prefix: str
+    connection_revision: int | None = None
+
+
+class ExportBindingHistory(BaseModel):
+    zip_pending: int
+    zip_ready: int
+    zip_retired: int
+    media_building: int
+    media_ready: int
+    media_retiring: int
+    media_deleted: int
+
+
+class ExportBindingPreview(BaseModel):
+    purpose: Literal["export"] = "export"
+    previous: StorageBindingOut
+    target: ExportBindingTarget
+    history: ExportBindingHistory
     capabilities: dict[str, bool]
     can_apply: bool
     measured_at: datetime
