@@ -50,7 +50,9 @@ async def delete_source_less_tasks(
     await guard_source(db, task_ids=task_ids)
 
     labeling = LabelingTaskService(db)
-    annotation_count = await labeling.delete_source_less_task_children(orphan_task_ids)
+    annotation_count = await labeling.delete_source_less_task_children(
+        orphan_task_ids, task_id_values=task_ids
+    )
     await BugReportService(db).detach_task_references(orphan_task_ids)
     await labeling.delete_source_less_task_records(orphan_task_ids)
     await labeling.recalculate_source_less_task_counters(project_id)

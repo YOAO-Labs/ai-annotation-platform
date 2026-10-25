@@ -15,7 +15,7 @@ from datetime import datetime
 from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.annotation_comment import AnnotationCommentWorkflow
@@ -41,6 +41,8 @@ from app.schemas.annotation_comment import (
 )
 from app.services.audit import audit_origin_from_request
 from app.services.identity_read_relations import account_profiles
+from app.services.labeling_discussion_relations import annotation_comment_facts
+from app.services.annotation_comment import AnnotationCommentService
 from app.services.storage import storage_service
 from app.services.task_discussion import (
     list_task_discussion,
@@ -96,13 +98,13 @@ async def list_comments(
     author = account_profiles.alias("annotation_comment_author")
     rows = (
         await db.execute(
-            select(AnnotationComment, author.c.name)
-            .join(author, author.c.id == AnnotationComment.author_id)
+            select(annotation_comment_facts, author.c.name)
+            .join(author, author.c.id == annotation_comment_facts.author_id)
             .where(
-                AnnotationComment.annotation_id == annotation_id,
-                AnnotationComment.is_active.is_(True),
+                annotation_comment_facts.annotation_id == annotation_id,
+                annotation_comment_facts.is_active.is_(True),
             )
-            .order_by(AnnotationComment.created_at.desc())
+            .order_by(annotation_comment_facts.created_at.desc())
         )
     ).all()
     return [_to_out(c, name) for c, name in rows]
@@ -187,20 +189,9 @@ async def list_annotation_comment_counts(
     """Return sparse counts for active comments on available saved annotations."""
 
     task = await require_visible_task(db, task_id, actor_id)
-    rows = (
-        await db.execute(
-            select(AnnotationComment.annotation_id, func.count(AnnotationComment.id))
-            .join(Annotation, Annotation.id == AnnotationComment.annotation_id)
-            .where(
-                Annotation.task_id == task_id,
-                Annotation.project_id == task.project_id,
-                Annotation.is_active.is_(True),
-                Annotation.was_cancelled.is_(False),
-                AnnotationComment.is_active.is_(True),
-            )
-            .group_by(AnnotationComment.annotation_id)
-        )
-    ).all()
+    rows = await AnnotationCommentService(db).counts_for_active_annotations(
+        task_id=task_id, project_id=task.project_id
+    )
     return AnnotationCommentCountsOut(
         counts={str(annotation_id): int(count) for annotation_id, count in rows}
     )
@@ -225,27 +216,27 @@ async def list_task_comments_paged(
     await require_visible_task(db, task_id, actor_id)
     author = account_profiles.alias("annotation_comment_author")
     q = (
-        select(AnnotationComment, author.c.name)
-        .join(author, author.c.id == AnnotationComment.author_id)
-        .join(Annotation, Annotation.id == AnnotationComment.annotation_id)
+        select(annotation_comment_facts, author.c.name)
+        .join(author, author.c.id == annotation_comment_facts.author_id)
+        .join(Annotation, Annotation.id == annotation_comment_facts.annotation_id)
         .where(
             Annotation.task_id == task_id,
-            AnnotationComment.is_active.is_(True),
+            annotation_comment_facts.is_active.is_(True),
         )
     )
     if cursor:
         last_ts, last_id = _decode_comment_cursor(cursor)
         q = q.where(
             or_(
-                AnnotationComment.created_at < last_ts,
+                annotation_comment_facts.created_at < last_ts,
                 and_(
-                    AnnotationComment.created_at == last_ts,
-                    AnnotationComment.id < last_id,
+                    annotation_comment_facts.created_at == last_ts,
+                    annotation_comment_facts.id < last_id,
                 ),
             )
         )
     q = q.order_by(
-        AnnotationComment.created_at.desc(), AnnotationComment.id.desc()
+        annotation_comment_facts.created_at.desc(), annotation_comment_facts.id.desc()
     ).limit(limit)
     rows = (await db.execute(q)).all()
     items = [_to_out(c, name) for c, name in rows]
@@ -276,26 +267,26 @@ async def list_comments_paged(
     await require_visible_annotation(db, annotation_id, actor_id)
     author = account_profiles.alias("annotation_comment_author")
     q = (
-        select(AnnotationComment, author.c.name)
-        .join(author, author.c.id == AnnotationComment.author_id)
+        select(annotation_comment_facts, author.c.name)
+        .join(author, author.c.id == annotation_comment_facts.author_id)
         .where(
-            AnnotationComment.annotation_id == annotation_id,
-            AnnotationComment.is_active.is_(True),
+            annotation_comment_facts.annotation_id == annotation_id,
+            annotation_comment_facts.is_active.is_(True),
         )
     )
     if cursor:
         last_ts, last_id = _decode_comment_cursor(cursor)
         q = q.where(
             or_(
-                AnnotationComment.created_at < last_ts,
+                annotation_comment_facts.created_at < last_ts,
                 and_(
-                    AnnotationComment.created_at == last_ts,
-                    AnnotationComment.id < last_id,
+                    annotation_comment_facts.created_at == last_ts,
+                    annotation_comment_facts.id < last_id,
                 ),
             )
         )
     q = q.order_by(
-        AnnotationComment.created_at.desc(), AnnotationComment.id.desc()
+        annotation_comment_facts.created_at.desc(), annotation_comment_facts.id.desc()
     ).limit(limit)
 
     rows = (await db.execute(q)).all()

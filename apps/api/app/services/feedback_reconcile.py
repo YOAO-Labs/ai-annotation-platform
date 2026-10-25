@@ -35,14 +35,16 @@ _MIRROR_KINDS = {
 # SELECT 返回旧源主键（统一 ::text），用于和 mirror 行做差集找 missing_ids。
 _EXPECTED_SQL = {
     "bug_reports": (
-        "SELECT id::text AS id FROM bug_reports WHERE project_id IS NOT NULL"
+        "SELECT id FROM public.v_annotation_feedback_unified "
+        "WHERE source_table = 'bug_reports'"
     ),
     "annotation_comments": (
-        "SELECT id::text AS id FROM annotation_comments WHERE is_active = true"
+        "SELECT id FROM public.v_annotation_feedback_unified "
+        "WHERE source_table = 'annotation_comments'"
     ),
     "tasks_reject": (
-        "SELECT id::text AS id FROM tasks "
-        "WHERE status = 'rejected' AND reject_reason IS NOT NULL"
+        "SELECT id FROM public.v_annotation_feedback_unified "
+        "WHERE source_table = 'tasks_reject'"
     ),
 }
 
@@ -95,41 +97,41 @@ async def _missing_ids(db: AsyncSession, source: str) -> list[str]:
     if source == "bug_reports":
         sql = """
             WITH old_ranked AS (
-                SELECT br.id::text AS id,
-                       br.project_id, br.title, br.description, br.reporter_id,
+                SELECT legacy.id,
+                       legacy.project_id, legacy.title, legacy.body, legacy.author_id,
                        ROW_NUMBER() OVER (
-                         PARTITION BY br.project_id, br.title,
-                                      br.description, br.reporter_id
-                         ORDER BY br.id
+                         PARTITION BY legacy.project_id, legacy.title,
+                                      legacy.body, legacy.author_id
+                         ORDER BY legacy.id
                        ) AS rn
-                FROM bug_reports br
-                WHERE br.project_id IS NOT NULL
+                FROM public.v_annotation_feedback_unified AS legacy
+                WHERE legacy.source_table = 'bug_reports'
             )
             SELECT o.id FROM old_ranked o
             WHERE o.rn > (
-                SELECT COUNT(*) FROM annotation_feedbacks af
+                SELECT COUNT(*) FROM aap_labeling_v1.annotation_feedback_facts af
                 WHERE af.kind = 'bug'
                   AND af.project_id = o.project_id
                   AND af.title IS NOT DISTINCT FROM o.title
-                  AND af.body IS NOT DISTINCT FROM o.description
-                  AND af.author_id IS NOT DISTINCT FROM o.reporter_id
+                  AND af.body IS NOT DISTINCT FROM o.body
+                  AND af.author_id IS NOT DISTINCT FROM o.author_id
             )
         """
     elif source == "annotation_comments":
         sql = """
             WITH old_ranked AS (
-                SELECT ac.id::text AS id,
-                       ac.annotation_id, ac.body, ac.author_id,
+                SELECT legacy.id,
+                       legacy.annotation_id, legacy.body, legacy.author_id,
                        ROW_NUMBER() OVER (
-                         PARTITION BY ac.annotation_id, ac.body, ac.author_id
-                         ORDER BY ac.id
+                         PARTITION BY legacy.annotation_id, legacy.body, legacy.author_id
+                         ORDER BY legacy.id
                        ) AS rn
-                FROM annotation_comments ac
-                WHERE ac.is_active = true
+                FROM public.v_annotation_feedback_unified AS legacy
+                WHERE legacy.source_table = 'annotation_comments'
             )
             SELECT o.id FROM old_ranked o
             WHERE o.rn > (
-                SELECT COUNT(*) FROM annotation_feedbacks af
+                SELECT COUNT(*) FROM aap_labeling_v1.annotation_feedback_facts af
                 WHERE af.kind = 'comment'
                   AND af.annotation_id IS NOT DISTINCT FROM o.annotation_id
                   AND af.body IS NOT DISTINCT FROM o.body
@@ -139,17 +141,17 @@ async def _missing_ids(db: AsyncSession, source: str) -> list[str]:
     elif source == "tasks_reject":
         sql = """
             WITH old_ranked AS (
-                SELECT t.id::text AS id, t.id AS task_id, t.reject_reason,
-                       ROW_NUMBER() OVER (PARTITION BY t.id ORDER BY t.id) AS rn
-                FROM tasks t
-                WHERE t.status = 'rejected' AND t.reject_reason IS NOT NULL
+                SELECT legacy.id, legacy.task_id, legacy.body,
+                       ROW_NUMBER() OVER (PARTITION BY legacy.task_id ORDER BY legacy.id) AS rn
+                FROM public.v_annotation_feedback_unified AS legacy
+                WHERE legacy.source_table = 'tasks_reject'
             )
             SELECT o.id FROM old_ranked o
             WHERE o.rn > (
-                SELECT COUNT(*) FROM annotation_feedbacks af
+                SELECT COUNT(*) FROM aap_labeling_v1.annotation_feedback_facts af
                 WHERE af.kind = 'reject'
                   AND af.task_id = o.task_id
-                  AND af.body IS NOT DISTINCT FROM o.reject_reason
+                  AND af.body IS NOT DISTINCT FROM o.body
             )
         """
     else:  # pragma: no cover - 调用方只传 _MIRROR_KINDS 里的 key

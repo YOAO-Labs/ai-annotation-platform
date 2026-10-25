@@ -32,7 +32,6 @@ from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.db.models.annotation import Annotation
-from app.db.models.annotation_feedback import AnnotationFeedback
 from app.db.models.prediction import Prediction
 from app.db.models.project import Project
 from app.db.models.task import Task
@@ -54,6 +53,7 @@ from aap_workspace.configuration_policy import project_kind
 from app.services.project_access import is_privileged_for_project
 from app.services.scheduler import task_visibility_clause
 from app.services.feedback import unresolved_issue_count_sq
+from app.services.labeling_discussion_relations import annotation_feedback_facts
 from app.services.task_discussion import task_comment_count_sq
 from app.services.assets_spatial_views import spatial_item_references
 from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
@@ -249,9 +249,9 @@ def _compile_rule(
     if field == "discussion.comment_count":
         return _compare_scalar(_comment_count_sq(), op, value, _NUMERIC_OPS)
     if field == "feedback.kind":
-        return _compare_feedback_field(AnnotationFeedback.kind, op, value)
+        return _compare_feedback_field(annotation_feedback_facts.kind, op, value)
     if field == "feedback.severity":
-        return _compare_feedback_field(AnnotationFeedback.severity, op, value)
+        return _compare_feedback_field(annotation_feedback_facts.severity, op, value)
     if field == "feedback.status":
         return _compare_feedback_status(op, value)
     if field == "scene.scene_name":
@@ -927,14 +927,14 @@ def _compare_feedback_status(op: str, value: Any) -> ColumnElement[bool]:
     if op not in {"eq", "in"}:
         raise HTTPException(status_code=422, detail="Unsupported feedback.status op")
     clause = and_(
-        AnnotationFeedback.task_id == Task.id,
-        AnnotationFeedback.is_active.is_(True),
+        annotation_feedback_facts.task_id == Task.id,
+        annotation_feedback_facts.is_active.is_(True),
     )
     if op == "eq":
-        return exists().where(clause, AnnotationFeedback.status == value)
+        return exists().where(clause, annotation_feedback_facts.status == value)
     if not isinstance(value, list):
         raise HTTPException(status_code=422, detail="in value must be a list")
-    return exists().where(clause, AnnotationFeedback.status.in_(value))
+    return exists().where(clause, annotation_feedback_facts.status.in_(value))
 
 
 def _compare_feedback_field(
@@ -943,9 +943,9 @@ def _compare_feedback_field(
     if op not in {"exists", "eq", "in"}:
         raise HTTPException(status_code=422, detail="Unsupported feedback field op")
     clause = and_(
-        AnnotationFeedback.task_id == Task.id,
-        AnnotationFeedback.is_active.is_(True),
-        AnnotationFeedback.status == "open",
+        annotation_feedback_facts.task_id == Task.id,
+        annotation_feedback_facts.is_active.is_(True),
+        annotation_feedback_facts.status == "open",
     )
     if op == "exists":
         return exists().where(clause, column.is_not(None))

@@ -18,7 +18,7 @@ from app.db.models.task import Task
 from app.db.models.annotation import Annotation
 from app.services.audit_read_relations import audit_event
 from app.db.models.task_batch import TaskBatch
-from app.db.models.task_event import TaskEvent
+from app.services.labeling_discussion_relations import task_event_facts
 from app.db.enums import ProjectRole, UserRole
 from app.services.project_aggregates import ANNOTATOR_ROLE, REVIEWER_ROLE
 from app.services.project_access import get_workspace_project
@@ -232,7 +232,7 @@ async def admin_people_list(
     # 聚合级项目过滤片段（pid 为 None 时为空 → 全局，行为与改造前一致）。
     ann_proj = [Annotation.project_id == pid] if pid else []
     task_proj = [Task.project_id == pid] if pid else []
-    event_proj = [TaskEvent.project_id == pid] if pid else []
+    event_proj = [task_event_facts.c.project_id == pid] if pid else []
 
     start, _end = _period_window(period)
     week_start = datetime.now(timezone.utc).replace(
@@ -419,15 +419,15 @@ async def admin_people_list(
     active_rows = (
         await db.execute(
             select(
-                TaskEvent.user_id,
-                func.coalesce(func.sum(TaskEvent.duration_ms), 0).label("ms"),
+                task_event_facts.c.user_id,
+                func.coalesce(func.sum(task_event_facts.c.duration_ms), 0).label("ms"),
             )
             .where(
-                TaskEvent.user_id.in_(user_ids),
-                TaskEvent.started_at >= seven_d_start,
+                task_event_facts.c.user_id.in_(user_ids),
+                task_event_facts.c.started_at >= seven_d_start,
                 *event_proj,
             )
-            .group_by(TaskEvent.user_id)
+            .group_by(task_event_facts.c.user_id)
         )
     ).all()
     active_minutes_map = {r.user_id: int((r.ms or 0) // 60000) for r in active_rows}
@@ -630,7 +630,7 @@ async def admin_person_detail(
     pid = await _resolve_people_scope(db, current_user, project)
     ann_proj = [Annotation.project_id == pid] if pid else []
     task_proj = [Task.project_id == pid] if pid else []
-    event_proj = [TaskEvent.project_id == pid] if pid else []
+    event_proj = [task_event_facts.c.project_id == pid] if pid else []
 
     try:
         uid = uuid.UUID(user_id)
@@ -746,10 +746,10 @@ async def admin_person_detail(
     duration_rows = (
         (
             await db.execute(
-                select(TaskEvent.duration_ms).where(
-                    TaskEvent.user_id == uid,
-                    TaskEvent.kind == "annotate",
-                    TaskEvent.started_at >= start,
+                select(task_event_facts.c.duration_ms).where(
+                    task_event_facts.c.user_id == uid,
+                    task_event_facts.c.kind == "annotate",
+                    task_event_facts.c.started_at >= start,
                     *event_proj,
                 )
             )

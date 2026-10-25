@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.db.models.annotation import Annotation
-from app.db.models.annotation_feedback import AnnotationFeedback
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
@@ -20,6 +19,7 @@ from app.services.data_management.filter_tree import (
 from app.services.data_management.schema import build_data_manager_schema
 from aap_workspace.configuration_policy import project_kind
 from app.services.feedback import annotation_unresolved_issue_count_sq
+from app.services.labeling_discussion_relations import annotation_feedback_facts
 from app.services.data_management.task_filters import (
     _compile_annotation_object_condition,
     _compare_column,
@@ -107,15 +107,15 @@ def _compile_entity_node(
                 status_code=422, detail="Unsupported feedback.status op"
             )
         clause = and_(
-            AnnotationFeedback.annotation_id == annotation.id,
-            AnnotationFeedback.is_active.is_(True),
+            annotation_feedback_facts.annotation_id == annotation.id,
+            annotation_feedback_facts.is_active.is_(True),
         )
         if op == "eq":
-            return exists().where(clause, AnnotationFeedback.status == value)
+            return exists().where(clause, annotation_feedback_facts.status == value)
         if not isinstance(value, list):
             raise HTTPException(status_code=422, detail="in value must be a list")
         validate_in_value(value, max_values=_MAX_IN_VALUES)
-        return exists().where(clause, AnnotationFeedback.status.in_(value))
+        return exists().where(clause, annotation_feedback_facts.status.in_(value))
     return compile_filter(filter_json, project=project, user=user)
 
 

@@ -563,15 +563,14 @@ class LabelingTaskService(LabelingTaskCreationPort):
                 self.db.expire(project, ["total_tasks", "updated_at"])
         return result.created
 
-    async def delete_source_less_task_children(self, task_ids: FromClause) -> int:
+    async def delete_source_less_task_children(
+        self, task_ids: FromClause, *, task_id_values: list[uuid.UUID]
+    ) -> int:
         from app.db.models.annotation import Annotation
-        from app.db.models.annotation_comment import AnnotationComment
         from app.db.models.task_lock import AnnotationDraft, TaskLock
+        from app.services.annotation_comment import AnnotationCommentService
 
         task_id_select = select(task_ids.c.id)
-        annotation_ids = select(Annotation.id).where(
-            Annotation.task_id.in_(task_id_select)
-        )
         annotation_count = (
             await self.db.execute(
                 select(func.count(Annotation.id)).where(
@@ -580,11 +579,7 @@ class LabelingTaskService(LabelingTaskCreationPort):
             )
         ).scalar() or 0
 
-        await self.db.execute(
-            delete(AnnotationComment)
-            .where(AnnotationComment.annotation_id.in_(annotation_ids))
-            .execution_options(synchronize_session=False)
-        )
+        await AnnotationCommentService(self.db).delete_for_tasks(task_id_values)
         await self.db.execute(
             delete(AnnotationDraft)
             .where(AnnotationDraft.task_id.in_(task_id_select))

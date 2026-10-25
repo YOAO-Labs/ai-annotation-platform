@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import get_current_user_id, get_db
 from app.db.models.annotation import Annotation
-from app.db.models.annotation_comment import AnnotationComment
+from app.services.annotation_comment import AnnotationCommentService
 from app.services.audit_read_relations import audit_event
 from app.schemas.annotation_history import (
     AnnotationHistoryResponse,
@@ -82,16 +82,8 @@ async def get_annotation_history(
     )
 
     # 3. 评论
-    comments = (
-        (
-            await db.execute(
-                select(AnnotationComment).where(
-                    AnnotationComment.annotation_id == annotation_id,
-                )
-            )
-        )
-        .scalars()
-        .all()
+    comments = await AnnotationCommentService(db).list_for_annotation(
+        annotation_id, active_only=False
     )
 
     # 解析 actor / author UserBrief（一次 IN 查询）

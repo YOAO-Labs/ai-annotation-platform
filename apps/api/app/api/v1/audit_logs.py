@@ -28,7 +28,7 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.annotation import Annotation
-from app.db.models.annotation_feedback import AnnotationFeedback
+from app.services.labeling_discussion_relations import annotation_feedback_facts
 from app.config import settings
 from app.schemas.audit import (
     AuditArchiveOut,
@@ -270,8 +270,8 @@ def _managed_audit_scope(actor: IdentityActorFacts, *, project_id: UUID | None =
         .join(Task, Task.id == Annotation.task_id)
         .where(Task.project_id.in_(project_ids))
     )
-    feedbacks = select(cast(AnnotationFeedback.id, String)).where(
-        AnnotationFeedback.project_id.in_(project_ids)
+    feedbacks = select(cast(annotation_feedback_facts.id, String)).where(
+        annotation_feedback_facts.project_id.in_(project_ids)
     )
     invitations = select(cast(invitation_audit_targets.c.id, String)).where(
         invitation_audit_targets.c.project_id.in_(project_ids)

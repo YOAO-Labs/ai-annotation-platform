@@ -15,7 +15,7 @@ from app.db.models.dataset import DatasetItem
 from app.db.models.annotation import Annotation
 from app.db.models.task_batch import TaskBatch
 from aap_assets_media.contract import ReadSourceRequest
-from app.db.models.task_event import TaskEvent
+from app.services.labeling_discussion_relations import task_event_facts
 from app.db.enums import UserRole, TaskStatus, ProjectRole
 from app.schemas.dashboard import (
     AnnotatorDashboardStats,
@@ -108,14 +108,14 @@ async def annotator_project_onboarding(
     opened_task_count = int(
         (
             await db.execute(
-                select(func.count(func.distinct(TaskEvent.task_id)))
-                .select_from(TaskEvent)
-                .join(Task, Task.id == TaskEvent.task_id)
+                select(func.count(func.distinct(task_event_facts.c.task_id)))
+                .select_from(task_event_facts)
+                .join(Task, Task.id == task_event_facts.c.task_id)
                 .where(
                     Task.project_id == project_id,
-                    TaskEvent.user_id == current_user.id,
-                    TaskEvent.project_id == project_id,
-                    TaskEvent.kind == "annotate",
+                    task_event_facts.c.user_id == current_user.id,
+                    task_event_facts.c.project_id == project_id,
+                    task_event_facts.c.kind == "annotate",
                 )
             )
         ).scalar()
@@ -368,9 +368,11 @@ async def annotator_dashboard(
     # active_minutes_today: 当日累计 duration_ms / 60000
     active_ms_row = (
         await db.execute(
-            select(func.coalesce(func.sum(TaskEvent.duration_ms), 0).label("ms")).where(
-                TaskEvent.user_id == current_user.id,
-                TaskEvent.started_at >= today_start,
+            select(
+                func.coalesce(func.sum(task_event_facts.c.duration_ms), 0).label("ms")
+            ).where(
+                task_event_facts.c.user_id == current_user.id,
+                task_event_facts.c.started_at >= today_start,
             )
         )
     ).first()
@@ -380,15 +382,15 @@ async def annotator_dashboard(
     hour_rows = (
         await db.execute(
             select(
-                func.extract("hour", TaskEvent.started_at).label("hour"),
-                func.coalesce(func.sum(TaskEvent.duration_ms), 0).label("ms"),
+                func.extract("hour", task_event_facts.c.started_at).label("hour"),
+                func.coalesce(func.sum(task_event_facts.c.duration_ms), 0).label("ms"),
             )
             .where(
-                TaskEvent.user_id == current_user.id,
-                TaskEvent.started_at >= today_start,
-                TaskEvent.started_at < today_start + timedelta(days=1),
+                task_event_facts.c.user_id == current_user.id,
+                task_event_facts.c.started_at >= today_start,
+                task_event_facts.c.started_at < today_start + timedelta(days=1),
             )
-            .group_by(func.extract("hour", TaskEvent.started_at))
+            .group_by(func.extract("hour", task_event_facts.c.started_at))
         )
     ).all()
     hour_map = {int(r.hour): int(r.ms // 60000) for r in hour_rows}
@@ -396,13 +398,13 @@ async def annotator_dashboard(
 
     # streak_days: 从今天倒推 distinct UTC 日期连续计数（30 天上限）
     streak_cutoff = today_start - timedelta(days=29)
-    day_expr = cast(func.timezone("UTC", TaskEvent.started_at), Date)
+    day_expr = cast(func.timezone("UTC", task_event_facts.c.started_at), Date)
     day_rows = (
         await db.execute(
             select(day_expr.label("d"))
             .where(
-                TaskEvent.user_id == current_user.id,
-                TaskEvent.started_at >= streak_cutoff,
+                task_event_facts.c.user_id == current_user.id,
+                task_event_facts.c.started_at >= streak_cutoff,
             )
             .distinct()
         )
@@ -727,10 +729,10 @@ async def my_performance(
     duration_rows = (
         (
             await db.execute(
-                select(TaskEvent.duration_ms).where(
-                    TaskEvent.user_id == uid,
-                    TaskEvent.kind == "annotate",
-                    TaskEvent.started_at >= start,
+                select(task_event_facts.c.duration_ms).where(
+                    task_event_facts.c.user_id == uid,
+                    task_event_facts.c.kind == "annotate",
+                    task_event_facts.c.started_at >= start,
                 )
             )
         )

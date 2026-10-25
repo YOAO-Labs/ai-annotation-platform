@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.task_workflow_errors import TaskWorkflowError
-from app.application.task_workflow_locks import lock_row_nowait, lock_rows_nowait
+from app.application.task_workflow_locks import lock_row_nowait
 from app.db.enums import PlatformRole, ProjectRole
 from app.db.models.annotation import Annotation
 from app.db.models.annotation_feedback import AnnotationFeedback
@@ -286,7 +286,6 @@ class AnnotationFeedbackWorkflow:
             )
         await self.db.commit()
         await NotificationService(self.db).publish_committed(pending_notifications)
-        await self.db.refresh(entry)
         _project, output_access = await resolve_project_access_by_id(
             self.db, actor_id=actor.id, project_id=entry.project_id
         )
@@ -403,7 +402,6 @@ class AnnotationFeedbackWorkflow:
             )
         await self.db.commit()
         await NotificationService(self.db).publish_committed(pending_notifications)
-        await self.db.refresh(updated)
         return FeedbackMutationResult(
             entry=updated,
             project_role=access.project_role,
@@ -497,7 +495,6 @@ class AnnotationFeedbackWorkflow:
         )
         await self.db.commit()
         await NotificationService(self.db).publish_committed(pending_notifications)
-        await self.db.refresh(reply)
         _project, output_access = await resolve_project_access_by_id(
             self.db, actor_id=actor.id, project_id=root.project_id
         )
@@ -534,9 +531,7 @@ class AnnotationFeedbackWorkflow:
             project_id=root_snapshot.project_id,
             task_id=root_snapshot.task_id,
         )
-        root = await self.db.get(
-            AnnotationFeedback, root_snapshot.id, populate_existing=True
-        )
+        root = await self.feedback.get(root_snapshot.id, populate_existing=True)
         if root is None:
             raise TaskWorkflowError(404, _FEEDBACK_UNAVAILABLE)
         return root
@@ -749,36 +744,14 @@ class AnnotationFeedbackWorkflow:
     async def _read_feedback_snapshot(
         self, entry_id: uuid.UUID
     ) -> _FeedbackSnapshot | None:
-        row = (
-            await self.db.execute(
-                select(
-                    AnnotationFeedback.id,
-                    AnnotationFeedback.kind,
-                    AnnotationFeedback.anchor_type,
-                    AnnotationFeedback.project_id,
-                    AnnotationFeedback.task_id,
-                    AnnotationFeedback.annotation_id,
-                    AnnotationFeedback.anchor_position,
-                    AnnotationFeedback.thread_parent_id,
-                    AnnotationFeedback.is_active,
-                ).where(AnnotationFeedback.id == entry_id)
-            )
-        ).one_or_none()
+        row = await self.feedback.read_snapshot(entry_id)
         return _FeedbackSnapshot(*row) if row is not None else None
 
     async def _lock_feedback_lineage(
         self, snapshots: list[_FeedbackSnapshot]
     ) -> tuple[AnnotationFeedback, AnnotationFeedback]:
         ids = sorted({snapshot.id for snapshot in snapshots})
-        rows = await lock_rows_nowait(
-            self.db,
-            select(AnnotationFeedback)
-            .where(AnnotationFeedback.id.in_(ids))
-            .order_by(AnnotationFeedback.id)
-            .with_for_update(nowait=True)
-            .execution_options(populate_existing=True),
-            reason="feedback_busy",
-        )
+        rows = await self.feedback.lock_lineage(ids)
         by_id = {row.id: row for row in rows}
         if len(by_id) != len(ids):
             raise TaskWorkflowError(404, _FEEDBACK_UNAVAILABLE)

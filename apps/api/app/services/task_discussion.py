@@ -40,6 +40,10 @@ from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.identity_contracts import IdentityActorStatus
 from app.services.identity_read_relations import account_profiles
 from app.services.user_brief import resolve_briefs
+from app.services.labeling_discussion_relations import (
+    annotation_comment_facts,
+    annotation_feedback_facts,
+)
 
 
 DiscussionScope = Literal["all", "task", "annotation"]
@@ -324,14 +328,17 @@ def _identifier_selects(
     if scope in {"all", "annotation"}:
         annotation_query = (
             select(
-                AnnotationComment.id.label("item_id"),
-                AnnotationComment.created_at.label("created_at"),
+                annotation_comment_facts.id.label("item_id"),
+                annotation_comment_facts.created_at.label("created_at"),
                 literal("annotation_comment").label("source"),
             )
-            .join(Annotation, Annotation.id == AnnotationComment.annotation_id)
+            .join(
+                Annotation,
+                Annotation.id == annotation_comment_facts.annotation_id,
+            )
             .where(
                 Annotation.task_id == task_id,
-                AnnotationComment.is_active.is_(True),
+                annotation_comment_facts.is_active.is_(True),
             )
         )
         if annotation_id is not None:
@@ -344,16 +351,16 @@ def _identifier_selects(
         # denormalized project_id no longer agrees with the actual task.
         selects.append(
             select(
-                AnnotationFeedback.id.label("item_id"),
-                AnnotationFeedback.created_at.label("created_at"),
+                annotation_feedback_facts.id.label("item_id"),
+                annotation_feedback_facts.created_at.label("created_at"),
                 literal("feedback").label("source"),
             ).where(
-                AnnotationFeedback.project_id == project_id,
-                AnnotationFeedback.task_id == task_id,
-                AnnotationFeedback.kind == "comment",
-                AnnotationFeedback.anchor_type == "task",
-                AnnotationFeedback.thread_parent_id.is_(None),
-                AnnotationFeedback.is_active.is_(True),
+                annotation_feedback_facts.project_id == project_id,
+                annotation_feedback_facts.task_id == task_id,
+                annotation_feedback_facts.kind == "comment",
+                annotation_feedback_facts.anchor_type == "task",
+                annotation_feedback_facts.thread_parent_id.is_(None),
+                annotation_feedback_facts.is_active.is_(True),
             )
         )
     return selects
@@ -471,9 +478,9 @@ async def list_task_discussion(
         author = account_profiles.alias("annotation_comment_author")
         annotation_rows = (
             await db.execute(
-                select(AnnotationComment, author.c.name)
-                .join(author, author.c.id == AnnotationComment.author_id)
-                .where(AnnotationComment.id.in_(annotation_ids))
+                select(annotation_comment_facts, author.c.name)
+                .join(author, author.c.id == annotation_comment_facts.author_id)
+                .where(annotation_comment_facts.id.in_(annotation_ids))
             )
         ).all()
         annotation_by_id = {
@@ -485,8 +492,8 @@ async def list_task_discussion(
         feedback_rows = (
             (
                 await db.execute(
-                    select(AnnotationFeedback).where(
-                        AnnotationFeedback.id.in_(feedback_ids)
+                    select(annotation_feedback_facts).where(
+                        annotation_feedback_facts.id.in_(feedback_ids)
                     )
                 )
             )

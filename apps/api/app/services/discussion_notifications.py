@@ -112,15 +112,7 @@ async def _active_descendant_author_ids(
     the CTE, while inactive reply rows themselves are excluded.
     """
 
-    descendants = FeedbackService._descendants_cte(root)
-    rows = await db.execute(
-        select(AnnotationFeedback.author_id)
-        .select_from(descendants)
-        .join(AnnotationFeedback, AnnotationFeedback.id == descendants.c.id)
-        .where(descendants.c.is_active.is_(True))
-        .distinct()
-    )
-    return [row[0] for row in rows]
+    return await FeedbackService(db).active_descendant_author_ids(root)
 
 
 def _feedback_payload(

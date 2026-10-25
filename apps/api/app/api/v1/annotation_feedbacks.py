@@ -278,9 +278,7 @@ async def get_feedback_thread(
     db: AsyncSession = Depends(get_db),
     actor_id: uuid.UUID = Depends(get_current_user_id),
 ):
-    root_entry = await db.get(
-        AnnotationFeedback, root_feedback_id, populate_existing=True
-    )
+    root_entry = await FeedbackService(db).get(root_feedback_id, populate_existing=True)
     if root_entry is None or not root_entry.is_active:
         raise HTTPException(status_code=404, detail="feedback thread is unavailable")
     if root_entry.thread_parent_id is not None:

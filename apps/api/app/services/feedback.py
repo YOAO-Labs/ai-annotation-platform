@@ -24,8 +24,28 @@ from app.db.models.annotation_feedback import AnnotationFeedback
 from app.db.models.annotation import Annotation
 from app.db.models.task import Task
 from app.schemas.annotation_feedback import FeedbackAnchorPosition
+from aap_labeling.discussion_contract import (
+    DISCUSSION_PROTOCOL,
+    AnnotationFeedbackRow,
+    CreateAnnotationFeedback,
+    LockAnnotationFeedbackLineage,
+    MirrorAnnotationCommentFeedback,
+    MirrorBugReportFeedback,
+    MirrorTaskRejectFeedback,
+    PatchAnnotationFeedback,
+    SoftDeleteAnnotationFeedback,
+)
+from app.services.labeling_discussion_data import discussion_command
+from app.services.labeling_discussion_relations import (
+    annotation_feedback_facts,
+    feedback_facts_alias,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _feedback(row: AnnotationFeedbackRow) -> AnnotationFeedback:
+    return AnnotationFeedback(**row.model_dump(mode="python"))
 
 
 class FeedbackService:
@@ -54,7 +74,7 @@ class FeedbackService:
             # A reply copies a persisted anchor, including future versions or a
             # reference whose object/media has since changed. It never edits it.
             parent = (
-                await self.db.get(AnnotationFeedback, thread_parent_id)
+                await self.get(thread_parent_id)
                 if kind == "comment" and thread_parent_id is not None
                 else None
             )
@@ -76,27 +96,70 @@ class FeedbackService:
                     annotation_id=annotation_id,
                     anchor_position=anchor_position,
                 )
-        entry = AnnotationFeedback(
-            kind=kind,
-            anchor_type=anchor_type,
-            project_id=project_id,
-            task_id=task_id,
-            annotation_id=annotation_id,
-            anchor_position=anchor_position,
-            severity=severity,
-            title=title,
-            body=body,
-            attachments=attachments,
-            mentions=mentions or [],
-            canvas_drawing=canvas_drawing,
-            thread_parent_id=thread_parent_id,
-            author_id=author_id,
-            status="open",
-            is_active=True,
+        result = await discussion_command(
+            self.db,
+            CreateAnnotationFeedback(
+                schema=DISCUSSION_PROTOCOL,
+                operation="create_feedback",
+                feedback_id=uuid.uuid4(),
+                author_id=author_id,
+                kind=kind,
+                anchor_type=anchor_type,
+                project_id=project_id,
+                task_id=task_id,
+                annotation_id=annotation_id,
+                anchor_position=anchor_position,
+                severity=severity,
+                title=title,
+                body=body,
+                attachments=attachments,
+                thread_parent_id=thread_parent_id,
+                canvas_drawing=canvas_drawing,
+                mentions=mentions or [],
+            ),
         )
-        self.db.add(entry)
-        await self.db.flush()
-        return entry
+        assert result.feedback is not None
+        return _feedback(result.feedback)
+
+    async def get(
+        self, feedback_id: uuid.UUID, *, populate_existing: bool = False
+    ) -> AnnotationFeedback | None:
+        query = select(annotation_feedback_facts).where(
+            annotation_feedback_facts.id == feedback_id
+        )
+        if populate_existing:
+            query = query.execution_options(populate_existing=True)
+        return await self.db.scalar(query)
+
+    async def read_snapshot(self, feedback_id: uuid.UUID):
+        feedback = feedback_facts_alias()
+        return (
+            await self.db.execute(
+                select(
+                    feedback.id,
+                    feedback.kind,
+                    feedback.anchor_type,
+                    feedback.project_id,
+                    feedback.task_id,
+                    feedback.annotation_id,
+                    feedback.anchor_position,
+                    feedback.thread_parent_id,
+                    feedback.is_active,
+                ).where(feedback.id == feedback_id)
+            )
+        ).one_or_none()
+
+    async def lock_lineage(self, ids: list[uuid.UUID]) -> list[AnnotationFeedback]:
+        result = await discussion_command(
+            self.db,
+            LockAnnotationFeedbackLineage(
+                schema=DISCUSSION_PROTOCOL,
+                operation="lock_feedback_lineage",
+                feedback_ids=sorted(set(ids)),
+            ),
+            flush_before=False,
+        )
+        return [_feedback(row) for row in result.feedbacks or []]
 
     async def _validate_video_context(
         self,
@@ -206,34 +269,36 @@ class FeedbackService:
         body: str | None = None,
         mentions: list[dict] | None = None,
     ) -> AnnotationFeedback:
-        entry = await self.db.get(AnnotationFeedback, feedback_id)
+        entry = await self.get(feedback_id)
         if entry is None or not entry.is_active:
             raise HTTPException(status_code=404, detail="feedback not found")
-        if status is not None and status != entry.status:
-            entry.status = status
-            if status in ("resolved", "wont_fix"):
-                entry.resolved_at = datetime.now(timezone.utc)
-                entry.resolved_by_id = actor_id
-            else:
-                entry.resolved_at = None
-                entry.resolved_by_id = None
-        if severity is not None:
-            entry.severity = severity
-        if title is not None:
-            entry.title = title
-        if body is not None:
-            body_changed = body != entry.body
-            entry.body = body
-            if mentions is not None:
-                entry.mentions = mentions
-            elif body_changed:
-                # Body edits without an editor mention map cannot preserve offsets
-                # safely; clear them rather than leaving stale chips.
-                entry.mentions = []
-        elif mentions is not None:
-            entry.mentions = mentions
+        changed_status = status is not None and status != entry.status
+        fields: dict[str, object] = {
+            "schema": DISCUSSION_PROTOCOL,
+            "operation": "patch_feedback",
+            "feedback_id": feedback_id,
+            "actor_id": actor_id,
+        }
+        if status is not None:
+            fields["status"] = status
+            if changed_status and status in ("resolved", "wont_fix"):
+                fields["resolved_at"] = datetime.now(timezone.utc)
+        for name, value in (
+            ("severity", severity),
+            ("title", title),
+            ("body", body),
+            ("mentions", mentions),
+        ):
+            if value is not None:
+                fields[name] = value
+        result = await discussion_command(
+            self.db,
+            PatchAnnotationFeedback(**fields),
+            flush_before=False,
+        )
         await self.db.flush()
-        return entry
+        assert result.feedback is not None
+        return _feedback(result.feedback)
 
     # ------------------------------------------------------------------
     # ADR-0027 第二段 (v0.10.20) · 旧三表双写 mirror helpers
@@ -245,7 +310,6 @@ class FeedbackService:
 
     async def mirror_bug_report(self, bug_report) -> AnnotationFeedback:
         """legacy bug_reports.INSERT 后镜像写入 annotation_feedbacks (kind=bug)."""
-        anchor_type = "task" if bug_report.task_id is not None else "project"
         # project_id NOT NULL in annotation_feedbacks; bug_reports.project_id may be null
         # → 该情况下不 mirror (无项目归属的 bug 仍只在 bug_reports 存在; v0.10.21 切单源时
         #   单独处理 — 那批通常是登录页 / 未进项目的 bug 反馈)
@@ -255,25 +319,22 @@ class FeedbackService:
                 bug_report.id,
             )
             return None  # type: ignore[return-value]
-        feedback = AnnotationFeedback(
-            kind="bug",
-            anchor_type=anchor_type,
-            project_id=bug_report.project_id,
-            task_id=bug_report.task_id,
-            annotation_id=None,
-            anchor_position=None,
-            status="open",
-            severity=bug_report.severity,
-            title=bug_report.title,
-            body=bug_report.description,
-            attachments=[],
-            mentions=[],
-            thread_parent_id=None,
-            author_id=bug_report.reporter_id,
-            is_active=True,
+        result = await discussion_command(
+            self.db,
+            MirrorBugReportFeedback(
+                schema=DISCUSSION_PROTOCOL,
+                operation="mirror_bug_report",
+                feedback_id=uuid.uuid4(),
+                project_id=bug_report.project_id,
+                task_id=bug_report.task_id,
+                author_id=bug_report.reporter_id,
+                severity=bug_report.severity,
+                title=bug_report.title,
+                body=bug_report.description,
+            ),
         )
-        self.db.add(feedback)
-        await self.db.flush()
+        assert result.feedback is not None
+        feedback = _feedback(result.feedback)
         logger.info(
             "[ADR-0027 double-write] bug_reports %s → feedback %s",
             bug_report.id,
@@ -289,25 +350,24 @@ class FeedbackService:
         task_id 由调用方从 Annotation 实例取出 (annotation_feedbacks.anchor_type='annotation'
         CHECK 要求 task_id NOT NULL).
         """
-        feedback = AnnotationFeedback(
-            kind="comment",
-            anchor_type="annotation",
-            project_id=comment.project_id,
-            task_id=task_id,
-            annotation_id=comment.annotation_id,
-            anchor_position=None,
-            status="open",
-            severity=None,
-            title=None,
-            body=comment.body,
-            attachments=comment.attachments or [],
-            mentions=comment.mentions or [],
-            thread_parent_id=None,
-            author_id=comment.author_id,
-            is_active=True,
+        result = await discussion_command(
+            self.db,
+            MirrorAnnotationCommentFeedback(
+                schema=DISCUSSION_PROTOCOL,
+                operation="mirror_annotation_comment",
+                feedback_id=uuid.uuid4(),
+                comment_id=comment.id,
+                annotation_id=comment.annotation_id,
+                task_id=task_id,
+                project_id=comment.project_id,
+                author_id=comment.author_id,
+                body=comment.body,
+                attachments=comment.attachments or [],
+                mentions=comment.mentions or [],
+            ),
         )
-        self.db.add(feedback)
-        await self.db.flush()
+        assert result.feedback is not None
+        feedback = _feedback(result.feedback)
         logger.info(
             "[ADR-0027 double-write] annotation_comments %s → feedback %s",
             comment.id,
@@ -325,25 +385,21 @@ class FeedbackService:
 
         reject_reason_type → severity (info/warn/blocker 不强制, 沿用枚举原值).
         """
-        feedback = AnnotationFeedback(
-            kind="reject",
-            anchor_type="task",
-            project_id=task.project_id,
-            task_id=task.id,
-            annotation_id=None,
-            anchor_position=None,
-            status="open",
-            severity=task.reject_reason_type,
-            title=None,
-            body=task.reject_reason or "",
-            attachments=[],
-            mentions=[],
-            thread_parent_id=None,
-            author_id=reviewer_id,
-            is_active=True,
+        result = await discussion_command(
+            self.db,
+            MirrorTaskRejectFeedback(
+                schema=DISCUSSION_PROTOCOL,
+                operation="mirror_task_reject",
+                feedback_id=uuid.uuid4(),
+                task_id=task.id,
+                project_id=task.project_id,
+                reviewer_id=reviewer_id,
+                severity=task.reject_reason_type,
+                body=task.reject_reason or "",
+            ),
         )
-        self.db.add(feedback)
-        await self.db.flush()
+        assert result.feedback is not None
+        feedback = _feedback(result.feedback)
         logger.info(
             "[ADR-0027 double-write] tasks.reject %s → feedback %s",
             task.id,
@@ -352,12 +408,21 @@ class FeedbackService:
         return feedback
 
     async def soft_delete(self, feedback_id: uuid.UUID) -> AnnotationFeedback:
-        entry = await self.db.get(AnnotationFeedback, feedback_id)
+        entry = await self.get(feedback_id)
         if entry is None or not entry.is_active:
             raise HTTPException(status_code=404, detail="feedback not found")
-        entry.is_active = False
+        result = await discussion_command(
+            self.db,
+            SoftDeleteAnnotationFeedback(
+                schema=DISCUSSION_PROTOCOL,
+                operation="soft_delete_feedback",
+                feedback_id=feedback_id,
+            ),
+            flush_before=False,
+        )
         await self.db.flush()
-        return entry
+        assert result.feedback is not None
+        return _feedback(result.feedback)
 
     async def resolve_root(
         self,
@@ -374,7 +439,7 @@ class FeedbackService:
         thread unavailable.
         """
 
-        current = await self.db.get(AnnotationFeedback, feedback_id)
+        current = await self.get(feedback_id)
         if current is None:
             raise HTTPException(status_code=404, detail="feedback not found")
 
@@ -385,7 +450,7 @@ class FeedbackService:
                     status_code=404, detail="feedback thread is unavailable"
                 )
             seen.add(current.id)
-            parent = await self.db.get(AnnotationFeedback, current.thread_parent_id)
+            parent = await self.get(current.thread_parent_id)
             if parent is None:
                 raise HTTPException(
                     status_code=404, detail="feedback thread is unavailable"
@@ -423,7 +488,7 @@ class FeedbackService:
         ``thread_parent_id`` to the generic create endpoint.
         """
 
-        parent = await self.db.get(AnnotationFeedback, parent_id)
+        parent = await self.get(parent_id)
         if parent is None or not parent.is_active:
             raise HTTPException(status_code=404, detail="feedback not found")
         root = await self.resolve_root(parent_id)
@@ -468,15 +533,16 @@ class FeedbackService:
             last_ts, last_id = _decode_cursor(cursor)
             q = q.where(
                 or_(
-                    AnnotationFeedback.created_at < last_ts,
+                    annotation_feedback_facts.created_at < last_ts,
                     and_(
-                        AnnotationFeedback.created_at == last_ts,
-                        AnnotationFeedback.id < last_id,
+                        annotation_feedback_facts.created_at == last_ts,
+                        annotation_feedback_facts.id < last_id,
                     ),
                 )
             )
         q = q.order_by(
-            AnnotationFeedback.created_at.desc(), AnnotationFeedback.id.desc()
+            annotation_feedback_facts.created_at.desc(),
+            annotation_feedback_facts.id.desc(),
         ).limit(limit + 1)
         rows = list((await self.db.execute(q)).scalars().all())
         next_cursor: str | None = None
@@ -564,7 +630,7 @@ class FeedbackService:
         items and total.
         """
 
-        root = await self.db.get(AnnotationFeedback, root_feedback_id)
+        root = await self.get(root_feedback_id)
         if root is None or not root.is_active or root.thread_parent_id is not None:
             raise HTTPException(
                 status_code=404, detail="feedback thread is unavailable"
@@ -581,11 +647,11 @@ class FeedbackService:
         )
 
         q = (
-            select(AnnotationFeedback)
-            .join(active_ids, AnnotationFeedback.id == active_ids.c.id)
+            select(annotation_feedback_facts)
+            .join(active_ids, annotation_feedback_facts.id == active_ids.c.id)
             .order_by(
-                AnnotationFeedback.created_at.desc(),
-                AnnotationFeedback.id.desc(),
+                annotation_feedback_facts.created_at.desc(),
+                annotation_feedback_facts.id.desc(),
             )
         )
         if cursor:
@@ -594,10 +660,10 @@ class FeedbackService:
                 raise HTTPException(status_code=400, detail="invalid feedback cursor")
             q = q.where(
                 or_(
-                    AnnotationFeedback.created_at < last_ts,
+                    annotation_feedback_facts.created_at < last_ts,
                     and_(
-                        AnnotationFeedback.created_at == last_ts,
-                        AnnotationFeedback.id < last_id,
+                        annotation_feedback_facts.created_at == last_ts,
+                        annotation_feedback_facts.id < last_id,
                     ),
                 )
             )
@@ -609,6 +675,20 @@ class FeedbackService:
             next_cursor = _encode_thread_cursor(root.id, anchor.created_at, anchor.id)
             rows = rows[:limit]
         return root, rows, next_cursor, count
+
+    async def active_descendant_author_ids(
+        self, root: AnnotationFeedback
+    ) -> list[uuid.UUID]:
+        descendants = self._descendants_cte(root)
+        feedback = feedback_facts_alias()
+        rows = await self.db.scalars(
+            select(feedback.author_id)
+            .select_from(descendants)
+            .join(feedback, feedback.id == descendants.c.id)
+            .where(descendants.c.is_active.is_(True))
+            .distinct()
+        )
+        return list(rows.all())
 
     def _scoped_query(
         self,
@@ -630,7 +710,7 @@ class FeedbackService:
         inactive *intermediate* reply.
         """
 
-        af = AnnotationFeedback
+        af = annotation_feedback_facts
         if root_only:
             # A root has no ancestry to traverse. Keep current-task badges and
             # pin pagination independent of unrelated replies in the project.
@@ -642,7 +722,7 @@ class FeedbackService:
             )
         else:
             root_map = self._root_map_cte(project_id)
-            root = aliased(AnnotationFeedback)
+            root = feedback_facts_alias()
             q = (
                 select(af)
                 .join(root_map, root_map.c.origin_id == af.id)
@@ -673,7 +753,7 @@ class FeedbackService:
 
     @staticmethod
     def _root_map_cte(project_id: uuid.UUID):
-        af = AnnotationFeedback
+        af = feedback_facts_alias()
         lineage = (
             select(
                 af.id.label("origin_id"),
@@ -688,7 +768,7 @@ class FeedbackService:
             .where(af.project_id == project_id)
             .cte("feedback_lineage", recursive=True)
         )
-        parent = aliased(AnnotationFeedback)
+        parent = feedback_facts_alias()
         lineage = lineage.union_all(
             select(
                 lineage.c.origin_id,
@@ -722,7 +802,7 @@ class FeedbackService:
 
     @staticmethod
     def _descendants_cte(root: AnnotationFeedback):
-        af = AnnotationFeedback
+        af = feedback_facts_alias()
         descendants = (
             select(
                 af.id.label("id"),
@@ -741,7 +821,7 @@ class FeedbackService:
             )
             .cte("feedback_descendants", recursive=True)
         )
-        child = aliased(AnnotationFeedback)
+        child = feedback_facts_alias()
         descendants = descendants.union_all(
             select(
                 child.id,
@@ -922,7 +1002,7 @@ def open_root_issue_clause(af: AnnotationFeedback) -> ColumnElement[bool]:
 def unresolved_issue_count_sq() -> ColumnElement[int]:
     """Correlated count of active open root issues per ``Task`` row."""
 
-    af = AnnotationFeedback
+    af = annotation_feedback_facts
     return (
         select(func.count(af.id))
         .where(
@@ -937,7 +1017,7 @@ def unresolved_issue_count_sq() -> ColumnElement[int]:
 def annotation_unresolved_issue_count_sq(annotation) -> ColumnElement[int]:
     """Correlated count of active open root issues anchored to one annotation."""
 
-    af = AnnotationFeedback
+    af = annotation_feedback_facts
     return (
         select(func.count(af.id))
         .where(

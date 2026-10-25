@@ -59,7 +59,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.db.models.annotation import Annotation
-from app.db.models.annotation_feedback import AnnotationFeedback
 from app.db.models.prediction import Prediction
 from app.db.models.project import Project
 from app.db.models.project_task_view import ProjectTaskView
@@ -68,6 +67,7 @@ from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.db.models.user import User
 from app.services.assets_spatial_views import spatial_item_references
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.labeling_discussion_relations import annotation_feedback_facts
 
 
 DEFAULT_COLUMNS = [
@@ -420,8 +420,8 @@ def _last_activity_at_expr() -> ColumnElement[datetime]:
         ),
         func.coalesce(
             (
-                select(func.max(AnnotationFeedback.updated_at))
-                .where(AnnotationFeedback.task_id == Task.id)
+                select(func.max(annotation_feedback_facts.updated_at))
+                .where(annotation_feedback_facts.task_id == Task.id)
                 .scalar_subquery()
             ),
             Task.updated_at,
