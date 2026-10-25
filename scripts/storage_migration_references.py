@@ -482,6 +482,7 @@ def address_reference(ref, locations, source_address):
         "bucket",
         "key",
         "prefix",
+        "key_prefix",
         "storage_identity",
         "version_id",
     ):
@@ -524,6 +525,8 @@ def address_reference(ref, locations, source_address):
                 ref["endpoint_url"], ref.get("bucket", "")
             ):
                 ref.setdefault("unknown", "saved_identity_conflict")
+        return ref
+    if ref.get("unknown"):
         return ref
     location = locations.get(ref.get("location_id"), {})
     candidates = {

@@ -208,6 +208,41 @@ class ReferenceTests(unittest.TestCase):
         )
         self.assertEqual(located["unknown"], "saved_identity_conflict")
 
+    def test_unknown_current_saved_reference_is_never_filled_from_registration(self):
+        for code in (
+            "unknown_saved_schema",
+            "incomplete_saved_reference",
+            "saved_locator_conflict",
+        ):
+            with self.subTest(code=code):
+                located = core.address_reference(
+                    reference(
+                        endpoint_url=None,
+                        role="current_locator",
+                        location_id="L",
+                        unknown=code,
+                    ),
+                    {"L": {"endpoint_url": "http://today:9000"}},
+                    "http://source:9000",
+                )
+                self.assertIsNone(located.get("endpoint_url"))
+                self.assertEqual(located["unknown"], code)
+                self.assertNotIn("address_basis", located)
+
+    def test_object_root_metadata_is_safe_and_does_not_conflict_with_exact_key(self):
+        with self.index([{}]) as index:
+            value = core.address_reference(
+                reference(key_prefix="raw/", prefix=None), {}, "http://source:9000"
+            )
+            self.assertEqual(index.match(value)["status"], "exact_version")
+            value = core.address_reference(
+                reference(key_prefix={"secret": "private-value"}),
+                {},
+                "http://source:9000",
+            )
+            self.assertNotIn("private-value", json.dumps(value))
+            self.assertEqual(value["unknown"], "invalid_locator_field")
+
     def test_source_path_replacement_does_not_change_verified_descriptor(self):
         source_file(self.source, [{}])
         replacement = self.root / "replacement.jsonl"

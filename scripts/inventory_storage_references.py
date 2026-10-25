@@ -29,35 +29,93 @@ class Family:
     keys: tuple[str, ...] = ("id",)
     form: str = "ref"
     inventory: bool = False
+    schemas: tuple[int, ...] = (1, 2)
+    purposes: tuple[str, ...] = ()
+    version_column: str = "version_id"
 
 
 # A closed locator registry, not the live classifier or a list of cleanup permits.
 FAMILIES = (
-    Family("prediction_input_leases", inventory=True),
-    Family("image_pyramid_outputs", inventory=True),
-    Family("video_derivative_outputs", inventory=True),
-    Family("export_media_bundles", inventory=True),
-    Family("training_dataset_versions"),
-    Family("training_runs"),
-    Family("training_previews"),
-    Family("sample_evaluation_runs"),
-    Family("active_learning_rounds"),
-    Family("avatar_uploads", ("token",)),
-    Family("bug_attachment_uploads"),
-    Family("comment_attachment_uploads"),
-    Family("guide_asset_uploads"),
-    Family("raster_mask_objects"),
-    Family("export_outputs"),
-    Family("audit_archive_outputs"),
+    Family("prediction_input_leases", inventory=True, purposes=("import",)),
+    Family("image_pyramid_outputs", inventory=True, purposes=("media-cache",)),
+    Family("video_derivative_outputs", inventory=True, purposes=("media-cache",)),
+    Family("export_media_bundles", inventory=True, purposes=("export",)),
+    Family("training_dataset_versions", purposes=("training-dataset",)),
+    Family("training_runs", purposes=("training-run",)),
+    Family("training_previews", purposes=("training-preview",)),
+    Family("sample_evaluation_runs", purposes=("sample-evaluation",)),
+    Family("active_learning_rounds", purposes=("active-learning",)),
+    Family(
+        "avatar_uploads",
+        ("token",),
+        purposes=("avatars",),
+        version_column="object_version_id",
+    ),
+    Family(
+        "bug_attachment_uploads",
+        purposes=("bug-reports",),
+        version_column="object_version_id",
+    ),
+    Family("comment_attachment_uploads", purposes=("annotations",)),
+    Family("guide_asset_uploads", purposes=("annotations",)),
+    Family("raster_mask_objects", purposes=("annotations",)),
+    Family("export_outputs", purposes=("export",)),
+    Family("audit_archive_outputs", purposes=("audit-archive",)),
     Family("managed_original_creations", form="creation"),
     Family("managed_original_retirements", form="retirement"),
-    Family("dataset_asset_locations", ("asset_id", "location_id", "bucket"), "current"),
-    Family("task_originals", form="current"),
-    Family("dataset_auxiliary_originals", form="current"),
+    Family(
+        "dataset_asset_locations",
+        ("asset_id", "location_id", "bucket"),
+        "current",
+        schemas=(1,),
+        purposes=("datasets",),
+    ),
+    Family("task_originals", form="current", schemas=(2,), purposes=("annotations",)),
+    Family(
+        "dataset_auxiliary_originals",
+        form="current",
+        schemas=(1,),
+        purposes=("datasets",),
+    ),
     Family("dataset_source_previews", ("source_id", "path_digest"), "preview"),
-    Family("original_cache_entries", form="cache"),
-    Family("training_storage_deletions", form="deletion"),
+    Family(
+        "original_cache_entries", form="cache", schemas=(2,), purposes=("media-cache",)
+    ),
+    Family(
+        "training_storage_deletions",
+        form="deletion",
+        purposes=("training-dataset", "training-run"),
+    ),
+    Family("mask_format_uploads", form="mask-upload", purposes=("import",)),
+    Family("mask_format_imports", form="mask-import", purposes=("import",)),
+    Family(
+        "thumbnail_outputs", form="thumbnail", schemas=(2,), purposes=("media-cache",)
+    ),
 )
+# Absence is expected only in these known older linear schema revisions.
+KNOWN_REVISIONS = frozenset(f"{revision:04}" for revision in range(244, 255))
+TABLE_SINCE = {"mask_format_uploads": "0250", "thumbnail_outputs": "0252"}
+COLUMN_SINCE = {
+    ("bug_attachment_uploads", "object_version_id"): "0245",
+    ("managed_original_creations", "staging_ref"): "0250",
+    ("mask_format_imports", "staging_ref"): "0250",
+    ("dataset_asset_locations", "storage_ref"): "0251",
+    ("dataset_auxiliary_originals", "storage_ref"): "0251",
+    ("original_cache_entries", "storage_ref"): "0252",
+    ("task_originals", "storage_ref"): "0253",
+}
+REQUIRED = {
+    "ref": {"storage_ref"},
+    "deletion": {"storage_ref", "bucket", "prefix"},
+    "current": {"bucket", "object_key", "location_id"},
+    "creation": {"configuration", "bucket", "object_key"},
+    "retirement": {"bucket", "object_key"},
+    "preview": {"bucket", "object_key", "location_id"},
+    "cache": {"bucket", "asset_id", "sha256", "location_id", "storage_identity"},
+    "mask-upload": {"storage_ref", "logical_object_key"},
+    "mask-import": {"staged_object_key"},
+    "thumbnail": {"storage_ref"},
+}
 SCALARS = (
     "id",
     "asset_id",
@@ -82,6 +140,9 @@ SCALARS = (
     "staging_key",
     "package_key",
     "package_sha256",
+    "logical_object_key",
+    "staged_object_key",
+    "staged_sha256",
 )
 DOCUMENTS = (
     "input_snapshot",
@@ -102,31 +163,58 @@ def quoted(name):
     return '"' + name + '"'
 
 
-def ref_projection(alias="r"):
+def ref_projection(alias="r", column="storage_ref"):
+    if column not in {"storage_ref", "staging_ref"}:
+        raise ReferenceError("invalid_registry")
     return (
         "jsonb_build_object("
         + ",".join(
-            "'%s',%s.storage_ref->'%s'" % (field, alias, field) for field in REF_FIELDS
+            "'%s',%s.%s->'%s'" % (field, alias, column, field) for field in REF_FIELDS
         )
-        + ") AS storage_ref"
+        + ") AS "
+        + column
     )
 
 
-def projection(family, columns):
-    required = set(family.keys) | (
-        {"storage_ref"} if family.form in {"ref", "deletion"} else {"bucket"}
+def before_revision(revisions, introduced):
+    return (
+        len(revisions) == 1
+        and revisions[0] in KNOWN_REVISIONS
+        and revisions[0] < introduced
     )
+
+
+def family_available(family, columns, revisions):
+    return not (
+        family.table not in columns
+        and family.table in TABLE_SINCE
+        and before_revision(revisions, TABLE_SINCE[family.table])
+    )
+
+
+def projection(family, columns, *, revisions=()):
+    required = set(family.keys) | REQUIRED[family.form]
+    if family.inventory:
+        required.add("inventory")
+    for (table, column), introduced in COLUMN_SINCE.items():
+        if table == family.table and not before_revision(revisions, introduced):
+            required.add(column)
     if not required <= columns:
         raise ReferenceError("family_columns_missing")
     fields = list(
         dict.fromkeys((*family.keys, *[name for name in SCALARS if name in columns]))
     )
     result = [f"r.{quoted(name)}" for name in fields]
-    if "storage_ref" in columns:
-        result.append(ref_projection())
-        result.append("r.storage_ref IS NOT NULL AS ref_present")
+    for column, flag in (
+        ("storage_ref", "ref_present"),
+        ("staging_ref", "staging_ref_present"),
+    ):
+        if column in columns:
+            result.append(ref_projection(column=column))
+            result.append(f"r.{column} IS NOT NULL AS {flag}")
     if family.form == "creation":
         result.append("r.configuration->>'endpoint' AS saved_endpoint")
+        result.append("r.configuration->'buckets'->>'import' AS legacy_staging_bucket")
     for name in DOCUMENTS:
         if name in columns:
             result.append(
@@ -147,6 +235,8 @@ def allowed_columns(family, columns):
     names = set(family.keys) | (set(SCALARS) & columns) | (set(DOCUMENTS) & columns)
     if "storage_ref" in columns:
         names.add("storage_ref")
+    if "staging_ref" in columns:
+        names.add("staging_ref")
     if family.form == "creation":
         names.add("configuration")
     if family.inventory:
@@ -166,44 +256,118 @@ def owner_record(family, row):
     }
 
 
+def reference_present(row, column="storage_ref"):
+    flag = "ref_present" if column == "storage_ref" else "staging_ref_present"
+    return row.get(flag, row.get(column) is not None)
+
+
+def saved_locator(family, row, *, column="storage_ref", purposes=None, schemas=None):
+    raw = row.get(column)
+    ref = {
+        key: value
+        for key, value in (raw.items() if isinstance(raw, dict) else ())
+        if key in REF_FIELDS and value is not None
+    }
+    result = {
+        **{
+            key: value
+            for key, value in ref.items()
+            if key not in {"object_key", "prefix"}
+        },
+        "key": ref.get("object_key"),
+        # key_prefix is a physical owner prefix only when no object_key is saved.
+        "prefix": ref.get("prefix")
+        if ref.get("object_key") is not None
+        else ref.get("prefix", ref.get("key_prefix")),
+        "version_id": row.get(family.version_column),
+    }
+    if not reference_present(row, column):
+        result["unknown"] = "missing_saved_owner"
+    elif type(ref.get("schema")) is not int or ref["schema"] not in (
+        family.schemas if schemas is None else schemas
+    ):
+        result["unknown"] = "unknown_saved_schema"
+    elif ref.get("purpose") not in (family.purposes if purposes is None else purposes):
+        result["unknown"] = "unknown_saved_purpose"
+    elif not all(
+        isinstance(ref.get(key), str) and ref[key]
+        for key in ("endpoint_url", "bucket", "storage_identity")
+    ):
+        result["unknown"] = "incomplete_saved_reference"
+    return result
+
+
+def object_receipt(result, row):
+    result.update(
+        sha256=row.get("stored_sha256", row.get("sha256")),
+        size_bytes=row.get("stored_size_bytes", row.get("size_bytes")),
+        etag=row.get("etag"),
+    )
+    if row.get("canonical_sha256"):
+        result["canonical_representation_sha256"] = row["canonical_sha256"]
+    return result
+
+
+def compare_locator(result, row, fields):
+    for key, column in fields:
+        if row.get(column) is not None and _text(row[column]) != result.get(key):
+            result.setdefault("unknown", "saved_locator_conflict")
+    return result
+
+
+def derived_object(result, relative):
+    prefix = result.get("prefix")
+    if isinstance(prefix, str) and prefix and isinstance(relative, str) and relative:
+        result.update(key=prefix + relative, prefix=None)
+    else:
+        result.setdefault("unknown", "object_key_unknown")
+        result.update(key=None, prefix=None)
+    return result
+
+
 def references(family, row):
     base = {"type": "reference", **owner_record(family, row)}
-    if family.form in {"ref", "deletion"}:
-        saved = row.get("storage_ref") or {}
-        ref = {k: v for k, v in saved.items() if v is not None}
+    if family.form in {"ref", "deletion", "thumbnail", "mask-upload", "mask-import"}:
+        column = "staging_ref" if family.form == "mask-import" else "storage_ref"
         result = {
             **base,
             "role": "deletion_intent" if family.form == "deletion" else "saved_owner",
-            **{
-                k: ref[k]
-                for k in REF_FIELDS
-                if k in ref and k not in {"object_key", "key_prefix"}
-            },
-            "key": ref.get("object_key"),
-            "prefix": ref.get("prefix", ref.get("key_prefix")),
-            "version_id": row.get("object_version_id"),
+            **saved_locator(family, row, column=column),
         }
-        if not row.get("ref_present"):
-            result["unknown"] = "missing_saved_owner"
-        elif type(ref.get("schema")) is not int or ref["schema"] not in (
-            {1, 2}
-            if family.table in {"avatar_uploads", "bug_attachment_uploads"}
-            else {1}
-        ):
-            result["unknown"] = "unknown_saved_schema"
-        if family.form == "deletion" and not row.get("ref_present"):
-            result.update(bucket=row.get("bucket"), prefix=row.get("prefix"))
-        if result["key"] is not None:
-            result.update(
-                sha256=row.get("stored_sha256", row.get("sha256")),
-                size_bytes=row.get("stored_size_bytes", row.get("size_bytes")),
-                etag=row.get("etag"),
+        if family.form == "deletion":
+            if not reference_present(row):
+                result.update(bucket=row.get("bucket"), prefix=row.get("prefix"))
+            else:
+                compare_locator(
+                    result, row, (("bucket", "bucket"), ("prefix", "prefix"))
+                )
+        elif family.form == "thumbnail":
+            derived_object(result, "thumbnail.webp")
+        elif family.form in {"mask-upload", "mask-import"}:
+            logical = row.get(
+                "logical_object_key"
+                if family.form == "mask-upload"
+                else "staged_object_key"
             )
-            if row.get("canonical_sha256"):
-                result["canonical_representation_sha256"] = row["canonical_sha256"]
+            prefix, separator, relative = (
+                logical.rpartition("/") if isinstance(logical, str) else ("", "", "")
+            )
+            physical = result.get("prefix")
+            if (
+                not separator
+                or not relative
+                or not isinstance(physical, str)
+                or not physical.endswith(prefix + "/")
+            ):
+                result.setdefault("unknown", "staged_key_conflict")
+            derived_object(result, relative)
+        if result["key"] is not None:
+            object_receipt(result, row)
+            if family.form == "mask-import":
+                result["sha256"] = row.get("staged_sha256")
         yield result
         if row.get("package_key") is not None:
-            yield {
+            package = {
                 **result,
                 "role": "package_object",
                 "key": row["package_key"],
@@ -212,6 +376,15 @@ def references(family, row):
                 "size_bytes": row.get("size_bytes"),
                 "version_id": None,
             }
+            prefix = result.get("prefix")
+            if (
+                not isinstance(prefix, str)
+                or not isinstance(package["key"], str)
+                or not package["key"].startswith(prefix)
+                or len(package["key"]) <= len(prefix)
+            ):
+                package.setdefault("unknown", "package_outside_saved_prefix")
+            yield package
     else:
         role = {
             "creation": "creation_history",
@@ -220,32 +393,69 @@ def references(family, row):
             "preview": "preview_locator",
             "cache": "cache_owner",
         }[family.form]
-        key = row.get("object_key")
-        if family.form == "cache":
-            key = f"original-cache/v1/{row['asset_id']}/{row['sha256']}/{row['id']}"
-        result = {
-            **base,
-            "role": role,
-            "location_id": _text(row.get("location_id")),
-            "endpoint_url": row.get("saved_endpoint"),
-            "bucket": row.get("bucket"),
-            "key": key,
-            "storage_identity": row.get("storage_identity"),
-            "version_id": row.get("version_id"),
-            "sha256": row.get("sha256"),
-            "size_bytes": row.get("size_bytes"),
-            "etag": row.get("etag"),
-        }
+        if family.form in {"current", "cache"} and reference_present(row):
+            result = {**base, "role": role, **saved_locator(family, row)}
+            if family.form == "cache":
+                derived_object(result, "payload")
+            compare_locator(
+                result,
+                row,
+                (
+                    ("location_id", "location_id"),
+                    ("bucket", "bucket"),
+                    ("key", "object_key"),
+                    ("storage_identity", "storage_identity"),
+                ),
+            )
+            object_receipt(result, row)
+        else:
+            key = row.get("object_key")
+            if family.form == "cache":
+                key = f"original-cache/v1/{row['asset_id']}/{row['sha256']}/{row['id']}"
+            result = {
+                **base,
+                "role": role,
+                "location_id": _text(row.get("location_id")),
+                "endpoint_url": row.get("saved_endpoint"),
+                "bucket": row.get("bucket"),
+                "key": key,
+                "storage_identity": row.get("storage_identity"),
+                "version_id": row.get(family.version_column),
+                "sha256": row.get("sha256"),
+                "size_bytes": row.get("size_bytes"),
+                "etag": row.get("etag"),
+            }
         yield result
         if family.form == "creation" and row.get("staging_key") is not None:
-            yield {
-                **base,
-                "role": "staging_declaration",
-                "endpoint_url": row.get("saved_endpoint"),
-                "bucket": row.get("staging_bucket"),
-                "key": row["staging_key"],
-                "version_id": None,
-            }
+            staging = {**base, "role": "staging_declaration"}
+            if reference_present(row, "staging_ref"):
+                staging.update(
+                    saved_locator(
+                        family,
+                        row,
+                        column="staging_ref",
+                        purposes=("import",),
+                        schemas=(1, 2),
+                    )
+                )
+                derived_object(staging, "payload")
+                compare_locator(
+                    staging, row, (("bucket", "staging_bucket"), ("key", "staging_key"))
+                )
+                # The final original's saved version is unrelated to its upload stage.
+                staging["version_id"] = None
+            else:
+                staging.update(
+                    endpoint_url=row.get("saved_endpoint"),
+                    bucket=row.get("staging_bucket"),
+                    key=row["staging_key"],
+                    version_id=None,
+                )
+                if row.get("legacy_staging_bucket") is not None and row[
+                    "legacy_staging_bucket"
+                ] != row.get("staging_bucket"):
+                    staging["unknown"] = "saved_locator_conflict"
+            yield staging
     for name in DOCUMENTS:
         if row.get(name + "_unexpanded"):
             yield {
@@ -419,8 +629,13 @@ async def collect(engine, spool, budget):
                         }
                     )
             for family in FAMILIES:
+                if not family_available(family, columns, result["revisions"]):
+                    result.setdefault("families_not_present_in_schema", []).append(
+                        family.table
+                    )
+                    continue
                 fields = columns.get(family.table, set())
-                projected = projection(family, fields)
+                projected = projection(family, fields, revisions=result["revisions"])
                 base = f"SELECT {projected} FROM {quoted(family.table)} r"
                 keys = tuple(("r." + quoted(key), key) for key in family.keys)
                 async for page in paged(connection, base, keys, budget):
@@ -470,13 +685,11 @@ async def expand_inventory(connection, family, spool, budget, columns=()):
     async for page in paged(connection, query, keyset, budget):
         for row in page:
             budget.take("expanded")
-            ref = row["storage_ref"]
+            ref = row["storage_ref"] or {}
             key = row["inventory_key"]
             if family.table == "prediction_input_leases":
                 prefix = ref.get("key_prefix")
-                if not isinstance(prefix, str):
-                    raise ReferenceError("inventory_prefix_unknown")
-                key = prefix + key
+                key = prefix + key if isinstance(prefix, str) else None
             record = {
                 "type": "reference",
                 **owner_record(family, row),
@@ -493,8 +706,11 @@ async def expand_inventory(connection, family, spool, budget, columns=()):
                 "version_id": row["object_version"],
                 "receipt_state": row["object_state"],
             }
-            if ref.get("schema") != 1:
-                record["unknown"] = "unknown_saved_schema"
+            saved = saved_locator(family, row)
+            if saved.get("unknown"):
+                record["unknown"] = saved["unknown"]
+            if key is None:
+                record.setdefault("unknown", "inventory_prefix_unknown")
             spool.emit(record)
 
 
