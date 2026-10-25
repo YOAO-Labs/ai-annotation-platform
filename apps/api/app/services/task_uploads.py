@@ -152,6 +152,7 @@ async def initialize(db, actor, request, data, file_type):
     await creations.validate_upload_url(db, allocation, url, lock=True)
     await db.commit()
     credentials.check_clock(proof)
+    creations.upload_expires_in(allocation)
     return task_id, url
 
 
