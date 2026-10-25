@@ -366,6 +366,14 @@ Worker 以 run generation、task/job ID、租约共同 fencing，逐成员事务
 
 扫描和预检分别按来源批量查询，活动轮次优先，并独立保留最近完整成功记录。配置匹配由当前修订判断，不外露 snapshot。AsyncJob 保留期不删除领域证据。整个 GET 无源 I/O、写入或后台派发，不需要迁移或刷新 Worker。
 
+## 外部原件责任声明
+
+`DatasetSource.external_protection` 保存责任方、恢复方式、内部参考编号和服务器登记主体／时间，`external_protection_revision` 从0开始独立递增。旧来源保持空声明；同一位置下不同来源可以有不同责任方。声明不放入 `source.config` 或位置配置，因此不会改变内容修订、规则证明、历史扫描、有效缓存或原件身份。
+
+`dataset_source_protection.update` 复用当前来源权限、Key复验和Location→Source锁顺序，仅比较声明自身的 expected revision。它没有物理I/O、在线探测、活动作业或数据集可写门槛；停用／注销和归档后的责任维护仍使用既有来源权限，孤立来源继续仅对超级管理员可见。登记主体为保留UUID事实，不以用户外键删除联动抹去责任。审计动作是 `dataset_source.protection_update`。
+
+迁移0244仅增加两个字段及一致性约束，旧来源不自动补责任。非空声明拒绝破坏性降级；应用回退应保留新增列及记录。完整／保护数据库指纹均包含声明所有字段和修订，不属于物理位置重定位白名单。恢复演练通过业务服务登记后备份，再核对原声明和修订保留；外部原件仍不在九桶备份内，缺失／同名替代仍严格拒绝。声明只表达责任与方案，不作为可恢复证明、备份保留要求或物理删除许可。
+
 ## 当前已采纳源索引规模
 
 `storage_source_usage` 在现有 source-summary 授权后，以 `source_scope_clause` 裁剪整个位置的当前 `DatasetSourceItem`。Head 与 current revision、该修订 Run／Entry、Item／verified Asset 的关系及 SHA／完整大小在数据库校验。LEFT JOIN 保留缺失关系；不要求当前头等于最初 DatasetReference 的 run，也不按当前配置修订重新解释冻结地址。reference 和 managed_copy 均属于来源规模，复制形成的平台对象仍独立计量。暂停／注销保留的头仍计量，已删除的头不从修订历史补造。

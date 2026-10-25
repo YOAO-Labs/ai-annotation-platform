@@ -10,6 +10,27 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.schemas.storage_cache import CachePolicy
 
 
+class ExternalProtectionDeclaration(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    responsible_party: str = Field(
+        min_length=1, max_length=100, pattern=r"^[^\x00-\x1f\x7f]+$"
+    )
+    recovery_method: Literal["external_backup", "reacquire", "unrecoverable", "unknown"]
+    recovery_reference: str | None = Field(
+        default=None, min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_.:-]+$"
+    )
+
+
+class SourceExternalProtectionUpdate(ExternalProtectionDeclaration):
+    expected_revision: int = Field(ge=0)
+
+
+class SourceExternalProtectionOut(ExternalProtectionDeclaration):
+    revision: int = Field(ge=1)
+    recorded_at: datetime
+    recorded_by_id: uuid.UUID
+
+
 class DatasetSourceCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     dataset_id: uuid.UUID
@@ -53,6 +74,7 @@ class DatasetSourceOut(BaseModel):
     location_cache_policy: CachePolicy
     policy_revision: int
     unregistered_at: datetime | None
+    external_protection: SourceExternalProtectionOut | None = None
 
 
 class DatasetSourceList(BaseModel):

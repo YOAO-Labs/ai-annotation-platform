@@ -299,6 +299,7 @@
 | GET | `/dataset-sources` |
 | GET | `/dataset-sources/{source_id}` |
 | PATCH | `/dataset-sources/{source_id}` |
+| PUT | `/dataset-sources/{source_id}/external-protection` |
 | GET | `/dataset-sources/{source_id}/lifecycle-impact` |
 | POST | `/dataset-sources/{source_id}/lifecycle` |
 | GET | `/dataset-sources/{source_id}/entries/{path_digest}/preview` |
@@ -1066,4 +1067,4 @@
 
 ---
 
-_共 97 模块 / 619 路由_
+_共 97 模块 / 620 路由_

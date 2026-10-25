@@ -5,6 +5,7 @@ from typing import Any, Literal
 import uuid
 
 from pydantic import BaseModel, ConfigDict, Field
+from app.schemas.dataset_source import SourceExternalProtectionOut
 
 from app.schemas.storage_cache import CachePolicy, CacheQuota, CacheTTL
 
@@ -174,6 +175,7 @@ class StorageSourceDiagnostics(BaseModel):
 
 
 class StorageSourceSummaryItem(BaseModel):
+    external_protection: SourceExternalProtectionOut | None = None
     source_id: uuid.UUID
     source_name: str
     dataset_id: uuid.UUID | None

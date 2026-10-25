@@ -3,6 +3,7 @@ import type {
   DatasetSourceList,
   DatasetSourceCreate,
   DatasetSourceUpdate,
+  SourceExternalProtectionUpdate,
   SourceLifecycleImpact,
   SourceLifecycleChange,
   DatasetScanList,
@@ -79,6 +80,8 @@ export const datasetSourcesApi = {
     apiClient.post<DatasetSourceOut>("/dataset-sources", payload),
   update: (id: string, payload: DatasetSourceUpdate) =>
     apiClient.patch<DatasetSourceOut>(`/dataset-sources/${id}`, payload),
+  updateProtection: (id: string, payload: SourceExternalProtectionUpdate) =>
+    apiClient.put<DatasetSourceOut>(`/dataset-sources/${id}/external-protection`, payload),
   impact: (id: string) =>
     apiClient.get<SourceLifecycleImpact>(`/dataset-sources/${id}/lifecycle-impact`),
   lifecycle: (id: string, payload: SourceLifecycleChange) =>

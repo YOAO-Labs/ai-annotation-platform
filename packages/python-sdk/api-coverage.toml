@@ -395,6 +395,7 @@ watched_tags = ["projects", "guide-assets", "datasets", "batches", "tasks", "ann
 "GET /api/v1/dataset-sources/{source_id}" = { status = "excluded", reason = "separate-connector-epic" }
 
 "PATCH /api/v1/dataset-sources/{source_id}" = { status = "excluded", reason = "separate-connector-epic" }
+"PUT /api/v1/dataset-sources/{source_id}/external-protection" = { status = "excluded", reason = "separate-connector-epic" }
 
 "POST /api/v1/dataset-sources/{source_id}/scans" = { status = "excluded", reason = "separate-connector-epic" }
 

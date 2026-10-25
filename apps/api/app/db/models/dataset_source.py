@@ -46,9 +46,24 @@ class DatasetSource(Base):
         String(20), default="none", server_default="none"
     )
     policy_revision: Mapped[int] = mapped_column(default=1, server_default="1")
+    external_protection_revision: Mapped[int] = mapped_column(
+        default=0, server_default="0"
+    )
+    external_protection: Mapped[dict | None] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
     unregistered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "(external_protection_revision = 0 AND external_protection IS NULL) OR "
+            "(external_protection_revision > 0 AND "
+            "COALESCE(jsonb_typeof(external_protection) = 'object', false))",
+            name="ck_dataset_source_external_protection",
+        ),
     )
 
 

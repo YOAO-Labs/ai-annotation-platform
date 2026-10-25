@@ -26,6 +26,32 @@ from worktree_recovery_fixture import (
 from worktree_recovery_mapping import identity
 
 
+class ExternalProtectionFacts(unittest.TestCase):
+    def test_source_responsibility_is_entirely_protected(self):
+        from worktree_recovery_fixture import digest, protected_row
+
+        row = {
+            "id": "source",
+            "external_protection_revision": 1,
+            "external_protection": {
+                "responsible_party": "External owner",
+                "recovery_method": "external_backup",
+                "recovery_reference": "OPS:restore",
+                "recorded_at": "2026-10-25T00:00:00Z",
+                "recorded_by_id": "actor",
+            },
+        }
+        original = digest(protected_row("dataset_sources", row))
+        for key in row["external_protection"]:
+            changed = deepcopy(row)
+            changed["external_protection"][key] = "changed"
+            self.assertNotEqual(
+                digest(protected_row("dataset_sources", changed)), original
+            )
+        changed = {**row, "external_protection_revision": 2}
+        self.assertNotEqual(digest(protected_row("dataset_sources", changed)), original)
+
+
 class PredictionInputProtectedFacts(unittest.TestCase):
     def test_prediction_input_mapping_preserves_inventory_and_source_proof(self):
         from worktree_recovery_fixture import digest, protected_row

@@ -15,6 +15,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   "dataset.create": "创建数据集",
   "dataset.delete": "删除数据集",
   "storage.fault": "存储访问故障",
+  "dataset_source.protection_update": "更新来源保护责任",
   "annotation.update": "编辑标注",
   "annotation.comment": "评论标注",
   "system.bootstrap_admin": "引导管理员",

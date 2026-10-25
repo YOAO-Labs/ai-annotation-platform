@@ -41,6 +41,7 @@ def path_digest(path):
 
 async def source_out(db, source, *, location=None):
     from app.services.directory_policy import effective_cache_policy
+    from app.services.dataset_source_protection import declaration
 
     location = location or await db.get(
         StorageLocation, source.location_id, populate_existing=True
@@ -64,6 +65,7 @@ async def source_out(db, source, *, location=None):
         | source.config
         | {
             "mode": "inventory",
+            "external_protection": declaration(source),
             "effective_cache_policy": effective_cache_policy(source, location)
             if location
             else "none",

@@ -12,6 +12,7 @@ import { SourceDiagnostics, evidenceDate, sourceHref } from "./StorageSourceDiag
 import { JOB_STATUS_LABEL } from "@/components/jobs/asyncJobPresentation";
 import { verifiedContentError } from "@/hooks/useVerifiedImage";
 import { StorageSourceUsage } from "./StorageSourceUsage";
+import { ExternalProtectionSummary } from "@/components/datasets/DirectorySourceProtection";
 
 function Pagination({
   label,
@@ -223,6 +224,9 @@ function SummaryOwner({ locationId: selectedLocationId, returnTo }: SummaryProps
                     <span className="text-xs text-muted-foreground">
                       {source.unregistered_at ? "已注销" : source.enabled ? "已启用" : "已停用"}
                     </span>
+                  </div>
+                  <div className="mt-2">
+                    <ExternalProtectionSummary value={source.external_protection} />
                   </div>
                   <SourceDiagnostics
                     value={source.diagnostics}

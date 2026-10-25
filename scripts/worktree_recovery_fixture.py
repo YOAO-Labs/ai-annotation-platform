@@ -838,6 +838,20 @@ async def seed(db, external: Path):
         (world[0] / "blue.png").write_bytes(picture("blue"))
         world = await rescan(db, world)
         await accept_all_files(db, world)
+        from app.schemas.dataset_source import SourceExternalProtectionUpdate
+        from app.services import dataset_source_protection
+
+        await dataset_source_protection.update(
+            db,
+            world[5].id,
+            SourceExternalProtectionUpdate(
+                expected_revision=0,
+                responsible_party="External original owner",
+                recovery_method="external_backup",
+                recovery_reference="OPS:external-source-restore",
+            ),
+            actor,
+        )
         binding = await ensure_legacy_bindings(db)
         green = picture("green")
         managed = DatasetItem(
@@ -1356,7 +1370,7 @@ async def seed(db, external: Path):
                 "source_id": str(world[5].id),
                 "location_id": str(world[4].id),
                 "root_handle": "test",
-                "protection_owner": "external-original-owner",
+                "external_protection": dataset_source_protection.declaration(world[5]),
                 "backed_up": False,
             }
         ]
@@ -1425,6 +1439,17 @@ async def verify_application(db, external: Path):
             raise AssertionError("Source creation cannot be adopted in target context")
     actor = await db.scalar(select(User).where(User.role == "super_admin"))
     assert actor is not None
+    from app.db.models.dataset_source import DatasetSource
+    from app.services import dataset_source_protection
+
+    declared_sources = list(await db.scalars(select(DatasetSource)))
+    assert len(declared_sources) == 1
+    declaration = dataset_source_protection.declaration(declared_sources[0])
+    assert declaration["revision"] == 1
+    assert declaration["responsible_party"] == "External original owner"
+    assert declaration["recovery_method"] == "external_backup"
+    assert declaration["recovery_reference"] == "OPS:external-source-restore"
+    assert declaration["recorded_by_id"] == str(actor.id) and declaration["recorded_at"]
     task_originals = await verify_task_originals(db, storage=storage, actor=actor)
     auxiliary_originals = await verify_auxiliary_originals(db, storage=storage)
     from worktree_recovery_prediction_inputs import (
@@ -1753,6 +1778,8 @@ async def verify_application(db, external: Path):
         "ready_versions": ready_count,
         "interrupted_versions": partial_count,
         "unavailable_external_originals": unavailable,
+        "preserved_external_protection_declarations": len(declared_sources),
+        "external_originals_in_backup": False,
         "same_name_replacements_rejected": replacements_rejected,
         "verified_frozen_media": media_count,
         "verified_dataset_task_content": 1,

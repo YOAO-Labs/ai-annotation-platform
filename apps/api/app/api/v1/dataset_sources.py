@@ -26,6 +26,7 @@ from app.schemas.dataset_source import (
     DatasetSourceUpdate,
     DatasetSourceOut,
     DatasetSourceList,
+    SourceExternalProtectionUpdate,
     DatasetScanOut,
     DatasetScanList,
     DatasetScanEntryList,
@@ -162,6 +163,30 @@ async def patch_source(
         api_key_id=getattr(request.state, "api_key_id", None),
     )
     await audit(db, actor, request, AuditAction.DATASET_SOURCE_UPDATE, source_id)
+    await db.commit()
+    return await svc.source_out(db, source)
+
+
+@router.put(
+    "/dataset-sources/{source_id}/external-protection", response_model=DatasetSourceOut
+)
+async def update_external_protection(
+    source_id: uuid.UUID,
+    payload: SourceExternalProtectionUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(manager),
+):
+    from app.services import dataset_source_protection
+
+    source = await dataset_source_protection.update(
+        db,
+        source_id,
+        payload,
+        actor,
+        api_key_id=getattr(request.state, "api_key_id", None),
+    )
+    await audit(db, actor, request, "dataset_source.protection_update", source.id)
     await db.commit()
     return await svc.source_out(db, source)
 

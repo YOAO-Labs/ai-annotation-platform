@@ -11,6 +11,7 @@ import { useAuthStore } from "@/stores/authStore";
 import { useVerifiedImage, verifiedContentError } from "@/hooks/useVerifiedImage";
 import { DirectoryRegistrationProgress } from "./DirectoryRegistrationProgress";
 import { DirectorySyncSchedule } from "./DirectorySyncSchedule";
+import { DirectorySourceProtection } from "./DirectorySourceProtection";
 import { DirectoryCachedPreview, DirectorySourceControls } from "./DirectorySourceControls";
 import { AsyncJobDetailModal } from "@/components/jobs/AsyncJobDetailModal";
 import { parseReference } from "@/utils/referenceContent";
@@ -890,6 +891,18 @@ function DirectoryReferencePanelOwner({
             </div>
           </div>
         </details>
+      )}
+      {source && (
+        <DirectorySourceProtection
+          key={source.id}
+          source={source}
+          onSaved={() =>
+            Promise.all([
+              client.invalidateQueries({ queryKey: ["dataset-sources", owner] }),
+              client.invalidateQueries({ queryKey: ["dataset-source", owner] }),
+            ])
+          }
+        />
       )}
       {!archived && source && (
         <details className="rounded-lg border border-border bg-card p-4">

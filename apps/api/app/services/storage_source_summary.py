@@ -9,6 +9,7 @@ from app.services import dataset_source_access as access
 from app.services import storage_location
 from app.services.storage_source_diagnostics import diagnostics
 from app.services.storage_source_usage import read_usage
+from app.services.dataset_source_protection import declaration
 
 
 async def summary(db, location_id, actor, *, limit, offset, jobs_limit, jobs_offset):
@@ -55,6 +56,7 @@ async def summary(db, location_id, actor, *, limit, offset, jobs_limit, jobs_off
                 "dataset_name": name,
                 "enabled": source.enabled,
                 "unregistered_at": source.unregistered_at,
+                "external_protection": declaration(source),
                 "diagnostics": evidence[source.id],
             }
             for source, name in rows

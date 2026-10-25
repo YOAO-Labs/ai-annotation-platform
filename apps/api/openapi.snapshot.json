@@ -14683,6 +14683,16 @@
             "title": "Exclude Globs",
             "type": "array"
           },
+          "external_protection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SourceExternalProtectionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -43549,6 +43559,114 @@
         "title": "SniffAxisConventionResponse",
         "type": "object"
       },
+      "SourceExternalProtectionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "recorded_at": {
+            "format": "date-time",
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "recorded_by_id": {
+            "format": "uuid",
+            "title": "Recorded By Id",
+            "type": "string"
+          },
+          "recovery_method": {
+            "enum": [
+              "external_backup",
+              "reacquire",
+              "unrecoverable",
+              "unknown"
+            ],
+            "title": "Recovery Method",
+            "type": "string"
+          },
+          "recovery_reference": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_.:-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recovery Reference"
+          },
+          "responsible_party": {
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f\\x7f]+$",
+            "title": "Responsible Party",
+            "type": "string"
+          },
+          "revision": {
+            "minimum": 1.0,
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "responsible_party",
+          "recovery_method",
+          "revision",
+          "recorded_at",
+          "recorded_by_id"
+        ],
+        "title": "SourceExternalProtectionOut",
+        "type": "object"
+      },
+      "SourceExternalProtectionUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "minimum": 0.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "recovery_method": {
+            "enum": [
+              "external_backup",
+              "reacquire",
+              "unrecoverable",
+              "unknown"
+            ],
+            "title": "Recovery Method",
+            "type": "string"
+          },
+          "recovery_reference": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_.:-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recovery Reference"
+          },
+          "responsible_party": {
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f\\x7f]+$",
+            "title": "Responsible Party",
+            "type": "string"
+          }
+        },
+        "required": [
+          "responsible_party",
+          "recovery_method",
+          "expected_revision"
+        ],
+        "title": "SourceExternalProtectionUpdate",
+        "type": "object"
+      },
       "SourceFreshness": {
         "description": "Per-source freshness entry (plan §6.3 — partial failure must not erase\nother trustworthy sources).",
         "properties": {
@@ -46256,6 +46374,16 @@
           "enabled": {
             "title": "Enabled",
             "type": "boolean"
+          },
+          "external_protection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SourceExternalProtectionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "source_id": {
             "format": "uuid",
@@ -68853,6 +68981,64 @@
           }
         ],
         "summary": "Read Directory Preview",
+        "tags": [
+          "dataset-sources"
+        ]
+      }
+    },
+    "/api/v1/dataset-sources/{source_id}/external-protection": {
+      "put": {
+        "operationId": "update_external_protection_api_v1_dataset_sources__source_id__external_protection_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceExternalProtectionUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetSourceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update External Protection",
         "tags": [
           "dataset-sources"
         ]

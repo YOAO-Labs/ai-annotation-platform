@@ -104,6 +104,23 @@ Run 的 `completed` 和 `complete=true` 只表示约定范围枚举与复核完�
 
 扫描条目的 `preview_state/preview_bytes` 描述该来源的派生账本。`GET /dataset-sources/{source_id}/entries/{path_digest}/preview` 仅向当前有权管理来源的账号提供完整鉴权 WebP 快照，响应 no-store 并复核自身 SHA；不返回可脱离实时授权的预签名地址。该端点不要求外部原图在线，缓存不可用于标注。none、停用、注销及撤权均拒绝新读。已登记路径再次 register 可重试失败/缺失缓存，不改变 Item 身份。
 
+## 外部原件保护责任
+
+`PUT /api/v1/dataset-sources/{source_id}/external-protection` 沿既有来源管理权限和 `datasets:write` scope 登记责任。来源详情、列表及存储位置来源摘要中的 `external_protection` 为该声明；未登记为 `null`，首次提交 `expected_revision=0`。
+
+```json
+{
+  "expected_revision": 0,
+  "responsible_party": "数据运维组",
+  "recovery_method": "external_backup",
+  "recovery_reference": "OPS:restore-source"
+}
+```
+
+`responsible_party` 为1至100字符的团队／人员名称；`recovery_method` 可为 `external_backup / reacquire / unrecoverable / unknown`。可空的 `recovery_reference` 为最长100字符的内部编号，仅用字母、数字和 `. _ : -`，不接受路径、URL或凭据。服务器返回声明的独立 `revision`、`recorded_at` 和 `recorded_by_id`；客户端不得指定操作主体或时间。后续提交使用读到的声明修订，冲突返回409及 `external_protection_revision_changed`，不会覆盖他人新记录。
+
+更新不触发源I/O，不改变来源 `config_revision / generation / policy_revision`，不取消活动扫描或登记。离线、停用、注销、归档来源仍按现有授权维护；数据集删除后的孤立来源仅超级管理员可见。声明不授予读取／清理权限，也不证明备份存在、恢复已完成或原件可用。
+
 ## 来源生命周期
 
 先 `GET /dataset-sources/{source_id}/lifecycle-impact`，返回当前修订、proof、关联样本/项目/任务/标注记录数、活动尝试数、本来源预览数/字节及观测时间。计数是影响预览，任务数不表示所有任务都会不可用：托管复制原件继续可读。
