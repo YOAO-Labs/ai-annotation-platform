@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any
 
@@ -92,6 +93,7 @@ async def _run_mask_format_import(
             job_id = job.id
             format_id = batch.format_id
             staged_object_key = batch.staged_object_key
+            staging_ref = deepcopy(batch.staging_ref)
             staged_sha256 = batch.staged_sha256
             adapter_version = batch.adapter_version
             manifest_version = batch.manifest_version
@@ -106,10 +108,15 @@ async def _run_mask_format_import(
         ):
             raise RuntimeError("format_adapter_version_conflict")
 
-        with materialize_staged_object(
-            object_key=staged_object_key,
-            expected_sha256=staged_sha256,
-        ) as staged:
+        async with (
+            SessionLocal() as reading,
+            materialize_staged_object(
+                reading,
+                object_key=staged_object_key,
+                expected_sha256=staged_sha256,
+                staging_ref=staging_ref,
+            ) as staged,
+        ):
             async with SessionLocal() as db:
                 batch = await db.get(MaskFormatImport, import_id)
                 if batch is None:

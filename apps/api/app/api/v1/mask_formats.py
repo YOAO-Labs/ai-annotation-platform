@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import re
 import uuid
+from copy import deepcopy
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.async_job import AsyncJob
 from app.db.models.mask_format_import import MaskFormatImport
+from app.db.models.mask_format_upload import MaskFormatUpload
 from app.db.models.project import Project
 from app.db.models.user import User
 from app.deps import (
@@ -30,6 +34,7 @@ from app.schemas.mask_format import (
     MaskFormatUploadInitResponse,
 )
 from app.services import async_job as async_job_svc
+from app.services import storage_access
 from app.services.async_job_notify import notify_job_terminal
 from app.services.audit import AuditAction, AuditService
 from app.services.mask_formats import registry
@@ -37,13 +42,15 @@ from app.services.mask_formats.contracts import canonical_digest
 from app.services.mask_formats.service import (
     MaskFormatError,
     batch_out,
+    check_staging,
     dispatch_import,
     execute_import,
     preflight_import,
     resume_import,
     staged_prefix,
+    staging_owner,
+    storage_call,
 )
-from app.services.storage import storage_service
 
 
 router = APIRouter()
@@ -54,6 +61,44 @@ def _raise_format_error(exc: MaskFormatError) -> None:
         status_code=exc.status_code,
         detail={"reason": exc.reason, "message": exc.message, **exc.detail},
     ) from exc
+
+
+async def _upload_authority(db, project_id, user, key_id, key_proof):
+    from app.db.models.api_key import ApiKey
+    from app.services.dataset_content import key_authority
+    from app.services.project_write_guard import lock_actor_project_authority
+
+    await lock_actor_project_authority(db, user.id, project_id)
+    project = await require_project_owner(project_id, db, user)
+    if key_id is not None:
+        try:
+            await db.scalar(
+                select(ApiKey)
+                .where(ApiKey.id == key_id)
+                .with_for_update(read=True, nowait=True)
+                .execution_options(populate_existing=True)
+            )
+        except DBAPIError as exc:
+            if storage_access.unavailable(exc):
+                raise HTTPException(409, detail={"reason": "api_key_busy"}) from None
+            raise
+    if await key_authority(db, user, key_id, "annotations:write") != key_proof:
+        raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+    return project
+
+
+async def _upload_key(db, request, user):
+    from app.services.dataset_content import key_authority
+
+    key_id = getattr(request.state, "api_key_id", None)
+    return key_id, await key_authority(db, user, key_id, "annotations:write")
+
+
+async def _upload_storage_call(call, *args, **kwargs):
+    try:
+        return await storage_call(call, *args, **kwargs)
+    except MaskFormatError as exc:
+        _raise_format_error(exc)
 
 
 @router.get(
@@ -159,21 +204,89 @@ async def preflight_mask_format_export(
 )
 async def init_mask_format_upload(
     body: MaskFormatUploadInitRequest,
+    request: Request,
     project: Project = Depends(require_project_owner),
     user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> MaskFormatUploadInitResponse:
+    from app.services import import_storage
+
+    key_id, key_proof = await _upload_key(db, request, user)
     suffix = re.sub(r"[^A-Za-z0-9._-]+", "_", body.file_name).strip("._") or "import"
-    object_key = f"{staged_prefix(project.id, user.id)}{uuid.uuid4()}/{suffix}"
-    upload_url = storage_service.generate_upload_url(
-        object_key,
+    upload_id = uuid.uuid4()
+    prefix = f"{staged_prefix(project.id, user.id)}{upload_id}/"
+    object_key = prefix + suffix
+    started = datetime.now(timezone.utc)
+    ref = await _upload_storage_call(import_storage.allocate, db, prefix)
+    owner = await _upload_storage_call(staging_owner, db, object_key, ref)
+    revision = await _upload_storage_call(import_storage.check_location, db, owner)
+    upload = MaskFormatUpload(
+        id=upload_id,
+        project_id=project.id,
+        uploader_id=user.id,
+        logical_object_key=object_key,
         content_type=body.content_type,
-        expires_in=900,
-        bucket=storage_service.import_bucket,
+        storage_ref=deepcopy(ref),
+        created_at=started,
+        upload_expires_at=started + timedelta(seconds=900),
     )
+    db.add(upload)
+    # Durable ownership precedes URL signing; no final authorization locks cross I/O.
+    await db.commit()
+    expires_in = int(
+        (upload.upload_expires_at - datetime.now(timezone.utc)).total_seconds()
+    )
+    if expires_in <= 0:
+        raise HTTPException(410, detail={"reason": "staged_upload_expired"})
+    upload_url = await _upload_storage_call(
+        import_storage.prepare_upload_url,
+        db,
+        owner,
+        suffix,
+        body.content_type,
+        expires_in=expires_in,
+    )
+    await _upload_authority(db, project.id, user, key_id, key_proof)
+    await _upload_storage_call(
+        import_storage.validate_upload_url,
+        db,
+        upload_url,
+        owner=owner,
+        relative=suffix,
+        content_type=body.content_type,
+        lock=True,
+    )
+    await _upload_storage_call(
+        check_staging, db, object_key, ref, revision=revision, lock=True
+    )
+    try:
+        current = await db.scalar(
+            select(MaskFormatUpload)
+            .where(MaskFormatUpload.id == upload_id)
+            .with_for_update(read=True, nowait=True)
+            .execution_options(populate_existing=True)
+        )
+    except DBAPIError as exc:
+        if storage_access.unavailable(exc):
+            raise HTTPException(409, detail={"reason": "staged_upload_busy"}) from None
+        raise
+    if (
+        current is None
+        or current.storage_ref != ref
+        or current.logical_object_key != object_key
+        or current.project_id != project.id
+        or current.uploader_id != user.id
+        or current.content_type != body.content_type
+        or current.created_at != started
+        or current.upload_expires_at != started + timedelta(seconds=900)
+        or current.upload_expires_at <= datetime.now(timezone.utc)
+    ):
+        raise HTTPException(409, detail={"reason": "staged_object_owner_changed"})
+    await db.commit()
     return MaskFormatUploadInitResponse(
         object_key=object_key,
         upload_url=upload_url,
-        expires_in=900,
+        expires_in=expires_in,
     )
 
 
@@ -189,6 +302,11 @@ async def preflight_mask_format_import(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> MaskFormatImportPreflightResponse:
+    key_id, key_proof = await _upload_key(db, request, user)
+
+    async def before_publish():
+        await _upload_authority(db, project.id, user, key_id, key_proof)
+
     try:
         response = await preflight_import(
             db,
@@ -199,6 +317,7 @@ async def preflight_mask_format_import(
             staged_sha256=body.staged_sha256,
             mapping=body.mapping,
             options=body.options,
+            before_publish=before_publish,
         )
     except MaskFormatError as exc:
         _raise_format_error(exc)

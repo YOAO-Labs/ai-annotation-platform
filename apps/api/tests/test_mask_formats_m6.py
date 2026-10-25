@@ -12,6 +12,7 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import select
 
+from app.config import settings
 from app.db.models.annotation import Annotation
 from app.db.models.mask_format_import import MaskFormatImport
 from app.db.models.project import Project
@@ -319,7 +320,14 @@ async def test_staged_aap_preflight_receipt_dispatch_once_and_task_execution(
     monkeypatch.setattr(
         storage_service,
         "client",
-        SimpleNamespace(get_object=lambda **_kwargs: {"Body": Body(payload)}),
+        SimpleNamespace(
+            meta=SimpleNamespace(
+                endpoint_url=(
+                    f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}"
+                )
+            ),
+            get_object=lambda **_kwargs: {"Body": Body(payload)},
+        ),
     )
     response = await httpx_client.post(
         f"/api/v1/projects/{project.id}/mask-formats/imports:preflight",
@@ -448,7 +456,14 @@ async def test_import_execute_rejects_plan_without_executable_items(
     monkeypatch.setattr(
         storage_service,
         "client",
-        SimpleNamespace(get_object=lambda **_kwargs: {"Body": Body(payload)}),
+        SimpleNamespace(
+            meta=SimpleNamespace(
+                endpoint_url=(
+                    f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}"
+                )
+            ),
+            get_object=lambda **_kwargs: {"Body": Body(payload)},
+        ),
     )
     preflight = await httpx_client.post(
         f"/api/v1/projects/{project.id}/mask-formats/imports:preflight",
