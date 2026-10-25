@@ -515,3 +515,7 @@ watched_tags = ["projects", "guide-assets", "datasets", "batches", "tasks", "ann
 "GET /api/v1/storage-locations/bindings/import/candidates" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/storage-locations/bindings/import/change-preview" = { status = "excluded", reason = "web-only" }
 "PATCH /api/v1/storage-locations/bindings/import" = { status = "excluded", reason = "web-only" }
+
+"GET /api/v1/storage-locations/bindings/media-cache/candidates" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage-locations/bindings/media-cache/change-preview" = { status = "excluded", reason = "web-only" }
+"PATCH /api/v1/storage-locations/bindings/media-cache" = { status = "excluded", reason = "web-only" }

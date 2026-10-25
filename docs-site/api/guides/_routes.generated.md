@@ -700,6 +700,9 @@
 | GET | `/bindings/datasets/candidates` |
 | POST | `/bindings/datasets/change-preview` |
 | PATCH | `/bindings/datasets` |
+| GET | `/bindings/media-cache/candidates` |
+| POST | `/bindings/media-cache/change-preview` |
+| PATCH | `/bindings/media-cache` |
 | GET | `/{location_id}/faults` |
 | GET | `/{location_id}` |
 | GET | `/{location_id}/source-summary` |
@@ -1084,4 +1087,4 @@
 
 ---
 
-_共 97 模块 / 637 路由_
+_共 97 模块 / 640 路由_
