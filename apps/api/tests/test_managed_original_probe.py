@@ -509,3 +509,36 @@ def test_only_fixed_error_code_is_returned_for_an_unexpected_provider_failure(
     )
     assert "private" not in str(result)
     assert client.body.closed and client.close_count == 1
+
+
+def test_saved_endpoint_context_opens_and_closes_b_instead_of_legacy(
+    configured, monkeypatch
+):
+    from contextlib import contextmanager
+
+    client, candidate = configured
+    endpoint = "https://registered.example.test"
+    client.meta.endpoint_url = endpoint
+    candidate = replace(
+        candidate,
+        endpoint_url=endpoint,
+        storage_identity=managed_storage_identity(endpoint, candidate.bucket),
+    )
+    entered = []
+
+    @contextmanager
+    def context():
+        entered.append(True)
+        try:
+            yield client
+        finally:
+            client.close()
+
+    monkeypatch.setattr(probe, "_client", lambda *_: pytest.fail("legacy client used"))
+    result = probe.run_probe(candidate, client_context=context)
+    assert result.outcome == "matched"
+    assert entered == [True] and client.close_count == 1
+    assert all(
+        params["Bucket"] == candidate.bucket and params["Key"] == candidate.object_key
+        for _method, params in client.calls
+    )

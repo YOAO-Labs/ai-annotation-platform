@@ -203,7 +203,8 @@ async def capture_authorized(db, context, capture):
                     source.object_key,
                     source.sha256,
                     source.size_bytes,
-                )
+                ),
+                **(await original_sources.read_options(db, source)),
             )
         await recheck_original(db, context)
         return stage

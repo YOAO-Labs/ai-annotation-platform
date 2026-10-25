@@ -436,6 +436,7 @@ async def read_points(db, context, source, convention):
                     timeout_seconds=120,
                     admission=_slots,
                     transport_timeout_seconds=30,
+                    **(await original_sources.read_options(db, source)),
                 )
                 points = await bounded_thread(parse_points, stage, convention)
             except (ValueError, OSError) as exc:

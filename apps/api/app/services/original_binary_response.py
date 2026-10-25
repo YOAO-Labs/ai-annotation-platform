@@ -17,7 +17,7 @@ CHUNK_BYTES = 256 * 1024
 _slots = threading.BoundedSemaphore(2)
 
 
-async def capture_download(spec):
+async def capture_download(spec, **read_options):
     """Keep download admission separate from the existing image reader pool."""
     return await reader.capture(
         spec,
@@ -25,6 +25,7 @@ async def capture_download(spec):
         timeout_seconds=COPY_SECONDS,
         admission=_slots,
         transport_timeout_seconds=min(COPY_SECONDS, 30),
+        **read_options,
     )
 
 

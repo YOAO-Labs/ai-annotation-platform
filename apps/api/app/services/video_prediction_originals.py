@@ -474,7 +474,7 @@ class SourceInput:
         await self.aclose(failure)
 
 
-async def _capture(source, admission):
+async def _capture(source, admission, **read_options):
     stop = threading.Event()
     pending = asyncio.get_running_loop().run_in_executor(
         None,
@@ -495,6 +495,7 @@ async def _capture(source, admission):
             admission.release,
             transport_timeout_seconds=30,
             retain_on_close_error=True,
+            **read_options,
         ),
     )
     try:
@@ -549,7 +550,8 @@ async def open_snapshot(
 
         owner.permit = await common.settled(acquire(), late=common.close_permit)
         await common.settled(fresh())
-        owner.stage = await _capture(source, admission)
+        read_options = await common.settled(original_sources.read_options(db, source))
+        owner.stage = await _capture(source, admission, **read_options)
         if owner.stage.sha256 != source.sha256 or owner.stage.size != source.size_bytes:
             raise ContentError("source_changed")
         await common.settled(fresh())

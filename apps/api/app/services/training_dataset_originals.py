@@ -337,6 +337,7 @@ async def media(db, authority, sample, *, guard=None):
                 max_bytes=MAX_BYTES,
                 timeout_seconds=120,
                 transport_timeout_seconds=30,
+                **(await original_sources.read_options(db, source)),
                 admission=admission,
             )
             yield stage, source

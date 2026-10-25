@@ -7,12 +7,14 @@ The snapshots deliberately contain no ORM instances or mutable JSON values.
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime
+from functools import partial
 import re
 from urllib.parse import urlsplit
 import uuid
 
-from sqlalchemy import case, func, select
+from sqlalchemy import Text, case, cast, func, select
 from sqlalchemy.exc import DBAPIError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db.models.dataset import DatasetItem
@@ -32,6 +34,7 @@ from app.services.reference_keys import is_reference, reference_key
 
 _SHA = re.compile(r"[0-9a-f]{64}")
 _MAX_ETAG_BYTES = 1024
+_MAX_STORAGE_REF_BYTES = 8192
 
 
 @dataclass(frozen=True)
@@ -297,6 +300,102 @@ def _platform_location(location, *, bounded=False):
     return endpoint, facts
 
 
+async def saved_location(
+    db, location_id, storage_ref, *, lock=False, bounded=False, location=None
+):
+    """Resolve saved physical facts; live credentials never enter source facts."""
+    if location is None:
+        locations = await _locations(db, [location_id], lock, bounded=bounded)
+        location = locations[0] if len(locations) == 1 else None
+    if storage_ref is None:
+        return _platform_location(location, bounded=bounded)
+    from app.services import dataset_storage
+
+    try:
+        saved = dataset_storage.resolve_ref(storage_ref)
+        if (
+            saved.location_id != location_id
+            or location is None
+            or location.id != location_id
+            or location.kind != "s3"
+            or location.enabled is not True
+            or type(location.config_revision) is not int
+            or location.config_revision < 1
+        ):
+            raise ValueError
+        # This captures metadata only. DNS, decryption and client construction
+        # stay inside the caller's existing registered physical operation.
+        await dataset_storage.target_for_ref(db, storage_ref)
+        parsed = urlsplit(saved.endpoint_url)
+        facts = LocationFacts(
+            location.id,
+            location.kind,
+            location.enabled,
+            saved.config_revision,
+            parsed.netloc,
+            parsed.scheme == "https",
+            location.connection_id,
+        )
+    except ValueError:
+        raise ContentError("location_unavailable") from None
+    return saved.endpoint_url, facts
+
+
+async def read_target(db, source):
+    """Prepare a separate current-credential target outside business transactions."""
+    from app.db.models.dataset_auxiliary_original import DatasetAuxiliaryOriginal
+    from app.services import dataset_storage
+
+    async with AsyncSession(
+        bind=storage_access.engine(db), expire_on_commit=False, autoflush=False
+    ) as owned:
+        if source.location_id == LEGACY_LOCATION_ID:
+            ref = dataset_storage.legacy_ref(source.bucket, source.object_key)
+        else:
+            if source.owner_kind == "dataset_asset":
+                query = select(DatasetAssetLocation.storage_ref).where(
+                    DatasetAssetLocation.asset_id == source.content_id,
+                    DatasetAssetLocation.location_id == source.location_id,
+                    DatasetAssetLocation.bucket == source.bucket,
+                    DatasetAssetLocation.object_key == source.object_key,
+                    DatasetAssetLocation.role == "managed_original",
+                    DatasetAssetLocation.reference_state == "present",
+                )
+            elif source.owner_kind == "dataset_auxiliary":
+                query = select(DatasetAuxiliaryOriginal.storage_ref).where(
+                    DatasetAuxiliaryOriginal.id == source.content_id,
+                    DatasetAuxiliaryOriginal.location_id == source.location_id,
+                    DatasetAuxiliaryOriginal.bucket == source.bucket,
+                    DatasetAuxiliaryOriginal.object_key == source.object_key,
+                )
+            else:
+                raise ContentError("location_unavailable")
+            ref = await owned.scalar(query)
+            if ref is None:
+                raise ContentError("location_unavailable")
+        try:
+            saved = dataset_storage.resolve_ref(ref)
+            if (
+                saved.location_id != source.location_id
+                or saved.config_revision != source.location_revision
+                or saved.endpoint_url != source.endpoint_url
+                or saved.bucket != source.bucket
+                or saved.object_key != source.object_key
+            ):
+                raise ValueError
+            return await dataset_storage.target_for_ref(owned, ref)
+        except ValueError:
+            raise ContentError("location_unavailable") from None
+
+
+async def read_options(db, source, *, read_timeout=30):
+    """Keep legacy transport and old callback signatures unchanged."""
+    if source.location_id == LEGACY_LOCATION_ID:
+        return {}
+    target = await read_target(db, source)
+    return {"client_context": partial(target.client, read_timeout=read_timeout)}
+
+
 async def _gate(db, location_id, lock, *, bounded=False):
     statement = (
         select(StorageMaintenanceGate.state, StorageMaintenanceGate.revision)
@@ -349,6 +448,7 @@ async def _locations(db, location_ids, lock, *, bounded=False):
 async def _replicas(db, asset_id, lock, *, bounded=False):
     if bounded:
         etag_bytes = func.octet_length(DatasetAssetLocation.etag)
+        ref_bytes = func.octet_length(cast(DatasetAssetLocation.storage_ref, Text))
         statement = select(
             DatasetAssetLocation.asset_id,
             DatasetAssetLocation.location_id,
@@ -357,6 +457,11 @@ async def _replicas(db, asset_id, lock, *, bounded=False):
             DatasetAssetLocation.role,
             DatasetAssetLocation.reference_state,
             DatasetAssetLocation.creation_id,
+            case(
+                (ref_bytes <= _MAX_STORAGE_REF_BYTES, DatasetAssetLocation.storage_ref),
+                else_=None,
+            ).label("storage_ref"),
+            (ref_bytes > _MAX_STORAGE_REF_BYTES).label("storage_ref_oversized"),
             DatasetAssetLocation.verified_at,
             case(
                 (etag_bytes <= _MAX_ETAG_BYTES, DatasetAssetLocation.etag), else_=None
@@ -483,9 +588,24 @@ async def _item(db, item_id, lock, *, bounded=False):
     replica = candidates[0]
     if len(locations) != 1 or locations[0].id != replica.location_id:
         raise ContentError("location_unavailable")
-    if bounded and replica.etag_oversized is True:
+    if bounded and (
+        replica.etag_oversized is True or replica.storage_ref_oversized is True
+    ):
         raise ContentError("original_source_budget_exceeded", 422)
-    endpoint, location_facts = _platform_location(locations[0], bounded=bounded)
+    endpoint, location_facts = await saved_location(
+        db,
+        replica.location_id,
+        replica.storage_ref,
+        lock=lock,
+        bounded=bounded,
+        location=locations[0],
+    )
+    if replica.storage_ref is not None:
+        from app.services.dataset_storage import resolve_ref
+
+        saved = resolve_ref(replica.storage_ref)
+        if saved.bucket != replica.bucket or saved.object_key != replica.object_key:
+            raise ContentError("content_binding_changed")
     if replica.object_key != item.file_path:
         raise ContentError("content_binding_changed")
     _safe_locator(replica.bucket, replica.object_key)
@@ -513,7 +633,7 @@ async def _item(db, item_id, lock, *, bounded=False):
         replica.object_key,
         endpoint,
         replica.location_id,
-        locations[0].config_revision,
+        location_facts.config_revision,
         revision,
         asset_facts,
         item_facts,

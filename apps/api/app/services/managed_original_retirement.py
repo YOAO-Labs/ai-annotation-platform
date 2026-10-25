@@ -72,7 +72,7 @@ def _identity_evidence(row):
     }
 
 
-def _assertion(row):
+def _assertion(row, evidence=None):
     fields = (
         "dataset_id",
         "dataset_item_id",
@@ -98,7 +98,7 @@ def _assertion(row):
         and row["checksum_algorithm"] == "sha256"
         else None
     )
-    values.update(_identity_evidence(row))
+    values.update(_identity_evidence(row) if evidence is None else evidence)
     provenance = [
         1,
         str(row["asset_id"]),
@@ -113,6 +113,40 @@ def _assertion(row):
     ).hexdigest()
     values["id"] = uuid.uuid4()
     return values
+
+
+async def _saved_assertion(db, row):
+    ref = row["storage_ref"]
+    if ref is None:
+        return _assertion(row)
+    from app.services import dataset_storage
+
+    row = dict(row)
+    evidence = {
+        "identity_state": "unknown",
+        "storage_identity": None,
+        "identity_error_code": "saved_location_unproven",
+    }
+    try:
+        saved = dataset_storage.resolve_ref(ref)
+        if (
+            saved.location_id != row["location_id"]
+            or saved.bucket != row["bucket"]
+            or saved.object_key != row["object_key"]
+        ):
+            raise ValueError
+        await dataset_storage.target_for_ref(db, ref, require_enabled=False)
+        row["location_config_revision"] = saved.config_revision
+        row["binding_generation"] = saved.binding_generation
+        evidence = {
+            "identity_state": "verified_binding",
+            "storage_identity": saved.storage_identity,
+            "identity_error_code": None,
+        }
+    except ValueError:
+        # Failed identity evidence must not prevent legitimate logical deletion.
+        pass
+    return _assertion(row, evidence)
 
 
 async def capture_managed_original_retirements(db, *, dataset_id, item_id=None):
@@ -135,6 +169,7 @@ async def capture_managed_original_retirements(db, *, dataset_id, item_id=None):
             DatasetAssetLocation.location_id,
             DatasetAssetLocation.bucket,
             DatasetAssetLocation.object_key,
+            DatasetAssetLocation.storage_ref,
             DatasetAssetLocation.creation_id,
             DatasetAssetLocation.role,
             DatasetAssetLocation.reference_state,
@@ -171,7 +206,7 @@ async def capture_managed_original_retirements(db, *, dataset_id, item_id=None):
         async for rows in result.mappings().partitions(500):
             await db.execute(
                 insert(ManagedOriginalRetirement)
-                .values([_assertion(row) for row in rows])
+                .values([await _saved_assertion(db, row) for row in rows])
                 .on_conflict_do_nothing(index_elements=["assertion_digest"])
             )
     finally:

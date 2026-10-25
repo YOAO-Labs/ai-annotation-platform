@@ -414,12 +414,14 @@ async def test_repeated_cancellation_cannot_skip_rollback_and_final_publication(
         id=uuid.uuid4(),
         maintenance_revision=1,
         anchor={
+            "location_id": str(LEGACY_LOCATION_ID),
             "bucket": "managed",
             "object_key": "private",
             "storage_identity": "a" * 64,
         },
         expected_sha256="a" * 64,
         expected_size_bytes=0,
+        configuration={},
     )
 
     async def rollback():

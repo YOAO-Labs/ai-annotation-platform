@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import export_media_bundles as bundles
 from app.services import export_media_storage as physical
-from app.services import managed_original_reader as reader
+from app.services import managed_original_reader as reader, original_sources
 from app.services import storage_access
 from app.services.content_snapshot import ContentError
 
@@ -326,7 +326,10 @@ async def copy_source(
             _fresh(db, snapshot, binding, resolve_source, guard, expected=source)
         )
         admission = Admission()
-        stage = await _capture(source, admission, maximum=physical.object_limit(record))
+        read_options = await _async(original_sources.read_options(db, source))
+        stage = await _capture(
+            source, admission, maximum=physical.object_limit(record), **read_options
+        )
         if stage.sha256 != source.sha256 or stage.size != source.size_bytes:
             reject()
         await _async(
