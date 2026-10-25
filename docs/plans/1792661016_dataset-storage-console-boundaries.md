@@ -312,7 +312,7 @@ Web在存储控制台增加“迁移准备”视图，明确只支持当前部�
 
 新增0256的持久复制owner与独立attempt／逐对象delta。owner不随AsyncJob30天清理而删除，保存源报告字节／摘要、配对目录及摘要、准确目标身份、处理声明、预算、封存SQLite初始计划及摘要；大字段deferred。原Job引用可SET NULL，冻结输入仍可恢复。计划完成后不自动清除责任或目标，未实现删除计划的入口。降级不能破坏已有复制事实。
 
-一次原计划生成后持久化SQLite基线，续跑在私有临时目录恢复同一基线并覆盖PG最新对象delta；计划UUID、目标key、nonce和回执不得重算。Checkpoint.save增加可选应用持久回调：每次完整row＋摘要＋单调序号独立提交PG后才继续，避免逐对象重写完整blob。writing／nonce先于PUT，ACK VersionId先于完整目标读回；晚期撤权／取消仍保存已经发生的物理事实，权限控制下一次I/O及终态发布，不抹掉回执。普通续跑保留failed，显式retry_failed才重试全部失败项，不承诺尚未实现的单对象选择。
+一次原计划生成后持久化SQLite基线，续跑在私有临时目录恢复同一基线并覆盖PG最新对象delta；计划UUID、目标key、nonce和回执不得重算。Checkpoint.save增加可选应用持久回调：每次完整row＋摘要＋单调序号独立提交PG后才继续，避免逐对象重写完整blob。writing／nonce先于PUT，ACK VersionId先于完整目标读回；晚期撤权／取消仍保存已经发生的物理事实，权限控制下一次I/O及终态发布，不抹掉回执。普通续跑保留failed，显式retry_failed才将全部失败项加入续跑；原始AC03的单对象选择同片补齐：retry_object_ids存在时仅处理明确选中的failed对象，其他pending／uncertain／verified也不执行，未提供此字段时CLI及既有全失败项语义保持。
 
 源报告沿32MiB上限，目录沿既有64MiB输出上限，应用SQLite基线／检查点在生成过程中受256MiB硬上限、计划行数不超过100000约束；这些是有界资源预算，不把未知业务覆盖升级为复制前置。私有目录0700、文件0600，应用当前对象正文优先用匿名临时文件，关闭或硬杀自动释放；CLI既有路径及硬中断恢复语义保持。所有SDK client单次提交、准确版本、条件PUT、完整读回和未知创建nonce恢复原样保留。
 
@@ -338,20 +338,21 @@ pending显式重投仍是同一task ID，领取一次。终态后续跑／重试
 | `POST /migration-copies`                                             | body `{inventory_job_id,target_location_id,handling,limits?}`，202 `{item,reused}`；同一冻结输入、目标、九用途处理及预算复用已有计划，不重复生成目标命名空间。首次仅准备／封存计划，不写目标。 |
 | `GET /migration-copies?limit=20&offset=0`                            | 独立复制owner分页历史，保留原始输入完整性、目录覆盖、累计对象状态及当前／最后attempt。                                                                                                         |
 | `GET /migration-copies/{copy_id}`                                    | 安全计划详情及当前实际结果；原AsyncJob过期后计划仍可查看／续跑。                                                                                                                               |
+| `GET /migration-copies/{copy_id}/failed-objects?limit=20&offset=0`   | 仅查询PG当前failed对象的安全投影`{items:[{object_id,size_bytes,error_code}],total,limit,offset}`，object_id为核心64位小写十六进制身份摘要，不含原始键。                                        |
 | `POST /migration-copies/{copy_id}/attempts`                          | body `{operation:run                                                                                                                                                                           | verify,retry_failed?:bool}`，202 `{item,reused}`；运行与只读重新核验沿原checkpoint，failed仅显式重试；活动相同attempt复用，冲突不启动第二个执行。准备失败无封存基线时可显式重试prepare，不能伪造可复制结果。 |
 | `POST /migration-copies/{copy_id}/dispatch`                          | 只显式重投当前pending的同一task ID；running／终态不自动新开attempt。                                                                                                                           |
 | `GET /migration-copies/{copy_id}/checkpoint`                         | 当前授权下下载同一私密SQLite基线＋PG delta的完整快照；先结束DB快照、真实关闭并重新授权，再返回固定附件名、no-store与实际SHA；无源／目标I/O。                                                   |
 | `POST /async-jobs/{job_id}/cancel`                                   | 复用共享取消，pending立即终止，running保留请求直到真实收尾。                                                                                                                                   |
 
-`handling`显式包含九用途`migrate|rebuild|retain`；同桶分歧沿核心的ambiguous／skipped表达，不按用途重复复制、不增加全历史修复门。limits对应现有核心八项，每次执行预算固定在计划：max_object_bytes默认256MiB／最大1GiB；max_source_bytes、max_upload_bytes、max_verify_bytes各默认2GiB／最大16GiB；max_objects默认10000／最大100000；max_seconds默认1800／最大3600；connect_timeout_seconds默认10／最大60，read_timeout_seconds默认60／最大60；均严格正值，字节／对象为整数。verify操作不PUT，使用保存准确版本核验。
+`handling`显式包含九用途`migrate|rebuild|retain`；同桶分歧沿核心的ambiguous／skipped表达，不按用途重复复制、不增加全历史修复门。limits对应现有核心八项，每次执行预算固定在计划：max_object_bytes默认256MiB／最大1GiB；max_source_bytes、max_upload_bytes、max_verify_bytes各默认2GiB／最大16GiB；max_objects默认10000／最大100000；max_seconds默认1800／最大3600；connect_timeout_seconds默认10／最大60，read_timeout_seconds默认60／最大60；均严格正值，字节／对象为整数。verify操作不PUT，使用保存准确版本核验。run的retry_object_ids只在retry_failed=true时接受，非空、去重且至多1000个64位小写十六进制ID；未知或已非failed的选择在建立attempt前409拒绝，不启动I/O。选中重试只处理这些对象，分别返回attempt_subset_complete、selected_count及selected_verified_count，不以其他未选失败项给本次成功重试误报失败，也不把全计划标为完整。CLI可重复传入--retry-object-id，缺省语义保持。
 
-item包含copy_id、创建／更新时间、源清单job引用与冻结SHA／完整性、target_location_id及安全名称、handling／limits、prepared、当前或最后job_id／operation／status／cancel_requested、六类累计状态`verified,pending,writing,uncertain,failed,skipped`、decision分项、安全error_code、每次io字节、源／目录覆盖与copy_subset_complete／migration_ready=false。无可复制对象与真正复制成功分开表达；原始目录／源覆盖未知不被累计状态覆盖。准备成功的Job只表示计划可审阅，不表示复制完成。
+item包含copy_id、创建／更新时间、源清单job引用与冻结SHA／完整性、target_location_id及安全名称、handling／limits、prepared、当前或最后job_id／operation／status／cancel_requested、六类累计状态`verified,pending,writing,uncertain,failed,skipped`、decision分项、安全error_code、每次io字节、源／目录覆盖与copy_subset_complete／migration_ready=false及当前选择执行的attempt_subset_complete／selected_count／selected_verified_count（普通执行为null）。无可复制对象与真正复制成功分开表达；原始目录／源覆盖未知不被累计状态覆盖。准备成功的Job只表示计划可审阅，不表示复制完成。
 
-Web沿“迁移准备”的封存源清单行打开居中“准备初次复制”Modal：固定源摘要／时间／完整性，分页选目标，九项处理选择，预算高级折叠；提交生成真实准备任务并打开共享详情。独立复制计划历史展示准备结果和跳过／未知覆盖，用户审阅后明确“开始初次复制”，不在准备时自动PUT。提供“继续未完成项”“续跑并重试失败项”“重新核验”“重投等待任务”、共享取消／详情与认证私密检查点下载；解释只初次复制合格子集，不展示“迁移完成”。复制分页／选中copy／任务URL保留当前上下文，详情居中、Escape和焦点、13px正文／11px弱提示、select标签与说明分离。共享Bell／任务／通知接线同一实际kind；换会话／撤权与迟到响应不得显示旧私密数据。普通管理者不请求迁移API。
+Web沿“迁移准备”的封存源清单行打开居中“准备初次复制”Modal：固定源摘要／时间／完整性，分页选目标，九项处理选择，预算高级折叠；提交生成真实准备任务并打开共享详情。独立复制计划历史展示准备结果和跳过／未知覆盖，用户审阅后明确“开始初次复制”，不在准备时自动PUT。失败对象审阅放到计划详情内命名清晰的折叠区，以安全对象摘要、字节与错误码分页展示，可跨页选择，换计划／会话清空选择。提供“继续未完成项”“续跑并重试全部失败项”“仅重试已选失败项”“重新核验”“重投等待任务”、共享取消／详情与认证私密检查点下载；解释只初次复制合格子集，不展示“迁移完成”。复制分页／选中copy／任务URL保留当前上下文，详情居中、Escape和焦点、13px正文／11px弱提示、select标签与说明分离。共享Bell／任务／通知接线同一实际kind；换会话／撤权与迟到响应不得显示旧私密数据。普通管理者不请求迁移API。
 
 准确范围超过8文件：共享复制／引用核心与CLI兼容层；0256／模型／目标适配／生命周期服务／Worker／API与既有位置引用保护、维护影响、AsyncJob权限／信号／通知；Web API／迁移准备及复制表单／历史／共享任务展示和针对性测试；OpenAPI／本树生成类型／SDK分类；README、CHANGELOG、用户／API／开发／运维说明、本计划、E07与执行队列。无依赖、环境变量、镜像、Compose、业务Binding或消费者算法变化。
 
-在owner校验的一次性test／e2e核验原CLI兼容、逐对象持久提交、prepare与配对目录、坏／部分输入、当前权限及轮换、并发领取／重投、真实取消收尾与硬中断续跑、unknown创建恢复、failed显式重试、准确版本只读核验、Job过期后checkpoint保持及位置保护；真实小型PG／S3／独立Worker、UI完整链路和明暗宽窄屏即可，不重做既有全消费者、规模、候选选型或生产迁移资格。同步正式文档、生成契约与相关检查，正常提交并清理全部所属资源。人工原3100／8100、0255业务／对象／文件先留指纹，再按所属服务应用0256与刷新Worker／Beat；不重建镜像，不推送或发布，完整E07／E09及整套Epic继续活动。
+在owner校验的一次性test／e2e核验原CLI兼容、逐对象持久提交、prepare与配对目录、坏／部分输入、当前权限及轮换、并发领取／重投、真实取消收尾与硬中断续跑、unknown创建恢复、failed显式及两失败仅重试其中一项、准确版本只读核验、Job过期后checkpoint保持及位置保护；真实小型PG／S3／独立Worker、UI完整链路和明暗宽窄屏即可，不重做既有全消费者、规模、候选选型或生产迁移资格。同步正式文档、生成契约与相关检查，正常提交并清理全部所属资源。人工原3100／8100、0255业务／对象／文件先留指纹，再按所属服务应用0256与刷新Worker／Beat；不重建镜像，不推送或发布，完整E07／E09及整套Epic继续活动。
 
 ## E09-B17 Outcome：配置源迁移清单任务
 
