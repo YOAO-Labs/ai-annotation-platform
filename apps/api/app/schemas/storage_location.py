@@ -462,3 +462,42 @@ class ExportBindingPreview(BaseModel):
     measured_at: datetime
     expires_at: datetime
     impact_token: str
+
+
+class StorageFaultOut(BaseModel):
+    id: uuid.UUID
+    location_id: uuid.UUID
+    source_id: uuid.UUID | None
+    dataset_id: uuid.UUID | None
+    item_id: uuid.UUID | None
+    asset_id: uuid.UUID | None
+    task_id: uuid.UUID | None
+    run_id: uuid.UUID | None
+    job_id: uuid.UUID | None
+    registration_id: uuid.UUID | None
+    source_name: str | None
+    node_id: str
+    operation: Literal["scan", "scan_content", "reference_read", "preview_generate"]
+    category: Literal[
+        "root_unavailable", "access_denied", "source_changed", "preview_failed"
+    ]
+    state: Literal["active", "recovered"]
+    first_failed_at: datetime
+    last_failed_at: datetime
+    recovered_at: datetime | None
+    failure_count: int
+    scope_status: Literal["current", "historical", "unknown"]
+    responsible_role: Literal["platform_admin", "dataset_admin"]
+    responsible_user_id: None = None
+
+
+class StorageFaultCounts(BaseModel):
+    active: int
+    recovered: int
+
+
+class StorageFaultList(BaseModel):
+    items: list[StorageFaultOut]
+    total: int
+    counts: StorageFaultCounts
+    observation_only: Literal[True] = True

@@ -11,7 +11,7 @@ from app.config import settings
 from app.db.models.dataset_source import DatasetScanRun, DatasetSource
 from app.db.models.async_job import AsyncJob
 from app.services import dataset_scans as svc
-from app.services import filesystem_storage as fs, storage_access
+from app.services import filesystem_storage as fs, storage_access, storage_fault_events
 from app.workers.celery_app import celery_app
 
 
@@ -77,9 +77,13 @@ async def execute_scan(run_id, task_id, node_id):
             await db.commit()
             if fence is None:
                 return
+            observation = None
             try:
                 while True:
+                    observation = None
                     work = await svc.next_directory(db, run_id, task_id, fence)
+                    if work is not None:
+                        observation = work.get("_fault_observation")
                     await db.commit()
                     if work is None:
                         return
@@ -120,6 +124,7 @@ async def execute_scan(run_id, task_id, node_id):
                         db, run_id, task_id, fence, work, manifest
                     )
                     await db.commit()
+                    await storage_fault_events.recover(db, observation)
             except svc.LostScanLease:
                 await db.rollback()
             except Exception as exc:
@@ -130,7 +135,15 @@ async def execute_scan(run_id, task_id, node_id):
                     if isinstance(exc, TimeoutError)
                     else "scan_interrupted",
                 )
-                await svc.fail_attempt(db, run_id, task_id, fence, code, failure=exc)
+                await svc.fail_attempt(
+                    db,
+                    run_id,
+                    task_id,
+                    fence,
+                    code,
+                    failure=exc,
+                    observation=observation,
+                )
                 await db.commit()
     except HTTPException:
         pass  # Deleted/retired contracts cannot be revived by a queued message.

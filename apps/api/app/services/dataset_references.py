@@ -345,6 +345,18 @@ async def register_entry(
                 )
                 result.update(revisions.result_out(revision, created=result["created"]))
             await db.flush()
+
+        async def preview_fault_authority():
+            await scans.validate_write_context(
+                db, location, source, snapshot=run.snapshot
+            )
+            await scans.require_actor(db, actor.id, source)
+            if (
+                await key_authority(db, actor, api_key_id, "datasets:write")
+                != key_proof
+            ):
+                raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+
         # A historical replay must not republish its bytes as the current preview.
         preview = (
             None
@@ -361,6 +373,10 @@ async def register_entry(
                 run_id=run.id,
                 job_id=event_job_id or run.async_job_id,
                 registration_id=event_registration_id,
+                fault_node_id=node,
+                fault_anchor=anchor,
+                fault_maintenance_revision=run.snapshot.get("maintenance_revision", 1),
+                fault_validate=preview_fault_authority,
             )
         )
         await scans.validate_write_context(db, location, source, snapshot=run.snapshot)
@@ -388,6 +404,10 @@ async def register_entry(
         )
         committing = True
         await db.commit()
+        if preview is not None and preview.state == "ready":
+            await storage_fault_events.recover(
+                db, getattr(preview, "_fault_observation", None)
+            )
         await previews.delete_owned(retired)
         return result
     except BaseException:
@@ -834,10 +854,40 @@ async def reference_snapshot(
             log.warning("Original cache lookup deferred asset=%s", context["asset_id"])
     from_source = snapshot is None
     source_context = None
+    observation = None
     if from_source:
+        fault_node = node_id or locations.api_node_id()
+
+        async def fault_authority():
+            current = await reference_context(
+                db, item_id, actor, task_id=task_id, task_authorizer=task_authorizer
+            )
+            if (
+                current != context
+                or await key_authority(db, actor, api_key_id, scope) != proof
+            ):
+                raise snapshots.ContentError("content_binding_changed")
+
+        observation = await storage_fault_events.prepare(
+            db,
+            location_id=context["location_id"],
+            source_id=context["source_id"],
+            operation="reference_read",
+            actor_id=actor.id,
+            node_id=fault_node,
+            maintenance_revision=context["maintenance_revision"],
+            expected_context=context,
+            path_digest=context["path_digest"],
+            expected=context["sha256"],
+            target=context["locator"],
+            task_id=task_id,
+            **{key: context[key] for key in ("item_id", "asset_id", "run_id")},
+        )
         async with storage_fault_events.observe(
             db,
             operation="reference_read",
+            observation=observation,
+            validate=fault_authority,
             actor_id=actor.id,
             task_id=task_id,
             **{
@@ -901,6 +951,8 @@ async def reference_snapshot(
         if from_source and cache_factory:
             await _retain_snapshot(original_cache, cache_factory, context, snapshot)
             await validate()
+        if from_source:
+            await storage_fault_events.recover(db, observation)
         return snapshot
     except BaseException:
         snapshot.close()
