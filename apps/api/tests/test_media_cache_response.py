@@ -12,11 +12,14 @@ import uuid
 
 from fastapi import HTTPException
 import pytest
+from sqlalchemy import delete, exists, select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 from starlette.requests import Request
 
 from app.api.v1.media_cache import read_media_cache
 from app.services import media_cache_response as service, media_cache_urls
 from app.services.dataset_assets import LEGACY_LOCATION_ID
+from app.services.dataset_assets import ensure_legacy_bindings
 from app.services.managed_original_retirement import managed_storage_identity
 
 RAW = bytes(range(256)) * 4
@@ -71,6 +74,7 @@ class Permit:
 
     def __init__(self, harness):
         self.harness = harness
+        self.id = uuid.uuid4()
         self.settled = False
         self.unsettled = False
 
@@ -123,6 +127,16 @@ class Harness:
                 harness.transaction = False
                 harness.events.append("commit")
 
+            async def scalar(self, statement):
+                harness.transaction = True
+                # The output guard is a real FOR SHARE NOWAIT query. The only
+                # other scalar is its exact-purpose retiring-operation barrier.
+                if statement.column_descriptions[0].get("entity") is not None:
+                    assert statement._for_update_arg.read
+                    assert statement._for_update_arg.nowait
+                    return harness.row
+                return False
+
         async def target_for_ref(db, ref):
             assert ref == self.ref
             # The second lookup models normal credential rotation after admission.
@@ -141,7 +155,13 @@ class Harness:
 
         async def acquire(db, location_id, purpose, **kwargs):
             assert not self.transaction
-            assert purpose == "media_cache_read"
+            expected = {
+                "thumbnails": "thumbnail_",
+                "image-pyramids": "image_pyramid_",
+                "video-derivatives": "video_derivative_",
+            }
+            family = self.ref["prefix"].split("/objects/")[0].rsplit("/", 1)[-1]
+            assert purpose == expected[family] + self.identifier.hex
             assert kwargs == {"expected_revision": 7}
             self.events.append("admit")
             return self.permit
@@ -577,3 +597,218 @@ def test_only_get_is_in_schema_and_both_methods_share_the_route():
         for method in route.methods
     }
     assert methods == {"GET", "HEAD"}
+
+
+@pytest.fixture
+async def admitted_output(test_engine, monkeypatch, request):
+    """Committed owners and real independent permits in the disposable DB only.
+
+    No provider opens. Thumbnail tombstones cannot be deleted by design and are
+    removed when this test mode is destroyed after the bounded regression run.
+    """
+    kind = request.param
+    model, family = service._FAMILIES[kind]
+    identifier = uuid.uuid4()
+    factory = async_sessionmaker(test_engine, expire_on_commit=False)
+    saved = reference(identifier, registered=False, family=family)
+    relative = {
+        "thumbnail": "thumbnail.webp",
+        "image-pyramid": "overview.webp",
+        "video-derivative": "playback.mp4",
+    }[kind]
+    receipt = {"sha256": SHA, "size_bytes": len(RAW)}
+    objects = {saved["prefix"] + relative: receipt}
+    instant = datetime.now(timezone.utc)
+    values = {"id": identifier, "storage_ref": saved, "state": "building"}
+    publication = {}
+    if kind == "thumbnail":
+        values |= {
+            "owner_kind": "task_thumbnail",
+            "owner_id": uuid.uuid4(),
+            "input_ref": {},
+            "writer_until": instant,
+            "next_check_at": instant,
+            "uncertain_write": False,
+        }
+        publication = {
+            "sha256": SHA,
+            "size_bytes": len(RAW),
+            "etag": ETAG,
+            "ready_at": instant,
+        }
+    else:
+        metadata = "manifest.json" if kind == "image-pyramid" else "metadata.json"
+        objects[saved["prefix"] + metadata] = {"sha256": "b" * 64, "size_bytes": 1}
+        publication = {"inventory": {"schema": 1, "objects": objects}}
+        if kind == "image-pyramid":
+            objects[saved["prefix"] + "tiles/0/0/0.webp"] = {
+                "sha256": "c" * 64,
+                "size_bytes": 1,
+            }
+            values |= {
+                "asset_id": uuid.uuid4(),
+                "generation": 1,
+                "lease_token": uuid.uuid4(),
+            }
+        else:
+            values |= {
+                "dataset_item_id": uuid.uuid4(),
+                "kind": "metadata",
+                "spec": {},
+                "original_ref": {},
+                "auth_ref": {},
+            }
+            publication["result"] = {}
+    async with factory() as db:
+        await ensure_legacy_bindings(db)
+        row = model(**values)
+        db.add(row)
+        await db.flush()
+        if kind == "video-derivative":
+            row.lease_token, row.lease_expires_at = uuid.uuid4(), instant
+            await db.flush()
+        for name, value in publication.items():
+            setattr(row, name, value)
+        row.state = "ready"
+        await db.flush()
+        if "ready_output" not in request.node.name:
+            row.state = "retiring"
+        await db.commit()
+    url = media_cache_urls.sign(
+        kind, identifier, saved["prefix"] + relative, saved, receipt, 60
+    )
+    capability = media_cache_urls.decode(
+        parse_qs(urlsplit(url).query)["token"][0],
+        kind=kind,
+        output_id=identifier,
+        relative=relative,
+    )
+    target = SimpleNamespace(
+        location_id=LEGACY_LOCATION_ID,
+        bucket=saved["bucket"],
+        client=lambda **kwargs: pytest.fail("admission regression opened a provider"),
+    )
+
+    async def current_target(db, reference):
+        assert reference == saved
+        return target
+
+    monkeypatch.setattr(service, "async_session", factory)
+    monkeypatch.setattr(service.media_cache_storage, "target_for_ref", current_target)
+    context = SimpleNamespace(
+        capability=capability,
+        factory=factory,
+        model=model,
+        identifier=identifier,
+        purpose=service._purpose(capability),
+    )
+    try:
+        yield context
+    finally:
+        async with factory() as db:
+            # All test physical contexts were never entered; remove any failed
+            # assertion's test-only permit, preserving no real uncertainty.
+            await db.execute(
+                delete(service.StorageOperation).where(
+                    service.StorageOperation.purpose == context.purpose
+                )
+            )
+            row = await db.get(model, identifier)
+            if row is not None:
+                row.state = "retiring"
+                await db.flush()
+                row.state = "deleted"
+                await db.flush()
+                if kind != "thumbnail":
+                    await db.delete(row)
+            await db.commit()
+
+
+_KINDS = ["thumbnail", "image-pyramid", "video-derivative"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("admitted_output", _KINDS, indirect=True)
+async def test_db_read_permit_is_seen_by_collectors_locked_second_check(
+    admitted_output,
+):
+    owned = admitted_output
+    transfer = await service._metadata(owned.capability)
+    try:
+        async with owned.factory() as gc:
+            async with await service.storage_access.acquire(
+                gc, LEGACY_LOCATION_ID, owned.purpose
+            ) as collecting:
+                # Both existing collectors and Thumbnail GC take this exclusive
+                # owner lock, then exclude their own operation before deletion.
+                row = await gc.scalar(
+                    select(owned.model)
+                    .where(owned.model.id == owned.identifier)
+                    .with_for_update()
+                )
+                assert row.state == "retiring"
+                assert await gc.scalar(
+                    select(
+                        exists().where(
+                            service.StorageOperation.purpose == owned.purpose,
+                            service.StorageOperation.id != collecting.id,
+                        )
+                    )
+                )
+                await gc.commit()
+    finally:
+        await service._release(transfer)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("admitted_output", _KINDS, indirect=True)
+async def test_db_retiring_read_after_gc_final_check_is_refused(admitted_output):
+    owned = admitted_output
+    async with owned.factory() as gc:
+        async with await service.storage_access.acquire(
+            gc, LEGACY_LOCATION_ID, owned.purpose
+        ) as collecting:
+            row = await gc.scalar(
+                select(owned.model)
+                .where(owned.model.id == owned.identifier)
+                .with_for_update()
+            )
+            assert row.state == "retiring"
+            assert not await gc.scalar(
+                select(
+                    exists().where(
+                        service.StorageOperation.purpose == owned.purpose,
+                        service.StorageOperation.id != collecting.id,
+                    )
+                )
+            )
+            await gc.commit()
+            # Reproduce the exact former window: the collector committed its
+            # last metadata check and retains its permit over physical deletion.
+            with pytest.raises(HTTPException) as caught:
+                await service._metadata(owned.capability)
+            assert caught.value.detail == {"code": "media_cache_busy"}
+            async with owned.factory() as check:
+                operations = list(
+                    await check.scalars(
+                        select(service.StorageOperation.id).where(
+                            service.StorageOperation.purpose == owned.purpose
+                        )
+                    )
+                )
+                assert operations == [collecting.id]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("admitted_output", _KINDS, indirect=True)
+async def test_db_ready_output_keeps_concurrent_read_admission(admitted_output):
+    owned = admitted_output
+    first = await service._metadata(owned.capability)
+    second = None
+    try:
+        second = await service._metadata(owned.capability)
+        assert first.permit.id != second.permit.id
+    finally:
+        if second is not None:
+            await service._release(second)
+        await service._release(first)

@@ -11,10 +11,12 @@ from dataclasses import dataclass
 import threading
 
 from fastapi import HTTPException
+from sqlalchemy import exists, select
 from starlette.responses import StreamingResponse
 
 from app.db.base import async_session
 from app.db.models.image_pyramid import ImagePyramidOutput
+from app.db.models.storage_maintenance import StorageOperation
 from app.db.models.thumbnail_output import ThumbnailOutput
 from app.db.models.video_derivative import VideoDerivativeOutput
 from app.services import media_cache_storage, media_cache_urls, storage_access
@@ -39,6 +41,16 @@ def _error(code="media_cache_unavailable", status=503):
 
 def _missing():
     raise _error("media_cache_not_found", 404)
+
+
+def _purpose(capability):
+    if capability.kind == "thumbnail":
+        from app.services.thumbnail_outputs import purpose
+    elif capability.kind == "image-pyramid":
+        from app.services.image_pyramid_objects import purpose
+    else:
+        from app.services.video_derivative_objects import purpose
+    return purpose(capability.output_id)
 
 
 def _plain(value):
@@ -69,11 +81,33 @@ class PinnedObject:
     saved_etag: str | None = None
 
 
-async def _object(db, capability):
+async def _object(db, capability, *, permit=None):
     model, family = _FAMILIES[capability.kind]
-    row = await db.get(model, capability.output_id, populate_existing=True)
+    if permit is None:
+        row = await db.get(model, capability.output_id, populate_existing=True)
+    else:
+        row = await db.scalar(
+            select(model)
+            .where(model.id == capability.output_id)
+            .with_for_update(read=True, nowait=True)
+            .execution_options(populate_existing=True)
+        )
     if row is None or row.state not in {"ready", "retiring"}:
         _missing()
+    if permit is not None and row.state == "retiring":
+        # Collectors hold this owner's exclusive row lock while rechecking all
+        # exact-purpose operations. A new read must also exclude a collector
+        # that passed that check before this permit was inserted. Conservatively
+        # reject other retiring reads too; ready reads remain concurrent.
+        if await db.scalar(
+            select(
+                exists().where(
+                    StorageOperation.purpose == _purpose(capability),
+                    StorageOperation.id != permit.id,
+                )
+            )
+        ):
+            raise _error("media_cache_busy")
     reference = deepcopy(row.storage_ref)
     try:
         owner = media_cache_storage.resolve_ref(
@@ -231,16 +265,16 @@ async def _metadata(capability):
             permit = await storage_access.acquire(
                 db,
                 target.location_id,
-                "media_cache_read",
+                _purpose(capability),
                 expected_revision=revision,
             )
             # Refresh current credentials and Gate after durable admission. No
             # business row lock or metadata transaction survives into the client.
-            if await _object(db, capability) != pinned:
+            if await _object(db, capability, permit=permit) != pinned:
                 _missing()
             target = await media_cache_storage.target_for_ref(db, pinned.reference)
             await storage_access.check(
-                db, target.location_id, expected_revision=permit.revision
+                db, target.location_id, expected_revision=permit.revision, lock=True
             )
             await db.commit()
         return Transfer(pinned, target, permit)
