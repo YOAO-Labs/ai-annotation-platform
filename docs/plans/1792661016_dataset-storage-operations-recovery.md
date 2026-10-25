@@ -5,6 +5,22 @@
 
 原始§5／工程任务第2项现由E12-B3交付临时输入的真实写删增量及跨盘点对账，B4接入集中托管原件新增，B5接入四类媒体缓存新增；其他生产者与媒体缓存移除增量仍未完整覆盖。原有LIST快照、额度预约与Creation／Retirement责任账本分别保留，不能将其中任一累计或部分覆盖冒充全平台物理增量；完整工程任务仍未勾完，也不是其他切片的新前置。
 
+## 本轮定稿：E12-B6 独立导出媒体受控新增增量
+
+2026-10-25，基于`04a9e128d`继续原始E12-S03／AC01、§5与工程任务第2项。图片、视频、LiDAR与NuScenes独立媒体均经过`export_media_transfer.copy_source`→`export_media_storage.write_object`，已有准确保存地址、条件PUT、返回版本相关的完整SHA读回及真实资源收尾。本片统一将这一个共享写入入口接入现有账目，不改导出格式、原件读取、业务权限、清理、模型或训练流程。无需真实生产迁移目标，不等待E02-AC10范围答复或完整E07资格。
+
+新增生产者`export_media_outputs`，owner为`ExportMediaBundle.id`，分类`temporary`。复用`media_cache_accounting.Recorder`，仅增加可选显式purpose参数，现有四类默认`media_cache`保持。每次实际条件PUT前在所属Engine的独立短事务登记endpoint／bucket／完整key、owner、内容回执和独立尝试；SDK线程通过既有线程安全桥回到所属事件循环，不共享Session或创建跨循环Engine。保留本次返回版本与已有完整读回，当前对象仍匹配且原生线程、Body、client、借用FD和源stage真正收尾后才确认新增。现有`write_object`／`_read`返回值、guard顺序、许可和取消排空保持，不从业务成功推导物理事实。
+
+独立媒体client沿已有同源限制和保存目标；仅记账写入显式选择单次提交，schema1沿已有独占单次client，schema2默认A传递`single_attempt=True`，外部目标继续其现有单次提交client。不能让旧SDK丢应答后的自动重试412解释更早的未知提交。意图失败时对应PUT不开始；多对象部分失败、后续权限拒绝、业务回滚或取消仍保留已发生事实。账目发布异常保留pending／unknown，不改变已经取得的业务结果；发布期间取消排空后继续传播。无版本、null、应答丢失、内容／版本替换或关闭不明均不冒充已确认变化。
+
+GET摘要增加该生产者，页面仅在响应声明时解释独立导出媒体受控新增，`coverage=partial`和推算总量null保持。ExportOutput ZIP仍使用现有无返回版本的`upload_file`，本片不为遥测改造上传算法，不把ZIP、清理／退休、业务行删除或外部变化算作已确认新增／移除；完整export用途及全平台增量均未完成。
+
+准确范围：后端共享Recorder、`export_media_storage.py`、`export_media_transfer.py`、`schemas/storage.py`及相关导出媒体／记账测试；Web `StorageUsageAccounting.tsx`及测试；OpenAPI／本树类型（如有差异）、SDK合同；README、CHANGELOG、存储用户／API／开发说明、本计划与执行队列。后端在当前HEAD隔离树实现，主树负责Web、正式文档、集成及人工环境。无迁移、公开端点／任务参数、配置、依赖、镜像或生成算法变化。
+
+验证只用核实owner的可销毁资源：准确保存位置、逐对象意图与字节、schema1／2及默认A、真实生产`copy_source`与小型PostgreSQL／MinIO链路；版本／完整读回／关闭不明、丢应答后独立412、业务guard失败、多对象部分成功、取消排空及账目发布失败。复用相关旧回归，不重新资格化每种导出格式或消费者，不加规模、GPU、模型、Tracker、版本GC或全恢复门槛。固定Ruff、OpenAPI／codegen、Web类型／lint／CSS tokens、SDK、正式文档及正常提交钩子后，检查真实摘要文案、明暗／宽窄屏与请求／控制台。
+
+集成前核实人工原3100／8100、0254、Worker／Beat的归属和空闲状态；刷新实际执行导出媒体的所属Worker，保留人工业务及原对象／文件，不重建后端镜像、不重新迁移或改周期配置。按owner清理本片数据库、Redis、九桶、私密浏览器／探针／测试输出和已集成工作树。E12及整套Epic继续活动，未验证的能力明确保留，不推送或发布。
+
 ## 本轮定稿：E12-B5 媒体缓存受控新增增量
 
 2026-10-25，基于`eb778b2cf`继续原始E12-S03／AC01、§5及工程任务第2项。C3已交付六分类LIST快照，B3／B4已接入临时输入及集中托管原件；本片统一补齐media-cache四类既有生产者的实际新增，不重新建设分类盘点。沿用户整套实施／提交授权执行，E02-AC10待答的历史定位范围不阻塞本片。
