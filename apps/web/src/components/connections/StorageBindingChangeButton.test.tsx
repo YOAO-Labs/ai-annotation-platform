@@ -1,7 +1,11 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import type { BugAttachmentBindingPreview, StorageBindingOut } from "@/api/generated/types.gen";
+import type {
+  BugAttachmentBindingPreview,
+  ExportBindingPreview,
+  StorageBindingOut,
+} from "@/api/generated/types.gen";
 import { ApiError } from "@/api/client";
 import { createTestQueryClient } from "@/test/queryClient";
 import { StorageBindingChangeButton } from "./StorageBindingChangeButton";
@@ -419,4 +423,100 @@ it("permits another target after the selected candidate is deleted", async () =>
   await within(dialog).findByRole("option", { name: "另一位置" });
   fireEvent.change(select, { target: { value: "other" } });
   expect(within(dialog).getByRole("button", { name: "验证并预览" })).toBeEnabled();
+});
+
+function exportReview(): ExportBindingPreview {
+  return {
+    ...reviewed(),
+    purpose: "export",
+    previous: { ...binding, purpose: "export", change_policy: "reviewed_export_switch" },
+    history: {
+      zip_pending: 1,
+      zip_ready: 2,
+      zip_retired: 3,
+      media_building: 4,
+      media_ready: 5,
+      media_retiring: 6,
+      media_deleted: 7,
+    },
+    capabilities: {
+      conditional_write: true,
+      full_read: true,
+      delete: true,
+      list: true,
+      list_versions: true,
+    },
+  };
+}
+function mountExport() {
+  const client = createTestQueryClient();
+  clients.push(client);
+  const onApplied = vi.fn().mockResolvedValue(undefined);
+  render(
+    <QueryClientProvider client={client}>
+      <StorageBindingChangeButton
+        purpose="export"
+        binding={exportReview().previous}
+        onApplied={onApplied}
+      />
+    </QueryClientProvider>,
+  );
+  return onApplied;
+}
+async function openExport() {
+  fireEvent.click(screen.getByRole("button", { name: "切换导出位置" }));
+  const dialog = screen.getByRole("dialog", { name: "切换导出存储位置" });
+  await within(dialog).findByRole("option", { name: target.name });
+  fireEvent.change(within(dialog).getByRole("combobox", { name: "目标存储位置" }), {
+    target: { value: target.location_id },
+  });
+  fireEvent.click(within(dialog).getByRole("button", { name: "验证并预览" }));
+  return dialog;
+}
+it("reviews both export owners and listing capabilities before confirming the export route", async () => {
+  api.previewBinding.mockResolvedValueOnce(exportReview());
+  const onApplied = mountExport();
+  const dialog = await openExport();
+  await within(dialog).findByRole("region", { name: "导出绑定变更预览" });
+  expect(api.bindingCandidates).toHaveBeenCalledWith("export", 0, expect.any(AbortSignal), 20);
+  expect(api.previewBinding).toHaveBeenCalledWith("export", {
+    expected_generation: 2,
+    target_location_id: target.location_id,
+    target_config_revision: 7,
+  });
+  expect(within(dialog).getByText(/ZIP：待完成 1 · 可用 2 · 待清理 3/)).toBeInTheDocument();
+  expect(
+    within(dialog).getByText(/独立媒体包：生成中 4 · 可用 5 · 清理中 6 · 已清理 7/),
+  ).toBeInTheDocument();
+  expect(within(dialog).getByText(/配套 ZIP 使用媒体包分配时的位置/)).toBeInTheDocument();
+  expect(within(dialog).getByText(/对象列举通过 · 版本列举通过/)).toBeInTheDocument();
+  expect(within(dialog).getByText(/外部端点须供浏览器及下载脚本访问/)).toHaveClass(
+    "text-muted-foreground",
+  );
+  fireEvent.click(within(dialog).getByRole("button", { name: "确认切换" }));
+  await waitFor(() => expect(onApplied).toHaveBeenCalledTimes(1));
+  expect(api.applyBinding).toHaveBeenCalledWith("export", {
+    expected_generation: 2,
+    target_location_id: target.location_id,
+    target_config_revision: 7,
+    impact_token: exportReview().impact_token,
+  });
+});
+it("rejects another purpose's preview for an export switch", async () => {
+  api.previewBinding.mockResolvedValueOnce(reviewed());
+  mountExport();
+  const dialog = await openExport();
+  expect(await within(dialog).findByRole("alert")).toHaveTextContent("用途绑定或目标配置已变化");
+  expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
+  expect(within(dialog).queryByRole("region")).not.toBeInTheDocument();
+});
+it("resets an export target that disappears during verification", async () => {
+  api.previewBinding.mockRejectedValueOnce(
+    new ApiError(404, "Not found", { code: "export_binding_target_missing" }),
+  );
+  mountExport();
+  const dialog = await openExport();
+  expect(await within(dialog).findByRole("alert")).toHaveTextContent("目标位置已不存在");
+  expect(within(dialog).getByRole("combobox", { name: "目标存储位置" })).toHaveValue("");
+  expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
 });
