@@ -1,14 +1,26 @@
 # EPIC-02：存储位置、连接配置与业务用途绑定
 
-> 状态：E02-A、B1–B12与B13各切片至B3-M1 completed locally；Tracker M2未启动。B14–B22九用途新分配位置受控切换均已交付，training已通过主树集成、人工0254刷新和所属资源清理。B23补齐S05／AC08保存目标的位置维护影响及两个确认路径；原始矩阵中AC10的历史NULL措辞差异继续明确保留，不反向新增全库补认要求。历史对象搬迁／退役属于E07，不作为E02额外前置；E09已按原始控制台范围归档。完整E02继续活动，不分配发布版本。
+> 状态：completed；2026-10-26按用户明确选择修订AC10为现有隔离行为，原始S01–S06、AC01–AC10及七项工程任务核对完成并归档。九用途新分配切换、旧保存地址读取和位置维护影响均已交付；未知训练旧文件仍拒读，等待显式核验，不以全库历史补认为新分配切换前置。历史搬迁／退役属于E07，Tracker M2和训练测量不纳入本项，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
-> 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
+> 实施前须通过 [backlog promotion gate](../backlog/README.md#promotion-gate)。[草案总览](../backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](../backlog/1792661016_dataset-storage-architecture.md)和[交付验收](../backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
 > 优先级：P0（M1 基础）；负责人角色：后端、运维，前端协作。
 > 依赖：EPIC-01 的标识与适配契约；EPIC-11 的最小权限规则必须随 M1 一起交付。
 > 下游：EPIC-03 原地注册、EPIC-05 读取、EPIC-07 迁移、EPIC-09 存储控制台。
 
-2026-10-25，按用户明确授权修复直接阻断本轮Mask导入发布的旧摘要错误，来源`74e2947e7`、主树合入`9e78c7882`。只统一计划生成时的规范化与摘要顺序，保留Worker防篡改校验；47项回归及真实A／B发布、切回A后按保存B续做、篡改拒绝通过，见[E09-B11补充修复](archive/1792661016_dataset-storage-console-boundaries.md#e09-b11-补充修复mask-计划摘要与标注发布)。不恢复万条训练测量或扩张其他业务专项。
+## Outcome — 完整 E02 验收与归档
+
+2026-10-26，基于`068127f79`的当前实现及既有分项实证完成原始S01–S06、AC01–AC10与七项工程任务复核；用户明确选择“采用当前隔离行为，修订原条款后收口”，本项据此完整归档。AC10删除“历史定位未完成时切换被阻止”的绝对要求，改为新分配可采用B，已固定的旧及在途对象按原保存地址读取，未知训练旧文件普通读取拒绝并等待显式核验legacy A，不按今日Binding猜读、不先做全库历史补认；其他用途既有安全验证与预览确认保持。
+
+实际隔离证据：`training_binding_change.apply`只改当前Binding，`training_dataset_storage._allocate`保留已有ref、新owner才捕获今日Binding；普通NULL resolve返回training_storage_unpinned，adoption_candidate固定legacy A。已有`test_training_dataset_storage`覆盖旧桶、NULL拒绝及显式核验不依赖Binding，`test_training_binding_change`覆盖新分配切换／回切及其他用途保持。B22／E09-B15已记录真实十五owner的A／B／A、未知旧文件409与显式核验A；没有仅凭测试名推断真实迁移完成。
+
+S01／AC01的受控只读根和授权、S02／AC02的Worker节点准入、S03／AC03的内外端点与只读来源、S04／AC04–05的九用途初始化和固定旧地址、S05／AC06–09的配置候选／轮换／CAS及位置维护影响、S06的显式来源授权均已在上方原始矩阵对应分项交付。B23补齐27家族保存目标责任、来源与目标分开、全局NULL不随绑定猜归属及等量替换使确认失效；同一影响进入配置和维护两个确认路径。七项工程清单据此完成，不再以旧未勾选清单重复建设。
+
+正式知识已保存在用户[存储连接器与用途切换](../../../docs-site/user-guide/datasets/storage-connections.md)、API[存储位置](../../../docs-site/api/guides/storage-locations.md)与[连接配置](../../../docs-site/api/guides/storage-connections.md)、架构[存储连接与保存归属](../../../docs-site/dev/concepts/storage-connections.md)，以及README／CHANGELOG的对应既有交付。§8／§9为早期草案，当前统一配置与E01受控应用回退已交付，不重新引入独立读取开关、双路径回退或新的审批系统；后续历史搬迁／最终切换与退役归E07，生命周期物理回收归E11，容量和恢复增量归E12。Tracker M2、万条训练及未知真实部署目标不作为E02收口前置。
+
+本次只修订计划、归档并更新全部Markdown引用，未改变代码、数据库、存储或人工环境，也未重跑已完成的历史验收。复用现有代码、合同、测试和实际运行证据；只读复核未发现修订后原始范围的其他剩余项。不将本地分项实证宣称为未知外部代理、跨站点或生产迁移资格，不分配发布版本。
+
+2026-10-25，按用户明确授权修复直接阻断本轮Mask导入发布的旧摘要错误，来源`74e2947e7`、主树合入`9e78c7882`。只统一计划生成时的规范化与摘要顺序，保留Worker防篡改校验；47项回归及真实A／B发布、切回A后按保存B续做、篡改拒绝通过，见[E09-B11补充修复](1792661016_dataset-storage-console-boundaries.md#e09-b11-补充修复mask-计划摘要与标注发布)。不恢复万条训练测量或扩张其他业务专项。
 
 ## 本轮定稿：E02-B23 保存目标的位置维护影响
 
@@ -46,15 +58,15 @@
 
 ## 本轮定稿：E02-B21／E09-B14 标注文件新分配位置切换
 
-基于`c490aad54`沿原始S04／AC05、AC10推进annotations新分配，复用独立Task原件、RLE对象、评论附件和指南图片的现有责任及认证读取／清理。旧schema1／NULL与在途地址保持，Task新增nullable保存引用，普通标注geometry仍在数据库；training继续锁定。准确字段、逻辑键兼容、0253、控制面、文件范围与有界验收以[E09-B14合同](archive/1792661016_dataset-storage-console-boundaries.md#本轮定稿e02-b21e09-b14-标注文件新分配位置切换)为准，沿既有整套实施／提交授权approved；不展开Tracker、会话、审核或模型专项。人工继续0252／七用途，完整合同通过后再合入刷新。
+基于`c490aad54`沿原始S04／AC05、AC10推进annotations新分配，复用独立Task原件、RLE对象、评论附件和指南图片的现有责任及认证读取／清理。旧schema1／NULL与在途地址保持，Task新增nullable保存引用，普通标注geometry仍在数据库；training继续锁定。准确字段、逻辑键兼容、0253、控制面、文件范围与有界验收以[E09-B14合同](1792661016_dataset-storage-console-boundaries.md#本轮定稿e02-b21e09-b14-标注文件新分配位置切换)为准，沿既有整套实施／提交授权approved；不展开Tracker、会话、审核或模型专项。人工继续0252／七用途，完整合同通过后再合入刷新。
 
 ## 本轮定稿：E02-B22／E09-B15 训练文件新分配位置切换
 
-当前`c59846ea0`上八用途已交付，下一片沿原始S04／AC05、AC10仅补training五组既有owner及删除意图的保存目标／当前凭据接线，详细合同见[E09-B15](archive/1792661016_dataset-storage-console-boundaries.md#本轮定稿e02-b22e09-b15-训练文件新分配位置切换)。本片迁移0254接0253；不增加模型执行、万条训练或全恢复资格。历史NULL显式核验、schema1及来源证据保持，人工继续0253／八用途，实施与验收待完成。
+当前`c59846ea0`上八用途已交付，下一片沿原始S04／AC05、AC10仅补training五组既有owner及删除意图的保存目标／当前凭据接线，详细合同见[E09-B15](1792661016_dataset-storage-console-boundaries.md#本轮定稿e02-b22e09-b15-训练文件新分配位置切换)。本片迁移0254接0253；不增加模型执行、万条训练或全恢复资格。历史NULL显式核验、schema1及来源证据保持，人工继续0253／八用途，实施与验收待完成。
 
 ## E02-B22 Outcome：训练文件新分配位置切换
 
-已通过`0f2b77399`合入并刷新人工0254、原3100／8100、两个73任务Worker和绑定Beat，九用途均可受控切换新分配。集中765项检查中763通过、2项条件跳过，57项恢复、85项Web和4项SDK合同通过；真实十五owner的A／B／回切、旧NULL显式核验、轮换撤销、维护、保存B物化／准确删除及明暗／窄屏UI通过。173表9,230行、24条对象版本／删除标记和12个源文件完整指纹保持，五所属mode／45桶、独立B及四棵隔离树清理。准确证据、正式文档、旧Executor及外部部署限制统一见[E09-B15交付结果](archive/1792661016_dataset-storage-console-boundaries.md#e09-b15-outcome主树交付与人工环境刷新)。完整E02／E09仍活动，不扩展模型、Tracker或规模测量。
+已通过`0f2b77399`合入并刷新人工0254、原3100／8100、两个73任务Worker和绑定Beat，九用途均可受控切换新分配。集中765项检查中763通过、2项条件跳过，57项恢复、85项Web和4项SDK合同通过；真实十五owner的A／B／回切、旧NULL显式核验、轮换撤销、维护、保存B物化／准确删除及明暗／窄屏UI通过。173表9,230行、24条对象版本／删除标记和12个源文件完整指纹保持，五所属mode／45桶、独立B及四棵隔离树清理。准确证据、正式文档、旧Executor及外部部署限制统一见[E09-B15交付结果](1792661016_dataset-storage-console-boundaries.md#e09-b15-outcome主树交付与人工环境刷新)。完整E02／E09仍活动，不扩展模型、Tracker或规模测量。
 
 ## 当前原始故事与验收复核
 
@@ -70,42 +82,42 @@
 | S06 来源使用               | 显式use_user_ids及现有owner／global授权、秘密脱敏已交付；不从“申请”措辞推导原AC未要求的新审批系统。                                                                        |
 | AC06 根／端点修订          | 固定根身份、引用保护和影响确认已交付，同名新根不能替代原内容；受引用端点不允许静默改向。                                                                                   |
 | AC07／AC09 轮换与并发      | 候选先验证、失败保留旧值，锁内重核权限／修订／白名单及CAS已有实现与真实IAM／并发证据。                                                                                     |
-| AC10 旧A／新B              | 保存地址及真实回切已交付；原“历史定位未完成时切换被阻止”的绝对措辞不能标为字面通过。现合同允许NULL待显式核验，普通读取仍拒绝，不反向增设全库补认门槛；该边界继续明确保留。 |
-| 工程交付                   | 模型、兼容映射、目录／节点、选择器／控制台／读取及正式文档已有分项证据，B23补齐保存目标影响；AC10原绝对措辞与当前显式核验合同的差异继续保留，暂不整项归档。                |
+| AC10 旧A／新B | 用户于2026-10-26明确采用当前隔离行为并修订原条款：新分配可切B，已固定旧对象按保存A读取；未知训练旧文件普通读取拒绝，等待显式核验legacy A，不按今日Binding猜读，不把全库历史补认作为切换前置。已交付。 |
+| 工程交付 | 模型、兼容映射、目录／节点、选择器／控制台／读取及正式文档已有分项证据，B23补齐保存目标影响；AC10按用户选择修订后通过，七项工程任务完成，整项归档。 |
 
-当前位置的target保护已经覆盖五训练owner和独立Deletion，storage_binding_change也能按保存责任计数；后续影响补齐复用这些记录，区分来源血缘、输出归属、当前绑定和未固定历史，不把记录数当对象字节、不扩张物理回收。§8早期双读配置／灰度方案保留为历史设计，当前统一配置和[受控应用回退](../../docs-site/ops/upgrade-guide.md#数据集存储的受控只读应用回退)为实际交付，不重建已舍弃的独立读取开关。
+当前位置的target保护已经覆盖五训练owner和独立Deletion，storage_binding_change也能按保存责任计数；后续影响补齐复用这些记录，区分来源血缘、输出归属、当前绑定和未固定历史，不把记录数当对象字节、不扩张物理回收。§8早期双读配置／灰度方案保留为历史设计，当前统一配置和[受控应用回退](../../../docs-site/ops/upgrade-guide.md#数据集存储的受控只读应用回退)为实际交付，不重建已舍弃的独立读取开关。
 
 ## 本轮定稿：E02-B20／E09-B13 媒体缓存新分配位置切换
 
-基于`0e0ee279c`沿原始S04／AC05、AC10继续media-cache用途。复用原图缓存、金字塔和视频派生owner；目录预览与普通Dataset／Task缩略图补共享耐久输出，旧及在途地址保持。只补地址、当前凭据、同源浏览器读回、引用保护和既有清理，annotations／training仍锁定；不增加算法、Tracker／审核、渲染资格或规模测量。准确schema、字段、接口和验证以[E09-B13合同](archive/1792661016_dataset-storage-console-boundaries.md#本轮定稿e02-b20e09-b13-媒体缓存新分配位置切换)为准，沿既有整套实施／提交授权执行。
+基于`0e0ee279c`沿原始S04／AC05、AC10继续media-cache用途。复用原图缓存、金字塔和视频派生owner；目录预览与普通Dataset／Task缩略图补共享耐久输出，旧及在途地址保持。只补地址、当前凭据、同源浏览器读回、引用保护和既有清理，annotations／training仍锁定；不增加算法、Tracker／审核、渲染资格或规模测量。准确schema、字段、接口和验证以[E09-B13合同](1792661016_dataset-storage-console-boundaries.md#本轮定稿e02-b20e09-b13-媒体缓存新分配位置切换)为准，沿既有整套实施／提交授权执行。
 
 ## E02-B20 Outcome：媒体缓存新分配位置切换
 
-实现`e112b7336`及真实网格并发入场修复`0314036a7`已通过`dc896f4fb`合入。完整原图缓存、目录预览、普通缩略图、金字塔和视频派生的新分配跟随当前绑定，历史和在途输出保存原位置；当前凭据、同源交付、全部状态保护及准确清理沿既有责任接线。真实A／B、回切、轮换撤销、门禁、旧schema1／NULL、物理版本清理及明暗／窄屏确认通过；宿主金字塔原生生成器不可用，严格保留存储接线证据边界。检查数量、浏览器缺图根因／红绿回归、清理和限制统一见[E09-B13 Outcome](archive/1792661016_dataset-storage-console-boundaries.md#e09-b13-outcome媒体缓存新分配位置切换)，不重复累计。
+实现`e112b7336`及真实网格并发入场修复`0314036a7`已通过`dc896f4fb`合入。完整原图缓存、目录预览、普通缩略图、金字塔和视频派生的新分配跟随当前绑定，历史和在途输出保存原位置；当前凭据、同源交付、全部状态保护及准确清理沿既有责任接线。真实A／B、回切、轮换撤销、门禁、旧schema1／NULL、物理版本清理及明暗／窄屏确认通过；宿主金字塔原生生成器不可用，严格保留存储接线证据边界。检查数量、浏览器缺图根因／红绿回归、清理和限制统一见[E09-B13 Outcome](1792661016_dataset-storage-console-boundaries.md#e09-b13-outcome媒体缓存新分配位置切换)，不重复累计。
 
 人工0252及原3100／8100、两个73任务Worker／Beat已刷新；172表9,230行、24对象版本／删除标记与12源文件旧字段摘要保持，新nullable字段未回填。现开放七用途，annotations和training两用途继续锁定，完整E02仍活动；不新增训练测量、Tracker或全恢复前置。
 
 ## 本轮定稿：E02-B19／E09-B12 数据集原件新写入位置切换
 
-2026-10-25，基于`d11a257f1`沿原始S04／AC05、AC10推进datasets新分配绑定。复用Creation写入责任与canonical原件读取，保存当前位置引用，旧及在途A保留；普通DatasetItem及同用途辅助原件完整覆盖，另外三用途保持锁定。准确数据合同、文件范围与验证以[E09-B12实施合同](archive/1792661016_dataset-storage-console-boundaries.md#本轮定稿e02-b19e09-b12-数据集原件新写入位置切换)为准。用户已授权修复直接阻断开发功能的旧问题，但不展开训练规模或其他业务专项。
+2026-10-25，基于`d11a257f1`沿原始S04／AC05、AC10推进datasets新分配绑定。复用Creation写入责任与canonical原件读取，保存当前位置引用，旧及在途A保留；普通DatasetItem及同用途辅助原件完整覆盖，另外三用途保持锁定。准确数据合同、文件范围与验证以[E09-B12实施合同](1792661016_dataset-storage-console-boundaries.md#本轮定稿e02-b19e09-b12-数据集原件新写入位置切换)为准。用户已授权修复直接阻断开发功能的旧问题，但不展开训练规模或其他业务专项。
 
 ## E02-B19 Outcome：数据集原件新分配位置切换
 
-本片通过`31f770f51`合入，人工0251及原3100／8100、两个Worker／Beat已刷新。普通及raw_lidar／map辅助原件仅新分配跟随datasets绑定，旧及在途地址、冻结事实和历史摘要保持；当前凭据与保存地址分开，正常轮换可读，改向／删除继续受引用保护。真实旧应用A在途、新B跨切回A封存、新A、ZIP与两类辅助原件、IAM轮换撤销、B退役只读Worker核验及明暗／窄屏已通过。172表9,230行、24对象版本／删除标记及12源文件摘要保持，两项新nullable地址在旧记录中均为NULL；准确检查计数、旧恢复夹具限制和范围见[E09-B12 Outcome](archive/1792661016_dataset-storage-console-boundaries.md#e09-b12-outcome数据集原件新分配位置切换)。不追加训练测量或全消费者资格，另外三用途和整项E02仍未完成。
+本片通过`31f770f51`合入，人工0251及原3100／8100、两个Worker／Beat已刷新。普通及raw_lidar／map辅助原件仅新分配跟随datasets绑定，旧及在途地址、冻结事实和历史摘要保持；当前凭据与保存地址分开，正常轮换可读，改向／删除继续受引用保护。真实旧应用A在途、新B跨切回A封存、新A、ZIP与两类辅助原件、IAM轮换撤销、B退役只读Worker核验及明暗／窄屏已通过。172表9,230行、24对象版本／删除标记及12源文件摘要保持，两项新nullable地址在旧记录中均为NULL；准确检查计数、旧恢复夹具限制和范围见[E09-B12 Outcome](1792661016_dataset-storage-console-boundaries.md#e09-b12-outcome数据集原件新分配位置切换)。不追加训练测量或全消费者资格，另外三用途和整项E02仍未完成。
 
 ## 本轮定稿：E02-B16／E09-B9 审计归档用途切换
 
-随后沿原始 S04／AC05、AC10 交付 [E02-B17／E09-B10 导出新写入位置切换](archive/1792661016_dataset-storage-console-boundaries.md#本轮定稿e02-b17e09-b10-导出新写入位置切换)：完整覆盖 ZIP 与图片／视频／LiDAR 独立媒体两个 owner，保留旧与在途归属、配套 ZIP 同位置和固定期限，仅新分配采用新绑定。不扩展导出算法或训练测量；本地验收与主树集成、人工0248刷新均已完成，见[E02-B17 Outcome](#e02-b17-outcome--导出新写入位置切换)。
+随后沿原始 S04／AC05、AC10 交付 [E02-B17／E09-B10 导出新写入位置切换](1792661016_dataset-storage-console-boundaries.md#本轮定稿e02-b17e09-b10-导出新写入位置切换)：完整覆盖 ZIP 与图片／视频／LiDAR 独立媒体两个 owner，保留旧与在途归属、配套 ZIP 同位置和固定期限，仅新分配采用新绑定。不扩展导出算法或训练测量；本地验收与主树集成、人工0248刷新均已完成，见[E02-B17 Outcome](#e02-b17-outcome--导出新写入位置切换)。
 
-2026-10-25，基于`a04678026`沿原始S04／AC05、AC10推进独立audit-archive用途，完整边界、准确owner和验证见[E09-B9合同](archive/1792661016_dataset-storage-console-boundaries.md#本轮定稿e02-b16e09-b9-审计归档新写入位置切换)。仅切后续归档分配，旧ready及pending继续原位置；复用现有归档和居中确认，不新增业务、训练规模或全消费者资格前置。另六用途保持锁定，整项E02仍活动。
+2026-10-25，基于`a04678026`沿原始S04／AC05、AC10推进独立audit-archive用途，完整边界、准确owner和验证见[E09-B9合同](1792661016_dataset-storage-console-boundaries.md#本轮定稿e02-b16e09-b9-审计归档新写入位置切换)。仅切后续归档分配，旧ready及pending继续原位置；复用现有归档和居中确认，不新增业务、训练规模或全消费者资格前置。另六用途保持锁定，整项E02仍活动。
 
 ## E02-B16 Outcome：审计归档用途切换
 
-2026-10-25，0247与独立audit-archive新写入切换完成隔离交付；旧ready、切换前pending保留保存位置，新分配才使用新目标，历史读取跟随当前连接凭据，另六用途保持锁定。273项不同本片检查与实际PostgreSQL／S3／maintenance Worker的A两份／B一份、真实密钥轮换撤销、坏凭据拒绝及明暗桌面／窄屏确认UI通过；所属test／e2e、临时账号和原始产物清理，人工3100／8100保持。准确证据、恢复边界、父任务Creation窄修及主树集成状态见[E09-B9 Outcome](archive/1792661016_dataset-storage-console-boundaries.md#e09-b9-outcome审计归档新写入位置切换)。主树已合入`98988bdaf`并应用人工0247、刷新原3100／8100及两Worker／Beat；170表9,230行与九桶24个版本／删除标记保持。完整E02继续活动，不增加训练测量或消费者资格前置。
+2026-10-25，0247与独立audit-archive新写入切换完成隔离交付；旧ready、切换前pending保留保存位置，新分配才使用新目标，历史读取跟随当前连接凭据，另六用途保持锁定。273项不同本片检查与实际PostgreSQL／S3／maintenance Worker的A两份／B一份、真实密钥轮换撤销、坏凭据拒绝及明暗桌面／窄屏确认UI通过；所属test／e2e、临时账号和原始产物清理，人工3100／8100保持。准确证据、恢复边界、父任务Creation窄修及主树集成状态见[E09-B9 Outcome](1792661016_dataset-storage-console-boundaries.md#e09-b9-outcome审计归档新写入位置切换)。主树已合入`98988bdaf`并应用人工0247、刷新原3100／8100及两Worker／Beat；170表9,230行与九桶24个版本／删除标记保持。完整E02继续活动，不增加训练测量或消费者资格前置。
 
 ## 本轮定稿：E02-B15／E09-B8 报告附件新写入位置切换
 
-2026-10-25基于`1e49033c1`，沿原始S04／AC05／AC10推进九用途内bug-reports的受控新分配切换。准确文件、schema1／2兼容、实际版本、旧／在途归属、锁序、验证与回退以[E09-B8实施合同](archive/1792661016_dataset-storage-console-boundaries.md#e02-b15e09-b8报告附件新写入位置切换)为准。旧未知附件原已拒绝，不新增历史修复前置。隔离验收与主树集成已完成，人工已应用0246并刷新3100／8100、两Worker及绑定Beat；其他七用途保持锁定。C6万条辅助测量已停止，不作为本片前置。下文Outcome中的待集成叙述保留隔离验收时点，当前以此集成状态为准。
+2026-10-25基于`1e49033c1`，沿原始S04／AC05／AC10推进九用途内bug-reports的受控新分配切换。准确文件、schema1／2兼容、实际版本、旧／在途归属、锁序、验证与回退以[E09-B8实施合同](1792661016_dataset-storage-console-boundaries.md#e02-b15e09-b8报告附件新写入位置切换)为准。旧未知附件原已拒绝，不新增历史修复前置。隔离验收与主树集成已完成，人工已应用0246并刷新3100／8100、两Worker及绑定Beat；其他七用途保持锁定。C6万条辅助测量已停止，不作为本片前置。下文Outcome中的待集成叙述保留隔离验收时点，当前以此集成状态为准。
 
 ## 已实施定案：E02-B9 审计归档固定归属与源分区事务保护
 
@@ -360,20 +372,20 @@ legacy explicit pin -> bounded full verification -> same persisted storage_ref
 
 | 当前 owner / 代码锚点                                                      | 已有能力、缺口与复用约束                                                                                        |
 | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| [storage_connection.py](../../apps/api/app/services/storage_connection.py) | 复用 can_use_connection/assert_connection_admin；当前 owner/global、create 写 project_id=None，未实现项目共享。 |
-| [crypto.py](../../apps/api/app/core/crypto.py)                             | 复用 Fernet；访问凭据轮换与 CONNECTOR_ENCRYPTION_KEY 轮换分别处理，后者需要重加密和恢复材料。                   |
-| [connector_guard.py](../../apps/api/app/services/connector_guard.py)       | 保留白名单与多入口复检；客户端实际连接仍会重新解析 DNS，不能将 DNS pinning 写成已有能力。                       |
-| [sftp.py](../../apps/api/app/services/sources/sftp.py)                     | 现有测试主要验证列举；list/open 不能直接当作本地安全根打开器或持续原地读取证明。                                |
+| [storage_connection.py](../../../apps/api/app/services/storage_connection.py) | 复用 can_use_connection/assert_connection_admin；当前 owner/global、create 写 project_id=None，未实现项目共享。 |
+| [crypto.py](../../../apps/api/app/core/crypto.py)                             | 复用 Fernet；访问凭据轮换与 CONNECTOR_ENCRYPTION_KEY 轮换分别处理，后者需要重加密和恢复材料。                   |
+| [connector_guard.py](../../../apps/api/app/services/connector_guard.py)       | 保留白名单与多入口复检；客户端实际连接仍会重新解析 DNS，不能将 DNS pinning 写成已有能力。                       |
+| [sftp.py](../../../apps/api/app/services/sources/sftp.py)                     | 现有测试主要验证列举；list/open 不能直接当作本地安全根打开器或持续原地读取证明。                                |
 
-候选修改入口：[storage_connection.py](../../apps/api/app/db/models/storage_connection.py)、[storage_connection.py](../../apps/api/app/services/storage_connection.py)、[storage_connections.py](../../apps/api/app/api/v1/storage_connections.py)、[config.py](../../apps/api/app/config.py)、[docker-compose.yml](../../docker-compose.yml)。新增表、适配器、迁移、测试和准确文件范围在晋升时固定，不直接由逻辑实体生成数据库。
+候选修改入口：[storage_connection.py](../../../apps/api/app/db/models/storage_connection.py)、[storage_connection.py](../../../apps/api/app/services/storage_connection.py)、[storage_connections.py](../../../apps/api/app/api/v1/storage_connections.py)、[config.py](../../../apps/api/app/config.py)、[docker-compose.yml](../../../docker-compose.yml)。新增表、适配器、迁移、测试和准确文件范围在晋升时固定，不直接由逻辑实体生成数据库。
 
 ## 1. 问题与代码依据
 
-当前外部 S3/SFTP 连接配置已提供个人和全局作用域、密钥加密等能力，适合复用；它主要服务拉取导入，尚不能表达所有原图长期存放位置。当前 `project_id` 字段不能直接解释为已经实现项目级连接共享。[连接模型](../../apps/api/app/db/models/storage_connection.py)
+当前外部 S3/SFTP 连接配置已提供个人和全局作用域、密钥加密等能力，适合复用；它主要服务拉取导入，尚不能表达所有原图长期存放位置。当前 `project_id` 字段不能直接解释为已经实现项目级连接共享。[连接模型](../../../apps/api/app/db/models/storage_connection.py)
 
-平台内部业务对象通过全局 `StorageService` 和多个桶分流。应让“数据在哪里”和“平台某类文件写到哪里”成为两个可明确维护的概念。[存储服务](../../apps/api/app/services/storage.py)
+平台内部业务对象通过全局 `StorageService` 和多个桶分流。应让“数据在哪里”和“平台某类文件写到哪里”成为两个可明确维护的概念。[存储服务](../../../apps/api/app/services/storage.py)
 
-Docker 部署已支持选择 MinIO 宿主机数据目录；本 Epic 新增的是受控目录和多位置注册，不是修补“容器不能持久化”的问题。[部署配置](../../docker-compose.yml)
+Docker 部署已支持选择 MinIO 宿主机数据目录；本 Epic 新增的是受控目录和多位置注册，不是修补“容器不能持久化”的问题。[部署配置](../../../docker-compose.yml)
 
 ## 2. 目标与边界
 
@@ -468,9 +480,9 @@ Docker 部署已支持选择 MinIO 宿主机数据目录；本 Epic 新增的是
 | E02-AC07 | 凭据轮换后新请求成功，旧凭据不出现在响应、日志、任务详情；轮换失败仍可使用上一有效配置。                                   |
 | E02-AC08 | 停用被引用位置时返回授权范围内的影响清单；既有引用保留且可标记不可用，外部原件不被删除。                                   |
 | E02-AC09 | 同一配置被两人并发编辑时，后提交的旧版本请求被拒绝，不覆盖已经生效的新配置。                                               |
-| E02-AC10 | 某用途新写入切到位置 B 后，位置 A 上的历史头像、附件和训练包仍由固定位置/绑定代次正确读取；历史定位未完成时切换被阻止。    |
+| E02-AC10 | 某用途后续新分配切到位置 B 后，历史及已分配对象仍按保存位置／绑定代次读取；未知训练旧文件普通读取拒绝并等待显式核验 legacy A，不从当前绑定猜读，也不以全库历史补认为新分配切换前置。其他用途既有验证及预览确认条件保持。    |
 
-## 8. 迁移与回滚
+## 8. 迁移与回滚（早期方案，实际交付见最终 Outcome）
 
 1. 以兼容配置加载现有全局存储端点，生成默认位置和用途绑定，不移动字节。
 2. 将现有连接器逐条映射到新位置或关联记录，保留原 ID 映射、owner/global 语义和加密密钥。
@@ -478,7 +490,7 @@ Docker 部署已支持选择 MinIO 宿主机数据目录；本 Epic 新增的是
 4. 新位置创建的数据由新读取链路处理；回退旧 UI 不得令此类数据失联，必要时关闭新接入并保留新读取兼容服务。
 5. 回滚配置时恢复上一有效修订，不能把已产生的新对象重新解释到旧绑定；对象位置记录是读取依据。
 
-## 9. 测试、风险与待决策
+## 9. 测试、风险与待决策（早期清单，当前结论见最终 Outcome）
 
 - 测试位置类型与能力组合、只读 mount、worker 挂载缺失、凭据轮换、目录边界与并发配置更新。
 - 在真实部署拓扑验证内部/外部 URL；单测不能替代反向代理和浏览器链路验收。
@@ -488,13 +500,13 @@ Docker 部署已支持选择 MinIO 宿主机数据目录；本 Epic 新增的是
 
 ## 10. 工程任务与完成定义
 
-- [ ] 定义位置、用途绑定、配置版本和能力响应结构及数据库迁移。
-- [ ] 为九类用途逐一盘点消费者、现有定位字段和历史对象引用，补齐非 DatasetItem 对象的固定定位与切换门槛。
-- [ ] 兼容现有连接器和默认 S3 配置，编写幂等映射与回退操作说明。
-- [ ] 实现受控目录解析、执行节点探测和有界目录浏览。
-- [ ] 实现配置测试、轮换、归档与引用影响查询；接入 EPIC-11 审计。
-- [ ] 对接数据集来源选择器、EPIC-09 位置详情、EPIC-05 读取路由。
-- [ ] 通过上述验收，交付目录部署示例、权限说明、操作手册及兼容测试记录。
+- [x] 定义位置、用途绑定、配置版本和能力响应结构及数据库迁移。
+- [x] 为九类用途逐一盘点消费者、现有定位字段和历史对象引用，补齐非 DatasetItem 对象的固定定位与切换门槛。
+- [x] 兼容现有连接器和默认 S3 配置，编写幂等映射与回退操作说明。
+- [x] 实现受控目录解析、执行节点探测和有界目录浏览。
+- [x] 实现配置测试、轮换、归档与引用影响查询；接入 EPIC-11 审计。
+- [x] 对接数据集来源选择器、EPIC-09 位置详情、EPIC-05 读取路由。
+- [x] 通过上述验收，交付目录部署示例、权限说明、操作手册及兼容测试记录。
 
 完成后，用户能选“数据在哪个位置”，应用能判断“这个位置能做什么”，原图无需先进入托管桶。
 
@@ -509,11 +521,11 @@ Docker 部署已支持选择 MinIO 宿主机数据目录；本 Epic 新增的是
 
 前置合同不等于等待前置 Epic 全量完成。每个切片合并后系统仍须可用；含新来源的回退保留兼容读取和授权，不能把其相对路径交给旧 S3 拼接逻辑。预计多数切片涉及超过 8 个文件，实施时明确大范围边界与准确清单。
 
-已有回归入口：[test_storage_connections_api.py](../../apps/api/tests/test_storage_connections_api.py)、[test_connector_crypto_guard.py](../../apps/api/tests/test_connector_crypto_guard.py)、[test_storage_public_url.py](../../apps/api/tests/test_storage_public_url.py)、[StorageConnectionsPanel.test.tsx](../../apps/web/src/components/connections/StorageConnectionsPanel.test.tsx)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
+已有回归入口：[test_storage_connections_api.py](../../../apps/api/tests/test_storage_connections_api.py)、[test_connector_crypto_guard.py](../../../apps/api/tests/test_connector_crypto_guard.py)、[test_storage_public_url.py](../../../apps/api/tests/test_storage_public_url.py)、[StorageConnectionsPanel.test.tsx](../../../apps/web/src/components/connections/StorageConnectionsPanel.test.tsx)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](../backlog/1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
 
-实现时同步：[connector-security.md](../../docs-site/dev/reference/connector-security.md)、[storage-connections.md](../../docs-site/user-guide/datasets/storage-connections.md)、[docker-compose.md](../../docs-site/ops/deploy/docker-compose.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
+实现时同步：[connector-security.md](../../../docs-site/dev/reference/connector-security.md)、[storage-connections.md](../../../docs-site/user-guide/datasets/storage-connections.md)、[docker-compose.md](../../../docs-site/ops/deploy/docker-compose.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
 
-完成实施后按[计划规范](README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
+完成实施后按[计划规范](../README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
 
 ## Outcome
 
@@ -1713,7 +1725,7 @@ M1 主接线已合入 `5fcb45050`，涵盖项目批量／workbench、两种失�
 
 ## E02-B14 Outcome — 头像新写入位置受控切换
 
-2026-10-25 完成原始 E02-S04、AC05／AC10 的头像用途切片，与 [E09-B7](archive/1792661016_dataset-storage-console-boundaries.md#e09-b7-outcome--头像用途受控切换) 同次交付。复用已登记默认位置或全局 S3 连接，先实际条件 PUT、完整 GET／SHA 校验和准确 DELETE，再以五分钟确认凭证锁内复核用途代次、位置／连接修订、维护状态、当前管理员／Key 和历史影响；仅后续分配采用新位置，其余八用途保持锁定。初始 provider／owner、兼容与 UI 实现已集成 `6aa736eaa`、`a4abc6a1d`、`473850f4c`、`b91b81c67`，最终接线与验证同本 Outcome 提交，不分配发布版本。
+2026-10-25 完成原始 E02-S04、AC05／AC10 的头像用途切片，与 [E09-B7](1792661016_dataset-storage-console-boundaries.md#e09-b7-outcome--头像用途受控切换) 同次交付。复用已登记默认位置或全局 S3 连接，先实际条件 PUT、完整 GET／SHA 校验和准确 DELETE，再以五分钟确认凭证锁内复核用途代次、位置／连接修订、维护状态、当前管理员／Key 和历史影响；仅后续分配采用新位置，其余八用途保持锁定。初始 provider／owner、兼容与 UI 实现已集成 `6aa736eaa`、`a4abc6a1d`、`473850f4c`、`b91b81c67`，最终接线与验证同本 Outcome 提交，不分配发布版本。
 
 迁移 0243 保留旧 schema1 归属，新增 schema2 保存实际端点、桶、完整键、位置及绑定代次，并保存 provider 实际返回的版本回执。读取／发布／退休清理使用保存位置；有版本时固定该版本，非版本化目标也可正常使用。凭据从当前位置配置获得，正常配置修订递增不会重写历史物理身份；仍有上传记录的位置受引用保护。旧用户上传引用缺少准确 owner 时阻止切换，进行中的已分配上传不必排空。原件创建只比较相关绑定，头像切换不阻断无关数据集上传；占用仍报告原部署端点的实际小计，外部头像目标未覆盖时明确提示。
 
@@ -1729,17 +1741,17 @@ M1 主接线已合入 `5fcb45050`，涵盖项目批量／workbench、两种失�
 
 ## E02-B15 Outcome — 报告附件新写入位置受控切换
 
-2026-10-25在基于`79cca82c7`的独立树完成原始E02-S04／AC05／AC10的bug-reports切片；详细实现、309项后端／迁移、53项Web、50项恢复、4项SDK及真实S3／API／四组合浏览器证据见[E09-B8 Outcome](archive/1792661016_dataset-storage-console-boundaries.md#e09-b8-outcome--报告附件新写入位置受控切换)，不重复累计。保留schema1、头像公开适配器与公开逻辑键，schema2保存实际目标及provider版本；新分配采用B，旧ready与切换前pending继续原位置。未知历史保持已有拒绝，不新增历史全库修复或can_apply门槛；七用途继续锁定，完整E02／E09仍活动。
+2026-10-25在基于`79cca82c7`的独立树完成原始E02-S04／AC05／AC10的bug-reports切片；详细实现、309项后端／迁移、53项Web、50项恢复、4项SDK及真实S3／API／四组合浏览器证据见[E09-B8 Outcome](1792661016_dataset-storage-console-boundaries.md#e09-b8-outcome--报告附件新写入位置受控切换)，不重复累计。保留schema1、头像公开适配器与公开逻辑键，schema2保存实际目标及provider版本；新分配采用B，旧ready与切换前pending继续原位置。未知历史保持已有拒绝，不新增历史全库修复或can_apply门槛；七用途继续锁定，完整E02／E09仍活动。
 
 0245在旧事实时可逆，对schema2／实际版本／新代绑定拒绝破坏性降级。功能回退经同一受控流程切后续分配回A，保留B历史读取；九桶恢复对未覆盖的新事实在修改前拒绝，不声称跨端点备份。README、CHANGELOG及受影响正式说明同步；本计划既有完成步骤链接修正为同目录`README.md#required-completion-steps`，没有新增前置。
 
 隔离test／e2e两库、两Redis和18桶及自有B容器／独占匿名数据卷已按owner清理并独立确认不存在；浏览器、API／Web、临时截图／私密状态和检查缓存已收尾。根C6仍运行，未集成应用源码、应用人工0245或刷新3100／8100／两Worker／Beat，不宣称已做本片人工运行升级；父任务在冻结结束后继续集成。不推送、发布、重建镜像或改变依赖。
 
-E02-B15补充修复：独立复核指出显式`null`为可覆盖槽位，本片新清理路径现先核保存内容，替换时拒删并保留retired责任；非null准确版本清理保持。180项相关本地测试和真实MinIO三场景通过，新增5项回归与精确清理结果见[E09-B8补充修复](archive/1792661016_dataset-storage-console-boundaries.md#e09-b8-补充修复--显式-null-槽位退休)。原`3e24a78c`保留，修复另行提交；根C6与人工环境未变。
+E02-B15补充修复：独立复核指出显式`null`为可覆盖槽位，本片新清理路径现先核保存内容，替换时拒删并保留retired责任；非null准确版本清理保持。180项相关本地测试和真实MinIO三场景通过，新增5项回归与精确清理结果见[E09-B8补充修复](1792661016_dataset-storage-console-boundaries.md#e09-b8-补充修复--显式-null-槽位退休)。原`3e24a78c`保留，修复另行提交；根C6与人工环境未变。
 
 ## E02-B17 Outcome — 导出新写入位置切换
 
-2026-10-25，基于`7ff39313e`的独立树完成原始S04／AC05、AC10的export用途，与[E09-B10](archive/1792661016_dataset-storage-console-boundaries.md#e09-b10-outcome--导出新写入位置切换)同次交付。完整接通ZIP与图片／视频／LiDAR独立媒体两个owner，schema1保留，schema2保存准确位置、代次和受控物理键；新分配采用新绑定，旧ready／缓存与在途媒体及其配对ZIP保留保存归属、冻结字节和首次期限。当前凭据轮换不重解释旧地址，所有状态保护定位与删除。其他五用途锁定，完整E02继续活动。
+2026-10-25，基于`7ff39313e`的独立树完成原始S04／AC05、AC10的export用途，与[E09-B10](1792661016_dataset-storage-console-boundaries.md#e09-b10-outcome--导出新写入位置切换)同次交付。完整接通ZIP与图片／视频／LiDAR独立媒体两个owner，schema1保留，schema2保存准确位置、代次和受控物理键；新分配采用新绑定，旧ready／缓存与在途媒体及其配对ZIP保留保存归属、冻结字节和首次期限。当前凭据轮换不重解释旧地址，所有状态保护定位与删除。其他五用途锁定，完整E02继续活动。
 
 690个当前不同后端／DB／迁移用例、3个恢复边界、57个Web及4个SDK合同用例通过；真实API→Celery→A／独立B三对ZIP／媒体、历史缓存、轮换撤销、坏目标、准确媒体版本清理和四矩阵浏览器证据见E09-B10，不重复累计。0248保留旧行并拒绝新事实破坏性降级；九桶恢复对未覆盖的新export事实在任何映射修改前拒绝，外部盘点维持partial。ZIP既有不带VersionId的DELETE不承诺版本化桶历史清空，媒体准确清单清理与ZIP范围分别记录。
 
@@ -1751,7 +1763,7 @@ E02-B15补充修复：独立复核指出显式`null`为可覆盖槽位，本片�
 
 ## E02-B18 Outcome：导入新分配位置切换
 
-2026-10-25，原始S04／AC05、AC10的import完整存储合同在独立工作树完成，与[E09-B11 Outcome](archive/1792661016_dataset-storage-console-boundaries.md#e09-b11-outcome导入新分配位置切换)同次交付。四组owner涵盖全部临时预标输入、三条旧帧／crop入口、Dataset／Task暂存及Mask上传／batch；新分配跟随绑定，旧schema1／null与在途A保留原地址。schema2保存准确目标，正常凭据轮换可用；所有状态保护位置改向／删除，准确分类与恢复拒绝沿原边界。0250增量迁移不回填旧行，新事实拒绝破坏性降级，另四用途保持锁定。
+2026-10-25，原始S04／AC05、AC10的import完整存储合同在独立工作树完成，与[E09-B11 Outcome](1792661016_dataset-storage-console-boundaries.md#e09-b11-outcome导入新分配位置切换)同次交付。四组owner涵盖全部临时预标输入、三条旧帧／crop入口、Dataset／Task暂存及Mask上传／batch；新分配跟随绑定，旧schema1／null与在途A保留原地址。schema2保存准确目标，正常凭据轮换可用；所有状态保护位置改向／删除，准确分类与恢复拒绝沿原边界。0250增量迁移不回填旧行，新事实拒绝破坏性降级，另四用途保持锁定。
 
 381个不同后端／DB／迁移用例，另87个纯writer／Creation、8个恢复边界、45个Web及4个SDK用例通过；不重复累计重试。真实A／B签名读取、跨端点原件封存、凭据轮换、历史定位保护、坏预览、准确lease版本清理及四矩阵居中控件验收见E09-B11。Mask Worker完成保存源读回／SHA与原batch resume定位，但在原有plan摘要门拒绝；冻结37c旧preflight生成相同持久化计划也复现该拒绝，未改格式算法，不宣称标注发布成功。该限制独立于本片存储接线，不扩展训练、模型、规模或全消费者／恢复前置。
 
@@ -1759,8 +1771,8 @@ E02-B15补充修复：独立复核指出显式`null`为可覆盖槽位，本片�
 
 ## E02-B21 隔离验收：标注文件新分配位置切换
 
-四组既有owner、当前凭据读取、控制面及0253已集中到`2622bc4da`，最终288项后端集成检查通过；真实A／B、回切、轮换撤销、维护门禁、现有Worker清理及明暗／窄屏浏览器已验证。完整证据与准确边界见[E09-B14隔离验收](archive/1792661016_dataset-storage-console-boundaries.md#e09-b14-隔离验收标注文件新分配位置切换)。主树合入与人工环境仍待0253刷新；整项E02继续活动。
+四组既有owner、当前凭据读取、控制面及0253已集中到`2622bc4da`，最终288项后端集成检查通过；真实A／B、回切、轮换撤销、维护门禁、现有Worker清理及明暗／窄屏浏览器已验证。完整证据与准确边界见[E09-B14隔离验收](1792661016_dataset-storage-console-boundaries.md#e09-b14-隔离验收标注文件新分配位置切换)。主树合入与人工环境仍待0253刷新；整项E02继续活动。
 
 ## E02-B21 Outcome：标注文件新分配位置切换
 
-实现已通过`eec007a66`合入，0253及原人工3100／8100、两个73任务Worker和绑定Beat刷新完成，八用途可受控切换。四组owner的保存地址、当前凭据、旧及在途A、新B、回切、实际Worker与浏览器证据见[E09-B14隔离验收](archive/1792661016_dataset-storage-console-boundaries.md#e09-b14-隔离验收标注文件新分配位置切换)；173表9,230行、24对象版本／删除标记和12源文件指纹保持及所属资源清理见[E09-B14交付结果](archive/1792661016_dataset-storage-console-boundaries.md#e09-b14-outcome主树交付与人工环境刷新)。training和整项E02仍活动，不扩展标注业务或训练测量。
+实现已通过`eec007a66`合入，0253及原人工3100／8100、两个73任务Worker和绑定Beat刷新完成，八用途可受控切换。四组owner的保存地址、当前凭据、旧及在途A、新B、回切、实际Worker与浏览器证据见[E09-B14隔离验收](1792661016_dataset-storage-console-boundaries.md#e09-b14-隔离验收标注文件新分配位置切换)；173表9,230行、24对象版本／删除标记和12源文件指纹保持及所属资源清理见[E09-B14交付结果](1792661016_dataset-storage-console-boundaries.md#e09-b14-outcome主树交付与人工环境刷新)。training和整项E02仍活动，不扩展标注业务或训练测量。

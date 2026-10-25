@@ -831,7 +831,7 @@ E02-B13-B3-H1新增实际inline组件的schema3图片恢复夹具，精确选择
 
 ### B1追加验收 — 视频独立交付责任
 
-E02-B13-B3-H2 增加真实生成的视频、Dataset／TaskOriginal 条件创建及 schema4 ready／中断 building 的 inline 组件夹具。源销毁后恢复 166 表 216 行、九桶 92 对象（68278 字节），逐字节核对四份视频副本、两个 ZIP 与四份探测证明；完整原始创建／来源事实、冻结输入、首次截止和历史 URL 保持，恰好一个 schema4 缓存索引失效，不重新探测、回源、签名或自动恢复执行。七文件 105 项恢复纯测试及最终随机资源清理通过。实际 HTTP／独立 Celery／MinIO 验收另见 [E02 H2 Outcome](1792661016_dataset-storage-locations-connections.md#e02-b13-b3-h2-outcome--视频冻结导出与独立媒体交付)，不以此合成恢复代替生产保护、实际站点或 RPO／RTO 资格。
+E02-B13-B3-H2 增加真实生成的视频、Dataset／TaskOriginal 条件创建及 schema4 ready／中断 building 的 inline 组件夹具。源销毁后恢复 166 表 216 行、九桶 92 对象（68278 字节），逐字节核对四份视频副本、两个 ZIP 与四份探测证明；完整原始创建／来源事实、冻结输入、首次截止和历史 URL 保持，恰好一个 schema4 缓存索引失效，不重新探测、回源、签名或自动恢复执行。七文件 105 项恢复纯测试及最终随机资源清理通过。实际 HTTP／独立 Celery／MinIO 验收另见 [E02 H2 Outcome](archive/1792661016_dataset-storage-locations-connections.md#e02-b13-b3-h2-outcome--视频冻结导出与独立媒体交付)，不以此合成恢复代替生产保护、实际站点或 RPO／RTO 资格。
 
 ### E12-C1：真实目录扫描资源与取消恢复基线
 
