@@ -141,12 +141,12 @@ async def test_bulk_route_preserves_task_lock_order_empty_patch_and_errors(
     identity_select = next(
         index
         for index, statement in enumerate(statements)
-        if "select annotations.id, annotations.task_id" in statement.lower()
+        if "from aap_labeling_v1.annotation_rows" in statement.lower()
     )
     task_lock = next(
         index
         for index, statement in enumerate(statements)
-        if "from tasks" in statement.lower() and "for update" in statement.lower()
+        if "from aap_labeling_v1.lock_task_for_core_read(" in statement.lower()
     )
     assert identity_select < task_lock
 

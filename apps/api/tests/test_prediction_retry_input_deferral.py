@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import uuid
 
 import pytest
+from sqlalchemy import inspect
 
 from aap_assets_inputs.contract import InputFailure
 from app.workers.predictions_retry import (
@@ -33,6 +34,8 @@ def test_empty_prediction_is_valid_but_missing_target_result_is_not():
 class _ReadSession:
     def __init__(self, failed, task, backend):
         self.failed, self.task, self.backend = failed, task, backend
+        self.identity_map = {}
+        self.autoflush = False
 
     async def __aenter__(self):
         return self
@@ -48,6 +51,11 @@ class _ReadSession:
         if model.__name__ == "MLBackendRegistry":
             return self.backend
         return None
+
+    async def execute(self, statement):
+        model = inspect(statement.column_descriptions[0]["entity"]).mapper.class_
+        row = self.failed if model.__name__ == "FailedPrediction" else self.task
+        return SimpleNamespace(scalar_one_or_none=lambda: row)
 
 
 def _frozen_failed_prediction():

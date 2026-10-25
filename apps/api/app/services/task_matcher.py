@@ -42,6 +42,7 @@ from app.services.labeling_annotation_transfer import (
     AnnotationTransferRejected,
     annotation_transfer_command,
 )
+from app.services.labeling_core_read_relations import get_core_row, task_row
 
 
 async def _transfer(db: AsyncSession, command):
@@ -109,7 +110,8 @@ async def resolve_task_by_file_stem(
         return None, data.reason or "task not found in project"
     if len(data.tasks) > 1:
         return None, data.reason or f"ambiguous task file stem: {rel}"
-    return _task_from_match(data.tasks[0]), None
+    task = await _task_from_match(db, data.tasks[0])
+    return (task, None) if task is not None else (None, "task not found in project")
 
 
 async def resolve_task(
@@ -134,7 +136,7 @@ async def resolve_task(
             file_path=file_path if isinstance(file_path, str) else None,
         ),
     )
-    return _task_from_match(data.task) if data.task is not None else None
+    return await _task_from_match(db, data.task) if data.task is not None else None
 
 
 async def resolve_task_by_video_sequence(
@@ -149,9 +151,22 @@ async def resolve_task_by_video_sequence(
             target=sequence.strip("/"),
         ),
     )
-    return _task_from_match(data.task) if data.task is not None else None
+    return await _task_from_match(db, data.task) if data.task is not None else None
 
 
-def _task_from_match(snapshot) -> Task:
-    """Preserve the Task-shaped read contract without re-querying its table."""
-    return Task(**snapshot.model_dump(mode="python"))
+async def _task_from_match(db: AsyncSession, snapshot) -> Task | None:
+    """Hydrate the selected id through Labeling's public row relation."""
+    task = await get_core_row(db, task_row, snapshot.id)
+    if task is None or any(
+        getattr(task, field) != getattr(snapshot, field)
+        for field in (
+            "project_id",
+            "dataset_item_id",
+            "display_id",
+            "file_name",
+            "file_path",
+            "file_type",
+        )
+    ):
+        return None
+    return task
