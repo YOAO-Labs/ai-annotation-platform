@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import threading
 import uuid
 
 from fastapi import HTTPException
@@ -78,21 +79,12 @@ async def execute(db, job_id, task_id):
 
     loop = asyncio.get_running_loop()
     attempt_id, target = row.id, dict(row.target)
-    recovered = await service.recover_may_delete(db, row)
-    await db.rollback()
-    candidate = ReclaimInput(
-        bucket=target["bucket"],
-        object_key=target["object_key"],
-        version_id=target["version_id"],
-        storage_identity=target["storage_identity"],
-        sha256=target["sha256"],
-        size_bytes=target["size_bytes"],
-        endpoint_url=target["endpoint_url"],
-        recover_may_delete=recovered,
-    )
     permit, failure, holder = None, None, {}
+    stopping = threading.Event()
 
     def checkpoint(phase, payload):
+        if phase == "delete_started" and stopping.is_set():
+            service.reject("reclaim_cancelled")
         future = asyncio.run_coroutine_threadsafe(
             service.checkpoint(db, attempt_id, task_id, phase, payload), loop
         )
@@ -106,6 +98,18 @@ async def execute(db, job_id, task_id):
         return result
 
     try:
+        recovered = await service.recover_may_delete(db, row)
+        await db.rollback()
+        candidate = ReclaimInput(
+            bucket=target["bucket"],
+            object_key=target["object_key"],
+            version_id=target["version_id"],
+            storage_identity=target["storage_identity"],
+            sha256=target["sha256"],
+            size_bytes=target["size_bytes"],
+            endpoint_url=target["endpoint_url"],
+            recover_may_delete=recovered,
+        )
         permit = await service.acquire(db, attempt_id, task_id)
 
         # Use the saved target, not an expired ORM row after rollback.
@@ -116,7 +120,16 @@ async def execute(db, job_id, task_id):
         saved.target = target
         options = await service.io_options(db, saved)
         await db.rollback()
-        await drained.settled_io(native, options)
+        pending = asyncio.create_task(drained.settled_io(native, options))
+        try:
+            await asyncio.shield(pending)
+        except BaseException as interrupted:
+            stopping.set()
+            try:
+                await drained._drain(pending)
+            except BaseException as late:
+                drained._uncertainty(interrupted, late)
+            raise
     except BaseException as exc:
         failure = exc
     finally:
@@ -162,7 +175,11 @@ async def execute(db, job_id, task_id):
 async def _run(job_id, task_id, *, reference=False):
     async with task_session() as db:
         if reference:
-            return await service.reconcile(db, job_id, task_id)
+            changed = await service.reconcile(db, job_id, task_id)
+            if changed:
+                await notify_job_terminal(db, job_id=job_id)
+                await db.commit()
+            return changed
         return await execute(db, job_id, task_id)
 
 

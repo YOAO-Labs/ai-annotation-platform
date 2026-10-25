@@ -35,6 +35,8 @@ TERMINAL_NOTIFY_KINDS = {
     "storage_usage",
     "video_asset_retry",
     "managed_original_verification",
+    "managed_original_reclaim",
+    "managed_reference_reconciliation",
     "storage_migration_inventory",
     "storage_migration_copy",
     "dataset_quality",
@@ -142,6 +144,27 @@ def _terminal_payload(job: AsyncJob) -> dict[str, Any]:
         "kind": job.kind,
         "status": job.status,
     }
+    if job.kind == "managed_original_reclaim":
+        for key in ("reclaim_id", "retirement_id"):
+            value = payload_in.get(key)
+            try:
+                payload[key] = str(uuid.UUID(value))
+            except (TypeError, ValueError, AttributeError):
+                pass
+        if result_in.get("outcome") in {
+            "deleted",
+            "already_absent",
+            "missing",
+            "changed",
+            "failed",
+            "unknown",
+            "cancelled",
+        }:
+            payload["outcome"] = result_in["outcome"]
+        for key in ("delete_started", "absence_proven", "physical_settled"):
+            if type(result_in.get(key)) is bool:
+                payload[key] = result_in[key]
+        return payload
     if job.kind == "storage_migration_copy":
         from app.schemas.storage_migration_copy import StorageMigrationCopyCounts
 

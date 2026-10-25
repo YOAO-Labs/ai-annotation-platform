@@ -14,6 +14,7 @@ from jose import jwt, JWTError
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import DBAPIError
 
 from app.config import settings
 from app.db.models.async_job import AsyncJob
@@ -118,17 +119,34 @@ async def _target(db, context):
         or not creation.get("readback_at")
     ):
         blockers.append("reclaim_creation_unproven")
-    if not isinstance(version, str) or not version or version == "null":
+    if (
+        not isinstance(version, str)
+        or not version
+        or version == "null"
+        or len(version) > 1024
+        or any(ord(c) < 32 or ord(c) == 127 for c in version)
+    ):
         blockers.append("reclaim_immutable_version_required")
-    receipt = creation.get("receipt") or {}
-    verification = creation.get("verification") or {}
+    receipt = (
+        creation.get("receipt") if isinstance(creation.get("receipt"), dict) else {}
+    )
+    verification = (
+        creation.get("verification")
+        if isinstance(creation.get("verification"), dict)
+        else {}
+    )
+    response = (
+        receipt.get("response") if isinstance(receipt.get("response"), dict) else {}
+    )
+    metadata = (
+        response.get("ResponseMetadata")
+        if isinstance(response.get("ResponseMetadata"), dict)
+        else {}
+    )
     if (
         receipt.get("version_id") != version
-        or (receipt.get("response") or {}).get("VersionId") != version
-        or (receipt.get("response") or {})
-        .get("ResponseMetadata", {})
-        .get("HTTPStatusCode")
-        != 200
+        or response.get("VersionId") != version
+        or metadata.get("HTTPStatusCode") != 200
         or verification.get("sha256") != sha
         or verification.get("size_bytes") != size
     ):
@@ -192,8 +210,13 @@ async def _gate(db, location_id, *, lock=False):
     statement = select(Gate).where(Gate.location_id == uuid.UUID(str(location_id)))
     if lock:
         statement = statement.with_for_update(read=True, nowait=True)
-    row = await db.scalar(statement.execution_options(populate_existing=True))
-    return row
+    try:
+        async with db.begin_nested():
+            return await db.scalar(statement.execution_options(populate_existing=True))
+    except DBAPIError as exc:
+        if storage_access.unavailable(exc):
+            reject("reclaim_busy")
+        raise
 
 
 async def context(
@@ -220,6 +243,12 @@ async def context(
             )
             .execution_options(populate_existing=True)
         )
+        if claim and (
+            claim.creation_id != uuid.UUID(target["creation_id"])
+            or claim.version_id != target["version_id"]
+            or claim.storage_identity != target["storage_identity"]
+        ):
+            blockers.append("reclaim_claim_changed")
         allowed_attempt = current_attempt.id if current_attempt else retry_of_id
         if claim and claim.state != "released":
             if claim.state == "deleted":
@@ -573,7 +602,7 @@ async def _finish(db, row, claim, job, *, status, outcome, error_code=None):
     elif row.physical_settled and claim.state != "tombstone":
         claim.state = "released"
     claim.revision += 1
-    if job:
+    if job and job.kind == KIND and job.celery_task_id == row.task_id:
         job.status = "failed" if status == "unknown" else status
         job.completed_at, job.error_message = row.completed_at, error_code
         job.progress_pct = 100 if status == "completed" else job.progress_pct
@@ -599,7 +628,11 @@ async def cancel(db, job_id):
     if not job_matches(row, job):
         reject("reclaim_job_unavailable")
     row.cancel_requested_at = row.cancel_requested_at or now()
-    if row.status == "pending":
+    if row.status == "pending" or (
+        row.operation_id is None
+        and row.physical_settled
+        and row.delete_intent_at is None
+    ):
         await _finish(db, row, claim, job, status="cancelled", outcome="cancelled")
         return "cancelled"
     await jobs.request_cancel(db, job.id)
@@ -702,7 +735,9 @@ async def io_options(db, row):
         bind=storage_access.engine(db), expire_on_commit=False
     ) as owned:
         target = await dataset_storage.target_for_ref(owned, row.target["saved_ref"])
-    return {"client_context": partial(target.client, single_attempt=True)}
+    return {
+        "client_context": partial(target.client, single_attempt=True, read_timeout=2)
+    }
 
 
 async def recover_may_delete(db, row):
@@ -878,7 +913,11 @@ async def signal_interrupted(db, job_id, task_id, *, cancelled):
     if row.task_id != task_id or row.status not in ACTIVE:
         return False
     row, physical, job = await locked(db, row)
-    if row.status == "pending":
+    if row.status == "pending" or (
+        row.operation_id is None
+        and row.physical_settled
+        and row.delete_intent_at is None
+    ):
         if cancelled:
             row.cancel_requested_at = row.cancel_requested_at or now()
         return await _finish(
@@ -925,12 +964,15 @@ async def start_reconciliation(db, actor=None, *, api_key_id=None):
     if row.status in ACTIVE:
         job = await db.get(AsyncJob, row.async_job_id) if row.async_job_id else None
         if (
-            job is None
-            or job.celery_task_id != row.task_id
-            or job.kind != REFERENCE_KIND
+            job is not None
+            and job.celery_task_id == row.task_id
+            and job.kind == REFERENCE_KIND
+            and job.status in ACTIVE
         ):
-            reject("reference_reconciliation_unsettled")
-        return job
+            return job
+        # This owner only observes a DB snapshot. A known terminal/missing Job
+        # cannot retain a physical responsibility or prevent the next audit.
+        row.status, row.error_code = "failed", "reference_reconciliation_interrupted"
     task_id = str(uuid.uuid4())
     job = await jobs.create_job(
         db,
@@ -958,6 +1000,22 @@ async def start_reconciliation(db, actor=None, *, api_key_id=None):
 
 
 async def reconcile(db, job_id, task_id):
+    # Match the normal User/Key -> owner/Job lock order. A read-only audit has
+    # no physical work to preserve when its current requester loses authority.
+    initial = await db.get(AsyncJob, job_id, populate_existing=True)
+    authority_failure = False
+    initial_payload = dict(initial.payload) if initial else {}
+    if initial and initial.user_id is not None:
+        try:
+            actor = await db.get(User, initial.user_id, populate_existing=True)
+            proof = initial_payload.get("authority") or {}
+            if actor is None:
+                reject("reclaim_authority_changed", 403)
+            _, current = await authority(db, actor, proof.get("api_key_id"), lock=True)
+            if current != proof.get("key_proof"):
+                reject("reclaim_authority_changed", 403)
+        except HTTPException:
+            authority_failure = True
     row = await db.scalar(
         select(Reconciliation)
         .where(Reconciliation.id == 1)
@@ -976,24 +1034,15 @@ async def reconcile(db, job_id, task_id):
         or job.status != "pending"
     ):
         return False
-    if job.user_id is not None:
-        try:
-            actor = await db.get(User, job.user_id, populate_existing=True)
-            proof = (job.payload or {}).get("authority") or {}
-            if actor is None:
-                reject("reclaim_authority_changed", 403)
-            _, current = await authority(db, actor, proof.get("api_key_id"), lock=True)
-            if current != proof.get("key_proof"):
-                reject("reclaim_authority_changed", 403)
-        except HTTPException:
-            row.status, row.error_code = "failed", "reclaim_authority_changed"
-            job.status, job.error_message, job.completed_at = (
-                "failed",
-                row.error_code,
-                now(),
-            )
-            await db.commit()
-            return True
+    if authority_failure or job.payload != initial_payload:
+        row.status, row.error_code = "failed", "reclaim_authority_changed"
+        job.status, job.error_message, job.completed_at = (
+            "failed",
+            row.error_code,
+            now(),
+        )
+        await db.commit()
+        return True
     row.status, job.status, job.started_at = "running", "running", now()
     await db.commit()
     from app.services.managed_original_reclamation import reconciliation_observe
@@ -1011,7 +1060,15 @@ async def reconcile(db, job_id, task_id):
         .execution_options(populate_existing=True)
     )
     job = await jobs.lock_job(db, job_id)
-    if row.async_job_id != job_id or row.task_id != task_id or row.status != "running":
+    if (
+        row.async_job_id != job_id
+        or row.task_id != task_id
+        or row.status != "running"
+        or job is None
+        or job.status != "running"
+        or job.kind != REFERENCE_KIND
+        or job.celery_task_id != task_id
+    ):
         return False
     if value is not None:
         counts = {

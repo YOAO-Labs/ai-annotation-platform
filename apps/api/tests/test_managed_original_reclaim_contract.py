@@ -18,8 +18,9 @@ from app.schemas.managed_original_reclaim import (
 
 
 def test_review_is_explicit_and_rejects_unknown_inputs():
-    with pytest.raises(ValidationError):
-        ManagedOriginalReclaimReview(reason="short")
+    for reason in ("short", "        ", "review\nreason"):
+        with pytest.raises(ValidationError):
+            ManagedOriginalReclaimReview(reason=reason)
     with pytest.raises(ValidationError):
         ManagedOriginalReclaimReview(reason="explicit reason", bucket="not public")
     value = ManagedOriginalReclaimApply(
