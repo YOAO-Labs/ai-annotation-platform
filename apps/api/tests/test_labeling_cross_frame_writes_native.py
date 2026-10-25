@@ -121,7 +121,10 @@ async def test_function_only_cross_frame_owner_fences_versions_and_uses_outer_tr
             "labeling_cross_frame_client"
         )
         await verify_function_only_role(
-            connection, schema="aap_labeling_v1", functions=_FUNCTIONS
+            connection,
+            schema="aap_labeling_v1",
+            functions=_FUNCTIONS,
+            role="labeling_cross_frame_client",
         )
         with pytest.raises(asyncpg.InsufficientPrivilegeError):
             await connection.fetchval("SELECT id FROM public.annotations LIMIT 1")

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import uuid
 
 import numpy as np
-from sqlalchemy import select, update
+from sqlalchemy import event, select, update
 
 from app.application.quality_execution import execute_point_cloud_quality
 from app.db.models.annotation import Annotation
@@ -277,17 +277,31 @@ async def test_issue_status_filter_refreshes_stale_rows_before_pagination(
     db_session.add_all([stale_first, valid_second])
     await db_session.flush()
 
-    rows, total = await list_issues(
-        db_session,
-        project_id=project.id,
-        status="open",
-        limit=1,
-        offset=0,
-    )
+    statements = []
+
+    def record_statement(_connection, _cursor, statement, _parameters, _context, _many):
+        statements.append(statement.lower().lstrip())
+
+    engine = db_session.bind.sync_engine
+    event.listen(engine, "before_cursor_execute", record_statement)
+    try:
+        rows, total = await list_issues(
+            db_session,
+            project_id=project.id,
+            status="open",
+            limit=1,
+            offset=0,
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", record_statement)
 
     assert [row.id for row in rows] == [valid_second.id]
     assert total == 1
     assert stale_first.status == "stale"
+    assert not any(
+        statement.startswith("update point_cloud_quality_issues")
+        for statement in statements
+    )
 
 
 async def test_quality_run_singleflight_and_worker_track_findings(

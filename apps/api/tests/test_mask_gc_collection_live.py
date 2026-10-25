@@ -45,6 +45,13 @@ async def _inventory(test_engine, *, retained=2, orphans=7):
     prefix = uuid4().hex[:16]
     digests = [prefix + f"{index:048x}" for index in range(retained + orphans)]
     keys = [f"raster-masks/sha256/{d[:2]}/{d[2:4]}/{d}.json" for d in digests]
+    existing_keys = {
+        obj["Key"]
+        for page in s3.get_paginator("list_objects_v2").paginate(
+            Bucket=bucket, Prefix="raster-masks/sha256/"
+        )
+        for obj in page.get("Contents", [])
+    }
     try:
 
         def publish(key):
@@ -118,6 +125,7 @@ async def _inventory(test_engine, *, retained=2, orphans=7):
             "maker": maker,
             "retained": keys[:retained],
             "orphans": keys[retained:],
+            "scan_count": len(existing_keys | set(keys)),
         }
     finally:
         async with maker.begin() as db:
@@ -190,7 +198,7 @@ async def test_business_collector_previews_without_mutation_and_reconciles_bound
         preview = await collection.collect_raster_masks(
             world["maker"], c.RunRequest(dry_run=True)
         )
-        assert preview.scan_complete is True and preview.scanned == 9
+        assert preview.scan_complete is True and preview.scanned == world["scan_count"]
         assert preview.eligible == 0 and preview.referenced >= 2
         async with world["maker"]() as db:
             assert await _snapshot(db) == before

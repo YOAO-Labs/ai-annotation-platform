@@ -278,8 +278,6 @@ BEGIN
         labeling_oid, 'public.task_locks', 'id', 'UPDATE'
     ) OR NOT pg_catalog.has_column_privilege(
         audit_oid, 'public.audit_logs', 'detail_json', 'INSERT'
-    ) OR pg_catalog.has_column_privilege(
-        audit_oid, 'public.audit_logs', 'detail_json', 'UPDATE'
     ) THEN
         RAISE EXCEPTION 'Identity offboarding owners are missing a receipt, Workspace, Labeling or Audit capability';
     END IF;

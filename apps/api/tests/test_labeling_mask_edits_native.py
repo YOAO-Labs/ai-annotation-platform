@@ -12,10 +12,10 @@ from sqlalchemy import delete, select
 
 from aap_labeling.ai_mask_accept_contract import (
     AI_MASK_ACCEPT_PROTOCOL,
-    AiMaskAcceptDataClient,
     RecordAiMaskDecision,
     RefineAiMaskAnnotation,
 )
+from aap_labeling.ai_mask_accept_data import AiMaskAcceptDataClient
 from aap_labeling.mask_edit_contract import (
     MASK_EDIT_PROTOCOL,
     ApplyMaskMutations,
@@ -24,20 +24,20 @@ from aap_labeling.mask_edit_contract import (
     CountUnlinkedMaskUploads,
     FindOperation,
     LockRasterMaskUploadTask,
-    MaskEditDataClient,
     ReadMaskUploadKeys,
     ReadMaskVideoSegments,
     ReserveRasterMaskUpload,
     UpdateMaskAnnotation,
     WriteAnnotationOperation,
 )
+from aap_labeling.mask_edit_data import MaskEditDataClient
 from aap_labeling.mask_revision_contract import (
     MASK_REVISION_PROTOCOL,
-    MaskRevisionDataClient,
     MaskRevisionReference,
     ProtectMaskRevisions,
     ResolveMaskRevisions,
 )
+from aap_labeling.mask_revision_data import MaskRevisionDataClient
 from aap_owner_data.postgres import verify_function_only_role
 from app.db.models.ai_mask_accept_decision import AiMaskAcceptDecision
 from app.db.models.annotation import Annotation
@@ -362,11 +362,15 @@ async def test_mask_edit_and_acceptance_owners_share_transaction_and_hide_privat
         )
         assert [row.segment_index for row in locked_segment.segments] == [1]
         with pytest.raises(asyncpg.InsufficientPrivilegeError):
-            await connection.fetch(
-                "SELECT locked_at FROM public.video_segments LIMIT 1"
-            )
+            async with connection.transaction():
+                await connection.fetch(
+                    "SELECT locked_at FROM public.video_segments LIMIT 1"
+                )
         with pytest.raises(asyncpg.InsufficientPrivilegeError):
-            await connection.fetch("SELECT id FROM public.raster_mask_uploads LIMIT 1")
+            async with connection.transaction():
+                await connection.fetch(
+                    "SELECT id FROM public.raster_mask_uploads LIMIT 1"
+                )
         polygon_write = await edits.command(
             ApplyPolygonSlice(
                 schema=MASK_EDIT_PROTOCOL,
@@ -500,15 +504,18 @@ async def test_mask_edit_and_acceptance_owners_share_transaction_and_hide_privat
             )
         )
         with pytest.raises(asyncpg.InsufficientPrivilegeError):
-            await connection.fetch("SELECT id FROM public.annotations LIMIT 1")
+            async with connection.transaction():
+                await connection.fetch("SELECT id FROM public.annotations LIMIT 1")
         with pytest.raises(asyncpg.InsufficientPrivilegeError):
-            await connection.fetch(
-                "SELECT id FROM public.annotation_operations LIMIT 1"
-            )
+            async with connection.transaction():
+                await connection.fetch(
+                    "SELECT id FROM public.annotation_operations LIMIT 1"
+                )
         with pytest.raises(asyncpg.InsufficientPrivilegeError):
-            await connection.fetch(
-                "SELECT id FROM public.ai_mask_accept_decisions LIMIT 1"
-            )
+            async with connection.transaction():
+                await connection.fetch(
+                    "SELECT id FROM public.ai_mask_accept_decisions LIMIT 1"
+                )
         await transaction.rollback()
         transaction = None
 

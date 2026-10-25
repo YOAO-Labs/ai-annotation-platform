@@ -121,7 +121,10 @@ async def test_video_bbox_owner_is_transactional_and_fences_sources(test_engine)
             == "labeling_editing_client"
         )
         await verify_function_only_role(
-            connection, schema="aap_labeling_v1", functions=_FUNCTIONS
+            connection,
+            schema="aap_labeling_v1",
+            functions=_FUNCTIONS,
+            role="labeling_editing_client",
         )
         with pytest.raises(asyncpg.InsufficientPrivilegeError):
             await connection.fetch("SELECT id FROM public.annotations LIMIT 1")
@@ -133,12 +136,16 @@ async def test_video_bbox_owner_is_transactional_and_fences_sources(test_engine)
             )
 
         client = VideoBBoxEditingDataClient(execute)
-        async with connection.transaction():
+        rollback_transaction = connection.transaction()
+        await rollback_transaction.start()
+        try:
             rolled_back = await client.command(command)
             assert len(rolled_back.created_annotation_ids) == 1
             assert set(rolled_back.deleted_annotation_ids) == {
                 source.id for source in sources
             }
+        finally:
+            await rollback_transaction.rollback()
 
         async with maker() as db:
             for source in sources:

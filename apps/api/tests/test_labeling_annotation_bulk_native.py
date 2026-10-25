@@ -108,6 +108,7 @@ async def test_function_only_bulk_edit_preserves_transaction_and_attribute_evide
             connection,
             schema="aap_labeling_v1",
             functions=_EDITING_FUNCTIONS,
+            role="labeling_editing_client",
         )
         with pytest.raises(asyncpg.InsufficientPrivilegeError):
             await connection.fetch("SELECT id FROM public.annotations LIMIT 1")

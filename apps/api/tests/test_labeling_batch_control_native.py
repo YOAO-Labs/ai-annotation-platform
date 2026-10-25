@@ -99,19 +99,13 @@ async def test_batch_cleanup_preserves_json_null_and_caller_transaction(test_eng
         rolled_back = await data.command(request)
         assert rolled_back.tasks_reset == 1
         assert rolled_back.task_ids == [task_id]
-        assert (
-            await connection.fetchval(
-                "SELECT jsonb_typeof(review_contributor_ids) FROM public.tasks WHERE id=$1",
-                task_id,
-            )
-            == "null"
-        )
-        assert (
-            await connection.fetchval(
-                "SELECT count(*) FROM public.task_locks WHERE task_id=$1", task_id
-            )
-            == 0
-        )
+        for statement in (
+            "SELECT jsonb_typeof(review_contributor_ids) FROM public.tasks WHERE id=$1",
+            "SELECT count(*) FROM public.task_locks WHERE task_id=$1",
+        ):
+            with pytest.raises(asyncpg.InsufficientPrivilegeError):
+                async with connection.transaction():
+                    await connection.fetchval(statement, task_id)
         await transaction.rollback()
 
         async with maker() as db:

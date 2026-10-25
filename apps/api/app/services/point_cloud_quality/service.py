@@ -8,6 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
+from sqlalchemy.orm.attributes import set_committed_value
+from sqlalchemy.orm.util import identity_key
 
 from app.db.models.async_job import AsyncJob, AsyncJobKind
 from app.db.models.point_cloud_quality import (
@@ -746,9 +748,6 @@ async def refresh_issue_staleness_bulk(
             stale = track is None or track.revision != issue.track_revision
         if stale and issue.status != "stale":
             stale_issue_ids.append(issue.id)
-            issue.status = "stale"
-            issue.resolved_at = None
-            issue.resolved_by_id = None
         result[issue.id] = stale
     if stale_issue_ids:
         await spatial_quality_data(
@@ -756,6 +755,17 @@ async def refresh_issue_staleness_bulk(
             "mark_point_issues_stale",
             stale_issue_ids=sorted(stale_issue_ids, key=str),
         )
+        stale_ids = set(stale_issue_ids)
+        for issue in issues:
+            if issue.id not in stale_ids:
+                continue
+            cached = db.identity_map.get(identity_key(PointCloudQualityIssue, issue.id))
+            # Update cached identities after the owner write without ORM UPDATEs.
+            for target in (issue, cached):
+                if target is not None:
+                    set_committed_value(target, "status", "stale")
+                    set_committed_value(target, "resolved_at", None)
+                    set_committed_value(target, "resolved_by_id", None)
     return result
 
 

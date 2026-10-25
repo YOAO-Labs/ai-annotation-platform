@@ -338,8 +338,8 @@ BEGIN
         IF (v_protect_task_work AND (v_expected_non_pending IS NULL OR v_expected_predicted IS NULL))
            OR (NOT v_protect_task_work AND
                (v_expected_non_pending IS NOT NULL OR v_expected_predicted IS NOT NULL))
-           OR COALESCE(v_expected_non_pending,-1)<0
-           OR COALESCE(v_expected_predicted,-1)<0 THEN
+           OR COALESCE(v_expected_non_pending,0)<0
+           OR COALESCE(v_expected_predicted,0)<0 THEN
             RAISE EXCEPTION 'Invalid Labeling batch-cleanup protection scope' USING ERRCODE = '22023';
         END IF;
         SELECT COALESCE(array_agg(value::uuid), ARRAY[]::uuid[])

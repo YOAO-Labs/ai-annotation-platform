@@ -2234,7 +2234,7 @@
       "title": "Request"
     },
     "schema": {
-      "const": "aap-labeling-batch-control/v1",
+      "const": "aap-labeling-batch-control-data/v1",
       "title": "Schema",
       "type": "string"
     }

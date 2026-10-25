@@ -8584,7 +8584,6 @@ SELECT pg_catalog.jsonb_build_object(
             str(ROOT / "apps/api"),
             "-q",
             "--tb=short",
-            "--maxfail=3",
             f"--junitxml={junit}",
             *test_files,
         ]

@@ -76,6 +76,7 @@ async def test_function_only_task_lock_client_keeps_scope_locks_in_caller_transa
                 first,
                 schema="aap_labeling_v1",
                 functions=_TASK_LOCK_FUNCTIONS,
+                role="labeling_task_control_client",
             )
             with pytest.raises(asyncpg.InsufficientPrivilegeError):
                 await first.fetchval("SELECT id FROM public.task_locks LIMIT 1")

@@ -106,6 +106,7 @@ async def test_function_only_statistics_recompute_preserves_caller_transaction(
                 connection,
                 schema="aap_labeling_v1",
                 functions=_ANNOTATION_WRITE_FUNCTIONS,
+                role="labeling_annotation_write_client",
             )
             for statement in (
                 "SELECT id FROM public.annotations LIMIT 1",

@@ -413,7 +413,7 @@ class BatchControlError(_ClosedModel):
 
 
 class BatchControlReply(_ClosedModel):
-    protocol: Literal["aap-labeling-batch-control/v1"] = Field(alias="schema")
+    protocol: Literal["aap-labeling-batch-control-data/v1"] = Field(alias="schema")
     ok: StrictBool
     request: BatchControlCommand
     data: BatchControlResult | None = None

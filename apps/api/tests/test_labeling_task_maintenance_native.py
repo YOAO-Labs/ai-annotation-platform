@@ -39,6 +39,7 @@ async def test_source_less_cleanup_uses_labeling_owner_and_preserves_uow(test_en
                     review_tasks=2,
                 )
             )
+            await db.flush()
             db.add(
                 Task(
                     id=task_id,
@@ -61,7 +62,8 @@ async def test_source_less_cleanup_uses_labeling_owner_and_preserves_uow(test_en
 
         try:
             async with api.begin() as db:
-                engine = db.sync_session.connection().engine
+                connection = await db.connection()
+                engine = connection.sync_connection.engine
                 event.listen(engine, "before_cursor_execute", capture)
                 listener_installed = True
                 assert (

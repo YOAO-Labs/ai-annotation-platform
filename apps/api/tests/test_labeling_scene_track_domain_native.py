@@ -134,7 +134,10 @@ async def test_reclassification_updates_camera_members_in_the_outer_transaction(
 
         connection = await asyncpg.connect(dsn, timeout=5, command_timeout=10)
         await verify_function_only_role(
-            connection, schema="aap_labeling_v1", functions=_FUNCTIONS
+            connection,
+            schema="aap_labeling_v1",
+            functions=_FUNCTIONS,
+            role="labeling_annotation_write_client",
         )
         with pytest.raises(asyncpg.InsufficientPrivilegeError):
             await connection.fetchval(
