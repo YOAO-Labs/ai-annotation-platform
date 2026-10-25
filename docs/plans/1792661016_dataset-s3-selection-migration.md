@@ -2,6 +2,25 @@
 
 > 状态：源端清单、已保存定位目录及本地初次复制分项已验证；B3已补齐当前九用途的27类定位目录并通过0254真实只读DB验收。E09-B17已复用同一核心接通配置源清单后台任务与控制台报告，见[交付结果](archive/1792661016_dataset-storage-console-boundaries.md#e09-b17-outcome配置源迁移清单任务)。E07-B4／E09-B18已交付应用初次复制、持久检查点、原计划续跑及选择重试，人工0256已更新；详见下方B4结果。锁定双候选本地比较已完成并保留一项实际差异；完整选型、生产迁移、切换与退役仍待各自条件，完整E07活动，不分配发布版本。
 
+## 本轮定稿：E07-B5 后续清单增量追平
+
+2026-10-26基于`9e2c08a65`复核原始§7第6步、S03／AC03、AC05。B4的新清单仍建立独立初次计划，不能复用已复制副本。本片交付当前应用可实施的连续批次、差异和增量复制；最终停写证明、业务位置切换、观察及退役继续按原始后续步骤实施，不以其作为本片前置。
+
+### 冻结合同
+
+1. Copy新增`parent_copy_id`（可空、唯一、自引用RESTRICT）、`generation`（根为1）及`parent_evidence_sha256`。基于已准备、无活动attempt及未收尾访问许可的父批次，原子预留唯一后继并冻结父批次；父批次摘要／检查点仍可读。相同父批次和相同新报告复用同一子批次，不分叉；准备失败沿该子批次重试。不要求父批次已全部复制、报告完整或生产资格齐备，不以TTL推断原执行结束。
+2. `POST /storage/migration-copies/{parent_id}/generations`只接受`{inventory_job_id}`，新报告沿既有认证下载验证，来源范围、目标、九用途处理和预算继承父批次。返回既有`{item,reused}`并派发prepare；审阅后仍显式调用现有run，沿用取消、重投、续跑、单项失败重试与准确版本核验。
+3. Item增加`parent_copy_id`、`generation`、`successor_copy_id`、`parent_evidence_sha256`、`read_only`及`generation_summary`；旧响应默认根批次／非只读。差异计数固定为`reused_objects`、`new_objects`、`mutable_recopies`、`source_identity_conflicts`、`previous_only_objects`、`delete_markers`和`history_records`。复用表示保留原目标创建身份，不冒充本批次已核验。
+4. 核心新增`Checkpoint.evidence_digest()`，按经过校验的meta、排序当前行、历史行和facts产生稳定逻辑摘要，不依赖SQLite文件页布局；API冻结父证据时与Worker准备时核对同一摘要。新增`plan_generation(checkpoint_path, source_report, catalog_path, target, *, parent, parent_evidence_sha256, handling=None, limits=None, checkpoint_hook=None, max_bytes=None, max_rows=None, strict_closure=False)`；`parent`为已打开Checkpoint，返回既有status并附generation_summary。根计划仍写v1，新子批次写可自包含的v2；现有读取／执行／CLI续跑兼容两种格式。
+5. 同端点／桶／键／显式非null版本、SHA／大小／ETag相同，且旧行已有nonce／content或准确回执的对象，保留原`creation_plan_uuid`、目标key、nonce、content和准确VersionId。新批次当前状态统一pending，执行时完整读回旧准确版本再记verified，有回执者源读取／PUT为零；未知ACK继续原身份恢复。旧无物理意图的待复制行可分配新批次目标，不宣称已复制。
+6. 新键／新版本正常复制；null或未固定版本保守重新复制到新目标key。相同显式版本却出现不同摘要／大小／ETag记`source_identity_conflict`，不覆盖旧事实。保留新报告中的`is_latest`及删除标记；旧行未出现在新报告记“本次未观察到”，部分报告不能推导删除。历史创建事实和准确回执在v2有界去重保存，跨三批次不重复膨胀同一身份；当前及历史受原有字节／行数预算约束。
+7. 逐行创建UUID只能取当前计划或已核验父证据中的祖先；保持目标key的受控前缀、创建身份和准确版本校验，不能为复用而放宽任意路径。持久增量恢复冻结新增身份字段。父批次冻结覆盖attempt、重投、claim及实际执行接缝；冻结前必须真实收尾，不丢弃晚到物理回执。子批次计数从pending基线开始，不能把旧成功数当成本批次结果。
+8. UI复用原居中Modal和任务详情：固定父批次／目标／九用途／预算，仅分页选择不同的可下载封存清单；准备后展示差异、父子链接、原批次只读及显式执行。保留URL、分页、返回上下文、撤权与迟到响应隔离，标签和灰色提示在控件外。
+
+### 实施与验证
+
+核心、应用持久责任与Web在基于同一本地HEAD的隔离工作树分工，主树集成后验证。覆盖旧v1、三批次／去重、准确旧版本被新latest遮蔽、零重复PUT、新增和mutable变化、同版本冲突、删除标记／部分报告、未知ACK续做、父子竞态、Job清理后证据及明确权限变化；使用现有一次性PostgreSQL／MinIO／Worker和真实浏览器，不重跑B4所有历史验收，不增加模型、训练测量或其他消费者条件。同步API、用户／迁移文档、SDK分类和CHANGELOG；适用迁移及Worker刷新保留人工3100／8100、原业务和原件。不重建镜像，不改共享配置或分配发布版本。
+
 ## E07-B4 Outcome：应用初次复制与续跑
 
 2026-10-25与E09-B18同次交付，从封存源清单生成配对目录和耐久计划，明确审阅后执行初次复制；重投／取消、原计划续跑、单项失败重试、准确版本核验及同主机进程结束证明后的恢复均已接通。123项后端、113项CLI、189项Web与四项SDK合同及真实PG／MinIO／Worker、完整UI链路通过；预算停止和未知覆盖保持准确表达。人工0256、原业务／对象／文件保持及资源清理详见[E09-B18 Outcome](archive/1792661016_dataset-storage-console-boundaries.md#e09-b18-outcome应用初次复制与续跑)。本片完成原始S03／AC03的应用接线；完整选型、增量追平／最终停写、切换／回滚与物理退役仍按原始故事推进，不宣称生产迁移已完成。
