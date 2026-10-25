@@ -12,14 +12,16 @@ from sqlalchemy import (
     Integer,
     String,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.db.models.mask_format_upload import mask_staging_ref_check
 
 
-PREDICTION_INPUT_REF_CHECK = r"""
+_LEGACY_PREDICTION_INPUT_REF_CHECK = r"""
 COALESCE((jsonb_typeof(storage_ref)='object'
     AND storage_ref ?& ARRAY['schema','purpose','location_id','config_revision','binding_generation','endpoint_url','bucket','key_prefix','storage_identity']
     AND storage_ref - ARRAY['schema','purpose','location_id','config_revision','binding_generation','endpoint_url','bucket','key_prefix','storage_identity']::text[]='{}'::jsonb
@@ -41,6 +43,17 @@ COALESCE((jsonb_typeof(storage_ref)='object'
     AND storage_ref->>'storage_identity' ~ '^[0-9a-f]{64}$'
     AND storage_ref->>'storage_identity'=storage_identity),false)
 """
+
+
+PREDICTION_INPUT_REF_CHECK = (
+    "("
+    + _LEGACY_PREDICTION_INPUT_REF_CHECK
+    + ") OR (storage_ref->'schema'='2'::jsonb AND "
+    + mask_staging_ref_check(
+        "storage_ref", "'prediction-inputs/' || id::text || '/'", "''"
+    )
+    + " AND storage_ref->>'bucket'=bucket AND storage_ref->>'storage_identity'=storage_identity)"
+)
 
 
 class PredictionInputLease(Base):
@@ -65,7 +78,7 @@ class PredictionInputLease(Base):
             name="ck_prediction_input_times",
         ),
         CheckConstraint(
-            "(contract_version=1 AND owner_kind NOT IN ('video_batch_predict','video_prediction_retry','video_predict_test','video_interactive','video_tracker')) OR (contract_version=2 AND owner_kind IN ('batch_predict','prediction_retry','interactive_predict','predict_test','mask_repair','secondary_inference')) OR (contract_version=3 AND owner_kind IN ('video_batch_predict','video_prediction_retry','video_predict_test','video_interactive','video_tracker'))",
+            "(contract_version=1 AND owner_kind NOT IN ('video_batch_predict','video_prediction_retry','video_predict_test','video_interactive','video_tracker')) OR (contract_version=2 AND owner_kind IN ('batch_predict','prediction_retry','interactive_predict','predict_test','mask_repair','secondary_inference','frame_predict','frame_interactive')) OR (contract_version=3 AND owner_kind IN ('video_batch_predict','video_prediction_retry','video_predict_test','video_interactive','video_tracker'))",
             name="ck_prediction_input_owner",
         ),
         CheckConstraint(
@@ -79,6 +92,7 @@ class PredictionInputLease(Base):
             name="ck_prediction_input_documents",
         ),
         Index("ix_prediction_input_cleanup", "next_cleanup_at", "expires_at"),
+        Index("ix_prediction_input_location", text("(storage_ref->>'location_id')")),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
