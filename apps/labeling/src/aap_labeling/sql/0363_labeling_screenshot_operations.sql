@@ -500,7 +500,8 @@ BEGIN
             v_expected_annotation_geometry := pg_catalog.jsonb_build_object(
                 'type','bbox','x',CASE v_id
                     WHEN '7ab27502-a926-51f1-9f95-a02d6ff657d8'::uuid THEN 0.18
-                    WHEN 'e54a4e99-6718-59a6-a18f-80cad0e173d4'::uuid THEN 0.23
+                    -- Preserve the existing Python fixture's 0.18 + 0.05 value.
+                    WHEN 'e54a4e99-6718-59a6-a18f-80cad0e173d4'::uuid THEN 0.22999999999999998
                     WHEN '86a41fa0-c183-5d9d-acd8-9d1ac6d3134b'::uuid THEN 0.28
                 END,
                 'y',0.45,'w',0.24,'h',0.2

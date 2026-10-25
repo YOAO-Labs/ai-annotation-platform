@@ -126,12 +126,16 @@ async def _snapshot(engine):
 async def test_original_workspace_fixture_rows(
     fenced_http, test_engine, kind, record_property
 ):
+    baseline = await _snapshot(test_engine)
     response = await fenced_http.post(
         "/api/v1/__test/seed/" + kind, json={"namespace": NAMESPACE}
     )
     assert response.status_code == 200, response.text
     try:
         state = await _snapshot(test_engine)
+        for group, rows in baseline.items():
+            assert all(row in state[group] for row in rows), group
+            state[group] = [row for row in state[group] if row not in rows]
         if CAPTURE:
             directory = ROOT / ".worktree/workspace-e2e-baseline-cases"
             directory.mkdir(exist_ok=True)
@@ -473,7 +477,7 @@ async def test_lidar_cleanup_propagates_transaction_abort_before_storage(
         sqlstate = "40P01"
 
     async def controlled_abort(self, statement, *args, **kwargs):
-        if str(statement).startswith("DELETE FROM tasks WHERE"):
+        if str(statement) == str(routes._LABELING_FIXTURE_DELETE_SQL):
             raise ControlledAbort("controlled lidar cleanup abort")
         return await original(self, statement, *args, **kwargs)
 

@@ -479,11 +479,11 @@ async def test_scale_profile_is_explicit_and_does_not_expose_private_helpers(
     test_engine,
 ):
     async with _world(test_engine) as (_, consumer, role, _):
-        signature = "aap_workspace_v1.create_scale_seed_project(uuid,text)"
+        workspace_signature = "aap_workspace_v1.create_scale_seed_project(uuid,text)"
         async with consumer() as db:
             assert not await db.scalar(
                 text("SELECT has_function_privilege(current_user,:s,'EXECUTE')"),
-                {"s": signature},
+                {"s": workspace_signature},
             )
             assert not await db.scalar(
                 text(
@@ -500,7 +500,7 @@ async def test_scale_profile_is_explicit_and_does_not_expose_private_helpers(
         assert result.returncode == 0, result.stderr
         async with consumer() as db:
             await _assert_closed(db)
-            for signature in (
+            for labeling_signature in (
                 "aap_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[])",
                 "aap_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid)",
                 "aap_labeling_v1.create_scale_seed_tasks(text,uuid,uuid)",
@@ -510,7 +510,7 @@ async def test_scale_profile_is_explicit_and_does_not_expose_private_helpers(
                     text(
                         "SELECT has_function_privilege(current_user,:signature,'EXECUTE')"
                     ),
-                    {"signature": signature},
+                    {"signature": labeling_signature},
                 )
             for relation in (
                 "public.tasks",
@@ -556,7 +556,7 @@ async def test_scale_profile_is_explicit_and_does_not_expose_private_helpers(
             )
             assert await db.scalar(
                 text("SELECT has_function_privilege(current_user,:s,'EXECUTE')"),
-                {"s": signature},
+                {"s": workspace_signature},
             )
             assert not await db.scalar(
                 text(
@@ -570,7 +570,7 @@ async def test_scale_profile_is_explicit_and_does_not_expose_private_helpers(
         async with consumer() as db:
             assert not await db.scalar(
                 text("SELECT has_function_privilege(current_user,:s,'EXECUTE')"),
-                {"s": signature},
+                {"s": workspace_signature},
             )
             assert not await db.scalar(
                 text(
