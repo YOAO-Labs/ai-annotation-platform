@@ -11,9 +11,9 @@
 
 沿已有SDK managed upload保留64GiB上限、默认分段阈值／并发、重试、上传参数、业务授权、缓存／发布、期限和原清理行为。不为记账强制条件写能力，不用单PUT替换大文件上传，也不改全局共享client或增加部署条件。记账使用所属独占client及[Boto3公开事件](https://docs.aws.amazon.com/boto3/latest/guide/events.html)旁路捕获实际提交／返回；读取和普通签名继续原工厂。缺少版本、历史读取权限或观测不完整时保留unknown，原本成功的ZIP仍成功。
 
-新增生产者`export_zip_outputs`，owner为ExportOutput.id，分类temporary，复用现有Recorder和Mutation表。进入managed-upload调用前先独立短事务保存兜底意图，覆盖在Complete前失败或未触发事件的上传；首次实际PutObject／CompleteMultipart发送复用该意图，后续实际wire重试分别登记，最终ACK只对应最后一次实际发送，早期丢ACK不被后来的成功或412解释。before-send回调只返回None，不修改请求；用前置参数事件核对冻结Bucket／Key，不解析签名URL，不在线程共享Session或创建跨循环Engine。
+新增生产者`export_zip_outputs`，owner为ExportOutput.id，分类temporary，复用现有Recorder和Mutation表。每次managed-upload调用前独立短事务保存一个意图及观测窗口，覆盖在Complete前失败或未触发事件的上传；公开事件只观察PutObject／CompleteMultipart真实发送次数及最终ACK，不改SDK重试。恰好一次实际final发送且有明确ACK时才可确认；多次发送、丢ACK或不透明上传路径一律unknown，不让后来的成功或412解释早期不明提交。原始Epic不要求逐wire账目，不新增这一协议。before-send回调只返回None，不修改请求；用前置参数事件核对冻结Bucket／Key，不解析签名URL，不在线程共享Session或创建跨循环Engine。
 
-每次实际提交前及完整读回后，用HEAD→有界完整[ListObjectVersions](https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectVersions.html)→HEAD保存同一准确key的当前状态与版本／marker集合。两个HEAD和LIST唯一IsLatest必须一致；不存在／marker状态亦须互相印证，不能从单独404推断新建。集合的稳定身份排除IsLatest，不按VersionId或时间排序猜先后；有界截断、重复、null或任意观测异常保持未知，不阻断业务。
+单次final提交前及完整读回后，用HEAD→有界完整[ListObjectVersions](https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectVersions.html)→HEAD保存同一准确key的当前状态与版本／marker集合。两个HEAD和LIST唯一IsLatest必须一致；不存在／marker状态亦须互相印证，不能从单独404推断新建。集合的稳定身份排除IsLatest，不按VersionId或时间排序猜先后；有界截断、重复、null或任意观测异常保持未知，不阻断业务。
 
 仅在旧集合无删改、后集合恰好新增本次明确返回版本、全SHA／大小的实际GET响应也是该版本、当前HEAD及所有原生资源均已收尾时，确认`新当前大小－旧当前大小`。首次新增为正，同键等长覆盖为零，可证明缩小为负；这反映当前可见内容字节变化，不是物理版本删除。复用当前业务完整读回，新增观测失败不改变导出结果。ZIP不得先使用共享Attempt.verified自动推断全大小新增，再事后清零；明确净变化须受完整证据门控制。后续业务回滚／授权拒绝不抹去物理事实，发布失败留下pending／unknown，取消先排空再传播。
 
