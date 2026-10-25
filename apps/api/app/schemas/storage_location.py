@@ -273,6 +273,7 @@ class StorageBindingOut(BaseModel):
         "reviewed_bug_attachment_switch",
         "reviewed_audit_archive_switch",
         "reviewed_export_switch",
+        "reviewed_import_switch",
     ]
 
 
@@ -457,6 +458,55 @@ class ExportBindingPreview(BaseModel):
     previous: StorageBindingOut
     target: ExportBindingTarget
     history: ExportBindingHistory
+    capabilities: dict[str, bool]
+    can_apply: bool
+    measured_at: datetime
+    expires_at: datetime
+    impact_token: str
+
+
+class ImportBindingCandidate(BaseModel):
+    location_id: uuid.UUID
+    name: str
+    config_revision: int
+
+
+class ImportBindingCandidates(BaseModel):
+    items: list[ImportBindingCandidate]
+    total: int
+
+
+class ImportBindingChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_generation: int = Field(ge=1)
+    target_location_id: uuid.UUID
+    target_config_revision: int = Field(ge=1)
+
+
+class ImportBindingApply(ImportBindingChange):
+    impact_token: str = Field(min_length=1, max_length=8192)
+
+
+class ImportBindingTarget(ImportBindingCandidate):
+    bucket: str
+    key_prefix: str
+    connection_revision: int | None = None
+
+
+class ImportBindingHistory(BaseModel):
+    lease_active: int
+    lease_cleanup_pending: int
+    lease_deleted: int
+    creation_staging: int
+    mask_uploads: int
+    mask_batches: int
+
+
+class ImportBindingPreview(BaseModel):
+    purpose: Literal["import"] = "import"
+    previous: StorageBindingOut
+    target: ImportBindingTarget
+    history: ImportBindingHistory
     capabilities: dict[str, bool]
     can_apply: bool
     measured_at: datetime
