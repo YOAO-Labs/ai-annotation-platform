@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 
 from sqlalchemy import inspect, text
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import make_transient_to_detached
 from sqlalchemy.orm.util import identity_key
@@ -20,7 +20,9 @@ from aap_labeling.video_control_contract import (
 )
 from aap_labeling.video_control_data import VideoControlDataClient
 from app.db.models.dataset import VideoSegment
+from app.db.models.task import Task
 from app.db.models.video_tracker_job import VideoTrackerJob
+from app.services.labeling_core_read_relations import get_core_row, task_row
 from app.services.labeling_annotation_data import _native_error_fields
 
 
@@ -95,9 +97,24 @@ async def video_control_worker_segment(
     return await db.merge(segment, load=False), data["segment_count"]
 
 
+async def refresh_video_control_task(db: AsyncSession, task: Task) -> Task:
+    identity = inspect(task).identity
+    if identity is None:
+        raise InvalidRequestError("Instance is not persistent within this Session")
+    task_id = identity[0]
+    db.expire(task)
+    if db.autoflush:
+        await db.flush()
+    refreshed = await get_core_row(db, task_row, task_id, populate_existing=True)
+    if refreshed is None:
+        raise InvalidRequestError("Could not refresh instance '<Task>'")
+    return refreshed
+
+
 __all__ = [
     "VideoControlRejected",
     "video_control_command",
     "video_control_job",
     "video_control_worker_segment",
+    "refresh_video_control_task",
 ]

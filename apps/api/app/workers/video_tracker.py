@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.config import settings
 from app.services.project_access import get_workspace_project
-from app.db.models.task import Task
 from app.db.models.video_tracker_job import VideoTrackerJobKind, VideoTrackerJobStatus
 from app.services import async_job as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
@@ -20,6 +19,7 @@ from app.services.video_tracking.execution import (
     fence_tracker_write,
 )
 from app.services.video_tracking.control import video_control_command, video_control_job
+from app.services.labeling_core_read_relations import get_core_row, task_row
 from aap_labeling.video_control_contract import LockWorkerJob, ReadWorkerJob
 from app.services.video_tracking.runner import run_tracker_job
 from app.workers.celery_app import celery_app
@@ -87,7 +87,7 @@ async def _run_video_tracker_job(job_id: str, celery_task_id: str | None) -> Non
             project_id: uuid.UUID | None = None
             tracker_input_ready = None
             if job is not None:
-                task = await db.get(Task, job.task_id)
+                task = await get_core_row(db, task_row, job.task_id)
                 project_id = task.project_id if task else None
                 try:
                     project = (

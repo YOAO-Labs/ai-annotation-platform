@@ -58,6 +58,7 @@ from aap_labeling.video_control_contract import (
 )
 from app.services.annotation_evidence import record_annotation_actors_for_tasks
 from app.services.annotation_propagation import _new_track_id
+from app.services.labeling_core_read_relations import get_core_row, task_row
 from app.services.gpu_arbitration.contracts import (
     GPUDispatchContextFactory,
     GPUShadowSessionFactory,
@@ -106,6 +107,7 @@ from app.services.video_tracking.control import (
     VideoControlRejected,
     video_control_command,
     video_control_job,
+    refresh_video_control_task,
     video_control_worker_segment,
 )
 from app.services.video_tracking.recovery import (
@@ -535,7 +537,7 @@ async def _correction_seed(
         if job.segment_id
         else (None, 0)
     )
-    task = await db.get(Task, job.task_id)
+    task = await get_core_row(db, task_row, job.task_id)
     work_start, work_end = (
         await segment_work_bounds_for_task(
             db,
@@ -1398,20 +1400,27 @@ async def _tracker_work_authorized_and_running(
             except TrackerExecutionBusy:
                 await db.rollback()
                 await asyncio.sleep(0.2)
-        current = await _read_worker_job(db, job_id)
+        current = await video_control_command(
+            db,
+            ReadWorkerJob(
+                schema="aap-labeling-video-control/v1",
+                operation="read_worker_job",
+                job_id=job_id,
+            ),
+        )
         if current is None:
             await db.commit()
             raise TrackerFailure("job_not_active")
-        if current.created_by != actor_id:
+        if current["created_by"] != actor_id:
             await db.commit()
             raise TrackerFailure("permission_denied")
         if (
-            current.status == VideoTrackerJobStatus.CANCELLED.value
-            or current.cancel_requested_at is not None
+            current["status"] == VideoTrackerJobStatus.CANCELLED.value
+            or current["cancel_requested_at"] is not None
         ):
             await db.commit()
             return False
-        if current.status != VideoTrackerJobStatus.RUNNING.value:
+        if current["status"] != VideoTrackerJobStatus.RUNNING.value:
             await db.commit()
             raise TrackerFailure("job_not_active")
         actor = (
@@ -1419,7 +1428,7 @@ async def _tracker_work_authorized_and_running(
             if actor_id is not None
             else None
         )
-        task = await db.get(Task, current.task_id)
+        task = await get_core_row(db, task_row, current["task_id"])
         project = (
             await get_workspace_project(db, project_id=task.project_id)
             if task is not None
@@ -3192,7 +3201,14 @@ async def _get_worker_job(
 async def _refresh_worker_job(
     db: AsyncSession, job: VideoTrackerJob
 ) -> VideoTrackerJob:
-    refreshed = await _read_worker_job(db, job.id)
+    identity = inspect(job).identity
+    if identity is None:
+        raise InvalidRequestError("Instance is not persistent within this Session")
+    job_id = identity[0]
+    db.expire(job)
+    if db.autoflush:
+        await db.flush()
+    refreshed = await _read_worker_job(db, job_id)
     if refreshed is None:
         raise InvalidRequestError(f"Could not refresh instance '{job}'")
     return refreshed
@@ -3275,7 +3291,7 @@ async def run_tracker_job(
                 try:
                     await db.rollback()
                     canonical = await _read_worker_job(db, job_id)
-                except (SQLAlchemyError, OSError):
+                except (SQLAlchemyError, OSError, VideoControlRejected):
                     raise TrackerExecutionDeferred("storage_unavailable") from None
                 if canonical is None or canonical.status not in {
                     "pending_review",
@@ -3298,7 +3314,7 @@ async def run_tracker_job(
         try:
             await db.rollback()
             canonical = await _read_worker_job(db, job_id)
-        except (SQLAlchemyError, OSError):
+        except (SQLAlchemyError, OSError, VideoControlRejected):
             raise TrackerExecutionDeferred("storage_unavailable") from None
         if canonical is not None and canonical.status in {"queued", "running"}:
             # Renewal may have stopped after an ambiguous response or expiry
@@ -3354,7 +3370,7 @@ async def _run_tracker_job_claimed(
         from app.services.project_access import resolve_project_access
 
         actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
-        task = await db.get(Task, task_id)
+        task = await get_core_row(db, task_row, task_id)
         project = (
             await get_workspace_project(db, project_id=task.project_id)
             if task is not None
@@ -3453,7 +3469,7 @@ async def _run_tracker_job_claimed(
         )
         if job.annotation_id and (annotation is None or not annotation.is_active):
             raise ValueError("Annotation not found")
-        task = await db.get(Task, job.task_id)
+        task = await get_core_row(db, task_row, job.task_id)
         if (
             task is None
             or task.project_id != tracker_input_status.project_id
@@ -3508,7 +3524,7 @@ async def _run_tracker_job_claimed(
         is_combo = execution.model_key == "sam3_video_combo"
         frozen_plan = await window_journal.read_plan()
         job = await _refresh_worker_job(db, job)
-        await db.refresh(task)
+        await refresh_video_control_task(db, task)
         frozen_registry_id = (
             frozen_plan.backend_compatibility[0].registry_id
             if frozen_plan is not None
@@ -3901,7 +3917,7 @@ async def _run_tracker_job_claimed(
             ):
                 return False
             await _refresh_worker_job(db, job)
-            await db.refresh(task)
+            await refresh_video_control_task(db, task)
             current_source = await _refresh_tracker_source_reference(
                 tracker_input_gateway,
                 tracker_input_status,

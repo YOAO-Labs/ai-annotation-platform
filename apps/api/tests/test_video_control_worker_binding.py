@@ -16,7 +16,9 @@ from aap_labeling.video_control_contract import (
     StartWorkerJob,
 )
 from app.db.models.dataset import VideoSegment
+from app.db.models.task import Task
 from app.db.models.video_tracker_job import VideoTrackerJob
+from app.services import labeling_core_read_relations
 from app.services.video_tracking import control
 from app.services.video_tracking import runner
 
@@ -109,17 +111,112 @@ async def test_worker_job_commands_refresh_a_session_bound_identity(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_worker_refresh_missing_row_keeps_refresh_error(monkeypatch):
+@pytest.mark.parametrize("autoflush", [True, False])
+async def test_worker_refresh_expires_target_before_autoflush_and_owner_read(
+    monkeypatch, autoflush
+):
+    job_id = uuid.uuid4()
+    row = _job_row(job_id)
+    job = VideoTrackerJob(**row)
+    make_transient_to_detached(job)
+    session = AsyncSession(autoflush=autoflush)
+    loaded = await session.merge(job, load=False)
+    loaded.status = "local-edit"
+    original_expire = session.expire
+    original_expire(loaded, ["id"])
+    events = []
+
+    def expire(instance, attribute_names=None):
+        events.append("expire")
+        return original_expire(instance, attribute_names)
+
+    async def flush():
+        events.append("flush")
+        assert not inspect(loaded).attrs.status.history.has_changes()
+
+    async def owner_read(_db, request):
+        events.append("read")
+        assert isinstance(request, ReadWorkerJob)
+        assert request.job_id == job_id
+        refreshed = VideoTrackerJob(**{**row, "status": "running"})
+        make_transient_to_detached(refreshed)
+        return await session.merge(refreshed, load=False)
+
+    monkeypatch.setattr(session, "expire", expire)
+    monkeypatch.setattr(session, "flush", flush)
+    monkeypatch.setattr(runner, "video_control_job", owner_read)
+    refreshed = await runner._refresh_worker_job(session, loaded)
+    assert refreshed is loaded
+    assert refreshed.status == "running"
+    assert events == (["expire", "flush", "read"] if autoflush else ["expire", "read"])
+
     async def missing(_db, _request):
         return None
 
     monkeypatch.setattr(runner, "video_control_job", missing)
-    session = AsyncSession()
-    job = VideoTrackerJob(**_job_row(uuid.uuid4()))
-    make_transient_to_detached(job)
-    loaded = await session.merge(job, load=False)
     with pytest.raises(InvalidRequestError, match="Could not refresh instance"):
         await runner._refresh_worker_job(session, loaded)
+    await session.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("autoflush", [True, False])
+async def test_task_refresh_expires_before_0352_autoflush_and_read(
+    monkeypatch, autoflush
+):
+    task_id = uuid.uuid4()
+    task_fields = {
+        "id": task_id,
+        "project_id": uuid.uuid4(),
+        "dataset_item_id": uuid.uuid4(),
+        "display_id": f"T-{task_id.hex[:12]}",
+        "file_name": "clip.mp4",
+        "file_path": "clip.mp4",
+        "file_type": "video",
+        "status": "in_progress",
+    }
+    task = Task(**task_fields)
+    make_transient_to_detached(task)
+    session = AsyncSession(autoflush=autoflush)
+    loaded = await session.merge(task, load=False)
+    loaded.status = "local-edit"
+
+    events = []
+    original_expire = session.expire
+
+    def expire(instance, attribute_names=None):
+        events.append("expire")
+        return original_expire(instance, attribute_names)
+
+    async def flush():
+        events.append("flush")
+        assert not inspect(loaded).attrs.status.history.has_changes()
+
+    async def read_core_row(db, row_model, row_id, *, populate_existing=False):
+        events.append("read")
+        assert row_model is labeling_core_read_relations.task_row
+        assert row_id == task_id
+        assert populate_existing is True
+        refreshed = Task(**{**task_fields, "status": "owner-current"})
+        make_transient_to_detached(refreshed)
+        return await db.merge(refreshed, load=False)
+
+    monkeypatch.setattr(session, "expire", expire)
+    monkeypatch.setattr(session, "flush", flush)
+    monkeypatch.setattr(control, "get_core_row", read_core_row)
+    refreshed = await control.refresh_video_control_task(session, loaded)
+
+    assert refreshed is loaded
+    assert refreshed.status == "owner-current"
+    assert events == (["expire", "flush", "read"] if autoflush else ["expire", "read"])
+
+    async def missing_core_row(_db, _row_model, _row_id, *, populate_existing=False):
+        assert populate_existing is True
+        return None
+
+    monkeypatch.setattr(control, "get_core_row", missing_core_row)
+    with pytest.raises(InvalidRequestError, match="Could not refresh instance"):
+        await control.refresh_video_control_task(session, loaded)
     await session.close()
 
 
