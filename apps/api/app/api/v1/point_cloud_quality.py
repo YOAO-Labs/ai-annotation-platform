@@ -4,7 +4,6 @@ from typing import Literal
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -73,6 +72,8 @@ from app.services.labeling_spatial_quality import (
     spatial_quality_data,
 )
 
+
+from app.services.labeling_core_read_relations import lock_task_for_core_read
 
 router = APIRouter(dependencies=[Depends(require_active_task_actor)])
 
@@ -181,14 +182,9 @@ async def _assert_issue_visible(
 
 async def _lock_task_nowait(db: AsyncSession, task_id: uuid.UUID) -> Task:
     try:
-        task = (
-            await db.execute(
-                select(Task)
-                .where(Task.id == task_id)
-                .with_for_update(nowait=True)
-                .execution_options(populate_existing=True)
-            )
-        ).scalar_one_or_none()
+        task = await lock_task_for_core_read(
+            db, task_id, nowait=True, populate_existing=True
+        )
     except DBAPIError as exc:
         if getattr(exc.orig, "sqlstate", None) in {"55P03", "40P01", "40001"}:
             raise HTTPException(

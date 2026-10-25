@@ -13,7 +13,6 @@ from aap_protocol_v2 import (
     canonical_rle_bytes,
 )
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -91,6 +90,11 @@ from app.observability.metrics import (
     record_mask_ai_operation,
 )
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.labeling_core_read_relations import (
+    get_core_row,
+    lock_task_for_core_read,
+    task_row,
+)
 
 # v0.10.1 · /setup 代理结果的进程内 TTL 缓存. 工作台进入即拉, 避免 N 次 backend 探活.
 # key = backend_id (绑定改动 → 重绑后新 backend_id 自然 invalidate); 30s TTL 兜底.
@@ -150,7 +154,7 @@ async def _reacquire_write_boundary(
             detail="账号已停用，请联系管理员",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    task = await db.get(Task, task_id, populate_existing=True)
+    task = await get_core_row(db, task_row, task_id, populate_existing=True)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     access = await task_access.resolve_task_access(
@@ -164,14 +168,9 @@ async def _reacquire_write_boundary(
 
 async def _lock_task_nowait(db: AsyncSession, task_id: uuid.UUID) -> Task:
     try:
-        task = (
-            await db.execute(
-                select(Task)
-                .where(Task.id == task_id)
-                .with_for_update(nowait=True)
-                .execution_options(populate_existing=True)
-            )
-        ).scalar_one_or_none()
+        task = await lock_task_for_core_read(
+            db, task_id, nowait=True, populate_existing=True
+        )
     except DBAPIError as exc:
         if getattr(exc.orig, "sqlstate", None) in {"55P03", "40P01", "40001"}:
             raise HTTPException(
@@ -1179,7 +1178,7 @@ async def _get_task_in_project(
 ) -> Task:
     """取 task 并校验归属本项目 — 防跨项目越权 (只用主键取任务会让 A 项目成员用 A 的
     backend + B 项目的 task_id 完成推理)。不存在 / 不属于本项目都回 404, 不暴露存在性。"""
-    task = await db.get(Task, task_id)
+    task = await get_core_row(db, task_row, task_id)
     if task is None or task.project_id != project_id:
         raise HTTPException(status_code=404, detail="Task not found")
     return task

@@ -56,6 +56,8 @@ from app.services.video_frame_service import (
 from app.services.video_segment_service import list_segments as list_video_segments
 from app.services.identity_contracts import IdentityActorFacts
 
+from app.services.labeling_core_read_relations import task_row
+
 router = APIRouter(dependencies=[Depends(require_active_task_actor)])
 
 
@@ -81,9 +83,9 @@ async def _visible_video_task_for_item(
 ) -> Task:
     tasks = (
         await db.execute(
-            select(Task).where(
-                Task.dataset_item_id == dataset_item_id,
-                Task.file_type == "video",
+            select(task_row).where(
+                task_row.dataset_item_id == dataset_item_id,
+                task_row.file_type == "video",
             )
         )
     ).scalars()

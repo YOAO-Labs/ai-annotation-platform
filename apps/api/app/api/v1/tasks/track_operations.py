@@ -66,6 +66,8 @@ from app.services.scene_track_command import (
 from app.services.identity_contracts import IdentityActorFacts
 
 
+from app.services.labeling_core_read_relations import task_row
+
 router = APIRouter()
 
 
@@ -275,7 +277,7 @@ async def _task_access_map(
     rows = list(
         (
             await db.execute(
-                select(Task).where(Task.id.in_(task_ids)).order_by(Task.id)
+                select(task_row).where(task_row.id.in_(task_ids)).order_by(task_row.id)
             )
         ).scalars()
     )

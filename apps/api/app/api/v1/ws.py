@@ -22,6 +22,8 @@ from app.services.identity_gateway import get_identity_gateway
 if TYPE_CHECKING:
     from aap_identity.contract import Principal
 
+from app.services.labeling_core_read_relations import get_core_row, task_row
+
 router = APIRouter()
 log = logging.getLogger(__name__)
 
@@ -148,13 +150,12 @@ async def _revalidate_project_access(project_id: uuid.UUID, user_id: str) -> boo
 async def _revalidate_task_visible(task_id: uuid.UUID, user_id: str) -> bool:
     from app.services import task_access
     from app.db.base import async_session
-    from app.db.models.task import Task
 
     user = await _load_active_user(user_id)
     if user is None:
         return False
     async with async_session() as db:
-        task = await db.get(Task, task_id)
+        task = await get_core_row(db, task_row, task_id)
         if task is None:
             return False
         try:
@@ -442,13 +443,16 @@ async def video_tracker_job_socket(
         user_uuid = actor.actor_id
         from app.services import task_access
         from app.db.base import async_session
-        from app.db.models.task import Task
         from app.db.models.video_tracker_job import VideoTrackerJob
 
         async with async_session() as db:
             user = await IdentityAccountLockData(db).read_actor_status(user_uuid)
             job = await db.get(VideoTrackerJob, job_id)
-            task = await db.get(Task, job.task_id) if job is not None else None
+            task = (
+                await get_core_row(db, task_row, job.task_id)
+                if job is not None
+                else None
+            )
             if user is None or not user.is_active or job is None or task is None:
                 raise ValueError("tracker job not visible")
             await task_access.assert_task_visible(db, task, user.id)

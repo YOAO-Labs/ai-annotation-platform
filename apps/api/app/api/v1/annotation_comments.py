@@ -26,7 +26,6 @@ from app.deps import (
     require_active_task_actor,
 )
 from app.db.enums import PlatformRole
-from app.db.models.annotation import Annotation
 from app.db.models.annotation_comment import AnnotationComment
 from app.schemas.annotation_comment import (
     ATTACHMENT_KEY_PREFIX,
@@ -49,6 +48,8 @@ from app.services.task_discussion import (
     require_visible_annotation,
     require_visible_task,
 )
+
+from app.services.labeling_core_read_relations import annotation_row
 
 router = APIRouter(dependencies=[Depends(require_active_task_actor)])
 
@@ -218,9 +219,11 @@ async def list_task_comments_paged(
     q = (
         select(annotation_comment_facts, author.c.name)
         .join(author, author.c.id == annotation_comment_facts.author_id)
-        .join(Annotation, Annotation.id == annotation_comment_facts.annotation_id)
+        .join(
+            annotation_row, annotation_row.id == annotation_comment_facts.annotation_id
+        )
         .where(
-            Annotation.task_id == task_id,
+            annotation_row.task_id == task_id,
             annotation_comment_facts.is_active.is_(True),
         )
     )

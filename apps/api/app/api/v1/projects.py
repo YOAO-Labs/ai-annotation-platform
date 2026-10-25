@@ -50,8 +50,6 @@ from app.services.user_brief import resolve_briefs
 from app.db.models.user import User
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
-from app.db.models.task import Task
-from app.db.models.task_batch import TaskBatch
 from app.db.models.async_job import AsyncJob
 from app.services.jobs_lifecycle_data import job_lock_statement
 from app.schemas.project import (
@@ -111,6 +109,13 @@ from app.services.identity_contracts import IdentityActorFacts
 from app.services.workspace_project_query import execute_project_query
 from aap_workspace_contract.project_query_values import materialize_project_query_data
 from app.services.workspace_directory_query import execute_directory_query
+
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    batch_row,
+    get_core_row,
+    task_row,
+)
 
 router = APIRouter()
 logger = logging.getLogger("app.api.projects")
@@ -1174,9 +1179,9 @@ async def _validate_preannotate_task_scope(
     requested = sorted(set(task_ids), key=str)
     rows = (
         await db.execute(
-            select(Task, TaskBatch)
-            .outerjoin(TaskBatch, TaskBatch.id == Task.batch_id)
-            .where(Task.project_id == project.id, Task.id.in_(requested))
+            select(task_row, batch_row)
+            .outerjoin(batch_row, batch_row.id == task_row.batch_id)
+            .where(task_row.project_id == project.id, task_row.id.in_(requested))
         )
     ).all()
     if len(rows) != len(requested):
@@ -1252,9 +1257,9 @@ async def _validate_workbench_task_scope(
         )
     row = (
         await db.execute(
-            select(Task, TaskBatch)
-            .outerjoin(TaskBatch, TaskBatch.id == Task.batch_id)
-            .where(Task.project_id == project.id, Task.id == requested[0])
+            select(task_row, batch_row)
+            .outerjoin(batch_row, batch_row.id == task_row.batch_id)
+            .where(task_row.project_id == project.id, task_row.id == requested[0])
         )
     ).first()
     if row is None:
@@ -1619,11 +1624,9 @@ async def trigger_preannotation(
     if replay_manifest:
         total_tasks_hint = (existing_job.payload or {}).get("total_tasks")
     elif body.batch_id:
-        from app.db.models.task_batch import TaskBatch
         from app.db.enums import BatchStatus
-        from app.db.models.task import Task as TaskModel
 
-        batch = await db.get(TaskBatch, body.batch_id)
+        batch = await get_core_row(db, batch_row, body.batch_id)
         if not batch or batch.project_id != project.id:
             raise HTTPException(status_code=404, detail="Batch not found")
         # issue #124 · 未分派人员（标注员与质检员）的 draft 批次同样可批量预标,
@@ -1648,19 +1651,19 @@ async def trigger_preannotation(
         if batch.admin_locked:
             raise HTTPException(status_code=409, detail="batch is admin-locked")
         hint_conds = [
-            TaskModel.batch_id == body.batch_id,
-            TaskModel.status == "pending",
+            task_row.batch_id == body.batch_id,
+            task_row.status == "pending",
         ]
         # v0.11.24 · skip_predicted 下进度条分母应排除已预标 task，否则虚高
         if body.predict_mode == "skip_predicted":
-            hint_conds.append(TaskModel.total_predictions == 0)
-        count_q = await db.execute(select(func.count(TaskModel.id)).where(*hint_conds))
+            hint_conds.append(task_row.total_predictions == 0)
+        count_q = await db.execute(select(func.count(task_row.id)).where(*hint_conds))
         total_tasks_hint = int(count_q.scalar_one() or 0)
     elif explicit_task_ids is None:
-        hint_conds = [Task.project_id == project.id, Task.status == "pending"]
+        hint_conds = [task_row.project_id == project.id, task_row.status == "pending"]
         if body.predict_mode == "skip_predicted":
-            hint_conds.append(Task.total_predictions == 0)
-        count_q = await db.execute(select(func.count(Task.id)).where(*hint_conds))
+            hint_conds.append(task_row.total_predictions == 0)
+        count_q = await db.execute(select(func.count(task_row.id)).where(*hint_conds))
         total_tasks_hint = int(count_q.scalar_one() or 0)
 
     # v0.19.5 · 设备感知路由: 全 CPU pipeline → cpu 队列; 任一 GPU/未自报阶段 → gpu(ml) 队列 (零退化)。
@@ -1702,7 +1705,7 @@ async def trigger_preannotation(
         and not has_text_stage
         and body.task not in {"text", "tracker"}
     ):
-        candidate_task = await db.get(Task, explicit_task_ids[0])
+        candidate_task = await get_core_row(db, task_row, explicit_task_ids[0])
         if candidate_task is not None and candidate_task.file_type == "image":
             accepted_input_task_id = candidate_task.id
 
@@ -1718,14 +1721,14 @@ async def trigger_preannotation(
     )
 
     if uses_controlled_model and not replay_manifest:
-        media_scope = [Task.project_id == project.id, Task.file_type != "image"]
+        media_scope = [task_row.project_id == project.id, task_row.file_type != "image"]
         if explicit_task_ids is not None:
-            media_scope.append(Task.id.in_(explicit_task_ids))
+            media_scope.append(task_row.id.in_(explicit_task_ids))
         else:
-            media_scope.append(Task.status == "pending")
+            media_scope.append(task_row.status == "pending")
         if body.batch_id:
-            media_scope.append(Task.batch_id == body.batch_id)
-        if await db.scalar(select(Task.id).where(*media_scope).limit(1)):
+            media_scope.append(task_row.batch_id == body.batch_id)
+        if await db.scalar(select(task_row.id).where(*media_scope).limit(1)):
             raise HTTPException(status_code=422, detail="所选任务包含非图片素材")
 
     async def freeze_controlled_model():
@@ -2284,41 +2287,25 @@ async def preview_orphan_tasks(
     db: AsyncSession = Depends(get_db),
 ):
     """v0.6.7 二修 B-10：预览本项目中「无源 task」（dataset_item_id 为空 / 指向已 unlink 的数据集 / 指向已删除 dataset_item）。"""
-    from sqlalchemy import select, func
-    from app.db.models.task import Task
-    from app.db.models.dataset import DatasetItem
-    from app.db.models.annotation import Annotation
-    from app.db.models.dataset import ProjectDataset
+    from aap_labeling.task_maintenance_contract import ReadSourceLessTaskCandidates
+    from app.services.labeling_task_maintenance import LabelingTaskMaintenanceService
 
-    # 孤儿条件：tasks 不存在仍 link 着的 (dataset_item → dataset → project_datasets)
-    orphan_task_ids = (
-        (
-            await db.execute(
-                select(Task.id).where(
-                    Task.project_id == project.id,
-                    ~Task.id.in_(
-                        select(Task.id)
-                        .join(DatasetItem, DatasetItem.id == Task.dataset_item_id)
-                        .join(
-                            ProjectDataset,
-                            (ProjectDataset.dataset_id == DatasetItem.dataset_id)
-                            & (ProjectDataset.project_id == project.id),
-                        )
-                        .where(Task.project_id == project.id)
-                    ),
-                )
-            )
-        )
-        .scalars()
-        .all()
+    candidates = await LabelingTaskMaintenanceService(db).command(
+        ReadSourceLessTaskCandidates(
+            schema="aap-labeling-task-maintenance/v1",
+            operation="read_source_less_task_candidates",
+            project_id=project.id,
+        ),
+        flush_before=True,
     )
+    orphan_task_ids = candidates.task_ids
     task_count = len(orphan_task_ids)
     ann_count = 0
     if orphan_task_ids:
         ann_count = (
             await db.execute(
-                select(func.count(Annotation.id)).where(
-                    Annotation.task_id.in_(list(orphan_task_ids))
+                select(func.count(annotation_row.id)).where(
+                    annotation_row.task_id.in_(orphan_task_ids)
                 )
             )
         ).scalar() or 0

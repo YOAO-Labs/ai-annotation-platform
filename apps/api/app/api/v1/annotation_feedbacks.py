@@ -27,9 +27,7 @@ from app.deps import (
     require_active_task_actor,
 )
 from app.db.enums import PlatformRole, ProjectRole
-from app.db.models.annotation import Annotation
 from app.db.models.annotation_feedback import AnnotationFeedback
-from app.db.models.task import Task
 from app.schemas.annotation_feedback import (
     AnnotationFeedbackCreate,
     AnnotationFeedbackListPage,
@@ -45,6 +43,12 @@ from app.services.discussion_actions import discussion_actions
 from app.services.feedback import FeedbackService
 from app.services.project_access import resolve_project_access_by_id
 from app.services.user_brief import resolve_briefs
+
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    get_core_row,
+    task_row,
+)
 
 router = APIRouter(dependencies=[Depends(require_active_task_actor)])
 
@@ -150,13 +154,13 @@ async def list_feedbacks(
         db, actor_id=actor_id, project_id=project_id
     )
     if task_id is not None:
-        task = await db.get(Task, task_id)
+        task = await get_core_row(db, task_row, task_id)
         if task is None or task.project_id != project_id:
             raise HTTPException(status_code=404, detail="Task not found")
         await assert_project_visible(task.project_id, db, actor_id)
         await task_access.assert_task_visible(db, task, actor_id)
     if annotation_id is not None:
-        annotation = await db.get(Annotation, annotation_id)
+        annotation = await get_core_row(db, annotation_row, annotation_id)
         if (
             annotation is None
             or annotation.project_id != project_id
@@ -164,7 +168,7 @@ async def list_feedbacks(
         ):
             raise HTTPException(status_code=404, detail="Annotation not found")
         if task_id is None:
-            task = await db.get(Task, annotation.task_id)
+            task = await get_core_row(db, task_row, annotation.task_id)
             if task is None or task.project_id != project_id:
                 raise HTTPException(status_code=404, detail="Annotation not found")
             await assert_project_visible(task.project_id, db, actor_id)
@@ -173,7 +177,9 @@ async def list_feedbacks(
     if not access.is_manager:
         project_task_ids = list(
             (
-                await db.execute(select(Task.id).where(Task.project_id == project_id))
+                await db.execute(
+                    select(task_row.id).where(task_row.project_id == project_id)
+                )
             ).scalars()
         )
         allowed_task_ids = await task_access.visible_task_ids(

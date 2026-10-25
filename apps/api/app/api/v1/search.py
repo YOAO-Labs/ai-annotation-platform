@@ -16,8 +16,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.deps import get_current_user, get_db
 from app.db.enums import PlatformRole, ProjectRole
 from app.db.models.dataset import Dataset
-from app.db.models.task import Task
-from app.db.models.task_batch import TaskBatch
 from app.services.workspace_project_query import execute_project_query
 from app.services.workspace_project_query_data import (
     project_search_member_ids,
@@ -29,6 +27,8 @@ from app.services.identity_read_relations import (
     account_profiles,
     read_account_profiles,
 )
+
+from app.services.labeling_core_read_relations import batch_row, task_row
 
 router = APIRouter()
 
@@ -51,10 +51,12 @@ async def global_search(
     # Filter task authority before LIMIT so hidden matches cannot starve valid ones.
     project_scope = project_search_scope(user)
     tasks_q = (
-        select(Task, project_scope.c.project_name)
-        .join(project_scope, Task.project_id == project_scope.c.project_id)
-        .where(or_(Task.display_id.ilike(pattern), Task.file_name.ilike(pattern)))
-        .order_by(Task.updated_at.desc())
+        select(task_row, project_scope.c.project_name)
+        .join(project_scope, task_row.project_id == project_scope.c.project_id)
+        .where(
+            or_(task_row.display_id.ilike(pattern), task_row.file_name.ilike(pattern))
+        )
+        .order_by(task_row.updated_at.desc())
         .limit(limit)
     )
     if user.role != PlatformRole.SUPER_ADMIN.value:
@@ -68,9 +70,14 @@ async def global_search(
                 and_(
                     project_scope.c.member_role == role,
                     or_(
-                        task_visibility_clause(user.id, project_role=role),
+                        task_visibility_clause(
+                            user.id,
+                            project_role=role,
+                            task_model=task_row,
+                            batch_model=batch_row,
+                        ),
                         and_(
-                            Task.file_type == "video",
+                            task_row.file_type == "video",
                             project_scope.c.video_collaboration["enabled"]
                             .as_boolean()
                             .is_(True),
@@ -80,7 +87,7 @@ async def global_search(
                 for role in roles
             ]
         )
-        tasks_q = tasks_q.outerjoin(TaskBatch, Task.batch_id == TaskBatch.id).where(
+        tasks_q = tasks_q.outerjoin(batch_row, task_row.batch_id == batch_row.id).where(
             or_(
                 project_scope.c.owner_id == user.id
                 if user.role == PlatformRole.PROJECT_ADMIN.value

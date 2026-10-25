@@ -1,6 +1,8 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from sqlalchemy import inspect
+from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.quality_job_dispatch import QualityJobDispatcher
@@ -60,6 +62,8 @@ from app.application.task_submission import TaskSubmissionWorkflow
 from app.application.task_workflow_errors import TaskWorkflowError
 from app.services.identity_contracts import IdentityActorFacts
 
+from app.services.labeling_core_read_relations import batch_row, get_core_row, task_row
+
 router = APIRouter()
 
 
@@ -75,6 +79,22 @@ def _batch_to_out(batch, briefs: dict | None = None) -> BatchOut:
         if batch.reviewer_id is not None:
             out.reviewer = briefs.get(str(batch.reviewer_id))
     return out
+
+
+async def _refresh_batch(db: AsyncSession, batch):
+    state = inspect(batch)
+    if state.identity is None:
+        raise InvalidRequestError(
+            f"Could not refresh instance of {type(batch).__name__}"
+        )
+    batch_id = state.identity[0]
+    db.expire(batch)
+    refreshed = await get_core_row(db, batch_row, batch_id, populate_existing=True)
+    if refreshed is None:
+        raise InvalidRequestError(
+            f"Could not refresh {type(batch).__name__} with identity {batch_id}"
+        )
+    return refreshed
 
 
 async def _briefs_for_batches(db, project_id, batches) -> dict:
@@ -113,15 +133,14 @@ async def get_unclassified_task_count(
     给 BatchesSection 顶部横带「未归类 N 条 · 去分包」用。
     """
     from sqlalchemy import select as sa_sel, func as sa_func
-    from app.db.models.task import Task
 
     n = (
         await db.execute(
             sa_sel(sa_func.count())
-            .select_from(Task)
+            .select_from(task_row)
             .where(
-                Task.project_id == project_id,
-                Task.batch_id.is_(None),
+                task_row.project_id == project_id,
+                task_row.batch_id.is_(None),
             )
         )
     ).scalar() or 0
@@ -165,7 +184,7 @@ async def create_batch(
         detail={"name": batch.name, "project_id": str(project_id)},
     )
     await db.commit()
-    await db.refresh(batch)
+    batch = await _refresh_batch(db, batch)
     briefs = await _briefs_for_batches(db, project_id, [batch])
     return _batch_to_out(batch, briefs)
 
@@ -184,7 +203,7 @@ async def update_batch(
         raise HTTPException(status_code=404, detail="Batch not found")
     batch = await svc.update(batch_id, data, project_id=project_id)
     await db.commit()
-    await db.refresh(batch)
+    batch = await _refresh_batch(db, batch)
     briefs = await _briefs_for_batches(db, project_id, [batch])
     return _batch_to_out(batch, briefs)
 
@@ -246,7 +265,7 @@ async def apply_batch_assignment(
         detail={"assignment": plan.items[0].model_dump(mode="json")},
     )
     await db.commit()
-    await db.refresh(batch)
+    batch = await _refresh_batch(db, batch)
     return _batch_to_out(batch, await _briefs_for_batches(db, project_id, [batch]))
 
 
@@ -371,7 +390,7 @@ async def transition_batch(
     await db.commit()
     if pending_notifications:
         await NotificationService(db).publish_committed(pending_notifications)
-    await db.refresh(batch)
+    batch = await _refresh_batch(db, batch)
     briefs = await _briefs_for_batches(db, project_id, [batch])
     return _batch_to_out(batch, briefs)
 
@@ -439,7 +458,7 @@ async def split_batches(
         )
     await db.commit()
     for b in batches:
-        await db.refresh(b)
+        b = await _refresh_batch(db, b)
     briefs = await _briefs_for_batches(db, project_id, batches)
     return [_batch_to_out(b, briefs) for b in batches]
 
@@ -613,7 +632,7 @@ async def reject_batch(
     await db.commit()
     if pending_notifications:
         await NotificationService(db).publish_committed(pending_notifications)
-    await db.refresh(batch)
+    batch = await _refresh_batch(db, batch)
     briefs = await _briefs_for_batches(db, project_id, [batch])
     return _batch_to_out(batch, briefs)
 
@@ -665,7 +684,7 @@ async def reset_batch_to_draft(
     )
 
     await db.commit()
-    await db.refresh(batch)
+    batch = await _refresh_batch(db, batch)
     briefs = await _briefs_for_batches(db, project_id, [batch])
     return _batch_to_out(batch, briefs)
 
@@ -729,7 +748,7 @@ async def admin_lock_batch(
     await db.commit()
     if pending_notifications:
         await NotificationService(db).publish_committed(pending_notifications)
-    await db.refresh(batch)
+    batch = await _refresh_batch(db, batch)
     briefs = await _briefs_for_batches(db, project_id, [batch])
     return _batch_to_out(batch, briefs)
 
@@ -784,7 +803,7 @@ async def admin_unlock_batch(
     await db.commit()
     if pending_notifications:
         await NotificationService(db).publish_committed(pending_notifications)
-    await db.refresh(batch)
+    batch = await _refresh_batch(db, batch)
     briefs = await _briefs_for_batches(db, project_id, [batch])
     return _batch_to_out(batch, briefs)
 

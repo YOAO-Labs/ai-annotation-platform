@@ -8,9 +8,7 @@ from app.deps import (
     require_roles,
 )
 from app.db.models.user import User
-from app.db.models.task import Task
 from app.db.models.dataset import DatasetItem
-from app.db.models.task_batch import TaskBatch
 from app.services.storage import storage_service
 from app.services.scheduler import batch_visibility_clause
 from aap_workspace_contract.access import platform_role_is_manager
@@ -31,6 +29,8 @@ from app.services.user_brief import resolve_briefs_with_project_role
 from app.services.video_poster_references import video_poster_urls
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.workspace_read_relations import project_search_scope
+
+from app.services.labeling_core_read_relations import batch_row, task_row
 
 router = APIRouter()
 
@@ -60,22 +60,28 @@ def _reviewable_claim_clause(user: User | IdentityActorFacts, workspace_projects
     manager_owner = and_(
         platform_role_is_manager(user.role), workspace_projects.c.owner_id == user.id
     )
-    visible_batch = Task.batch_id.in_(
-        select(TaskBatch.id)
-        .where(batch_visibility_clause(user.id, project_role=REVIEWER_ROLE))
+    visible_batch = task_row.batch_id.in_(
+        select(batch_row.id)
+        .where(
+            batch_visibility_clause(
+                user.id, project_role=REVIEWER_ROLE, batch_model=batch_row
+            )
+        )
         .correlate(None)
     )
     collaborative_video = and_(
-        Task.file_type == "video",
+        task_row.file_type == "video",
         workspace_projects.c.video_collaboration["enabled"].as_boolean().is_(True),
     )
-    unbatched_assigned = and_(Task.batch_id.is_(None), Task.reviewer_id == user.id)
+    unbatched_assigned = and_(
+        task_row.batch_id.is_(None), task_row.reviewer_id == user.id
+    )
     return and_(
         or_(manager_owner, unbatched_assigned, visible_batch, collaborative_video),
         or_(
             manager_owner,
-            Task.reviewer_claimed_at.is_(None),
-            Task.reviewer_id == user.id,
+            task_row.reviewer_claimed_at.is_(None),
+            task_row.reviewer_id == user.id,
         ),
     )
 
@@ -95,9 +101,11 @@ async def reviewer_dashboard(
 
     pending_result = await db.execute(
         select(func.count())
-        .select_from(Task)
-        .join(workspace_projects, Task.project_id == workspace_projects.c.project_id)
-        .where(Task.status == TaskStatus.REVIEW)
+        .select_from(task_row)
+        .join(
+            workspace_projects, task_row.project_id == workspace_projects.c.project_id
+        )
+        .where(task_row.status == TaskStatus.REVIEW)
         .where(project_scope if project_scope is not None else True)
         .where(claim_scope if claim_scope is not None else True)
     )
@@ -108,12 +116,14 @@ async def reviewer_dashboard(
 
     today_reviewed_result = await db.execute(
         select(func.count())
-        .select_from(Task)
-        .join(workspace_projects, Task.project_id == workspace_projects.c.project_id)
+        .select_from(task_row)
+        .join(
+            workspace_projects, task_row.project_id == workspace_projects.c.project_id
+        )
         .where(
-            Task.reviewer_id == current_user.id,
-            Task.reviewed_at.is_not(None),
-            Task.reviewed_at >= today_start,
+            task_row.reviewer_id == current_user.id,
+            task_row.reviewed_at.is_not(None),
+            task_row.reviewed_at >= today_start,
             project_scope if project_scope is not None else True,
         )
     )
@@ -121,12 +131,14 @@ async def reviewer_dashboard(
 
     total_completed_result = await db.execute(
         select(func.count())
-        .select_from(Task)
-        .join(workspace_projects, Task.project_id == workspace_projects.c.project_id)
+        .select_from(task_row)
+        .join(
+            workspace_projects, task_row.project_id == workspace_projects.c.project_id
+        )
         .where(
-            Task.reviewer_id == current_user.id,
-            Task.status == TaskStatus.COMPLETED,
-            Task.reviewed_at.is_not(None),
+            task_row.reviewer_id == current_user.id,
+            task_row.status == TaskStatus.COMPLETED,
+            task_row.reviewed_at.is_not(None),
             project_scope if project_scope is not None else True,
         )
     )
@@ -135,14 +147,15 @@ async def reviewer_dashboard(
     total_rejected = int(
         await db.scalar(
             select(func.count())
-            .select_from(Task)
+            .select_from(task_row)
             .join(
-                workspace_projects, Task.project_id == workspace_projects.c.project_id
+                workspace_projects,
+                task_row.project_id == workspace_projects.c.project_id,
             )
             .where(
-                Task.reviewer_id == current_user.id,
-                Task.reviewed_at.is_not(None),
-                Task.status == "rejected",
+                task_row.reviewer_id == current_user.id,
+                task_row.reviewed_at.is_not(None),
+                task_row.status == "rejected",
                 project_scope if project_scope is not None else True,
             )
         )
@@ -157,15 +170,19 @@ async def reviewer_dashboard(
     cutoff_24h = now - timedelta(hours=24)
     rate_24h_result = await db.execute(
         select(
-            func.count().filter(Task.status == TaskStatus.COMPLETED).label("approve_n"),
-            func.count().filter(Task.status == "rejected").label("reject_n"),
+            func.count()
+            .filter(task_row.status == TaskStatus.COMPLETED)
+            .label("approve_n"),
+            func.count().filter(task_row.status == "rejected").label("reject_n"),
         )
-        .select_from(Task)
-        .join(workspace_projects, Task.project_id == workspace_projects.c.project_id)
+        .select_from(task_row)
+        .join(
+            workspace_projects, task_row.project_id == workspace_projects.c.project_id
+        )
         .where(
-            Task.reviewer_id == current_user.id,
-            Task.reviewed_at.is_not(None),
-            Task.reviewed_at >= cutoff_24h,
+            task_row.reviewer_id == current_user.id,
+            task_row.reviewed_at.is_not(None),
+            task_row.reviewed_at >= cutoff_24h,
             project_scope if project_scope is not None else True,
         )
     )
@@ -176,14 +193,16 @@ async def reviewer_dashboard(
     approval_rate_24h = (approve_n / denom_24h * 100) if denom_24h > 0 else 0.0
 
     pending_tasks_result = await db.execute(
-        select(Task, workspace_projects.c.project_name)
-        .join(workspace_projects, Task.project_id == workspace_projects.c.project_id)
+        select(task_row, workspace_projects.c.project_name)
+        .join(
+            workspace_projects, task_row.project_id == workspace_projects.c.project_id
+        )
         .where(
-            Task.status == TaskStatus.REVIEW,
+            task_row.status == TaskStatus.REVIEW,
             project_scope if project_scope is not None else True,
             claim_scope if claim_scope is not None else True,
         )
-        .order_by(Task.updated_at.desc())
+        .order_by(task_row.updated_at.desc())
         .limit(50)
     )
     pending_tasks = [
@@ -205,31 +224,31 @@ async def reviewer_dashboard(
     # v0.7.1 B-18：扩展为「reviewing 批次 ∪ 任意 review_tasks > 0 的批次」，让单任务级提交质检
     # 也能在 ReviewPage 的批次树里看到，避免 reviewer 找不到入口。
     actionable_review = (
-        select(Task.id)
+        select(task_row.id)
         .where(
-            Task.batch_id == TaskBatch.id,
-            Task.status == TaskStatus.REVIEW,
+            task_row.batch_id == batch_row.id,
+            task_row.status == TaskStatus.REVIEW,
             claim_scope if claim_scope is not None else True,
         )
-        .correlate(TaskBatch, workspace_projects)
+        .correlate(batch_row, workspace_projects)
     )
     batch_rows = (
         await db.execute(
-            select(TaskBatch, workspace_projects.c.project_name)
+            select(batch_row, workspace_projects.c.project_name)
             .join(
                 workspace_projects,
-                TaskBatch.project_id == workspace_projects.c.project_id,
+                batch_row.project_id == workspace_projects.c.project_id,
             )
             .where(
                 or_(
-                    TaskBatch.status == "reviewing",
-                    TaskBatch.review_tasks > 0,
+                    batch_row.status == "reviewing",
+                    batch_row.review_tasks > 0,
                 ),
-                TaskBatch.status.in_(["active", "annotating", "reviewing"]),
+                batch_row.status.in_(["active", "annotating", "reviewing"]),
                 project_scope if project_scope is not None else True,
                 actionable_review.exists(),
             )
-            .order_by(workspace_projects.c.project_name, TaskBatch.updated_at.desc())
+            .order_by(workspace_projects.c.project_name, batch_row.updated_at.desc())
             .limit(100)
         )
     ).all()
@@ -244,30 +263,30 @@ async def reviewer_dashboard(
 
     # 批次封面缩略图：每个 batch 取最早一张「有缩略图」的任务作封面（DISTINCT ON）。
     # 缩略图口径与 tasks/_shared.py 一致：dataset 导入的任务缩略图存在 DatasetItem 上，
-    # Task.thumbnail_path 为空，故需 LEFT JOIN + COALESCE。
+    # task_row.thumbnail_path 为空，故需 LEFT JOIN + COALESCE。
     cover_map: dict = {}
     video_cover_requests: list[ReadSourceRequest] = []
     cover_batch_ids = [b.id for b, _ in batch_rows]
     if cover_batch_ids:
-        eff_thumb = func.coalesce(DatasetItem.thumbnail_path, Task.thumbnail_path)
-        eff_blur = func.coalesce(DatasetItem.blurhash, Task.blurhash)
+        eff_thumb = func.coalesce(DatasetItem.thumbnail_path, task_row.thumbnail_path)
+        eff_blur = func.coalesce(DatasetItem.blurhash, task_row.blurhash)
         cover_rows = await db.execute(
             select(
-                Task.batch_id,
-                Task.id,
-                Task.dataset_item_id,
-                Task.file_type,
+                task_row.batch_id,
+                task_row.id,
+                task_row.dataset_item_id,
+                task_row.file_type,
                 DatasetItem.file_type,
                 eff_thumb,
                 eff_blur,
             )
-            .outerjoin(DatasetItem, DatasetItem.id == Task.dataset_item_id)
+            .outerjoin(DatasetItem, DatasetItem.id == task_row.dataset_item_id)
             .where(
-                Task.batch_id.in_(cover_batch_ids),
+                task_row.batch_id.in_(cover_batch_ids),
                 eff_thumb.is_not(None),
             )
-            .order_by(Task.batch_id, Task.created_at.asc())
-            .distinct(Task.batch_id)
+            .order_by(task_row.batch_id, task_row.created_at.asc())
+            .distinct(task_row.batch_id)
         )
         for (
             batch_id,
@@ -351,21 +370,22 @@ async def reviewer_dashboard(
                 .within_group(
                     (
                         func.extract(
-                            "epoch", Task.reviewed_at - Task.reviewer_claimed_at
+                            "epoch", task_row.reviewed_at - task_row.reviewer_claimed_at
                         )
                         * 1000
                     ).asc()
                 )
                 .label("median_ms")
             )
-            .select_from(Task)
+            .select_from(task_row)
             .join(
-                workspace_projects, Task.project_id == workspace_projects.c.project_id
+                workspace_projects,
+                task_row.project_id == workspace_projects.c.project_id,
             )
             .where(
-                Task.reviewer_id == current_user.id,
-                Task.reviewer_claimed_at.isnot(None),
-                Task.reviewed_at.isnot(None),
+                task_row.reviewer_id == current_user.id,
+                task_row.reviewer_claimed_at.isnot(None),
+                task_row.reviewed_at.isnot(None),
                 project_scope if project_scope is not None else True,
             )
         )
@@ -382,21 +402,22 @@ async def reviewer_dashboard(
         await db.execute(
             select(
                 func.count()
-                .filter(Task.status == TaskStatus.COMPLETED)
+                .filter(task_row.status == TaskStatus.COMPLETED)
                 .label("approved_n"),
                 func.count()
                 .filter(
-                    Task.status == TaskStatus.COMPLETED,
-                    Task.reopened_count > 0,
+                    task_row.status == TaskStatus.COMPLETED,
+                    task_row.reopened_count > 0,
                 )
                 .label("reopened_n"),
             )
-            .select_from(Task)
+            .select_from(task_row)
             .join(
-                workspace_projects, Task.project_id == workspace_projects.c.project_id
+                workspace_projects,
+                task_row.project_id == workspace_projects.c.project_id,
             )
             .where(
-                Task.reviewer_id == current_user.id,
+                task_row.reviewer_id == current_user.id,
                 project_scope if project_scope is not None else True,
             )
         )
@@ -416,17 +437,17 @@ async def reviewer_dashboard(
         n = (
             await db.execute(
                 select(func.count())
-                .select_from(Task)
+                .select_from(task_row)
                 .where(
-                    Task.reviewer_id == current_user.id,
-                    Task.reviewed_at.isnot(None),
-                    Task.reviewed_at >= ds,
-                    Task.reviewed_at < de,
+                    task_row.reviewer_id == current_user.id,
+                    task_row.reviewed_at.isnot(None),
+                    task_row.reviewed_at >= ds,
+                    task_row.reviewed_at < de,
                     project_scope if project_scope is not None else True,
                 )
                 .join(
                     workspace_projects,
-                    Task.project_id == workspace_projects.c.project_id,
+                    task_row.project_id == workspace_projects.c.project_id,
                 )
             )
         ).scalar() or 0
@@ -438,31 +459,33 @@ async def reviewer_dashboard(
     this_week_n = (
         await db.execute(
             select(func.count())
-            .select_from(Task)
+            .select_from(task_row)
             .where(
-                Task.reviewer_id == current_user.id,
-                Task.reviewed_at.isnot(None),
-                Task.reviewed_at >= week_start_r,
+                task_row.reviewer_id == current_user.id,
+                task_row.reviewed_at.isnot(None),
+                task_row.reviewed_at >= week_start_r,
                 project_scope if project_scope is not None else True,
             )
             .join(
-                workspace_projects, Task.project_id == workspace_projects.c.project_id
+                workspace_projects,
+                task_row.project_id == workspace_projects.c.project_id,
             )
         )
     ).scalar() or 0
     last_week_n = (
         await db.execute(
             select(func.count())
-            .select_from(Task)
+            .select_from(task_row)
             .where(
-                Task.reviewer_id == current_user.id,
-                Task.reviewed_at.isnot(None),
-                Task.reviewed_at >= last_week_start_r,
-                Task.reviewed_at < week_start_r,
+                task_row.reviewer_id == current_user.id,
+                task_row.reviewed_at.isnot(None),
+                task_row.reviewed_at >= last_week_start_r,
+                task_row.reviewed_at < week_start_r,
                 project_scope if project_scope is not None else True,
             )
             .join(
-                workspace_projects, Task.project_id == workspace_projects.c.project_id
+                workspace_projects,
+                task_row.project_id == workspace_projects.c.project_id,
             )
         )
     ).scalar() or 0
@@ -516,26 +539,29 @@ async def reviewer_today_mini(
         await db.execute(
             select(
                 func.count()
-                .filter(Task.status == TaskStatus.COMPLETED)
+                .filter(task_row.status == TaskStatus.COMPLETED)
                 .label("approved"),
                 func.count()
                 .filter(
-                    Task.status == TaskStatus.IN_PROGRESS,
-                    Task.reject_reason.isnot(None),
+                    task_row.status == TaskStatus.IN_PROGRESS,
+                    task_row.reject_reason.isnot(None),
                 )
                 .label("rejected"),
                 func.avg(
-                    func.extract("epoch", Task.reviewed_at - Task.reviewer_claimed_at)
+                    func.extract(
+                        "epoch", task_row.reviewed_at - task_row.reviewer_claimed_at
+                    )
                 ).label("avg_seconds"),
             )
-            .select_from(Task)
+            .select_from(task_row)
             .join(
-                workspace_projects, Task.project_id == workspace_projects.c.project_id
+                workspace_projects,
+                task_row.project_id == workspace_projects.c.project_id,
             )
             .where(
-                Task.reviewer_id == current_user.id,
-                Task.reviewed_at.isnot(None),
-                Task.reviewed_at >= today_start,
+                task_row.reviewer_id == current_user.id,
+                task_row.reviewed_at.isnot(None),
+                task_row.reviewed_at >= today_start,
                 project_scope if project_scope is not None else True,
             )
         )
@@ -569,14 +595,16 @@ async def my_recent_reviews(
         current_user, workspace_projects.c.project_id
     )
     result = await db.execute(
-        select(Task, workspace_projects.c.project_name)
-        .join(workspace_projects, Task.project_id == workspace_projects.c.project_id)
+        select(task_row, workspace_projects.c.project_name)
+        .join(
+            workspace_projects, task_row.project_id == workspace_projects.c.project_id
+        )
         .where(
-            Task.reviewer_id == current_user.id,
-            Task.reviewed_at.isnot(None),
+            task_row.reviewer_id == current_user.id,
+            task_row.reviewed_at.isnot(None),
             project_scope if project_scope is not None else True,
         )
-        .order_by(Task.reviewed_at.desc())
+        .order_by(task_row.reviewed_at.desc())
         .limit(limit)
     )
     return [

@@ -80,6 +80,13 @@ from app.utils.raster_mask_rle import (
 )
 from app.services.identity_contracts import IdentityActorFacts
 
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    get_core_row,
+    lock_task_for_core_read,
+    task_row,
+)
+
 router = APIRouter(dependencies=[Depends(require_active_task_actor)])
 logger = logging.getLogger(__name__)
 
@@ -130,10 +137,10 @@ async def _load_visible_mask_annotation(
     db: AsyncSession,
     user: User | IdentityActorFacts,
 ) -> tuple[Annotation, Task, dict]:
-    annotation = await db.get(Annotation, annotation_id)
+    annotation = await get_core_row(db, annotation_row, annotation_id)
     if annotation is None or not annotation.is_active:
         raise HTTPException(status_code=404, detail="annotation not found")
-    task = await db.get(Task, annotation.task_id)
+    task = await get_core_row(db, task_row, annotation.task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="task not found")
     await task_access.assert_task_visible(db, task, user.id)
@@ -283,14 +290,7 @@ async def upload_task_mask_content(
     user: IdentityActorFacts = Depends(get_current_user),
 ) -> dict:
     # Match all Mask writers: the Task row is the first database row lock.
-    task = (
-        await db.execute(
-            select(Task)
-            .where(Task.id == task_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
+    task = await lock_task_for_core_read(db, task_id, populate_existing=True)
     if task is None:
         raise HTTPException(status_code=404, detail="task not found")
     access = await task_access.resolve_task_access(

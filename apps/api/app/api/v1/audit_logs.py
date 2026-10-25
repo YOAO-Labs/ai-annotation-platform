@@ -25,9 +25,6 @@ from app.deps import get_db, require_roles
 from app.db.enums import UserRole
 from app.services.audit_read_relations import audit_event
 from app.db.models.project import Project
-from app.db.models.task import Task
-from app.db.models.task_batch import TaskBatch
-from app.db.models.annotation import Annotation
 from app.services.labeling_discussion_relations import annotation_feedback_facts
 from app.config import settings
 from app.schemas.audit import (
@@ -45,6 +42,12 @@ from app.services.identity_read_relations import (
     invitation_audit_targets,
 )
 from app.services.workspace_read_relations import project_facts
+
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    batch_row,
+    task_row,
+)
 
 router = APIRouter()
 
@@ -261,14 +264,16 @@ def _managed_audit_scope(actor: IdentityActorFacts, *, project_id: UUID | None =
         conditions.append(project.id == project_id)
     project_ids = select(project.id).where(*conditions)
     projects = select(cast(project.id, String)).where(*conditions)
-    tasks = select(cast(Task.id, String)).where(Task.project_id.in_(project_ids))
-    batches = select(cast(TaskBatch.id, String)).where(
-        TaskBatch.project_id.in_(project_ids)
+    tasks = select(cast(task_row.id, String)).where(
+        task_row.project_id.in_(project_ids)
+    )
+    batches = select(cast(batch_row.id, String)).where(
+        batch_row.project_id.in_(project_ids)
     )
     annotations = (
-        select(cast(Annotation.id, String))
-        .join(Task, Task.id == Annotation.task_id)
-        .where(Task.project_id.in_(project_ids))
+        select(cast(annotation_row.id, String))
+        .join(task_row, task_row.id == annotation_row.task_id)
+        .where(task_row.project_id.in_(project_ids))
     )
     feedbacks = select(cast(annotation_feedback_facts.id, String)).where(
         annotation_feedback_facts.project_id.in_(project_ids)
@@ -276,8 +281,8 @@ def _managed_audit_scope(actor: IdentityActorFacts, *, project_id: UUID | None =
     invitations = select(cast(invitation_audit_targets.c.id, String)).where(
         invitation_audit_targets.c.project_id.in_(project_ids)
     )
-    video_items = select(cast(Task.dataset_item_id, String)).where(
-        Task.project_id.in_(project_ids), Task.dataset_item_id.is_not(None)
+    video_items = select(cast(task_row.dataset_item_id, String)).where(
+        task_row.project_id.in_(project_ids), task_row.dataset_item_id.is_not(None)
     )
     primary = ("project", "task", "batch", "annotation", "feedback", "invitation")
     contexts = (
@@ -348,7 +353,7 @@ def _managed_audit_scope(actor: IdentityActorFacts, *, project_id: UUID | None =
         and_(
             audit_event.target_type == "batch",
             audit_event.action == "batch.deleted",
-            ~audit_event.target_id.in_(select(cast(TaskBatch.id, String))),
+            ~audit_event.target_id.in_(select(cast(batch_row.id, String))),
             or_(audit_event.detail_json["project_id"].astext.in_(projects), path_scope),
         ),
         and_(

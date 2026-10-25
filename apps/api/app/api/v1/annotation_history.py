@@ -16,7 +16,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import get_current_user_id, get_db
-from app.db.models.annotation import Annotation
 from app.services.annotation_comment import AnnotationCommentService
 from app.services.audit_read_relations import audit_event
 from app.schemas.annotation_history import (
@@ -28,6 +27,8 @@ from app.services.task_discussion import (
     require_visible_annotation,
     require_visible_task,
 )
+
+from app.services.labeling_core_read_relations import annotation_row
 
 router = APIRouter()
 
@@ -173,7 +174,11 @@ async def get_task_audit_history(
 
     # 该 task 下所有 annotation.id
     ann_ids = (
-        (await db.execute(select(Annotation.id).where(Annotation.task_id == task_id)))
+        (
+            await db.execute(
+                select(annotation_row.id).where(annotation_row.task_id == task_id)
+            )
+        )
         .scalars()
         .all()
     )

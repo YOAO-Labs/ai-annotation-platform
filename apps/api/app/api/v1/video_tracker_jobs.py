@@ -56,6 +56,12 @@ from app.observability.metrics import observe_mask_ai_phase, record_mask_ai_oper
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.workspace_read_relations import project_facts, project_rows
 
+from app.services.labeling_core_read_relations import (
+    get_core_row,
+    lock_task_for_core_read,
+    task_row,
+)
+
 router = APIRouter(dependencies=[Depends(require_active_task_actor)])
 
 
@@ -176,7 +182,7 @@ async def _load_visible_job_task_row(
     db: AsyncSession, job_id: uuid.UUID, user: User | IdentityActorFacts
 ) -> tuple[Task, SimpleNamespace]:
     row = await get_tracker_job(db, job_id, user.id)
-    task = await db.get(Task, row.task_id)
+    task = await get_core_row(db, task_row, row.task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Video tracker job not found")
     await task_access.assert_task_visible(db, task, user.id)
@@ -212,7 +218,7 @@ async def _lock_visible_job_task_row(
             detail="账号已停用，请联系管理员",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    task = await db.get(Task, row.task_id, populate_existing=True)
+    task = await get_core_row(db, task_row, row.task_id, populate_existing=True)
     if task is None:
         raise HTTPException(status_code=404, detail="Video tracker job not found")
     access = await task_access.resolve_task_access(
@@ -228,14 +234,9 @@ async def _lock_visible_job_task_row(
 
 async def _lock_task_nowait(db: AsyncSession, task_id: uuid.UUID) -> Task:
     try:
-        task = (
-            await db.execute(
-                select(Task)
-                .where(Task.id == task_id)
-                .with_for_update(nowait=True)
-                .execution_options(populate_existing=True)
-            )
-        ).scalar_one_or_none()
+        task = await lock_task_for_core_read(
+            db, task_id, nowait=True, populate_existing=True
+        )
     except DBAPIError as exc:
         if getattr(exc.orig, "sqlstate", None) in {"55P03", "40P01", "40001"}:
             raise HTTPException(
@@ -720,7 +721,7 @@ async def get_video_tracker_job_preview(
 ):
     """v0.21.28 · 候选预览: 返回 job 暂存的逐帧结果 (接受前渲染候选叠加用)。无 staged → 空。"""
     row = await get_tracker_job(db, job_id, current_user.id)
-    task = await db.get(Task, row.task_id)
+    task = await get_core_row(db, task_row, row.task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Video tracker job not found")
     await task_access.assert_task_visible(db, task, current_user.id)
@@ -740,7 +741,7 @@ async def get_video_tracker_mask_content(
     current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> JSONResponse:
     row = await get_tracker_job(db, job_id, current_user.id)
-    task = await db.get(Task, row.task_id)
+    task = await get_core_row(db, task_row, row.task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Video tracker job not found")
     await task_access.assert_task_visible(db, task, current_user.id)

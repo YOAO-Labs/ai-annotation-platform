@@ -3,7 +3,6 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import get_db, get_current_user
-from app.db.models.task import Task
 from app.schemas.task import UploadInitRequest, UploadInitResponse, TaskFileUrlResponse
 from app.application.legacy_file_upload import (
     LegacyFileUploadWorkflow,
@@ -18,6 +17,8 @@ from app.schemas.task import TaskImageBackfillResponse
 from app.services.assets_media import browser_media_url, media_gateway, media_http_error
 from aap_assets_media.contract import MediaFailure, ReadSourceRequest
 from app.services.identity_contracts import IdentityActorFacts
+
+from app.services.labeling_core_read_relations import get_core_row, task_row
 
 router = APIRouter()
 
@@ -74,7 +75,7 @@ async def get_file_url(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    task = await db.get(Task, task_id, populate_existing=True)
+    task = await get_core_row(db, task_row, task_id, populate_existing=True)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     await task_access.assert_task_visible(db, task, current_user.id)
