@@ -92,6 +92,7 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid)": "0352_labeling_core_read.sql",
     "aap_inference_v1.ai_mask_pool_reference_row(uuid)": "0356_inference_pool_reference.sql",
     "aap_labeling_v1.video_control_command(jsonb)": "0350_labeling_video_control.sql",
+    "aap_labeling_v1.video_segment_lifecycle_command(jsonb)": "0360_labeling_video_segment_lifecycle.sql",
     "aap_labeling_v1.annotation_transfer_command(jsonb)": "0351_labeling_annotation_transfer.sql",
     "aap_labeling_v1._annotation_transfer_exact_fields(jsonb,text[])": "0351_labeling_annotation_transfer.sql",
     "aap_labeling_v1._annotation_transfer_without_track_ids(jsonb)": "0351_labeling_annotation_transfer.sql",
@@ -930,8 +931,10 @@ SQL_ARTIFACTS = (
     "0357_labeling_prediction_partitions.sql",
     "0358_labeling_fixture_cleanup.sql",
     "0359_labeling_upload_tasks.sql",
+    "0360_labeling_video_segment_lifecycle.sql",
 )
 SCHEMA_ARTIFACTS = (
+    "0360_labeling_video_segment_lifecycle.schema.json",
     "0359_labeling_upload_tasks.schema.json",
     "0358_labeling_fixture_cleanup.schema.json",
     "0357_labeling_prediction_partitions.schema.json",
@@ -1104,6 +1107,8 @@ SCHEMA_ARTIFACTS = (
     "0349_labeling_scene_read.schema.json",
 )
 TEST_FILES = (
+    "tests/test_video_frame_service.py",
+    "tests/test_video_control_worker_binding.py",
     "tests/test_jobs_fixture_cleanup_binding.py",
     "tests/test_legacy_files_upload.py",
     "tests/test_inference_pool_reference_native.py",
@@ -4935,8 +4940,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0359"]:
-            raise RuntimeError("module-data acceptance requires migration head 0359")
+        if heads != ["0360"]:
+            raise RuntimeError("module-data acceptance requires migration head 0360")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         relation_sql_hashes = _read_relation_sql_input_sha256()
         evidence["migrations"]["read_relation_sql_input_sha256"] = relation_sql_hashes
