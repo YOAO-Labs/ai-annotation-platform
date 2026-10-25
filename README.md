@@ -58,6 +58,8 @@ AI Annotation Platform 把项目管理、Data Manager、多模态标注工作台
 
 维护者可运行[一致备份与隔离恢复演练](./docs-site/ops/deploy/storage-recovery.md)，在两套随机资源中验证数据库、九用途对象、独立密钥及冻结内容。源销毁后再恢复并对账，原人工环境保留；结果只说明本地合成演练。
 
+对象存储可用[候选本地验证](./docs-site/ops/deploy/storage-candidate-poc.md)独立比较锁定构建的 S3、实际应用签名、浏览器代理及单节点恢复；失败和未执行类别完整保留，本地报告不等同供应商选型或生产资格。
+
 对象存储迁移前，可先生成[源端只读清单](./docs-site/ops/deploy/storage-migration-inventory.md)，覆盖当前配置的九用途桶、全部版本、删除标记、未完成上传及完整SHA；保存绑定与潜在写入方单独观测，未知覆盖不冒充迁移就绪。
 
 另可生成[已保存业务定位目录](./docs-site/ops/deploy/storage-migration-inventory.md#已保存业务定位目录)，以只读数据库快照盘点24类归属、历史位置和暂存／删除声明，并按准确地址关联原源报告。未固定版本、范围声明和无法定位记录分别保留；不自动复制、修复历史或切换存储。

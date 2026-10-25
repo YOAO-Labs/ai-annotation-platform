@@ -29,6 +29,7 @@ last_reviewed: 2026-10-25
 - [生产部署](/ops/deploy/docker-compose) — Docker Compose 生产部署、环境变量、反向代理
 - [局域网生产部署](/ops/deploy/lan-production) — 复用基础设施、隔离业务数据和首次信任证书
 - [一致备份与隔离恢复演练](/ops/deploy/storage-recovery) — 在随机资源中验证数据库、九用途对象和冻结内容恢复
+- [对象存储候选本地验证](/ops/deploy/storage-candidate-poc) — 固定构建、实际签名与浏览器的隔离双候选比较
 - [对象存储源端迁移清单](/ops/deploy/storage-migration-inventory) — 只读盘点九用途源端配置、版本及完整内容摘要
 - [端口暴露与网络安全](/ops/deploy/network-security) — 端口该不该对外、Docker 绕 ufw、远程 SDK 安全访问
 

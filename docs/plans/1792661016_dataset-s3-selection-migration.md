@@ -1,6 +1,6 @@
 # EPIC-07：对象存储选型与 MinIO 退役迁移
 
-> 状态：源端清单、已保存定位目录及本地初次复制分项已验证；候选PoC、生产迁移、切换与退役仍待各自条件，完整E07活动，不分配发布版本。
+> 状态：源端清单、已保存定位目录及本地初次复制分项已验证；锁定双候选本地比较已完成并保留一项实际差异；完整选型、生产迁移、切换与退役仍待各自条件，完整E07活动，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 已按 [backlog promotion gate](backlog/README.md#promotion-gate) 复核当前实现与源端分项；整套实施授权沿用当前目标。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -344,3 +344,19 @@ selected source JSONL ------------------> digest + streaming join -> scoped matc
 - Ruff／格式、正式文档frontmatter／可读性／导航、标准`pnpm docs:build`、正常提交钩子与`git diff --check`通过。只保留有界脱敏汇总；临时账号、独立目标桶与精确计划暂存已清理并核对不存在，所属test数据库／Redis／九桶随后由官方confirmation销毁，复核独立缺席。人工3100／8100、Worker／Beat及C6原进程未改动。
 
 结果仅为初次预复制：`migration_ready=false`始终保持。SeaweedFS／RustFS双候选同环境报告、真实部署目标、最终停写／增量、业务定位切换、新写入回滚、旧冻结业务资格与退役仍是原始剩余项。回退仅停用本工具并保留checkpoint和目标，不反向清理源或其他目标。
+
+## Outcome — E07-P1 双候选本地 S3 契约与运行基线
+
+2026-10-25，在基于 `8df3de5c4` 的隔离树交付，提交见本 Outcome 所在提交；只改合同指定的 12 份 authored 文件，另三份固定输入沿用 `39f12a889`，未改应用、Compose、后端镜像或冻结八工具。正式命令、完整案例表、预算与清理入口见[候选本地验证](../../docs-site/ops/deploy/storage-candidate-poc.md)，同步 DEV、README、侧栏、运维首页及 CHANGELOG Unreleased；不分配发布版本。
+
+最终同一测试器修订于 UTC 04:05:25–04:06:58 顺序运行：SeaweedFS 19 passed、0 failed、6 not_run，本地基线通过；RustFS 18 passed、1 failed、6 not_run，唯一失败为显式 SSE-S3 AES256 PUT 返回 `InvalidRequest`，本地基线未通过。当前平台没有请求 SSE，此失败仅表达本次无外部 KMS 的实际探测，未修改候选代码、删除案例或把失败改为通过。50 条记录的执行完成与本地基线分开，`selection_ready=false`、`production_ready=false`。
+
+SeaweedFS 使用锁定变体，镜像默认 FoundationDB 配置显式覆盖为所属数据卷 `/data/filerldb` 的 LevelDB2；配置 SHA 为 `1b4134bfbfb74ad72eb256148aac9c572d179ded70dbad26ba2cbeff93757387`，恢复使用同一配置，不启动 FoundationDB。实际二进制 `version 8000GB 4.49 7154732 linux amd64`、OCI revision `b97ed0f1014050c41b3a7f0b8c0c91f579a79998`、发行提交 `b65832bdc9bbbcf3682465b1be598627ac386206` 是三种不同证据。RustFS 实际 `1.0.3`，二进制输出 git commit `331fb896285a7686f927baf8d9d4dc2d3d3a10a9`，镜像没有 OCI revision label；输出与发行提交相同仍不构成独立构建证明。原始许可 SHA 保持，许可仅对应已锁源码声明，不冒充二进制证明。
+
+实际 boto3 及当前 StorageService 验证内部／ML和绝对公共 Host、相对前缀恢复内部 Host 两条 Nginx 路由；PNG、短 MP4 和 ZIP 逐完整 SHA 与解码／CRC 通过。四个真实浏览器场景完成 PUT、GET、206 Range、CORS 预检、响应头暴露、403 拒绝后新签名重试，页面新增异常为空。版本、null、删除标记、并发条件创建、multipart 错误完成重试／abort和当前应用实际生命周期配置回读均通过。原生到期、真实部署 TLS、磁盘满、多节点、滚动升级及已有冻结业务消费者各候选明确 not_run；配置回读不是到期证明。
+
+两候选实际重启、写入中强杀后均完整回读 6 项确认对象（含 2 个不可变版本），未确认 32 MiB PUT 在仅发送 262,144 字节后均不存在；停稳数据卷备份分别 15,038,464／16,241,152 字节，恢复到新的同提供方卷后逐保存版本核对，不称跨供应商磁盘格式迁移。每性能单元相同 8 对象、2,752,792 字节，单路／四路 PUT／GET 均零 HTTP 失败；报告保留实际字节、延迟、31／127 个 CPU／RSS 主进程样本及短窗口限制。Docker 29.9.2、Python 3.12.11、boto3 1.42.96，112 逻辑 CPU／270,062,034,944 字节宿主机内存；C6及其他工作、部分文档构建共享宿主机，不推断生产 SLO。
+
+开发试跑纠正了测试器的 Docker 缺失资源大小写判断、boto3 的 bytes→BytesIO 包装、可选镜像 Cmd 字段、重启随机映射端口、HTTP 头大小写与默认 FoundationDB 启动适配；准备不足的早期结果不计最终候选验收。恢复守卫拒绝空夹具或缺不可变版本，报告绑定两个测试器自身及实际 StorageService／签名／lock完整 SHA。34 个不同纯回归通过，含 lock／许可损坏、正文／元数据／分页、预算、敏感信息、owner／label／外部使用者、清理中断、原子写硬杀残留及真实签名的字面点路径合同。实际执行报告保留执行时的脚本 SHA；其后只补 manifest 读取入口的 nonce 格式守卫，覆盖所有资源已不存在时仍不得绕过 nonce 校验删除目录的分支，仅运行对应纯回归，不重跑提供方案例，也不把最终工具修订冒称原执行字节。
+
+Ruff／格式、正式文档 frontmatter／可读性／导航、完整标准文档构建与链接检查通过；正常提交钩子及最终 diff 检查随本次提交完成。每次退出按持久 manifest 核对精确 ID、checkout、镜像和 label，已确认全部所属容器、卷、网络与浏览器 session 结束，私有正文／凭据／原始日志和构建缓存清理，仅保留固定镜像、有界报告及所属核验摘要。人工 3100／8100、数据库／Redis／MinIO、Workers／Beat 与 C6 原句柄 27154 未操作。完整 E07、供应商选择及生产迁移继续活动，不增 Tracker、会话、审核、模型资格或其他前置。
