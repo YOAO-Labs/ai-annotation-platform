@@ -7,6 +7,7 @@ from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.task_workflow_errors import TaskWorkflowError
@@ -40,6 +41,7 @@ from app.services.feedback import FeedbackService
 from app.services.mask_qc.service import effective_issue_status, load_mask_qc_issue
 from app.services.notification import NotificationService
 from app.services.point_cloud_quality.service import refresh_issue_staleness
+from app.services.labeling_spatial_quality import quality_row, spatial_quality_data
 from aap_workspace_contract.access import ProjectAccess
 from app.services.project_access import (
     lock_current_project_access,
@@ -559,8 +561,13 @@ class AnnotationFeedbackWorkflow:
                 issue_id = uuid.UUID(str(point_cloud_issue_id))
             except (TypeError, ValueError):
                 return False
-            issue = await self.db.get(
-                PointCloudQualityIssue, issue_id, populate_existing=True
+            data = await spatial_quality_data(
+                self.db, "get_point_issue", issue_id=issue_id
+            )
+            issue = (
+                quality_row(PointCloudQualityIssue, data["row"])
+                if data["row"]
+                else None
             )
             if issue is None:
                 return False
@@ -804,14 +811,17 @@ class AnnotationFeedbackWorkflow:
     async def _lock_point_cloud_issue(
         self, issue_id: uuid.UUID
     ) -> PointCloudQualityIssue | None:
-        return await lock_row_nowait(
-            self.db,
-            select(PointCloudQualityIssue)
-            .where(PointCloudQualityIssue.id == issue_id)
-            .with_for_update(nowait=True)
-            .execution_options(populate_existing=True),
-            reason="feedback_point_cloud_issue_busy",
-        )
+        try:
+            data = await spatial_quality_data(
+                self.db, "lock_point_issue", issue_id=issue_id
+            )
+        except DBAPIError as exc:
+            if getattr(exc.orig, "sqlstate", None) in {"55P03", "40P01", "40001"}:
+                raise TaskWorkflowError(
+                    409, {"reason": "feedback_point_cloud_issue_busy"}
+                ) from exc
+            raise
+        return quality_row(PointCloudQualityIssue, data["row"]) if data["row"] else None
 
     async def _assert_reply_anchor_is_current(
         self,

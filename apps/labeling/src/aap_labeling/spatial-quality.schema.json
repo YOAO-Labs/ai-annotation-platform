@@ -1,0 +1,2956 @@
+{
+  "$defs": {
+    "QualityCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-spatial-quality/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "action": {
+          "enum": [
+            "find_point_run",
+            "create_point_run",
+            "get_point_run",
+            "update_point_run",
+            "reconcile_point_run",
+            "upsert_point_issue",
+            "get_point_issue",
+            "lock_point_issue",
+            "list_point_issues",
+            "mark_point_issues_stale",
+            "decide_point_issue",
+            "list_point_evaluation_samples",
+            "create_point_evaluation",
+            "get_point_evaluation",
+            "list_point_evaluations",
+            "promote_point_evaluation",
+            "find_video_run",
+            "create_video_run",
+            "get_video_run",
+            "lock_video_run",
+            "list_video_runs",
+            "list_accepted_video_runs",
+            "update_video_run",
+            "replace_video_issues",
+            "list_video_issues",
+            "mark_video_runs_stale"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project Id"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Id"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Id"
+        },
+        "issue_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Issue Id"
+        },
+        "evaluation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evaluation Id"
+        },
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actor Id"
+        },
+        "async_job_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Async Job Id"
+        },
+        "left_segment_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Left Segment Id"
+        },
+        "right_segment_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Right Segment Id"
+        },
+        "segment_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "maxItems": 5000,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Segment Ids"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        },
+        "statuses": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 8,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Statuses"
+        },
+        "progress_pct": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Progress Pct"
+        },
+        "scope_json": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scope Json"
+        },
+        "config_revision": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Config Revision"
+        },
+        "config_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Config Digest"
+        },
+        "config_snapshot": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Config Snapshot"
+        },
+        "source_snapshot": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Snapshot"
+        },
+        "source_snapshot_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Snapshot Digest"
+        },
+        "singleflight_key": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Singleflight Key"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Summary"
+        },
+        "error_message": {
+          "anyOf": [
+            {
+              "maxLength": 4000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Message"
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Started At"
+        },
+        "completed_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Completed At"
+        },
+        "stale_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stale At"
+        },
+        "accepted_by_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Accepted By Id"
+        },
+        "accepted_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Accepted At"
+        },
+        "code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Code"
+        },
+        "dedupe_key": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dedupe Key"
+        },
+        "scene_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scene Id"
+        },
+        "annotation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Annotation Id"
+        },
+        "annotation_version": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Annotation Version"
+        },
+        "scene_track_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scene Track Id"
+        },
+        "track_revision": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Track Revision"
+        },
+        "related_annotation_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "maxItems": 20000,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Related Annotation Ids"
+        },
+        "source_versions": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "integer"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Versions"
+        },
+        "class_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Class Name"
+        },
+        "rule_version": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rule Version"
+        },
+        "severity": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Severity"
+        },
+        "severity_rank": {
+          "anyOf": [
+            {
+              "maximum": 2,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Severity Rank"
+        },
+        "frame_start": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Frame Start"
+        },
+        "frame_end": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Frame End"
+        },
+        "metric": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metric"
+        },
+        "threshold": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Threshold"
+        },
+        "evidence": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence"
+        },
+        "locator": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Locator"
+        },
+        "suggested_command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Suggested Command"
+        },
+        "candidate_config_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Candidate Config Digest"
+        },
+        "candidate_config_snapshot": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Candidate Config Snapshot"
+        },
+        "baseline_config_revision": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseline Config Revision"
+        },
+        "baseline_config_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseline Config Digest"
+        },
+        "baseline_config_snapshot": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseline Config Snapshot"
+        },
+        "cutoff_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cutoff At"
+        },
+        "sample_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sample Count"
+        },
+        "sample_snapshot": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sample Snapshot"
+        },
+        "gate_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gate Status"
+        },
+        "gate_reasons": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gate Reasons"
+        },
+        "promoted_by_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Promoted By Id"
+        },
+        "promoted_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Promoted At"
+        },
+        "promoted_config_revision": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Promoted Config Revision"
+        },
+        "review_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Review Status"
+        },
+        "resolution_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resolution Reason"
+        },
+        "review_verdict": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Review Verdict"
+        },
+        "review_note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Review Note"
+        },
+        "limit": {
+          "anyOf": [
+            {
+              "maximum": 100000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Limit"
+        },
+        "offset": {
+          "anyOf": [
+            {
+              "maximum": 100000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Offset"
+        },
+        "severity_filter": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Severity Filter"
+        },
+        "code_filter": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Code Filter"
+        },
+        "scene_filter": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scene Filter"
+        },
+        "task_filter": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Filter"
+        },
+        "annotation_filter": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Annotation Filter"
+        },
+        "track_filter": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Track Filter"
+        },
+        "frame_filter": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Frame Filter"
+        },
+        "allowed_task_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "maxItems": 5000,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Allowed Task Ids"
+        },
+        "input_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Digest"
+        },
+        "sampling_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sampling Digest"
+        },
+        "input_snapshot": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Snapshot"
+        },
+        "metrics": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metrics"
+        },
+        "pairs": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pairs"
+        },
+        "issue_rows": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Issue Rows"
+        },
+        "decision_rows": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decision Rows"
+        },
+        "stale_issue_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "maxItems": 20000,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stale Issue Ids"
+        },
+        "stale_run_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "maxItems": 20000,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stale Run Ids"
+        },
+        "dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dataset Item Id"
+        },
+        "new_run_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "New Run Id"
+        },
+        "new_issue_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "New Issue Id"
+        },
+        "new_evaluation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "New Evaluation Id"
+        },
+        "expected_task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Task Id"
+        },
+        "resolved_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resolved At"
+        },
+        "reviewed_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reviewed At"
+        }
+      },
+      "required": ["schema", "action"],
+      "title": "QualityCommand",
+      "type": "object"
+    },
+    "ReadPointDetails": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-spatial-quality/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "action": {
+          "const": "read_point_details",
+          "title": "Action",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 5000,
+          "title": "Task Ids",
+          "type": "array"
+        },
+        "scene_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 5000,
+          "title": "Scene Ids",
+          "type": "array"
+        },
+        "track_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 20000,
+          "title": "Track Ids",
+          "type": "array"
+        },
+        "annotation_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 5000,
+          "title": "Annotation Ids",
+          "type": "array"
+        },
+        "annotation_scope": {
+          "enum": ["task_ids", "annotation_ids", "all"],
+          "title": "Annotation Scope",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "action",
+        "project_id",
+        "task_ids",
+        "scene_ids",
+        "track_ids",
+        "annotation_ids",
+        "annotation_scope"
+      ],
+      "title": "ReadPointDetails",
+      "type": "object"
+    },
+    "ReadPointSource": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-spatial-quality/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "action": {
+          "const": "read_point_source",
+          "title": "Action",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "action", "project_id"],
+      "title": "ReadPointSource",
+      "type": "object"
+    },
+    "ReadQualityFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-spatial-quality/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "action": {
+          "const": "read_quality_facts",
+          "title": "Action",
+          "type": "string"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project Id"
+        },
+        "annotation_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 20000,
+          "title": "Annotation Ids",
+          "type": "array"
+        },
+        "task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 5000,
+          "title": "Task Ids",
+          "type": "array"
+        },
+        "track_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 20000,
+          "title": "Track Ids",
+          "type": "array"
+        },
+        "run_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 20000,
+          "title": "Run Ids",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "action", "annotation_ids", "task_ids", "track_ids", "run_ids"],
+      "title": "ReadQualityFacts",
+      "type": "object"
+    },
+    "ReadVideoAnnotations": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-spatial-quality/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "action": {
+          "const": "read_video_annotations",
+          "title": "Action",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "segment_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 2,
+          "minItems": 1,
+          "title": "Segment Ids",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "action", "task_id", "segment_ids"],
+      "title": "ReadVideoAnnotations",
+      "type": "object"
+    },
+    "ReadVideoBoundary": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-spatial-quality/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "action": {
+          "const": "read_video_boundary",
+          "title": "Action",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "left_segment_id": {
+          "format": "uuid",
+          "title": "Left Segment Id",
+          "type": "string"
+        },
+        "right_segment_id": {
+          "format": "uuid",
+          "title": "Right Segment Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "action",
+        "task_id",
+        "dataset_item_id",
+        "left_segment_id",
+        "right_segment_id"
+      ],
+      "title": "ReadVideoBoundary",
+      "type": "object"
+    },
+    "ReadVideoTaskAnnotations": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-spatial-quality/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "action": {
+          "const": "read_video_task_annotations",
+          "title": "Action",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "action", "task_id"],
+      "title": "ReadVideoTaskAnnotations",
+      "type": "object"
+    },
+    "ReadVideoTaskSegments": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-spatial-quality/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "action": {
+          "const": "read_video_task_segments",
+          "title": "Action",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "action", "task_id"],
+      "title": "ReadVideoTaskSegments",
+      "type": "object"
+    },
+    "QualityCommand_find_point_run": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "find_point_run",
+          "type": "string"
+        },
+        "project_id": {
+          "$ref": "#/$defs/QualityCommand/properties/project_id"
+        },
+        "schema": {
+          "$ref": "#/$defs/QualityCommand/properties/schema"
+        },
+        "singleflight_key": {
+          "$ref": "#/$defs/QualityCommand/properties/singleflight_key"
+        },
+        "statuses": {
+          "$ref": "#/$defs/QualityCommand/properties/statuses"
+        }
+      },
+      "required": ["schema", "action", "project_id", "singleflight_key", "statuses"],
+      "additionalProperties": false
+    },
+    "QualityCommand_create_point_run": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "create_point_run",
+          "type": "string"
+        },
+        "actor_id": {
+          "$ref": "#/$defs/QualityCommand/properties/actor_id"
+        },
+        "async_job_id": {
+          "$ref": "#/$defs/QualityCommand/properties/async_job_id"
+        },
+        "config_digest": {
+          "$ref": "#/$defs/QualityCommand/properties/config_digest"
+        },
+        "config_revision": {
+          "$ref": "#/$defs/QualityCommand/properties/config_revision"
+        },
+        "config_snapshot": {
+          "$ref": "#/$defs/QualityCommand/properties/config_snapshot"
+        },
+        "new_run_id": {
+          "$ref": "#/$defs/QualityCommand/properties/new_run_id"
+        },
+        "project_id": {
+          "$ref": "#/$defs/QualityCommand/properties/project_id"
+        },
+        "schema": {
+          "$ref": "#/$defs/QualityCommand/properties/schema"
+        },
+        "scope_json": {
+          "$ref": "#/$defs/QualityCommand/properties/scope_json"
+        },
+        "singleflight_key": {
+          "$ref": "#/$defs/QualityCommand/properties/singleflight_key"
+        },
+        "source_snapshot": {
+          "$ref": "#/$defs/QualityCommand/properties/source_snapshot"
+        },
+        "source_snapshot_digest": {
+          "$ref": "#/$defs/QualityCommand/properties/source_snapshot_digest"
+        },
+        "summary": {
+          "$ref": "#/$defs/QualityCommand/properties/summary"
+        }
+      },
+      "required": [
+        "schema",
+        "action",
+        "actor_id",
+        "async_job_id",
+        "config_digest",
+        "config_revision",
+        "config_snapshot",
+        "new_run_id",
+        "project_id",
+        "scope_json",
+        "singleflight_key",
+        "source_snapshot",
+        "source_snapshot_digest",
+        "summary"
+      ],
+      "additionalProperties": false
+    },
+    "QualityCommand_get_point_run": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "get_point_run",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/QualityCommand/properties/run_id"
+        },
+        "schema": {
+          "$ref": "#/$defs/QualityCommand/properties/schema"
+        }
+      },
+      "required": ["schema", "action", "run_id"],
+      "additionalProperties": false
+    },
+    "QualityCommand_update_point_run": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "update_point_run",
+          "type": "string"
+        },
+        "completed_at": {
+          "$ref": "#/$defs/QualityCommand/properties/completed_at"
+        },
+        "error_message": {
+          "$ref": "#/$defs/QualityCommand/properties/error_message"
+        },
+        "progress_pct": {
+          "$ref": "#/$defs/QualityCommand/properties/progress_pct"
+        },
+        "run_id": {
+          "$ref": "#/$defs/QualityCommand/properties/run_id"
+        },
+        "schema": {
+          "$ref": "#/$defs/QualityCommand/properties/schema"
+        },
+        "started_at": {
+          "$ref": "#/$defs/QualityCommand/properties/started_at"
+        },
+        "status": {
+          "$ref": "#/$defs/QualityCommand/properties/status"
+        },
+        "summary": {
+          "$ref": "#/$defs/QualityCommand/properties/summary"
+        }
+      },
+      "required": ["schema", "action", "run_id", "status"],
+      "additionalProperties": false
+    },
+    "QualityCommand_reconcile_point_run": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "reconcile_point_run",
+          "type": "string"
+        },
+        "async_job_id": {
+          "$ref": "#/$defs/QualityCommand/properties/async_job_id"
+        },
+        "completed_at": {
+          "$ref": "#/$defs/QualityCommand/properties/completed_at"
+        },
+        "error_message": {
+          "$ref": "#/$defs/QualityCommand/properties/error_message"
+        },
+        "schema": {
+          "$ref": "#/$defs/QualityCommand/properties/schema"
+        },
+        "status": {
+          "$ref": "#/$defs/QualityCommand/properties/status"
+        }
+      },
+      "required": ["schema", "action", "async_job_id", "completed_at", "status"],
+      "additionalProperties": false
+    },
+    "QualityCommand_upsert_point_issue": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "upsert_point_issue",
+          "type": "string"
+        },
+        "annotation_id": {
+          "$ref": "#/$defs/QualityCommand/properties/annotation_id"
+        },
+        "annotation_version": {
+          "$ref": "#/$defs/QualityCommand/properties/annotation_version"
+        },
+        "class_name": {
+          "$ref": "#/$defs/QualityCommand/properties/class_name"
+        },
+        "code": {
+          "$ref": "#/$defs/QualityCommand/properties/code"
+        },
+        "dedupe_key": {
+          "$ref": "#/$defs/QualityCommand/properties/dedupe_key"
+        },
+        "evidence": {
+          "$ref": "#/$defs/QualityCommand/properties/evidence"
+        },
+        "frame_end": {
+          "$ref": "#/$defs/QualityCommand/properties/frame_end"
+        },
+        "frame_start": {
+          "$ref": "#/$defs/QualityCommand/properties/frame_start"
+        },
+        "locator": {
+          "$ref": "#/$defs/QualityCommand/properties/locator"
+        },
+        "metric": {
+          "$ref": "#/$defs/QualityCommand/properties/metric"
+        },
+        "new_issue_id": {
+          "$ref": "#/$defs/QualityCommand/properties/new_issue_id"
+        },
+        "project_id": {
+          "$ref": "#/$defs/QualityCommand/properties/project_id"
+        },
+        "related_annotation_ids": {
+          "$ref": "#/$defs/QualityCommand/properties/related_annotation_ids"
+        },
+        "rule_version": {
+          "$ref": "#/$defs/QualityCommand/properties/rule_version"
+        },
+        "run_id": {
+          "$ref": "#/$defs/QualityCommand/properties/run_id"
+        },
+        "scene_id": {
+          "$ref": "#/$defs/QualityCommand/properties/scene_id"
+        },
+        "scene_track_id": {
+          "$ref": "#/$defs/QualityCommand/properties/scene_track_id"
+        },
+        "schema": {
+          "$ref": "#/$defs/QualityCommand/properties/schema"
+        },
+        "severity": {
+          "$ref": "#/$defs/QualityCommand/properties/severity"
+        },
+        "severity_rank": {
+          "$ref": "#/$defs/QualityCommand/properties/severity_rank"
+        },
+        "source_versions": {
+          "$ref": "#/$defs/QualityCommand/properties/source_versions"
+        },
+        "suggested_command": {
+          "$ref": "#/$defs/QualityCommand/properties/suggested_command"
+        },
+        "task_id": {
+          "$ref": "#/$defs/QualityCommand/properties/task_id"
+        },
+        "threshold": {
+          "$ref": "#/$defs/QualityCommand/properties/threshold"
+        },
+        "track_revision": {
+          "$ref": "#/$defs/QualityCommand/properties/track_revision"
+        }
+      },
+      "required": [
+        "schema",
+        "action",
+        "code",
+        "dedupe_key",
+        "evidence",
+        "locator",
+        "metric",
+        "new_issue_id",
+        "project_id",
+        "related_annotation_ids",
+        "rule_version",
+        "run_id",
+        "scene_id",
+        "severity",
+        "severity_rank",
+        "source_versions",
+        "threshold"
+      ],
+      "additionalProperties": false
+    },
+    "QualityCommand_get_point_issue": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "get_point_issue",
+          "type": "string"
+        },
+        "issue_id": {
+          "$ref": "#/$defs/QualityCommand/properties/issue_id"
+        },
+        "schema": {
+          "$ref": "#/$defs/QualityCommand/properties/schema"
+        }
+      },
+      "required": ["schema", "action", "issue_id"],
+      "additionalProperties": false
+    },
+    "QualityCommand_lock_point_issue": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "lock_point_issue",
+          "type": "string"
+        },
+        "issue_id": {
+          "$ref": "#/$defs/QualityCommand/properties/issue_id"
+        },
+        "schema": {
+          "$ref": "#/$defs/QualityCommand/properties/schema"
+        }
+      },
+      "required": ["schema", "action", "issue_id"],
+      "additionalProperties": false
+    },
+    "QualityCommand_list_point_issues": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "list_point_issues",
+          "type": "string"
+        },
+        "allowed_task_ids": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/QualityCommand/properties/allowed_task_ids"
+            },
+            {
+              "not": {
+                "type": "null"
+              }
+            }
+          ]
+        },
+        "annotation_filter": {
+          "$ref": "#/$defs/QualityCommand/properties/annotation_filter"
+        },
+        "code_filter": {
+          "$ref": "#/$defs/QualityCommand/properties/code_filter"
+        },
+        "frame_filter": {
+          "$ref": "#/$defs/QualityCommand/properties/frame_filter"
+        },
+        "limit": {
+          "$ref": "#/$defs/QualityCommand/properties/limit"
+        },
+        "offset": {
+          "$ref": "#/$defs/QualityCommand/properties/offset"
+        },
+        "project_id": {
+          "$ref": "#/$defs/QualityCommand/properties/project_id"
+        },
+        "review_status": {
+          "$ref": "#/$defs/QualityCommand/properties/review_status"
+        },
+        "scene_filter": {
+          "$ref": "#/$defs/QualityCommand/properties/scene_filter"
+        },
+        "schema": {
+          "$ref": "#/$defs/QualityCommand/properties/schema"
+        },
+        "severity_filter": {
+          "$ref": "#/$defs/QualityCommand/properties/severity_filter"
+        },
+        "task_filter": {
+          "$ref": "#/$defs/QualityCommand/properties/task_filter"
+        },
+        "track_filter": {
+          "$ref": "#/$defs/QualityCommand/properties/track_filter"
+        }
+      },
+      "required": ["schema", "action", "limit", "offset", "project_id"],
+      "additionalProperties": false
+    },
+    "QualityCommand_mark_point_issues_stale": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "mark_point_issues_stale",
+          "type": "string"
+        },
+        "schema": {
+          "$ref": "#/$defs/QualityCommand/properties/schema"
+        },
+        "stale_issue_ids": {
+          "$ref": "#/$defs/QualityCommand/properties/stale_issue_ids"
+        }
+      },
+      "required": ["schema", "action", "stale_issue_ids"],
+      "additionalProperties": false
+    },
+    "QualityCommand_decide_point_issue": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "decide_point_issue",
+          "type": "string"
+        },
+        "actor_id": {
+          "$ref": "#/$defs/QualityCommand/properties/actor_id"
+        },
+        "expected_task_id": {
+          "$ref": "#/$defs/QualityCommand/properties/expected_task_id"
+        },
+        "issue_id": {
+          "$ref": "#/$defs/QualityCommand/properties/issue_id"
+        },
+        "resolution_reason": {
+          "$ref": "#/$defs/QualityCommand/properties/resolution_reason"
+        },
+        "resolved_at": {
+          "$ref": "#/$defs/QualityCommand/properties/resolved_at"
+        },
+        "review_note": {
+          "$ref": "#/$defs/QualityCommand/properties/review_note"
+        },
+        "review_status": {
+          "$ref": "#/$defs/QualityCommand/properties/review_status"
+        },
+        "review_verdict": {
+          "$ref": "#/$defs/QualityCommand/properties/review_verdict"
+        },
+        "reviewed_at": {
+          "$ref": "#/$defs/QualityCommand/properties/reviewed_at"
+        },
+        "schema": {
+          "$ref": "#/$defs/QualityCommand/properties/schema"
+        }
+      },
+      "required": [
+        "schema",
+        "action",
+        "actor_id",
+        "expected_task_id",
+        "issue_id",
+        "resolved_at",
+        "review_status"
+      ],
+      "additionalProperties": false
+    },
+    "QualityCommand_list_point_evaluation_samples": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "list_point_evaluation_samples",
+          "type": "string"
+        },
+        "cutoff_at": {
+          "$ref": "#/$defs/QualityCommand/properties/cutoff_at"
+        },
+        "limit": {
+          "$ref": "#/$defs/QualityCommand/properties/limit"
+        },
+        "project_id": {
+          "$ref": "#/$defs/QualityCommand/properties/project_id"
+        },
+        "schema": {
+          "$ref": "#/$defs/QualityCommand/properties/schema"
+        }
+      },
+      "required": ["schema", "action", "cutoff_at", "limit", "project_id"],
+      "additionalProperties": false
+    },
+    "QualityCommand_create_point_evaluation": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "create_point_evaluation",
+          "type": "string"
+        },
+        "actor_id": {
+          "$ref": "#/$defs/QualityCommand/properties/actor_id"
+        },
+        "baseline_config_digest": {
+          "$ref": "#/$defs/QualityCommand/properties/baseline_config_digest"
+        },
+        "baseline_config_revision": {
+          "$ref": "#/$defs/QualityCommand/properties/baseline_config_revision"
+        },
+        "baseline_config_snapshot": {
+          "$ref": "#/$defs/QualityCommand/properties/baseline_config_snapshot"
+        },
+        "candidate_config_digest": {
+          "$ref": "#/$defs/QualityCommand/properties/candidate_config_digest"
+        },
+        "candidate_config_snapshot": {
+          "$ref": "#/$defs/QualityCommand/properties/candidate_config_snapshot"
+        },
+        "cutoff_at": {
+          "$ref": "#/$defs/QualityCommand/properties/cutoff_at"
+        },
+        "gate_reasons": {
+          "$ref": "#/$defs/QualityCommand/properties/gate_reasons"
+        },
+        "gate_status": {
+          "$ref": "#/$defs/QualityCommand/properties/gate_status"
+        },
+        "new_evaluation_id": {
+          "$ref": "#/$defs/QualityCommand/properties/new_evaluation_id"
+        },
+        "project_id": {
+          "$ref": "#/$defs/QualityCommand/properties/project_id"
+        },
+        "sample_count": {
+          "$ref": "#/$defs/QualityCommand/properties/sample_count"
+        },
+        "sample_snapshot": {
+          "$ref": "#/$defs/QualityCommand/properties/sample_snapshot"
+        },
+        "schema": {
+          "$ref": "#/$defs/QualityCommand/properties/schema"
+        },
+        "summary": {
+          "$ref": "#/$defs/QualityCommand/properties/summary"
+        }
+      },
+      "required": [
+        "schema",
+        "action",
+        "actor_id",
+        "baseline_config_digest",
+        "baseline_config_revision",
+        "baseline_config_snapshot",
+        "candidate_config_digest",
+        "candidate_config_snapshot",
+        "cutoff_at",
+        "gate_reasons",
+        "gate_status",
+        "new_evaluation_id",
+        "project_id",
+        "sample_count",
+        "sample_snapshot",
+        "summary"
+      ],
+      "additionalProperties": false
+    },
+    "QualityCommand_get_point_evaluation": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "get_point_evaluation",
+          "type": "string"
+        },
+        "evaluation_id": {
+          "$ref": "#/$defs/QualityCommand/properties/evaluation_id"
+        },
+        "schema": {
+          "$ref": "#/$defs/QualityCommand/properties/schema"
+        }
+      },
+      "required": ["schema", "action", "evaluation_id"],
+      "additionalProperties": false
+    },
+    "QualityCommand_list_point_evaluations": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "list_point_evaluations",
+          "type": "string"
+        },
+        "limit": {
+          "$ref": "#/$defs/QualityCommand/properties/limit"
+        },
+        "offset": {
+          "$ref": "#/$defs/QualityCommand/properties/offset"
+        },
+        "project_id": {
+          "$ref": "#/$defs/QualityCommand/properties/project_id"
+        },
+        "schema": {
+          "$ref": "#/$defs/QualityCommand/properties/schema"
+        }
+      },
+      "required": ["schema", "action", "limit", "offset", "project_id"],
+      "additionalProperties": false
+    },
+    "QualityCommand_promote_point_evaluation": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "promote_point_evaluation",
+          "type": "string"
+        },
+        "actor_id": {
+          "$ref": "#/$defs/QualityCommand/properties/actor_id"
+        },
+        "evaluation_id": {
+          "$ref": "#/$defs/QualityCommand/properties/evaluation_id"
+        },
+        "promoted_at": {
+          "$ref": "#/$defs/QualityCommand/properties/promoted_at"
+        },
+        "promoted_config_revision": {
+          "$ref": "#/$defs/QualityCommand/properties/promoted_config_revision"
+        },
+        "schema": {
+          "$ref": "#/$defs/QualityCommand/properties/schema"
+        }
+      },
+      "required": [
+        "schema",
+        "action",
+        "actor_id",
+        "evaluation_id",
+        "promoted_at",
+        "promoted_config_revision"
+      ],
+      "additionalProperties": false
+    },
+    "QualityCommand_find_video_run": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "find_video_run",
+          "type": "string"
+        },
+        "input_digest": {
+          "$ref": "#/$defs/QualityCommand/properties/input_digest"
+        },
+        "left_segment_id": {
+          "$ref": "#/$defs/QualityCommand/properties/left_segment_id"
+        },
+        "right_segment_id": {
+          "$ref": "#/$defs/QualityCommand/properties/right_segment_id"
+        },
+        "schema": {
+          "$ref": "#/$defs/QualityCommand/properties/schema"
+        },
+        "statuses": {
+          "$ref": "#/$defs/QualityCommand/properties/statuses"
+        },
+        "task_id": {
+          "$ref": "#/$defs/QualityCommand/properties/task_id"
+        }
+      },
+      "required": [
+        "schema",
+        "action",
+        "input_digest",
+        "left_segment_id",
+        "right_segment_id",
+        "statuses",
+        "task_id"
+      ],
+      "additionalProperties": false
+    },
+    "QualityCommand_create_video_run": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "create_video_run",
+          "type": "string"
+        },
+        "actor_id": {
+          "$ref": "#/$defs/QualityCommand/properties/actor_id"
+        },
+        "async_job_id": {
+          "$ref": "#/$defs/QualityCommand/properties/async_job_id"
+        },
+        "input_digest": {
+          "$ref": "#/$defs/QualityCommand/properties/input_digest"
+        },
+        "input_snapshot": {
+          "$ref": "#/$defs/QualityCommand/properties/input_snapshot"
+        },
+        "left_segment_id": {
+          "$ref": "#/$defs/QualityCommand/properties/left_segment_id"
+        },
+        "metrics": {
+          "$ref": "#/$defs/QualityCommand/properties/metrics"
+        },
+        "new_run_id": {
+          "$ref": "#/$defs/QualityCommand/properties/new_run_id"
+        },
+        "right_segment_id": {
+          "$ref": "#/$defs/QualityCommand/properties/right_segment_id"
+        },
+        "sampling_digest": {
+          "$ref": "#/$defs/QualityCommand/properties/sampling_digest"
+        },
+        "schema": {
+          "$ref": "#/$defs/QualityCommand/properties/schema"
+        },
+        "task_id": {
+          "$ref": "#/$defs/QualityCommand/properties/task_id"
+        }
+      },
+      "required": [
+        "schema",
+        "action",
+        "actor_id",
+        "async_job_id",
+        "input_digest",
+        "input_snapshot",
+        "left_segment_id",
+        "metrics",
+        "new_run_id",
+        "right_segment_id",
+        "sampling_digest",
+        "task_id"
+      ],
+      "additionalProperties": false
+    },
+    "QualityCommand_get_video_run": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "get_video_run",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/QualityCommand/properties/run_id"
+        },
+        "schema": {
+          "$ref": "#/$defs/QualityCommand/properties/schema"
+        }
+      },
+      "required": ["schema", "action", "run_id"],
+      "additionalProperties": false
+    },
+    "QualityCommand_lock_video_run": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "lock_video_run",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/QualityCommand/properties/run_id"
+        },
+        "schema": {
+          "$ref": "#/$defs/QualityCommand/properties/schema"
+        }
+      },
+      "required": ["schema", "action", "run_id"],
+      "additionalProperties": false
+    },
+    "QualityCommand_list_video_runs": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "list_video_runs",
+          "type": "string"
+        },
+        "schema": {
+          "$ref": "#/$defs/QualityCommand/properties/schema"
+        },
+        "task_id": {
+          "$ref": "#/$defs/QualityCommand/properties/task_id"
+        }
+      },
+      "required": ["schema", "action", "task_id"],
+      "additionalProperties": false
+    },
+    "QualityCommand_list_accepted_video_runs": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "list_accepted_video_runs",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/QualityCommand/properties/run_id"
+        },
+        "schema": {
+          "$ref": "#/$defs/QualityCommand/properties/schema"
+        },
+        "task_id": {
+          "$ref": "#/$defs/QualityCommand/properties/task_id"
+        }
+      },
+      "required": ["schema", "action", "run_id", "task_id"],
+      "additionalProperties": false
+    },
+    "QualityCommand_update_video_run": {
+      "type": "object",
+      "properties": {
+        "accepted_at": {
+          "$ref": "#/$defs/QualityCommand/properties/accepted_at"
+        },
+        "accepted_by_id": {
+          "$ref": "#/$defs/QualityCommand/properties/accepted_by_id"
+        },
+        "action": {
+          "const": "update_video_run",
+          "type": "string"
+        },
+        "completed_at": {
+          "$ref": "#/$defs/QualityCommand/properties/completed_at"
+        },
+        "error_message": {
+          "$ref": "#/$defs/QualityCommand/properties/error_message"
+        },
+        "metrics": {
+          "$ref": "#/$defs/QualityCommand/properties/metrics"
+        },
+        "pairs": {
+          "$ref": "#/$defs/QualityCommand/properties/pairs"
+        },
+        "progress_pct": {
+          "$ref": "#/$defs/QualityCommand/properties/progress_pct"
+        },
+        "run_id": {
+          "$ref": "#/$defs/QualityCommand/properties/run_id"
+        },
+        "schema": {
+          "$ref": "#/$defs/QualityCommand/properties/schema"
+        },
+        "stale_at": {
+          "$ref": "#/$defs/QualityCommand/properties/stale_at"
+        },
+        "started_at": {
+          "$ref": "#/$defs/QualityCommand/properties/started_at"
+        },
+        "status": {
+          "$ref": "#/$defs/QualityCommand/properties/status"
+        }
+      },
+      "required": ["schema", "action", "run_id", "status"],
+      "additionalProperties": false
+    },
+    "QualityCommand_replace_video_issues": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "replace_video_issues",
+          "type": "string"
+        },
+        "issue_rows": {
+          "$ref": "#/$defs/QualityCommand/properties/issue_rows"
+        },
+        "run_id": {
+          "$ref": "#/$defs/QualityCommand/properties/run_id"
+        },
+        "schema": {
+          "$ref": "#/$defs/QualityCommand/properties/schema"
+        }
+      },
+      "required": ["schema", "action", "issue_rows", "run_id"],
+      "additionalProperties": false
+    },
+    "QualityCommand_list_video_issues": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "list_video_issues",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/QualityCommand/properties/run_id"
+        },
+        "schema": {
+          "$ref": "#/$defs/QualityCommand/properties/schema"
+        }
+      },
+      "required": ["schema", "action", "run_id"],
+      "additionalProperties": false
+    },
+    "QualityCommand_mark_video_runs_stale": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "mark_video_runs_stale",
+          "type": "string"
+        },
+        "schema": {
+          "$ref": "#/$defs/QualityCommand/properties/schema"
+        },
+        "segment_ids": {
+          "$ref": "#/$defs/QualityCommand/properties/segment_ids"
+        }
+      },
+      "required": ["schema", "action", "segment_ids"],
+      "additionalProperties": false
+    }
+  },
+  "discriminator": {
+    "propertyName": "action",
+    "mapping": {
+      "read_point_source": "#/$defs/ReadPointSource",
+      "read_point_details": "#/$defs/ReadPointDetails",
+      "read_quality_facts": "#/$defs/ReadQualityFacts",
+      "read_video_annotations": "#/$defs/ReadVideoAnnotations",
+      "read_video_boundary": "#/$defs/ReadVideoBoundary",
+      "read_video_task_segments": "#/$defs/ReadVideoTaskSegments",
+      "read_video_task_annotations": "#/$defs/ReadVideoTaskAnnotations",
+      "find_point_run": "#/$defs/QualityCommand_find_point_run",
+      "create_point_run": "#/$defs/QualityCommand_create_point_run",
+      "get_point_run": "#/$defs/QualityCommand_get_point_run",
+      "update_point_run": "#/$defs/QualityCommand_update_point_run",
+      "reconcile_point_run": "#/$defs/QualityCommand_reconcile_point_run",
+      "upsert_point_issue": "#/$defs/QualityCommand_upsert_point_issue",
+      "get_point_issue": "#/$defs/QualityCommand_get_point_issue",
+      "lock_point_issue": "#/$defs/QualityCommand_lock_point_issue",
+      "list_point_issues": "#/$defs/QualityCommand_list_point_issues",
+      "mark_point_issues_stale": "#/$defs/QualityCommand_mark_point_issues_stale",
+      "decide_point_issue": "#/$defs/QualityCommand_decide_point_issue",
+      "list_point_evaluation_samples": "#/$defs/QualityCommand_list_point_evaluation_samples",
+      "create_point_evaluation": "#/$defs/QualityCommand_create_point_evaluation",
+      "get_point_evaluation": "#/$defs/QualityCommand_get_point_evaluation",
+      "list_point_evaluations": "#/$defs/QualityCommand_list_point_evaluations",
+      "promote_point_evaluation": "#/$defs/QualityCommand_promote_point_evaluation",
+      "find_video_run": "#/$defs/QualityCommand_find_video_run",
+      "create_video_run": "#/$defs/QualityCommand_create_video_run",
+      "get_video_run": "#/$defs/QualityCommand_get_video_run",
+      "lock_video_run": "#/$defs/QualityCommand_lock_video_run",
+      "list_video_runs": "#/$defs/QualityCommand_list_video_runs",
+      "list_accepted_video_runs": "#/$defs/QualityCommand_list_accepted_video_runs",
+      "update_video_run": "#/$defs/QualityCommand_update_video_run",
+      "replace_video_issues": "#/$defs/QualityCommand_replace_video_issues",
+      "list_video_issues": "#/$defs/QualityCommand_list_video_issues",
+      "mark_video_runs_stale": "#/$defs/QualityCommand_mark_video_runs_stale"
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ReadPointSource"
+    },
+    {
+      "$ref": "#/$defs/ReadPointDetails"
+    },
+    {
+      "$ref": "#/$defs/ReadQualityFacts"
+    },
+    {
+      "$ref": "#/$defs/ReadVideoAnnotations"
+    },
+    {
+      "$ref": "#/$defs/ReadVideoBoundary"
+    },
+    {
+      "$ref": "#/$defs/ReadVideoTaskSegments"
+    },
+    {
+      "$ref": "#/$defs/ReadVideoTaskAnnotations"
+    },
+    {
+      "$ref": "#/$defs/QualityCommand_find_point_run"
+    },
+    {
+      "$ref": "#/$defs/QualityCommand_create_point_run"
+    },
+    {
+      "$ref": "#/$defs/QualityCommand_get_point_run"
+    },
+    {
+      "$ref": "#/$defs/QualityCommand_update_point_run"
+    },
+    {
+      "$ref": "#/$defs/QualityCommand_reconcile_point_run"
+    },
+    {
+      "$ref": "#/$defs/QualityCommand_upsert_point_issue"
+    },
+    {
+      "$ref": "#/$defs/QualityCommand_get_point_issue"
+    },
+    {
+      "$ref": "#/$defs/QualityCommand_lock_point_issue"
+    },
+    {
+      "$ref": "#/$defs/QualityCommand_list_point_issues"
+    },
+    {
+      "$ref": "#/$defs/QualityCommand_mark_point_issues_stale"
+    },
+    {
+      "$ref": "#/$defs/QualityCommand_decide_point_issue"
+    },
+    {
+      "$ref": "#/$defs/QualityCommand_list_point_evaluation_samples"
+    },
+    {
+      "$ref": "#/$defs/QualityCommand_create_point_evaluation"
+    },
+    {
+      "$ref": "#/$defs/QualityCommand_get_point_evaluation"
+    },
+    {
+      "$ref": "#/$defs/QualityCommand_list_point_evaluations"
+    },
+    {
+      "$ref": "#/$defs/QualityCommand_promote_point_evaluation"
+    },
+    {
+      "$ref": "#/$defs/QualityCommand_find_video_run"
+    },
+    {
+      "$ref": "#/$defs/QualityCommand_create_video_run"
+    },
+    {
+      "$ref": "#/$defs/QualityCommand_get_video_run"
+    },
+    {
+      "$ref": "#/$defs/QualityCommand_lock_video_run"
+    },
+    {
+      "$ref": "#/$defs/QualityCommand_list_video_runs"
+    },
+    {
+      "$ref": "#/$defs/QualityCommand_list_accepted_video_runs"
+    },
+    {
+      "$ref": "#/$defs/QualityCommand_update_video_run"
+    },
+    {
+      "$ref": "#/$defs/QualityCommand_replace_video_issues"
+    },
+    {
+      "$ref": "#/$defs/QualityCommand_list_video_issues"
+    },
+    {
+      "$ref": "#/$defs/QualityCommand_mark_video_runs_stale"
+    }
+  ],
+  "x-response-data-keys": {
+    "read_point_source": ["dataset_ids", "tasks", "track_scene_ids"],
+    "read_point_details": ["annotations", "camera_annotations", "intervals", "links", "tracks"],
+    "read_quality_facts": ["annotations", "links", "runs", "tasks", "tracks"],
+    "read_video_annotations": ["annotations"],
+    "read_video_task_annotations": ["annotations"],
+    "read_video_boundary": ["segment_count", "segments"],
+    "read_video_task_segments": ["segments"],
+    "find_point_run": ["row"],
+    "create_point_run": ["row"],
+    "get_point_run": ["row"],
+    "update_point_run": ["row"],
+    "reconcile_point_run": ["changed"],
+    "upsert_point_issue": ["row"],
+    "get_point_issue": ["row"],
+    "lock_point_issue": ["row"],
+    "list_point_issues": ["rows", "total"],
+    "mark_point_issues_stale": ["changed"],
+    "decide_point_issue": ["row"],
+    "list_point_evaluation_samples": ["rows"],
+    "create_point_evaluation": ["row"],
+    "get_point_evaluation": ["row"],
+    "list_point_evaluations": ["rows", "total"],
+    "promote_point_evaluation": ["row"],
+    "find_video_run": ["row"],
+    "create_video_run": ["row"],
+    "get_video_run": ["row"],
+    "lock_video_run": ["row"],
+    "list_video_runs": ["rows"],
+    "list_accepted_video_runs": ["rows"],
+    "update_video_run": ["row"],
+    "replace_video_issues": ["stored"],
+    "list_video_issues": ["rows"],
+    "mark_video_runs_stale": ["changed"]
+  },
+  "$id": "aap-labeling-spatial-quality/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "x-postgresql-functions": {
+    "aap_labeling_v1.spatial_quality_command(jsonb)": {
+      "actions": [
+        "create_point_evaluation",
+        "create_point_run",
+        "create_video_run",
+        "decide_point_issue",
+        "find_point_run",
+        "find_video_run",
+        "get_point_evaluation",
+        "get_point_issue",
+        "get_point_run",
+        "get_video_run",
+        "list_accepted_video_runs",
+        "list_point_evaluation_samples",
+        "list_point_evaluations",
+        "list_point_issues",
+        "list_video_issues",
+        "list_video_runs",
+        "lock_point_issue",
+        "lock_video_run",
+        "mark_point_issues_stale",
+        "mark_video_runs_stale",
+        "promote_point_evaluation",
+        "read_point_details",
+        "read_point_source",
+        "read_quality_facts",
+        "read_video_annotations",
+        "read_video_boundary",
+        "read_video_task_annotations",
+        "read_video_task_segments",
+        "reconcile_point_run",
+        "replace_video_issues",
+        "update_point_run",
+        "update_video_run",
+        "upsert_point_issue"
+      ],
+      "argument_types": ["jsonb"],
+      "caller_transaction_required": true,
+      "dependencies": ["aap_assets_v1.workspace_project_query_dataset_ids(uuid)"],
+      "fixed_targets": [
+        "public.tasks",
+        "public.annotations",
+        "public.task_dataset_item_links",
+        "public.scene_tracks",
+        "public.scene_track_intervals",
+        "public.video_segments",
+        "public.point_cloud_quality_runs",
+        "public.point_cloud_quality_issues",
+        "public.point_cloud_quality_evaluations",
+        "public.video_track_quality_runs",
+        "public.video_track_quality_issues",
+        "aap_assets_v1.workspace_project_query_dataset_ids(uuid)"
+      ],
+      "owner": "labeling",
+      "returns": "jsonb",
+      "security_definer": true,
+      "sequences": [],
+      "table_access": {
+        "aap_assets_v1.workspace_project_query_dataset_ids(uuid)": {
+          "execute": true
+        },
+        "public.tasks": {
+          "select": [
+            "id",
+            "project_id",
+            "dataset_item_id",
+            "version",
+            "file_type",
+            "status",
+            "batch_id",
+            "assignee_id",
+            "reviewer_id"
+          ]
+        },
+        "public.annotations": {
+          "select": [
+            "id",
+            "project_id",
+            "task_id",
+            "annotation_type",
+            "is_active",
+            "was_cancelled",
+            "version",
+            "class_name",
+            "track_id",
+            "scene_track_id",
+            "sensor_role",
+            "sensor_dataset_item_id",
+            "sensor_visibility",
+            "calibration_revision",
+            "calibration_digest",
+            "video_segment_id",
+            "tool_unit_id",
+            "geometry"
+          ]
+        },
+        "public.task_dataset_item_links": {
+          "select": ["task_id", "dataset_item_id", "role"]
+        },
+        "public.scene_tracks": {
+          "select": [
+            "id",
+            "project_id",
+            "scene_id",
+            "track_id",
+            "class_name",
+            "presence_mode",
+            "revision",
+            "retired_at"
+          ]
+        },
+        "public.scene_track_intervals": {
+          "select": ["id", "scene_track_id", "start_frame", "end_frame", "version"]
+        },
+        "public.video_segments": {
+          "select": ["id", "dataset_item_id", "segment_index", "start_frame", "end_frame", "status"]
+        },
+        "public.point_cloud_quality_runs": {
+          "select": [
+            "id",
+            "project_id",
+            "async_job_id",
+            "requested_by_id",
+            "status",
+            "progress_pct",
+            "scope_json",
+            "config_revision",
+            "config_digest",
+            "config_snapshot",
+            "source_snapshot",
+            "source_snapshot_digest",
+            "singleflight_key",
+            "summary",
+            "error_message",
+            "started_at",
+            "completed_at",
+            "created_at",
+            "updated_at"
+          ],
+          "insert": [
+            "id",
+            "project_id",
+            "async_job_id",
+            "requested_by_id",
+            "status",
+            "progress_pct",
+            "scope_json",
+            "config_revision",
+            "config_digest",
+            "config_snapshot",
+            "source_snapshot",
+            "source_snapshot_digest",
+            "singleflight_key",
+            "summary"
+          ],
+          "update": [
+            "status",
+            "progress_pct",
+            "summary",
+            "error_message",
+            "started_at",
+            "completed_at",
+            "updated_at"
+          ]
+        },
+        "public.point_cloud_quality_issues": {
+          "select": [
+            "id",
+            "run_id",
+            "last_seen_run_id",
+            "project_id",
+            "scene_id",
+            "task_id",
+            "annotation_id",
+            "annotation_version",
+            "scene_track_id",
+            "track_revision",
+            "related_annotation_ids",
+            "source_versions",
+            "class_name",
+            "code",
+            "rule_version",
+            "severity",
+            "severity_rank",
+            "status",
+            "frame_start",
+            "frame_end",
+            "metric",
+            "threshold",
+            "evidence",
+            "locator",
+            "suggested_command",
+            "dedupe_key",
+            "resolution_reason",
+            "resolved_by_id",
+            "resolved_at",
+            "review_verdict",
+            "review_note",
+            "reviewed_by_id",
+            "reviewed_at",
+            "created_at",
+            "updated_at"
+          ],
+          "insert": [
+            "id",
+            "run_id",
+            "last_seen_run_id",
+            "project_id",
+            "scene_id",
+            "task_id",
+            "annotation_id",
+            "annotation_version",
+            "scene_track_id",
+            "track_revision",
+            "related_annotation_ids",
+            "source_versions",
+            "class_name",
+            "code",
+            "rule_version",
+            "severity",
+            "severity_rank",
+            "status",
+            "frame_start",
+            "frame_end",
+            "metric",
+            "threshold",
+            "evidence",
+            "locator",
+            "suggested_command",
+            "dedupe_key"
+          ],
+          "update": [
+            "run_id",
+            "last_seen_run_id",
+            "task_id",
+            "annotation_id",
+            "annotation_version",
+            "scene_track_id",
+            "track_revision",
+            "related_annotation_ids",
+            "source_versions",
+            "class_name",
+            "severity",
+            "severity_rank",
+            "metric",
+            "threshold",
+            "evidence",
+            "locator",
+            "suggested_command",
+            "status",
+            "resolution_reason",
+            "resolved_by_id",
+            "resolved_at",
+            "review_verdict",
+            "review_note",
+            "reviewed_by_id",
+            "reviewed_at",
+            "updated_at"
+          ]
+        },
+        "public.point_cloud_quality_evaluations": {
+          "select": [
+            "id",
+            "project_id",
+            "created_by_id",
+            "baseline_config_revision",
+            "baseline_config_digest",
+            "baseline_config_snapshot",
+            "candidate_config_digest",
+            "candidate_config_snapshot",
+            "cutoff_at",
+            "sample_count",
+            "sample_snapshot",
+            "summary",
+            "gate_status",
+            "gate_reasons",
+            "promoted_by_id",
+            "promoted_at",
+            "promoted_config_revision",
+            "created_at"
+          ],
+          "insert": [
+            "id",
+            "project_id",
+            "created_by_id",
+            "baseline_config_revision",
+            "baseline_config_digest",
+            "baseline_config_snapshot",
+            "candidate_config_digest",
+            "candidate_config_snapshot",
+            "cutoff_at",
+            "sample_count",
+            "sample_snapshot",
+            "summary",
+            "gate_status",
+            "gate_reasons"
+          ],
+          "update": ["promoted_by_id", "promoted_at", "promoted_config_revision"]
+        },
+        "public.video_track_quality_runs": {
+          "select": [
+            "id",
+            "task_id",
+            "left_segment_id",
+            "right_segment_id",
+            "async_job_id",
+            "requested_by_id",
+            "status",
+            "progress_pct",
+            "input_snapshot",
+            "input_digest",
+            "sampling_digest",
+            "metrics",
+            "pairs",
+            "error_message",
+            "accepted_by_id",
+            "accepted_at",
+            "stale_at",
+            "started_at",
+            "completed_at",
+            "created_at",
+            "updated_at"
+          ],
+          "insert": [
+            "id",
+            "task_id",
+            "left_segment_id",
+            "right_segment_id",
+            "async_job_id",
+            "requested_by_id",
+            "status",
+            "progress_pct",
+            "input_snapshot",
+            "input_digest",
+            "sampling_digest",
+            "metrics",
+            "pairs"
+          ],
+          "update": [
+            "status",
+            "progress_pct",
+            "metrics",
+            "pairs",
+            "error_message",
+            "accepted_by_id",
+            "accepted_at",
+            "stale_at",
+            "started_at",
+            "completed_at",
+            "updated_at"
+          ]
+        },
+        "public.video_track_quality_issues": {
+          "select": [
+            "id",
+            "run_id",
+            "left_annotation_id",
+            "right_annotation_id",
+            "code",
+            "frame_start",
+            "frame_end",
+            "metric",
+            "created_at"
+          ],
+          "insert": [
+            "id",
+            "run_id",
+            "left_annotation_id",
+            "right_annotation_id",
+            "code",
+            "frame_start",
+            "frame_end",
+            "metric"
+          ],
+          "delete": ["run_id"]
+        }
+      }
+    }
+  }
+}

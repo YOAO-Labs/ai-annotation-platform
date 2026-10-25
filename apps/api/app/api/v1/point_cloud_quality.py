@@ -9,7 +9,6 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import task_access
-from app.db.models.annotation import Annotation
 from app.db.models.point_cloud_quality import (
     PointCloudQualityEvaluation,
     PointCloudQualityIssue,
@@ -68,6 +67,11 @@ from app.services.point_cloud_quality.evaluation import (
     list_evaluations,
 )
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.labeling_spatial_quality import (
+    quality_records,
+    quality_row,
+    spatial_quality_data,
+)
 
 
 router = APIRouter(dependencies=[Depends(require_active_task_actor)])
@@ -110,24 +114,29 @@ async def _assert_request_visible(
     if body.scope == "task_ids":
         task_ids = set(body.task_ids)
     else:
-        rows = (
-            await db.execute(
-                select(Annotation.id, Annotation.task_id).where(
-                    Annotation.project_id == project.id,
-                    Annotation.id.in_(body.annotation_ids),
-                )
-            )
-        ).all()
+        facts = await spatial_quality_data(
+            db,
+            "read_quality_facts",
+            project_id=project.id,
+            annotation_ids=body.annotation_ids,
+            task_ids=[],
+            track_ids=[],
+            run_ids=[],
+        )
+        rows = quality_records(facts.get("annotations"))
         if {row.id for row in rows} != set(body.annotation_ids):
             raise HTTPException(status_code=404, detail="3D annotation not found")
         task_ids = {row.task_id for row in rows}
-    tasks = list(
-        (
-            await db.execute(
-                select(Task).where(Task.project_id == project.id, Task.id.in_(task_ids))
-            )
-        ).scalars()
+    facts = await spatial_quality_data(
+        db,
+        "read_quality_facts",
+        project_id=project.id,
+        annotation_ids=[],
+        task_ids=sorted(task_ids, key=str),
+        track_ids=[],
+        run_ids=[],
     )
+    tasks = quality_records(facts.get("tasks"))
     if {row.id for row in tasks} != task_ids:
         raise HTTPException(status_code=404, detail="Task not found")
     for task in tasks:
@@ -153,7 +162,17 @@ async def _assert_issue_visible(
         return project, access
     if issue.task_id is None:
         raise HTTPException(status_code=403, detail="Quality issue not visible")
-    task = await db.get(Task, issue.task_id)
+    facts = await spatial_quality_data(
+        db,
+        "read_quality_facts",
+        project_id=issue.project_id,
+        annotation_ids=[],
+        task_ids=[issue.task_id],
+        track_ids=[],
+        run_ids=[],
+    )
+    tasks = quality_records(facts.get("tasks"))
+    task = tasks[0] if tasks else None
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     await task_access.assert_task_visible(db, task, user.id, access=access)
@@ -230,7 +249,8 @@ async def create_run(
                     "async_job_id": str(job_id),
                 },
             ) from exc
-    await db.refresh(run)
+    run_data = await spatial_quality_data(db, "get_point_run", run_id=run.id)
+    run = quality_row(PointCloudQualityRun, run_data["row"])
     return _run_out(run, reused=not created)
 
 
@@ -247,7 +267,8 @@ async def get_run(
         require_project_capability(ProjectCapability.REVIEW_WRITE.value)
     ),
 ):
-    run = await db.get(PointCloudQualityRun, run_id)
+    data = await spatial_quality_data(db, "get_point_run", run_id=run_id)
+    run = quality_row(PointCloudQualityRun, data["row"]) if data["row"] else None
     if run is None or run.project_id != project.id:
         raise HTTPException(status_code=404, detail="Point cloud quality run not found")
     if not access.is_manager:
@@ -287,11 +308,10 @@ async def get_issues(
         raise HTTPException(status_code=422, detail="Unknown point cloud quality code")
     allowed_task_ids: set[uuid.UUID] | None = None
     if not access.is_manager:
-        all_task_ids = list(
-            (
-                await db.execute(select(Task.id).where(Task.project_id == project.id))
-            ).scalars()
+        source = await spatial_quality_data(
+            db, "read_point_source", project_id=project.id
         )
+        all_task_ids = [row.id for row in quality_records(source.get("tasks"))]
         allowed_task_ids = await task_access.visible_task_ids(
             db, project, current_user.id, all_task_ids, access=access
         )
@@ -310,9 +330,6 @@ async def get_issues(
         limit=limit,
         offset=offset,
     )
-    await db.flush()
-    for row in rows:
-        await db.refresh(row)
     payload = [PointCloudQualityIssueOut.model_validate(row) for row in rows]
     await db.commit()
     return PointCloudQualityIssuePage(
@@ -330,14 +347,16 @@ async def get_issue(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    issue = await db.get(PointCloudQualityIssue, issue_id)
+    data = await spatial_quality_data(db, "get_point_issue", issue_id=issue_id)
+    issue = quality_row(PointCloudQualityIssue, data["row"]) if data["row"] else None
     if issue is None:
         raise HTTPException(status_code=404, detail="Quality issue not found")
     _project, access = await _assert_issue_visible(db, issue, current_user)
     _assert_review_authority(access)
     await refresh_issue_staleness(db, issue)
     await db.flush()
-    await db.refresh(issue)
+    data = await spatial_quality_data(db, "get_point_issue", issue_id=issue_id)
+    issue = quality_row(PointCloudQualityIssue, data["row"])
     payload = PointCloudQualityIssueOut.model_validate(issue)
     await db.commit()
     return payload
@@ -354,7 +373,8 @@ async def patch_issue(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    issue = await db.get(PointCloudQualityIssue, issue_id)
+    data = await spatial_quality_data(db, "get_point_issue", issue_id=issue_id)
+    issue = quality_row(PointCloudQualityIssue, data["row"]) if data["row"] else None
     if issue is None:
         raise HTTPException(status_code=404, detail="Quality issue not found")
     # Account-first: resolve the locked membership, then take bounded task and
@@ -363,18 +383,24 @@ async def patch_issue(
     _assert_review_authority(access)
     expected_task_id = issue.task_id
     if expected_task_id is not None:
-        task = await db.get(Task, expected_task_id, populate_existing=True)
-        if task is not None:
-            await _lock_task_nowait(db, task.id)
+        facts = await spatial_quality_data(
+            db,
+            "read_quality_facts",
+            project_id=issue.project_id,
+            annotation_ids=[],
+            task_ids=[expected_task_id],
+            track_ids=[],
+            run_ids=[],
+        )
+        if quality_records(facts.get("tasks")):
+            await _lock_task_nowait(db, expected_task_id)
     try:
+        data = await spatial_quality_data(db, "lock_point_issue", issue_id=issue_id)
         issue = (
-            await db.execute(
-                select(PointCloudQualityIssue)
-                .where(PointCloudQualityIssue.id == issue_id)
-                .with_for_update(nowait=True)
-                .execution_options(populate_existing=True)
-            )
-        ).scalar_one()
+            quality_row(PointCloudQualityIssue, data["row"]) if data["row"] else None
+        )
+        if issue is None:
+            raise HTTPException(status_code=404, detail="Quality issue not found")
     except DBAPIError as exc:
         if getattr(exc.orig, "sqlstate", None) in {"55P03", "40P01", "40001"}:
             raise HTTPException(
@@ -414,7 +440,8 @@ async def patch_issue(
         },
     )
     await db.commit()
-    await db.refresh(issue)
+    data = await spatial_quality_data(db, "get_point_issue", issue_id=issue.id)
+    issue = quality_row(PointCloudQualityIssue, data["row"])
     return PointCloudQualityIssueOut.model_validate(issue)
 
 
@@ -462,7 +489,10 @@ async def create_project_evaluation(
         },
     )
     await db.commit()
-    await db.refresh(evaluation)
+    data = await spatial_quality_data(
+        db, "get_point_evaluation", evaluation_id=evaluation.id
+    )
+    evaluation = quality_row(PointCloudQualityEvaluation, data["row"])
     return PointCloudQualityEvaluationOut.model_validate(evaluation)
 
 
@@ -499,7 +529,12 @@ async def get_project_evaluation(
         require_project_capability(ProjectCapability.REVIEW_WRITE.value)
     ),
 ):
-    evaluation = await db.get(PointCloudQualityEvaluation, evaluation_id)
+    data = await spatial_quality_data(
+        db, "get_point_evaluation", evaluation_id=evaluation_id
+    )
+    evaluation = (
+        quality_row(PointCloudQualityEvaluation, data["row"]) if data["row"] else None
+    )
     if evaluation is None or evaluation.project_id != project.id:
         raise HTTPException(status_code=404, detail="Quality evaluation not found")
     return PointCloudQualityEvaluationOut.model_validate(evaluation)
@@ -551,5 +586,8 @@ async def promote_project_evaluation(
         },
     )
     await db.commit()
-    await db.refresh(evaluation)
+    data = await spatial_quality_data(
+        db, "get_point_evaluation", evaluation_id=evaluation.id
+    )
+    evaluation = quality_row(PointCloudQualityEvaluation, data["row"])
     return PointCloudQualityEvaluationOut.model_validate(evaluation)

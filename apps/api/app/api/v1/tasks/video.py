@@ -16,6 +16,10 @@ from app.deps import (
 )
 from app.db.models.user import User
 from app.db.models.task import Task
+from app.db.models.video_track_quality import (
+    VideoTrackQualityIssue,
+    VideoTrackQualityRun,
+)
 from app.schemas.annotation import AnnotationOut
 from app.schemas.task import (
     TaskPointCloudManifestResponse,
@@ -87,6 +91,11 @@ from app.services.video_track_quality import (
     dispatch_quality_run,
     mark_boundary_runs_stale,
     refresh_staleness,
+)
+from app.services.labeling_spatial_quality import (
+    quality_row,
+    quality_rows,
+    spatial_quality_data,
 )
 from app.services.video_tracking.jobs import (
     create_video_mask_correction_job,
@@ -668,21 +677,10 @@ async def list_video_track_quality(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    from app.db.models.video_track_quality import VideoTrackQualityRun
-
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
-    runs = list(
-        (
-            await db.execute(
-                select(VideoTrackQualityRun)
-                .where(VideoTrackQualityRun.task_id == task.id)
-                .order_by(VideoTrackQualityRun.created_at.desc())
-            )
-        )
-        .scalars()
-        .all()
-    )
+    data = await spatial_quality_data(db, "list_video_runs", task_id=task.id)
+    runs = quality_rows(VideoTrackQualityRun, data.get("rows"))
     for run in runs:
         await refresh_staleness(db, run)
     await db.commit()
@@ -736,31 +734,15 @@ async def get_video_track_quality(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    from app.db.models.video_track_quality import (
-        VideoTrackQualityIssue,
-        VideoTrackQualityRun,
-    )
-
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
-    run = await db.get(VideoTrackQualityRun, run_id)
+    data = await spatial_quality_data(db, "get_video_run", run_id=run_id)
+    run = quality_row(VideoTrackQualityRun, data["row"]) if data["row"] else None
     if run is None or run.task_id != task.id:
         raise HTTPException(status_code=404, detail="Track quality run not found")
     await refresh_staleness(db, run)
-    issues = list(
-        (
-            await db.execute(
-                select(VideoTrackQualityIssue)
-                .where(VideoTrackQualityIssue.run_id == run.id)
-                .order_by(
-                    VideoTrackQualityIssue.frame_start,
-                    VideoTrackQualityIssue.id,
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
+    data = await spatial_quality_data(db, "list_video_issues", run_id=run.id)
+    issues = quality_rows(VideoTrackQualityIssue, data.get("rows"))
     from app.services.video_track_quality import metrics_with_current_chapters
 
     metrics = await metrics_with_current_chapters(db, task=task, run=run, issues=issues)
@@ -782,19 +764,12 @@ async def accept_video_track_quality(
     current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_review_write),
 ):
-    from app.db.models.video_track_quality import VideoTrackQualityRun
-
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
     if not await _segment_privileged(db, task, current_user):
         raise HTTPException(status_code=403, detail="reviewer privilege required")
-    run = (
-        await db.execute(
-            select(VideoTrackQualityRun)
-            .where(VideoTrackQualityRun.id == run_id)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
+    data = await spatial_quality_data(db, "lock_video_run", run_id=run_id)
+    run = quality_row(VideoTrackQualityRun, data["row"]) if data["row"] else None
     if run is None or run.task_id != task.id:
         raise HTTPException(status_code=404, detail="Track quality run not found")
     try:

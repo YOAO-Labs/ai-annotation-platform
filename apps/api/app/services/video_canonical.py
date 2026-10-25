@@ -14,6 +14,7 @@ from app.db.models.video_track_quality import VideoTrackQualityRun
 from app.services.exporting.video_scope import VideoExportScope, clip_video_geometry
 from app.services.video_collaboration import collaboration_enabled
 from app.services.video_track_quality import _DisjointSet, refresh_staleness
+from app.services.labeling_spatial_quality import quality_rows, spatial_quality_data
 from app.services.video_tracks import normalize_outside_ranges
 
 
@@ -67,17 +68,8 @@ async def accepted_boundary_runs(
     boundaries = _required_boundaries(segments, scope)
     if not boundaries:
         return []
-    rows = list(
-        (
-            await db.execute(
-                select(VideoTrackQualityRun)
-                .where(VideoTrackQualityRun.task_id == task.id)
-                .order_by(VideoTrackQualityRun.created_at.desc())
-            )
-        )
-        .scalars()
-        .all()
-    )
+    run_data = await spatial_quality_data(db, "list_video_runs", task_id=task.id)
+    rows = quality_rows(VideoTrackQualityRun, run_data.get("rows"))
     by_boundary: dict[tuple[uuid.UUID, uuid.UUID], list[VideoTrackQualityRun]] = {}
     for run in rows:
         by_boundary.setdefault((run.left_segment_id, run.right_segment_id), []).append(

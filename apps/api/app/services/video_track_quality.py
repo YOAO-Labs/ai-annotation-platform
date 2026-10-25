@@ -8,13 +8,12 @@ from typing import Any
 
 import numpy as np
 from scipy.optimize import linear_sum_assignment
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
 from app.services.project_access import get_workspace_project
 from app.db.models.async_job import AsyncJob, AsyncJobKind
-from app.db.models.dataset import VideoSegment
 from app.db.models.task import Task
 from app.db.models.video_chapter import VideoChapter
 from app.db.models.video_track_quality import (
@@ -32,12 +31,17 @@ from app.services.mask_qc.topology import compare_rles
 from app.services.raster_mask_storage import load_coco_rle
 from app.services.video_collaboration import (
     collaboration_config,
-    segment_work_bounds_for_task,
+    segment_work_bounds,
 )
 from app.services.video_context import derive_step
 from app.services.video_frame_service import AssetsVideoContextReader
 from app.services.video_tracks import resolve_track_at_frame
 from app.vendor.trackeval_metrics import evaluate_sequence
+from app.services.labeling_spatial_quality import (
+    quality_records,
+    quality_row,
+    spatial_quality_data,
+)
 
 
 TRACK_TYPES = frozenset(
@@ -74,19 +78,18 @@ async def _boundary(
     left_segment_id: uuid.UUID,
     right_segment_id: uuid.UUID,
     video_metadata: VideoMetadata | None = None,
-) -> tuple[VideoSegment, VideoSegment, list[int]]:
-    rows = list(
-        (
-            await db.execute(
-                select(VideoSegment).where(
-                    VideoSegment.id.in_([left_segment_id, right_segment_id]),
-                    VideoSegment.dataset_item_id == task.dataset_item_id,
-                )
-            )
-        )
-        .scalars()
-        .all()
+) -> tuple[Any, Any, list[int]]:
+    if task.dataset_item_id is None:
+        raise VideoTrackQualityError(404, "video_segment_not_found")
+    boundary = await spatial_quality_data(
+        db,
+        "read_video_boundary",
+        task_id=task.id,
+        dataset_item_id=task.dataset_item_id,
+        left_segment_id=left_segment_id,
+        right_segment_id=right_segment_id,
     )
+    rows = quality_records(boundary.get("segments"))
     by_id = {row.id: row for row in rows}
     left, right = by_id.get(left_segment_id), by_id.get(right_segment_id)
     if left is None or right is None:
@@ -128,11 +131,22 @@ async def _boundary(
         )
     ):
         raise VideoTrackQualityError(503, "video_metadata_not_ready")
-    left_start, left_end = await segment_work_bounds_for_task(
-        db, task=task, segment=left, project=project, video_metadata=video_metadata
+    segment_count = max(1, int(boundary.get("segment_count", 0)))
+    left_start, left_end = segment_work_bounds(
+        start_frame=left.start_frame,
+        end_frame=left.end_frame,
+        segment_index=left.segment_index,
+        segment_count=segment_count,
+        frame_count=int(video_metadata.frame_count),
+        overlap_frames=config.overlap_frames,
     )
-    right_start, right_end = await segment_work_bounds_for_task(
-        db, task=task, segment=right, project=project, video_metadata=video_metadata
+    right_start, right_end = segment_work_bounds(
+        start_frame=right.start_frame,
+        end_frame=right.end_frame,
+        segment_index=right.segment_index,
+        segment_count=segment_count,
+        frame_count=int(video_metadata.frame_count),
+        overlap_frames=config.overlap_frames,
     )
     start, end = max(left_start, right_start), min(left_end, right_end)
     step = derive_step(video_metadata.fps, sampling)
@@ -145,22 +159,10 @@ async def _boundary(
 async def _annotations(
     db: AsyncSession, task_id: uuid.UUID, segment_ids: list[uuid.UUID]
 ) -> list[Annotation]:
-    return list(
-        (
-            await db.execute(
-                select(Annotation)
-                .where(
-                    Annotation.task_id == task_id,
-                    Annotation.video_segment_id.in_(segment_ids),
-                    Annotation.is_active.is_(True),
-                    Annotation.was_cancelled.is_(False),
-                )
-                .order_by(Annotation.video_segment_id, Annotation.id)
-            )
-        )
-        .scalars()
-        .all()
+    data = await spatial_quality_data(
+        db, "read_video_annotations", task_id=task_id, segment_ids=segment_ids
     )
+    return quality_records(data.get("annotations"))
 
 
 def _snapshot(annotations: list[Annotation]) -> list[dict]:
@@ -202,22 +204,18 @@ async def create_quality_run(
     input_digest = canonical_digest(
         {"annotations": snapshot, "sampling_digest": sampling_digest}
     )
+    result = await spatial_quality_data(
+        db,
+        "find_video_run",
+        task_id=task.id,
+        left_segment_id=left.id,
+        right_segment_id=right.id,
+        input_digest=input_digest,
+        statuses=["pending", "running", "completed", "empty_overlap", "accepted"],
+    )
     existing = (
-        await db.execute(
-            select(VideoTrackQualityRun)
-            .where(
-                VideoTrackQualityRun.task_id == task.id,
-                VideoTrackQualityRun.left_segment_id == left.id,
-                VideoTrackQualityRun.right_segment_id == right.id,
-                VideoTrackQualityRun.input_digest == input_digest,
-                VideoTrackQualityRun.status.in_(
-                    ("pending", "running", "completed", "empty_overlap", "accepted")
-                ),
-            )
-            .order_by(VideoTrackQualityRun.created_at.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+        quality_row(VideoTrackQualityRun, result["row"]) if result["row"] else None
+    )
     if existing is not None:
         return existing, None, False
     celery_task_id = str(uuid.uuid4())
@@ -229,20 +227,22 @@ async def create_quality_run(
         payload={"task_id": str(task.id), "input_digest": input_digest},
         celery_task_id=celery_task_id,
     )
-    run = VideoTrackQualityRun(
+    run_result = await spatial_quality_data(
+        db,
+        "create_video_run",
+        new_run_id=uuid.uuid4(),
         task_id=task.id,
         left_segment_id=left.id,
         right_segment_id=right.id,
         async_job_id=job.id,
-        requested_by_id=actor_id,
+        actor_id=actor_id,
         input_snapshot=snapshot,
         input_digest=input_digest,
         sampling_digest=sampling_digest,
         metrics={"sampling_frames": frames},
     )
-    db.add(run)
     await db.flush()
-    return run, job, True
+    return quality_row(VideoTrackQualityRun, run_result["row"]), job, True
 
 
 async def current_input_digest(db: AsyncSession, run: VideoTrackQualityRun) -> str:
@@ -263,9 +263,29 @@ async def refresh_staleness(db: AsyncSession, run: VideoTrackQualityRun) -> bool
         return run.status == "stale"
     if await current_input_digest(db, run) == run.input_digest:
         return False
-    run.status = "stale"
-    run.stale_at = datetime.now(timezone.utc)
+    await _update_video_run(
+        db, run, "stale", stale_at=datetime.now(timezone.utc).isoformat()
+    )
     return True
+
+
+async def _update_video_run(
+    db: AsyncSession,
+    run: VideoTrackQualityRun,
+    status: str,
+    **values: object,
+) -> VideoTrackQualityRun:
+    result = await spatial_quality_data(
+        db, "update_video_run", run_id=run.id, status=status, **values
+    )
+    if not result.get("row"):
+        raise RuntimeError("video track quality run disappeared during update")
+    run.status = status
+    for name, value in values.items():
+        if name.endswith("_at") and isinstance(value, str):
+            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        setattr(run, name, value)
+    return run
 
 
 async def dispatch_quality_run(
@@ -275,7 +295,8 @@ async def dispatch_quality_run(
     async_job_id: uuid.UUID,
     dispatcher: QualityJobDispatcher,
 ) -> None:
-    run = await db.get(VideoTrackQualityRun, run_id)
+    result = await spatial_quality_data(db, "get_video_run", run_id=run_id)
+    run = quality_row(VideoTrackQualityRun, result["row"]) if result["row"] else None
     job = await async_job_svc.get_job(db, async_job_id)
     if run is None or job is None or not job.celery_task_id:
         raise VideoTrackQualityError(500, "video_track_quality_dispatch_invalid")
@@ -285,11 +306,18 @@ async def dispatch_quality_run(
         )
     except Exception as exc:
         await db.rollback()
-        run = await db.get(VideoTrackQualityRun, run_id)
+        result = await spatial_quality_data(db, "get_video_run", run_id=run_id)
+        run = (
+            quality_row(VideoTrackQualityRun, result["row"]) if result["row"] else None
+        )
         if run is not None:
-            run.status = "failed"
-            run.error_message = f"{type(exc).__name__}: {exc}"[:4000]
-            run.completed_at = datetime.now(timezone.utc)
+            await _update_video_run(
+                db,
+                run,
+                "failed",
+                error_message=f"{type(exc).__name__}: {exc}"[:4000],
+                completed_at=datetime.now(timezone.utc).isoformat(),
+            )
         await async_job_svc.mark_failed(db, async_job_id, error=str(exc))
         await db.commit()
         raise VideoTrackQualityError(
@@ -493,16 +521,20 @@ async def metrics_with_current_chapters(
         }
         for issue in issues
     ]
-    chapters = list(
-        (
-            await db.execute(
-                select(VideoChapter)
-                .where(VideoChapter.dataset_item_id == task.dataset_item_id)
-                .order_by(VideoChapter.start_frame, VideoChapter.id)
+    chapters = (
+        list(
+            (
+                await db.execute(
+                    select(VideoChapter)
+                    .where(VideoChapter.dataset_item_id == task.dataset_item_id)
+                    .order_by(VideoChapter.start_frame, VideoChapter.id)
+                )
             )
+            .scalars()
+            .all()
         )
-        .scalars()
-        .all()
+        if task.dataset_item_id is not None
+        else []
     )
     chapter_rows = []
     for chapter in chapters:
@@ -530,7 +562,16 @@ async def metrics_with_current_chapters(
 async def evaluate_run(
     db: AsyncSession, run: VideoTrackQualityRun
 ) -> tuple[dict, list[dict], list[dict]]:
-    task = await db.get(Task, run.task_id)
+    task_data = await spatial_quality_data(
+        db,
+        "read_quality_facts",
+        annotation_ids=[],
+        task_ids=[run.task_id],
+        track_ids=[],
+        run_ids=[],
+    )
+    tasks = quality_records(task_data.get("tasks"))
+    task = tasks[0] if tasks else None
     if task is None:
         raise VideoTrackQualityError(404, "task_not_found")
     if await current_input_digest(db, run) != run.input_digest:
@@ -741,11 +782,22 @@ async def evaluate_run(
 async def replace_issues(
     db: AsyncSession, run: VideoTrackQualityRun, issues: list[dict]
 ) -> None:
-    await db.execute(
-        delete(VideoTrackQualityIssue).where(VideoTrackQualityIssue.run_id == run.id)
+    rows = [
+        {
+            "id": uuid.uuid4(),
+            "left_annotation_id": issue.get("left_annotation_id"),
+            "right_annotation_id": issue.get("right_annotation_id"),
+            "code": issue["code"],
+            "frame_start": issue["frame_start"],
+            "frame_end": issue["frame_end"],
+            "metric": issue["metric"],
+        }
+        for issue in issues
+    ]
+    await spatial_quality_data(
+        db, "replace_video_issues", run_id=run.id, issue_rows=rows
     )
-    for issue in issues:
-        db.add(VideoTrackQualityIssue(run_id=run.id, **issue))
+    await db.flush()
 
 
 class _DisjointSet:
@@ -779,7 +831,9 @@ def _decision_rows(run: VideoTrackQualityRun) -> list[tuple[uuid.UUID, uuid.UUID
 
 
 async def _assert_no_component_collision(
-    db: AsyncSession, dsu: _DisjointSet, annotations: dict[uuid.UUID, Annotation]
+    dsu: _DisjointSet,
+    annotations: dict[uuid.UUID, Annotation],
+    segments: dict[uuid.UUID, Any],
 ) -> None:
     by_component_segment: dict[tuple[uuid.UUID, uuid.UUID], list[Annotation]] = (
         defaultdict(list)
@@ -793,7 +847,7 @@ async def _assert_no_component_collision(
     for (_, segment_id), rows in by_component_segment.items():
         if len(rows) < 2:
             continue
-        segment = await db.get(VideoSegment, segment_id)
+        segment = segments.get(segment_id)
         if segment is None:
             continue
         for frame in range(segment.start_frame, segment.end_frame + 1):
@@ -869,19 +923,10 @@ async def accept_quality_run(
     if not required_pairs.issubset(seen):
         raise VideoTrackQualityError(422, "video_track_pair_decisions_incomplete")
 
-    accepted_runs = list(
-        (
-            await db.execute(
-                select(VideoTrackQualityRun).where(
-                    VideoTrackQualityRun.task_id == run.task_id,
-                    VideoTrackQualityRun.status == "accepted",
-                    VideoTrackQualityRun.id != run.id,
-                )
-            )
-        )
-        .scalars()
-        .all()
+    accepted_run_data = await spatial_quality_data(
+        db, "list_accepted_video_runs", task_id=run.task_id, run_id=run.id
     )
+    accepted_runs = quality_records(accepted_run_data.get("rows"))
     all_rows = [
         row for accepted in accepted_runs for row in _decision_rows(accepted)
     ] + [
@@ -905,27 +950,22 @@ async def accept_quality_run(
         raise VideoTrackQualityError(
             409, "video_track_pair_decision_conflict", pairs=conflicts
         )
-    task_annotations = list(
-        (
-            await db.execute(
-                select(Annotation).where(
-                    Annotation.task_id == run.task_id,
-                    Annotation.is_active.is_(True),
-                    Annotation.was_cancelled.is_(False),
-                )
-            )
-        )
-        .scalars()
-        .all()
+    annotation_data = await spatial_quality_data(
+        db, "read_video_task_annotations", task_id=run.task_id
     )
+    task_annotations = quality_records(annotation_data.get("annotations"))
+    segment_data = await spatial_quality_data(
+        db, "read_video_task_segments", task_id=run.task_id
+    )
+    segments = {row.id: row for row in quality_records(segment_data.get("segments"))}
     await _assert_no_component_collision(
-        db, dsu, {row.id: row for row in task_annotations}
+        dsu, {row.id: row for row in task_annotations}, segments
     )
     existing_pairs = {
         (str(pair["left_annotation_id"]), str(pair["right_annotation_id"])): pair
         for pair in run.pairs or []
     }
-    run.pairs = [
+    accepted_pairs = [
         {
             **existing_pairs.get(
                 (row["left_annotation_id"], row["right_annotation_id"]),
@@ -946,32 +986,18 @@ async def accept_quality_run(
         }
         for row in normalized
     ]
-    run.status = "accepted"
-    run.accepted_by_id = actor_id
-    run.accepted_at = datetime.now(timezone.utc)
-    return run
+    return await _update_video_run(
+        db,
+        run,
+        "accepted",
+        accepted_by_id=actor_id,
+        accepted_at=datetime.now(timezone.utc).isoformat(),
+        pairs=accepted_pairs,
+    )
 
 
 async def mark_boundary_runs_stale(db: AsyncSession, segment_id: uuid.UUID) -> None:
-    runs = list(
-        (
-            await db.execute(
-                select(VideoTrackQualityRun).where(
-                    (VideoTrackQualityRun.left_segment_id == segment_id)
-                    | (VideoTrackQualityRun.right_segment_id == segment_id),
-                    VideoTrackQualityRun.status.in_(
-                        ("completed", "empty_overlap", "accepted")
-                    ),
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    now = datetime.now(timezone.utc)
-    for run in runs:
-        run.status = "stale"
-        run.stale_at = now
+    await spatial_quality_data(db, "mark_video_runs_stale", segment_ids=[segment_id])
 
 
 async def execute_run(
@@ -981,14 +1007,19 @@ async def execute_run(
     celery_task_id: str | None,
     job_lifecycle: QualityJobLifecycle,
 ) -> None:
-    run = await db.get(VideoTrackQualityRun, run_id)
+    result = await spatial_quality_data(db, "get_video_run", run_id=run_id)
+    run = quality_row(VideoTrackQualityRun, result["row"]) if result["row"] else None
     if run is None or run.status != "pending":
         return
 
     now = datetime.now(timezone.utc)
-    run.status = "running"
-    run.started_at = now
-    run.progress_pct = 5
+    run = await _update_video_run(
+        db,
+        run,
+        "running",
+        started_at=now.isoformat(),
+        progress_pct=5,
+    )
     if run.async_job_id:
         await job_lifecycle.mark_running(
             run.async_job_id, celery_task_id=celery_task_id
@@ -997,35 +1028,58 @@ async def execute_run(
     try:
         metrics, pairs, issues = await evaluate_run(db, run)
         await replace_issues(db, run, issues)
-        run.metrics = metrics
-        run.pairs = pairs
-        run.progress_pct = 100
-        run.status = (
+        status = (
             "empty_overlap"
             if not pairs
             and not any(issue["code"] == "unsupported_geometry" for issue in issues)
             and not any(int(metrics.get(key, 0)) for key in ("IDTP", "IDFN", "IDFP"))
             else "completed"
         )
-        run.completed_at = datetime.now(timezone.utc)
+        run = await _update_video_run(
+            db,
+            run,
+            status,
+            metrics=metrics,
+            pairs=pairs,
+            progress_pct=100,
+            completed_at=datetime.now(timezone.utc).isoformat(),
+        )
         if run.async_job_id:
             await job_lifecycle.mark_complete(
                 run.async_job_id,
                 result={"run_id": str(run.id), "status": run.status},
             )
     except VideoTrackQualityError as exc:
-        run.status = (
+        status = (
             "stale" if exc.detail["reason"] == "video_track_quality_stale" else "failed"
         )
-        run.stale_at = datetime.now(timezone.utc) if run.status == "stale" else None
-        run.error_message = str(exc.detail)[:4000]
-        run.completed_at = datetime.now(timezone.utc)
+        if status == "stale":
+            run = await _update_video_run(
+                db,
+                run,
+                status,
+                stale_at=datetime.now(timezone.utc).isoformat(),
+                error_message=str(exc.detail)[:4000],
+                completed_at=datetime.now(timezone.utc).isoformat(),
+            )
+        else:
+            run = await _update_video_run(
+                db,
+                run,
+                status,
+                error_message=str(exc.detail)[:4000],
+                completed_at=datetime.now(timezone.utc).isoformat(),
+            )
         if run.async_job_id:
             await job_lifecycle.mark_failed(run.async_job_id, error=str(exc.detail))
     except Exception as exc:
-        run.status = "failed"
-        run.error_message = f"{type(exc).__name__}: {exc}"[:4000]
-        run.completed_at = datetime.now(timezone.utc)
+        run = await _update_video_run(
+            db,
+            run,
+            "failed",
+            error_message=f"{type(exc).__name__}: {exc}"[:4000],
+            completed_at=datetime.now(timezone.utc).isoformat(),
+        )
         if run.async_job_id:
             await job_lifecycle.mark_failed(run.async_job_id, error=run.error_message)
     if run.async_job_id:

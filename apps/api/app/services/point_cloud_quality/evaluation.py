@@ -5,9 +5,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterable
 import uuid
 
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import load_only
 
 from app.db.models.point_cloud_quality import (
     PointCloudQualityEvaluation,
@@ -23,6 +21,11 @@ from app.services.point_cloud_quality.config import (
 from app.services.point_cloud_quality.service import (
     PointCloudQualityError,
     refresh_issue_staleness_bulk,
+)
+from app.services.labeling_spatial_quality import (
+    quality_row,
+    quality_rows,
+    spatial_quality_data,
 )
 
 
@@ -334,21 +337,14 @@ async def create_evaluation(
             actual=candidate.config_revision,
         )
     cutoff = datetime.now(timezone.utc)
-    rows = list(
-        (
-            await db.execute(
-                select(PointCloudQualityIssue)
-                .where(
-                    PointCloudQualityIssue.project_id == project.id,
-                    PointCloudQualityIssue.review_verdict.is_not(None),
-                    PointCloudQualityIssue.status != "stale",
-                    PointCloudQualityIssue.reviewed_at <= cutoff,
-                )
-                .order_by(PointCloudQualityIssue.id)
-                .limit(MAX_EVALUATION_SAMPLES + 1)
-            )
-        ).scalars()
+    rows_data = await spatial_quality_data(
+        db,
+        "list_point_evaluation_samples",
+        project_id=project.id,
+        cutoff_at=cutoff.isoformat(),
+        limit=MAX_EVALUATION_SAMPLES + 1,
     )
+    rows = quality_rows(PointCloudQualityIssue, rows_data.get("rows"))
     if len(rows) > MAX_EVALUATION_SAMPLES:
         raise PointCloudQualityError(
             422,
@@ -373,73 +369,41 @@ async def create_evaluation(
     summary, gate_status, reasons = evaluate_snapshot(
         samples, baseline=baseline, candidate=candidate
     )
-    evaluation = PointCloudQualityEvaluation(
+    evaluation_data = await spatial_quality_data(
+        db,
+        "create_point_evaluation",
+        new_evaluation_id=uuid.uuid4(),
         project_id=project.id,
-        created_by_id=actor_id,
+        actor_id=actor_id,
         baseline_config_revision=baseline.config_revision,
         baseline_config_digest=point_cloud_quality_config_digest(baseline),
         baseline_config_snapshot=baseline.model_dump(mode="json"),
         candidate_config_digest=point_cloud_quality_config_digest(candidate),
         candidate_config_snapshot=candidate.model_dump(mode="json"),
-        cutoff_at=cutoff,
+        cutoff_at=cutoff.isoformat(),
         sample_count=len(samples),
         sample_snapshot=samples,
         summary=summary,
         gate_status=gate_status,
         gate_reasons=reasons,
     )
-    db.add(evaluation)
     await db.flush()
-    return evaluation
+    return quality_row(PointCloudQualityEvaluation, evaluation_data["row"])
 
 
 async def list_evaluations(
     db: AsyncSession, *, project_id: uuid.UUID, limit: int, offset: int
 ) -> tuple[list[PointCloudQualityEvaluation], int]:
-    filters = [PointCloudQualityEvaluation.project_id == project_id]
-    rows = list(
-        (
-            await db.execute(
-                select(PointCloudQualityEvaluation)
-                .options(
-                    load_only(
-                        PointCloudQualityEvaluation.id,
-                        PointCloudQualityEvaluation.project_id,
-                        PointCloudQualityEvaluation.created_by_id,
-                        PointCloudQualityEvaluation.baseline_config_revision,
-                        PointCloudQualityEvaluation.baseline_config_digest,
-                        PointCloudQualityEvaluation.candidate_config_digest,
-                        PointCloudQualityEvaluation.cutoff_at,
-                        PointCloudQualityEvaluation.sample_count,
-                        PointCloudQualityEvaluation.summary,
-                        PointCloudQualityEvaluation.gate_status,
-                        PointCloudQualityEvaluation.gate_reasons,
-                        PointCloudQualityEvaluation.promoted_by_id,
-                        PointCloudQualityEvaluation.promoted_at,
-                        PointCloudQualityEvaluation.promoted_config_revision,
-                        PointCloudQualityEvaluation.created_at,
-                    )
-                )
-                .where(*filters)
-                .order_by(
-                    PointCloudQualityEvaluation.created_at.desc(),
-                    PointCloudQualityEvaluation.id,
-                )
-                .offset(offset)
-                .limit(limit)
-            )
-        ).scalars()
+    data = await spatial_quality_data(
+        db,
+        "list_point_evaluations",
+        project_id=project_id,
+        limit=limit,
+        offset=offset,
     )
-    total = int(
-        (
-            await db.execute(
-                select(func.count())
-                .select_from(PointCloudQualityEvaluation)
-                .where(*filters)
-            )
-        ).scalar_one()
+    return quality_rows(PointCloudQualityEvaluation, data.get("rows")), int(
+        data.get("total", 0)
     )
-    return rows, total
 
 
 def prepare_evaluation_promotion(
