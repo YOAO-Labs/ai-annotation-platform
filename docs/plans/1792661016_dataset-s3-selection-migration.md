@@ -1,29 +1,52 @@
 # EPIC-07：对象存储选型与 MinIO 退役迁移
 
-> 状态：research-draft；未排期，未批准实施，未分配发布版本。
+> 状态：源端只读清单分项已批准实施；候选PoC、实际复制、切换与退役仍待各自条件，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
-> 实施前须通过 [backlog promotion gate](README.md#promotion-gate)。[草案总览](1792661016_dataset-storage-roadmap.md)、[架构契约](1792661016_dataset-storage-architecture.md)和[交付验收](1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
+> 已按 [backlog promotion gate](backlog/README.md#promotion-gate) 复核当前实现与源端分项；整套实施授权沿用当前目标。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
 > 优先级：P1；M0 开展选型与兼容试验，M2 完成生产迁移。
 > 负责人角色：后端、运维、测试；产品负责人确认维护窗口与迁移范围。
 > 依赖：PoC 可独立启动；生产切换依赖 EPIC-01/02/05 的位置定位、用途绑定和读取兼容，以及 EPIC-12 的恢复演练。
 
-## 本项目基线与改造落点
+## 当前实施：E07-A 源端只读迁移清单
 
-下列为固定提交的静态证据，尚非运行/浏览器验收结果。
+2026-10-25，基线 `848605a7a`。用户已授权推进整套Epic及当前环境可实施部分，尚未指定真实迁移目标。本片对应原始E07-S02／§6，并为AC02提供源端事实；不把未知目标当作源端盘点的阻塞，也不据本片标完完整S02或E07。
 
-| 当前 owner / 代码锚点                                                    | 已有能力、缺口与复用约束                                                            |
-| ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
-| [storage.py](../../../apps/api/app/services/storage.py)                  | boto3 和九用途已有；迁移账本/持久游标/绑定代次/全写入屏障/反向增量回滚需新增。      |
-| [storage.py](../../../apps/api/app/api/v1/storage.py)                    | 当前面板只统计六类，遗漏 import/export/training；迁移不能按 UI 范围盘点。           |
-| [training_dataset.py](../../../apps/api/app/workers/training_dataset.py) | 实际调用含 IfMatch/VersionId，原图 SHA-256 和 training 保留；候选必须验证这些参数。 |
-| [docker-compose.yml](../../../docker-compose.yml)                        | 已有固定镜像摘要和 MINIO_DATA_DIR 持久挂载；不直接复用另一引擎磁盘格式。            |
+### 当前实现与依赖复核
 
-候选修改入口：[storage.py](../../../apps/api/app/services/storage.py)、[config.py](../../../apps/api/app/config.py)、[docker-compose.yml](../../../docker-compose.yml)、[docker-compose.hostvols.yml](../../../docker-compose.hostvols.yml)、[.env.example](../../../.env.example)、[nginx.conf](../../../infra/docker/nginx.conf)、[StoragePage.tsx](../../../apps/web/src/pages/Storage/StoragePage.tsx)。新增表、适配器、迁移、测试和准确文件范围在晋升时固定，不直接由逻辑实体生成数据库。
+- `dataset_assets.PURPOSE_BUCKET_ATTRIBUTES` 已定义九用途；`storage_usage.configured_scope` 对当前配置的物理桶去重，C3已有持久分类盘点。它们没有输出可逐对象核验的迁移清单。
+- `storage_backup_bundle` 已有独立SHA／大小、九用途映射及一致恢复清单，但备份合同不能代替包含源端历史版本、删除标记、生命周期与未完成multipart的迁移观测。
+- E02-B14已支持头像新写入位置切换。当前配置源、已保存绑定及历史位置的覆盖必须分别说明，不能把九个环境桶当成所有实际位置。
+- `storage_maintenance_impact` 能提供本地依赖事实，不证明所有API、Worker、外部客户端或旧预签名上传已经停止。清单中的活动作业只能是观测到的潜在写入方，未知覆盖保留；它不是切换许可。
+- E12-C5仍在原进程测量。本片只新增独立脚本和文档，不修改该进程加载的业务代码、六份冻结测量工具、运行配置或依赖；人工3100／8100及两个Worker／Beat保留。
+
+### 合同与准确范围
+
+源端CLI使用显式部署配置，逐一记录九用途及其共享物理桶；首次只对所选择配置源出具观测，其他保存位置与绑定缺口明确列出。只调用源端读取API，不写对象、规则、用途绑定或业务行。获取生命周期、版本控制和未完成multipart事实；未授权、不支持、分页异常与无配置分别表达，不能将失败变成零或空规则。
+
+对未版本化对象分页列举；对已启用或暂停版本控制的桶列举全部版本及删除标记，保留精确VersionId、IsLatest、ETag、大小与时间。正文按版本／条件GET流式计算独立SHA-256，验证响应及前后HEAD，真实关闭Body；ETag单列，不冒充内容摘要。multipart只登记未完成上传事实，不完成或清理它。对象数、页数、单对象／总字节及单次读取时间均有显式预算；超限和变化留下不完整记录，不自动重启或声明全量通过。
+
+私有JSONL清单独占创建并以摘要尾记录封闭，包含观测窗口、源范围、逐桶配置、对象版本及核验结果；不写凭据或签名URL。目标位置和复制状态保持未开始；九用途处理选择接受明确的迁移／重建／保留输入，缺失选择标为未评审，不自动决定缓存可删。业务引用、其他历史位置与全写入方覆盖未证明时保持未知，不把源端事实完整等同于迁移准备就绪。
+
+运行时适配层只读查询已保存绑定与当前AsyncJob潜在写入方，先结束数据库观测再执行物理I/O；不持业务锁跨源端读取。结果明确其查询时间、截断及未知外部客户端／预签名上传，不能据此宣布写入窗口已封闭。
+
+```text
+九用途配置 + 保存绑定/作业观测 -> 只读源端清单 -> 私有JSONL + 风险摘要
+                                      |
+                            S3配置/分页/版本/条件GET
+```
+
+### 文件、验证与回退
+
+实施文件固定为 `scripts/storage_migration_inventory.py`（纯读取/报告核心）、`scripts/test_storage_migration_inventory.py`、`scripts/inventory_storage_migration.py`（运行配置/DB适配）、`scripts/test_inventory_storage_migration.py`、`scripts/verify_storage_migration_inventory.py`（所属一次性实际演练）、`docs-site/ops/deploy/storage-migration-inventory.md`，以及DEV、README、CHANGELOG、本计划和执行队列。晋升修复backlog导航、路线图与基线链接。总数超过八文件，以同一源端清单合同交付；主要为脚本和文档，没有新表、迁移、公开API、UI、依赖、镜像或发布版本。
+
+核心与CLI检查覆盖共享桶、九用途完整性、版本/删除标记、多页与循环标记、生命周期缺失/拒绝、精确版本与条件读取、正文/响应不符、预算、真实关闭及清单完整性。实际演练使用与C5不同的所属test模式，真实MinIO的中文键、历史版本、删除标记和未完成multipart；运行CLI时使用真正只读S3凭据，核对运行前后对象、规则及业务行不变，并验证源端写删拒绝。静态检查、文档构建、正常提交钩子及差异检查后按归属清理；不重复已有浏览器矩阵。
+
+回退只需停止新CLI并保留或删除本轮自有清单；没有复制或切换状态需要撤销。测试失败如实保留不完整范围，不能改松源端验证来获得通过。后继按原始S02补齐尚未知的业务引用/历史位置与写入方事实；候选锁定、目标复制、全量切换、旧冻结版本和退役继续保留原始S01／S03–S06与AC要求。
 
 ## 1. 为什么做
 
-本项目拟评估现有对象存储的替代方案；社区维护状态作为运维评估输入，在晋升时重新核查。当前平台在配置、部署和 UI 中直接使用 MinIO 命名；但后端使用 boto3，对 S3 兼容能力做契约验证后可以逐步解除供应商绑定。[MinIO 官方仓库](https://github.com/minio/minio)、[当前存储服务](../../../apps/api/app/services/storage.py)、[部署配置](../../../docker-compose.yml)
+本项目拟评估现有对象存储的替代方案；社区维护状态作为运维评估输入，在晋升时重新核查。当前平台在配置、部署和 UI 中直接使用 MinIO 命名；但后端使用 boto3，对 S3 兼容能力做契约验证后可以逐步解除供应商绑定。[MinIO 官方仓库](https://github.com/minio/minio)、[当前存储服务](../../apps/api/app/services/storage.py)、[部署配置](../../docker-compose.yml)
 
 原地目录数据集与更换对象存储是两条可独立推进的工作。即使原图全部保留外部目录，平台仍需要存放头像、标注附件、预览、导入导出产物和冻结训练内容；因此不宜把退役 MinIO 简化为删除一个容器。
 
@@ -81,7 +104,7 @@
 
 ## 6. 迁移范围与数据清单
 
-迁移按 `StorageBinding` 用途逐项核对：`annotations`、`datasets`、`bug-reports`、`media-cache`、`audit-archive`、`import`、`export`、`avatars`、`training`。当前存储 API 展示的桶范围不能当成完整迁移范围。[当前存储 API](../../../apps/api/app/api/v1/storage.py)
+迁移按 `StorageBinding` 用途逐项核对：`annotations`、`datasets`、`bug-reports`、`media-cache`、`audit-archive`、`import`、`export`、`avatars`、`training`。当前存储 API 展示的桶范围不能当成完整迁移范围。[当前存储 API](../../apps/api/app/api/v1/storage.py)
 
 每条清单至少记录来源位置、桶/键、对象版本（如有）、大小、内容类型、业务引用、独立校验值、目标位置、复制状态和验证时间。ETag 作为源端元信息单独保存。对没有可靠校验和的旧对象，读取并计算独立 digest；任何抽样验证必须明确未覆盖范围，不能标记全量内容已核验。
 
@@ -152,8 +175,8 @@
 
 前置合同不等于等待前置 Epic 全量完成。每个切片合并后系统仍须可用；含新来源的回退保留兼容读取和授权，不能把其相对路径交给旧 S3 拼接逻辑。预计多数切片涉及超过 8 个文件，实施时明确大范围边界与准确清单。
 
-已有回归入口：[test_storage_public_url.py](../../../apps/api/tests/test_storage_public_url.py)、[test_datasets_upload_zip.py](../../../apps/api/tests/test_datasets_upload_zip.py)、[test_training_datasets.py](../../../apps/api/tests/test_training_datasets.py)、[test_training_storage_deletion.py](../../../apps/api/tests/test_training_storage_deletion.py)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
+已有回归入口：[test_storage_public_url.py](../../apps/api/tests/test_storage_public_url.py)、[test_datasets_upload_zip.py](../../apps/api/tests/test_datasets_upload_zip.py)、[test_training_datasets.py](../../apps/api/tests/test_training_datasets.py)、[test_training_storage_deletion.py](../../apps/api/tests/test_training_storage_deletion.py)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
 
-实现时同步：[docker-compose.md](../../../docs-site/ops/deploy/docker-compose.md)、[storage-buckets.md](../../../docs-site/dev/reference/storage-buckets.md)、[env-vars.md](../../../docs-site/dev/reference/env-vars.md)、[DEV.md](../../../DEV.md)、[README.md](../../../README.md)、[.env.example](../../../.env.example)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
+实现时同步：[docker-compose.md](../../docs-site/ops/deploy/docker-compose.md)、[storage-buckets.md](../../docs-site/dev/reference/storage-buckets.md)、[env-vars.md](../../docs-site/dev/reference/env-vars.md)、[DEV.md](../../DEV.md)、[README.md](../../README.md)、[.env.example](../../.env.example)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
 
-完成实施后按[计划规范](../README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
+完成实施后按[计划规范](README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
