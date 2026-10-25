@@ -2923,7 +2923,7 @@ owner 镜像。
 配置上述变量后，每个案例单独使用一个新的验收数据库：
 
 ```bash
-AAP_WORKSPACE_MODULE_ASSEMBLY_LIVE=1 apps/api/.venv/bin/python \
+PYTHONPATH="$PWD" AAP_WORKSPACE_MODULE_ASSEMBLY_LIVE=1 apps/api/.venv/bin/python \
   scripts/verify_module_data_boundary.py --output .worktree/workspace-module-assembly.json \
   --test-file tests/test_workspace_module_assembly_live.py
 ```
@@ -2939,7 +2939,7 @@ API 的容器就绪检查覆盖 DB／Redis／MinIO；该组合未启动 Celery�
 实际 Celery 的独占案例使用同一个 API 冷镜像，已通过真实投递、持久化结果与重启检查：
 
 ```bash
-AAP_WORKSPACE_WORKER_ASSEMBLY_LIVE=1 apps/api/.venv/bin/python \
+PYTHONPATH="$PWD" AAP_WORKSPACE_WORKER_ASSEMBLY_LIVE=1 apps/api/.venv/bin/python \
   scripts/verify_module_data_boundary.py --output .worktree/workspace-worker-assembly.json \
   --test-file tests/test_workspace_worker_assembly_live.py
 ```
@@ -2948,6 +2948,28 @@ worker 案例检查真实 broker 投递、Native 项目资料、结果 owner 写
 确定性 HTTP peer 只用于协议联通，不证明真实 ML、来源读取或公共 retry 入队端点。
 当前通过边界、有限本地采样与遗留视频恢复缺口见
 [唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)。主环境不自动切换。
+
+上述命令默认采用 `--workspace-consumer-profile strict`，在现有 LAN 授权后显式应用
+32函数最小配置。要验证默认凭据而不被该步骤再次收紧，分别在新隔离库运行：
+
+```bash
+PYTHONPATH="$PWD" AAP_WORKSPACE_MODULE_ASSEMBLY_LIVE=1 apps/api/.venv/bin/python \
+  scripts/verify_module_data_boundary.py \
+  --output .worktree/workspace-module-assembly-default.json \
+  --workspace-consumer-profile default \
+  --test-file tests/test_workspace_module_assembly_live.py
+
+PYTHONPATH="$PWD" AAP_WORKSPACE_WORKER_ASSEMBLY_LIVE=1 apps/api/.venv/bin/python \
+  scripts/verify_module_data_boundary.py \
+  --output .worktree/workspace-worker-assembly-default.json \
+  --workspace-consumer-profile default \
+  --test-file tests/test_workspace_worker_assembly_live.py
+```
+
+`default` 只接受一个明确的上述装配或 worker 目标，不改变其他领域的资格配置。
+收据记录实际授权文件、私表拒绝与固定媒体 seed 函数是否可执行，区分两种 profile。
+这些场景仍使用隔离的 LAN 应用 LOGIN；不能冒充生成 worktree LOGIN 的冷业务证明，
+也不能作为日常服务重授权或历史视频正式退役授权。
 
 ### Workspace cross-frame 冷 worker 验收
 

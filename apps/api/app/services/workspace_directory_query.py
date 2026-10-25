@@ -9,11 +9,13 @@ from aap_workspace.config import secret_source
 from aap_workspace.directory_queries import DirectoryQueryManager
 from aap_workspace.directory_query_contract import (
     DirectoryQueryUnavailable,
-    decode_directory_query_reply,
     directory_query_request,
 )
 from aap_workspace.directory_query_postgres import DirectoryQueryPostgresData
-from aap_workspace.directory_query_values import materialize_directory_query_data
+from aap_workspace.directory_query_values import (
+    decode_directory_query_reply,
+    materialize_directory_query_data,
+)
 from aap_workspace_contract.project_query_contract import ProjectQueryUnavailable
 from app.config import settings
 from app.services.workspace_directory_query_data import WorkspaceDirectoryQueryData

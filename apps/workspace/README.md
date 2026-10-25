@@ -145,6 +145,13 @@ full module credentials/artifacts/restore remain separate. See
 See [ADR-0177](../../docs/adr/0177-workspace-caller-transaction-dataset-unlink.md)
 and the single module ledger.
 
+Project and directory response decoders live with their value codecs; request,
+fact and schema definitions do not import those codecs. The API and portable
+managers consume the codec entrypoints directly, without compatibility exports.
+The architecture guard checks the Workspace owner and shared contract together,
+including function-local imports. Wire schemas and materialization semantics
+remain unchanged.
+
 Ordinary API/worker LOGINs can apply the explicit Workspace consumer profile after
 owner and legacy application grants. It retains 32 fixed functions and the two
 contracted facts views while removing private relation/column, receipt, sequence,

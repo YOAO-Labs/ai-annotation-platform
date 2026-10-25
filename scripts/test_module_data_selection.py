@@ -42,6 +42,28 @@ class ModuleDataSelectionTests(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     _arguments(["--output", "/tmp/unused.json", "--test-file", target])
 
+    def test_default_workspace_profile_rejects_unrelated_or_combined_targets(self):
+        for targets in (
+            [],
+            ["tests/test_identity_recovery.py"],
+            [
+                "tests/test_workspace_module_assembly_live.py",
+                "tests/test_workspace_worker_assembly_live.py",
+            ],
+        ):
+            args = [
+                "--output",
+                "/tmp/unused.json",
+                "--workspace-consumer-profile",
+                "default",
+            ]
+            for target in targets:
+                args.extend(("--test-file", target))
+            with self.subTest(targets=targets), redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as rejected:
+                    _arguments(args)
+                self.assertEqual(rejected.exception.code, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -88,10 +88,10 @@ from aap_workspace_contract.project_query_contract import (
     ProjectQueryRequest,
     ProjectQuerySuccess,
     ProjectQueryUnavailable,
-    decode_project_query_reply,
     project_query_request,
 )
 from aap_workspace_contract.project_query_values import (
+    decode_project_query_reply,
     decode_project_row,
     project_json_value,
 )

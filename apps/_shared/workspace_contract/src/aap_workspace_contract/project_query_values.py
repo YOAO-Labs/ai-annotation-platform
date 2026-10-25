@@ -23,7 +23,12 @@ from .project_query_contract import (
     PROJECT_ENRICHMENT_COLUMNS,
     PROJECT_JSON_COLUMNS,
     PROJECT_ROW_COLUMNS,
+    ProjectQueryReply,
+    ProjectQueryRequest,
+    ProjectQuerySuccess,
     ProjectQueryUnavailable,
+    _decode,
+    decode_project_query_filters,
 )
 
 _FLOAT_COLUMNS = ("iou_dedup_threshold", "box_threshold", "text_threshold")
@@ -446,8 +451,6 @@ def validate_project_query_data(request, data_json):
         else:
             raise ProjectQueryUnavailable()
     elif operation == "search_projects":
-        from .project_query_contract import decode_project_query_filters
-
         if (
             type(value) is not list
             or len(value) > decode_project_query_filters(request).limit
@@ -485,10 +488,18 @@ def validate_project_query_data(request, data_json):
     return value
 
 
+def decode_project_query_reply(request, payload):
+    request = _decode(ProjectQueryRequest, request, ProjectQueryUnavailable)
+    reply = _decode(ProjectQueryReply, payload, ProjectQueryUnavailable)
+    if reply.request != request:
+        raise ProjectQueryUnavailable()
+    if isinstance(reply, ProjectQuerySuccess):
+        validate_project_query_data(request, reply.data_json)
+    return reply
+
+
 def materialize_project_query_data(reply):
     """Restore public Python scalars after the selected owner's successful reply."""
-    from .project_query_contract import ProjectQuerySuccess, decode_project_query_reply
-
     reply = decode_project_query_reply(reply.request, reply)
     if not isinstance(reply, ProjectQuerySuccess):
         raise ProjectQueryUnavailable()

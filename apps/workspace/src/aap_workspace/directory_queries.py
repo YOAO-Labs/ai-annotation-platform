@@ -18,11 +18,11 @@ from .directory_query_contract import (
     DirectoryQuerySuccess,
     DirectoryQueryUnavailable,
     DirectoryQueryUserId,
-    decode_directory_query_reply,
     decode_directory_query_request,
     decode_directory_query_step,
 )
 from .directory_query_values import (
+    decode_directory_query_reply,
     decode_directory_member_rows,
     decode_directory_mention_member_rows,
     directory_query_data_json,

@@ -25,9 +25,11 @@ from aap_workspace.directory_query_postgres import (
     directory_query_step_arguments,
 )
 from aap_workspace.directory_query_values import (
+    materialize_directory_query_data,
+)
+from aap_workspace_contract.member_values import (
     PROJECT_MEMBER_COLUMNS,
     PROJECT_MEMBER_MENTION_COLUMNS,
-    materialize_directory_query_data,
 )
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember

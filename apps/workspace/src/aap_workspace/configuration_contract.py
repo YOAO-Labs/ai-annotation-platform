@@ -29,7 +29,10 @@ from .guide_asset_policy import (
     assert_guide_asset_upload_target,
     sanitize_guide_asset_filename,
 )
-from aap_workspace_contract.access import ProjectAccessPolicyFailure, project_manager_access
+from aap_workspace_contract.access import (
+    ProjectAccessPolicyFailure,
+    project_manager_access,
+)
 from .configuration_policy import ConfigurationPolicyError
 from aap_workspace_contract.wire import ClosedModel, _json_bytes, _reject_constant
 from aap_workspace_contract.project_query_contract import (
@@ -37,9 +40,9 @@ from aap_workspace_contract.project_query_contract import (
     ProjectQueryInvalidRequest,
     ProjectQuerySuccess,
     ProjectQueryUnavailable,
-    decode_project_query_reply,
     project_query_request,
 )
+from aap_workspace_contract.project_query_values import decode_project_query_reply
 
 CONFIGURATION_PROTOCOL = "aap-workspace-configuration/v1"
 

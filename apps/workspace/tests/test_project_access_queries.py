@@ -24,11 +24,13 @@ from aap_workspace_contract.project_query_contract import (
     ProjectQueryInvalidRequest,
     ProjectQueryUnavailable,
     decode_project_query_step,
-    decode_project_query_reply,
     project_query_request,
     project_query_schema,
 )
-from aap_workspace_contract.project_query_values import materialize_project_query_data
+from aap_workspace_contract.project_query_values import (
+    decode_project_query_reply,
+    materialize_project_query_data,
+)
 
 ACTOR = uuid.UUID(int=1)
 PROJECT = uuid.UUID(int=2)

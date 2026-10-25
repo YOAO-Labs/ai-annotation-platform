@@ -750,18 +750,6 @@ def decode_project_query_step(request, action, parameters, payload):
     return step
 
 
-def decode_project_query_reply(request, payload):
-    request = _decode(ProjectQueryRequest, request, ProjectQueryUnavailable)
-    reply = _decode(ProjectQueryReply, payload, ProjectQueryUnavailable)
-    if reply.request != request:
-        raise ProjectQueryUnavailable()
-    if isinstance(reply, ProjectQuerySuccess):
-        from .project_query_values import validate_project_query_data
-
-        validate_project_query_data(request, reply.data_json)
-    return reply
-
-
 def project_query_schema():
     """Publish action-specific fact/argument pairs as standard JSON Schema."""
     schema = TypeAdapter(

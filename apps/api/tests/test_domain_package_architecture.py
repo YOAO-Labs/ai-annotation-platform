@@ -16,6 +16,7 @@ Rules enforced per declared ``app.services.<domain>``:
    Top-level imports within the package are the only allowed intra-package wiring.
 
 Domains are declared in ``DOMAIN_PACKAGES``. Add an entry when an owner lands.
+The portable Workspace owner and shared contract also form one acyclic graph.
 """
 
 from __future__ import annotations
@@ -821,6 +822,20 @@ def _iter_service_files() -> list[tuple[Path, str]]:
     return files
 
 
+def _iter_workspace_files() -> list[tuple[Path, str]]:
+    files = []
+    for source in (
+        _REPO_ROOT / "apps/workspace/src",
+        _REPO_ROOT / "apps/_shared/workspace_contract/src",
+    ):
+        for path in sorted(source.rglob("*.py")):
+            parts = path.relative_to(source).with_suffix("").parts
+            if parts[-1] == "__init__":
+                parts = parts[:-1]
+            files.append((path, ".".join(parts)))
+    return files
+
+
 def _source_context_module(path: Path, module: str) -> str:
     if path.name == "__init__.py":
         return f"{module}.__init__"
@@ -829,7 +844,7 @@ def _source_context_module(path: Path, module: str) -> str:
 
 def _resolve_graph_target(imported: str, modules: set[str]) -> str | None:
     candidate = imported
-    while candidate.startswith("app.services"):
+    while candidate:
         if candidate in modules:
             return candidate
         if "." not in candidate:
@@ -838,8 +853,7 @@ def _resolve_graph_target(imported: str, modules: set[str]) -> str | None:
     return None
 
 
-def _service_import_graph() -> dict[str, set[str]]:
-    files = _iter_service_files()
+def _import_graph(files: list[tuple[Path, str]]) -> dict[str, set[str]]:
     modules = {module for _path, module in files}
     graph = {module: set() for module in modules}
     for path, module in files:
@@ -1263,9 +1277,12 @@ def test_scc_detector_finds_two_and_three_node_cycles() -> None:
     assert ("acyclic.b",) in components
 
 
-def test_services_graph_has_no_cycle() -> None:
-    """Every service module participates in the acyclic dependency contract."""
-    graph = _service_import_graph()
+@pytest.mark.parametrize(
+    "files", [_iter_service_files, _iter_workspace_files], ids=["api", "workspace"]
+)
+def test_services_graph_has_no_cycle(files) -> None:
+    """API services and portable Workspace owners obey the same acyclic contract."""
+    graph = _import_graph(files())
     offenders = [
         component
         for component in _strongly_connected_components(graph)

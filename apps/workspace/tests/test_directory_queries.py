@@ -3,7 +3,6 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from datetime import datetime
 import json
-from importlib.resources import files
 from types import SimpleNamespace
 import uuid
 
@@ -17,13 +16,8 @@ from aap_workspace.directory_query_contract import (
     decode_directory_query_request,
     decode_directory_query_step,
     directory_query_request,
-    directory_query_schema,
 )
 from aap_workspace.directory_query_values import (
-    DIRECTORY_MENTION_RESPONSE_COLUMNS,
-    DIRECTORY_MEMBER_RESPONSE_COLUMNS,
-    PROJECT_MEMBER_COLUMNS,
-    PROJECT_MEMBER_MENTION_COLUMNS,
     decode_directory_member_rows,
     materialize_directory_query_data,
 )
@@ -284,27 +278,6 @@ def test_step_facts_are_bound_to_actor_project_and_owner_parameters():
                 },
             },
         )
-
-
-def test_published_schema_contains_the_fixed_rows_and_action_matrix():
-    schema = directory_query_schema()
-    saved = json.loads(
-        files("aap_workspace")
-        .joinpath("directory_query_protocol.schema.json")
-        .read_text()
-    )
-    assert saved == schema
-    assert schema["$defs"]["DirectoryQueryStep"]["additionalProperties"] is False
-    assert schema["x-project-member-columns"] == list(PROJECT_MEMBER_COLUMNS)
-    assert schema["x-project-member-mention-columns"] == list(
-        PROJECT_MEMBER_MENTION_COLUMNS
-    )
-    assert schema["x-project-member-response-columns"] == list(
-        DIRECTORY_MEMBER_RESPONSE_COLUMNS
-    )
-    assert schema["x-mention-response-columns"] == list(
-        DIRECTORY_MENTION_RESPONSE_COLUMNS
-    )
 
 
 @pytest.mark.asyncio

@@ -459,6 +459,24 @@ Identity account-lock boundary 用三项 typed SQL functions（SHARE／UPDATE／
 
 16 次项目读取、并发 4 的本机样本耗时 1.180 秒，观测 p95 为 0.335 秒。这是 macOS ARM64 的有限正确性样本。独占 worker 案例另起同一个 API 冷工件中的真实 prefork Celery 进程：受限 `identity_api_consumer` 连接通过 Native 读取项目，重启前后两个 retry 均写入 Prediction／元信息及作业终态，真实队列与 Redis 未确认消息数归零。容器保持普通 UID、只读根文件系统、1 CPU／512 MiB；该案例通过后清理全部自有资源。它不覆盖公共 retry 入队、池路由、源对象读取或 ML 正确性。冷 nuScenes 运维入口的限定资格见下节；旧视频无证明的退役修复、其余运行路径与更完整容量仍按台账跟踪；未切日常主环境，也未获得 AMD64、远程 CI、生产或另一语言完整提供方资格。Inference peer 是确定性 HTTP 协议夹具。
 
+### Workspace 整模块源码与资格审计 {#workspace-module-audit}
+
+当前源码已按六个 HTTP 能力、同事务 Native 读锁／删除／解绑、维护、seed、夹具与
+历史角色审计入口盘点；没有发现需要再拆一个普通 Workspace 业务服务的缺口。
+Project 与目录契约反向加载值编解码器的两处函数内导入环已移除，响应 decoder 及所有
+调用方直接使用现有编解码器入口；契约／schema 定义保持单向依赖。Workspace owner
+与共享契约图通过，547项便携包／共享契约检查通过，两份 schema 摘要不变。
+
+现有验证器增加显式 strict／default 选择，复用同一九进程业务／整库恢复和实际
+worker 场景，但不把默认凭据在验收前悄悄改成32函数配置。当前冷工件和这两种
+profile 的运行结果尚未在本审计中宣称通过；旧资格保留原源码和范围。
+
+本轮图检查还记录 API 的 `annotation_cleanup ↔ batch` 环，不属于 Workspace 包；
+该失败保持，不通过收窄或关闭已有 API 图守卫掩盖，也不扩大 Labeling 实施。
+真正的整模块历史恢复仍缺两个前提：完整可信的历史写入／凭据／重启控制清单，
+以及能绑定并消费这些真实围栏事实的 Jobs 历史退役授权契约。现有本地观察器、
+当前 execution 退役和 never-started clearance 均不能替代它；409及输入保留保持。
+
 ## Identity 内嵌运行权限
 
 默认 API 继续在 caller Session 中使用 Identity 固定 Native 能力。分离账号的

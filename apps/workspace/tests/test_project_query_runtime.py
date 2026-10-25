@@ -11,11 +11,13 @@ from aap_workspace.config import RuntimeSettings
 from aap_workspace.project_queries import ProjectQueryProfilesUnavailable
 from aap_workspace_contract.project_query_contract import (
     PROJECT_QUERY_PROTOCOL,
-    decode_project_query_reply,
     project_query_request,
 )
 from aap_workspace.project_query_profiles import ProjectQueryIdentityProfiles
-from aap_workspace_contract.project_query_values import materialize_project_query_data
+from aap_workspace_contract.project_query_values import (
+    decode_project_query_reply,
+    materialize_project_query_data,
+)
 
 
 class EmptyProjects:

@@ -227,6 +227,11 @@ seed／维护函数和测试库夹具函数保持。普通应用不因撤权改�
 这不是对任意未来 ORM refresh／懒加载的承诺，也不替代整模块审计、历史退役授权或
 独立运行资格。范围见[默认存储围栏](/dev/concepts/module-deployment#workspace-default-private-storage)。
 
+Project／目录响应的绑定校验与数据校验由各自值编解码器持有，契约定义不再反向导入
+编解码器。API、配置 owner 和查询 manager 直接使用新入口，不保留旧 decoder 导出。
+AST 图检查把 Workspace owner 与共享契约作为同一个图，并计入函数内导入；类型、
+线格式、时间戳和错误边界保持。该图闭合不等于其他 API 领域的图也已闭合。
+
 Operational bootstrap/import 不再由 API `IdentityCommandService` 自行查 User、hash password 或写 User ORM。`services/identity_provisioning_data.py` 将 `AccountProvisioningData` 绑定到原 caller transaction；Identity portable manager 的两种固定命令仅返回 UUID，0252 Native owner 创建账号并在 bootstrap 时经 Audit capability 原子记录固定事件。CLI 仍持有原 commit/rollback，import 回滚仍覆盖 Assets、Workspace、Labeling 的导入行。Provisioning 已通过限定本地资格，不属于邀请账号建立或一般 User CRUD；完整 Identity 仍待完成。
 
 `project_access.resolve_project_access()` 的非锁定 account status 读取复用现有 `IdentityAccountLockData.read_actor_status`／`read_actor_facts`；它仍按账号、刷新 Project、membership 的原顺序计算 ProjectAccess，不新增锁或 role guard。Project ORM refresh 及 401/Bearer/403/404 映射保持，active-only guard 不新增 role 检查。`task_lock.py`、`batch.py` 和 `async_job_access.py` 将 authority-only User reads 换为已有 status/lock facts；原 lock mode、等待/NOWAIT、异常、空值和 policy mapping 保留。该 consumer migration 不增加 SQL、wire 或 network capability，也不扩展 member/task lifecycle。本切片已通过限定本地资格，详见 [ADR-0132](/dev/adr/0132-identity-operational-provisioning-and-authority-reads)；之前 account-lock 和 actor-context slices 继续独立计数。

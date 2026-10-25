@@ -1616,7 +1616,26 @@ def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
         metavar="TEST_NODEID",
         help="select an apps/api test file or node ID; repeat to replace the default suite",
     )
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--workspace-consumer-profile",
+        choices=("strict", "default"),
+        default="strict",
+        help="Workspace assembly/worker credentials: strict32 or existing default LAN capabilities",
+    )
+    args = parser.parse_args(argv)
+    if args.workspace_consumer_profile == "default" and (
+        not args.test_files
+        or len(args.test_files) != 1
+        or args.test_files[0].split("::", 1)[0]
+        not in {
+            "tests/test_workspace_module_assembly_live.py",
+            "tests/test_workspace_worker_assembly_live.py",
+        }
+    ):
+        parser.error(
+            "The default Workspace profile requires one explicit module-assembly or worker-assembly target"
+        )
+    return args
 
 
 def _write_evidence(path: Path, document: dict) -> None:
@@ -8200,7 +8219,7 @@ def main(argv: list[str] | None = None) -> int:
                 database=database,
                 statement=statement,
             )
-        if (
+        if args.workspace_consumer_profile == "strict" and (
             "tests/test_seed_parent_operator_native.py" in selected_test_paths
             or "tests/test_workspace_e2e_native.py" in selected_test_paths
             or "tests/test_identity_e2e_live.py" in selected_test_paths
@@ -8266,12 +8285,55 @@ def main(argv: list[str] | None = None) -> int:
                 },
             )
             evidence["workspace_api_consumer"] = {
+                "profile": "strict",
                 "role": IDENTITY_API_CONSUMER_ROLE,
                 "grant_path": str(workspace_consumer_path.relative_to(ROOT)),
                 "sha256": hashlib.sha256(
                     workspace_consumer_path.read_bytes()
                 ).hexdigest(),
             }
+        elif args.workspace_consumer_profile == "default":
+            evidence["workspace_api_consumer"] = {
+                "profile": "default",
+                "role": IDENTITY_API_CONSUMER_ROLE,
+                "grant_path": str(lan_production_grants_path.relative_to(ROOT)),
+                "sha256": hashlib.sha256(
+                    lan_production_grants_path.read_bytes()
+                ).hexdigest(),
+            }
+        if "workspace_api_consumer" in evidence:
+            profile_probe = _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username=IDENTITY_API_CONSUMER_ROLE,
+                password=identity_api_consumer_password,
+                database=database,
+                sql=(
+                    "SELECT pg_catalog.has_table_privilege(current_user,"
+                    "'public.projects','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') "
+                    "OR pg_catalog.has_any_column_privilege(current_user,"
+                    "'public.projects','SELECT,INSERT,UPDATE,REFERENCES'),"
+                    "pg_catalog.has_function_privilege(current_user,"
+                    "'aap_workspace_v1.create_media_seed_project(uuid,text,text,uuid,text,jsonb)',"
+                    "'EXECUTE');"
+                ),
+            ).strip()
+            expected_profile = (
+                "f|t" if args.workspace_consumer_profile == "default" else "f|f"
+            )
+            if profile_probe != expected_profile:
+                raise RuntimeError(
+                    "Workspace consumer credential profile did not persist"
+                )
+            evidence["workspace_api_consumer"].update(
+                {
+                    "private_project_storage_denied": True,
+                    "fixed_media_seed_capability": (
+                        args.workspace_consumer_profile == "default"
+                    ),
+                }
+            )
         workspace_import_cli_fence = None
         seed_parent_live = (
             "tests/test_seed_parent_operator_live.py" in selected_test_paths

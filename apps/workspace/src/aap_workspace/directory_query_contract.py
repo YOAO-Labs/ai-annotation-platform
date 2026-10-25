@@ -15,9 +15,34 @@ from pydantic import (
 )
 
 from aap_workspace_contract.wire import ClosedModel, _json_bytes
-from aap_workspace_contract.project_query_contract import ProjectQueryActorFacts, ProjectQueryMemberFacts
+from aap_workspace_contract.project_query_contract import (
+    ProjectQueryActorFacts,
+    ProjectQueryMemberFacts,
+)
+from aap_workspace_contract.member_values import (
+    PROJECT_MEMBER_COLUMNS,
+    PROJECT_MEMBER_MENTION_COLUMNS,
+)
 
 DIRECTORY_QUERY_PROTOCOL = "aap-workspace-directory-query/v1"
+DIRECTORY_MEMBER_RESPONSE_COLUMNS = (
+    "id",
+    "user_id",
+    "user_name",
+    "user_email",
+    "role",
+    "platform_role",
+    "version",
+    "assigned_at",
+    "updated_at",
+    "avatar_ref",
+)
+DIRECTORY_MENTION_RESPONSE_COLUMNS = (
+    "user_id",
+    "user_name",
+    "user_email",
+    "kind",
+)
 
 DirectoryQueryOperation: TypeAlias = Literal["list_members", "mention_candidates"]
 DirectoryQueryAction: TypeAlias = Literal[
@@ -265,18 +290,6 @@ def decode_directory_query_policy(payload) -> DirectoryQueryPolicy:
     return _decode(DirectoryQueryPolicy, payload, DirectoryQueryUnavailable)
 
 
-def decode_directory_query_reply(request, payload) -> DirectoryQueryReply:
-    request = _decode(DirectoryQueryRequest, request, DirectoryQueryUnavailable)
-    reply = _decode(DirectoryQueryReply, payload, DirectoryQueryUnavailable)
-    if reply.request != request:
-        raise DirectoryQueryUnavailable()
-    if isinstance(reply, DirectoryQuerySuccess):
-        from .directory_query_values import validate_directory_query_data
-
-        validate_directory_query_data(request, reply.data_json)
-    return reply
-
-
 def decode_directory_query_step(request, action, parameters, payload):
     request = _decode(DirectoryQueryRequest, request, DirectoryQueryUnavailable)
     step = _decode(DirectoryQueryStepReply, payload, DirectoryQueryUnavailable)
@@ -360,13 +373,6 @@ def directory_query_schema() -> dict:
             }
         )
     schema["$defs"]["DirectoryQueryStep"]["allOf"] = conditions
-    from .directory_query_values import (
-        DIRECTORY_MENTION_RESPONSE_COLUMNS,
-        DIRECTORY_MEMBER_RESPONSE_COLUMNS,
-        PROJECT_MEMBER_COLUMNS,
-        PROJECT_MEMBER_MENTION_COLUMNS,
-    )
-
     schema["x-project-member-columns"] = list(PROJECT_MEMBER_COLUMNS)
     schema["x-project-member-response-columns"] = list(
         DIRECTORY_MEMBER_RESPONSE_COLUMNS

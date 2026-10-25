@@ -21,12 +21,12 @@ from aap_workspace_contract.project_query_contract import (
     ProjectQueryProjectionMissing,
     ProjectQueryUnavailable,
     decode_project_query_request,
-    decode_project_query_reply,
     decode_project_query_step,
     project_query_request,
     project_query_schema,
 )
 from aap_workspace_contract.project_query_values import (
+    decode_project_query_reply,
     decode_project_row,
     materialize_project_query_data,
 )

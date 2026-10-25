@@ -23,17 +23,20 @@ from aap_workspace_contract.project_query_contract import (
     ProjectQuerySuccess,
     ProjectQueryUnavailable,
     decode_project_query_filters,
-    decode_project_query_reply,
     decode_project_query_request,
     decode_project_query_step,
 )
 from aap_workspace_contract.project_query_values import (
+    decode_project_query_reply,
     decode_project_row,
     decode_project_rows,
     project_access_data,
     project_json_value,
 )
-from aap_workspace_contract.project_read_authority import accessible_project_row, current_project_access
+from aap_workspace_contract.project_read_authority import (
+    accessible_project_row,
+    current_project_access,
+)
 
 
 class ProjectOwnerBrief(Protocol):
