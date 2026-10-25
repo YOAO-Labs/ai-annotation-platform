@@ -361,6 +361,21 @@ async def classify(db, bucket, objects):
             ),
         ),
     ]
+    for model in (DatasetAssetLocation, DatasetAuxiliaryOriginal):
+        queries.append(
+            _claim(
+                model,
+                "managed_original",
+                model.object_key,
+                (
+                    *_hashed_keys(model, bucket, keys),
+                    model.storage_ref["endpoint_url"].astext == endpoint(),
+                    model.storage_ref["storage_identity"].astext == identity,
+                    model.storage_ref["object_key"].astext == model.object_key,
+                    model.storage_ref["bucket"].astext == model.bucket,
+                ),
+            )
+        )
     for model, field, tag in (
         (MaskFormatUpload, "logical_object_key", "mask_upload"),
         (MaskFormatImport, "staged_object_key", "mask_batch"),

@@ -46,7 +46,7 @@ async def register_entry(
 ):
     from app.services.dataset_content import scan_snapshot, scan_context, key_authority
     from app.services.project_kind import dataset_has_scenes
-    from app.services.dataset_assets import ensure_legacy_bindings
+    from app.services import managed_original_creation as originals
     from app.services import directory_previews as previews
 
     async def dataset_guard(current_db):
@@ -73,7 +73,7 @@ async def register_entry(
         db, initial_source, snapshot=initial_scan.snapshot, lock=False
     )
     # Binding initialization precedes the Location/Source lock order.
-    binding = await ensure_legacy_bindings(db)
+    await originals.bootstrap(db)
 
     key_proof = await key_authority(db, actor, api_key_id, "datasets:write")
     snapshot = await scan_snapshot(
@@ -89,44 +89,104 @@ async def register_entry(
         event_job_id=event_job_id,
         event_registration_id=event_registration_id,
     )
-    observation = dict(snapshot.observation)
+    observation, initial_sha = dict(snapshot.observation), snapshot.sha256
     snapshot.close()
-    # Serialize registrations in the same Location -> Source order as scans.
-    location, source, run, entry, node, anchor = await scan_context(
-        db, run_id, path_digest, actor, lock=True, node_id=node_id
-    )
-    # Source deletion owns Dataset first, so this short write never waits on it.
-    dataset = await scans.require_dataset_write(db, source, snapshot=run.snapshot)
-    await scans.require_actor(db, actor.id, source)
-    if await key_authority(db, actor, api_key_id, "datasets:write") != key_proof:
-        raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
-    if (
-        dataset is None
-        or dataset.data_type != "image"
-        or dataset.is_temporal
-        or await dataset_has_scenes(db, dataset.id)
-    ):
-        raise HTTPException(409, detail={"code": "reference_requires_image_dataset"})
-    if before_apply is not None:
-        await before_apply(db)
-    receipt = entry.verified_content
-    config = await reference_storage.configuration(db, location)
-    final = await snapshots.capture_from_location(
+    # Repeat the existing exact source capture outside business locks. Its own
+    # short post-I/O check commits before any target allocation or provider write.
+    final = await scan_snapshot(
         db,
-        location.id,
-        lambda: reference_storage.content_file(
-            config,
-            source.config["relative_path"],
-            entry.relative_path,
-            expected_anchor=anchor,
-            expected=observation,
-            expected_source_identity=observation.get("source_identity"),
-        ),
-        receipt["sha256"],
-        expected_revision=run.snapshot.get("maintenance_revision", 1),
-        node_id=node,
-        purpose="reference_registration",
+        run_id,
+        path_digest,
+        actor,
+        expected_sha256=initial_sha,
+        api_key_id=api_key_id,
+        node_id=node_id,
+        before_io=dataset_guard,
+        before_commit=guarded_commit,
+        event_job_id=event_job_id,
+        event_registration_id=event_registration_id,
     )
+    if final.observation != observation:
+        final.close()
+        raise snapshots.ContentError("reference_content_changed")
+    prepared_copy = None
+    try:
+        unlocked_source = await db.get(
+            DatasetSource, initial_source.id, populate_existing=True
+        )
+        unlocked_entry = await db.get(
+            DatasetScanEntry, (run_id, path_digest), populate_existing=True
+        )
+        if unlocked_source is None or unlocked_entry is None:
+            raise snapshots.ContentError("source_unavailable")
+        preparation_facts = (
+            unlocked_source.id,
+            unlocked_source.config_revision,
+            unlocked_source.dataset_id,
+            unlocked_source.ownership_mode,
+        )
+        if unlocked_source.ownership_mode == "managed_copy":
+            dataset = await scans.require_dataset_write(
+                db, unlocked_source, snapshot=initial_scan.snapshot, lock=False
+            )
+            prepared_copy = await prepare_copy(
+                db,
+                unlocked_source,
+                unlocked_entry,
+                dataset,
+                final,
+                force_new=revision_context is not None,
+                requested_by=actor.id,
+                authority={
+                    "actor_id": str(actor.id),
+                    "api_key_id": str(api_key_id) if api_key_id else None,
+                    "key_proof": key_proof,
+                    "source_id": str(unlocked_source.id),
+                    "run_id": str(run_id),
+                    "path_digest": path_digest,
+                    "source_revision": initial_scan.snapshot["source_revision"],
+                    "location_revision": initial_scan.snapshot["location_revision"],
+                    "maintenance_revision": initial_scan.snapshot.get(
+                        "maintenance_revision", 1
+                    ),
+                },
+            )
+        # Only current source, authority and publication facts are locked here.
+        location, source, run, entry, node, anchor = await scan_context(
+            db, run_id, path_digest, actor, lock=True, node_id=node_id
+        )
+        if preparation_facts != (
+            source.id,
+            source.config_revision,
+            source.dataset_id,
+            source.ownership_mode,
+        ):
+            raise snapshots.ContentError("configuration_changed")
+        dataset = await scans.require_dataset_write(db, source, snapshot=run.snapshot)
+        await scans.require_actor(db, actor.id, source)
+        if await key_authority(db, actor, api_key_id, "datasets:write") != key_proof:
+            raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+        if (
+            dataset is None
+            or dataset.data_type != "image"
+            or dataset.is_temporal
+            or await dataset_has_scenes(db, dataset.id)
+        ):
+            raise HTTPException(
+                409, detail={"code": "reference_requires_image_dataset"}
+            )
+        if before_apply is not None:
+            await before_apply(db)
+        receipt = entry.verified_content
+        if (
+            not receipt
+            or receipt["sha256"] != final.sha256
+            or receipt["size_bytes"] != final.size
+        ):
+            raise snapshots.ContentError("reference_content_changed")
+    except BaseException:
+        final.close()
+        raise
     uploaded = []
     retired = []
     committing = False
@@ -213,7 +273,7 @@ async def register_entry(
                     entry,
                     dataset,
                     final,
-                    binding,
+                    prepared_copy,
                     uploaded,
                     force_new=revision_context is not None,
                     requested_by=actor.id,
@@ -420,14 +480,12 @@ async def register_entry(
         final.close()
 
 
-async def apply_copy(
+async def prepare_copy(
     db,
     source,
     entry,
     dataset,
     snapshot,
-    binding,
-    uploaded,
     *,
     force_new=False,
     requested_by=None,
@@ -435,9 +493,12 @@ async def apply_copy(
 ):
     from app.services.dataset import DatasetService
     from app.services.dataset_assets import find_verified_content
-    from app.services.dataset_content import stored_content
     from botocore.exceptions import ClientError
     from app.services import managed_original_creation as originals
+    from app.services import (
+        managed_original_reader as reader,
+        original_sources as sources,
+    )
 
     service = DatasetService(db)
     existing = (
@@ -447,12 +508,33 @@ async def apply_copy(
     )
     if existing:
         try:
-            stored = await snapshots.capture(
-                lambda: stored_content(
-                    binding.bucket, existing.file_path, snapshot.size
-                ),
-                snapshot.sha256,
-            )
+            canonical = await sources.resolve_item(db, existing.id)
+            options = await sources.read_options(db, canonical)
+            if not options:
+                # This existing dedup read used the process-owned A client.
+                target = await sources.read_target(db, canonical)
+                options = {"client_context": target.client}
+            async with await storage_access.acquire(
+                db,
+                canonical.location_id,
+                "directory_copy_dedup",
+                expected_revision=canonical.maintenance_revision,
+            ):
+                stored = await reader.capture(
+                    reader.ObjectSpec(
+                        canonical.endpoint_url,
+                        canonical.bucket,
+                        canonical.object_key,
+                        canonical.sha256,
+                        canonical.size_bytes,
+                    ),
+                    max_bytes=snapshot.size,
+                    timeout_seconds=60,
+                    **options,
+                )
+            if stored.sha256 != snapshot.sha256 or stored.size != snapshot.size:
+                stored.close()
+                raise snapshots.ContentError("reference_content_changed")
             stored.close()
         except snapshots.ContentError as exc:
             if exc.code in {"snapshot_capacity_exceeded", "content_read_timeout"}:
@@ -467,7 +549,8 @@ async def apply_copy(
                 raise
             existing = None
         if existing:
-            return {"item_id": existing.id, "created": False, "sha256": snapshot.sha256}
+            await db.commit()
+            return {"existing_id": existing.id}
     logical_path = entry.relative_path
     if entry.observed.get("kind") == "s3":
         extension = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}[
@@ -485,12 +568,57 @@ async def apply_copy(
         requested_by=requested_by,
         authority=authority,
     )
+    # Naming locks do not span target I/O. Publication rechecks eligibility.
+    await db.commit()
     snapshot.file.seek(0)
     creation = await originals.create_stream(
         db, allocation, snapshot.file, content_type=snapshot.media_type
     )
     snapshot.file.seek(0)
     if creation.sha256 != snapshot.sha256 or creation.size_bytes != snapshot.size:
+        raise snapshots.ContentError("reference_content_changed")
+    return {"allocation": allocation, "created": creation}
+
+
+async def apply_copy(
+    db,
+    source,
+    entry,
+    dataset,
+    snapshot,
+    candidate,
+    uploaded,
+    *,
+    force_new=False,
+    requested_by=None,
+    authority=None,
+):
+    from app.services.dataset import DatasetService
+    from app.services.dataset_assets import find_verified_content
+    from app.services import managed_original_creation as originals
+
+    if candidate is None:
+        raise snapshots.ContentError("managed_original_creation_input_changed")
+    existing = (
+        None
+        if force_new
+        else await find_verified_content(db, dataset.id, snapshot.sha256)
+    )
+    expected_existing = candidate.get("existing_id")
+    if expected_existing is not None:
+        if existing is None or existing.id != expected_existing:
+            raise snapshots.ContentError("managed_original_creation_input_changed")
+        return {"item_id": existing.id, "created": False, "sha256": snapshot.sha256}
+    if existing is not None:
+        # Another registration won after sealing. Retain this exact independent
+        # Creation and let a fresh attempt recheck the winner outside SQL locks.
+        raise snapshots.ContentError("managed_original_creation_input_changed")
+    service = DatasetService(db)
+    allocation, creation = candidate["allocation"], candidate["created"]
+    name = allocation["logical_path"]
+    if name in await service._existing_file_names(dataset.id):
+        raise snapshots.ContentError("managed_original_creation_input_changed")
+    if (creation.sha256, creation.size_bytes) != (snapshot.sha256, snapshot.size):
         raise snapshots.ContentError("reference_content_changed")
     item = await service.add_item(
         dataset.id,
@@ -503,7 +631,8 @@ async def apply_copy(
         height=snapshot.height,
         sha256=creation.sha256,
         object_etag=creation.etag,
-        storage_binding=binding,
+        storage_binding=originals.original_locator(allocation),
+        storage_ref=originals.original_ref(allocation),
         logical_path=name,
     )
     await originals.attach(db, item, creation.creation_id)

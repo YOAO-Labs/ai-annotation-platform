@@ -194,6 +194,7 @@ async def current_media(db, authority, snapshot):
                     timeout_seconds=COPY_SECONDS,
                     admission=_slots,
                     transport_timeout_seconds=30,
+                    **(await original_sources.read_options(db, source)),
                 )
                 media = await bounded_thread(inspect_image, stage, snapshot)
             except Exception as exc:

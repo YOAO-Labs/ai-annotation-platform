@@ -35,6 +35,14 @@ const PURPOSES = [
   ["avatars", "用户头像"],
   ["training", "冻结训练数据"],
 ] as const;
+const BINDING_CHANGE_POLICIES = {
+  avatars: "reviewed_avatar_switch",
+  "bug-reports": "reviewed_bug_attachment_switch",
+  "audit-archive": "reviewed_audit_archive_switch",
+  export: "reviewed_export_switch",
+  import: "reviewed_import_switch",
+  datasets: "reviewed_dataset_switch",
+} as const;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const KIND: Record<string, string> = {
   filesystem: "服务器目录",
@@ -256,15 +264,10 @@ function ConsoleOwner() {
                                 purpose === "bug-reports" ||
                                 purpose === "audit-archive" ||
                                 purpose === "export" ||
-                                purpose === "import") &&
+                                purpose === "import" ||
+                                purpose === "datasets") &&
                                 binding?.state === "configured" &&
-                                [
-                                  "reviewed_avatar_switch",
-                                  "reviewed_bug_attachment_switch",
-                                  "reviewed_audit_archive_switch",
-                                  "reviewed_export_switch",
-                                  "reviewed_import_switch",
-                                ].includes(binding.change_policy) && (
+                                binding.change_policy === BINDING_CHANGE_POLICIES[purpose] && (
                                   <StorageBindingChangeButton
                                     purpose={purpose}
                                     binding={binding}
@@ -279,6 +282,7 @@ function ConsoleOwner() {
                                           ["audit-archive-binding-candidates"],
                                           ["export-binding-candidates"],
                                           ["import-binding-candidates"],
+                                          ["dataset-binding-candidates"],
                                           ["storage-buckets"],
                                         ].map((queryKey) => client.invalidateQueries({ queryKey })),
                                       );
@@ -298,9 +302,13 @@ function ConsoleOwner() {
                       当前部署映射锁定，受控用途切换尚未开放。已固定位置的对象按记录读取，其余入口保留既有兼容规则。
                     </p>
                   )}
-                {bindingData?.some((row) => row.change_policy === "reviewed_avatar_switch") && (
+                {bindingData?.some((row) =>
+                  Object.values(BINDING_CHANGE_POLICIES).some(
+                    (policy) => row.change_policy === policy,
+                  ),
+                ) && (
                   <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-                    当前开放头像、报告附件、审计归档、导出和导入暂存的位置切换，其余四种用途保持锁定。已有对象保留保存位置，切换不搬迁历史对象。
+                    已开放用途需验证目标并预览确认，其他用途保持锁定。切换仅影响后续新分配，已有和在途对象继续按保存的位置读取。
                   </p>
                 )}
               </>

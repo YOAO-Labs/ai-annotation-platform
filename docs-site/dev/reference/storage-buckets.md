@@ -71,13 +71,13 @@ mc mirror --remove-source annotations/audit-archive/  audit-archive/
 
 ## 容量监控与日常巡检
 
-- **前端入口**：存储管理展示真实位置、分节点探测和九用途映射，不再重复数据集目录。用途映射来自 `GET /api/v1/storage-locations/bindings`；共享桶不合并用途行。`read_policy=consumer_owned_compatibility`保留各业务固定定位及旧读取路径，`write_policy=deployment_mapping`描述新写入的兼容部署目标，其余四用途的`change_policy=legacy_mapping_locked`保持锁定；头像、报告附件、审计归档、导出和导入暂存使用`write_policy=current_binding`，分别通过`reviewed_avatar_switch`、`reviewed_bug_attachment_switch`、`reviewed_audit_archive_switch`、`reviewed_export_switch`和`reviewed_import_switch`支持经预览确认切换。位置配置修订与用途绑定代次独立返回；配置匹配不代表健康或迁移资格。
+- **前端入口**：存储管理展示真实位置、分节点探测和九用途映射，不再重复数据集目录。用途映射来自 `GET /api/v1/storage-locations/bindings`；共享桶不合并用途行。`read_policy=consumer_owned_compatibility`保留各业务固定定位及旧读取路径，`write_policy=deployment_mapping`描述新写入的兼容部署目标，其余三用途的`change_policy=legacy_mapping_locked`保持锁定；头像、报告附件、审计归档、导出、导入暂存和数据集原件使用`write_policy=current_binding`，分别通过`reviewed_avatar_switch`、`reviewed_bug_attachment_switch`、`reviewed_audit_archive_switch`、`reviewed_export_switch`、`reviewed_import_switch`和`reviewed_dataset_switch`支持经预览确认切换。位置配置修订与用途绑定代次独立返回；配置匹配不代表健康或迁移资格。
 - **统计边界**：平台对象字节读取持久盘点快照，已采纳源索引规模按准确来源地址去重，二者分列。物理容量、提供方配额及其他缺少可靠测量的指标保持未提供；刷新只查询已有记录，不同步列举全部桶。快照和分项口径见下文。
 - **巡检要点**：
   - `media-cache` 体积主要受 `videos/` 前缀的 30 天 Lifecycle 约束；若出现异常增长，通常意味着大量长视频被高频随机寻帧，可结合 `video_frame_service` 缓存命中率排查。
   - `avatars` 单对象不超过约 40 KB（`256×256` WebP），总体积随注册用户数线性增长；若对象数显著多于用户数，可排查是否存在 `users.avatar_ref` 未引用的孤儿对象。
 
-数据集名称只用于展示。托管原件的新键采用不可变数据集身份和独立上传身份，同名不同内容不会覆盖旧样本。四用途保持兼容部署映射，头像、报告附件、审计归档、导出和导入暂存可经真实托管探针及预览确认切换新写入位置；已固定对象按各自owner记录读取，历史头像定位缺失时阻止该用途切换，不声称全部历史定位已覆盖。用途策略不复用外部引用适配器的只读能力声明。
+数据集名称只用于展示。托管原件的新键采用不可变数据集身份和独立上传身份，同名不同内容不会覆盖旧样本。三用途保持兼容部署映射，头像、报告附件、审计归档、导出、导入暂存和数据集原件可经真实托管探针及预览确认切换新写入位置；已固定对象按各自owner记录读取，历史头像定位缺失时阻止该用途切换，不声称全部历史定位已覆盖。用途策略不复用外部引用适配器的只读能力声明。
 
 独立Task新上传的最终原件位于annotations用途的 `__aap_task_originals__/<Task UUID>/<Creation UUID>/payload`。浏览器只写import暂存区，完整核验封存后保存独立TaskOriginal；删除业务Task或测试fixture不会按前缀删除该原件。历史未知Task不补造归属，全部原件读取者的固定位置接入仍须独立完成。
 
@@ -137,3 +137,5 @@ Celery default worker 执行盘点，Beat 每 30 秒回收超过 120 秒租约�
 周期计划存于 `storage_usage_schedules`，默认关闭，管理员通过显式PUT授权开启，间隔1至168小时。已有30秒recover任务复核保存的授权及范围并调度，避免重叠，撤权／配置变化暂停，不能自动换操作者。应用迁移0246后刷新执行盘点、临时输入与托管原件写入的Worker；无镜像或依赖变化。回退先关闭计划，再回退保留schema的旧应用；显式降级仅允许新增表为空，禁止丢弃流水及基准。
 
 导出 ZIP 与独立媒体可经用途映射共同切换新分配位置。新外部目标使用连接基前缀下 `_aap_managed/export/`，保存完整物理 key／prefix；在途媒体包及其配套 ZIP、已有缓存保持原位置和首次七天期限。外部目标的浏览器和脚本下载直接按自身 endpoint 签名，默认目标继续使用平台代理。所有状态归属参与位置保护；盘点按 endpoint、bucket、完整键分类，不把外部未覆盖字节计入当前部署总量，增量账目仍为 partial。
+
+`datasets`的新原件分配可经预览确认切换到已登记global S3；默认目标保留原UUID键，外部目标在连接基前缀下附加`_aap_managed/datasets/`再保留原身份后缀。最终位置与import暂存独立；旧原件及在途Creation按保存地址读取，普通凭据轮换不重解释冻结身份。DatasetAssetLocation／DatasetAuxiliaryOriginal保存当前副本引用，Creation只留历史写入责任；Retirement不代表物理删除，外部目标不自动进入当前九桶占用总量。

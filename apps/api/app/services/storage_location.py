@@ -84,6 +84,8 @@ async def location_is_referenced(db, location_id):
     from app.db.models.avatar_upload import AvatarUpload
     from app.db.models.bug_attachment_upload import BugAttachmentUpload
     from app.db.models.dataset_source import DatasetSource
+    from app.db.models.dataset_auxiliary_original import DatasetAuxiliaryOriginal
+    from app.db.models.managed_original_retirement import ManagedOriginalRetirement
 
     for model, column in (
         (PredictionInputLease, PredictionInputLease.storage_ref),
@@ -95,6 +97,15 @@ async def location_is_referenced(db, location_id):
             select(model.id)
             .where(column["location_id"].astext == str(location_id))
             .limit(1)
+        ):
+            return True
+    for model in (
+        ManagedOriginalCreation,
+        DatasetAuxiliaryOriginal,
+        ManagedOriginalRetirement,
+    ):
+        if await db.scalar(
+            select(model.id).where(model.location_id == location_id).limit(1)
         ):
             return True
     return bool(
@@ -685,7 +696,14 @@ async def binding_rows(db):
                 "read_policy": "consumer_owned_compatibility",
                 "write_policy": "current_binding"
                 if purpose
-                in {"avatars", "bug-reports", "audit-archive", "export", "import"}
+                in {
+                    "avatars",
+                    "bug-reports",
+                    "audit-archive",
+                    "export",
+                    "import",
+                    "datasets",
+                }
                 else "deployment_mapping",
                 "change_policy": "reviewed_avatar_switch"
                 if purpose == "avatars"
@@ -698,6 +716,8 @@ async def binding_rows(db):
                     if purpose == "export"
                     else "reviewed_import_switch"
                     if purpose == "import"
+                    else "reviewed_dataset_switch"
+                    if purpose == "datasets"
                     else "legacy_mapping_locked"
                 ),
             }

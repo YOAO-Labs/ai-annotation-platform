@@ -239,9 +239,7 @@ it("offers only the controlled avatar action and refreshes mapping, locations an
   expect(
     within(screen.getByRole("row", { name: /托管数据集/ })).queryByRole("button"),
   ).not.toBeInTheDocument();
-  expect(
-    screen.getByText(/当前开放头像、报告附件、审计归档和导出用途的位置切换/),
-  ).toBeInTheDocument();
+  expect(screen.getByText(/已开放用途需验证目标并预览确认，其他用途保持锁定/)).toBeInTheDocument();
   fireEvent.click(button);
   await screen.findByRole("option", { name: target.name });
   fireEvent.change(screen.getByRole("combobox", { name: "目标存储位置" }), {
@@ -479,3 +477,69 @@ it("keeps import unavailable when the backend reports a locked mapping", async (
   expect(screen.queryByRole("button", { name: "切换导入暂存位置" })).not.toBeInTheDocument();
   expect(storage.bindingCandidates).not.toHaveBeenCalled();
 });
+
+it("opens the reviewed datasets policy and leaves the remaining three purposes locked", async () => {
+  const binding = {
+    purpose: "datasets",
+    location_id: ID,
+    bucket: "datasets-a",
+    generation: 1,
+    location_config_revision: 1,
+    state: "configured",
+    read_policy: "consumer_owned_compatibility",
+    write_policy: "current_binding",
+    change_policy: "reviewed_dataset_switch",
+  };
+  const target = {
+    location_id: "22222222-2222-2222-2222-222222222222",
+    name: "数据集原件目标",
+    config_revision: 2,
+  };
+  storage.bindings.mockResolvedValue([
+    binding,
+    ...["annotations", "media-cache", "training"].map((purpose) => ({
+      ...binding,
+      purpose,
+      write_policy: "deployment_mapping",
+      change_policy: "legacy_mapping_locked",
+    })),
+  ]);
+  storage.bindingCandidates.mockResolvedValue({ items: [target], total: 1 });
+  mount("/storage?tab=bindings");
+  const button = await screen.findByRole("button", { name: "切换数据集原件位置" });
+  for (const name of [/标注文件/, /派生媒体缓存/, /冻结训练数据/]) {
+    expect(within(screen.getByRole("row", { name })).queryByRole("button")).not.toBeInTheDocument();
+  }
+  fireEvent.click(button);
+  await screen.findByRole("option", { name: target.name });
+  expect(storage.bindingCandidates).toHaveBeenCalledWith(
+    "datasets",
+    0,
+    expect.any(AbortSignal),
+    20,
+  );
+  expect(storage.avatarBindingCandidates).not.toHaveBeenCalled();
+});
+
+it.each(["legacy_mapping_locked", "reviewed_import_switch"])(
+  "keeps datasets unavailable for the %s backend policy",
+  async (change_policy) => {
+    storage.bindings.mockResolvedValue([
+      {
+        purpose: "datasets",
+        location_id: ID,
+        bucket: "datasets-a",
+        generation: 1,
+        location_config_revision: 1,
+        state: "configured",
+        read_policy: "consumer_owned_compatibility",
+        write_policy: "current_binding",
+        change_policy,
+      },
+    ]);
+    mount("/storage?tab=bindings");
+    await screen.findByRole("row", { name: /托管数据集/ });
+    expect(screen.queryByRole("button", { name: "切换数据集原件位置" })).not.toBeInTheDocument();
+    expect(storage.bindingCandidates).not.toHaveBeenCalled();
+  },
+);

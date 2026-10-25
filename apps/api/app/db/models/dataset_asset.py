@@ -21,6 +21,49 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
 
+DATASET_STORAGE_REF_CHECK = r"""
+storage_ref IS NULL OR COALESCE((
+    jsonb_typeof(storage_ref)='object'
+    AND storage_ref ?& ARRAY['schema','purpose','location_id','config_revision',
+        'binding_generation','endpoint_url','bucket','key_prefix','object_key','storage_identity']
+    AND storage_ref - ARRAY['schema','purpose','location_id','config_revision',
+        'binding_generation','endpoint_url','bucket','key_prefix','object_key','storage_identity']::text[]='{}'::jsonb
+    AND storage_ref->'schema'='1'::jsonb AND storage_ref->>'schema'='1'
+    AND storage_ref->>'purpose'='datasets'
+    AND jsonb_typeof(storage_ref->'location_id')='string'
+    AND storage_ref->>'location_id'=location_id::text
+    AND jsonb_typeof(storage_ref->'config_revision')='number'
+    AND storage_ref->>'config_revision' ~ '^[1-9][0-9]*$'
+    AND jsonb_typeof(storage_ref->'binding_generation')='number'
+    AND storage_ref->>'binding_generation' ~ '^[1-9][0-9]*$'
+    AND jsonb_typeof(storage_ref->'endpoint_url')='string'
+    AND storage_ref->>'endpoint_url' ~ '^https?://[^[:space:]/?#@]+$'
+    AND position(chr(92) in (storage_ref->>'endpoint_url'))=0
+    AND jsonb_typeof(storage_ref->'bucket')='string'
+    AND storage_ref->>'bucket'=bucket
+    AND length(bucket) BETWEEN 1 AND 255
+    AND bucket !~ '[[:space:][:cntrl:]/?#@%:]' AND position(chr(92) in bucket)=0
+    AND jsonb_typeof(storage_ref->'object_key')='string'
+    AND storage_ref->>'object_key'=object_key
+    AND length(object_key) BETWEEN 1 AND 1000 AND octet_length(object_key)<=1024
+    AND object_key !~ '[[:cntrl:]]'
+    AND jsonb_typeof(storage_ref->'key_prefix')='string'
+    AND length(storage_ref->>'key_prefix')<=891
+    AND octet_length(storage_ref->>'key_prefix')<=915
+    AND jsonb_typeof(storage_ref->'storage_identity')='string'
+    AND storage_ref->>'storage_identity' ~ '^[0-9a-f]{64}$'
+    AND ((location_id='4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7'::uuid
+          AND storage_ref->>'config_revision'='1' AND storage_ref->>'key_prefix'='')
+      OR (location_id<>'4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7'::uuid
+          AND storage_ref->>'key_prefix' ~ '^([^/]+/)*_aap_managed/datasets/$'
+          AND storage_ref->>'key_prefix' !~ '[[:cntrl:]]|(^|/)[.][.]?(/|$)|//'
+          AND position(chr(92) in (storage_ref->>'key_prefix'))=0
+          AND left(object_key,length(storage_ref->>'key_prefix'))=storage_ref->>'key_prefix'
+          AND length(object_key)>length(storage_ref->>'key_prefix')))
+),false)
+"""
+
+
 class StorageLocation(Base):
     __tablename__ = "storage_locations"
 
@@ -112,10 +155,14 @@ class DatasetAssetLocation(Base):
     creation_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("managed_original_creations.id", ondelete="RESTRICT")
     )
+    storage_ref: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
     etag: Mapped[str | None] = mapped_column(Text)
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (
+        CheckConstraint(
+            DATASET_STORAGE_REF_CHECK, name="ck_dataset_asset_location_storage_ref"
+        ),
         Index(
             "ix_asset_location_usage_locator", func.md5(bucket), func.md5(object_key)
         ),

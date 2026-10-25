@@ -9,9 +9,11 @@ import uuid
 from fastapi import HTTPException
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import DBAPIError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db.models.async_job import AsyncJob
+from app.db.models.dataset_asset import StorageLocation
 from app.db.models.managed_original_retirement import (
     ManagedOriginalRetirement as Retirement,
 )
@@ -45,7 +47,7 @@ _INPUT = text("""
 SELECT statement_timestamp() AS measured_at,
     to_jsonb(r) - 'policy_revision' - 'retain_until' AS anchor,
     jsonb_build_object(
-      'location', (SELECT to_jsonb(l) FROM storage_locations l WHERE l.id=CAST(:platform_id AS uuid)),
+      'location', (SELECT to_jsonb(l) FROM storage_locations l WHERE l.id=r.location_id),
       'bindings', (SELECT COALESCE(jsonb_agg(to_jsonb(b) ORDER BY b.purpose),'[]'::jsonb) FROM storage_bindings b)
     ) AS configuration
 FROM managed_original_retirements r WHERE r.id=CAST(:retirement_id AS uuid)
@@ -78,6 +80,44 @@ def local_configuration():
     }
 
 
+async def _registered_ref(db, anchor):
+    """Prove a registered candidate against the assertion's saved physical hash."""
+    from app.services import dataset_storage, dataset_storage_target
+
+    location_id = uuid.UUID(anchor["location_id"])
+    location = await db.get(StorageLocation, location_id, populate_existing=True)
+    target = await dataset_storage_target.target_for(db, location)
+    ref = dataset_storage.make_ref(
+        target, anchor["binding_generation"], anchor["object_key"]
+    )
+    ref["config_revision"] = anchor["location_config_revision"]
+    saved = dataset_storage.resolve_ref(ref)
+    if (
+        saved.location_id != location_id
+        or saved.bucket != anchor["bucket"]
+        or saved.storage_identity != anchor["storage_identity"]
+    ):
+        raise ValueError("retirement saved address changed")
+    return ref
+
+
+async def probe_options(db, row):
+    """Capture live credentials separately from the durable verification input."""
+    if row.anchor["location_id"] == str(LEGACY_LOCATION_ID):
+        return {}
+    from functools import partial
+    from app.services import dataset_storage
+
+    ref = row.configuration.get("saved_ref")
+    async with AsyncSession(
+        bind=storage_access.engine(db), expire_on_commit=False, autoflush=False
+    ) as owned:
+        if await _registered_ref(owned, row.anchor) != ref:
+            reject("verification_context_changed")
+        target = await dataset_storage.target_for_ref(owned, ref)
+    return {"client_context": partial(target.client, read_timeout=2)}
+
+
 async def observe(db, retirement_id):
     row = (
         (
@@ -94,7 +134,24 @@ async def observe(db, retirement_id):
     )
     if row is None:
         raise HTTPException(404, "Retirement assertion not found")
-    configuration = {"local": local_configuration(), "persistent": row["configuration"]}
+    if row["anchor"]["location_id"] == str(LEGACY_LOCATION_ID):
+        configuration = {
+            "local": local_configuration(),
+            "persistent": row["configuration"],
+        }
+    else:
+        location = row["configuration"]["location"] or {}
+        configuration = {
+            "saved_ref": None,
+            "location": {
+                key: location.get(key)
+                for key in ("id", "kind", "enabled", "connection_id")
+            },
+        }
+        try:
+            configuration["saved_ref"] = await _registered_ref(db, row["anchor"])
+        except (ValueError, TypeError, KeyError):
+            pass
     return {
         "anchor": row["anchor"],
         "configuration": configuration,
@@ -137,12 +194,13 @@ async def eligibility(db, context):
         blockers.append("historical_content_unverified")
     if type(size) is int and size > MAX_BYTES:
         blockers.append("verification_size_budget")
-    if (
-        anchor.get("identity_state") != "verified_binding"
-        or anchor.get("location_id") != str(LEGACY_LOCATION_ID)
-        or not anchor.get("storage_identity")
+    if anchor.get("identity_state") != "verified_binding" or not anchor.get(
+        "storage_identity"
     ):
         blockers.append("platform_identity_unproven")
+    elif anchor.get("location_id") != str(LEGACY_LOCATION_ID):
+        if context["configuration"].get("saved_ref") is None:
+            blockers.append("platform_configuration_changed")
     else:
         configured = context["configuration"]["local"]
         expected = f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}"
@@ -161,7 +219,7 @@ async def eligibility(db, context):
             or await validate_legacy_bindings(db)
         ):
             blockers.append("platform_configuration_changed")
-    current = await storage_access.state(db, LEGACY_LOCATION_ID)
+    current = await storage_access.state(db, uuid.UUID(anchor["location_id"]))
     if current["state"] != "active":
         blockers.append("storage_maintenance")
     return blockers, current["revision"]
@@ -546,7 +604,7 @@ async def acquired(db, verification_id, permit):
         reject("verification_context_changed")
     operation = await db.get(StorageOperation, permit.id, populate_existing=True)
     if (
-        permit.location_id != LEGACY_LOCATION_ID
+        permit.location_id != uuid.UUID(row.anchor["location_id"])
         or permit.revision != row.maintenance_revision
         or operation is None
         or operation.location_id != permit.location_id
@@ -599,7 +657,7 @@ async def publish(
     try:
         await storage_access.check(
             db,
-            LEGACY_LOCATION_ID,
+            uuid.UUID(row.anchor["location_id"]),
             expected_revision=row.maintenance_revision,
             lock=True,
         )

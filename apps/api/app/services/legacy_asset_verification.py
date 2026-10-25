@@ -15,7 +15,6 @@ from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.dataset_asset import (
     DatasetAsset,
     DatasetAssetLocation,
-    StorageBinding,
     StorageLocation,
 )
 from app.db.models.dataset_source import DatasetReference
@@ -26,6 +25,7 @@ from app.services.dataset_assets import (
     LEGACY_LOCATION_ID,
     MAX_DIRECT_UPLOAD_BYTES,
     register_item_asset,
+    legacy_dataset_binding,
     validate_legacy_bindings,
 )
 from app.services.reference_keys import is_reference
@@ -127,13 +127,7 @@ async def pin(db, item_id, *, lock=False):
             share=True,
         )
     )
-    binding = await db.scalar(
-        _query(
-            select(StorageBinding).where(StorageBinding.purpose == "datasets"),
-            lock,
-            share=True,
-        )
-    )
+    binding = legacy_dataset_binding()
     if (
         location is None
         or binding is None
@@ -377,7 +371,7 @@ async def verify(factory, item_id, *, expected=None):
                 return {"status": "already_verified", "item_id": str(item_id)}
             if expected is not None:
                 item = await db.get(DatasetItem, item_id)
-                binding = await db.get(StorageBinding, "datasets")
+                binding = legacy_dataset_binding()
                 await register_item_asset(
                     db, item, sha256=sha256, size_bytes=size, etag=etag, binding=binding
                 )

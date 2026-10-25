@@ -579,7 +579,7 @@ async def _fresh(db, authority, source, guard):
     # The owned read-only transaction closes before any physical operation.
 
 
-async def _capture(source, admission):
+async def _capture(source, admission, **read_options):
     timeout = COPY_SECONDS
     pending = asyncio.create_task(
         reader.capture(
@@ -594,6 +594,7 @@ async def _capture(source, admission):
             timeout_seconds=timeout,
             transport_timeout_seconds=min(30, timeout),
             admission=admission,
+            **read_options,
         )
     )
     try:
@@ -634,7 +635,8 @@ async def media(db, authority, source, *, guard=None):
         admission = Admission()
         try:
             await _fresh(db, authority, source, guard)
-            stage = await _capture(source, admission)
+            read_options = await original_sources.read_options(db, source)
+            stage = await _capture(source, admission, **read_options)
             yield stage
         except BaseException as exc:
             failure = exc

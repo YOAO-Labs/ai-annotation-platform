@@ -24,7 +24,11 @@ from app.db.models.dataset_asset import (
 )
 from app.db.models.managed_original_creation import ManagedOriginalCreation as Creation
 from app.db.models.storage_maintenance import StorageOperation
-from app.services import storage_access, storage_usage_accounting as accounting
+from app.services import (
+    dataset_storage,
+    storage_access,
+    storage_usage_accounting as accounting,
+)
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import (
     LEGACY_LOCATION_ID,
@@ -232,20 +236,135 @@ def _original_configuration(configuration):
     }
 
 
+def original_ref(row):
+    configuration = row["configuration"]
+    return (
+        configuration.get("original_ref") if configuration.get("schema") == 2 else None
+    )
+
+
+def original_locator(row):
+    try:
+        return dataset_storage.resolve_ref(
+            original_ref(row)
+            or dataset_storage.legacy_ref(row["bucket"], row["object_key"])
+        )
+    except dataset_storage.DatasetStorageError as exc:
+        raise ContentError(exc.code, exc.status_code) from None
+
+
 async def _validate(db, row, *, lock=False):
     saved = row["configuration"]
-    # Earlier immutable ledgers include unrelated purposes. Verify their facts
-    # before comparing only the dependencies this original writer consumes.
     if _digest(saved) != row["input_fingerprint"]:
         reject("managed_original_configuration_changed")
-    configuration = await _configuration(db, lock=lock)
-    if _original_configuration(configuration) != _original_configuration(saved):
-        reject("managed_original_configuration_changed")
+    reference = original_ref(row)
+    if reference is not None:
+        if row["owner_kind"] not in {"dataset", "dataset_auxiliary"}:
+            reject("managed_original_configuration_changed")
+        owner = original_locator(row)
+        if any(
+            getattr(owner, name) != row[name]
+            for name in ("location_id", "bucket", "object_key", "storage_identity")
+        ):
+            reject("managed_original_configuration_changed")
+        try:
+            from app.services.original_sources import _reads
+
+            # Publication may already own source/business rows. Recover a busy
+            # target without reversing an administrator's Connection→Location
+            # lock order or ending the caller's publication transaction.
+            async with _reads(db, lock):
+                if lock:
+                    from app.db.models.storage_connection import StorageConnection
+
+                    location = await db.get(
+                        StorageLocation, owner.location_id, populate_existing=True
+                    )
+                    connection_id = location.connection_id if location else None
+                    if connection_id is not None:
+                        await db.execute(
+                            select(StorageConnection.id)
+                            .where(StorageConnection.id == connection_id)
+                            .with_for_update(read=True, nowait=True)
+                        )
+                    await db.execute(
+                        select(StorageLocation.id)
+                        .where(StorageLocation.id == owner.location_id)
+                        .with_for_update(read=True, nowait=True)
+                    )
+                await dataset_storage.target_for_ref(db, reference)
+        except dataset_storage.DatasetStorageError as exc:
+            raise ContentError(exc.code, exc.status_code) from None
+    else:
+        if saved.get("schema") == 2:
+            reject("managed_original_configuration_changed")
+        purpose = "annotations" if row["owner_kind"] == "task" else "datasets"
+        if lock:
+            await db.execute(
+                select(StorageLocation.id)
+                .where(StorageLocation.id == LEGACY_LOCATION_ID)
+                .with_for_update(read=True)
+            )
+            if purpose == "annotations":
+                await db.execute(
+                    select(StorageBinding.purpose)
+                    .where(StorageBinding.purpose == purpose)
+                    .with_for_update(read=True)
+                )
+        location = await db.get(
+            StorageLocation, LEGACY_LOCATION_ID, populate_existing=True
+        )
+        selected = [
+            binding
+            for binding in saved.get("bindings", [])
+            if binding.get("purpose") == purpose
+        ]
+        if (
+            location is None
+            or not location.enabled
+            or row["location_id"] != LEGACY_LOCATION_ID
+            or saved.get("location")
+            != _json(
+                {
+                    column.key: getattr(location, column.key)
+                    for column in StorageLocation.__table__.columns
+                }
+            )
+            or saved.get("endpoint") != dataset_storage._runtime_endpoint()
+            or saved.get("buckets", {}).get(purpose) != row["bucket"]
+            or len(selected) != 1
+            or selected[0].get("location_id") != str(LEGACY_LOCATION_ID)
+            or selected[0].get("bucket") != row["bucket"]
+            or selected[0].get("generation") != 1
+            or row["storage_identity"]
+            != managed_storage_identity(saved["endpoint"], row["bucket"])
+        ):
+            reject("managed_original_configuration_changed")
+        if purpose == "annotations":
+            binding = await db.get(StorageBinding, purpose, populate_existing=True)
+            if (
+                binding is None
+                or binding.location_id != LEGACY_LOCATION_ID
+                or binding.bucket != row["bucket"]
+                or binding.generation != 1
+                or binding.bucket != storage_service.bucket
+            ):
+                reject("managed_original_configuration_changed")
     if row["origin"] == "direct":
         staging_owner(row)
     await storage_access.check(
         db, row["location_id"], expected_revision=row["maintenance_revision"], lock=lock
     )
+
+
+async def bootstrap(db):
+    """Initialize committed registry facts before callers acquire business locks."""
+    factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
+    async with factory() as current, current.begin():
+        location = await current.get(StorageLocation, LEGACY_LOCATION_ID)
+        purposes = set(await current.scalars(select(StorageBinding.purpose)))
+        if location is None or not set(PURPOSE_BUCKET_ATTRIBUTES).issubset(purposes):
+            await ensure_legacy_bindings(current)
 
 
 def staging_owner(row):
@@ -486,13 +605,7 @@ async def _allocate(
         logical_path = normalize_dataset_relative_path(logical_path)
     except (AttributeError, TypeError, ValueError):
         reject("managed_original_invalid_allocation", 422)
-    binding = await ensure_legacy_bindings(db)
-    if owner_kind == "task":
-        binding = await db.get(StorageBinding, "annotations", populate_existing=True)
-        if binding is None:
-            reject("managed_original_configuration_changed")
-    configuration = await _configuration(db)
-    revision = await storage_access.check(db, LEGACY_LOCATION_ID)
+    await bootstrap(db)
     creation_id = uuid.uuid4()
     staging_ref, staging_owner_value = None, None
     if staging:
@@ -512,50 +625,118 @@ async def _allocate(
             else managed_dataset_key(dataset_id, logical_path)
         )
     )
-    if (
-        len(object_key) > 1000
-        or len(object_key.encode()) > 1024
-        or len(binding.bucket.encode()) > 255
-        or (
-            staging_owner_value is not None
-            and (
-                len(staging_owner_value.key("payload")) > 1000
-                or len(staging_owner_value.key("payload").encode()) > 1024
-            )
+    factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
+    async with factory() as current, current.begin():
+        purpose = "annotations" if owner_kind == "task" else "datasets"
+        initial = await current.get(StorageBinding, purpose, populate_existing=True)
+        if initial is None:
+            reject("managed_original_configuration_changed")
+        facts = initial.location_id, initial.bucket, initial.generation
+        initial_location = await current.get(
+            StorageLocation, facts[0], populate_existing=True
         )
-    ):
-        reject("managed_original_invalid_allocation", 422)
-    values = {
-        "id": creation_id,
-        "owner_kind": owner_kind,
-        "dataset_id": dataset_id,
-        "project_id": project_id,
-        "task_id": task_id,
-        "location_id": LEGACY_LOCATION_ID,
-        "storage_identity": managed_storage_identity(
-            configuration["endpoint"], binding.bucket
-        ),
-        "bucket": binding.bucket,
-        "object_key": object_key,
-        "logical_path": logical_path,
-        "origin": origin,
-        "max_bytes": max_bytes,
-        "timeout_seconds": max(60, min(3600, math.ceil(max_bytes / (8 * 1024**2)))),
-        "content_type": content_type,
-        "requested_by": requested_by,
-        "authority": _json(authority or {}),
-        "configuration": configuration,
-        "input_fingerprint": _digest(configuration),
-        "maintenance_revision": revision,
-        "staging_ref": staging_ref,
-        "staging_bucket": staging_owner_value.bucket if staging else None,
-        "staging_key": staging_owner_value.key("payload") if staging else None,
-        "status": "allocated",
-    }
-    async with storage_access.engine(db).begin() as connection:
+        if initial_location is None:
+            reject("managed_original_configuration_changed")
+        from app.db.models.storage_connection import StorageConnection
+
+        connection_id = initial_location.connection_id
+        if connection_id is not None:
+            await current.execute(
+                select(StorageConnection.id)
+                .where(StorageConnection.id == connection_id)
+                .with_for_update(read=True)
+            )
+        location = await current.scalar(
+            select(StorageLocation)
+            .where(StorageLocation.id == facts[0])
+            .with_for_update(read=True)
+            .execution_options(populate_existing=True)
+        )
+        binding = await current.scalar(
+            select(StorageBinding)
+            .where(StorageBinding.purpose == purpose)
+            .with_for_update(read=True)
+            .execution_options(populate_existing=True)
+        )
+        if (
+            location is None
+            or location.connection_id != connection_id
+            or binding is None
+            or (binding.location_id, binding.bucket, binding.generation) != facts
+        ):
+            reject("managed_original_configuration_changed")
+        configuration = await _configuration(current)
+        if owner_kind != "task":
+            from app.services.dataset_storage_target import target_for
+
+            try:
+                target = await target_for(current, location)
+                if (
+                    binding.bucket != target.bucket
+                    or binding.generation < 1
+                    or (binding.generation == 1 and location.id != LEGACY_LOCATION_ID)
+                ):
+                    reject("managed_original_configuration_changed")
+                object_key = target.key_prefix + object_key
+                if not dataset_storage.valid_key(object_key):
+                    reject("managed_original_invalid_allocation", 422)
+                reference = dataset_storage.make_ref(
+                    target, binding.generation, object_key
+                )
+            except dataset_storage.DatasetStorageError as exc:
+                raise ContentError(exc.code, exc.status_code) from None
+            configuration = {
+                **configuration,
+                "schema": 2,
+                "endpoint": target.endpoint_url,
+                "original_ref": reference,
+            }
+        elif (
+            binding.location_id != LEGACY_LOCATION_ID
+            or binding.generation != 1
+            or binding.bucket != storage_service.bucket
+        ):
+            reject("managed_original_configuration_changed")
+        if (
+            not dataset_storage.valid_key(object_key)
+            or len(binding.bucket.encode()) > 255
+            or (
+                staging_owner_value is not None
+                and not dataset_storage.valid_key(staging_owner_value.key("payload"))
+            )
+        ):
+            reject("managed_original_invalid_allocation", 422)
+        revision = await storage_access.check(current, location.id, lock=True)
+        values = {
+            "id": creation_id,
+            "owner_kind": owner_kind,
+            "dataset_id": dataset_id,
+            "project_id": project_id,
+            "task_id": task_id,
+            "location_id": location.id,
+            "storage_identity": managed_storage_identity(
+                configuration["endpoint"], binding.bucket
+            ),
+            "bucket": binding.bucket,
+            "object_key": object_key,
+            "logical_path": logical_path,
+            "origin": origin,
+            "max_bytes": max_bytes,
+            "timeout_seconds": max(60, min(3600, math.ceil(max_bytes / (8 * 1024**2)))),
+            "content_type": content_type,
+            "requested_by": requested_by,
+            "authority": _json(authority or {}),
+            "configuration": configuration,
+            "input_fingerprint": _digest(configuration),
+            "maintenance_revision": revision,
+            "staging_ref": staging_ref,
+            "staging_bucket": staging_owner_value.bucket if staging else None,
+            "staging_key": staging_owner_value.key("payload") if staging else None,
+            "status": "allocated",
+        }
         row = (
             (
-                await connection.execute(
+                await current.execute(
                     insert(Creation)
                     .values(**values)
                     .returning(*Creation.__table__.columns)
@@ -702,7 +883,7 @@ class _Physical:
 async def _physical(db, row, stream, *, source_target=None):
     from app.services import managed_original_writer as writer
 
-    client, source_client, source_context = None, None, None
+    client, source_client, source_context, target_context = None, None, None, None
     prepared, completion_started = None, False
     physical = _Physical()
     failure = None
@@ -710,9 +891,16 @@ async def _physical(db, row, stream, *, source_target=None):
     evidence = {"physical_outcome": "unknown"}
     settled = False
     try:
-        client = await physical.run(
-            create_client, timeout_seconds=row["timeout_seconds"]
-        )
+        if row["location_id"] == LEGACY_LOCATION_ID:
+            client = await physical.run(
+                create_client, timeout_seconds=row["timeout_seconds"]
+            )
+        else:
+            target = await dataset_storage.target_for_ref(db, original_ref(row))
+            target_context = target.client(
+                read_timeout=max(10, min(row["timeout_seconds"], 3600))
+            )
+            client = await physical.run(target_context.__enter__)
         if row["origin"] == "direct":
             if source_target is None:
                 reject("managed_original_creation_input_changed")
@@ -891,7 +1079,7 @@ async def _physical(db, row, stream, *, source_target=None):
             closing_failure = None
             for resource, context in (
                 (source_client, source_context),
-                (client, None),
+                (client, target_context),
             ):
                 if resource is None:
                     continue
@@ -1059,6 +1247,49 @@ async def complete_direct(db, allocation):
     return await _shielded(db, allocation, None)
 
 
+async def image_dimensions(db, allocation, created):
+    """Read a just-verified candidate before the caller takes publication locks."""
+    dims = storage_service.read_image_dimensions_from_bytes(created.head_bytes)
+    if dims is not None:
+        return dims
+    from functools import partial
+    from app.services import managed_original_reader as reader
+
+    owner = original_locator(allocation)
+    options = {}
+    if owner.location_id != LEGACY_LOCATION_ID:
+        target = await dataset_storage.target_for_ref(db, owner.ref)
+        options["client_context"] = partial(target.client, read_timeout=60)
+    async with await storage_access.acquire(
+        db,
+        owner.location_id,
+        "dataset_original_dimensions",
+        expected_revision=allocation["maintenance_revision"],
+    ):
+        stage = await reader.capture(
+            reader.ObjectSpec(
+                owner.endpoint_url,
+                owner.bucket,
+                owner.object_key,
+                created.sha256,
+                created.size_bytes,
+            ),
+            max_bytes=created.size_bytes,
+            timeout_seconds=allocation["timeout_seconds"],
+            **options,
+        )
+        try:
+            try:
+                from PIL import Image
+
+                with Image.open(stage.file) as image:
+                    return storage_service._logical_image_dimensions(image)
+            except Exception:
+                return None
+        finally:
+            stage.close()
+
+
 async def attach(db, item, creation_id):
     row = await _read(db, creation_id)
     if row is None or row["owner_kind"] != "dataset" or row["status"] != "verified":
@@ -1091,6 +1322,7 @@ async def attach(db, item, creation_id):
         or replica.object_key != row["object_key"]
         or replica.role != "managed_original"
         or replica.creation_id not in (None, creation_id)
+        or replica.storage_ref != original_ref(row)
     ):
         reject("managed_original_creation_attachment_mismatch")
     replica.creation_id = creation_id
