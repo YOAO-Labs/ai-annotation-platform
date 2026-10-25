@@ -10,10 +10,14 @@ from sqlalchemy.exc import DBAPIError
 
 from app.db.models.dataset_asset import StorageBinding, StorageLocation
 from app.db.models.storage_connection import StorageConnection
+from app.db.models.thumbnail_output import media_cache_ref_check
 from app.services import storage_access
 from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
 from app.services.export_storage import _endpoint as _parse_endpoint, _plain
 from app.services.managed_original_retirement import managed_storage_identity
+from app.services.storage import storage_service as storage_service
+
+ref_check = media_cache_ref_check
 
 MANAGED_NAMESPACE = "_aap_managed/media-cache/"
 _UUID = r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}"

@@ -113,3 +113,14 @@ async def test_current_credentials_preserve_saved_physical_address(monkeypatch, 
     current = replace(current, endpoint_url="https://changed.example.test")
     with pytest.raises(storage.MediaCacheStorageError):
         await storage.target_for_ref(DB(), ref)
+
+
+async def test_allocate_legacy_uses_shared_dispatcher_without_committing_caller(
+    db_session,
+):
+    logical = f"thumbnails/objects/{uuid.uuid4()}/"
+    ref = await storage.allocate(db_session, logical)
+    assert ref["schema"] == 2 and ref["binding_generation"] == 1
+    assert ref["bucket"] == storage.storage_service.media_cache_bucket
+    assert db_session.in_transaction()
+    assert storage.ref_check("'thumbnails/objects/' || id::text || '/'")
