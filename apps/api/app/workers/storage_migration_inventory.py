@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.storage_migration_inventory import REPORT_LIMIT
 from app.services import storage_access, storage_migration_inventories as service
 from app.services import storage_migration_source_read as source_read
+from app.services import storage_job_progress as progress
 from app.services.async_job_notify import notify_job_terminal
 from app.services.storage import StorageService
 from app.services.storage_migration_inventory import (
@@ -70,7 +71,7 @@ class ReportSink(io.BytesIO):
         self.value = value
 
 
-def scan(source, limits, handling, observations, checkpoint):
+def scan(source, limits, handling, observations, checkpoint, *, on_progress=None):
     """The registered thread owns client, every Body and output sink lifetime."""
     checkpoint()
     configured = StorageService(
@@ -116,9 +117,136 @@ def scan(source, limits, handling, observations, checkpoint):
                 max_output_bytes=REPORT_LIMIT,
                 checkpoint=checkpoint,
                 strict_closure=True,
+                on_progress=on_progress,
             )
     checkpoint()
     return sink.value
+
+
+async def _observe(bind, job_id, task_id, event):
+    """Independently retain a safe observation, not a resumable report page."""
+    async with asyncio.timeout(3):
+        async with AsyncSession(
+            bind=bind, expire_on_commit=False, autoflush=False
+        ) as db:
+            row = await service.by_job(db, job_id)
+            if row is None:
+                return
+            await service.current(db, row, lock=True)
+            row = await service.by_job(db, job_id, lock=True)
+            job = await service.jobs.lock_job(db, job_id)
+            if (
+                row.status != "running"
+                or row.task_id != task_id
+                or row.cancel_requested_at is not None
+                or not service.matches(row, job)
+            ):
+                return
+            await progress.record(
+                db,
+                job,
+                task_id=task_id,
+                stage="enumerating",
+                unit=event["unit"],
+                completed=event["completed"],
+                sequence=event["sequence"],
+                marker=f"{row.async_job_id}:{event['sequence']}",
+            )
+            await db.commit()
+
+
+class _Progress:
+    """One owned observer and one coalescing slot; never delay native reads."""
+
+    def __init__(self, bind, loop, stop, job_id, task_id):
+        self.bind, self.loop, self.stop = bind, loop, stop
+        self.job_id, self.task_id = job_id, task_id
+        self.pending, self.latest_sequence = None, 0
+        self.closed, self.last_sent = False, None
+        self.incoming, self.scheduled, self.accepting = None, False, True
+        self.incoming_lock = threading.Lock()
+        self.wake = asyncio.Event()
+        self.closing = asyncio.Event()
+        self.task = asyncio.create_task(self._run())
+
+    def __call__(self, event):
+        if self.stop.is_set():
+            return
+        # Only primitives enter the loop, never report records or SDK handles.
+        safe = {
+            "sequence": event["sequence"],
+            "unit": event["unit"],
+            "completed": event["completed"],
+        }
+        with self.incoming_lock:
+            if not self.accepting:
+                return
+            if self.incoming is None or safe["sequence"] > self.incoming["sequence"]:
+                self.incoming = safe
+            if self.scheduled:
+                return
+            self.scheduled = True
+        self.loop.call_soon_threadsafe(self._take)
+
+    def _take(self):
+        with self.incoming_lock:
+            event, self.incoming, self.scheduled = self.incoming, None, False
+        if event is not None:
+            self._offer(event)
+
+    def _offer(self, event):
+        if not self.closed and event["sequence"] > self.latest_sequence:
+            self.latest_sequence = event["sequence"]
+            self.pending = event
+            self.wake.set()
+
+    async def _run(self):
+        while True:
+            await self.wake.wait()
+            self.wake.clear()
+            if self.last_sent is not None and not self.closed:
+                # Closing wakes the throttle immediately to flush the last fact.
+                try:
+                    await asyncio.wait_for(
+                        self.closing.wait(),
+                        max(0, 1 - (self.loop.time() - self.last_sent)),
+                    )
+                except TimeoutError:
+                    pass
+                self.wake.clear()
+            event, self.pending = self.pending, None
+            if event is not None:
+                self.last_sent = self.loop.time()
+                try:
+                    await _observe(self.bind, self.job_id, self.task_id, event)
+                except Exception:
+                    log.debug(
+                        "Storage progress observation unavailable job=%s", self.job_id
+                    )
+            if self.closed and self.pending is None:
+                return
+            if self.pending is not None:
+                self.wake.set()
+
+    async def close(self):
+        # Native/permit drain precedes this call. Take the last native slot before
+        # the first await so even an immediately arriving cancellation closes it.
+        with self.incoming_lock:
+            self.accepting = False
+            event, self.incoming = self.incoming, None
+        if event is not None:
+            self._offer(event)
+        self.closed = True
+        self.closing.set()
+        self.wake.set()
+        try:
+            await asyncio.shield(self.task)
+        except BaseException:
+            try:
+                await storage_access.finish(self.task)
+            except BaseException:
+                pass
+            raise
 
 
 async def execute(db, job_id, task_id):
@@ -141,6 +269,7 @@ async def execute(db, job_id, task_id):
         threading.Event(),
     )
     deadline = time.monotonic() + limits["max_seconds"]
+    observation = _Progress(bind, loop, stop, job_id, task_id)
 
     async def fresh():
         async with AsyncSession(
@@ -165,7 +294,7 @@ async def execute(db, job_id, task_id):
     async def acquired(permit):
         await service.acquired(db, job_id, task_id, permit)
 
-    report, failure, cancelled = None, None, False
+    report, failure, cancelled, unhandled = None, None, False, None
     reading = None
     try:
         observations = await collect_observations(
@@ -200,6 +329,7 @@ async def execute(db, job_id, task_id):
                 observations,
                 checkpoint,
                 on_acquired=acquired,
+                on_progress=observation,
             )
         else:
             read = storage_access.run(
@@ -214,6 +344,7 @@ async def execute(db, job_id, task_id):
                 checkpoint,
                 expected_revision=revision,
                 on_acquired=acquired,
+                on_progress=observation,
             )
         reading = asyncio.create_task(read)
         report = await asyncio.shield(reading)
@@ -229,6 +360,21 @@ async def execute(db, job_id, task_id):
         failure = service.safe_error(exc)
     except Exception as exc:
         failure = service.safe_error(exc)
+    except BaseException as exc:
+        unhandled = exc
+    finally:
+        try:
+            await observation.close()
+        except asyncio.CancelledError as exc:
+            cancelled = True
+            if unhandled is not None:
+                unhandled = exc
+        except Exception:
+            log.debug("Storage progress observation unavailable job=%s", job_id)
+        except BaseException as exc:
+            unhandled = exc
+    if unhandled is not None:
+        raise unhandled
 
     async def finalize():
         await db.rollback()

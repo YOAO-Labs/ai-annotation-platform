@@ -21,6 +21,7 @@ from app.db.models.storage_usage import (
 from app.services import async_job as jobs, storage_usage as svc
 from app.services import storage_usage_categories as categories
 from app.services import storage_usage_accounting as accounting
+from app.services import storage_job_progress as progress
 from app.workers.celery_app import celery_app
 from app.workers.dataset_quality import _session
 
@@ -153,6 +154,7 @@ async def process_page(db, job_id, task_id, generation):
     await svc.authority(db, inventory)
     row = await db.get(Snapshot, target["key"], populate_existing=True)
     page_completed = await db.scalar(select(func.clock_timestamp()))
+    accepted_page = None
     if not error and page is not None and "objects" in page:
         try:
             if page["count"] != len(page["objects"]) or page["bytes"] != sum(
@@ -219,6 +221,7 @@ async def process_page(db, job_id, task_id, generation):
             )
             row.attempt_status, row.error_code = "completed", None
             inventory.success_count += 1
+        accepted_page = (inventory.bucket_index, checkpoint["pages"])
     if error or not page["token"]:
         if error:
             await accounting.discard_staging(db, job_id, target["key"])
@@ -231,6 +234,23 @@ async def process_page(db, job_id, task_id, generation):
     await jobs.update_progress(
         db, job_id, int(inventory.bucket_index * 100 / len(inventory.scope))
     )
+    if accepted_page is not None:
+        previous = job.progress_observation
+        completed = (
+            previous["completed"]
+            if progress.valid(previous, job.id, job.kind, task_id)
+            else 0
+        ) + 1
+        await progress.record(
+            db,
+            job,
+            task_id=task_id,
+            stage="enumerating",
+            unit="pages",
+            completed=completed,
+            marker=f"{inventory.id}:{generation}:{accepted_page[0]}:{accepted_page[1]}",
+            sequence=accepted_page[0] * (svc.MAX_PAGES + 1) + accepted_page[1],
+        )
     await db.commit()
     return True
 

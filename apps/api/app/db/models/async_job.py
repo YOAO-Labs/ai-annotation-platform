@@ -96,6 +96,10 @@ class AsyncJob(Base):
     progress_pct: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
+    last_progress_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    progress_observation: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     # 输入摘要（不要塞大对象，仅放 batch_id / 文件数等元数据）
     payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     # 完成后的结果摘要（success_count / failed_count / 路径等）

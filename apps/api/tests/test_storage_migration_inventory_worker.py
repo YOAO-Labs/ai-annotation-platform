@@ -104,9 +104,9 @@ async def test_two_independent_deliveries_run_core_once_and_close_client(
     client = fake_storage(monkeypatch, world.source)
     actual, calls = worker.scan, []
 
-    def counted(*args):
+    def counted(*args, **kwargs):
         calls.append(1)
-        return actual(*args)
+        return actual(*args, **kwargs)
 
     monkeypatch.setattr(worker, "scan", counted)
     results = await asyncio.gather(execute(world), execute(world))
@@ -168,9 +168,9 @@ async def test_publish_failure_and_redelivery_do_not_repeat_source_scan(
     fake_storage(monkeypatch, world.source)
     actual, calls = worker.scan, []
 
-    def counted(*args):
+    def counted(*args, **kwargs):
         calls.append(1)
-        return actual(*args)
+        return actual(*args, **kwargs)
 
     monkeypatch.setattr(worker, "scan", counted)
     monkeypatch.setattr(
@@ -196,7 +196,7 @@ async def test_publish_failure_and_redelivery_do_not_repeat_source_scan(
 async def test_stop_does_not_publish_before_native_drain(world, monkeypatch, stop_kind):
     entered, release, closed = threading.Event(), threading.Event(), threading.Event()
 
-    def scan(*args):
+    def scan(*args, **kwargs):
         checkpoint = args[-1]
         entered.set()
         try:

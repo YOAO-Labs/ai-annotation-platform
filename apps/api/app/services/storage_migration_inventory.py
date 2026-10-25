@@ -228,11 +228,19 @@ class _Writer:
 
 class _Inventory:
     def __init__(
-        self, client, writer, limits, *, checkpoint=None, strict_closure=False
+        self,
+        client,
+        writer,
+        limits,
+        *,
+        checkpoint=None,
+        strict_closure=False,
+        on_progress=None,
     ):
         self.client, self.writer, self.limits = client, writer, limits
         self.checkpoint = checkpoint or (lambda: None)
         self.strict_closure = strict_closure
+        self.on_progress, self.progress_sequence = on_progress, 0
         self.counts = dict(
             buckets=0,
             objects=0,
@@ -246,6 +254,21 @@ class _Inventory:
             entries=0,
         )
         self.stopped = False
+
+    def observe(self, unit, completed):
+        if self.on_progress is not None:
+            self.progress_sequence += 1
+            try:
+                self.on_progress(
+                    {
+                        "sequence": self.progress_sequence,
+                        "unit": unit,
+                        "completed": completed,
+                    }
+                )
+            except Exception:
+                # Observation is not part of report validity or read admission.
+                pass
 
     def issue(self, operation, bucket, exc):
         self.counts["issues"] += 1
@@ -341,6 +364,7 @@ class _Inventory:
             if type(truncated) is not bool:
                 raise InventoryError("invalid_listing")
             if not truncated:
+                self.observe("pages", self.counts["pages"])
                 return
             values = tuple(response.get(name) for name in output_tokens)
             if not values[0] or any(
@@ -355,6 +379,7 @@ class _Inventory:
                 for name, value in zip(input_tokens, values)
                 if value is not None
             }
+            self.observe("pages", self.counts["pages"])
 
     def entry(self):
         self.checkpoint()
@@ -540,6 +565,7 @@ class _Inventory:
                     if field == "DeleteMarkers":
                         self.counts["delete_markers"] += 1
                         self.writer.emit({"type": "delete_marker", **record})
+                        self.observe("records", self.counts["entries"])
                         continue
                     self.counts["objects"] += 1
                     record.update(
@@ -555,6 +581,7 @@ class _Inventory:
                         result = {"status": "unverified", "code": _error_code(exc)}
                         self.issue("verify_object", bucket, exc)
                     self.writer.emit({**record, "verification": result})
+                    self.observe("records", self.counts["entries"])
                     if self.stopped:
                         return
         except Exception as exc:
@@ -591,6 +618,7 @@ class _Inventory:
                             "copy_status": "not_started",
                         }
                     )
+                    self.observe("records", self.counts["entries"])
         except Exception as exc:
             self.issue("list_multipart_uploads", bucket, exc)
 
@@ -635,6 +663,7 @@ def write_inventory(
     max_output_bytes=None,
     checkpoint=None,
     strict_closure=False,
+    on_progress=None,
 ):
     """Exclusively create a private report. SDK/network timeouts remain caller-owned.
 
@@ -701,7 +730,12 @@ def write_inventory(
         max_output_bytes=max_output_bytes,
     )
     inventory = _Inventory(
-        client, writer, limits, checkpoint=checkpoint, strict_closure=strict_closure
+        client,
+        writer,
+        limits,
+        checkpoint=checkpoint,
+        strict_closure=strict_closure,
+        on_progress=on_progress,
     )
     try:
         writer.emit(header)

@@ -83,7 +83,7 @@ function renderModal({
       </MemoryRouter>
     </QueryClientProvider>,
   );
-  return { ...view, onClose };
+  return { ...view, onClose, queryClient };
 }
 
 describe("共享后台任务详情", () => {
@@ -100,6 +100,103 @@ describe("共享后台任务详情", () => {
   afterEach(() => {
     act(() => useAuthStore.getState().logout());
   });
+
+  it("refreshes committed storage counts even while the existing percentage stays unchanged", async () => {
+    const progress = {
+      schema: 1,
+      execution_id: "11111111-1111-1111-1111-111111111111",
+      stage: "scanning",
+      unit: "directories",
+      completed: 1,
+      sequence: 1,
+      observed_at: "2026-09-09T00:30:00Z",
+      idle_seconds: 900,
+      attention_after_seconds: 900,
+    };
+    mocks.get.mockResolvedValue({
+      ...job,
+      kind: "dataset_scan",
+      status: "running",
+      progress_pct: 50,
+      completed_at: null,
+      last_progress_at: "2026-09-09T00:15:00Z",
+      progress_observation: progress,
+    });
+    const { queryClient } = renderModal();
+    expect(await screen.findByText("扫描目录 · 已提交 1 个目录")).toBeInTheDocument();
+    expect(screen.getByText(/没有新的已提交进展/)).toBeInTheDocument();
+    mocks.get.mockResolvedValue({
+      ...job,
+      kind: "dataset_scan",
+      status: "running",
+      progress_pct: 50,
+      completed_at: null,
+      last_progress_at: progress.observed_at,
+      progress_observation: { ...progress, completed: 2, sequence: 2, idle_seconds: 0 },
+    });
+    await act(() => queryClient.invalidateQueries({ queryKey: ["async-jobs", "detail"] }));
+    expect(await screen.findByText("扫描目录 · 已提交 2 个目录")).toBeInTheDocument();
+    expect(screen.queryByText(/没有新的已提交进展/)).not.toBeInTheDocument();
+    expect(screen.getByText("已扫描 0 项 · 总量未知")).toBeInTheDocument();
+  });
+
+  it.each(["job", "session"] as const)(
+    "retires late progress observations after a %s switch",
+    async (boundary) => {
+      let resolve!: (value: AsyncJob) => void;
+      const first = new Promise<AsyncJob>((done) => {
+        resolve = done;
+      });
+      mocks.get.mockReturnValueOnce(first).mockResolvedValue({
+        ...job,
+        id: "j2",
+        kind: "dataset_scan",
+        status: "running",
+        completed_at: null,
+      });
+      const view = renderModal();
+      await waitFor(() => expect(mocks.get).toHaveBeenCalledOnce());
+      if (boundary === "session")
+        act(() =>
+          useAuthStore
+            .getState()
+            .setAuth("next-session", { id: "u1", role: "employee" } as MeResponse),
+        );
+      else
+        view.rerender(
+          <QueryClientProvider client={view.queryClient}>
+            <MemoryRouter>
+              <AsyncJobDetailModal jobId="j2" onClose={view.onClose} />
+            </MemoryRouter>
+          </QueryClientProvider>,
+        );
+      await screen.findByText(/尚无可核对的已提交进展/);
+      await act(async () =>
+        resolve({
+          ...job,
+          kind: "dataset_scan",
+          status: "running",
+          completed_at: null,
+          last_progress_at: "2026-09-09T00:15:00Z",
+          progress_observation: {
+            schema: 1,
+            execution_id: "11111111-1111-1111-1111-111111111111",
+            stage: "scanning",
+            unit: "directories",
+            completed: 999,
+            sequence: 1,
+            observed_at: "2026-09-09T00:30:00Z",
+            idle_seconds: 900,
+            attention_after_seconds: 900,
+          },
+        }),
+      );
+      expect(screen.queryByText(/已提交 999 个目录/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/没有新的已提交进展/)).not.toBeInTheDocument();
+      view.unmount();
+      view.queryClient.clear();
+    },
+  );
 
   it("迁移清单从通知详情返回迁移准备并保留真实清单结果", async () => {
     mocks.get.mockResolvedValue({

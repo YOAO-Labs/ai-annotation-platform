@@ -1,3 +1,4 @@
+import { StorageJobProgress } from "./StorageJobProgress";
 import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useRef, useState, type RefObject, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
@@ -287,6 +288,7 @@ export function AsyncJobDetailModal({
               </p>
             )}
           </div>
+          <StorageJobProgress job={job} />
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-xs">
             {jobNumber(job.result, "total_cost") !== null && (
               <>

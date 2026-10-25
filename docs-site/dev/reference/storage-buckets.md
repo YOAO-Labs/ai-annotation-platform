@@ -3,7 +3,7 @@ title: MinIO 存储桶布局
 audience: [dev, ops]
 type: reference
 status: stable
-last_reviewed: 2026-10-25
+last_reviewed: 2026-10-26
 ---
 
 # MinIO 存储桶布局
@@ -80,6 +80,14 @@ mc mirror --remove-source annotations/audit-archive/  audit-archive/
 数据集名称只用于展示。托管原件的新键采用不可变数据集身份和独立上传身份，同名不同内容不会覆盖旧样本，头像、报告附件、审计归档、导出、导入暂存、数据集原件、媒体缓存、标注文件和训练文件可经真实托管探针及预览确认切换新写入位置；已固定对象按各自owner记录读取，历史头像定位缺失时阻止该用途切换，不声称全部历史定位已覆盖。用途策略不复用外部引用适配器的只读能力声明。
 
 独立Task新上传的最终原件位于annotations用途的 `__aap_task_originals__/<Task UUID>/<Creation UUID>/payload`。浏览器只写import暂存区，完整核验封存后保存独立TaskOriginal；删除业务Task或测试fixture不会按前缀删除该原件。历史未知Task不补造归属，全部原件读取者的固定位置接入仍须独立完成。
+
+## 任务推进观测
+
+`AsyncJob.last_progress_at` 与 `progress_observation` 记录五类存储任务的实际工作推进。观测helper在原owner围栏通过后核对当前运行作业与task，仅新marker增加序号和时间；marker只保存摘要，公开DTO仅返回安全枚举、计数、执行UUID和服务器派生时间。历史NULL不回填，非法或错execution的观测不公开。`updated_at`、百分比、lease与权限检查均不是进展证明。
+
+扫描目录（包括重验）、S3页、登记条目、容量页及变化的复制delta沿原owner事务写入，回滚同步撤销观测；复制晚到ACK仍按既有规则保存物理事实，终态或旧执行只跳过观测。迁移清单核心通过可选实际记录回调报告进展，应用限频、在所属loop的独立短事务内核当前task／owner；普通观测失败不改变扫描结果，所有观察工作先结清再发布终态。CLI报告格式、封存校验与原生资源收尾不改变，此观测不是持久可恢复报告检查点。
+
+列表／详情只读数据库并以服务器当前时间派生idle，前端只对运行中有效观测达到900秒显示核实提示。它不提供任务死亡、物理停写、清理或恢复准入的证明，不改变现有取消／重派／访问围栏。升级和处置见[运行说明](../../ops/runbooks/celery-worker-stuck.md#存储任务的无进展提示)。
 
 ## 来源故障状态
 

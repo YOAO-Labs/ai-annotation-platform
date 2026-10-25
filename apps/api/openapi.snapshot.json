@@ -3979,10 +3979,32 @@
             "title": "Kind",
             "type": "string"
           },
+          "last_progress_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Progress At"
+          },
           "payload": {
             "additionalProperties": true,
             "title": "Payload",
             "type": "object"
+          },
+          "progress_observation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StorageJobProgressOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "progress_pct": {
             "title": "Progress Pct",
@@ -46774,6 +46796,90 @@
           "responsible_role"
         ],
         "title": "StorageFaultOut",
+        "type": "object"
+      },
+      "StorageJobProgressOut": {
+        "properties": {
+          "attention_after_seconds": {
+            "const": 900,
+            "default": 900,
+            "title": "Attention After Seconds",
+            "type": "integer"
+          },
+          "completed": {
+            "minimum": 0.0,
+            "title": "Completed",
+            "type": "integer"
+          },
+          "execution_id": {
+            "format": "uuid",
+            "title": "Execution Id",
+            "type": "string"
+          },
+          "idle_seconds": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idle Seconds"
+          },
+          "observed_at": {
+            "format": "date-time",
+            "title": "Observed At",
+            "type": "string"
+          },
+          "schema": {
+            "const": 1,
+            "title": "Schema",
+            "type": "integer"
+          },
+          "sequence": {
+            "exclusiveMinimum": 0.0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "stage": {
+            "enum": [
+              "scanning",
+              "validating",
+              "preflight",
+              "registering",
+              "enumerating",
+              "preparing",
+              "copying",
+              "verifying",
+              "publishing"
+            ],
+            "title": "Stage",
+            "type": "string"
+          },
+          "unit": {
+            "enum": [
+              "directories",
+              "pages",
+              "entries",
+              "records",
+              "objects"
+            ],
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema",
+          "execution_id",
+          "stage",
+          "unit",
+          "completed",
+          "sequence",
+          "observed_at"
+        ],
+        "title": "StorageJobProgressOut",
         "type": "object"
       },
       "StorageLocationApply": {

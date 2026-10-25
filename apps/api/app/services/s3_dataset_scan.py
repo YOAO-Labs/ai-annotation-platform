@@ -7,7 +7,11 @@ from sqlalchemy.dialects.postgresql import insert
 
 from app.db.models.dataset_source import DatasetScanEntry as Entry
 from app.services import dataset_scans as scans
-from app.services import reference_storage, source_selection as selection
+from app.services import (
+    reference_storage,
+    source_selection as selection,
+    storage_job_progress as progress,
+)
 from app.services.filesystem_storage import FilesystemStorageError as StorageError
 
 
@@ -96,3 +100,12 @@ async def apply_page(db, source, run, job, work, page):
         "directory_count": 0,
     }
     job.result = {**run.counts, "complete": False}
+    await progress.record(
+        db,
+        job,
+        task_id=job.celery_task_id,
+        stage="scanning",
+        unit="pages",
+        completed=work["pages"] + 1,
+        marker=f"{run.id}:{run.generation}:{work['pages'] + 1}",
+    )

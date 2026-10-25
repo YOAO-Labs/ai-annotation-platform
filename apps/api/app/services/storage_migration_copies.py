@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 import socket
@@ -35,6 +36,7 @@ from app.services import (
     storage_access,
     storage_migration_inventories as inventories,
     storage_migration_copy_target as targets,
+    storage_job_progress as progress,
 )
 from app.services.audit import AuditService
 from app.services.storage_migration_copy import (
@@ -50,6 +52,7 @@ STATES = ("verified", "pending", "writing", "uncertain", "failed", "skipped")
 authority = inventories.authority
 reject = inventories.reject
 now = inventories.now
+log = logging.getLogger(__name__)
 
 
 def safe_error(exc):
@@ -992,6 +995,7 @@ async def save_delta(db, job_id, task_id, data, checksum):
     if row_digest(data) != checksum or size > 262144 or data.get("state") not in STATES:
         reject("copy_checkpoint_integrity")
     old = await db.get(Delta, (row.id, data["id"]), populate_existing=True)
+    changed = old is None or old.digest != checksum
     updated_size = row.delta_bytes + size - (old.size_bytes if old else 0)
     if updated_size > BASELINE_LIMIT:
         reject("copy_delta_budget")
@@ -1020,6 +1024,29 @@ async def save_delta(db, job_id, task_id, data, checksum):
         checksum,
         size,
     )
+    if changed:
+        # Late physical ACKs remain durable even after cancellation or revocation.
+        # Observation has a narrower current-job/authority fence than receipts.
+        try:
+            async with db.begin_nested():
+                job = await jobs.lock_job(db, job_id)
+                if a.status == "running" and matches(row, a, job):
+                    await current(db, row, a)
+                    await progress.record(
+                        db,
+                        job,
+                        task_id=task_id,
+                        stage="verifying" if a.operation == "verify" else "copying",
+                        unit="objects",
+                        completed=sum(
+                            summary["counts"][k] for k in ("verified", "skipped")
+                        ),
+                        marker=f"{a.id}:{data['id']}:{checksum}",
+                        sequence=row.delta_sequence,
+                    )
+        except Exception:
+            # A telemetry failure must not discard already persisted physical truth.
+            log.warning("Copy progress observation failed: job=%s", job_id)
     await db.commit()
 
 
@@ -1066,6 +1093,16 @@ async def publish(
         row.baseline, row.baseline_sha256 = baseline, sha(baseline)
         row.catalog, row.catalog_sha256 = catalog, sha(catalog)
         row.summary = safe_summary(summary)
+        await progress.record(
+            db,
+            job,
+            task_id=task_id,
+            stage="preparing",
+            unit="objects",
+            completed=sum(row.summary["counts"].values()),
+            marker=f"{a.id}:{row.baseline_sha256}",
+            sequence=1,
+        )
         return await finish(db, row, a, job, "completed")
     if a.operation == "prepare" or result is None:
         return await finish(db, row, a, job, "failed", "copy_invalid_result")

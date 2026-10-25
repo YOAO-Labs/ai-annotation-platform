@@ -38,6 +38,27 @@ export const CANCELLABLE_ASYNC_JOB_KINDS = new Set<AsyncJobKind>([
   "point_cloud_cross_frame",
 ]);
 
+export interface StorageJobProgressObservation {
+  schema: 1;
+  execution_id: string;
+  stage:
+    | "scanning"
+    | "validating"
+    | "preflight"
+    | "registering"
+    | "enumerating"
+    | "preparing"
+    | "copying"
+    | "verifying"
+    | "publishing";
+  unit: "directories" | "pages" | "entries" | "records" | "objects";
+  completed: number;
+  sequence: number;
+  observed_at: string;
+  idle_seconds: number | null;
+  attention_after_seconds: 900;
+}
+
 export interface AsyncJob {
   id: string;
   kind: AsyncJobKind;
@@ -47,6 +68,8 @@ export interface AsyncJob {
   project_name: string | null;
   status: AsyncJobStatus;
   progress_pct: number;
+  last_progress_at?: string | null;
+  progress_observation?: StorageJobProgressObservation | null;
   payload: Record<string, unknown>;
   result: Record<string, unknown>;
   error_message: string | null;

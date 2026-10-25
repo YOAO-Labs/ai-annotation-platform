@@ -2,7 +2,7 @@
 audience: [project_admin, super_admin, developer]
 type: reference
 status: stable
-last_reviewed: 2026-10-23
+last_reviewed: 2026-10-26
 ---
 
 # 异步任务（async_jobs）
@@ -157,6 +157,29 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 - **service 层显式**：`batch_predict` 等长任务在 worker 内显式调 `async_job_svc.update_progress(job_id, pct)`，每 5% 步长写一次，避免每条 task 都 DB write；`batch_predict` 额外在每条预测边界检查 `payload.cancel_requested`；
 - **Celery signals 兜底**：`task_failure` / `task_revoked` 信号回调按 `celery_task_id` 反查 `async_jobs` 行，翻 `failed` / `cancelled`，并补发终态通知，覆盖 worker crash / Celery revoke 等未被业务代码 except 接住的极端情况；
 - **失败兜底**：所有 async_jobs 写入都包 try/except，**专表写入失败不阻断主业务流程**（仅记日志）。
+
+### 存储任务的实际推进
+
+列表及详情额外返回可空的 `last_progress_at` 和 `progress_observation`。覆盖 `dataset_scan`、`dataset_registration`、`storage_usage`、`storage_migration_inventory`、`storage_migration_copy`；来源同步通过扫描／登记子任务展示。其他任务及升级前记录没有观测时返回 `null`，不从 `updated_at`、开始时间或百分比回填。
+
+| 字段                          | 含义                                                                                                                   |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `last_progress_at`            | 最后接受的新进展在服务器上的记录时间                                                                                   |
+| `progress_observation.schema` | 固定为 `1`                                                                                                             |
+| `execution_id`                | 绑定当前作业与执行任务的 UUID；不作为访问凭证                                                                          |
+| `stage`                       | `scanning`、`validating`、`preflight`、`registering`、`enumerating`、`preparing`、`copying`、`verifying`、`publishing` |
+| `unit`                        | `directories`、`pages`、`entries`、`records`、`objects`                                                                |
+| `completed`                   | 当前观测单位的非负累计计数；不同阶段或单位之间不能相加                                                                 |
+| `sequence`                    | 当前 execution 中单调增加的正整数                                                                                      |
+| `observed_at`                 | 读取响应时的服务器时间                                                                                                 |
+| `idle_seconds`                | 服务器按记录时间计算的未推进秒数，时间无效时为 `null`                                                                  |
+| `attention_after_seconds`     | 固定 `900`，仅供核实提示使用                                                                                           |
+
+只有新目录／S3页接受、登记条目转换、容量分页或新的复制结果等事实才记录推进。同一结果重复提交、旧任务或旧序号不刷新时间；claim、普通百分比更新、续租和权限／取消检查也不刷新。目录、登记、容量页和复制结果的观测随原事务提交或回滚。迁移清单的实际处理记录以限频短事务保存观测，它不表示报告已经封存，也不提供中断恢复检查点。
+
+响应不包含原始路径、对象键或内部观测证明。字段不合法、执行身份不匹配时两个字段均保持未知。GET／列表只读数据库，不访问存储、不创建任务、不刷新记录时间。
+
+前端仅对 `running` 且具有当前有效观测、`idle_seconds >= attention_after_seconds` 的任务提示“长时间未记录新的已提交进展”。这不证明死锁或底层I/O停止，也不触发失败、取消、重试、清理或恢复访问。终态不提示；首次观测前、排队和缺少中间事实的准备阶段均不能据此推断卡死。见[排查说明](../../ops/runbooks/celery-worker-stuck.md#存储任务的无进展提示)。
 
 ## Retention
 

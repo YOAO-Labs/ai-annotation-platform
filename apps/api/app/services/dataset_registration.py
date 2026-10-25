@@ -452,6 +452,20 @@ async def record(
         else run.counts["ready_count"]
     )
     job.progress_pct = int(100 * (total - remaining) / total) if total else 100
+    from app.services import storage_job_progress as progress
+
+    await progress.record(
+        db,
+        job,
+        task_id=task_id,
+        stage="preflight" if run.phase == "preflight" else "registering",
+        unit="entries",
+        completed=total - remaining,
+        marker=(
+            f"{run.id}:{run.generation}:{run.phase}:"
+            f"{entry.path_digest}:{entry.attempts}:{entry.state}"
+        ),
+    )
 
 
 async def other_active(db, run):

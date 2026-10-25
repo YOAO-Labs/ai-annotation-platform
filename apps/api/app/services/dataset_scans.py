@@ -21,6 +21,7 @@ from app.services import (
     reference_storage,
     source_selection as selection,
     storage_access,
+    storage_job_progress as progress,
 )
 from app.services import dataset_source_access as access
 from app.services.async_job_notify import notify_job_terminal
@@ -650,7 +651,10 @@ async def apply_directory(db, run_id, task_id, fence, work, manifest):
     if work["phase"] != "enumerating":
         if entry.directory_digest != manifest["digest"]:
             raise fs.FilesystemStorageError("directory_changed")
+        changed = entry.validated_generation != run.generation
         entry.validated_generation = run.generation
+        if changed:
+            await directory_progress(db, run, job, task_id, entry)
         return
     if entry.state != "pending":
         raise LostScanLease()
@@ -735,6 +739,33 @@ async def apply_directory(db, run_id, task_id, fence, work, manifest):
     }
     run.lease_expires_at = await now(db) + timedelta(seconds=LEASE_SECONDS)
     job.result = {**run.counts, "complete": False}
+    await directory_progress(db, run, job, task_id, entry)
+
+
+async def directory_progress(db, run, job, task_id, entry):
+    """Observe only accepted directory facts inside the scan owner's transaction."""
+    await db.flush()
+    query = (
+        select(func.count())
+        .select_from(DatasetScanEntry)
+        .where(
+            DatasetScanEntry.run_id == run.id,
+            DatasetScanEntry.kind == "directory",
+            DatasetScanEntry.state == "captured",
+        )
+    )
+    validating = run.phase != "enumerating"
+    if validating:
+        query = query.where(DatasetScanEntry.validated_generation == run.generation)
+    await progress.record(
+        db,
+        job,
+        task_id=task_id,
+        stage="validating" if validating else "scanning",
+        unit="directories",
+        completed=await db.scalar(query),
+        marker=f"{run.id}:{run.generation}:{run.phase}:{entry.path_digest}",
+    )
 
 
 async def fail_attempt(
