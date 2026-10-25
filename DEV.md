@@ -3008,14 +3008,14 @@ Media 与确定性推理 peer 仍通过 `host.docker.internal` 访问，沿用�
 复用前节不可变 API 镜像及身份变量；额外将 `AAP_LEGACY_VIDEO_FENCE_API_SOURCE_REVISION` 设为该镜像的 `org.aap.source-revision` 标签。此开关仅用于验收器独占 PostgreSQL 和随机专用队列：
 
 ```bash
-AAP_LEGACY_VIDEO_FENCE_LIVE=1 apps/api/.venv/bin/python \
+PYTHONPATH="$PWD" AAP_LEGACY_VIDEO_FENCE_LIVE=1 apps/api/.venv/bin/python \
   scripts/verify_module_data_boundary.py --output .worktree/local-video-fence.json \
   --test-file tests/test_legacy_video_fence_live.py
 ```
 
 夹具播种历史 Job 和 scope-only 形态，不能代表旧二进制或有效 admission；不关闭 tracker permit，也不生成 Jobs execution、journal 或 clearance。先成功写入／读回专用 S3 对象，再核验进程、资源、凭据及 scope 身份；随后真实退役 scope、停止进程、撤销存储身份及该独占 PostgreSQL 的全部非 owner LOGIN，最后用相同旧凭据重投原任务并要求失败。未知 worker、DB 选择器或共享资源均拒绝继续；不 purge 全局 broker。
 
-该案例必须最后执行，因为后续普通账号已不能登录。验收器在核对同一专属 PostgreSQL 容器后，仅用 owner 完成资源销毁，保留所有所有权检查，不重启已围栏角色。最新端到端案例及清理通过；它只关闭本地物理围栏前提，正式旧 Jobs 退役凭证和历史输入修复仍待实现。范围和证据见[组合验收台账](docs-site/dev/concepts/module-deployment.md#coherent-owner-operations)。
+该案例必须最后执行，因为后续普通账号已不能登录。验收器在核对同一专属 PostgreSQL 容器后，仅用 owner 完成资源销毁，保留所有所有权检查，不重启已围栏角色。上述命令须从仓库根目录运行，显式 PYTHONPATH 供主机 pytest 导入独立观察器；Media 子进程仍保留自身的窄源码路径。当前源码组合首轮单案例通过，含完整迁移往返及清理；正式旧 Jobs 退役凭证和历史输入修复仍待实现。范围和证据见[当前组合验收台账](docs-site/dev/concepts/module-deployment.md#legacy-video-current-combination)。
 
 #### 独立 PostgreSQL 围栏观察
 
@@ -3085,8 +3085,9 @@ Media 身份，而不是共享 `.env`。`worker` 恰含：
 错误当作撤权。探针只使用 `projects/<UUID>/guide/legacy-video-fence-<32位hex>.txt`
 形式的独占 key，不执行 IAM 或清理操作。调用方仍须验证整个资源及历史凭据范围。
 
-本地 worker 五场景、S3 两场景和 49 项定向回归已通过；没有重跑完整视频冷组合。
-当前运行范围、原失败收据与后续验收边界见[模块台账](docs-site/dev/concepts/module-deployment.md#legacy-video-worker-storage-facts)。
+本地 worker 五场景、S3 两场景和 49 项定向回归证据保留；当前三类观察器接回原视频
+围栏组合也已首轮通过一个案例。两类计数不相加，不代表旧版二进制或完整视频恢复。
+当前运行范围、原失败收据与后续边界见[模块台账](docs-site/dev/concepts/module-deployment.md#legacy-video-current-combination)。
 
 ### Workspace 冷运维导入验收
 
