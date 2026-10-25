@@ -276,6 +276,32 @@ API／Worker当前凭据sidecar → 原有permit → 实际S3
 
 使用当前local HEAD的隔离树、本地API虚拟环境与准确owner的可销毁test／e2e。回归覆盖旧及在途A、新B、辅助原件、保存地址读回、当前密钥轮换、坏目标／竞争拒绝、原件尺寸／复制、legacy补登记、纯冻结事实不变、位置保护和0251降级拒绝。真实API／S3／所属Worker证明A／B地址与字节及退役只读证据；原有消费者仅跑直接受影响调用回归，不追加真实模型训练、万条测量、全消费者或全库恢复。新用途控件沿现有居中Modal做明暗×桌面／窄屏及Escape／焦点、错误请求／控制台与溢出核验。检查与正常提交后合入，应用人工0251并刷新受影响API／Worker，保留3100／8100、Beat与既有数据。每轮清理所属测试中间产物，最终销毁所属资源并保留非敏感摘要；完整E02／E09继续活动。
 
+## 本轮定稿：E09-B17 配置源迁移清单后台任务
+
+基于`2a1d8d63e`推进原始E09-S07／AC09与E07-S02的真实任务接线。应用目前没有迁移领域任务，CLI清单／引用目录／复制检查点也不是应用API。本片先把同一配置源清单引擎接到统一AsyncJob，交付提交、真实执行、历史、取消、未确认派发重投、结果及私密报告下载；它是后续引用目录和预复制的输入，不以本片替代复制、切换、回滚或物理退役。无真实目标不阻塞源清单；不附加完整E07生产资格、历史全库补认、消费者或训练测量条件。
+
+复用既有`storage_migration_inventory`的九用途按桶去重、版本／删除标记、multipart、桶规则及完整SHA核验，将核心移入`app.services`以适配现有`/app`挂载，CLI保留兼容导入。只增加可选有界sink／输出字节预算及可传播的协作停止检查，不重写LIST或校验算法。停止检查覆盖SDK前后、页／对象／流块；取消不能被原issue捕获路径吞掉。App报告硬上限32MiB，在写入时约束，不能生成超大文件后才检查；缺少完整封存、Body／client／sink关闭不明或取消时不发布可下载成功报告。正常源故障可保留已封存的complete=false报告，任务显示失败及准确安全错误码。
+
+迁移0255仅新增`storage_migration_inventories`，关联AsyncJob并保存冻结配置源范围、限额／处理声明、执行／取消状态、有界私密报告BYTEA及摘要。报告沿现有终态Job的30天保留规则，随所属Job删除级联回收；页面和正式文档明确此期限，不增加无限保留。公开响应不含内容、对象键、端点、凭据或服务器路径。无新S3生产者／绑定、依赖、环境变量、Compose或镜像变化。配置源固定当前部署端点和九用途桶映射，来源Location为legacy；请求不能指定任意地址或目标凭据。已切往外部位置的用途继续如实报告未覆盖，不把所有Binding必须仍在A作为源盘点前置。
+
+| 应用接口                                                | 合同                                                                                                                   |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `POST /storage/migration-inventories`                   | 202，body为`{limits?,handling?}`，返回`{item,reused}`；相同操作者／范围／输入的活动任务复用，不另开扫描，冲突输入409。 |
+| `GET /storage/migration-inventories?limit=20&offset=0`  | 有界分页历史，只读DB，返回`{items,total,limit,offset}`，不读源或自动重投。                                             |
+| `POST /storage/migration-inventories/{job_id}/dispatch` | 显式重投同一pending task ID，返回`{item,reused:true}`；running或终态不执行第二次扫描。                                 |
+| `GET /storage/migration-inventories/{job_id}/report`    | 当前超级管理员和全权Key授权重新校验后下载封存JSONL；固定安全文件名、no-store及摘要，零源I/O。                          |
+| `POST /async-jobs/{job_id}/cancel`                      | 复用共享取消入口；pending可立即结束，running先登记请求，原生读流／client真正收尾后发布cancelled。                      |
+
+`item`固定包含`job_id,status,created_at,started_at,completed_at,scope=selected-configured-source,source_location_id,migration_ready=false,limits,handling,cancel_requested,complete,counts,error_code,report_available,report_sha256,report_size_bytes`；后四项不替代清单覆盖声明。counts复用核心十项整数计数，尚无结果时complete／counts为null。limits为`max_pages`（1–100000，默认1000）、`max_entries`（1–100000，默认10000）、`max_object_bytes`（1–1GiB，默认256MiB）、`max_total_bytes`（1–16GiB，默认2GiB）、`max_seconds`（1–3600，默认600）、`read_timeout_seconds`（1–60，默认30）、`page_size`（1–1000，默认1000）；流块保持既有1MiB。handling仅接受九用途的migrate／rebuild／retain，缺项仍unreviewed，不替操作者作迁移决策。
+
+新kind为`storage_migration_inventory`；列表、计数、详情、取消、报告和通知均遵循现有超级管理员及全权Key规则，旧owner身份不绕过当前撤权。Worker仅对保存task ID作一次pending→running领取，不用TTL接管正在读源的任务；显式pending重投不重复执行。源配置、权限与取消在执行／读取检查点及最终发布复核；不在原生I/O期间持有事务锁，不跨线程共享Session。使用既有storage访问准入／真实收尾模式；未覆盖的来源不能因新任务获得访问权。公开result／通知仅安全计数、摘要及错误码，派发未确认不提前宣称执行完成，终态通知幂等。
+
+Web在存储控制台增加“迁移准备”视图，明确只支持当前部署配置源；主要动作“建立迁移清单”，预算放到命名清晰的高级折叠中，处理声明可后续独立配置。提交打开既有居中共享任务详情，历史有分页、真实状态、报告下载、pending重投和关联详情，URL保留当前页／返回上下文；普通管理者不请求全局迁移API。任务类型、阶段、结果和通知文案共同接线，不能将清单complete=true写成“迁移完成”。沿已有13px正文／11px弱提示、select标签与提示分离、Modal内滚动、Escape及焦点约定。
+
+准确候选范围超过8文件：核心及CLI兼容导入、API模型／0255／schema／service／worker／router注册、AsyncJob权限／取消／通知及测试；Web迁移API／面板、StorageLocationsConsole与共享任务展示／通知和相关测试；OpenAPI／本树生成类型、SDK覆盖分类；README、CHANGELOG、存储用户／API／开发说明、本计划及执行队列。复用相邻实现，不顺带整理其他任务。
+
+在核实owner的可销毁test／e2e中验证迁移往返、无权与窄Key、并发领取／重投／取消、撤权／范围变化、输出／时间预算、真实关闭、partial报告、摘要／下载与GET零源I/O；真实独立Worker与小型PG／MinIO九用途版本／删除标记／multipart链路，不新增规模或目标选型门槛。Web测试、明暗桌面／窄屏及真实请求／控制台、Ruff、OpenAPI／codegen／SDK、类型／lint／CSS tokens和正式文档检查后正常提交。人工原3100／8100及业务／对象／媒体保持；仅应用新增迁移并按所属服务刷新实际Worker与Beat，不重建镜像。按owner清理资源、私密报告／浏览器／日志和已集成树；整项E09及整套Epic继续活动，不推送或发布。
+
 ## 当前集成状态
 
 2026-10-25，B12实现、正式文档与API契约已通过`31f770f51`正常合入当前工作树，人工0251及原3100／8100、两个Worker和绑定Beat已刷新。迁移前后172张业务表既有字段的9,230行、九桶24个版本／删除标记和12个源文件全部摘要保持；两项新nullable地址引用均为NULL，旧原件未补认或搬移。两个Worker各注册73项任务、原队列和direct路由保持，三个新绑定端点已在实际API确认。准确验收与限制见下方B12 Outcome；完整E02／E09仍未完成。
