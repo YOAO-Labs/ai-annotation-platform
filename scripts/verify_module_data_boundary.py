@@ -1187,6 +1187,7 @@ TEST_FILES = (
     "tests/test_labeling_annotation_bulk_native.py",
     "tests/test_labeling_video_bbox_editing_native.py",
     "tests/test_labeling_batch_control_native.py",
+    "tests/test_labeling_runtime_acl_native.py",
     "tests/test_labeling_prediction_records_native.py",
     "tests/test_labeling_scene_track_commands_native.py",
     "tests/test_labeling_cross_frame_writes_native.py",

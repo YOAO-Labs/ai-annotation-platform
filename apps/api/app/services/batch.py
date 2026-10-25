@@ -63,7 +63,6 @@ from app.db.models.task_batch import TaskBatch
 from app.db.models.task_lock import TaskLock
 from app.db.models.dataset import DatasetItem
 from app.schemas.batch import BatchCreate, BatchUpdate, BatchSplitRequest
-from app.services.display_id import next_display_id
 from app.services.progress import (
     publish_batch_assignment_change,
     publish_batch_status_change,
@@ -627,6 +626,16 @@ class BatchService:
         created_by: uuid.UUID | None,
     ) -> TaskBatch:
         batch_id = uuid.uuid4()
+        display_id = await self.db.scalar(
+            text("SELECT aap_labeling_v1.next_batch_display_id()")
+        )
+        if (
+            not isinstance(display_id, str)
+            or not display_id.startswith("BT-")
+            or not display_id[3:].isascii()
+            or not display_id[3:].isdigit()
+        ):
+            raise HTTPException(503, detail={"reason": "batch_control_unavailable"})
         await execute_batch_control(
             self.db,
             CreateBatch(
@@ -635,7 +644,7 @@ class BatchService:
                 batch_id=batch_id,
                 project_id=project_id,
                 dataset_id=dataset_id,
-                display_id=await next_display_id(self.db, "batches"),
+                display_id=display_id,
                 name=name,
                 description=description,
                 priority=priority,

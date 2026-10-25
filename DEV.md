@@ -433,6 +433,12 @@ psql -v expected_database=annotation_test -v migration_role=owner \
 现有主 API/worker 迁移期仍使用原运行角色，分离迁移账号时需在迁移后
 执行原环境授权流程以获取新接口执行权。
 
+Labeling 的普通运行账号只读取公开关系、执行固定能力；LAN 和 worktree 复用同一段
+私表围栏，撤销内部表、预测分区、列级授权及相关序列的直接访问，并拒绝继承旁路。
+批次显示编号通过 `aap_labeling_v1.next_batch_display_id()` 分配。迁移后必须刷新明确授权；
+不再向运行账号设置 public 表和序列的宽默认权限，历史宽默认授权也会清除。
+部署时先更新并排空旧直接读写消费者，再应用匹配代码的授权，回退须同步恢复匹配授权。
+
 显式本地部署清理进程前，准备三个仅供此服务读取的 secret 文件：普通 PostgreSQL URL
 （`postgresql://`，受限 cleanup LOGIN）、专用 S3 access key 和 secret key。S3 身份只允许
 对选定 media-cache 桶的 `image-assets/*` 和 `image-pyramids/*` 执行带 prefix 条件的

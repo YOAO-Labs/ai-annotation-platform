@@ -2,8 +2,11 @@
 
 import json
 import uuid
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
+from fastapi import HTTPException
 
 from aap_labeling.batch_control_contract import (
     BATCH_CONTROL_DATA_SCHEMA,
@@ -18,6 +21,33 @@ from aap_labeling.batch_control_contract import (
     decode_batch_control_command,
     decode_batch_control_reply,
 )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("display_id", ["BT-12", None, "BT-", "T-12", 12])
+async def test_batch_creation_allocates_only_through_its_owner(monkeypatch, display_id):
+    from app.services import batch as service
+
+    db = SimpleNamespace(scalar=AsyncMock(return_value=display_id), flush=AsyncMock())
+    command = AsyncMock()
+    expected = object()
+    monkeypatch.setattr(service, "execute_batch_control", command)
+    monkeypatch.setattr(service, "get_core_row", AsyncMock(return_value=expected))
+    create = service.BatchService(db)._create_batch(
+        project_id=uuid.uuid4(), name="Owner allocated", created_by=None
+    )
+    if display_id == "BT-12":
+        assert await create is expected
+        assert command.await_args.args[1].display_id == display_id
+    else:
+        with pytest.raises(HTTPException) as rejected:
+            await create
+        assert rejected.value.status_code == 503
+        command.assert_not_awaited()
+        db.flush.assert_not_awaited()
+    assert str(db.scalar.await_args.args[0]) == (
+        "SELECT aap_labeling_v1.next_batch_display_id()"
+    )
 
 
 def test_batch_control_schema_is_closed_and_rejects_generic_patch_fields():

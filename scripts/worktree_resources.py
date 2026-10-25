@@ -1089,6 +1089,14 @@ class LocalResources:
         finally:
             await engine.dispose()
 
+    def labeling_private_runtime_acl(self) -> str:
+        sql = (self.code_root / "infra/docker/lan-production-grants.sql").read_text()
+        start = "DO $labeling_private_acl$"
+        end = "$labeling_private_acl$;"
+        if sql.count(start) != 1 or sql.count(end) != 1:
+            raise WorktreeError("Labeling runtime ACL block is missing or duplicated")
+        return start + sql.split(start, 1)[1].split(end, 1)[0] + end
+
     async def grant_runtime(self) -> None:
         """Grant embedded capabilities and fence a distinct application role."""
         runtime = self.runtime_url()
@@ -1536,6 +1544,7 @@ class LocalResources:
                 await connection.exec_driver_sql(_JOBS_UPDATE_RUNTIME_ACL)
                 await connection.exec_driver_sql(_IDENTITY_PRIVATE_RUNTIME_ACL)
                 await connection.exec_driver_sql(_AUDIT_PRIVATE_RUNTIME_ACL)
+                await connection.exec_driver_sql(self.labeling_private_runtime_acl())
                 notification_result = await connection.execute(
                     text(
                         "SELECT pg_catalog.has_function_privilege("

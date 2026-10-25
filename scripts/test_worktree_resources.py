@@ -558,6 +558,7 @@ class BucketUpgradeTests(unittest.TestCase):
 
     def test_worktree_runtime_grant_uses_media_allowlists(self):
         backend = object.__new__(LocalResources)
+        backend.code_root = Path(__file__).resolve().parents[1]
         backend.settings = SimpleNamespace(
             database_url="postgresql+asyncpg://app@localhost/app"
         )
@@ -751,6 +752,14 @@ class BucketUpgradeTests(unittest.TestCase):
             statements,
         )
         runtime_sql = " ".join(statements)
+        labeling_acl = backend.labeling_private_runtime_acl()
+        self.assertIn(labeling_acl, statements)
+        self.assertLess(
+            statements.index(
+                'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "app"'
+            ),
+            statements.index(labeling_acl),
+        )
         for signature in INFERENCE_ROUTING_RUNTIME_CAPABILITIES:
             self.assertIn(signature, runtime_sql)
         worktree_image_signatures = re.findall(
@@ -824,6 +833,34 @@ class BucketUpgradeTests(unittest.TestCase):
                         asyncio.run(backend.grant_runtime())
                 finally:
                     privileges[key] = original
+
+    def test_labeling_acl_covers_owner_storage_and_rejects_missing_source(self):
+        root = Path(__file__).resolve().parents[1]
+        backend = object.__new__(LocalResources)
+        backend.code_root = root
+        acl = backend.labeling_private_runtime_acl()
+        tables = set(
+            re.findall(
+                r"'([a-z_]+)'",
+                acl.split("v_tables text[] := ARRAY[", 1)[1].split("];", 1)[0],
+            )
+        )
+        grants = (root / "infra/docker/module-data-grants.sql").read_text()
+        owned = set()
+        for grant in re.findall(
+            r'\bGRANT\b[^;]+TO :"labeling_owner";', grants, re.DOTALL
+        ):
+            if "ON FUNCTION" not in grant and "ON SEQUENCE" not in grant:
+                owned.update(re.findall(r"public\.([a-z_]+)", grant))
+        self.assertEqual(tables, owned - {"projects", "video_chapters"})
+        self.assertNotIn("GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES", acl)
+        backend.code_root = self.root
+        target = self.root / "infra/docker/lan-production-grants.sql"
+        target.parent.mkdir(parents=True)
+        for content in ("", acl + acl):
+            target.write_text(content)
+            with self.assertRaisesRegex(WorktreeError, "missing or duplicated"):
+                backend.labeling_private_runtime_acl()
 
     def test_audit_maintenance_grant_is_bounded_to_its_owner_command(self):
         sql = (

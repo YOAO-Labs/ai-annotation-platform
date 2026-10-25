@@ -891,10 +891,7 @@ GRANT EXECUTE ON FUNCTION aap_assets_v1.pending_storage_deletions_v2(
     aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer),
     aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)
     TO :"asset_cleanup_role";
-ALTER DEFAULT PRIVILEGES FOR ROLE :"migration_role" IN SCHEMA public
-    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO :"application_role";
-ALTER DEFAULT PRIVILEGES FOR ROLE :"migration_role" IN SCHEMA public
-    GRANT USAGE, SELECT ON SEQUENCES TO :"application_role";
+-- Refresh explicit runtime grants after migrations; blanket defaults expose owner storage.
 
 -- User-performance maintenance retains this MV; prediction partitions use
 -- their Labeling owner. The migration role inherits the runtime, never vice versa.
@@ -1064,4 +1061,155 @@ BEGIN
     END LOOP;
 END;
 $identity_private_acl$;
+DO $labeling_private_acl$
+DECLARE
+    v_runtime name := current_setting('aap.application_role');
+    v_runtime_oid oid;
+    v_tables text[] := ARRAY[
+        'ai_mask_accept_decisions', 'annotation_comments',
+        'annotation_conversion_plans', 'annotation_drafts', 'annotation_feedbacks',
+        'annotation_input_sources', 'annotation_lineage_edges', 'annotation_operations',
+        'annotation_video_input_sources', 'annotation_video_tracker_input_sources',
+        'annotations', 'batch_result_bundles', 'batch_result_parts',
+        'batch_result_payloads', 'failed_predictions', 'mask_annotation_revisions',
+        'mask_format_imports', 'mask_gc_intents', 'mask_gc_key_epochs', 'mask_gc_roots',
+        'mask_gc_sweeps', 'mask_gc_write_permit_secrets', 'mask_qc_issues', 'mask_qc_runs',
+        'mask_repair_batches', 'mask_review_scopes', 'point_cloud_quality_evaluations',
+        'point_cloud_quality_issues', 'point_cloud_quality_runs', 'prediction_metas',
+        'prediction_retry_attempts', 'predictions', 'raster_mask_uploads',
+        'scene_track_intervals', 'scene_track_operations', 'scene_tracks',
+        'task_append_operations', 'task_batches', 'task_creation_chunks',
+        'task_creation_operations', 'task_dataset_item_links', 'task_events',
+        'task_locks', 'tasks', 'video_segments', 'video_track_quality_issues',
+        'video_track_quality_runs', 'video_tracker_input_scopes', 'video_tracker_jobs'
+    ];
+    v_private oid[];
+    v_owners oid[];
+    v_name text;
+    v_relation record;
+    v_default record;
+    v_columns text;
+BEGIN
+    SELECT oid INTO v_runtime_oid FROM pg_catalog.pg_roles
+    WHERE rolname=v_runtime AND rolcanlogin
+      AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls);
+    IF current_database() <> current_setting('aap.expected_database')
+       OR v_runtime_oid IS NULL OR v_runtime=current_user THEN
+        RAISE EXCEPTION 'Invalid embedded Labeling runtime ownership';
+    END IF;
+    FOREACH v_name IN ARRAY v_tables LOOP
+        IF pg_catalog.to_regclass(pg_catalog.format('public.%I',v_name)) IS NULL THEN
+            RAISE EXCEPTION 'Missing private Labeling relation: %',v_name;
+        END IF;
+    END LOOP;
+    v_private := ARRAY(
+        WITH RECURSIVE storage(oid) AS (
+            SELECT c.oid FROM pg_catalog.pg_class c
+            JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+            WHERE (n.nspname='public' AND c.relname=ANY(v_tables))
+               OR (n.nspname ~ '^aap_labeling(_[a-z0-9]+)*_v[0-9]+$'
+                   AND c.relkind IN ('r','p','m','f'))
+            UNION
+            SELECT i.inhrelid FROM pg_catalog.pg_inherits i
+            JOIN storage s ON s.oid=i.inhparent
+        ) SELECT oid FROM storage
+    );
+    v_owners := ARRAY(
+        SELECT relowner FROM pg_catalog.pg_class WHERE oid=ANY(v_private)
+        UNION SELECT p.proowner FROM pg_catalog.pg_proc p
+        JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+        WHERE n.nspname ~ '^aap_labeling(_[a-z0-9]+)*_v[0-9]+$'
+        UNION SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_user
+    );
+    IF EXISTS (SELECT FROM pg_catalog.unnest(v_owners) owner_oid
+               WHERE owner_oid=v_runtime_oid
+                  OR pg_catalog.pg_has_role(v_runtime_oid,owner_oid,'MEMBER')) THEN
+        RAISE EXCEPTION 'Runtime inherits private Labeling ownership';
+    END IF;
+    FOR v_relation IN
+        SELECT c.oid,n.nspname,c.relname FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+        WHERE c.oid=ANY(v_private)
+    LOOP
+        EXECUTE pg_catalog.format('REVOKE ALL ON TABLE %I.%I FROM %I, PUBLIC',
+            v_relation.nspname,v_relation.relname,v_runtime);
+        SELECT pg_catalog.string_agg(pg_catalog.quote_ident(attname),',' ORDER BY attnum)
+        INTO v_columns FROM pg_catalog.pg_attribute
+        WHERE attrelid=v_relation.oid AND attnum>0 AND NOT attisdropped;
+        IF v_columns IS NOT NULL THEN
+            EXECUTE pg_catalog.format('REVOKE ALL (%s) ON TABLE %I.%I FROM %I, PUBLIC',
+                v_columns,v_relation.nspname,v_relation.relname,v_runtime);
+        END IF;
+        IF pg_catalog.has_table_privilege(v_runtime,v_relation.oid,
+                'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+           OR pg_catalog.has_any_column_privilege(v_runtime,v_relation.oid,
+                'SELECT,INSERT,UPDATE,REFERENCES') THEN
+            RAISE EXCEPTION 'Runtime retains private Labeling access: %.%',
+                v_relation.nspname,v_relation.relname;
+        END IF;
+    END LOOP;
+    FOR v_relation IN
+        SELECT c.oid,n.nspname,c.relname FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+        WHERE c.relkind='S' AND (
+            (n.nspname='public' AND c.relname IN ('display_seq_tasks','display_seq_batches'))
+            OR n.nspname ~ '^aap_labeling(_[a-z0-9]+)*_v[0-9]+$'
+            OR EXISTS (SELECT FROM pg_catalog.pg_depend d
+                       WHERE d.classid='pg_catalog.pg_class'::pg_catalog.regclass
+                         AND d.objid=c.oid AND d.refclassid=d.classid
+                         AND d.refobjid=ANY(v_private) AND d.deptype IN ('a','i'))
+        )
+    LOOP
+        EXECUTE pg_catalog.format('REVOKE ALL ON SEQUENCE %I.%I FROM %I, PUBLIC',
+            v_relation.nspname,v_relation.relname,v_runtime);
+        IF pg_catalog.has_sequence_privilege(v_runtime,v_relation.oid,'USAGE,SELECT,UPDATE') THEN
+            RAISE EXCEPTION 'Runtime retains private Labeling sequence access: %.%',
+                v_relation.nspname,v_relation.relname;
+        END IF;
+    END LOOP;
+    FOR v_relation IN
+        SELECT c.oid,n.nspname,c.relname FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+        WHERE c.relkind='v' AND n.nspname ~ '^aap_labeling(_[a-z0-9]+)*_v[0-9]+$'
+    LOOP
+        EXECUTE pg_catalog.format(
+            'REVOKE INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER ON TABLE %I.%I FROM %I, PUBLIC',
+            v_relation.nspname,v_relation.relname,v_runtime);
+        SELECT pg_catalog.string_agg(pg_catalog.quote_ident(attname),',' ORDER BY attnum)
+        INTO v_columns FROM pg_catalog.pg_attribute
+        WHERE attrelid=v_relation.oid AND attnum>0 AND NOT attisdropped;
+        IF v_columns IS NOT NULL THEN
+            EXECUTE pg_catalog.format(
+                'REVOKE INSERT (%1$s),UPDATE (%1$s),REFERENCES (%1$s) ON TABLE %2$I.%3$I FROM %4$I, PUBLIC',
+                v_columns,v_relation.nspname,v_relation.relname,v_runtime);
+        END IF;
+        IF pg_catalog.has_table_privilege(v_runtime,v_relation.oid,
+                'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+           OR pg_catalog.has_any_column_privilege(v_runtime,v_relation.oid,
+                'INSERT,UPDATE,REFERENCES') THEN
+            RAISE EXCEPTION 'Runtime retains Labeling view writes: %.%',
+                v_relation.nspname,v_relation.relname;
+        END IF;
+    END LOOP;
+    FOR v_default IN
+        SELECT d.defaclobjtype,r.rolname,n.nspname
+        FROM pg_catalog.pg_default_acl d
+        JOIN pg_catalog.pg_roles r ON r.oid=d.defaclrole
+        LEFT JOIN pg_catalog.pg_namespace n ON n.oid=d.defaclnamespace
+        WHERE d.defaclrole=ANY(v_owners) AND d.defaclobjtype IN ('r','S')
+          AND (d.defaclnamespace=0 OR n.nspname='public'
+               OR n.nspname ~ '^aap_labeling(_[a-z0-9]+)*_v[0-9]+$')
+          AND EXISTS (SELECT FROM pg_catalog.aclexplode(d.defaclacl) a
+                      WHERE a.grantee IN (0,v_runtime_oid))
+    LOOP
+        EXECUTE pg_catalog.format(
+            'ALTER DEFAULT PRIVILEGES FOR ROLE %I%s REVOKE ALL ON %s FROM %I, PUBLIC',
+            v_default.rolname,
+            CASE WHEN v_default.nspname IS NULL THEN ''
+                 ELSE pg_catalog.format(' IN SCHEMA %I',v_default.nspname) END,
+            CASE v_default.defaclobjtype WHEN 'r' THEN 'TABLES' ELSE 'SEQUENCES' END,
+            v_runtime);
+    END LOOP;
+END;
+$labeling_private_acl$;
 COMMIT;
