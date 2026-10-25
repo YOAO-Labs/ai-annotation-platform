@@ -543,3 +543,68 @@ it.each(["legacy_mapping_locked", "reviewed_import_switch"])(
     expect(storage.bindingCandidates).not.toHaveBeenCalled();
   },
 );
+
+it("opens reviewed media-cache switching while annotations and training stay locked", async () => {
+  const binding = {
+    purpose: "media-cache",
+    location_id: ID,
+    bucket: "cache-a",
+    generation: 1,
+    location_config_revision: 1,
+    state: "configured",
+    read_policy: "consumer_owned_compatibility",
+    write_policy: "current_binding",
+    change_policy: "reviewed_media_cache_switch",
+  };
+  const target = {
+    location_id: "22222222-2222-2222-2222-222222222222",
+    name: "媒体缓存目标",
+    config_revision: 2,
+  };
+  storage.bindings.mockResolvedValue([
+    binding,
+    ...["annotations", "training"].map((purpose) => ({
+      ...binding,
+      purpose,
+      write_policy: "deployment_mapping",
+      change_policy: "legacy_mapping_locked",
+    })),
+  ]);
+  storage.bindingCandidates.mockResolvedValue({ items: [target], total: 1 });
+  mount("/storage?tab=bindings");
+  const button = await screen.findByRole("button", { name: "切换媒体缓存位置" });
+  for (const name of [/标注文件/, /冻结训练数据/]) {
+    expect(within(screen.getByRole("row", { name })).queryByRole("button")).not.toBeInTheDocument();
+  }
+  fireEvent.click(button);
+  await screen.findByRole("option", { name: target.name });
+  expect(storage.bindingCandidates).toHaveBeenCalledWith(
+    "media-cache",
+    0,
+    expect.any(AbortSignal),
+    20,
+  );
+  expect(storage.avatarBindingCandidates).not.toHaveBeenCalled();
+});
+it.each(["legacy_mapping_locked", "reviewed_dataset_switch"])(
+  "keeps media-cache unavailable for the %s backend policy",
+  async (change_policy) => {
+    storage.bindings.mockResolvedValue([
+      {
+        purpose: "media-cache",
+        location_id: ID,
+        bucket: "cache-a",
+        generation: 1,
+        location_config_revision: 1,
+        state: "configured",
+        read_policy: "consumer_owned_compatibility",
+        write_policy: "current_binding",
+        change_policy,
+      },
+    ]);
+    mount("/storage?tab=bindings");
+    await screen.findByRole("row", { name: /派生媒体缓存/ });
+    expect(screen.queryByRole("button", { name: "切换媒体缓存位置" })).not.toBeInTheDocument();
+    expect(storage.bindingCandidates).not.toHaveBeenCalled();
+  },
+);

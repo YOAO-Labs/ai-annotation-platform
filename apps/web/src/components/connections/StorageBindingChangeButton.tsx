@@ -8,6 +8,7 @@ import type {
   ExportBindingPreview,
   ImportBindingPreview,
   DatasetBindingPreview,
+  MediaCacheBindingPreview,
   StorageBindingOut,
 } from "@/api/generated/types.gen";
 import { ApiError } from "@/api/client";
@@ -21,7 +22,14 @@ import { verifiedContentError } from "@/hooks/useVerifiedImage";
 import { storageAccessDenied } from "./storageQueryState";
 
 interface Props {
-  purpose: "avatars" | "bug-reports" | "audit-archive" | "export" | "import" | "datasets";
+  purpose:
+    | "avatars"
+    | "bug-reports"
+    | "audit-archive"
+    | "export"
+    | "import"
+    | "datasets"
+    | "media-cache";
   binding: StorageBindingOut;
   onApplied: () => Promise<void>;
 }
@@ -48,6 +56,7 @@ function changeError(error: unknown, _purpose: Props["purpose"]): string {
       "export_binding_unchanged",
       "import_binding_unchanged",
       "dataset_binding_unchanged",
+      "media_cache_binding_unchanged",
     ].includes(code)
   )
     return "请选择与当前绑定不同的存储位置。";
@@ -59,6 +68,7 @@ function changeError(error: unknown, _purpose: Props["purpose"]): string {
       "export_binding_target_missing",
       "import_binding_target_missing",
       "dataset_binding_target_missing",
+      "media_cache_binding_target_missing",
     ].includes(code)
   )
     return "目标位置已不存在，请刷新候选位置后重新选择。";
@@ -70,6 +80,7 @@ function changeError(error: unknown, _purpose: Props["purpose"]): string {
       "export_storage_binding_unproven",
       "import_storage_binding_unproven",
       "dataset_storage_binding_unproven",
+      "media_cache_storage_binding_unproven",
     ].includes(code)
   )
     return "用途绑定或目标配置无法确认，请刷新存储配置后重新预览。";
@@ -82,6 +93,7 @@ function changeError(error: unknown, _purpose: Props["purpose"]): string {
       "export_storage_conditions_unsupported",
       "import_storage_conditions_unsupported",
       "dataset_storage_conditions_unsupported",
+      "media_cache_storage_conditions_unsupported",
     ].includes(code)
   )
     return "目标不支持条件写入，请选择支持该能力的存储位置。";
@@ -93,12 +105,15 @@ function changeError(error: unknown, _purpose: Props["purpose"]): string {
       "export_storage_probe_cleanup_unproven",
       "import_storage_probe_cleanup_unproven",
       "dataset_storage_probe_cleanup_unproven",
+      "media_cache_storage_probe_cleanup_unproven",
       "storage_operation_unsettled",
     ].includes(code)
   )
     return "验证操作尚未确认收尾，用途未切换。请管理员检查目标位置的测试对象和未收尾访问。";
   if (code === "import_storage_versioning_required")
     return "临时输入需要版本化存储，请启用目标桶版本控制并允许版本读取、删除和列举后重新预览。";
+  if (code === "media_cache_storage_unavailable")
+    return "目标缓存存储验证失败，请检查连接、条件写入、读取、删除和前缀列举权限后重新预览。";
   if (code === "dataset_storage_unavailable")
     return "目标存储验证失败，请检查连接、读写权限及分段上传能力后重新预览。";
   if (code === "permission_denied")
@@ -136,6 +151,7 @@ function ChangeOwner({
     export: "导出",
     import: "导入暂存",
     datasets: "数据集原件",
+    "media-cache": "媒体缓存",
   }[purpose];
   const capture = useSessionGuard();
   const pushToast = useToastStore((state) => state.push);
@@ -153,6 +169,7 @@ function ChangeOwner({
     | ExportBindingPreview
     | ImportBindingPreview
     | DatasetBindingPreview
+    | MediaCacheBindingPreview
     | null
   >(null);
   const [busy, setBusy] = useState(false);
@@ -170,6 +187,7 @@ function ChangeOwner({
         export: "export-binding-candidates",
         import: "import-binding-candidates",
         datasets: "dataset-binding-candidates",
+        "media-cache": "media-cache-binding-candidates",
       }[purpose],
       session,
       page,
@@ -251,6 +269,7 @@ function ChangeOwner({
         "export_binding_target_missing",
         "import_binding_target_missing",
         "dataset_binding_target_missing",
+        "media_cache_binding_target_missing",
       ].includes(errorCode(failure))
     ) {
       setPreview(null);
@@ -327,11 +346,13 @@ function ChangeOwner({
       setPreview(null);
       pushToast({
         msg:
-          purpose === "import"
-            ? "导入暂存绑定已更新，后续新分配使用新位置"
-            : purpose === "datasets"
-              ? "数据集原件绑定已更新，后续新分配使用新位置"
-              : `${noun}存储绑定已更新，后续新${noun}使用新位置`,
+          purpose === "media-cache"
+            ? "媒体缓存绑定已更新，后续新分配使用新位置"
+            : purpose === "import"
+              ? "导入暂存绑定已更新，后续新分配使用新位置"
+              : purpose === "datasets"
+                ? "数据集原件绑定已更新，后续新分配使用新位置"
+                : `${noun}存储绑定已更新，后续新${noun}使用新位置`,
         kind: "success",
       });
       await onApplied();
@@ -395,7 +416,11 @@ function ChangeOwner({
       >
         <div className="space-y-4 text-sm">
           <p className="text-xs leading-relaxed text-muted-foreground">
-            {purpose === "datasets" ? (
+            {purpose === "media-cache" ? (
+              <>
+                仅后续新分配的原图缓存、目录预览、缩略图、图片金字塔和视频派生输出使用新位置。已有及在途输出保留原位置，切换不会搬迁或清空缓存。
+              </>
+            ) : purpose === "datasets" ? (
               <>
                 仅后续新分配的数据集原件及辅助原件写入新位置。已有原件和在途上传保留原位置，数据集改名不改变文件路径。
               </>
@@ -459,9 +484,11 @@ function ChangeOwner({
                   id={`${selectId}-hint`}
                   className="mt-2 text-xs leading-relaxed text-muted-foreground"
                 >
-                  {purpose === "datasets"
-                    ? "选择已登记的全局 S3 位置。验证将检查空文件和分段上传的条件写入，完整读回并清理测试对象。"
-                    : "选择已登记的全局 S3 位置。验证将实际写入、完整读回并删除一个测试对象。"}
+                  {purpose === "media-cache"
+                    ? "选择已登记的全局 S3 位置。验证将检查条件写入、完整读回、准确删除和前缀列举。"
+                    : purpose === "datasets"
+                      ? "选择已登记的全局 S3 位置。验证将检查空文件和分段上传的条件写入，完整读回并清理测试对象。"
+                      : "选择已登记的全局 S3 位置。验证将实际写入、完整读回并删除一个测试对象。"}
                   {purpose === "export" &&
                     "同时验证对象和版本列举权限；外部端点须供浏览器及下载脚本访问。"}
                   {purpose === "import" &&
@@ -526,7 +553,7 @@ function ChangeOwner({
                     </div>
                     <div className="min-w-0">
                       <dt className="text-xs text-muted-foreground">
-                        {purpose === "import" || purpose === "datasets"
+                        {purpose === "import" || purpose === "datasets" || purpose === "media-cache"
                           ? "后续分配位置"
                           : `后续新${noun}位置`}
                       </dt>
@@ -545,7 +572,25 @@ function ChangeOwner({
                     用途代次 {visiblePreview.previous.generation} →{" "}
                     {(visiblePreview.previous.generation ?? 0) + 1}
                   </p>
-                  {"asset_locations" in visiblePreview.history ? (
+                  {"directory_previews" in visiblePreview.history ? (
+                    <div className="space-y-1 text-xs leading-relaxed text-muted-foreground">
+                      <p>
+                        目录预览 {visiblePreview.history.directory_previews} · 原图缓存{" "}
+                        {visiblePreview.history.original_cache_entries}
+                      </p>
+                      <p>
+                        图片金字塔 {visiblePreview.history.image_pyramid_outputs} · 视频派生{" "}
+                        {visiblePreview.history.video_derivative_outputs}
+                      </p>
+                      <p>
+                        缩略图输出 {visiblePreview.history.thumbnail_outputs} · 旧缩略图{" "}
+                        {visiblePreview.history.legacy_thumbnails}
+                      </p>
+                      <p>
+                        以上为不同类型的责任记录，不相加作为对象总数。已有和在途输出保留原位置。
+                      </p>
+                    </div>
+                  ) : "asset_locations" in visiblePreview.history ? (
                     <div className="space-y-1 text-xs leading-relaxed text-muted-foreground">
                       <p>
                         原件位置记录 {visiblePreview.history.asset_locations} · 写入分配{" "}
@@ -617,6 +662,9 @@ function ChangeOwner({
                         · 空文件{visiblePreview.capabilities.empty_put ? "通过" : "未通过"} ·
                         分段上传{visiblePreview.capabilities.multipart ? "通过" : "未通过"}
                       </>
+                    )}
+                    {purpose === "media-cache" && (
+                      <> · 前缀列举{visiblePreview.capabilities.list ? "通过" : "未通过"}</>
                     )}
                     {(purpose === "export" || purpose === "import") && (
                       <>
