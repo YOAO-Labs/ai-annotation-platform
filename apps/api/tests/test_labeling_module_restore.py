@@ -45,6 +45,7 @@ pytestmark = [
 ]
 
 _LABELING_SCHEMA = "aap_labeling_v1"
+_LABELING_SCHEMAS = (_LABELING_SCHEMA, "aap_labeling_class_query_v1")
 _ANNOTATION_WRITE_ROLE = "labeling_annotation_write_client"
 _CORE_READ_ROLE = "labeling_core_read_client"
 _ANNOTATION_WRITE_FUNCTIONS = {
@@ -78,11 +79,11 @@ async def _labeling_catalog_snapshot(engine) -> dict[str, tuple]:
                     "FROM pg_catalog.pg_namespace AS namespace "
                     "JOIN pg_catalog.pg_roles AS owner "
                     "ON owner.oid=namespace.nspowner "
-                    "WHERE namespace.nspname=:schema"
+                    "WHERE namespace.nspname = ANY(CAST(:schemas AS text[]))"
                 ),
-                {"schema": _LABELING_SCHEMA},
+                {"schemas": list(_LABELING_SCHEMAS)},
             )
-        ).one_or_none()
+        ).all()
         functions = (
             await connection.execute(
                 text(
@@ -107,17 +108,17 @@ async def _labeling_catalog_snapshot(engine) -> dict[str, tuple]:
                     "ON grantee.oid=entry.grantee), "
                     "function.proconfig::text, "
                     "function.provolatile, function.prosecdef, function.proretset, "
-                    "function.prokind "
+                    "function.prokind, namespace.nspname "
                     "FROM pg_catalog.pg_proc AS function "
                     "JOIN pg_catalog.pg_namespace AS namespace "
                     "ON namespace.oid=function.pronamespace "
                     "JOIN pg_catalog.pg_roles AS owner "
                     "ON owner.oid=function.proowner "
-                    "WHERE namespace.nspname=:schema "
-                    "ORDER BY function.proname, "
+                    "WHERE namespace.nspname = ANY(CAST(:schemas AS text[])) "
+                    "ORDER BY namespace.nspname, function.proname, "
                     "pg_catalog.pg_get_function_identity_arguments(function.oid)"
                 ),
-                {"schema": _LABELING_SCHEMA},
+                {"schemas": list(_LABELING_SCHEMAS)},
             )
         ).all()
         relations = (
@@ -148,37 +149,38 @@ async def _labeling_catalog_snapshot(engine) -> dict[str, tuple]:
                     "attribute.atttypmod), "
                     "'not_null', attribute.attnotnull, "
                     "'collation', CASE WHEN attribute.attcollation=0 THEN NULL "
-                    "ELSE collation_schema.nspname || '.' || collation.collname END, "
+                    "ELSE collation_schema.nspname || '.' || collation_row.collname END, "
                     "'identity', attribute.attidentity, "
                     "'generated', attribute.attgenerated) "
                     "ORDER BY attribute.attnum), '[]'::jsonb)::text "
                     "FROM pg_catalog.pg_attribute AS attribute "
-                    "LEFT JOIN pg_catalog.pg_collation AS collation "
-                    "ON collation.oid=attribute.attcollation "
+                    "LEFT JOIN pg_catalog.pg_collation AS collation_row "
+                    "ON collation_row.oid=attribute.attcollation "
                     "LEFT JOIN pg_catalog.pg_namespace AS collation_schema "
-                    "ON collation_schema.oid=collation.collnamespace "
+                    "ON collation_schema.oid=collation_row.collnamespace "
                     "WHERE attribute.attrelid=relation.oid "
-                    "AND attribute.attnum > 0 AND NOT attribute.attisdropped) "
+                    "AND attribute.attnum > 0 AND NOT attribute.attisdropped), "
+                    "namespace.nspname "
                     "FROM pg_catalog.pg_class AS relation "
                     "JOIN pg_catalog.pg_namespace AS namespace "
                     "ON namespace.oid=relation.relnamespace "
                     "JOIN pg_catalog.pg_roles AS owner "
                     "ON owner.oid=relation.relowner "
-                    "WHERE namespace.nspname=:schema "
+                    "WHERE namespace.nspname = ANY(CAST(:schemas AS text[])) "
                     "AND relation.relkind IN ('v','m') "
-                    "ORDER BY relation.relname"
+                    "ORDER BY namespace.nspname, relation.relname"
                 ),
-                {"schema": _LABELING_SCHEMA},
+                {"schemas": list(_LABELING_SCHEMAS)},
             )
         ).all()
-    assert schema is not None
+    assert {row[0] for row in schema} == set(_LABELING_SCHEMAS)
     assert functions and relations
     assert set(CORE_READ_RELATIONS).issubset({row[0] for row in relations})
-    assert schema[1] == "labeling_code"
+    assert all(row[1] == "owner" for row in schema)
     assert all(row[4] == "labeling_code" for row in functions)
     assert all(row[2] == "labeling_code" for row in relations)
     return {
-        "schema": tuple(schema),
+        "schema": tuple(tuple(row) for row in schema),
         "functions": tuple(tuple(row) for row in functions),
         "relations": tuple(tuple(row) for row in relations),
     }
