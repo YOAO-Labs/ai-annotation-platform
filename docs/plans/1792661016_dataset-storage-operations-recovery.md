@@ -5,6 +5,22 @@
 
 原始§5／工程任务第2项现由E12-B3交付临时输入的真实写删增量及跨盘点对账，B4接入集中托管原件新增，B5接入四类媒体缓存新增，B6接入独立导出媒体新增；ZIP、其他生产者及媒体缓存／导出移除增量仍未完整覆盖。原有LIST快照、额度预约与Creation／Retirement责任账本分别保留，不能将其中任一累计或部分覆盖冒充全平台物理增量；完整工程任务仍未勾完，也不是其他切片的新前置。
 
+## 本轮定稿：E12-B7 导出 ZIP 写入增量
+
+2026-10-26，基于`1d4872f97`继续原始E12-S03／AC01、§5及工程任务第2项。ZIP已有独立ExportOutput、准确保存地址、完整SHA／大小及真实线程收尾，但`upload_file`隐藏PUT／CompleteMultipart的返回版本；仅将成功ZIP大小相加会在同键重试时重复累计。普通导出经`export_outputs.write`，独立媒体导出经`workers/lidar_export.py`的原`_io`直接调用`export_storage.write`，本片覆盖这两个既有异步入口，不按导出格式拆专项。
+
+沿已有SDK managed upload保留64GiB上限、默认分段阈值／并发、重试、上传参数、业务授权、缓存／发布、期限和原清理行为。不为记账强制条件写能力，不用单PUT替换大文件上传，也不改全局共享client或增加部署条件。记账使用所属独占client及[Boto3公开事件](https://docs.aws.amazon.com/boto3/latest/guide/events.html)旁路捕获实际提交／返回；读取和普通签名继续原工厂。缺少版本、历史读取权限或观测不完整时保留unknown，原本成功的ZIP仍成功。
+
+新增生产者`export_zip_outputs`，owner为ExportOutput.id，分类temporary，复用现有Recorder和Mutation表。进入managed-upload调用前先独立短事务保存兜底意图，覆盖在Complete前失败或未触发事件的上传；首次实际PutObject／CompleteMultipart发送复用该意图，后续实际wire重试分别登记，最终ACK只对应最后一次实际发送，早期丢ACK不被后来的成功或412解释。before-send回调只返回None，不修改请求；用前置参数事件核对冻结Bucket／Key，不解析签名URL，不在线程共享Session或创建跨循环Engine。
+
+每次实际提交前及完整读回后，用HEAD→有界完整[ListObjectVersions](https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectVersions.html)→HEAD保存同一准确key的当前状态与版本／marker集合。两个HEAD和LIST唯一IsLatest必须一致；不存在／marker状态亦须互相印证，不能从单独404推断新建。集合的稳定身份排除IsLatest，不按VersionId或时间排序猜先后；有界截断、重复、null或任意观测异常保持未知，不阻断业务。
+
+仅在旧集合无删改、后集合恰好新增本次明确返回版本、全SHA／大小的实际GET响应也是该版本、当前HEAD及所有原生资源均已收尾时，确认`新当前大小－旧当前大小`。首次新增为正，同键等长覆盖为零，可证明缩小为负；这反映当前可见内容字节变化，不是物理版本删除。复用当前业务完整读回，新增观测失败不改变导出结果。ZIP不得先使用共享Attempt.verified自动推断全大小新增，再事后清零；明确净变化须受完整证据门控制。后续业务回滚／授权拒绝不抹去物理事实，发布失败留下pending／unknown，取消先排空再传播。
+
+准确范围：新ZIP观测helper、`export_storage.py`、`export_outputs.py`、`workers/lidar_export.py`、共享target的独占client选项、`schemas/storage.py`及相关存储／输出／Worker／记账测试；Web现有StorageUsageAccounting及测试；必要OpenAPI／本树生成类型、SDK合同；README、CHANGELOG、存储用户／API／开发说明、本计划与执行队列。没有新表／迁移、公开端点／任务参数、依赖、环境变量、镜像、导出格式或上传器替换。GET继续partial、总占用推算null；其他生产者、清理、lifecycle及外部变动仍按原始缺口推进。
+
+验证仅用有owner证明的一次性资源：真实PG／MinIO及实际SDK单PUT和分段ZIP、同键重写不重计、新旧保存目标、准确版本／完整正文与净变化；两个异步入口的原guard和原生排空，SDK重复发送／丢ACK、Complete前失败、无版本、缺历史权限、并发替换／marker／分页异常、意图失败及发布失败。64GiB合同用有意义的边界检查保持，不创建64GiB测量或训练夹具；不重跑全格式／消费者／备份资格。完成相关检查和真实摘要UI明暗／宽窄屏后，确认人工0257及原3100／8100所属Worker空闲并刷新，保存原业务／对象／文件，按owner清理所有测试资源和私密材料，再提交交付记录。
+
 ## 本轮定稿：E12-B6 独立导出媒体受控新增增量
 
 2026-10-25，基于`04a9e128d`继续原始E12-S03／AC01、§5与工程任务第2项。图片、视频、LiDAR与NuScenes独立媒体均经过`export_media_transfer.copy_source`→`export_media_storage.write_object`，已有准确保存地址、条件PUT、返回版本相关的完整SHA读回及真实资源收尾。本片统一将这一个共享写入入口接入现有账目，不改导出格式、原件读取、业务权限、清理、模型或训练流程。无需真实生产迁移目标，不等待E02-AC10范围答复或完整E07资格。
