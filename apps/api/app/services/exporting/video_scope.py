@@ -8,7 +8,6 @@ from typing import Any, Literal, cast
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.dataset import VideoSegment
 from app.db.models.project import Project
 from app.schemas.export import (
     VideoExportFrameSelection,
@@ -17,7 +16,11 @@ from app.schemas.export import (
 )
 from app.services.video_frame_service import AssetsVideoContextReader
 from app.services.video_tracks import normalize_outside_ranges, resolve_track_at_frame
-from app.services.labeling_core_read_relations import get_core_row, task_row
+from app.services.labeling_core_read_relations import (
+    get_core_row,
+    task_row,
+    video_segment_row,
+)
 
 
 @dataclass(frozen=True)
@@ -133,11 +136,11 @@ async def normalize_video_export_scope(
     endpoints = (
         (
             await db.execute(
-                select(VideoSegment).where(
-                    VideoSegment.id.in_(
+                select(video_segment_row).where(
+                    video_segment_row.id.in_(
                         [selection.start_segment_id, selection.end_segment_id]
                     ),
-                    VideoSegment.dataset_item_id == ctx.dataset_item_id,
+                    video_segment_row.dataset_item_id == ctx.dataset_item_id,
                 )
             )
         )
@@ -155,13 +158,13 @@ async def normalize_video_export_scope(
     rows = (
         (
             await db.execute(
-                select(VideoSegment)
+                select(video_segment_row)
                 .where(
-                    VideoSegment.dataset_item_id == ctx.dataset_item_id,
-                    VideoSegment.segment_index >= start.segment_index,
-                    VideoSegment.segment_index <= end.segment_index,
+                    video_segment_row.dataset_item_id == ctx.dataset_item_id,
+                    video_segment_row.segment_index >= start.segment_index,
+                    video_segment_row.segment_index <= end.segment_index,
                 )
-                .order_by(VideoSegment.segment_index)
+                .order_by(video_segment_row.segment_index)
             )
         )
         .scalars()

@@ -36,6 +36,7 @@ from app.services.storage import storage_service
 from app.services.labeling_core_read_relations import (
     annotation_row,
     task_dataset_item_link_row,
+    scene_track_row,
     task_row,
 )
 
@@ -552,13 +553,13 @@ async def preflight_lidar_export(
             ):
                 tracks = (
                     await db.execute(
-                        select(SceneTrack).where(
-                            SceneTrack.id.in_(
+                        select(scene_track_row).where(
+                            scene_track_row.id.in_(
                                 ordered_scene_track_ids[
                                     start : start + PREFLIGHT_LINK_CHUNK_SIZE
                                 ]
                             ),
-                            SceneTrack.project_id == project_id,
+                            scene_track_row.project_id == project_id,
                         )
                     )
                 ).scalars()

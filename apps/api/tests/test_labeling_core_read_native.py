@@ -13,13 +13,14 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.annotation import Annotation
-from app.db.models.dataset import Dataset, DatasetItem
+from app.db.models.dataset import Dataset, DatasetItem, VideoSegment
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.db.models.task_lock import TaskLock
 from app.db.models.user import User
+from app.db.models.video_tracker_job import VideoTrackerJob
 from tests.factory import create_project, create_task, create_user
 from tests.workspace_project_query_helpers import _dsn
 
@@ -41,6 +42,10 @@ _PRIVATE_TABLES = (
     "failed_predictions",
     "task_locks",
     "task_dataset_item_links",
+    "scene_tracks",
+    "scene_track_intervals",
+    "video_segments",
+    "video_tracker_jobs",
 )
 _PUBLIC_RELATIONS = (
     "task_rows",
@@ -51,6 +56,10 @@ _PUBLIC_RELATIONS = (
     "failed_prediction_rows",
     "task_lock_rows",
     "task_dataset_item_link_rows",
+    "scene_track_rows",
+    "scene_track_interval_rows",
+    "video_segment_rows",
+    "video_tracker_job_rows",
 )
 
 
@@ -58,6 +67,7 @@ async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     actor_id = project_id = dataset_id = item_id = None
     task_id = batch_id = annotation_id = lock_id = link_id = None
+    segment_id = tracker_job_id = None
     connection = None
     try:
         async with maker.begin() as db:
@@ -110,7 +120,26 @@ async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
                 dataset_item_id=item.id,
                 role="primary_lidar",
             )
-            db.add(link)
+            segment = VideoSegment(
+                dataset_item_id=item.id,
+                segment_index=0,
+                start_frame=0,
+                end_frame=1,
+            )
+            db.add_all([link, segment])
+            await db.flush()
+            tracker_job = VideoTrackerJob(
+                task_id=task.id,
+                dataset_item_id=item.id,
+                segment_id=segment.id,
+                created_by=actor.id,
+                model_key="core-read-test",
+                direction="forward",
+                from_frame=0,
+                to_frame=1,
+                event_channel=f"core-read-{uuid.uuid4().hex}",
+            )
+            db.add(tracker_job)
             await db.flush()
             actor_id, project_id, dataset_id, item_id = (
                 actor.id,
@@ -125,6 +154,7 @@ async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
                 task_lock.id,
                 link.id,
             )
+            segment_id, tracker_job_id = segment.id, tracker_job.id
 
         connection = await asyncpg.connect(
             _dsn(test_engine, "AAP_MODULE_DATA_LABELING_CORE_READ_URL", _ROLE),
@@ -179,11 +209,41 @@ async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
             )
             == item_id
         )
+        segment_row = await connection.fetchrow(
+            "SELECT dataset_item_id, start_frame, end_frame "
+            "FROM aap_labeling_v1.video_segment_rows WHERE id = $1",
+            segment_id,
+        )
+        assert (
+            segment_row["dataset_item_id"],
+            segment_row["start_frame"],
+            segment_row["end_frame"],
+        ) == (item_id, 0, 1)
+        tracker_job_row = await connection.fetchrow(
+            "SELECT task_id, segment_id, model_key "
+            "FROM aap_labeling_v1.video_tracker_job_rows WHERE id = $1",
+            tracker_job_id,
+        )
+        assert (
+            tracker_job_row["task_id"],
+            tracker_job_row["segment_id"],
+            tracker_job_row["model_key"],
+        ) == (task_id, segment_id, "core-read-test")
 
         async with connection.transaction():
             locked_task = await connection.fetchrow(
                 "SELECT id FROM aap_labeling_v1.lock_task_for_core_read($1, 'share', true)",
                 task_id,
+            )
+            project_scoped_task = await connection.fetchrow(
+                "SELECT id FROM aap_labeling_v1.lock_task_for_core_read($1, 'share', true, $2)",
+                task_id,
+                project_id,
+            )
+            foreign_project_task = await connection.fetchrow(
+                "SELECT id FROM aap_labeling_v1.lock_task_for_core_read($1, 'share', true, $2)",
+                task_id,
+                uuid.uuid4(),
             )
             locked_batch = await connection.fetchrow(
                 "SELECT id FROM aap_labeling_v1.lock_batch_rows_for_core_read($1, $2, 'update', true)",
@@ -196,9 +256,23 @@ async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
                 task_id,
                 project_id,
             )
+            locked_segment = await connection.fetchrow(
+                "SELECT id FROM aap_labeling_v1.lock_video_segment_for_core_read($1, $2)",
+                segment_id,
+                item_id,
+            )
+            foreign_item_segment = await connection.fetchrow(
+                "SELECT id FROM aap_labeling_v1.lock_video_segment_for_core_read($1, $2)",
+                segment_id,
+                uuid.uuid4(),
+            )
             assert locked_task["id"] == task_id
+            assert project_scoped_task["id"] == task_id
+            assert foreign_project_task is None
             assert locked_batch["id"] == batch_id
             assert locked_annotation["id"] == annotation_id
+            assert locked_segment["id"] == segment_id
+            assert foreign_item_segment is None
             with pytest.raises(asyncpg.PostgresError) as invalid_mode:
                 async with connection.transaction():
                     await connection.fetchrow(

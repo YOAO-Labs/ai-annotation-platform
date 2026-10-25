@@ -76,6 +76,41 @@ AS
 SELECT id, task_id, dataset_item_id, role, sensor_name, created_at
 FROM public.task_dataset_item_links;
 -- aap-statement-break
+CREATE VIEW aap_labeling_v1.scene_track_rows
+WITH (security_barrier = true)
+AS
+SELECT
+    id, project_id, scene_id, track_id, class_name, presence_mode, attributes,
+    attributes_meta, revision, created_by, retired_at, created_at, updated_at
+FROM public.scene_tracks;
+-- aap-statement-break
+CREATE VIEW aap_labeling_v1.scene_track_interval_rows
+WITH (security_barrier = true)
+AS
+SELECT
+    id, scene_track_id, start_frame, end_frame, source, version, created_by,
+    operation_id, created_at, updated_at
+FROM public.scene_track_intervals;
+-- aap-statement-break
+CREATE VIEW aap_labeling_v1.video_segment_rows
+WITH (security_barrier = true)
+AS
+SELECT
+    id, dataset_item_id, segment_index, start_frame, end_frame, assignee_id,
+    status, locked_by, locked_at, lock_expires_at, created_at, updated_at
+FROM public.video_segments;
+-- aap-statement-break
+CREATE VIEW aap_labeling_v1.video_tracker_job_rows
+WITH (security_barrier = true)
+AS
+SELECT
+    id, task_id, dataset_item_id, annotation_id, segment_id, target_class_name,
+    target_tool_unit_id, created_by, status, job_kind, track_id_snapshot,
+    correction_frame, model_key, direction, from_frame, to_frame, prompt,
+    staged_result, revision, event_channel, celery_task_id, cancel_requested_at,
+    started_at, completed_at, error_message, created_at, updated_at
+FROM public.video_tracker_jobs;
+-- aap-statement-break
 REVOKE ALL ON TABLE
     aap_labeling_v1.task_rows,
     aap_labeling_v1.batch_rows,
@@ -84,13 +119,18 @@ REVOKE ALL ON TABLE
     aap_labeling_v1.prediction_meta_rows,
     aap_labeling_v1.failed_prediction_rows,
     aap_labeling_v1.task_lock_rows,
-    aap_labeling_v1.task_dataset_item_link_rows
+    aap_labeling_v1.task_dataset_item_link_rows,
+    aap_labeling_v1.scene_track_rows,
+    aap_labeling_v1.scene_track_interval_rows,
+    aap_labeling_v1.video_segment_rows,
+    aap_labeling_v1.video_tracker_job_rows
 FROM PUBLIC;
 -- aap-statement-break
 CREATE FUNCTION aap_labeling_v1.lock_task_for_core_read(
     p_task_id uuid,
     p_lock_mode text DEFAULT 'update',
-    p_nowait boolean DEFAULT false
+    p_nowait boolean DEFAULT false,
+    p_project_id uuid DEFAULT NULL
 )
 RETURNS SETOF aap_labeling_v1.task_rows
 LANGUAGE plpgsql
@@ -106,16 +146,24 @@ BEGIN
     END IF;
     IF p_lock_mode = 'update' AND p_nowait THEN
         RETURN QUERY SELECT task.id, task.project_id, task.dataset_item_id, task.display_id, task.file_name, task.file_path, task.file_type, task.media_source_generation, task.media_object_identity, task.media_source_drifted, task.tags, task.status, task.assignee_id, task.assignee_is_override, task.assigned_at, task.is_labeled, task.overlap, task.total_annotations, task.total_predictions, task.precomputed_agreement, task.sequence_order, task.thumbnail_path, task.blurhash, task.batch_id, task.version, task.submitted_at, task.reviewer_id, task.reviewer_is_override, task.reviewer_claimed_at, task.review_round_id, task.first_review_eligible, task.first_reviewed_at, task.first_review_result, task.first_review_contributor_ids, task.annotation_contributor_ids, task.review_contributor_ids, task.review_submitter_id, task.reviewed_at, task.reject_reason, task.reject_reason_type, task.skip_reason, task.skipped_at, task.reopened_count, task.last_reopened_at, task.created_at, task.updated_at FROM public.tasks AS task
-        WHERE task.id = p_task_id FOR UPDATE NOWAIT;
+        WHERE task.id = p_task_id
+          AND (p_project_id IS NULL OR task.project_id = p_project_id)
+        FOR UPDATE NOWAIT;
     ELSIF p_lock_mode = 'update' THEN
         RETURN QUERY SELECT task.id, task.project_id, task.dataset_item_id, task.display_id, task.file_name, task.file_path, task.file_type, task.media_source_generation, task.media_object_identity, task.media_source_drifted, task.tags, task.status, task.assignee_id, task.assignee_is_override, task.assigned_at, task.is_labeled, task.overlap, task.total_annotations, task.total_predictions, task.precomputed_agreement, task.sequence_order, task.thumbnail_path, task.blurhash, task.batch_id, task.version, task.submitted_at, task.reviewer_id, task.reviewer_is_override, task.reviewer_claimed_at, task.review_round_id, task.first_review_eligible, task.first_reviewed_at, task.first_review_result, task.first_review_contributor_ids, task.annotation_contributor_ids, task.review_contributor_ids, task.review_submitter_id, task.reviewed_at, task.reject_reason, task.reject_reason_type, task.skip_reason, task.skipped_at, task.reopened_count, task.last_reopened_at, task.created_at, task.updated_at FROM public.tasks AS task
-        WHERE task.id = p_task_id FOR UPDATE;
+        WHERE task.id = p_task_id
+          AND (p_project_id IS NULL OR task.project_id = p_project_id)
+        FOR UPDATE;
     ELSIF p_lock_mode = 'share' AND p_nowait THEN
         RETURN QUERY SELECT task.id, task.project_id, task.dataset_item_id, task.display_id, task.file_name, task.file_path, task.file_type, task.media_source_generation, task.media_object_identity, task.media_source_drifted, task.tags, task.status, task.assignee_id, task.assignee_is_override, task.assigned_at, task.is_labeled, task.overlap, task.total_annotations, task.total_predictions, task.precomputed_agreement, task.sequence_order, task.thumbnail_path, task.blurhash, task.batch_id, task.version, task.submitted_at, task.reviewer_id, task.reviewer_is_override, task.reviewer_claimed_at, task.review_round_id, task.first_review_eligible, task.first_reviewed_at, task.first_review_result, task.first_review_contributor_ids, task.annotation_contributor_ids, task.review_contributor_ids, task.review_submitter_id, task.reviewed_at, task.reject_reason, task.reject_reason_type, task.skip_reason, task.skipped_at, task.reopened_count, task.last_reopened_at, task.created_at, task.updated_at FROM public.tasks AS task
-        WHERE task.id = p_task_id FOR SHARE NOWAIT;
+        WHERE task.id = p_task_id
+          AND (p_project_id IS NULL OR task.project_id = p_project_id)
+        FOR SHARE NOWAIT;
     ELSIF p_lock_mode = 'share' THEN
         RETURN QUERY SELECT task.id, task.project_id, task.dataset_item_id, task.display_id, task.file_name, task.file_path, task.file_type, task.media_source_generation, task.media_object_identity, task.media_source_drifted, task.tags, task.status, task.assignee_id, task.assignee_is_override, task.assigned_at, task.is_labeled, task.overlap, task.total_annotations, task.total_predictions, task.precomputed_agreement, task.sequence_order, task.thumbnail_path, task.blurhash, task.batch_id, task.version, task.submitted_at, task.reviewer_id, task.reviewer_is_override, task.reviewer_claimed_at, task.review_round_id, task.first_review_eligible, task.first_reviewed_at, task.first_review_result, task.first_review_contributor_ids, task.annotation_contributor_ids, task.review_contributor_ids, task.review_submitter_id, task.reviewed_at, task.reject_reason, task.reject_reason_type, task.skip_reason, task.skipped_at, task.reopened_count, task.last_reopened_at, task.created_at, task.updated_at FROM public.tasks AS task
-        WHERE task.id = p_task_id FOR SHARE;
+        WHERE task.id = p_task_id
+          AND (p_project_id IS NULL OR task.project_id = p_project_id)
+        FOR SHARE;
     ELSE
         RAISE EXCEPTION 'Invalid Labeling core-read lock mode'
             USING ERRCODE = '22023';
@@ -124,7 +172,35 @@ END;
 $function$;
 -- aap-statement-break
 REVOKE ALL ON FUNCTION
-    aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean)
+    aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)
+FROM PUBLIC;
+-- aap-statement-break
+CREATE FUNCTION aap_labeling_v1.lock_video_segment_for_core_read(
+    p_segment_id uuid,
+    p_dataset_item_id uuid
+)
+RETURNS SETOF aap_labeling_v1.video_segment_rows
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+SET TimeZone = 'UTC'
+AS $function$
+BEGIN
+    RETURN QUERY
+    SELECT
+        segment.id, segment.dataset_item_id, segment.segment_index,
+        segment.start_frame, segment.end_frame, segment.assignee_id,
+        segment.status, segment.locked_by, segment.locked_at,
+        segment.lock_expires_at, segment.created_at, segment.updated_at
+    FROM public.video_segments AS segment
+    WHERE segment.id = p_segment_id
+      AND segment.dataset_item_id = p_dataset_item_id
+    FOR UPDATE;
+END;
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION
+    aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid)
 FROM PUBLIC;
 -- aap-statement-break
 CREATE FUNCTION aap_labeling_v1.lock_batch_rows_for_core_read(

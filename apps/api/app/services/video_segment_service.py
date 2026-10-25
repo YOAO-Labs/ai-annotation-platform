@@ -24,6 +24,10 @@ from app.services.annotation_evidence import (
     task_contributor_snapshot,
 )
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.labeling_core_read_relations import (
+    lock_video_segment_for_core_read,
+    video_segment_row,
+)
 
 
 def _now() -> datetime:
@@ -67,9 +71,9 @@ async def ensure_segments(db: AsyncSession, ctx: VideoContext) -> list[VideoSegm
     rows = (
         (
             await db.execute(
-                select(VideoSegment)
-                .where(VideoSegment.dataset_item_id == ctx.dataset_item_id)
-                .order_by(VideoSegment.segment_index.asc())
+                select(video_segment_row)
+                .where(video_segment_row.dataset_item_id == ctx.dataset_item_id)
+                .order_by(video_segment_row.segment_index.asc())
             )
         )
         .scalars()
@@ -106,9 +110,9 @@ async def ensure_segments(db: AsyncSession, ctx: VideoContext) -> list[VideoSegm
         rows = (
             (
                 await db.execute(
-                    select(VideoSegment)
-                    .where(VideoSegment.dataset_item_id == ctx.dataset_item_id)
-                    .order_by(VideoSegment.segment_index.asc())
+                    select(video_segment_row)
+                    .where(video_segment_row.dataset_item_id == ctx.dataset_item_id)
+                    .order_by(video_segment_row.segment_index.asc())
                 )
             )
             .scalars()
@@ -202,28 +206,12 @@ async def list_segments(db: AsyncSession, ctx: VideoContext) -> VideoSegmentsRes
 async def _load_segment_for_update(
     db: AsyncSession, ctx: VideoContext, segment_id: uuid.UUID
 ) -> VideoSegment:
-    row = (
-        await db.execute(
-            select(VideoSegment)
-            .where(
-                VideoSegment.id == segment_id,
-                VideoSegment.dataset_item_id == ctx.dataset_item_id,
-            )
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
+    row = await lock_video_segment_for_core_read(db, segment_id, ctx.dataset_item_id)
     if row is None:
         await ensure_segments(db, ctx)
-        row = (
-            await db.execute(
-                select(VideoSegment)
-                .where(
-                    VideoSegment.id == segment_id,
-                    VideoSegment.dataset_item_id == ctx.dataset_item_id,
-                )
-                .with_for_update()
-            )
-        ).scalar_one_or_none()
+        row = await lock_video_segment_for_core_read(
+            db, segment_id, ctx.dataset_item_id
+        )
     if row is None:
         raise HTTPException(status_code=404, detail="Video segment not found")
     return row
@@ -383,11 +371,11 @@ async def submit_segment(
             (
                 await db.execute(
                     select(func.count())
-                    .select_from(VideoSegment)
+                    .select_from(video_segment_row)
                     .where(
-                        VideoSegment.dataset_item_id == ctx.dataset_item_id,
-                        VideoSegment.id != row.id,
-                        VideoSegment.status != "completed",
+                        video_segment_row.dataset_item_id == ctx.dataset_item_id,
+                        video_segment_row.id != row.id,
+                        video_segment_row.status != "completed",
                     )
                 )
             ).scalar_one()

@@ -9,17 +9,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.services.project_access import get_workspace_project
-from app.db.models.annotation import Annotation
 from app.db.models.dataset import DatasetItem, VideoSegment
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
-from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
+from app.db.models.video_tracker_job import VideoTrackerJobStatus
 from aap_workspace.configuration_values import VideoCollaborationConfig
 from app.schemas.task import VideoMetadata
 from app.services.assets_media_summary import AssetsTaskMediaSummaryReader
 from app.services.video_context import derive_step
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    task_row,
+    video_segment_row,
+    video_tracker_job_row,
+)
 
 
 VIDEO_GEOMETRY_TYPES = frozenset(
@@ -100,8 +105,8 @@ async def segment_work_bounds_for_task(
             (
                 await db.execute(
                     select(func.count())
-                    .select_from(VideoSegment)
-                    .where(VideoSegment.dataset_item_id == task.dataset_item_id)
+                    .select_from(video_segment_row)
+                    .where(video_segment_row.dataset_item_id == task.dataset_item_id)
                 )
             ).scalar_one()
         )
@@ -182,11 +187,11 @@ async def validate_project_collaboration_update(
         (
             await db.execute(
                 select(func.count())
-                .select_from(Annotation)
+                .select_from(annotation_row)
                 .where(
-                    Annotation.project_id == project.id,
-                    Annotation.is_active.is_(True),
-                    Annotation.was_cancelled.is_(False),
+                    annotation_row.project_id == project.id,
+                    annotation_row.is_active.is_(True),
+                    annotation_row.was_cancelled.is_(False),
                 )
             )
         ).scalar_one()
@@ -204,11 +209,11 @@ async def validate_project_collaboration_update(
         (
             await db.execute(
                 select(func.count())
-                .select_from(VideoTrackerJob)
-                .join(Task, Task.id == VideoTrackerJob.task_id)
+                .select_from(video_tracker_job_row)
+                .join(task_row, task_row.id == video_tracker_job_row.task_id)
                 .where(
-                    Task.project_id == project.id,
-                    VideoTrackerJob.status.in_(
+                    task_row.project_id == project.id,
+                    video_tracker_job_row.status.in_(
                         [
                             VideoTrackerJobStatus.QUEUED.value,
                             VideoTrackerJobStatus.RUNNING.value,
@@ -235,8 +240,8 @@ async def validate_project_collaboration_update(
             (
                 await db.execute(
                     select(DatasetItem.id)
-                    .join(Task, Task.dataset_item_id == DatasetItem.id)
-                    .where(Task.project_id == project.id)
+                    .join(task_row, task_row.dataset_item_id == DatasetItem.id)
+                    .where(task_row.project_id == project.id)
                     .distinct()
                 )
             )
@@ -310,9 +315,9 @@ async def assert_video_annotation_write_scope(
         )
     segment = (
         await db.execute(
-            select(VideoSegment).where(
-                VideoSegment.id == segment_id,
-                VideoSegment.dataset_item_id == task.dataset_item_id,
+            select(video_segment_row).where(
+                video_segment_row.id == segment_id,
+                video_segment_row.dataset_item_id == task.dataset_item_id,
             )
         )
     ).scalar_one_or_none()

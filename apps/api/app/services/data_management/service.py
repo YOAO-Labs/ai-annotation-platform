@@ -50,9 +50,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.dataset import DatasetItem
 from app.db.models.project import Project
-from app.db.models.task import Task
 from app.db.models.user import User
-from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
+from app.db.models.video_tracker_job import VideoTrackerJobStatus
 from app.schemas.data_manager import (
     DataManagerAiReviewSummary,
     DataManagerAnnotationSummary,
@@ -73,7 +72,11 @@ from app.services.data_management.views import (
 )
 from app.services.data_management.match_evidence import collect_match_evidence
 from app.services.labeling_core_read_relations import task_dataset_item_link_row
-from app.services.labeling_core_read_relations import annotation_row, task_row
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    task_row,
+    video_tracker_job_row,
+)
 
 VIDEO_TOTALS_BATCH_ITEMS = 100_000
 
@@ -467,7 +470,7 @@ class DataManagerService:
                     task_dataset_item_link_row.role == "primary_lidar",
                 )
                 .limit(1)
-                .correlate(Task)
+                .correlate(task_row)
                 .scalar_subquery()
             )
             scene_ids = (
@@ -677,17 +680,17 @@ class DataManagerService:
 
         tracker_total = 0
         if evidence.tracker_jobs:
-            tracker_results = VideoTrackerJob.staged_result["results"]
+            tracker_results = video_tracker_job_row.staged_result["results"]
             tracker_clause = and_(
-                VideoTrackerJob.task_id == task_id,
-                VideoTrackerJob.status.in_(
+                video_tracker_job_row.task_id == task_id,
+                video_tracker_job_row.status.in_(
                     [
                         VideoTrackerJobStatus.PENDING_REVIEW.value,
                         VideoTrackerJobStatus.PARTIALLY_REVIEWED.value,
                         VideoTrackerJobStatus.CANCELLED.value,
                     ]
                 ),
-                VideoTrackerJob.staged_result.is_not(None),
+                video_tracker_job_row.staged_result.is_not(None),
                 case(
                     (
                         func.jsonb_typeof(tracker_results) == "array",
@@ -699,12 +702,12 @@ class DataManagerService:
             )
             if not is_privileged_for_project(user, project):
                 tracker_clause = and_(
-                    tracker_clause, VideoTrackerJob.created_by == user.id
+                    tracker_clause, video_tracker_job_row.created_by == user.id
                 )
             tracker_total = int(
                 await self.db.scalar(
                     select(func.count())
-                    .select_from(VideoTrackerJob)
+                    .select_from(video_tracker_job_row)
                     .where(tracker_clause)
                 )
                 or 0
@@ -713,9 +716,11 @@ class DataManagerService:
 
             if remaining_limit > 0 and remaining_offset < tracker_total:
                 tracker_rows = await self.db.execute(
-                    select(VideoTrackerJob)
+                    select(video_tracker_job_row)
                     .where(tracker_clause)
-                    .order_by(VideoTrackerJob.created_at, VideoTrackerJob.id)
+                    .order_by(
+                        video_tracker_job_row.created_at, video_tracker_job_row.id
+                    )
                     .offset(remaining_offset)
                     .limit(remaining_limit)
                 )

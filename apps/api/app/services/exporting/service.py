@@ -27,7 +27,7 @@ from app.db.models.annotation import Annotation
 from aap_assets_catalog.spatial_contract import SpatialItem
 from app.db.models.prediction import Prediction
 from app.db.models.project import Project
-from app.db.models.scene_track import SceneTrack, SceneTrackInterval
+from app.db.models.scene_track import SceneTrackInterval
 from app.db.models.task import Task
 from aap_workspace_contract import (
     derive_attribute_keys,
@@ -83,6 +83,8 @@ from app.services.labeling_core_read_relations import (
     batch_row,
     get_core_row,
     prediction_row,
+    scene_track_interval_row,
+    scene_track_row,
     task_row,
 )
 
@@ -1134,27 +1136,27 @@ class ExportService:
             scene_reference = spatial_scene_references.alias("export_scene")
             scene_track_rows = (
                 await self.db.execute(
-                    select(SceneTrack, scene_reference.c.scene_name)
+                    select(scene_track_row, scene_reference.c.scene_name)
                     .join(
                         scene_reference,
-                        scene_reference.c.scene_id == SceneTrack.scene_id,
+                        scene_reference.c.scene_id == scene_track_row.scene_id,
                     )
-                    .where(SceneTrack.id.in_(exported_scene_track_ids))
-                    .order_by(scene_reference.c.scene_name, SceneTrack.track_id)
+                    .where(scene_track_row.id.in_(exported_scene_track_ids))
+                    .order_by(scene_reference.c.scene_name, scene_track_row.track_id)
                 )
             ).all()
             interval_rows = list(
                 (
                     await self.db.execute(
-                        select(SceneTrackInterval)
+                        select(scene_track_interval_row)
                         .where(
-                            SceneTrackInterval.scene_track_id.in_(
+                            scene_track_interval_row.scene_track_id.in_(
                                 exported_scene_track_ids
                             )
                         )
                         .order_by(
-                            SceneTrackInterval.scene_track_id,
-                            SceneTrackInterval.start_frame,
+                            scene_track_interval_row.scene_track_id,
+                            scene_track_interval_row.start_frame,
                         )
                     )
                 ).scalars()

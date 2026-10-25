@@ -1,4 +1,6 @@
 import uuid
+import re
+from pathlib import Path
 
 import pytest
 
@@ -8,6 +10,12 @@ from sqlalchemy.orm.util import identity_key
 
 from aap_labeling.core_read_contract import CORE_READ_COLUMNS, CORE_READ_RELATIONS
 from app.db.models.task import Task
+from app.db.models.project import Project
+from app.services.data_management.task_metrics import (
+    low_confidence_pending_prediction_shapes_expr,
+    pending_prediction_shapes_expr,
+    pending_tracker_jobs_expr,
+)
 from app.services.labeling_core_read_relations import (
     annotation_row,
     batch_row,
@@ -17,10 +25,15 @@ from app.services.labeling_core_read_relations import (
     task_lock_row,
     prediction_meta_row,
     prediction_row,
+    scene_track_interval_row,
+    scene_track_row,
     task_row,
+    video_segment_row,
+    video_tracker_job_row,
     lock_annotation_rows_for_core_read,
     lock_batch_rows_for_core_read,
     lock_task_for_core_read,
+    lock_video_segment_for_core_read,
 )
 
 
@@ -34,6 +47,10 @@ def test_core_rows_bind_only_the_published_relation_columns():
         "failed_prediction_rows": failed_prediction_row,
         "task_lock_rows": task_lock_row,
         "task_dataset_item_link_rows": task_dataset_item_link_row,
+        "scene_track_rows": scene_track_row,
+        "scene_track_interval_rows": scene_track_interval_row,
+        "video_segment_rows": video_segment_row,
+        "video_tracker_job_rows": video_tracker_job_row,
     }
 
     assert tuple(rows) == CORE_READ_RELATIONS
@@ -63,6 +80,76 @@ def test_composed_task_annotation_read_stays_on_labeling_relations():
     assert "FROM public.annotations" not in sql
 
 
+def test_video_and_scene_rows_use_only_the_fixed_public_relations():
+    rows = (
+        scene_track_row,
+        scene_track_interval_row,
+        video_segment_row,
+        video_tracker_job_row,
+    )
+    for row in rows:
+        sql = str(select(row).compile(dialect=postgresql.dialect()))
+        assert "FROM aap_labeling_v1." in sql
+        assert "FROM public." not in sql
+
+
+def test_new_core_read_views_publish_exact_ordered_columns():
+    api_sql = (
+        Path(__file__).resolve().parents[1] / "alembic/sql/0352_labeling_core_read.sql"
+    )
+    package_sql = (
+        Path(__file__).resolve().parents[3]
+        / "apps/labeling/src/aap_labeling/sql/0352_labeling_core_read.sql"
+    )
+    sql = api_sql.read_text(encoding="utf-8")
+    assert sql == package_sql.read_text(encoding="utf-8")
+
+    base_tables = {
+        "scene_track_rows": "scene_tracks",
+        "scene_track_interval_rows": "scene_track_intervals",
+        "video_segment_rows": "video_segments",
+        "video_tracker_job_rows": "video_tracker_jobs",
+    }
+    for relation, base_table in base_tables.items():
+        view = re.search(
+            rf"CREATE VIEW aap_labeling_v1\.{relation}\s+"
+            rf"WITH \(security_barrier = true\)\s+AS\s+SELECT(.*?)"
+            rf"\s+FROM public\.{base_table};",
+            sql,
+            re.DOTALL,
+        )
+        assert view is not None
+        assert (
+            tuple(column.strip() for column in view.group(1).split(","))
+            == (CORE_READ_COLUMNS[relation])
+        )
+
+
+def test_task_metrics_compose_only_public_labeling_rows():
+    statement = select(
+        task_row.id,
+        pending_prediction_shapes_expr(),
+        low_confidence_pending_prediction_shapes_expr(),
+        pending_tracker_jobs_expr(None, Project(id=uuid.uuid4())),
+    ).select_from(task_row)
+    sql = str(statement.compile(dialect=postgresql.dialect()))
+
+    assert "aap_labeling_v1.task_rows" in sql
+    assert "aap_labeling_v1.prediction_rows" in sql
+    assert "aap_labeling_v1.annotation_rows" in sql
+    assert "aap_labeling_v1.video_tracker_job_rows" in sql
+    assert (
+        "aap_labeling_v1.prediction_rows.task_id = aap_labeling_v1.task_rows.id" in sql
+    )
+    assert (
+        "aap_labeling_v1.video_tracker_job_rows.task_id = aap_labeling_v1.task_rows.id"
+        in sql
+    )
+    assert "FROM public.tasks" not in sql
+    assert "FROM public.predictions" not in sql
+    assert "FROM public.video_tracker_jobs" not in sql
+
+
 class _ReadResult:
     def scalar_one_or_none(self):
         return None
@@ -90,17 +177,21 @@ async def test_row_locks_use_only_fixed_owner_lock_functions():
     session = _ReadSession()
     row_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
-    await lock_task_for_core_read(session, row_id, lock_mode="share", nowait=True)
+    await lock_task_for_core_read(
+        session, row_id, project_id=row_id, lock_mode="share", nowait=True
+    )
     await lock_batch_rows_for_core_read(
         session, [row_id], project_id=row_id, nowait=True
     )
     await lock_annotation_rows_for_core_read(
         session, [row_id], task_id=row_id, project_id=row_id, nowait=True
     )
+    await lock_video_segment_for_core_read(session, row_id, row_id)
 
     assert "aap_labeling_v1.lock_task_for_core_read" in session.sql[0]
     assert "aap_labeling_v1.lock_batch_rows_for_core_read" in session.sql[1]
     assert "aap_labeling_v1.lock_annotation_rows_for_core_read" in session.sql[2]
+    assert "aap_labeling_v1.lock_video_segment_for_core_read" in session.sql[3]
     assert all("FOR UPDATE" not in statement for statement in session.sql)
 
 

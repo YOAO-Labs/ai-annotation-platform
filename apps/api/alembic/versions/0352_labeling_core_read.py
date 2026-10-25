@@ -22,17 +22,24 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute(
+        "DROP FUNCTION aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid) RESTRICT"
+    )
+    op.execute(
         "DROP FUNCTION aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean) RESTRICT"
     )
     op.execute(
         "DROP FUNCTION aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean) RESTRICT"
     )
     op.execute(
-        "DROP FUNCTION aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean) RESTRICT"
+        "DROP FUNCTION aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid) RESTRICT"
     )
     for relation in (
         "task_dataset_item_link_rows",
         "task_lock_rows",
+        "scene_track_rows",
+        "scene_track_interval_rows",
+        "video_segment_rows",
+        "video_tracker_job_rows",
         "failed_prediction_rows",
         "prediction_meta_rows",
         "prediction_rows",

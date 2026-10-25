@@ -12,7 +12,6 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.db.models.annotation import Annotation
 from app.db.models.dataset import DatasetItem, Scene
 from app.db.models.project import Project
 from app.db.models.scene_track import SceneTrack, SceneTrackInterval
@@ -43,7 +42,13 @@ from app.services.data_management.entity_filters import compile_entity_filter
 from aap_workspace.configuration_policy import project_kind
 from app.services.data_management.task_filters import visible_tasks_stmt
 from app.services.video_tracks import frame_is_outside
-from app.services.labeling_core_read_relations import annotation_row, task_row
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    get_core_row,
+    scene_track_interval_row,
+    scene_track_row,
+    task_row,
+)
 
 
 def _encode_scene_ref(track_id: str) -> str:
@@ -90,7 +95,7 @@ def _keyframe_frame_expr(mode: str):
             )
         )
         .select_from(keyframes)
-        .correlate(Annotation)
+        .correlate(annotation_row)
         .scalar_subquery()
     )
 
@@ -461,7 +466,7 @@ class DataManagerTrackService:
             project_id, user, project, "dm_compact_visible", project_role=project_role
         )
         condition = compile_entity_filter(
-            payload.filter_json, Annotation, project=project, user=user
+            payload.filter_json, annotation_row, project=project, user=user
         )
         base = (
             select(annotation_row.id)
@@ -658,7 +663,7 @@ class DataManagerTrackService:
             project_role=project_role,
         )
         condition = compile_entity_filter(
-            payload.filter_json, Annotation, project=project, user=user
+            payload.filter_json, annotation_row, project=project, user=user
         )
         matched_keys = (
             select(annotation_row.track_id.label("track_id"))
@@ -802,7 +807,9 @@ class DataManagerTrackService:
             list(
                 (
                     await self.db.execute(
-                        select(SceneTrack).where(SceneTrack.id.in_(linked_track_ids))
+                        select(scene_track_row).where(
+                            scene_track_row.id.in_(linked_track_ids)
+                        )
                     )
                 ).scalars()
             )
@@ -814,11 +821,15 @@ class DataManagerTrackService:
             list(
                 (
                     await self.db.execute(
-                        select(SceneTrackInterval)
-                        .where(SceneTrackInterval.scene_track_id.in_(linked_track_ids))
+                        select(scene_track_interval_row)
+                        .where(
+                            scene_track_interval_row.scene_track_id.in_(
+                                linked_track_ids
+                            )
+                        )
                         .order_by(
-                            SceneTrackInterval.scene_track_id,
-                            SceneTrackInterval.start_frame,
+                            scene_track_interval_row.scene_track_id,
+                            scene_track_interval_row.start_frame,
                         )
                     )
                 ).scalars()
@@ -956,14 +967,18 @@ class DataManagerTrackService:
             (row.scene_track_id for row in rows if row.scene_track_id is not None),
             None,
         )
-        scene_track = await self.db.get(SceneTrack, linked_id) if linked_id else None
+        scene_track = (
+            await get_core_row(self.db, scene_track_row, linked_id)
+            if linked_id
+            else None
+        )
         presence_intervals = (
             list(
                 (
                     await self.db.execute(
-                        select(SceneTrackInterval)
-                        .where(SceneTrackInterval.scene_track_id == linked_id)
-                        .order_by(SceneTrackInterval.start_frame)
+                        select(scene_track_interval_row)
+                        .where(scene_track_interval_row.scene_track_id == linked_id)
+                        .order_by(scene_track_interval_row.start_frame)
                     )
                 ).scalars()
             )

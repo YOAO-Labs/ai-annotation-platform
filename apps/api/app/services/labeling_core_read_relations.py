@@ -16,6 +16,9 @@ from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.db.models.task_lock import TaskLock
+from app.db.models.dataset import VideoSegment
+from app.db.models.scene_track import SceneTrack, SceneTrackInterval
+from app.db.models.video_tracker_job import VideoTrackerJob
 
 
 def _row_relation(relation: str, model):
@@ -41,6 +44,12 @@ task_lock_row = _row_relation("task_lock_rows", TaskLock)
 task_dataset_item_link_row = _row_relation(
     "task_dataset_item_link_rows", TaskDatasetItemLink
 )
+scene_track_row = _row_relation("scene_track_rows", SceneTrack)
+scene_track_interval_row = _row_relation(
+    "scene_track_interval_rows", SceneTrackInterval
+)
+video_segment_row = _row_relation("video_segment_rows", VideoSegment)
+video_tracker_job_row = _row_relation("video_tracker_job_rows", VideoTrackerJob)
 
 
 async def execute_core_read(db: AsyncSession, statement):
@@ -72,12 +81,13 @@ async def lock_task_for_core_read(
     db: AsyncSession,
     task_id: uuid.UUID,
     *,
+    project_id: uuid.UUID | None = None,
     lock_mode: str = "update",
     nowait: bool = False,
     populate_existing: bool = False,
 ):
     locked = func.aap_labeling_v1.lock_task_for_core_read(
-        task_id, lock_mode, nowait
+        task_id, lock_mode, nowait, project_id
     ).table_valued(
         *(
             column(name, Task.__table__.c[name].type)
@@ -143,6 +153,27 @@ async def lock_annotation_rows_for_core_read(
     return (await execute_core_read(db, statement)).scalars().all()
 
 
+async def lock_video_segment_for_core_read(
+    db: AsyncSession,
+    segment_id: uuid.UUID,
+    dataset_item_id: uuid.UUID,
+    *,
+    populate_existing: bool = False,
+):
+    locked = func.aap_labeling_v1.lock_video_segment_for_core_read(
+        segment_id, dataset_item_id
+    ).table_valued(
+        *(
+            column(name, VideoSegment.__table__.c[name].type)
+            for name in CORE_READ_COLUMNS["video_segment_rows"]
+        )
+    )
+    statement = select(aliased(VideoSegment, locked, adapt_on_names=True))
+    if populate_existing:
+        statement = statement.execution_options(populate_existing=True)
+    return (await execute_core_read(db, statement)).scalar_one_or_none()
+
+
 __all__ = [
     "annotation_row",
     "batch_row",
@@ -155,6 +186,11 @@ __all__ = [
     "lock_task_for_core_read",
     "prediction_meta_row",
     "prediction_row",
+    "scene_track_interval_row",
+    "scene_track_row",
     "task_row",
     "task_lock_row",
+    "video_segment_row",
+    "video_tracker_job_row",
+    "lock_video_segment_for_core_read",
 ]
