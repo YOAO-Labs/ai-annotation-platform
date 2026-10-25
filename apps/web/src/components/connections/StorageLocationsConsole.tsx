@@ -300,7 +300,7 @@ function ConsoleOwner() {
                   )}
                 {bindingData?.some((row) => row.change_policy === "reviewed_avatar_switch") && (
                   <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-                    当前开放头像、报告附件、审计归档和导出用途的位置切换，其余用途保持锁定。已有对象保留保存位置，切换不搬迁历史对象。
+                    当前开放头像、报告附件、审计归档、导出和导入暂存的位置切换，其余四种用途保持锁定。已有对象保留保存位置，切换不搬迁历史对象。
                   </p>
                 )}
               </>
