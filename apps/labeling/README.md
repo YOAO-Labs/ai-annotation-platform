@@ -153,6 +153,15 @@ public-schema CREATE for this maintenance. The prediction-client profile allows
 exactly the two prediction-write commands plus this maintenance command; callers
 still lack raw table access and DDL. User-performance MV ownership remains separate.
 
+Legacy upload Task initialization and completion use the fixed
+`create_uploading_task(uuid,uuid,text,text,text)` and
+`complete_uploading_task(uuid,uuid,uuid,text,text)` capabilities. The packaged
+`upload-tasks.schema.json` defines their argument order and closed replies.
+The owner preserves Task defaults and sequence allocation, locks and compares the
+captured completion target, and performs no commit. The API retains manager
+authorization, the post-storage canonical fence, and the shared transaction with
+image admission; initialization still commits before signing the upload URL.
+
 `scene_track_command(jsonb)` owns command lock/replay/apply/inspect/list/revert,
 including operation snapshots, intervals, member changes and reversal. Current
 Task locks and revisions fence each operation. Scene/frame facts come from the

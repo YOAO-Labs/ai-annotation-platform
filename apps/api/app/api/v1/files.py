@@ -29,15 +29,18 @@ async def upload_init(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    result = await LegacyFileUploadWorkflow(
-        db, storage=storage_service
-    ).initialize_upload(
-        actor_id=current_user.id,
-        project_id=data.project_id,
-        file_name=data.file_name,
-        content_type=data.content_type,
-        file_type=_infer_file_type(data.content_type),
-    )
+    try:
+        result = await LegacyFileUploadWorkflow(
+            db, storage=storage_service
+        ).initialize_upload(
+            actor_id=current_user.id,
+            project_id=data.project_id,
+            file_name=data.file_name,
+            content_type=data.content_type,
+            file_type=_infer_file_type(data.content_type),
+        )
+    except TaskWorkflowError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     return UploadInitResponse(
         task_id=result.scope.task_id,
         upload_url=result.upload_url,

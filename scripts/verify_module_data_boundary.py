@@ -118,6 +118,8 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_labeling_v1._scene_read_annotation_json(uuid,uuid,uuid,text,text,text,jsonb,text,uuid,text,text,boolean,boolean,boolean,boolean,integer,timestamptz,integer)": "0349_labeling_scene_read.sql",
     "aap_labeling_v1.prediction_record_command(jsonb)": "0342_labeling_prediction_records.sql",
     "aap_labeling_v1.prediction_partition_command(jsonb)": "0357_labeling_prediction_partitions.sql",
+    "aap_labeling_v1.create_uploading_task(uuid,uuid,text,text,text)": "0359_labeling_upload_tasks.sql",
+    "aap_labeling_v1.complete_uploading_task(uuid,uuid,uuid,text,text)": "0359_labeling_upload_tasks.sql",
     "aap_labeling_v1.scene_track_command(jsonb)": "0343_labeling_scene_track_commands.sql",
     "aap_labeling_v1.cross_frame_write_command(jsonb)": "0344_labeling_cross_frame_writes.sql",
     "aap_labeling_v1.annotation_prediction_command(jsonb)": "0345_labeling_annotation_prediction.sql",
@@ -927,8 +929,10 @@ SQL_ARTIFACTS = (
     "0356_inference_pool_reference.sql",
     "0357_labeling_prediction_partitions.sql",
     "0358_labeling_fixture_cleanup.sql",
+    "0359_labeling_upload_tasks.sql",
 )
 SCHEMA_ARTIFACTS = (
+    "0359_labeling_upload_tasks.schema.json",
     "0358_labeling_fixture_cleanup.schema.json",
     "0357_labeling_prediction_partitions.schema.json",
     "0356_inference_pool_reference.schema.json",
@@ -1101,6 +1105,7 @@ SCHEMA_ARTIFACTS = (
 )
 TEST_FILES = (
     "tests/test_jobs_fixture_cleanup_binding.py",
+    "tests/test_legacy_files_upload.py",
     "tests/test_inference_pool_reference_native.py",
     "tests/test_labeling_video_control_native.py",
     "tests/test_labeling_annotation_transfer_native.py",
@@ -4930,8 +4935,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0357"]:
-            raise RuntimeError("module-data acceptance requires migration head 0357")
+        if heads != ["0359"]:
+            raise RuntimeError("module-data acceptance requires migration head 0359")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         relation_sql_hashes = _read_relation_sql_input_sha256()
         evidence["migrations"]["read_relation_sql_input_sha256"] = relation_sql_hashes

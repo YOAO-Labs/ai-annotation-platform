@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import uuid
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 from fastapi import HTTPException
 from aap_assets_images.contract import ImageFailure
-from sqlalchemy import event, func, select, update
+from sqlalchemy import event, func, inspect, select, update
 
 from app.application.legacy_file_upload import (
     LegacyFileUploadWorkflow,
@@ -17,9 +18,73 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.services.storage import storage_service
+from app.services.labeling_tasks import (
+    LabelingTaskService,
+    LabelingUploadTarget,
+    LabelingUploadTaskNotFound,
+    LabelingUploadTaskNotUploading,
+    LabelingUploadTargetChanged,
+)
 from tests.factory import build_tool_bindings, create_membership
 
 pytestmark = pytest.mark.asyncio
+
+
+@pytest.mark.parametrize(
+    "reply,error",
+    [
+        ("pending", None),
+        ("task_not_found", LabelingUploadTaskNotFound),
+        ("task_not_uploading", LabelingUploadTaskNotUploading),
+        ("task_target_changed", LabelingUploadTargetChanged),
+        (None, TaskWorkflowError),
+    ],
+)
+async def test_upload_owner_completion_keeps_caller_transaction_and_clean_cache(
+    reply, error
+):
+    task = Task(
+        id=uuid.uuid4(),
+        project_id=uuid.uuid4(),
+        status="uploading",
+        file_path="source.jpg",
+        file_type="image",
+    )
+    target = LabelingUploadTarget(
+        task.id, task.project_id, None, task.file_path, task.file_type, task.status
+    )
+    db = Mock(
+        flush=AsyncMock(), scalar=AsyncMock(return_value=reply), commit=AsyncMock()
+    )
+    service = LabelingTaskService(db)
+    if error is not None:
+        with pytest.raises(error):
+            await service.complete_uploading_task(task, target)
+        assert task.status == "uploading"
+    else:
+        await service.complete_uploading_task(task, target)
+        assert task.status == "pending"
+        assert not inspect(task).attrs.status.history.has_changes()
+        db.expire.assert_called_once_with(task, ["updated_at"])
+    db.commit.assert_not_called()
+
+
+async def test_upload_owner_bad_initialization_receipt_never_commits():
+    db = Mock(
+        flush=AsyncMock(),
+        scalar=AsyncMock(return_value=uuid.uuid4()),
+        commit=AsyncMock(),
+    )
+    with pytest.raises(TaskWorkflowError) as error:
+        await LabelingTaskService(db).create_uploading_task(
+            task_id=uuid.uuid4(),
+            project_id=uuid.uuid4(),
+            file_name="source.jpg",
+            file_path="source.jpg",
+            file_type="image",
+        )
+    assert error.value.status_code == 503
+    db.commit.assert_not_called()
 
 
 class _ImageAdmission:

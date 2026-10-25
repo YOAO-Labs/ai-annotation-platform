@@ -2741,6 +2741,10 @@ ALTER FUNCTION aap_labeling_v1.prediction_record_command(jsonb)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.prediction_partition_command(jsonb)
     OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.create_uploading_task(uuid,uuid,text,text,text)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.complete_uploading_task(uuid,uuid,uuid,text,text)
+    OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.scene_track_command(jsonb)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.cross_frame_write_command(jsonb)
