@@ -123,7 +123,7 @@ class Harness:
 
         monkeypatch.setattr(lidar_delivery, "prepare", prepare)
 
-        def write(receipt, path):
+        def write(receipt, path, **_options):
             self.built_paths.append(Path(path))
             data = Path(path).read_bytes()
             assert hashlib.sha256(data).hexdigest() == receipt.sha256

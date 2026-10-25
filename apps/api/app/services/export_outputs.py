@@ -17,7 +17,12 @@ from app.db.models.export_artifact import ExportArtifact
 from app.db.models.export_media_bundle import ExportMediaBundle
 from app.db.models.export_output import ExportOutput
 from app.db.models.storage_maintenance import StorageOperation
-from app.services import export_media_storage, export_storage, storage_access
+from app.services import (
+    export_media_storage,
+    export_storage,
+    export_zip_accounting,
+    storage_access,
+)
 
 log = logging.getLogger(__name__)
 _FACTS = (
@@ -288,16 +293,25 @@ async def write(db, receipt, path):
             reject("export_storage_expired")
         await db.commit()
 
-    await storage_access.run(
-        db,
-        uuid.UUID(owner.ref["location_id"]),
-        "export_write_" + receipt.id.hex,
-        export_storage.write,
-        receipt,
-        path,
-        **({"target": target} if target is not None else {}),
-        on_acquired=acquired,
-    )
+    accounting = export_zip_accounting.recorder(db, receipt)
+    failure = None
+    try:
+        await storage_access.run(
+            db,
+            uuid.UUID(owner.ref["location_id"]),
+            "export_write_" + receipt.id.hex,
+            export_storage.write,
+            receipt,
+            path,
+            **({"target": target} if target is not None else {}),
+            accounting=accounting,
+            on_acquired=acquired,
+        )
+    except BaseException as exc:
+        failure = exc
+    failure = await export_zip_accounting.finish(accounting, failure)
+    if failure is not None:
+        raise failure
     return revision
 
 

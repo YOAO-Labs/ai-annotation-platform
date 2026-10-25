@@ -389,3 +389,35 @@ it("explains an export-only producer response without claiming ZIP, deletion or 
   expect(screen.getByText("部分覆盖")).toBeVisible();
   expect(screen.getByText(/不能据此推算平台总占用/)).toBeVisible();
 });
+
+it("explains ZIP observations only when the response declares the producer", () => {
+  render(
+    <StorageUsageAccounting
+      accounting={{ ...accounting, producers: ["export_zip_outputs"] }}
+      onAccessDenied={mocks.denied}
+    />,
+  );
+  open();
+  expect(screen.getByText(/已接入导出 ZIP 写入观测/)).toHaveTextContent(
+    "同键等长覆盖为零，重试或版本证据不明保持未知",
+  );
+  expect(screen.queryByText(/已接入独立导出媒体受控新增/)).not.toBeInTheDocument();
+  expect(screen.getByText("部分覆盖")).toBeVisible();
+  expect(screen.getByText(/ZIP 退休和清理不代表已确认移除/)).toBeVisible();
+});
+
+it("does not exclude ZIP when both export producers are declared", () => {
+  render(
+    <StorageUsageAccounting
+      accounting={{
+        ...accounting,
+        producers: ["export_media_outputs", "export_zip_outputs"],
+      }}
+      onAccessDenied={mocks.denied}
+    />,
+  );
+  open();
+  expect(screen.getByText(/已接入独立导出媒体受控新增；导出清理尚未计入/)).toBeVisible();
+  expect(screen.getByText(/已接入导出 ZIP 写入观测/)).toBeVisible();
+  expect(screen.queryByText(/ZIP 和导出清理尚未计入/)).not.toBeInTheDocument();
+});

@@ -11,6 +11,7 @@ import threading
 import uuid
 
 from botocore.exceptions import ClientError
+from botocore.config import Config
 import pytest
 from sqlalchemy import delete, select
 
@@ -97,6 +98,24 @@ class ExportObjects:
 def export_objects(monkeypatch):
     objects = ExportObjects()
     monkeypatch.setattr(export_storage, "storage_service", objects)
+    from app.services import storage as module
+
+    objects.client.meta.config = Config(retries={"max_attempts": 3})
+
+    def owned(**kwargs):
+        assert kwargs["client_config"] is objects.client.meta.config
+        return SimpleNamespace(
+            client=SimpleNamespace(
+                head_object=objects.head,
+                get_object=objects.get,
+                upload_file=lambda path, bucket, key, ExtraArgs: objects.upload_file(
+                    path, key, bucket=bucket, content_type=ExtraArgs["ContentType"]
+                ),
+                close=lambda: None,
+            )
+        )
+
+    monkeypatch.setattr(module, "StorageService", owned)
     return objects
 
 

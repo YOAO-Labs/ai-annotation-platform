@@ -158,7 +158,9 @@ Celery default worker 执行盘点，Beat 每 30 秒回收超过 120 秒租约�
 
 保留PUT返回版本及完整读回证据，再核对当前HEAD；只有不可变非null版本、大小和内容一致且原生client／Body真正收尾才确认正增量。部分生成失败或业务发布回滚不抹去已发生事实；应答未知、无版本、后来替换或关闭失败保持unknown，账目发布失败保留pending。该接线只增加观测，不改变原件、生成器或清理算法；旧按key清理不据此产生负量，不新增版本GC或清理门禁。生产者列表是接线覆盖声明，未把历史对象重新记作新增，完整覆盖与推算总量仍未知。
 
-`export_media_outputs`复用同一Recorder，显式指定`purpose=temporary`，四类媒体缓存默认值保持`media_cache`。共享`export_media_transfer.copy_source`负责所属Engine、短事务及实际收尾，`export_media_storage.write_object`在原条件PUT前登记意图并关联原始返回回执及完整读回；schema2默认目标的记账写入显式选择独占单次client。线程、Body、输出client、借用FD和源stage都真正关闭后才独立发布，后续guard拒绝或业务回滚不抹去物理事实；发布期间取消仍排空后继续传递。图片、视频和点云格式保持共用接点，原返回形状、授权与清理算法不变。ZIP的旧`upload_file`没有可关联返回版本，不能据成功返回补算；导出清理也未接移除增量，覆盖保持partial。
+`export_media_outputs`复用同一Recorder，显式指定`purpose=temporary`，四类媒体缓存默认值保持`media_cache`。共享`export_media_transfer.copy_source`负责所属Engine、短事务及实际收尾，`export_media_storage.write_object`在原条件PUT前登记意图并关联原始返回回执及完整读回；schema2默认目标的记账写入显式选择独占单次client。线程、Body、输出client、借用FD和源stage都真正关闭后才独立发布，后续guard拒绝或业务回滚不抹去物理事实；发布期间取消仍排空后继续传递。图片、视频和点云格式保持共用接点，原返回形状、授权与清理算法不变。
+
+`export_zip_outputs`沿ExportOutput保存地址，在普通导出和独立媒体导出的两个既有异步入口接入同一ZIP观测helper。每次managed upload先独立登记一个窗口，独占client保留原SDK配置、分段上传和重试；公开事件核对冻结Bucket／Key、实际final发送次数与最终ACK，不改全局共享实例或上传请求。Complete前失败、没有事件或多次final发送保持unknown。正常一次提交通过HEAD→完整有界版本集合→HEAD观测前后状态，并复用实际完整SHA读回；旧集合无删改、只新增本次返回版本且当前／读回版本一致时确认新旧当前大小之差。集合稳定身份排除IsLatest，不以404、VersionId排序或HEAD大小相同推断新增。明确零值不会解释过去的未决窗口，覆盖缩小的负量只表示当前内容减少。读取观测异常不改变业务结果，native线程、SDK／Body和client真正关闭后才发布；取消和业务回滚保持既有顺序。仍不统计导出清理、退休、历史版本或未完成multipart的物理占用，覆盖保持partial。
 
 盘点页每次最多1,000对象，保存准确key、实际大小和观测窗口；不解码key，不以ETag代替摘要。稳定代次为AsyncJob UUID，执行块的fence代次仅用于拒绝迟到发布。整桶成功才替换基准和对账，保留两个成功代次及当前暂存；重复key、失败和取消不发布不完整基准。数据库按对象比较两次观测，只有完全位于观测之间的已确认事件参与增量核对；跨窗口／pending／unknown及首次无基准单列未知。没有接入的写入方和外部变化只称未解释变化，不宣称精确账目漂移或物理磁盘容量。GET仅返回持久固定摘要。
 

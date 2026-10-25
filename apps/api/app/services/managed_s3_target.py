@@ -171,8 +171,23 @@ class Target:
         }
 
     @contextmanager
-    def client(self, *, read_timeout=None, single_attempt=False):
-        if self._access is None and single_attempt:
+    def client(self, *, read_timeout=None, single_attempt=False, owned=False):
+        if self._access is None and owned:
+            from app.services.storage import StorageService
+
+            # Managed ZIP transfer keeps the original SDK retry/transport policy.
+            # Its observer belongs to this exclusive client, never the shared one.
+            try:
+                client = StorageService(
+                    client_config=self._legacy_client.meta.config
+                ).client
+            except BaseException as exc:
+                raise storage_access.mark_unsettled(exc)
+            try:
+                yield client
+            finally:
+                storage_access.close_registered(client)
+        elif self._access is None and single_attempt:
             from app.services.storage import StorageService
 
             # Accounting owns this transport: one durable intent represents one

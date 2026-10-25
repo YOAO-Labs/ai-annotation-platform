@@ -71,6 +71,7 @@ class StorageUsageAccountingSummary(BaseModel):
             "image_pyramid_outputs",
             "video_derivative_outputs",
             "export_media_outputs",
+            "export_zip_outputs",
         ]
     )
     confirmed_added_bytes: int = 0

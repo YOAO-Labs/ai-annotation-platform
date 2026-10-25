@@ -372,12 +372,24 @@ async def io_target(db, row):
 
 
 @contextmanager
-def client_context(row, target):
+def client_context(row, target, *, owned=False):
     owner = resolve(row)
     if target is None:
         if owner.ref["schema"] != 1:
             _reject("export_storage_binding_unproven")
-        yield storage_service.client
+        if owned:
+            from app.services.storage import StorageService
+
+            try:
+                client = StorageService(
+                    client_config=storage_service.client.meta.config
+                ).client
+            except BaseException as exc:
+                raise storage_access.mark_unsettled(exc)
+            with storage_access.closing_registered(client):
+                yield client
+        else:
+            yield storage_service.client
         return
     if (
         str(target.location_id) != owner.ref["location_id"]
@@ -387,7 +399,7 @@ def client_context(row, target):
         != owner.object_key
     ):
         _reject()
-    with target.client() as client:
+    with target.client(**({"owned": True} if owned else {})) as client:
         yield client
 
 
@@ -435,7 +447,7 @@ def verify(output, *, missing_ok=False, target=None) -> bool:
         return _verify(client, output, owner, missing_ok=missing_ok)
 
 
-def _verify(client, output, owner, *, missing_ok=False):
+def _verify(client, output, owner, *, missing_ok=False, observation=None):
     deadline = time.monotonic() + VERIFY_SECONDS
     params = {"Bucket": owner.bucket, "Key": owner.object_key}
     try:
@@ -478,6 +490,8 @@ def _verify(client, output, owner, *, missing_ok=False):
         ):
             _reject("export_storage_integrity_mismatch")
         _budget(deadline)
+        if observation is not None:
+            observation.readback(response)
     except ClientError as exc:
         if getattr(exc, "storage_operation_unsettled", False):
             raise _unavailable(exc) from None
@@ -498,28 +512,45 @@ def _verify(client, output, owner, *, missing_ok=False):
     return True
 
 
-def write(output, path, *, target=None) -> None:
+def write(output, path, *, target=None, accounting=None) -> None:
     """Upload one independent candidate; no failure authorizes deletion."""
     owner = resolve(output)
     if file_receipt(path) != (output.sha256, output.size_bytes):
         _reject("export_storage_integrity_mismatch")
     try:
-        with client_context(output, target) as client:
-            if target is None:
-                storage_service.upload_file(
-                    str(path),
+        with client_context(output, target, owned=True) as client:
+            from app.services.export_zip_accounting import Observation
+
+            observation = (
+                Observation(
+                    accounting,
+                    client,
                     owner.object_key,
-                    bucket=owner.bucket,
-                    content_type="application/zip",
+                    {
+                        "sha256": output.sha256,
+                        "size_bytes": output.size_bytes,
+                    },
                 )
-            else:
+                if accounting is not None
+                else None
+            )
+
+            def upload():
                 client.upload_file(
                     str(path),
                     owner.bucket,
                     owner.object_key,
                     ExtraArgs={"ContentType": "application/zip"},
                 )
-            _verify(client, output, owner)
+
+            if observation is None:
+                upload()
+            else:
+                with observation.hooks():
+                    upload()
+            _verify(client, output, owner, observation=observation)
+            if observation is not None:
+                observation.complete()
     except Exception as exc:
         raise _unavailable(exc) from None
 

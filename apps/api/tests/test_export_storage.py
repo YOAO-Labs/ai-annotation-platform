@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, Mock
 import uuid
 
 from botocore.exceptions import ClientError
+from botocore.config import Config
 import pytest
 
 from app.config import settings
@@ -310,6 +311,26 @@ def readable(storage, data=RAW):
     return body
 
 
+@pytest.fixture
+def owned_writer(storage, monkeypatch):
+    """Only ZIP write tests admit a separate client; reads retain the shared one."""
+    from app.services import storage as module
+
+    config = Config(retries={"max_attempts": 3})
+    storage.client.meta.config = config
+    client = SimpleNamespace(
+        head_object=lambda **kw: storage.client.head_object(**kw),
+        get_object=lambda **kw: storage.client.get_object(**kw),
+        upload_file=lambda path, bucket, key, ExtraArgs: storage.upload_file(
+            path, key, bucket=bucket, content_type=ExtraArgs["ContentType"]
+        ),
+        close=Mock(),
+    )
+    factory = Mock(return_value=SimpleNamespace(client=client))
+    monkeypatch.setattr(module, "StorageService", factory)
+    return factory, client, config
+
+
 def s3_error(code):
     return ClientError({"Error": {"Code": code, "Message": "secret"}}, "GetObject")
 
@@ -425,7 +446,9 @@ def test_streaming_never_requests_unbounded_or_full_object_read(storage, monkeyp
     assert body.closed
 
 
-def test_file_receipt_and_write_verify_same_saved_bytes(storage, tmp_path):
+def test_file_receipt_and_write_verify_same_saved_bytes(
+    storage, tmp_path, owned_writer
+):
     readable(storage)
     path = tmp_path / "candidate.zip"
     path.write_bytes(RAW)
@@ -435,6 +458,8 @@ def test_file_receipt_and_write_verify_same_saved_bytes(storage, tmp_path):
         str(path), KEY, bucket="exports-original", content_type="application/zip"
     )
     storage.delete_object.assert_not_called()
+    owned_writer[0].assert_called_once_with(client_config=owned_writer[2])
+    owned_writer[1].close.assert_called_once()
 
 
 def test_local_file_change_is_rejected_before_upload(storage, tmp_path):
@@ -448,7 +473,9 @@ def test_local_file_change_is_rejected_before_upload(storage, tmp_path):
     storage.delete_object.assert_not_called()
 
 
-def test_upload_failure_never_deletes_and_has_safe_error(storage, tmp_path):
+def test_upload_failure_never_deletes_and_has_safe_error(
+    storage, tmp_path, owned_writer
+):
     readable(storage)
     path = tmp_path / "candidate.zip"
     path.write_bytes(RAW)

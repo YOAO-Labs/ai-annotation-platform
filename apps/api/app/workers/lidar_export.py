@@ -112,7 +112,16 @@ async def _published(db, receipt, *, lock=False):
     return current
 
 
-async def _io(db, receipt, call, *, guard, published=False, expected_revision=None):
+async def _io(
+    db,
+    receipt,
+    call,
+    *,
+    guard,
+    published=False,
+    expected_revision=None,
+    accounting=None,
+):
     """Use a durable operation and drain every physical exception before release."""
 
     async def fresh(revision=None):
@@ -152,6 +161,10 @@ async def _io(db, receipt, call, *, guard, published=False, expected_revision=No
                     failure = closing
                 else:
                     transfer._uncertainty(failure, closing)
+        if accounting is not None:
+            from app.services import export_zip_accounting
+
+            failure = await export_zip_accounting.finish(accounting, failure)
     if failure is not None:
         raise failure
     return result, permit.revision
@@ -667,15 +680,20 @@ async def run_owned(
 
         zip_target = await export_storage.io_target(db, candidate)
         await db.commit()
+        from app.services import export_zip_accounting
+
+        zip_accounting = export_zip_accounting.recorder(db, candidate)
         _, revision = await _io(
             db,
             receipt,
             lambda: export_storage.write(
                 candidate,
                 path,
+                accounting=zip_accounting,
                 **({"target": zip_target} if zip_target is not None else {}),
             ),
             guard=zip_guard,
+            accounting=zip_accounting,
         )
         prepared = await export_outputs.prepare_download(
             db, candidate, download_name=name
