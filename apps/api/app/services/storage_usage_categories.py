@@ -81,7 +81,7 @@ FAMILIES = (
         "export_media_bundle.ExportMediaBundle",
         "export_media_storage",
         "temporary",
-        rf"^lidar-export-media/objects/{_UUID}/",
+        rf"^(?:(?:[^/]+/)*_aap_managed/export/)?lidar-export-media/objects/{_UUID}/",
         1,
         "prefix_for",
         ("id",),
@@ -186,7 +186,7 @@ FAMILIES = (
         "export_output.ExportOutput",
         "export_storage",
         "temporary",
-        rf"^(image|video)/{_UUID}/{_UUID}/{_UUID}\.zip$",
+        rf"^(?:(?:[^/]+/)*_aap_managed/export/)?(image|video)/{_UUID}/{_UUID}/{_UUID}\.zip$",
         4,
         "key_for",
         ("media", "project_id", "job_id", "id"),
@@ -486,6 +486,8 @@ async def classify(db, bucket, objects):
                     "avatar_storage",
                     "bug_attachment_storage",
                     "audit_archive_storage",
+                    "export_storage",
+                    "export_media_storage",
                 } and (
                     owner.ref["endpoint_url"] != endpoint()
                     or owner.ref["storage_identity"] != identity

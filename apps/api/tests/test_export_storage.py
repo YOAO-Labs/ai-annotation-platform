@@ -212,9 +212,14 @@ def allocation_db(storage):
     binding = SimpleNamespace(
         location_id=LEGACY_LOCATION_ID, generation=1, bucket=storage.export_bucket
     )
+
+    async def scalar(statement):
+        entity = statement.column_descriptions[0]["entity"]
+        return location if entity is owners.StorageLocation else binding
+
     return (
         SimpleNamespace(
-            get=AsyncMock(return_value=location), scalar=AsyncMock(return_value=binding)
+            get=AsyncMock(return_value=location), scalar=AsyncMock(side_effect=scalar)
         ),
         location,
         binding,
@@ -254,7 +259,7 @@ async def test_allocate_proves_current_binding_without_mutating_candidate(
             },
         ),
         ("binding", "location_id", uuid.UUID(int=2)),
-        ("binding", "generation", 2),
+        ("binding", "generation", 0),
         ("binding", "generation", True),
         ("binding", "bucket", "historical-only"),
     ],
@@ -274,7 +279,11 @@ async def test_allocate_rejects_changed_binding(
 async def test_allocate_rejects_missing_binding(storage, monkeypatch, missing):
     db, _, _ = allocation_db(storage)
     monkeypatch.setattr(owners, "ensure_legacy_bindings", AsyncMock())
-    (db.get if missing == "location" else db.scalar).return_value = None
+    if missing == "location":
+        db.get.return_value = None
+    else:
+        db.scalar.side_effect = None
+        db.scalar.return_value = None
     with pytest.raises(owners.ExportStorageError):
         await owners.allocate(db, record())
 

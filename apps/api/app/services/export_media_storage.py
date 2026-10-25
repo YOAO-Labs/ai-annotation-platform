@@ -156,28 +156,83 @@ def resolve_ref(ref, *, expected_prefix=None):
         not isinstance(ref, dict)
         or set(ref) != _FIELDS
         or type(ref["schema"]) is not int
-        or ref["schema"] != 1
+        or ref["schema"] not in {1, 2}
         or ref["purpose"] != "export"
-        or ref["location_id"] != str(LEGACY_LOCATION_ID)
         or type(ref["config_revision"]) is not int
-        or ref["config_revision"] != 1
+        or ref["config_revision"] < 1
         or type(ref["binding_generation"]) is not int
-        or ref["binding_generation"] != 1
+        or ref["binding_generation"] < 1
         or not _plain(ref["bucket"], 255)
         or any(char in ref["bucket"] for char in "/\\?#@%:")
-        or not isinstance(ref["key_prefix"], str)
-        or _PREFIX.fullmatch(ref["key_prefix"]) is None
-        or (expected_prefix is not None and ref["key_prefix"] != expected_prefix)
         or not isinstance(ref["storage_identity"], str)
         or _SHA.fullmatch(ref["storage_identity"]) is None
     ):
         _reject()
+    identifier = _uuid(ref["location_id"])
+    prefix = ref["key_prefix"]
+    match = (
+        re.search(r"lidar-export-media/objects/" + _UUID + "/$", prefix)
+        if isinstance(prefix, str)
+        else None
+    )
+    if match is None or (expected_prefix is not None and match[0] != expected_prefix):
+        _reject("invalid_key")
+    logical = match[0]
+    if ref["schema"] == 1:
+        if (
+            identifier != str(LEGACY_LOCATION_ID)
+            or ref["config_revision"] != 1
+            or ref["binding_generation"] != 1
+            or prefix != logical
+        ):
+            _reject()
+    else:
+        if (
+            ref["binding_generation"] < 2
+            or len((prefix + str(uuid.UUID(int=0)) + ".bin").encode("utf-8")) > 1024
+        ):
+            _reject()
+        if identifier == str(LEGACY_LOCATION_ID):
+            if ref["config_revision"] != 1 or prefix != logical:
+                _reject()
+        else:
+            from app.services.export_storage_target import (
+                MANAGED_NAMESPACE,
+                managed_prefix,
+            )
+
+            root = prefix[: -len(logical)]
+            if (
+                not root.endswith(MANAGED_NAMESPACE)
+                or managed_prefix(root[: -len(MANAGED_NAMESPACE)]) != root
+            ):
+                _reject("invalid_key")
     endpoint = _endpoint(ref["endpoint_url"])
-    if endpoint != _runtime_endpoint() or ref["storage_identity"] != storage_identity(
-        endpoint, ref["bucket"]
+    if (
+        identifier == str(LEGACY_LOCATION_ID) and endpoint != _runtime_endpoint()
+    ) or ref["storage_identity"] != storage_identity(endpoint, ref["bucket"]):
+        _reject()
+    return Owner(ref["bucket"], prefix, deepcopy(ref))
+
+
+async def io_target(db, record):
+    owner = resolve(record)
+    if owner.ref["schema"] == 1:
+        return None
+    from app.db.models.dataset_asset import StorageLocation
+    from app.services.export_storage_target import target_for
+
+    location = await db.get(
+        StorageLocation, uuid.UUID(owner.ref["location_id"]), populate_existing=True
+    )
+    target = await target_for(db, location)
+    if (
+        target.endpoint_url != owner.ref["endpoint_url"]
+        or target.bucket != owner.bucket
+        or target.key_prefix + prefix_for(_field(record, "id")) != owner.prefix
     ):
         _reject()
-    return Owner(ref["bucket"], ref["key_prefix"], deepcopy(ref))
+    return target
 
 
 def make_ref(identifier, *, bucket, endpoint_url=None):
@@ -397,9 +452,22 @@ def _client(client, owner):
 
 
 @contextmanager
-def open_storage(record, factory=None):
+def open_storage(record, factory=None, *, target=None):
     """The caller admits/drains constructor, every operation and actual close."""
     owner = resolve(record)
+    if target is not None:
+        if (
+            str(target.location_id) != owner.ref["location_id"]
+            or target.endpoint_url != owner.ref["endpoint_url"]
+            or target.bucket != owner.bucket
+            or target.key_prefix + prefix_for(_field(record, "id")) != owner.prefix
+        ):
+            _reject()
+        with target.client() as client:
+            yield _client(client, owner)
+        return
+    if owner.ref["schema"] != 1:
+        _reject("binding_unproven")
     try:
         client = (factory or create_client)()
     except BaseException as exc:
@@ -673,7 +741,9 @@ def signed_url(client, record, relative, *, now=None):
             "get_object",
             params={"Bucket": owner.bucket, "Key": key},
             expires_in=min(RETENTION_SECONDS, seconds),
-            audience="browser",
+            audience="browser"
+            if owner.ref["location_id"] == str(LEGACY_LOCATION_ID)
+            else "internal",
         )
     except Exception as exc:
         raise _translate(exc) from None

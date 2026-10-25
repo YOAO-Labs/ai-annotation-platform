@@ -332,14 +332,23 @@ async def _physical_delete(db, receipt, *, zip_output=None):
     try:
         await transfer._async(_guard(db, receipt, permit, zip_output=zip_output))
         if zip_output is None:
+            target = await transfer._async(transfer._io_target(db, receipt))
 
             def remove():
-                with physical.open_storage(receipt) as client:
+                with physical.open_storage(
+                    receipt, **({"target": target} if target is not None else {})
+                ) as client:
                     return physical.delete_inventory(client, receipt)
 
             await transfer.physical_work(remove)
         else:
-            await transfer.physical_work(export_storage.delete, zip_output)
+            async with transfer._session(db) as owned:
+                target = await export_storage.io_target(owned, zip_output)
+            await transfer.physical_work(
+                export_storage.delete,
+                zip_output,
+                **({"target": target} if target is not None else {}),
+            )
         await transfer._async(_guard(db, receipt, permit, zip_output=zip_output))
     except BaseException as exc:
         failure = exc

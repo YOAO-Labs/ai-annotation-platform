@@ -8,6 +8,11 @@ import hashlib
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
+
+from app.services import export_storage
+from app.config import settings
+from app.services.dataset_assets import LEGACY_LOCATION_ID
+from app.services.managed_original_retirement import managed_storage_identity
 import uuid
 
 import pytest
@@ -137,6 +142,33 @@ class FakeDB:
         return SimpleNamespace(
             mappings=lambda: SimpleNamespace(one_or_none=lambda: data)
         )
+
+
+@pytest.fixture(autouse=True)
+def fake_allocation_boundary(monkeypatch):
+    """Pure fake sessions cover bundle contracts; real sessions exercise allocation."""
+    original = export_storage.allocate
+
+    async def allocate(db, row):
+        if not isinstance(db, FakeDB):
+            return await original(db, row)
+        endpoint = physical._runtime_endpoint()
+        bucket = settings.minio_export_bucket
+        return {
+            "schema": 1,
+            "purpose": "export",
+            "location_id": str(LEGACY_LOCATION_ID),
+            "config_revision": 1,
+            "binding_generation": 1,
+            "endpoint_url": endpoint,
+            "bucket": bucket,
+            "object_key": export_storage.key_for(
+                row.media, row.project_id, row.job_id, row.id
+            ),
+            "storage_identity": managed_storage_identity(endpoint, bucket),
+        }
+
+    monkeypatch.setattr(export_storage, "allocate", allocate)
 
 
 async def allocated(db=None, **options):

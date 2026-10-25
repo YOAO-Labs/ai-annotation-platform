@@ -13,6 +13,9 @@ const storage = vi.hoisted(() => ({
   avatarBindingCandidates: vi.fn(),
   previewAvatarBinding: vi.fn(),
   applyAvatarBinding: vi.fn(),
+  bindingCandidates: vi.fn(),
+  previewBinding: vi.fn(),
+  applyBinding: vi.fn(),
 }));
 vi.mock("@/api/datasetSources", () => ({ datasetSourcesApi: api }));
 vi.mock("@/api/storage", () => ({ storageApi: storage }));
@@ -236,7 +239,9 @@ it("offers only the controlled avatar action and refreshes mapping, locations an
   expect(
     within(screen.getByRole("row", { name: /托管数据集/ })).queryByRole("button"),
   ).not.toBeInTheDocument();
-  expect(screen.getByText(/当前开放头像、报告附件和审计归档用途的位置切换/)).toBeInTheDocument();
+  expect(
+    screen.getByText(/当前开放头像、报告附件、审计归档和导出用途的位置切换/),
+  ).toBeInTheDocument();
   fireEvent.click(button);
   await screen.findByRole("option", { name: target.name });
   fireEvent.change(screen.getByRole("combobox", { name: "目标存储位置" }), {
@@ -382,4 +387,37 @@ it("keeps invalid deep links dismissible without querying unrelated location dat
   fireEvent.click(within(dialog).getByRole("button", { name: "关闭" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   expect(screen.getByTestId("url")).toHaveTextContent("page=2");
+});
+
+it("exposes export switching only for the reviewed export policy", async () => {
+  const binding = {
+    purpose: "export",
+    location_id: ID,
+    bucket: "exports-a",
+    generation: 1,
+    location_config_revision: 1,
+    state: "configured",
+    read_policy: "consumer_owned_compatibility",
+    write_policy: "current_binding",
+    change_policy: "reviewed_export_switch",
+  };
+  const target = {
+    location_id: "22222222-2222-2222-2222-222222222222",
+    name: "导出目标",
+    config_revision: 2,
+  };
+  storage.bindings.mockResolvedValue([
+    binding,
+    { ...binding, purpose: "training", change_policy: "legacy_mapping_locked" },
+  ]);
+  storage.bindingCandidates.mockResolvedValue({ items: [target], total: 1 });
+  mount("/storage?tab=bindings");
+  const button = await screen.findByRole("button", { name: "切换导出位置" });
+  expect(
+    within(screen.getByRole("row", { name: /冻结训练数据/ })).queryByRole("button"),
+  ).not.toBeInTheDocument();
+  fireEvent.click(button);
+  await screen.findByRole("option", { name: target.name });
+  expect(storage.bindingCandidates).toHaveBeenCalledWith("export", 0, expect.any(AbortSignal), 20);
+  expect(storage.avatarBindingCandidates).not.toHaveBeenCalled();
 });

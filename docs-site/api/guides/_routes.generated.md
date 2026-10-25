@@ -691,6 +691,9 @@
 | GET | `/bindings/audit-archive/candidates` |
 | POST | `/bindings/audit-archive/change-preview` |
 | PATCH | `/bindings/audit-archive` |
+| GET | `/bindings/export/candidates` |
+| POST | `/bindings/export/change-preview` |
+| PATCH | `/bindings/export` |
 | GET | `/{location_id}` |
 | GET | `/{location_id}/source-summary` |
 | POST | `/{location_id}/change-preview` |
@@ -1074,4 +1077,4 @@
 
 ---
 
-_共 97 模块 / 627 路由_
+_共 97 模块 / 630 路由_

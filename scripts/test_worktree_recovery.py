@@ -937,6 +937,54 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
                 original[self.models.binding][0].bucket,
             )
 
+    async def test_schema2_export_owners_refuse_before_any_mapping_mutation(self):
+        from app.services import export_media_storage, export_storage
+
+        for kind in ("zip", "media"):
+            with self.subTest(kind=kind):
+                self.setUp()
+                self.db.delete = AsyncMock()
+                if kind == "zip":
+                    row = self.rows[self.models.output][0]
+                else:
+                    row, _output, _cache = await self.media_fixture()
+                row.storage_ref = {
+                    **row.storage_ref,
+                    "schema": 2,
+                    "binding_generation": 2,
+                }
+                # A controlled return to legacy still carries unsupported new facts.
+                (export_storage if kind == "zip" else export_media_storage).resolve(row)
+                before = [
+                    (
+                        item,
+                        deepcopy(
+                            {
+                                k: v
+                                for k, v in vars(item).items()
+                                if k != "_sa_instance_state"
+                            }
+                        ),
+                    )
+                    for rows in self.rows.values()
+                    for item in rows
+                ]
+                with self.assertRaisesRegex(WorktreeError, "导出"):
+                    await remap_storage(
+                        self.db, self.source, self.target, self.endpoint
+                    )
+                self.db.flush.assert_not_awaited()
+                self.db.delete.assert_not_awaited()
+                for item, facts in before:
+                    self.assertEqual(
+                        {
+                            k: v
+                            for k, v in vars(item).items()
+                            if k != "_sa_instance_state"
+                        },
+                        facts,
+                    )
+
     def test_protected_export_output_keeps_receipt_deadline_and_source_identity(self):
         from worktree_recovery_fixture import digest, protected_row
 
@@ -995,9 +1043,21 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
             json.dumps(frozen, sort_keys=True, ensure_ascii=False).encode()
         ).hexdigest()
         fake = FakeDB()
-        with patch.object(
-            bundles.settings, "minio_export_bucket", self.source["MINIO_EXPORT_BUCKET"]
-        ):
+
+        async def legacy_allocation(_db, candidate):
+            from app.services import export_storage
+
+            return {
+                **self.rows[self.models.output][0].storage_ref,
+                "object_key": export_storage.key_for(
+                    candidate.media,
+                    candidate.project_id,
+                    candidate.job_id,
+                    candidate.id,
+                ),
+            }
+
+        with patch.object(bundles.export_storage, "allocate", legacy_allocation):
             allocated = await bundles.allocate(
                 fake,
                 project_id=project_id,

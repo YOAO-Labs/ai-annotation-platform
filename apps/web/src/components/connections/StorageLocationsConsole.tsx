@@ -254,12 +254,14 @@ function ConsoleOwner() {
                                     : "未配置"}
                               {(purpose === "avatars" ||
                                 purpose === "bug-reports" ||
-                                purpose === "audit-archive") &&
+                                purpose === "audit-archive" ||
+                                purpose === "export") &&
                                 binding?.state === "configured" &&
                                 [
                                   "reviewed_avatar_switch",
                                   "reviewed_bug_attachment_switch",
                                   "reviewed_audit_archive_switch",
+                                  "reviewed_export_switch",
                                 ].includes(binding.change_policy) && (
                                   <StorageBindingChangeButton
                                     purpose={purpose}
@@ -273,6 +275,7 @@ function ConsoleOwner() {
                                           ["avatar-binding-candidates"],
                                           ["bug-attachment-binding-candidates"],
                                           ["audit-archive-binding-candidates"],
+                                          ["export-binding-candidates"],
                                           ["storage-buckets"],
                                         ].map((queryKey) => client.invalidateQueries({ queryKey })),
                                       );
@@ -294,7 +297,7 @@ function ConsoleOwner() {
                   )}
                 {bindingData?.some((row) => row.change_policy === "reviewed_avatar_switch") && (
                   <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-                    当前开放头像、报告附件和审计归档用途的位置切换，其余用途保持锁定。已有对象保留保存位置，切换不搬迁历史对象。
+                    当前开放头像、报告附件、审计归档和导出用途的位置切换，其余用途保持锁定。已有对象保留保存位置，切换不搬迁历史对象。
                   </p>
                 )}
               </>

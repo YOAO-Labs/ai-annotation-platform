@@ -249,6 +249,7 @@ class Runtime:
 
 @pytest.fixture
 def runtime(monkeypatch):
+    monkeypatch.setattr(physical.settings, "minio_public_url", "")
     value = Runtime(monkeypatch)
     try:
         yield value
