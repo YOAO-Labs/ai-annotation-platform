@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 
 from sqlalchemy import column, func, inspect, select, table
+from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 from sqlalchemy.orm.util import identity_key
@@ -96,6 +97,15 @@ async def get_core_row(
     if populate_existing:
         statement = statement.execution_options(populate_existing=True)
     return (await execute_core_read(db, statement)).scalar_one_or_none()
+
+
+async def refresh_core_row(db: AsyncSession, row_model, row) -> None:
+    """Discard local row changes and reload through its public relation."""
+    db.expire(row)
+    row_id = inspect(row).identity[0]
+    refreshed = await get_core_row(db, row_model, row_id, populate_existing=True)
+    if refreshed is None:
+        raise InvalidRequestError("Could not refresh instance")
 
 
 async def lock_task_for_core_read(

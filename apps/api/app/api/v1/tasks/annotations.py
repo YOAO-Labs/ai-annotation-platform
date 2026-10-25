@@ -107,6 +107,7 @@ from app.services.labeling_core_read_relations import (
     annotation_row,
     get_core_row,
     lock_task_for_core_read,
+    refresh_core_row,
 )
 
 router = APIRouter()
@@ -885,7 +886,7 @@ async def compose_video_tracks(
     )
     await db.commit()
     for ann in [*updated, *created]:
-        await db.refresh(ann)
+        await refresh_core_row(db, annotation_row, ann)
     return VideoTrackCompositionResponse(
         operation=data.operation,
         updated_annotations=[
@@ -975,9 +976,9 @@ async def convert_video_track_to_bboxes(
     )
     await db.commit()
     for ann in created:
-        await db.refresh(ann)
+        await refresh_core_row(db, annotation_row, ann)
     if source is not None:
-        await db.refresh(source)
+        await refresh_core_row(db, annotation_row, source)
     return VideoTrackConvertToBboxesResponse(
         source_annotation=(
             AnnotationOut.model_validate(source, from_attributes=True)

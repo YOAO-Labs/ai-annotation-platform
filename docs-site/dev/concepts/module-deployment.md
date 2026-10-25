@@ -40,7 +40,7 @@ last_reviewed: 2026-10-25
 | Labeling：核心读取、讨论与场景           | 十二项 SELECT-only 核心公开关系、五项固定行锁及讨论／场景专用能力已集成                                            | API／看板、DM／导出、场景／视频、工作流／guard、共享服务及适配器预读已迁移选定生产调用           | [集中原生验收](#labeling-native-cohort-acceptance)：真实双连接 NOWAIT／阻塞释放、有序集合锁及视图写入拒绝通过；SceneTrack 构造／执行／重放／撤销补验通过 | Learning／训练的 Labeling 兼容读取与有序锁已迁移；E2E／运维种子继续单列，未完成整组运行验收                                                                                                                                                                                                                                                                             |
 | Labeling：视频 worker 与实际消费者组合   | 原执行协调器、0350 中间状态／刷新和最终发布 owner 已接入；Inference Pool 溯源使用其固定公开能力                    | worker 的 Job／Task／分段读取与锁已迁移；保留 expire → autoflush → 读取顺序及原提交／发布边界    | [集中原生验收](#labeling-native-cohort-acceptance)：所选 296 个不同案例在四批证据中均有最新通过结果，非当前提交一次全量运行                              | 依据现有冷装配验证真实消费者及最小凭据，再核对模块范围；不重跑无关已通过切片                                                                                                                                                                                                                                                                                     |
 | Labeling：预测分区维护与剩余读取         | 两处生产读取已使用公开关系；0357 固定月份维护已由 Labeling owner 持有                                              | 既有月度 worker 保留方法、UTC 月份范围和原事务；普通调用方只执行固定函数                         | [当前候选验收](#labeling-current-candidate-acceptance)：分区所有权、受限角色、创建／幂等／回滚、同名非分区及原始 DDL 拒绝通过                            | 当前分区树与新分区由 NOLOGIN Labeling owner 持有；普通 API 宽 ACL、暂缓模型谱系／种子及 Insights MV 维护继续分开，不全局撤权                                                                                                                                                                                                                                     |
-| Labeling：完整模块装配与验收             | 主要读写、核心兼容读取、分区维护、普通私表 ACL 及 E2E／截图／规模种子调用已集成 | API／worker 与运维调用通过公开关系和固定 owner 能力；保留原事务、缓存、锁与清理顺序 | [普通权限与兼容调用](#labeling-private-runtime-acl)：57 个不同案例中 56 个有最新通过结果，1 个既有 Audit 夹具失败单列；三批证据组成，非当前提交一次全绿；旧安装态证据按原范围保留 | 当前 wheel／sdist／安装态及冷工件、真实 worker 进程丢失与完整恢复仍待收口；Assets reset 的未接线来源清除方法单列；整模块未闭合，主环境未切换 |
+| Labeling：完整模块装配与验收             | 主要读写、核心兼容读取、分区维护、普通私表 ACL 及 E2E／截图／规模种子调用已集成；标注响应刷新复用公开读取 | API／worker 与选定运维调用通过公开关系和固定 owner 能力；保留原事务、缓存、锁与清理顺序 | [普通权限与兼容调用](#labeling-private-runtime-acl)：Native 57 例的最新结果为 56 通过、1 个 Audit 夹具失败；当前包、API／writer 工件检查及真实 worker 进程丢失恢复已通过限定验收 | 冷 API 响应刷新与完整恢复的物化视图依赖正在修正，须定点复验；Assets reset 手动维护调用仍暂缓；整模块未闭合，主环境未切换 |
 | Jobs／Labeling：旧视频输入保留           | 0312 的窄 Jobs 事实与 Labeling 保留投影已实现；0313 补齐历史垃圾领取围栏                                           | tracker sweep 和 video garbage claim 使用当前保留事实；pin、审核宽限期及已证明替代的前缀清理保留 | [输入保留](#tracker-input-retention)：0312 的 23 项和 0313 的 10 项定向案例及各自完整迁移往返通过；进程内取消单测单列                                    | 新领取路径的限定本地资格已闭合；已领租约仍须真实停机／凭据围栏，历史 expired 状态／已删除对象修复和无账本退役 operator 未闭合；[当前组合工件](#coherent-module-artifact)已验收，主环境尚未采用                                                                                                                                                                   |
 | Inference／Jobs：协调视频恢复            | `aap-video-restore/v1`、两类权威屏障／轮换、不可变退休证明已实现                                                   | 实际 runner 已经独立安装 CLI 恢复，同 run 新代次复用窗口并由 Labeling owner 发布                 | [ADR-0160](/dev/adr/0160-coordinated-video-restore)：五个 Native／消费者场景、源码和安装各 420 项、51 项旧路径回归、完整迁移通过                         | 本切片已闭合：独立安装 CLI 实际消费者与匹配 Inference／API 冷镜像均通过，源码提交 `968212e4e`；对象存储备份恢复、GPU／生产容量不在本切片通过范围                                                                                                                                                                                                                 |
 | Inference：控制面与其他预测路径          | Pipeline、backend 配置／探测／健康、registry ingress、routing 和 scope 退休已有选定 owner                          | 对应绑定及部分实际预测消费者已迁移                                                               | [Inference 协议](/api/guides/inference-runtime)保留各切片资格                                                                                            | 其他推理编排、GPU 租约、取消／迟到结果、完整独立装配及提供方替换仍须逐操作收口                                                                                                                                                                                                                                                                                   |
@@ -2637,8 +2637,9 @@ LAN 与 worktree 授权复用同一段固定 SQL：在兼容宽授权后撤销 L
 批量 INSERT 在同一语句读取 Assets 三列公开关系，保留原排序及提交边界；截图维护
 保留固定作用域和 JSON null／SQL NULL 的旧证据语义，公开 ORM 结果保留原实体名。
 基础合同、SQL／PL/pgSQL、worktree 工具检查及本轮普通权限／实际消费者 Native 检查
-已完成；当前安装工件、冷运行及 worker 进程丢失仍待验收，不能关闭完整 Labeling。Assets reset 的旧来源清除方法尚无生产调用入口，
-随暂缓的 Assets 维护调用单列，不把它记作已迁移。
+已完成。Assets reset 的旧来源清除方法没有在线 API／worker 调用，但手动
+`reset_datasets.py` 使用一般数据库配置且没有环境限定；它随暂缓的 Assets 维护调用
+单列，不把它记作已迁移，也不宣称所有运维入口已经闭合。
 
 本轮 57 个不同案例的最新结果为 56 通过、1 失败，无错误或跳过，分别来自首轮
 47 通过／10 失败、九项定点复验的 8 通过／1 失败，以及最后一项元数据复验通过。
@@ -2650,3 +2651,17 @@ Python 浮点值守卫和公开 ORM 结果名也已恢复原行为。没有重�
 PG、Redis、桶及限定存储身份清理均成功。逐例最新状态、三份来源提交和全部原始
 收据的哈希由 `.worktree/labeling-compatibility-native-checkpoint.json` 绑定；
 这不代表当前安装工件、完整数据恢复或整模块资格。
+
+源码 `82ee202d5` 的 wheel／sdist 与 135 项源码和资源一致，独立非编辑安装的 120 项
+包检查通过。API／worker 镜像的 778 项安装包文件和 1,565 项应用文件，以及独立
+video writer 的 268 项安装文件均与来源一致；这些安装与离线检查不替代业务运行验收。
+现有冷组合四例中，HTTP 撤权前置和真实 prefork worker 两例通过，覆盖成功、取消、
+停用／移除身份、子进程 SIGKILL 后重投和实际执行退役。恢复时效使用夹具控制的租约
+过期，不证明默认恢复延迟或整个容器丢失；已通过的 worker 不再重复运行。
+
+同轮冷 API 创建标注返回 500，完整恢复在刷新旧 `mv_user_perf_daily` 的私表依赖处
+失败；原始失败与成功均保留于 `.worktree/labeling-compatibility-cold-checkpoint.json`，
+自有资源清理无错误。创建、二次推理及视频转换的七处 Annotation 刷新现统一复用
+既有公开读取逻辑，先丢弃目标对象未提交改动，再保持同一 identity-map 对象和原事务；
+四项过期状态／缺失行检查通过。修正后的冷 API 和完整恢复仍待定点复验，整模块资格
+继续开放。

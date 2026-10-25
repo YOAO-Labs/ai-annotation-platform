@@ -4,8 +4,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import func, inspect, select
-from sqlalchemy.exc import InvalidRequestError
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.task_workflow_errors import TaskWorkflowError
@@ -35,21 +34,12 @@ from app.services.labeling_core_read_relations import (
     annotation_row,
     batch_row,
     execute_core_read,
-    get_core_row,
+    refresh_core_row,
     lock_batch_task_rows_for_core_read,
     task_row,
 )
 
 _SUBMIT_REVIEW_CHUNK_SIZE = 200
-
-
-async def _refresh_core_row(db: AsyncSession, row_model, row) -> None:
-    """Reload a just-committed core row through its public relation."""
-    db.expire(row)
-    row_id = inspect(row).identity[0]
-    refreshed = await get_core_row(db, row_model, row_id, populate_existing=True)
-    if refreshed is None:
-        raise InvalidRequestError("Could not refresh instance")
 
 
 def _assert_batch_submit_authority(
@@ -391,7 +381,7 @@ class TaskSubmissionWorkflow:
         _assert_batch_submittable(batch)
         await batch_service.check_auto_transitions(batch_id)
         await batch_service.recalculate_counters(batch_id)
-        await _refresh_core_row(self.db, batch_row, batch)
+        await refresh_core_row(self.db, batch_row, batch)
         if batch.status != before_status:
             await AuditService.log(
                 self.db,
@@ -409,7 +399,7 @@ class TaskSubmissionWorkflow:
                 },
             )
         await self.db.commit()
-        await _refresh_core_row(self.db, batch_row, batch)
+        await refresh_core_row(self.db, batch_row, batch)
         remaining = (
             await execute_core_read(
                 self.db,

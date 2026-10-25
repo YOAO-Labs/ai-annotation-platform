@@ -7,6 +7,7 @@ import json
 import os
 import re
 import secrets
+import subprocess
 import time
 import uuid
 from pathlib import Path
@@ -446,7 +447,14 @@ async def _wait_for_api(
 
 def _api_failure_logs(container_id: str, secrets_to_redact: list[str]) -> str:
     try:
-        logs = _docker("logs", "--tail", "100", container_id, timeout=15)
+        logs = subprocess.run(
+            ["docker", "logs", "--tail", "100", container_id],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=15,
+            check=False,
+        ).stdout
     except Exception:
         return ""
     for value in sorted(
