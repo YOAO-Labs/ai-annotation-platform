@@ -26,6 +26,47 @@ it("迁移清单只报告清单完整性，通知和阶段不承诺复制完成"
   expect(jobNotificationVerb("job.completed", job.kind)).toBe("配置源迁移清单完成");
 });
 
+it("初次复制区分准备、整体结果和选定子集，不将零对象或部分成功写成迁移完成", () => {
+  const kind = "storage_migration_copy";
+  expect(jobResultSummary({ kind, result: { prepared: false } })).toBe("复制计划尚未封存");
+  expect(
+    jobResultSummary({
+      kind,
+      result: { prepared: true, operation: "prepare", counts: { verified: 0 } },
+    }),
+  ).toBe("计划已封存，可审阅后开始初次复制");
+  expect(
+    jobResultSummary({
+      kind,
+      result: { prepared: true, decisions: { copy: 0 }, copy_subset_complete: true },
+    }),
+  ).toBe("无可复制对象");
+  expect(
+    jobResultSummary({
+      kind,
+      result: { prepared: true, operation: "prepare", decisions: { retain: 4 } },
+    }),
+  ).toBe("计划已封存，无可复制对象");
+  expect(
+    jobResultSummary({
+      kind,
+      result: {
+        prepared: true,
+        selected_count: 2,
+        selected_verified_count: 2,
+        copy_subset_complete: false,
+      },
+    }),
+  ).toBe("选定子集已核验 2 / 2 · 整体计划仍有未完成范围");
+  expect(jobStage({ kind, status: "running", result: { operation: "verify" }, payload: {} })).toBe(
+    "只读核验保存的目标版本",
+  );
+  expect(jobNotificationVerb("job.completed", kind)).toBe("初次复制任务已结束");
+  expect(jobNotificationVerb("job.completed", kind, { operation: "prepare", prepared: true })).toBe(
+    "复制计划准备完成",
+  );
+});
+
 describe("后台任务结果", () => {
   it("视频资产处理不展示虚构百分比，并解释派发未确认", () => {
     const job = {

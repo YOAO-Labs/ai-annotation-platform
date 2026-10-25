@@ -118,6 +118,25 @@ describe("共享后台任务详情", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
+  it("初次复制任务直达持久计划，准备完成只显示可审阅", async () => {
+    const copyId = "11111111-1111-1111-1111-111111111111";
+    mocks.get.mockResolvedValue({
+      ...job,
+      kind: "storage_migration_copy",
+      project_id: null,
+      payload: { copy_id: copyId },
+      result: { prepared: true, operation: "prepare" },
+    });
+    renderModal();
+    expect(await screen.findByText("计划已封存，可审阅后开始初次复制")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "查看迁移准备" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        `/storage?tab=migration&migration_copy=${copyId}`,
+      ),
+    );
+  });
+
   it("同一用户的新会话不复用旧详情，也不展示旧会话的晚返回", async () => {
     let resolve!: (value: AsyncJob) => void;
     const first = new Promise<AsyncJob>((done) => {

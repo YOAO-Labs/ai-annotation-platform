@@ -174,6 +174,44 @@ function mount(qc?: QueryClient) {
 }
 
 describe("useNotificationSocket", () => {
+  it("初次复制新私密kind在入队与flush复核当前资格，保留同批普通通知", async () => {
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    });
+    seedPreferences(qc, "u1", [{ type: "job.failed", toast: true }]);
+    mount(qc);
+    const socket = MockWebSocket.instances[0];
+    act(() =>
+      socket.triggerMessage({
+        id: "blocked-copy",
+        type: "job.failed",
+        payload: { kind: "storage_migration_copy" },
+      }),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1100);
+    });
+    expect(toastCallCount()).toBe(0);
+    act(() => {
+      useAuthStore.setState({ user: { id: "u1", role: "super_admin" } as never });
+      socket.triggerMessage({
+        id: "private-copy",
+        type: "job.failed",
+        payload: { kind: "storage_migration_copy" },
+      });
+      socket.triggerMessage({
+        id: "ordinary-copy-batch",
+        type: "job.failed",
+        payload: { kind: "dataset_import" },
+      });
+      useAuthStore.setState({ user: { id: "u1", role: "project_admin" } as never });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1100);
+    });
+    expect(errorToastMessages()).toEqual(["数据集导入失败"]);
+    expect(warningToastMessages()).toEqual([]);
+  });
   it("迁移清单提醒只允许当前超级管理员入队，旧类型仍按偏好处理", async () => {
     const qc = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: Infinity } },

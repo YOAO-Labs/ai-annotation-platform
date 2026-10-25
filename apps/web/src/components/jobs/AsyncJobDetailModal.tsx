@@ -156,8 +156,15 @@ export function AsyncJobDetailModal({
     setTargetError(null);
     try {
       let url: string;
-      if (kind === "migration" && job.kind === "storage_migration_inventory") {
-        url = "/storage?tab=migration";
+      if (
+        kind === "migration" &&
+        ["storage_migration_inventory", "storage_migration_copy"].includes(job.kind)
+      ) {
+        const copyId =
+          job.kind === "storage_migration_copy"
+            ? (jobString(job.result, "copy_id") ?? jobString(job.payload, "copy_id"))
+            : null;
+        url = `/storage?${new URLSearchParams({ tab: "migration", ...(copyId ? { migration_copy: copyId } : {}) })}`;
       } else if (kind === "active-learning" && roundId && roundAttemptId && job.project_id) {
         const round = await activeLearningApi.get(job.project_id, roundId);
         if (!current()) return;
@@ -352,7 +359,7 @@ export function AsyncJobDetailModal({
             </p>
           )}
           <div className="flex flex-wrap gap-2">
-            {job.kind === "storage_migration_inventory" && (
+            {["storage_migration_inventory", "storage_migration_copy"].includes(job.kind) && (
               <Button
                 size="sm"
                 disabled={openingTarget}

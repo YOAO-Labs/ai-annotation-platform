@@ -20,6 +20,7 @@ export const JOB_KIND_LABEL: Record<string, string> = {
   dataset_scan: "目录观测扫描",
   storage_usage: "存储对象盘点",
   storage_migration_inventory: "配置源迁移清单",
+  storage_migration_copy: "存储初次复制",
   managed_original_verification: "托管原件核验",
   dataset_quality_review: "质量批量复核",
   dataset_quality: "数据集图片质检",
@@ -47,7 +48,25 @@ export const JOB_STATUS_LABEL: Record<AsyncJobStatus, string> = {
   cancelled: "已取消",
 };
 
-export function jobNotificationVerb(type: string, kind: unknown): string | null {
+export function jobNotificationVerb(
+  type: string,
+  kind: unknown,
+  payload: Record<string, unknown> = {},
+): string | null {
+  if (kind === "storage_migration_copy") {
+    const label =
+      payload.operation === "prepare"
+        ? "复制计划准备"
+        : payload.operation === "verify"
+          ? "复制核验任务"
+          : "初次复制任务";
+    if (type === "job.completed")
+      return payload.operation === "prepare" && payload.prepared === true
+        ? "复制计划准备完成"
+        : `${label}已结束`;
+    if (type === "job.failed") return `${label}失败`;
+    if (type === "job.cancelled") return `${label}已取消`;
+  }
   const suffix =
     type === "job.completed"
       ? "完成"
@@ -73,6 +92,32 @@ export function jobNumber(record: Record<string, unknown>, key: string): number 
 
 export function jobResultSummary(job: Pick<AsyncJob, "kind" | "result">): string | null {
   const result = job.result ?? {};
+  if (job.kind === "storage_migration_copy") {
+    if (result.prepared !== true) return "复制计划尚未封存";
+    const counts =
+      result.counts && typeof result.counts === "object"
+        ? (result.counts as Record<string, unknown>)
+        : {};
+    const decisions =
+      result.decisions && typeof result.decisions === "object"
+        ? (result.decisions as Record<string, unknown>)
+        : {};
+    const selected = jobNumber(result, "selected_count");
+    if (selected !== null)
+      return `选定子集已核验 ${jobNumber(result, "selected_verified_count") ?? 0} / ${selected} · 整体计划${result.copy_subset_complete === true ? "子集已核验" : "仍有未完成范围"}`;
+    if (result.decisions && (decisions.copy ?? 0) === 0)
+      return result.operation === "prepare" ? "计划已封存，无可复制对象" : "无可复制对象";
+    if (result.operation === "prepare") return "计划已封存，可审阅后开始初次复制";
+    const verified = jobNumber(counts, "verified");
+    const failed = jobNumber(counts, "failed");
+    return [
+      result.copy_subset_complete === true ? "可复制子集已核验" : "可复制子集尚未全部核验",
+      verified === null ? null : `已核验 ${verified}`,
+      failed === null ? null : `失败 ${failed}`,
+    ]
+      .filter(Boolean)
+      .join(" / ");
+  }
   if (job.kind === "storage_migration_inventory") {
     const counts =
       result.counts && typeof result.counts === "object"
@@ -135,6 +180,17 @@ export function jobStage(job: Pick<AsyncJob, "kind" | "status" | "result" | "pay
   if (["completed", "failed", "cancelled"].includes(job.status))
     return JOB_STATUS_LABEL[job.status];
   const phase = jobString(job.result, "stage") ?? jobString(job.payload, "stage");
+  if (job.kind === "storage_migration_copy") {
+    if (phase === "dispatch_pending") return "派发尚未确认";
+    const operation = jobString(job.result, "operation") ?? jobString(job.payload, "operation");
+    return job.status === "pending"
+      ? "等待执行"
+      : operation === "prepare"
+        ? "生成目录与冻结计划"
+        : operation === "verify"
+          ? "只读核验保存的目标版本"
+          : "复制并完整核验目标";
+  }
   if (job.kind === "storage_migration_inventory") {
     return phase === "dispatch_pending"
       ? "派发尚未确认"
@@ -186,6 +242,10 @@ export function exportDownloadState(result: Record<string, unknown>, now = Date.
 export function jobProgressText(
   job: Pick<AsyncJob, "kind" | "status" | "progress_pct" | "result">,
 ): string {
+  if (job.kind === "storage_migration_copy")
+    return job.result.cancel_requested === true && ["pending", "running"].includes(job.status)
+      ? "已请求取消，等待原生 I/O 与资源收尾"
+      : "按保存计划处理 · 不执行绑定切换或退役";
   if (job.kind === "storage_migration_inventory") {
     return job.result.cancel_requested === true && ["pending", "running"].includes(job.status)
       ? "已请求取消，等待底层读取收尾"

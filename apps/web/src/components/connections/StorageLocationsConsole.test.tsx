@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({ role: "super_admin", session: "session", revis
 const api = vi.hoisted(() => ({ locationPage: vi.fn(), location: vi.fn(), probe: vi.fn() }));
 const migration = vi.hoisted(() => ({ list: vi.fn() }));
 vi.mock("@/api/storageMigrationInventories", () => ({ storageMigrationInventoriesApi: migration }));
+vi.mock("./MigrationCopyPanel", () => ({ MigrationCopyPanel: () => null }));
 vi.mock("@/components/jobs/AsyncJobDetailModal", () => ({ AsyncJobDetailModal: () => null }));
 
 it("opens migration preparation without requesting other tab data or losing URL context", async () => {

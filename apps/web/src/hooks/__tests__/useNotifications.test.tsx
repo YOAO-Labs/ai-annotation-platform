@@ -66,24 +66,34 @@ afterEach(() => {
   act(() => useAuthStore.getState().logout());
 });
 
-it("same-account loss of superadmin qualification immediately retires cached private notifications and count", async () => {
-  const { result } = mount();
-  await waitFor(() => expect(result.current.list.data?.pages[0]).toEqual(privatePage));
-  await waitFor(() => expect(result.current.unread.data?.unread).toBe(9));
-  const nextList = deferred<NotificationsResponse>();
-  const nextUnread = deferred<UnreadCountResponse>();
-  api.list.mockReturnValueOnce(nextList.promise);
-  api.unreadCount.mockReturnValueOnce(nextUnread.promise);
-  act(() => useAuthStore.getState().setUser({ id: "owner", role: "project_admin" } as MeResponse));
-  expect(result.current.list.data).toBeUndefined();
-  expect(result.current.unread.data).toBeUndefined();
-  await act(async () => {
-    nextList.resolve(publicPage);
-    nextUnread.resolve({ unread: 1 });
-  });
-  await waitFor(() => expect(result.current.list.data?.pages[0]).toEqual(publicPage));
-  expect(result.current.unread.data?.unread).toBe(1);
-});
+it.each(["storage_migration_inventory", "storage_migration_copy"])(
+  "same-account loss of superadmin qualification retires cached %s notifications and count",
+  async (kind) => {
+    const privateItemPage = {
+      ...privatePage,
+      items: [{ ...privatePage.items[0], payload: { kind } }],
+    };
+    api.list.mockResolvedValue(privateItemPage);
+    const { result } = mount();
+    await waitFor(() => expect(result.current.list.data?.pages[0]).toEqual(privateItemPage));
+    await waitFor(() => expect(result.current.unread.data?.unread).toBe(9));
+    const nextList = deferred<NotificationsResponse>();
+    const nextUnread = deferred<UnreadCountResponse>();
+    api.list.mockReturnValueOnce(nextList.promise);
+    api.unreadCount.mockReturnValueOnce(nextUnread.promise);
+    act(() =>
+      useAuthStore.getState().setUser({ id: "owner", role: "project_admin" } as MeResponse),
+    );
+    expect(result.current.list.data).toBeUndefined();
+    expect(result.current.unread.data).toBeUndefined();
+    await act(async () => {
+      nextList.resolve(publicPage);
+      nextUnread.resolve({ unread: 1 });
+    });
+    await waitFor(() => expect(result.current.list.data?.pages[0]).toEqual(publicPage));
+    expect(result.current.unread.data?.unread).toBe(1);
+  },
+);
 
 it.each(["qualification", "session"])(
   "late private list and count cannot enter the replacement %s owner",

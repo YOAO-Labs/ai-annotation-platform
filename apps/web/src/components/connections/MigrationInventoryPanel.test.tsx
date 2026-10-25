@@ -17,6 +17,7 @@ const api = vi.hoisted(() => ({
   cancel: vi.fn(),
 }));
 vi.mock("@/api/storageMigrationInventories", () => ({ storageMigrationInventoriesApi: api }));
+vi.mock("./MigrationCopyPanel", () => ({ MigrationCopyPanel: () => null }));
 vi.mock("@/api/asyncJobs", () => ({ asyncJobsApi: { cancel: api.cancel } }));
 vi.mock("@/components/jobs/AsyncJobDetailModal", () => ({
   AsyncJobDetailModal: ({ jobId, onClose }: { jobId: string; onClose: () => void }) => (

@@ -272,9 +272,9 @@ function JobRow({
           )}
         </div>
       </div>
-      {!["dataset_scan", "storage_migration_inventory"].includes(job.kind) && (
-        <ProgressBar pct={pct} status={job.status} />
-      )}
+      {!["dataset_scan", "storage_migration_inventory", "storage_migration_copy"].includes(
+        job.kind,
+      ) && <ProgressBar pct={pct} status={job.status} />}
       <div className="text-xs tabular-nums text-muted-foreground">
         {job.status === "running" || job.status === "pending" ? (
           `${jobStage(job)} · ${jobProgressText(job)}`

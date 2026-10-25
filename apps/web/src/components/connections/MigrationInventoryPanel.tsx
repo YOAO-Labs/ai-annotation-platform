@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { asyncJobsApi } from "@/api/asyncJobs";
@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ListPagination, listPageSize } from "@/components/ui/ListPagination";
+import { MigrationCopyPanel } from "./MigrationCopyPanel";
 
 const LIMIT_FIELDS = [
   ["max_pages", "最多读取页数", 1, 100000, 1000, "每个 LIST 请求计为一页。"],
@@ -81,6 +82,12 @@ function InventoryOwner({ revision }: { revision: number }) {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [forbidden, setForbidden] = useState(false);
+  const [copySource, setCopySource] = useState<StorageMigrationInventoryItem | null>(null);
+  const closeCopySource = useCallback(() => setCopySource(null), []);
+  const denyCopy = useCallback(() => {
+    setForbidden(true);
+    setError("当前账号已无权读取迁移准备。");
+  }, []);
   const capture = useSessionGuard();
   const client = useQueryClient();
   const trigger = useRef<HTMLElement | null>(null);
@@ -218,6 +225,14 @@ function InventoryOwner({ revision }: { revision: number }) {
   };
   return (
     <section aria-label="迁移准备" className="space-y-4">
+      {!denied && (
+        <MigrationCopyPanel
+          source={copySource}
+          onSourceClose={closeCopySource}
+          onDenied={denyCopy}
+          jobFocusRef={trigger}
+        />
+      )}
       <Card>
         <div className="space-y-3 p-4">
           <div>
@@ -385,6 +400,17 @@ function InventoryOwner({ revision }: { revision: number }) {
                     </p>
                   )}
                   <div className="flex flex-wrap gap-2">
+                    {item.report_available && item.report_sha256 && (
+                      <Button
+                        size="sm"
+                        onClick={(event) => {
+                          trigger.current = event.currentTarget;
+                          setCopySource(item);
+                        }}
+                      >
+                        准备初次复制
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       onClick={(event) => {
