@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, model_validator
 from sqlalchemy import func, literal, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -64,8 +64,14 @@ class NotificationPreferenceUpdate(BaseModel):
 router = APIRouter()
 
 
+def _inventory_scope(request: Request) -> bool:
+    scopes = getattr(request.state, "api_key_scopes", None)
+    return scopes is None or "*" in scopes
+
+
 @router.get("/notifications", response_model=NotificationList)
 async def list_notifications(
+    request: Request,
     unread_only: bool = Query(False),
     limit: int = Query(30, ge=1, le=100),
     offset: int = Query(0, ge=0),
@@ -74,7 +80,11 @@ async def list_notifications(
 ):
     svc = NotificationService(db)
     items, total, unread = await svc.list_for_user(
-        user.id, unread_only=unread_only, limit=limit, offset=offset
+        user.id,
+        unread_only=unread_only,
+        limit=limit,
+        offset=offset,
+        include_migration_inventory=_inventory_scope(request),
     )
     return NotificationList(
         items=[NotificationOut.model_validate(i) for i in items],
@@ -85,21 +95,30 @@ async def list_notifications(
 
 @router.get("/notifications/unread-count", response_model=UnreadCount)
 async def unread_count(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     svc = NotificationService(db)
-    return UnreadCount(unread=await svc.unread_count(user.id))
+    return UnreadCount(
+        unread=await svc.unread_count(
+            user.id,
+            include_migration_inventory=_inventory_scope(request),
+        )
+    )
 
 
 @router.post("/notifications/{notification_id}/read")
 async def mark_read(
+    request: Request,
     notification_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     svc = NotificationService(db)
-    ok = await svc.mark_read(user.id, notification_id)
+    ok = await svc.mark_read(
+        user.id, notification_id, include_migration_inventory=_inventory_scope(request)
+    )
     if not ok:
         raise HTTPException(
             status_code=404, detail="Notification not found or already read"
@@ -112,11 +131,14 @@ async def mark_read(
 
 @router.post("/notifications/mark-all-read")
 async def mark_all_read(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     svc = NotificationService(db)
-    n = await svc.mark_all_read(user.id)
+    n = await svc.mark_all_read(
+        user.id, include_migration_inventory=_inventory_scope(request)
+    )
     await db.commit()
     if n > 0:
         await svc.publish_sync(user.id, reason="read")
@@ -125,11 +147,14 @@ async def mark_all_read(
 
 @router.post("/notifications/clear-read")
 async def clear_read_notifications(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     svc = NotificationService(db)
-    n = await svc.clear_read(user.id)
+    n = await svc.clear_read(
+        user.id, include_migration_inventory=_inventory_scope(request)
+    )
     await db.commit()
     if n > 0:
         await svc.publish_sync(user.id, reason="deleted")
@@ -138,12 +163,15 @@ async def clear_read_notifications(
 
 @router.delete("/notifications/{notification_id}")
 async def delete_notification(
+    request: Request,
     notification_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     svc = NotificationService(db)
-    ok = await svc.delete_for_user(user.id, notification_id)
+    ok = await svc.delete_for_user(
+        user.id, notification_id, include_migration_inventory=_inventory_scope(request)
+    )
     if not ok:
         raise HTTPException(status_code=404, detail="Notification not found")
     await db.commit()

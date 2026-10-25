@@ -50,6 +50,7 @@ from app.api.v1 import (
     scenes,
     search,
     storage,
+    storage_migration_inventories,
     storage_connections,
     storage_locations,
     storage_maintenance,
@@ -238,3 +239,9 @@ if _e2e_seed_routes_enabled():
     api_router.include_router(_test_seed.router, prefix="/__test", tags=["_test_seed"])
 
 api_router.include_router(dataset_sources.router, tags=["dataset-sources"])
+
+api_router.include_router(
+    storage_migration_inventories.router,
+    prefix="/storage/migration-inventories",
+    tags=["storage"],
+)

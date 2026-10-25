@@ -49,6 +49,7 @@ celery_app = Celery(
         "app.workers.storage_probe",
         "app.workers.storage_usage",
         "app.workers.managed_original_verification",
+        "app.workers.storage_migration_inventory",
         "app.workers.dataset_scan",
         "app.workers.dataset_registration",
         "app.workers.dataset_quality",
