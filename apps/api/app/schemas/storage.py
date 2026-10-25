@@ -63,7 +63,14 @@ class StorageUsageAccountingSummary(BaseModel):
     scope: Literal["current_objects"] = "current_objects"
     coverage: Literal["partial"] = "partial"
     producers: list[str] = Field(
-        default_factory=lambda: ["prediction_inputs", "managed_original_creation"]
+        default_factory=lambda: [
+            "prediction_inputs",
+            "managed_original_creation",
+            "thumbnail_outputs",
+            "original_cache",
+            "image_pyramid_outputs",
+            "video_derivative_outputs",
+        ]
     )
     confirmed_added_bytes: int = 0
     confirmed_removed_bytes: int = 0

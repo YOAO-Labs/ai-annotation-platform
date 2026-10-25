@@ -13,6 +13,8 @@ from app.db.models.dataset_asset import StorageBinding, StorageLocation
 from app.db.models.storage_maintenance import StorageOperation
 from app.db.models.thumbnail_output import ThumbnailOutput
 from app.services import thumbnail_outputs as service
+from app.services import storage as storage_module
+from app.services import media_cache_accounting, storage_usage_accounting
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.sources.s3_reference import S3Access
@@ -40,6 +42,13 @@ def client(monkeypatch):
     client = Client()
     client.versioned = True
     monkeypatch.setattr(service.storage_service, "client", client)
+
+    class OwnedStorage(storage_module.StorageService):
+        def __init__(self, **kwargs):
+            self.client = client
+
+    monkeypatch.setattr(storage_module, "StorageService", OwnedStorage)
+    client.close = lambda: None
 
     @contextmanager
     def transport(self, **kwargs):
@@ -194,3 +203,60 @@ async def test_read_owner_contention_is_recoverable_before_provider_io(
         assert client.calls == before
     async with factory() as current:
         assert not await current.scalar(select(StorageOperation.id))
+
+
+async def test_accounting_intent_failure_is_known_pre_put_refusal(
+    media_db, client, monkeypatch
+):
+    async def fail(*args, **kwargs):
+        raise OSError("intent unavailable")
+
+    monkeypatch.setattr(media_cache_accounting.Recorder, "_begin", fail)
+    with pytest.raises(OSError):
+        await service.create(
+            media_db,
+            owner_kind="dataset_thumbnail",
+            owner_id=uuid.uuid4(),
+            input_ref={},
+            body=b"webp",
+        )
+    assert not any(operation == "put" for operation, _ in client.calls)
+    async with async_sessionmaker(media_db.bind, expire_on_commit=False)() as fresh:
+        output = await fresh.scalar(select(ThumbnailOutput))
+        assert output.state == "failed" and not output.uncertain_write
+        assert not await fresh.scalar(select(StorageOperation.id))
+
+
+async def test_cancel_during_accounting_still_persists_verified_owner(
+    media_db, client, monkeypatch
+):
+    started, release = asyncio.Event(), asyncio.Event()
+    publish = storage_usage_accounting.publish
+
+    async def blocked(*args, **kwargs):
+        started.set()
+        await release.wait()
+        await publish(*args, **kwargs)
+
+    monkeypatch.setattr(storage_usage_accounting, "publish", blocked)
+    task = asyncio.create_task(
+        service.create(
+            media_db,
+            owner_kind="dataset_thumbnail",
+            owner_id=uuid.uuid4(),
+            input_ref={},
+            body=b"webp",
+        )
+    )
+    await started.wait()
+    task.cancel()
+    await asyncio.sleep(0)
+    assert not task.done()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    async with async_sessionmaker(media_db.bind, expire_on_commit=False)() as fresh:
+        output = await fresh.scalar(select(ThumbnailOutput))
+        assert output.state == "ready" and not output.uncertain_write
+        assert output.size_bytes == len(b"webp") and output.ready_at is not None
+        assert not await fresh.scalar(select(StorageOperation.id))

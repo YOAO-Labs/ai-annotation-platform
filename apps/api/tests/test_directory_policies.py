@@ -10,6 +10,7 @@ from app.db.models.dataset import DatasetItem
 from app.db.models.dataset_asset import DatasetAsset, DatasetAssetLocation
 from app.db.models.dataset_source import DatasetSourceItem, DatasetSourcePreview
 from app.schemas.dataset_source import SourceLifecycleChange
+from app.services import storage as storage_module
 from app.services import directory_previews as previews
 from app.services import dataset_source_lifecycle as lifecycle
 from app.services import dataset_registration as registration
@@ -28,6 +29,12 @@ def object_store(monkeypatch):
 
     fake = CreationStorage(keyed_by_bucket=True)
     monkeypatch.setattr(storage_service, "client", fake)
+
+    class OwnedStorage(storage_module.StorageService):
+        def __init__(self, **kwargs):
+            self.client = fake
+
+    monkeypatch.setattr(storage_module, "StorageService", OwnedStorage)
     monkeypatch.setattr(creations, "create_client", lambda **_: fake)
     monkeypatch.setattr(
         storage_service,

@@ -18,6 +18,7 @@ from functools import wraps
 from dataclasses import dataclass
 from pathlib import Path
 
+from botocore.config import Config
 from celery.exceptions import SoftTimeLimitExceeded
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -55,6 +56,7 @@ from app.services.image_pyramid import (
     sha256_digest,
     validate_dimensions,
 )
+from app.services import media_cache_accounting
 from app.services import (
     image_pyramid_originals as originals,
     image_pyramid_objects as objects,
@@ -346,6 +348,7 @@ def _build_generation(
     expected_source_size: int,
     stage,
     output,
+    accounting=None,
 ) -> GeneratedPyramid:
     deadline = time.monotonic() + settings.image_pyramid_job_timeout_seconds
     with _temporary_directory() as temp:
@@ -395,6 +398,7 @@ def _build_generation(
                 overview_path=overview_path,
                 manifest_bytes=manifest_bytes,
                 deadline=deadline,
+                **({"accounting": accounting} if accounting is not None else {}),
             )
         return GeneratedPyramid(
             source_fingerprint=fingerprint,
@@ -464,6 +468,14 @@ async def _run_image_pyramid(
             await db.commit()
             target = await physical.transport_target(db, output)
             context, entered = None, []
+            recorder = media_cache_accounting.Recorder(
+                factory,
+                "image_pyramid_outputs",
+                output.id,
+                output.storage_ref["endpoint_url"],
+                output.storage_ref["bucket"],
+            )
+            accounting_settled = True
             async with await storage_access.acquire(
                 db,
                 uuid.UUID(output.storage_ref["location_id"]),
@@ -488,11 +500,20 @@ async def _run_image_pyramid(
                 try:
                     if target is None:
                         try:
-                            storage = StorageService()
+                            storage = StorageService(
+                                client_config=Config(
+                                    retries={
+                                        "total_max_attempts": 1,
+                                        "mode": "standard",
+                                    }
+                                )
+                            )
                         except BaseException as exc:
                             raise storage_access.mark_unsettled(exc)
                     else:
-                        context = physical.open_storage(target=target)
+                        context = physical.open_storage(
+                            target=target, single_attempt=True
+                        )
 
                         def open_owned():
                             value = context.__enter__()
@@ -512,17 +533,29 @@ async def _run_image_pyramid(
                             expected_source_size=owner.source.size_bytes,
                             stage=stage,
                             output=output,
+                            accounting=recorder,
                             timeout=settings.image_pyramid_job_timeout_seconds,
                         )
+                except BaseException as exc:
+                    accounting_settled = not getattr(
+                        exc, "storage_operation_unsettled", False
+                    )
+                    raise
                 finally:
-                    if entered:
-                        await originals.physical(context.__exit__, *sys.exc_info())
-                        storage = None
-                    elif storage is not None:
-                        await originals.physical(
-                            storage_access.close_registered, storage.client
-                        )
-                        storage = None
+                    closed = False
+                    try:
+                        if entered:
+                            await originals.physical(context.__exit__, *sys.exc_info())
+                            storage = None
+                            closed = True
+                        elif storage is not None:
+                            await originals.physical(
+                                storage_access.close_registered, storage.client
+                            )
+                            storage = None
+                            closed = True
+                    finally:
+                        await recorder.finish(settled=closed and accounting_settled)
                 await guard()
                 async with factory() as final:
                     published = await publish_generation(

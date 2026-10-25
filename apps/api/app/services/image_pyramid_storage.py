@@ -20,6 +20,7 @@ from types import SimpleNamespace
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.services import media_cache_accounting
 from app.services import storage_access
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.managed_original_retirement import managed_storage_identity
@@ -312,7 +313,9 @@ def _version(metadata):
     return value
 
 
-def _read(client, owner, key, receipt, deadline, *, collect=False):
+def _read(
+    client, owner, key, receipt, deadline, *, collect=False, accounting_attempt=None
+):
     owner.contains(key)
     _receipt(receipt)
     _budget(deadline)
@@ -363,6 +366,8 @@ def _read(client, owner, key, receipt, deadline, *, collect=False):
     ):
         _reject("integrity_mismatch")
     _budget(deadline)
+    if accounting_attempt is not None:
+        accounting_attempt.verified(client, version)
     return b"".join(chunks) if collect else deepcopy(receipt)
 
 
@@ -410,14 +415,16 @@ def _translate(exc):
 
 
 @contextmanager
-def open_storage(*, target):
+def open_storage(*, target, single_attempt=False):
     """Open and close the registered transport inside the caller's permit."""
     try:
-        context = target.client(read_timeout=30)
+        context = target.client(
+            read_timeout=30, **({"single_attempt": True} if single_attempt else {})
+        )
         client = context.__enter__()
     except BaseException as exc:
         if isinstance(exc, Exception):
-            raise _translate(exc) from None
+            raise _translate(storage_access.mark_unsettled(exc)) from None
         raise
     try:
         yield SimpleNamespace(client=client, media_cache_bucket=target.bucket)
@@ -425,10 +432,12 @@ def open_storage(*, target):
         try:
             context.__exit__(*sys.exc_info())
         except Exception as exc:
-            raise _translate(exc) from None
+            raise _translate(storage_access.mark_unsettled(exc)) from None
 
 
-def upload_and_verify(storage, output, tiles, overview_path, manifest_bytes, deadline):
+def upload_and_verify(
+    storage, output, tiles, overview_path, manifest_bytes, deadline, *, accounting=None
+):
     """Create an independent prefix, then fully read back every exact receipt."""
     owner = resolve(output)
     client = _client(storage, owner)
@@ -450,7 +459,7 @@ def upload_and_verify(storage, output, tiles, overview_path, manifest_bytes, dea
     overview = owner.key("overview.webp")
     manifest = owner.key("manifest.json")
     paths[overview] = Path(overview_path)
-    inventory = {}
+    inventory, attempts = {}, {}
     try:
         if _objects(client, owner, deadline):
             _reject("integrity_mismatch")
@@ -467,7 +476,11 @@ def upload_and_verify(storage, output, tiles, overview_path, manifest_bytes, dea
                 if size <= 0:
                     _reject("invalid_receipt")
                 stream.seek(0)
-                client.put_object(
+                _, attempt = media_cache_accounting.put(
+                    accounting,
+                    client,
+                    key,
+                    {"sha256": checksum.hexdigest(), "size_bytes": size},
                     Bucket=owner.bucket,
                     Key=key,
                     Body=stream,
@@ -476,10 +489,18 @@ def upload_and_verify(storage, output, tiles, overview_path, manifest_bytes, dea
                     CacheControl="private, max-age=31536000, immutable",
                     IfNoneMatch="*",
                 )
+            attempts[key] = attempt
             total += size
             inventory[key] = {"sha256": checksum.hexdigest(), "size_bytes": size}
             _budget(deadline)
-        client.put_object(
+        _, attempts[manifest] = media_cache_accounting.put(
+            accounting,
+            client,
+            manifest,
+            {
+                "sha256": hashlib.sha256(manifest_bytes).hexdigest(),
+                "size_bytes": len(manifest_bytes),
+            },
             Bucket=owner.bucket,
             Key=manifest,
             Body=manifest_bytes,
@@ -496,7 +517,14 @@ def upload_and_verify(storage, output, tiles, overview_path, manifest_bytes, dea
         if _objects(client, owner, deadline) != expected:
             _reject("integrity_mismatch")
         for key, receipt in inventory.items():
-            _read(client, owner, key, receipt, deadline)
+            _read(
+                client,
+                owner,
+                key,
+                receipt,
+                deadline,
+                accounting_attempt=attempts.get(key),
+            )
         if _objects(client, owner, deadline) != expected:
             _reject("integrity_mismatch")
         return manifest, overview, total, {"schema": 1, "objects": inventory}

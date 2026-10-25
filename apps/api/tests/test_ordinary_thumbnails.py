@@ -35,6 +35,7 @@ from app.services import (
     ordinary_thumbnails as service,
 )
 from app.services import thumbnail_outputs
+from app.services import storage as storage_module
 from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
 from app.services.managed_original_retirement import managed_storage_identity
 from app.services.managed_s3_target import Target
@@ -164,6 +165,12 @@ async def world(test_engine, monkeypatch):
                 instance.close()
 
         monkeypatch.setattr(S3Access, "client", client)
+
+        class OwnedStorage(storage_module.StorageService):
+            def __init__(self, **kwargs):
+                self.client = Client(value, storage_service.client.meta.endpoint_url)
+
+        monkeypatch.setattr(storage_module, "StorageService", OwnedStorage)
         monkeypatch.setattr(
             reader,
             "create_client",

@@ -118,7 +118,7 @@ async def claim(db, output, ttl_seconds=900):
 
 
 @asynccontextmanager
-async def access(db, receipt, guard, *, require_enabled=True):
+async def access(db, receipt, guard, *, require_enabled=True, single_attempt=False):
     """Own client construction through actual close under an independent permit."""
     owner = physical.resolve(receipt)
     factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
@@ -135,9 +135,14 @@ async def access(db, receipt, guard, *, require_enabled=True):
         ) as permit:
             await guard(permit.revision)
             context = (
-                physical.open_storage()
+                physical.open_storage(
+                    **({"single_attempt": True} if single_attempt else {})
+                )
                 if target is None
-                else physical.open_storage(target=target)
+                else physical.open_storage(
+                    target=target,
+                    **({"single_attempt": True} if single_attempt else {}),
+                )
             )
             entered = []
 

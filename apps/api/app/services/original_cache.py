@@ -31,6 +31,7 @@ from app.db.models.original_cache import (
 )
 from app.services import content_snapshot as snapshots
 from app.services import media_cache_storage as saved_storage
+from app.services import media_cache_accounting
 from app.services import storage_access
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.prediction_inputs import settled_io
@@ -442,7 +443,7 @@ async def reserve(factory, source_id, asset_id, storage, *, expected_revision=No
 
 
 @contextmanager
-def stored_object(record, settled=None):
+def stored_object(record, settled=None, *, observed=None):
     body, failure = None, None
     try:
         with physical_storage(record) as storage:
@@ -450,6 +451,8 @@ def stored_object(record, settled=None):
                 response = storage.client.get_object(
                     Bucket=record.bucket, Key=object_key(record)
                 )
+                if observed is not None:
+                    observed.append(response)
                 body = response["Body"]
                 if response.get("ContentLength") != record.size_bytes:
                     raise snapshots.ContentError("cache_content_mismatch")
@@ -472,7 +475,8 @@ def verify_stored(record):
     # of complete stored bytes needs no second snapshot/admission or decoder.
     digest, size = hashlib.sha256(), 0
     deadline = time.monotonic() + snapshots.COPY_SECONDS
-    with stored_object(record) as (body, _):
+    observed = []
+    with stored_object(record, observed=observed) as (body, _):
         while True:
             if time.monotonic() > deadline:
                 raise snapshots.ContentError("cache_verify_timeout", 504)
@@ -485,6 +489,14 @@ def verify_stored(record):
             digest.update(chunk)
     if size != record.size_bytes or digest.hexdigest() != record.sha256:
         raise snapshots.ContentError("cache_content_mismatch")
+    response = observed[0]
+    return (
+        response.get("VersionId")
+        if response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 200
+        and not response.get("DeleteMarker")
+        and response.get("ContentRange") is None
+        else None
+    )
 
 
 async def bound_destination(db, record):
@@ -607,6 +619,7 @@ async def store(factory, source_id, asset_id, snapshot, *, expected_revision=Non
     ):
         raise snapshots.ContentError("cache_snapshot_invalid")
     record, confirmed_put = None, False
+    recorder, accounting_settled = None, False
     try:
         record, status = await reserve(
             factory, source_id, asset_id, None, expected_revision=expected_revision
@@ -621,6 +634,13 @@ async def store(factory, source_id, asset_id, snapshot, *, expected_revision=Non
             return "expired"
         async with factory() as db:
             await prepare_target(db, record)
+            recorder = media_cache_accounting.Recorder(
+                factory,
+                "original_cache",
+                record.id,
+                record._target.endpoint_url,
+                record.bucket,
+            )
             async with await storage_access.acquire(
                 db,
                 record.location_id,
@@ -632,8 +652,12 @@ async def store(factory, source_id, asset_id, snapshot, *, expected_revision=Non
                 failure = None
                 try:
                     snapshot.file.seek(0)
-                    await settled_io(
-                        storage.client.put_object,
+                    _, attempt = await settled_io(
+                        media_cache_accounting.put,
+                        recorder,
+                        storage.client,
+                        object_key(record),
+                        {"sha256": record.sha256, "size_bytes": record.size_bytes},
                         Bucket=record.bucket,
                         Key=object_key(record),
                         Body=snapshot.file,
@@ -642,13 +666,17 @@ async def store(factory, source_id, asset_id, snapshot, *, expected_revision=Non
                         IfNoneMatch="*",
                     )
                     confirmed_put = True
-                    await settled_io(verify_stored, record)
+                    observed_version = await settled_io(verify_stored, record)
+                    await settled_io(attempt.verified, storage.client, observed_version)
                 except BaseException as exc:
                     failure = exc
                     raise
                 finally:
                     try:
                         await settled_io(context.__exit__, None, None, None)
+                        accounting_settled = not getattr(
+                            failure, "storage_operation_unsettled", False
+                        )
                     except BaseException:
                         if failure is None:
                             raise
@@ -677,7 +705,11 @@ async def store(factory, source_id, asset_id, snapshot, *, expected_revision=Non
         )
         return "fill_failed"
     finally:
-        snapshot.file.seek(0)
+        try:
+            if recorder is not None:
+                await recorder.finish(settled=accounting_settled)
+        finally:
+            snapshot.file.seek(0)
 
 
 async def read(factory, source_id, asset_id, *, on_acquired=None):
