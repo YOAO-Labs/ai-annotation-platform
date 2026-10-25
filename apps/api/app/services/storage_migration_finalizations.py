@@ -549,6 +549,10 @@ async def _verified(db, row, window, copy):
         or not copy.source_complete
         or not copy.baseline_sha256
         or not copy.catalog_sha256
+        or not all(
+            isinstance(getattr(copy, field), bytes)
+            for field in ("source_report", "catalog", "baseline")
+        )
     ):
         reject("finalization_copy_changed")
     try:
@@ -570,6 +574,7 @@ async def _verified(db, row, window, copy):
         or attempt.status != "completed"
         or attempt.completed_at is None
         or attempt.cancel_requested_at is not None
+        or attempt.error_code is not None
         or attempt.retry_failed
         or attempt.retry_object_ids is not None
         or attempt.source_operation_id is None
@@ -580,6 +585,7 @@ async def _verified(db, row, window, copy):
     if (
         result.get("attempt_subset_complete") is not True
         or type(result.get("selected_count")) is not int
+        or type(result.get("selected_verified_count")) is not int
         or result["selected_count"] < 0
         or result.get("selected_verified_count") != result["selected_count"]
     ):
@@ -658,6 +664,20 @@ async def finish_seal(db, actor_id, claim, expected_revision, token, evidence, n
         and all(
             evidence.get(key) == token.get(key)
             for key in ("source_report_sha256", "catalog_sha256", "baseline_sha256")
+        )
+    ):
+        reject("finalization_invalid_evidence")
+    counts = evidence["counts"]
+    if (
+        attempt.result["selected_count"] != counts["copied_objects"]
+        or attempt.result["selected_verified_count"] != counts["copied_objects"]
+        or any(
+            native["counts"].get(actual) != counts[expected]
+            for actual, expected in (
+                ("buckets", "source_buckets"),
+                ("versions", "current_objects"),
+                ("delete_markers", "current_delete_markers"),
+            )
         )
     ):
         reject("finalization_invalid_evidence")

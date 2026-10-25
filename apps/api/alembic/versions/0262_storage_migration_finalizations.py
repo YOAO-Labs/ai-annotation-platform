@@ -152,6 +152,7 @@ def upgrade():
 
 
 def downgrade():
+    op.execute("LOCK TABLE storage_migration_finalizations IN ACCESS EXCLUSIVE MODE")
     if op.get_bind().scalar(
         sa.text("SELECT EXISTS(SELECT 1 FROM storage_migration_finalizations)")
     ):

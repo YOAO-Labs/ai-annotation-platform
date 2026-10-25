@@ -83,7 +83,7 @@ async def control(db_session, prepared, super_admin):
         journal_revision=3,
         barriers_sha256="b" * 64,
         observed_at=inventories.now().isoformat(),
-        counts={"buckets": 9},
+        counts={"buckets": 9, "versions": 0, "delete_markers": 0},
         source={key: context["source"][key] for key in ("endpoint", "purpose_buckets")},
     )
     return SimpleNamespace(
@@ -215,7 +215,7 @@ def evidence(token):
             key: token[key]
             for key in ("source_report_sha256", "catalog_sha256", "baseline_sha256")
         },
-        "counts": dict.fromkeys(service.COUNT_FIELDS, 0),
+        "counts": {**dict.fromkeys(service.COUNT_FIELDS, 0), "source_buckets": 9},
         "catalog_summary": {
             "complete": True,
             "enumeration_complete": True,
@@ -689,3 +689,152 @@ async def test_claim_nonce_format_and_unknown_reserved_abandon_fail_closed(
             db_session, control.actor.id, {**control.claim, "reserved": True}, 0
         ),
     )
+
+
+@pytest.mark.parametrize(
+    "mismatch",
+    ["verify_count", "buckets", "versions", "delete_markers", "missing_native_count"],
+)
+async def test_seal_cross_checks_native_full_verify_and_evidence_counts(
+    db_session, bound, mismatch
+):
+    row, attempt, _ = await child(db_session, bound)
+    if mismatch == "verify_count":
+        attempt.result = {
+            **attempt.result,
+            "selected_count": 1,
+            "selected_verified_count": 1,
+        }
+        await db_session.flush()
+    begin = await service.begin_seal(
+        db_session, bound.actor.id, bound.claim, row.id, 1, bound.native
+    )
+    native = deepcopy(bound.native)
+    if mismatch != "verify_count":
+        key = "versions" if mismatch == "missing_native_count" else mismatch
+        if mismatch == "missing_native_count":
+            native["counts"].pop(key)
+        else:
+            native["counts"][key] += 1
+    await code(
+        "finalization_invalid_evidence",
+        lambda: service.finish_seal(
+            db_session,
+            bound.actor.id,
+            bound.claim,
+            2,
+            begin["token"],
+            evidence(begin["token"]),
+            native,
+        ),
+    )
+
+
+async def test_bind_concurrent_lock_and_committed_invalidation(
+    test_engine, monkeypatch
+):
+    """Leave immutable history in this owned DB; its whole mode is destroyed later."""
+    import asyncio
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from app.config import settings
+    from tests.factory import create_user
+    from tests.test_storage_migration_copies import seed
+
+    monkeypatch.setattr(settings, "storage_maintenance_protocol_enabled", True)
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    async with maker() as db:
+        actor = await create_user(
+            db,
+            "super_admin",
+            f"finalization-lock-{uuid.uuid4()}@test.local",
+            "Finalization lock",
+        )
+        _, _, _, body = await seed(db, actor)
+        parent, job, _ = await copies.start(db, actor, body)
+        parent.baseline, parent.baseline_sha256 = b"bounded control parent", "a" * 64
+        attempt = await copies.last(db, parent)
+        attempt.status = job.status = "completed"
+        attempt.completed_at = job.completed_at = inventories.now()
+        await db.flush()
+        value = await windows.open_window(
+            db, actor, StorageMigrationWindowRequest(parent_copy_id=parent.id)
+        )
+        await windows.transition(
+            db,
+            value.window_id,
+            actor,
+            StorageMigrationWindowTransition(action="stop", expected_revision=1),
+        )
+        context = await service.preflight(db, actor.id, value.window_id, 2)
+        actor_id, window_id = actor.id, value.window_id
+        claim = dict(
+            schema=service.CLAIM_SCHEMA,
+            finalization_id=str(uuid.uuid4()),
+            window_id=str(window_id),
+            expected_window_revision=2,
+            database_identity=context["database_identity"],
+            reservation_nonce=str(uuid.uuid4()),
+            native_operation_id=str(uuid.uuid4()),
+            config_digest="a" * 64,
+            reserved=False,
+        )
+        native = dict(
+            config_digest=claim["config_digest"],
+            operation_id=claim["native_operation_id"],
+            journal_revision=3,
+            barriers_sha256="b" * 64,
+            observed_at=inventories.now().isoformat(),
+            counts={"buckets": 9, "versions": 0, "delete_markers": 0},
+            source={
+                key: context["source"][key] for key in ("endpoint", "purpose_buckets")
+            },
+        )
+        await db.commit()
+    async with maker() as first, maker() as second:
+        await service.preflight(first, actor_id, window_id, 2)
+        with pytest.raises(HTTPException) as error:
+            await asyncio.wait_for(service.bind(second, actor_id, claim, native), 2)
+        assert error.value.detail["code"] in {
+            "finalization_busy",
+            "storage_maintenance_busy",
+        }
+        await second.rollback()
+        await first.rollback()
+        bound = await service.bind(second, actor_id, claim, native)
+        await second.commit()
+    async with maker() as third:
+        observed = await service.status(third, actor_id, {**claim, "reserved": True})
+        assert observed == bound
+        actor = await third.get(type(actor), actor_id)
+        await code(
+            "finalization_active",
+            lambda: windows.transition(
+                third,
+                window_id,
+                actor,
+                StorageMigrationWindowTransition(action="close", expected_revision=3),
+            ),
+        )
+        closing = await service.begin_invalidation(
+            third, actor_id, claim, bound.revision
+        )
+        await third.commit()
+    async with maker() as fourth:
+        actor = await fourth.get(type(actor), actor_id)
+        await code(
+            "finalization_closing",
+            lambda: inventories.start(
+                fourth, actor, StorageMigrationInventoryRequest(window_id=window_id)
+            ),
+        )
+        invalidated = await service.finish_invalidation(
+            fourth, actor_id, claim, closing.revision
+        )
+        assert invalidated.state == "invalidated"
+        await windows.transition(
+            fourth,
+            window_id,
+            actor,
+            StorageMigrationWindowTransition(action="close", expected_revision=3),
+        )
+        await fourth.commit()
