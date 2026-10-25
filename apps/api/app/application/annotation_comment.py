@@ -131,6 +131,7 @@ class AnnotationCommentWorkflow:
         )
         await self.db.commit()
         await NotificationService(self.db).publish_committed(pending_notifications)
+        comment = await self.comments.refresh(comment)
         return comment, actor
 
     async def update(
@@ -154,6 +155,7 @@ class AnnotationCommentWorkflow:
             comment, body=data.body, is_resolved=data.is_resolved
         )
         await self.db.commit()
+        comment = await self.comments.refresh(comment)
         return comment
 
     async def delete(

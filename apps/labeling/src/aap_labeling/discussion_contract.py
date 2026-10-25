@@ -330,7 +330,10 @@ def decode_discussion_reply(
         if reply.data.comment is None or reply.data.comment.id != expected:
             raise LabelingDiscussionUnavailable()
     elif isinstance(request, ClearAnnotationCommentAttachments):
-        if reply.data.comment is not None:
+        if (
+            reply.data.comment is not None
+            and reply.data.comment.id != request.comment_id
+        ) or reply.data.feedback is not None:
             raise LabelingDiscussionUnavailable()
     elif isinstance(request, DeleteCommentsForTasks):
         if reply.data.deleted_comments is None or reply.data.comment is not None:

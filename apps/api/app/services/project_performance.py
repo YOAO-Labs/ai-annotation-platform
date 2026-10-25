@@ -66,6 +66,7 @@ from app.services.audit import AuditAction
 from app.services.audit_read_relations import audit_event
 from app.services.csv_export import csv_literal
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.labeling_discussion_relations import task_event_facts
 from app.services.identity_read_relations import (
     account_profiles,
     read_account_profile,
@@ -488,7 +489,7 @@ async def _load_qualified_time(
                          AND te.collection_coverage = 'qualified'
                    )
                        AS qualified_count
-            FROM task_events AS te
+            FROM aap_labeling_v1.task_event_facts AS te
             JOIN tasks AS t ON t.id = te.task_id
             WHERE t.project_id = :project_id
               AND te.project_id = :project_id
@@ -511,7 +512,7 @@ async def _load_qualified_time(
                 SELECT te.user_id, te.kind,
                        GREATEST(te.started_at, :start_at) AS interval_start,
                        LEAST(te.ended_at, :end_at) AS interval_end
-                FROM task_events AS te
+                FROM aap_labeling_v1.task_event_facts AS te
                 JOIN tasks AS t ON t.id = te.task_id
                 WHERE t.project_id = :project_id
                   AND te.project_id = :project_id
@@ -790,15 +791,15 @@ async def _build_roster(
         )
         historical_ids.update(value for (value,) in annotation_ids if value is not None)
         event_ids = await db.execute(
-            select(TaskEvent.user_id)
-            .join(Task, Task.id == TaskEvent.task_id)
+            select(task_event_facts.c.user_id)
+            .join(Task, Task.id == task_event_facts.c.task_id)
             .where(
                 Task.project_id == project.id,
-                TaskEvent.project_id == project.id,
-                TaskEvent.collection_source == "session",
-                TaskEvent.collection_coverage == "qualified",
-                TaskEvent.started_at < scope.end,
-                TaskEvent.ended_at > scope.start,
+                task_event_facts.c.project_id == project.id,
+                task_event_facts.c.collection_source == "session",
+                task_event_facts.c.collection_coverage == "qualified",
+                task_event_facts.c.started_at < scope.end,
+                task_event_facts.c.ended_at > scope.start,
             )
             .distinct()
         )
@@ -1629,22 +1630,22 @@ async def _load_evidence_page(
     session_stmt = (
         select(
             literal("session").label("source_kind"),
-            cast(TaskEvent.id, String).label("source_id"),
-            TaskEvent.started_at.label("at"),
-            (literal("session.") + TaskEvent.kind).label("action"),
-            cast(TaskEvent.task_id, String).label("task_id"),
-            cast(TaskEvent.duration_ms, String).label("detail"),
+            cast(task_event_facts.c.id, String).label("source_id"),
+            task_event_facts.c.started_at.label("at"),
+            (literal("session.") + task_event_facts.c.kind).label("action"),
+            cast(task_event_facts.c.task_id, String).label("task_id"),
+            cast(task_event_facts.c.duration_ms, String).label("detail"),
         )
-        .join(Task, Task.id == TaskEvent.task_id)
+        .join(Task, Task.id == task_event_facts.c.task_id)
         .where(
             Task.project_id == project_id,
-            TaskEvent.project_id == project_id,
-            TaskEvent.user_id == member_id,
-            TaskEvent.kind == event_kind,
-            TaskEvent.collection_source == "session",
-            TaskEvent.collection_coverage == "qualified",
-            TaskEvent.started_at < scope.end,
-            TaskEvent.ended_at > scope.start,
+            task_event_facts.c.project_id == project_id,
+            task_event_facts.c.user_id == member_id,
+            task_event_facts.c.kind == event_kind,
+            task_event_facts.c.collection_source == "session",
+            task_event_facts.c.collection_coverage == "qualified",
+            task_event_facts.c.started_at < scope.end,
+            task_event_facts.c.ended_at > scope.start,
         )
     )
     combined = union_all(audit_stmt, session_stmt).subquery()

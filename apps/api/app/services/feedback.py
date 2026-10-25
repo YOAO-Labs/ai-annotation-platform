@@ -16,8 +16,10 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 from sqlalchemy import and_, any_, cast, func, or_, select
 from sqlalchemy.dialects.postgresql import ARRAY, UUID as PGUUID, array
+from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
+from sqlalchemy.orm import make_transient_to_detached
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.db.models.annotation_feedback import AnnotationFeedback
@@ -44,13 +46,20 @@ from app.services.labeling_discussion_relations import (
 logger = logging.getLogger(__name__)
 
 
-def _feedback(row: AnnotationFeedbackRow) -> AnnotationFeedback:
-    return AnnotationFeedback(**row.model_dump(mode="python"))
-
-
 class FeedbackService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
+
+    async def _attach(self, row: AnnotationFeedbackRow) -> AnnotationFeedback:
+        entry = AnnotationFeedback(**row.model_dump(mode="python"))
+        make_transient_to_detached(entry)
+        return await self.db.merge(entry, load=False)
+
+    async def refresh(self, entry: AnnotationFeedback) -> AnnotationFeedback:
+        refreshed = await self.get(entry.id, populate_existing=True)
+        if refreshed is None:
+            raise InvalidRequestError(f"Could not refresh instance '{entry}'")
+        return refreshed
 
     async def create(
         self,
@@ -119,7 +128,7 @@ class FeedbackService:
             ),
         )
         assert result.feedback is not None
-        return _feedback(result.feedback)
+        return await self._attach(result.feedback)
 
     async def get(
         self, feedback_id: uuid.UUID, *, populate_existing: bool = False
@@ -159,7 +168,7 @@ class FeedbackService:
             ),
             flush_before=False,
         )
-        return [_feedback(row) for row in result.feedbacks or []]
+        return [await self._attach(row) for row in result.feedbacks or []]
 
     async def _validate_video_context(
         self,
@@ -298,7 +307,7 @@ class FeedbackService:
         )
         await self.db.flush()
         assert result.feedback is not None
-        return _feedback(result.feedback)
+        return await self._attach(result.feedback)
 
     # ------------------------------------------------------------------
     # ADR-0027 第二段 (v0.10.20) · 旧三表双写 mirror helpers
@@ -334,7 +343,7 @@ class FeedbackService:
             ),
         )
         assert result.feedback is not None
-        feedback = _feedback(result.feedback)
+        feedback = await self._attach(result.feedback)
         logger.info(
             "[ADR-0027 double-write] bug_reports %s → feedback %s",
             bug_report.id,
@@ -367,7 +376,7 @@ class FeedbackService:
             ),
         )
         assert result.feedback is not None
-        feedback = _feedback(result.feedback)
+        feedback = await self._attach(result.feedback)
         logger.info(
             "[ADR-0027 double-write] annotation_comments %s → feedback %s",
             comment.id,
@@ -399,7 +408,7 @@ class FeedbackService:
             ),
         )
         assert result.feedback is not None
-        feedback = _feedback(result.feedback)
+        feedback = await self._attach(result.feedback)
         logger.info(
             "[ADR-0027 double-write] tasks.reject %s → feedback %s",
             task.id,
@@ -422,7 +431,7 @@ class FeedbackService:
         )
         await self.db.flush()
         assert result.feedback is not None
-        return _feedback(result.feedback)
+        return await self._attach(result.feedback)
 
     async def resolve_root(
         self,

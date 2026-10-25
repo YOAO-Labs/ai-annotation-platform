@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 from sqlalchemy.orm import make_transient_to_detached
@@ -32,17 +33,26 @@ from app.services.labeling_discussion_relations import annotation_comment_facts
 from app.services.workspace_read_relations import project_facts, project_member_facts
 
 
-def _comment(row: AnnotationCommentRow) -> AnnotationComment:
-    comment = AnnotationComment(**row.model_dump(mode="python"))
-    make_transient_to_detached(comment)
-    return comment
-
-
 class AnnotationCommentService:
     """Own legacy annotation-comment validation and row mutations."""
 
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
+
+    async def _attach(self, row: AnnotationCommentRow) -> AnnotationComment:
+        comment = AnnotationComment(**row.model_dump(mode="python"))
+        make_transient_to_detached(comment)
+        return await self.db.merge(comment, load=False)
+
+    async def refresh(self, comment: AnnotationComment) -> AnnotationComment:
+        refreshed = await self.db.scalar(
+            select(annotation_comment_facts)
+            .where(annotation_comment_facts.id == comment.id)
+            .execution_options(populate_existing=True)
+        )
+        if refreshed is None:
+            raise InvalidRequestError(f"Could not refresh instance '{comment}'")
+        return refreshed
 
     async def select_expired_attachment_comments(
         self, *, now: datetime | None = None
@@ -61,7 +71,7 @@ class AnnotationCommentService:
 
     async def clear_attachments(self, comment_id: uuid.UUID) -> None:
         """Clear one comment's attachment row without committing the caller's transaction."""
-        await discussion_command(
+        result = await discussion_command(
             self.db,
             ClearAnnotationCommentAttachments(
                 schema=DISCUSSION_PROTOCOL,
@@ -70,6 +80,8 @@ class AnnotationCommentService:
             ),
             flush_before=self.db.autoflush,
         )
+        if result.comment is not None:
+            await self._attach(result.comment)
 
     async def validate_mentions(
         self, project_id: uuid.UUID, user_ids: list[uuid.UUID]
@@ -150,7 +162,7 @@ class AnnotationCommentService:
             ),
         )
         assert result.comment is not None
-        return _comment(result.comment)
+        return await self._attach(result.comment)
 
     async def get(self, comment_id: uuid.UUID) -> AnnotationComment | None:
         row = await self.db.scalar(
@@ -171,7 +183,7 @@ class AnnotationCommentService:
             flush_before=False,
         )
         assert result.comment is not None
-        return _comment(result.comment)
+        return await self._attach(result.comment)
 
     async def list_for_annotation(
         self, annotation_id: uuid.UUID, *, active_only: bool = True
@@ -293,7 +305,7 @@ class AnnotationCommentService:
             flush_before=False,
         )
         assert result.comment is not None
-        return _comment(result.comment)
+        return await self._attach(result.comment)
 
     async def soft_delete(self, comment: AnnotationComment) -> AnnotationComment:
         """Deactivate a row admitted and refreshed by the application workflow."""
@@ -307,4 +319,4 @@ class AnnotationCommentService:
             flush_before=False,
         )
         assert result.comment is not None
-        return _comment(result.comment)
+        return await self._attach(result.comment)

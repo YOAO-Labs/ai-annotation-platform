@@ -9,6 +9,8 @@ import pytest
 from aap_labeling.discussion_contract import (
     DISCUSSION_PROTOCOL,
     TASK_EVENT_PROTOCOL,
+    AnnotationCommentRow,
+    ClearAnnotationCommentAttachments,
     CreateAnnotationComment,
     InsertTaskEvents,
     LabelingDiscussionUnavailable,
@@ -16,6 +18,7 @@ from aap_labeling.discussion_contract import (
     ReadTaskEvents,
     TaskEventInsertRow,
     decode_discussion_command,
+    decode_discussion_reply,
     discussion_command_json,
 )
 from aap_labeling.discussion_data import LabelingDiscussionDataClient
@@ -76,6 +79,48 @@ async def test_comment_command_keeps_json_nulls_and_binds_returned_row():
     unknown["skip_authorization"] = True
     with pytest.raises(LabelingDiscussionUnavailable):
         decode_discussion_command(unknown)
+
+
+def test_clear_attachments_reply_can_sync_the_updated_comment():
+    comment_id = uuid.uuid4()
+    now = datetime.now(timezone.utc)
+    request = ClearAnnotationCommentAttachments(
+        schema=DISCUSSION_PROTOCOL,
+        operation="clear_comment_attachments",
+        comment_id=comment_id,
+    )
+    comment = AnnotationCommentRow(
+        id=comment_id,
+        annotation_id=uuid.uuid4(),
+        project_id=uuid.uuid4(),
+        author_id=uuid.uuid4(),
+        body="comment",
+        is_resolved=False,
+        is_active=True,
+        mentions=[],
+        attachments=[],
+        canvas_drawing=None,
+        anchor=None,
+        created_at=now,
+        updated_at=now,
+    )
+    reply = {
+        "schema": DISCUSSION_PROTOCOL,
+        "ok": True,
+        "request": request.model_dump(mode="json", by_alias=True),
+        "data": {"comment": comment.model_dump(mode="json")},
+    }
+
+    assert decode_discussion_reply(request, reply).comment == comment
+    assert decode_discussion_reply(request, {**reply, "data": {}}).comment is None
+
+    reply["data"] = {
+        "comment": comment.model_copy(update={"id": uuid.uuid4()}).model_dump(
+            mode="json"
+        )
+    }
+    with pytest.raises(LabelingDiscussionUnavailable):
+        decode_discussion_reply(request, reply)
 
 
 @pytest.mark.asyncio

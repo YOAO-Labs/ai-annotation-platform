@@ -170,8 +170,12 @@ BEGIN
     ELSIF v_operation = 'clear_comment_attachments' THEN
         UPDATE public.annotation_comments AS comment
         SET attachments = '[]'::jsonb, updated_at = v_now
-        WHERE comment.id = (p_request ->> 'comment_id')::uuid;
-        v_data := '{}'::jsonb;
+        WHERE comment.id = (p_request ->> 'comment_id')::uuid
+        RETURNING * INTO v_comment;
+        v_data := CASE
+            WHEN FOUND THEN jsonb_build_object('comment', to_jsonb(v_comment))
+            ELSE '{}'::jsonb
+        END;
     ELSIF v_operation = 'delete_comments_for_tasks' THEN
         IF jsonb_typeof(p_request -> 'task_ids') IS DISTINCT FROM 'array' THEN
             RAISE EXCEPTION 'Invalid comment task IDs' USING ERRCODE = '22023';

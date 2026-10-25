@@ -286,6 +286,7 @@ class AnnotationFeedbackWorkflow:
             )
         await self.db.commit()
         await NotificationService(self.db).publish_committed(pending_notifications)
+        entry = await self.feedback.refresh(entry)
         _project, output_access = await resolve_project_access_by_id(
             self.db, actor_id=actor.id, project_id=entry.project_id
         )
@@ -402,6 +403,7 @@ class AnnotationFeedbackWorkflow:
             )
         await self.db.commit()
         await NotificationService(self.db).publish_committed(pending_notifications)
+        updated = await self.feedback.refresh(updated)
         return FeedbackMutationResult(
             entry=updated,
             project_role=access.project_role,
@@ -495,6 +497,7 @@ class AnnotationFeedbackWorkflow:
         )
         await self.db.commit()
         await NotificationService(self.db).publish_committed(pending_notifications)
+        reply = await self.feedback.refresh(reply)
         _project, output_access = await resolve_project_access_by_id(
             self.db, actor_id=actor.id, project_id=root.project_id
         )
