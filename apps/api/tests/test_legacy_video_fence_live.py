@@ -28,16 +28,14 @@ from aap_inference_contract.scope_retirement import make_scope_retirement_reques
 from app.config import settings
 from app.services.ml_backend import MLBackendService
 from app.services.ml_routing.authority import RoutingAuthority
+from scripts.video_storage_fence import ScopedStorageFenceProbe
+from scripts.video_worker_fence import LocalFenceRefused, observe_postgres_fence
 from tests.legacy_video_fence_helpers import (
-    LocalFenceRefused,
     build_local_fence_evidence,
     fence_disposable_database_logins,
     inspect_live_worker_credentials,
     owned_postgres_identity,
     owned_worker_identity,
-    prove_s3_write_access,
-    prove_s3_write_denied,
-    prove_stale_worker_dsns_denied,
     run_fence_after_preflight,
     stop_fixture_workers,
     stop_owned_worker,
@@ -505,9 +503,10 @@ async def test_owned_local_fence_blocks_stale_video_tracker_redelivery(
             )
             s3_probe_client = _scoped_s3_client(settings, guide_scope)
             s3_probe_key = f"projects/{world['project_id']}/guide/legacy-video-fence-{uuid4().hex}.txt"
-            s3_write_probe = prove_s3_write_access(
+            storage_probe = ScopedStorageFenceProbe(
                 s3_probe_client, guide_scope["bucket"], s3_probe_key
             )
+            s3_write_probe = storage_probe.baseline
             worker = _worker(
                 test_engine,
                 tmp_path / "first-worker",
@@ -773,9 +772,7 @@ async def test_owned_local_fence_blocks_stale_video_tracker_redelivery(
                     raise LocalFenceRefused("backend_peer_stop_unverified")
 
                 destroy_guide_scope(guide_scope)
-                old_s3_error = prove_s3_write_denied(
-                    s3_probe_client, guide_scope["bucket"], s3_probe_key
-                )
+                storage_observation = storage_probe.observe_denied()
                 s3_revocation = {
                     "access_key_id": guide_scope["access_key"],
                     "policy_id": guide_scope["policy"],
@@ -784,18 +781,18 @@ async def test_owned_local_fence_blocks_stale_video_tracker_redelivery(
                     "user_removed": guide_scope["user_created"] is False,
                     "policy_removed": guide_scope["policy_created"] is False,
                     "old_credential_denied": True,
-                    "denial_code": old_s3_error,
+                    "denial_code": storage_observation["denial_code"],
                     "write_probe": s3_write_probe,
+                    "observation": storage_observation,
                 }
                 database_fence = await fence_disposable_database_logins(
                     test_engine, postgres, worker_credentials.credentials
                 )
-                stale_denials = await prove_stale_worker_dsns_denied(
-                    worker_credentials.credentials,
-                    host=postgres.host,
-                    port=postgres.port,
-                    database=postgres.database,
+                database_observation = await observe_postgres_fence(
+                    test_engine, postgres, worker_credentials.credentials
                 )
+                database_fence["observation"] = database_observation
+                stale_denials = database_observation["stale_login_denials"]
                 return {
                     "worker_stop": worker_stop,
                     "scope_retirement": scope_retirement,

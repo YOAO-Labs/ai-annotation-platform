@@ -2,7 +2,7 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-25
+last_reviewed: 2026-10-26
 ---
 
 # 所有业务模块的独立部署与语言替换
@@ -41,13 +41,13 @@ PostgreSQL 副本恢复后验证原数据、对象 owner 和本次迁移，再�
 所有结果限本地；当前重构源码已统一合入主工作树，日常独立 owner 拓扑尚未切换，Go 继续仅作实验。训练／Learning 及 Assets 的数据集、存储暂缓扩大实施，待最新功能合并后一起优化；后续代码修改直接在当前分支进行，互不依赖的盘点和审查可只读并行。
 实施先完成独立模块及其调用迁移，再按模块集中验收。开发中保留必要的基础检查与权限／数据完整性守卫；不因每个小改动重复编写测试或启动冷环境，也不沿验收失败不断扩大前置条件。与本 epic 无关的缺陷独立登记，不能阻塞模块实现主线。已通过证据保持复用，未完成的组合验收继续明确标记。
 
-Audit 与 Labeling 未暂缓范围的实现和已知调用方收口阶段已交付。Audit 独立维护 CLI、当前 API 查询／导出与元数据 worker、既有 Beat／维护队列三项任务的集中冷验收及 PostgreSQL 恢复均已通过。完整 Audit 仍保留暂缓 Learning 读取；默认混合维护 worker 的迁移账号切换由 Runtime assembly 单列。下一限定交付转向 Workspace 旧视频退役所需的真实 worker／写入凭据围栏事实源，不沿 Audit 验收扩修业务 request ID 遗留问题。各操作资格不代表完整 epic 闭合；训练／Learning、Assets 和 Go 范围保持。
+Audit 与 Labeling 未暂缓范围的实现和已知调用方收口阶段已交付。Audit 独立维护 CLI、当前 API 查询／导出与元数据 worker、既有 Beat／维护队列三项任务的集中冷验收及 PostgreSQL 恢复均已通过。旧视频的 [PostgreSQL](#legacy-video-postgres-fence)、[精确 worker 与作用域 S3](#legacy-video-worker-storage-facts)事实采集已独立于测试图，并接回原夹具。下一限定交付是当前事实源的集中本地组合验收，保持 scope 退役、同任务旧凭据重投及 409／输入保留守卫。真实历史部署仍缺完整写入路径清单，不能生成 Jobs 退役凭证。完整 Audit 保留暂缓 Learning 读取，默认混合维护 worker 凭据由 Runtime assembly 单列；不扩修业务 request ID 遗留问题，训练／Learning、Assets 和 Go 范围保持。
 
 <!-- prettier-ignore -->
 | 模块／操作组                             | 实现                                                                                                               | 消费者迁移                                                                                       | 独立运行验收与证据                                                                                                                                       | 剩余阻塞／下一交付                                                                                                                                                                                                                                                                                                                                               |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Identity：完整模块                       | 九组业务能力、账号事实／事务锁、provisioning 及独立工件已实现                                                      | 生产 API／worker、邮件、种子／截图、运维及门控测试的 Identity 操作已迁移                         | [整模块装配](#identity-整模块独立装配)与主工作树采用检查点 d2ea90f3f 保留，本地冷安装／真实消费者／完整恢复通过                                          | 本地模块资格和源码采用完成；日常独立拓扑未切换，另一语言完整提供方、其他网络拓扑及生产容量未验收。宿主机转发仍见 Runtime assembly                                                                                                                                                                                                                                |
-| Workspace：项目、成员、配置及访问        | 成员、交接、配置／模板、查询及相邻项目写入已实现                                                                   | nuScenes／点云质量晋升和对应公开入口已迁移，其他选定消费者已迁移                                 | [组合运行与恢复](#workspace-组合运行与恢复验收)、种子／运维及 export／cross-frame／video-tracker 的既有操作资格保留                                      | 媒体／截图、门控 E2E、规模种子／截图支持三组已完成限定本地验收。历史迁移审计已完成限定本地验收；cross-frame 已完成含实际数据库身份观测的限定冷验收；export 已完成普通 reviewer 冷执行与进程丢失恢复的限定本地验收；video-tracker 也已完成含真实撤权及子进程丢失重投的限定冷验收；剩余旧视频排空／退役的真实 worker／写凭据围栏事实源及整模块审计，独立运行拓扑尚未切换 |
+| Workspace：项目、成员、配置及访问        | 成员、交接、配置／模板、查询及相邻项目写入已实现；本地旧视频三类事实源已从测试图抽出 | nuScenes／点云质量晋升和对应公开入口已迁移；原旧视频夹具调用独立数据库／worker／S3 观察器 | [组合运行与恢复](#workspace-组合运行与恢复验收)、种子／运维及三类 worker 的既有资格保留；[数据库](#legacy-video-postgres-fence)五场景及 [worker／S3](#legacy-video-worker-storage-facts)七场景独立 smoke 通过 | 当前事实源的原视频组合尚未重验；本地观察不证明历史凭据完整或外部重启控制器已围栏，旧视频退役与整模块审计仍未闭合，独立运行拓扑尚未切换 |
 | Workspace／Jobs：取消后重投              | 取消和审计先提交，再复用现有派发器重投同一作业；不确定投递返回可重试 503                                           | 当前 API 入口已迁移；重复取消不重建作业、不重复审计                                              | [取消恢复](#video-cancel-redrive)：真实队列／prefork 丢失恢复、退役与删除门禁通过                                                                        | 操作切片和当前组合工件已完成限定本地验收；完整 Workspace／Jobs、无账本旧作业真实围栏仍待完成；未切独立运行拓扑                                                                                                                                                                                                                                                         |
 | Workspace：项目删除                      | 原子 Native 协调器及 Workspace 可移植命令／连接式客户端已实现                                                      | API 已通过同一请求事务调用 owner；不新增独立提交点                                               | [项目删除](#workspace-项目删除事务切片)的调用边界通过 76 项源码／受限 PG／Node／实际 API 定向检查                                                        | [退役门禁](#video-deletion-retirement)已实现并通过；无证明旧作业继续 409，遗留排空／修复入口仍缺，完整安全／恢复能力未闭合                                                                                                                                                                                                                                       |
 | Workspace：数据集解绑                    | 原协调器、可移植合同／管理器及借用事务 PostgreSQL 绑定已实现                                                       | API 通过相同 Session 调用 Workspace；原响应／缓存／提交保持                                      | [解绑切片](#workspace-数据集解绑事务切片)新增 72 项不同案例，含受限双函数 LOGIN、Node 与实际 HTTP                                                        | 调用边界、退役门禁及组合冷工件／受限凭据／恢复已通过；旧作业无证明的排空／修复入口仍缺                                                                                                                                                                                                                                                                           |
@@ -304,6 +304,60 @@ Audit 源码 `4f762fb91` 将月报原始尾段、DuckDB Audit 同步、项目绩
 子工作树的 `.worktree/video-cancel-redrive-qualification-second.json`（SHA-256 `cd36cdfeb9b295a5ac7b7abf8c7341277e0f7180d7ae1c841cec0de11703dde4`）通过两项案例：HTTP 撤权前置与一个完整 worker 组合案例。当前源码 API 通过真实 ASGI 请求派发到独占 broker／队列，取消后杀死 prefork 子进程，再观察原 ID 重投、当前执行退役及空队列确认。复用的 worker 镜像源码未变化；这不证明当前 API 镜像已验收。另两个删除／解绑案例通过，记录为 `.worktree/video-cancel-deletion-guard-qualification.json`（SHA-256 `4d841d50726e87bfcb634251fa7b52097e1b9305a4d3bc640364688f10b7fa2b`）。未退役时保持 409，真实退役后同操作重试成功，自有资源清理通过。无账本旧作业、scope-only 孤儿及整模块资格继续按上表推进。
 
 无账本旧视频的后续只读审计确认：当前 execution 退役会校验精确 run／route 证明，never-started clearance 仅适用于从未启动的作业。已启动但无 execution／journal 的作业，以及 scope-only 孤儿，仍缺覆盖旧 Celery 消费者、重投和在途写入的可核验停机／写凭据隔离事实源；单个推理 scope 的排空不能证明旧 worker 已停止写入。现有全局恢复中的外部 fence 摘要也不验证其实际内容。因此这些对象继续返回 409，不能补造 journal 或复用 never-started clearance。此审计不改变任何运行状态，整模块收口仍等待该真实前提。 后续实施仅为可观测、验收器独占 PostgreSQL／精确 worker 容器／作用域存储凭据建立本地围栏事实源；真实历史部署仍须证明完整凭据范围。新本地夹具使用随机专用队列，旧 tracker 基类则使用 `gpu`，不能将队列名当作独占证明，也不清空共享 broker；旧消息安全性须由失效凭据无法再写入来证明。 夹具保留真实 scope 退役、进程停止、S3／数据库旧凭据拒绝及相同任务重试观察；S3 先用同一账号成功写入并读回专用对象，撤销后重试相同写入，不能用原本未授权的桶操作作为证据。worker 诊断覆盖 tracker 凭据脱敏，部分启动也必须清理网络且不得吞掉清理失败；历史 Job 与 scope-only 状态均由测试 owner 播种，保留当前 tracker INSERT permit 防护；该 scope 没有 attempt、permit 或有效 admission。当前工件对无账本记录返回 RETRY，不能记作旧版二进制迁移或有效旧令牌资格，也不创建 Jobs 退役凭证。
+
+## 旧视频 PostgreSQL 围栏事实源 {#legacy-video-postgres-fence}
+
+`scripts/video_worker_fence.py` 提供不加载 API 或 pytest 的独立只读 CLI 和
+`observe_postgres_fence`。原本地视频夹具在受限的测试侧变更账号后调用同一观察器；
+账号停用、权限撤销、终止会话、worker 停止和存储撤权仍留在原独占资源边界。
+观察器不会执行这些操作，也不读取共享 `.env`。
+
+它先核对实际 Docker 容器 ID、标签、镜像声明与 loopback 端口，再核对数据库名／OID、
+集群 system identifier 和 `owner` 身份。实际目录状态必须满足：没有其他 LOGIN、
+目标库没有非 owner 会话或 prepared transaction，明确提供的旧 worker 角色均为
+NOLOGIN／NOINHERIT 且有效 CONNECT 被拒绝。每份旧 DSN 随后建立全新连接，只接受
+PostgreSQL 认证拒绝；超时、TCP 拒绝或其他 SQL 错误不能充当围栏证明。探测前后均复核
+目录和容器身份，输出附观察起止时间，不宣称状态永久成立。
+
+输入是当前用户持有、非符号链接、其他用户不可访问的有限大小凭据文件；输出不含
+DSN／密码。`aap-local-postgres-fence-facts/v1` 只声明指定本地测试库及显式凭据的
+观察事实，不证明凭据来自完整历史部署，不证明进程、存储或 broker 已隔离，也不创建
+execution、journal、clearance 或 Jobs 退役凭证。原 409 和输入保留守卫保持。
+运维输入格式与命令见 `DEV.md` 的“独立 PostgreSQL 围栏观察”。
+
+独占 PostgreSQL 的真实 CLI smoke 通过五个场景：未围栏账号拒绝、NOLOGIN 后残留
+会话拒绝、完整围栏后旧凭据认证拒绝、物理集群不匹配拒绝、prepared transaction
+拒绝；自有容器已删除。49 项定向回归和固定 Ruff 检查通过。收据为
+`.worktree/video-fence-observer-smoke.json` 与 `.worktree/video-fence-observer-unit.xml`。
+这不是视频冷组合或整模块恢复复验；既有成功证据保留原源码范围。
+
+## 旧视频 worker 与作用域 S3 事实源 {#legacy-video-worker-storage-facts}
+
+`scripts/video_worker_observation.py` 提供独立 worker CLI、`observe_worker_credentials`
+与 `observe_worker_exit`，不加载 API／pytest。运行中采集直接读取 Docker 环境及唯一的
+只读结果 DSN mount，沿用原四类凭据与写入选择器白名单；不从宿主配置推测。实际容器、
+镜像标签、启动时间、私网 ID／成员集合、普通 UID、只读根文件系统及资源限制均须与
+显式目标一致。采集前后复核身份；可自动重启容器、错 mount、同容器的新启动代次均拒绝。
+退出事实必须在原 owner 删除容器前观察真实 `exited` 状态、退出码和结束时间，容器
+不存在不算退出证明。输出明确不证明外部重启控制器已围栏。
+
+`scripts/video_storage_fence.py` 的 `ScopedStorageFenceProbe` 在构造时执行真实
+PutObject／GetObject 并核对固定内容，随后持有同一 client、bucket 和唯一探针 key。
+原 owner 完成作用域账号撤权后，`observe_denied()` 只对同一对象重试相同写入，认证／
+授权拒绝才产出事实；仍可写、缺桶或网络不确定均不能算围栏。它不管理 IAM、不清理
+对象、不证明其他存储身份已撤权；调用方保留独占资源校验、撤权和版本清理责任。
+原本地视频夹具已使用这两项运行时采集，破坏性操作和原退役门禁没有迁移或放宽。
+
+五个真实 worker CLI 场景及两个真实 MinIO 场景通过，49 项定向回归通过。worker 是
+既有不可变镜像中的实际 Celery 进程，经独占 Redis 确认可用；这里只验证运行身份、
+挂载凭据与退出，未执行 tracker／模型任务，也未将旧镜像标为当前 API 资格。首轮
+smoke 因夹具使用同步 PostgreSQL DSN 未启动 worker；离线镜像探针确认缺少同步驱动，
+仅改为原运行方式所需的 asyncpg DSN 后通过。失败收据和成功收据分别保留于
+`.worktree/video-worker-storage-smoke-first.json`、
+`.worktree/video-worker-storage-smoke.json`；定向结果在
+`.worktree/video-worker-storage-unit.xml`，自有四容器、网络、桶／账号清理无错误。
+这不是当前完整视频组合、Jobs 退役授权、历史部署围栏或生产资格；完整清单缺口仍按
+上方唯一台账保留。
 
 ## Identity 整模块独立装配
 

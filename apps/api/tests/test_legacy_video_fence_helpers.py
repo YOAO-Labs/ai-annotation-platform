@@ -14,21 +14,23 @@ import pytest
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import DBAPIError
 
-from tests.legacy_video_fence_helpers import (
+from scripts.video_storage_fence import S3_PROBE_BODY, ScopedStorageFenceProbe
+from scripts.video_worker_fence import (
     LocalFenceRefused,
-    S3_PROBE_BODY,
-    build_local_fence_evidence,
+    prove_stale_worker_dsns_denied,
+    validate_owned_postgres_container,
+)
+from scripts.video_worker_observation import (
     inventory_worker_database_credentials,
     inspect_worker_write_selectors,
+    validate_owned_worker_container,
+)
+from tests.legacy_video_fence_helpers import (
+    build_local_fence_evidence,
     owned_worker_identity,
-    prove_s3_write_access,
-    prove_s3_write_denied,
-    prove_stale_worker_dsns_denied,
     run_fence_after_preflight,
     stop_fixture_workers,
     stop_owned_worker,
-    validate_owned_postgres_container,
-    validate_owned_worker_container,
     validate_sanitized_local_fence_evidence,
     worker_credential_evidence,
 )
@@ -82,10 +84,8 @@ _WRITER_DSN = URL.create(
 def test_s3_revocation_repeats_the_previously_authorized_write(denial_code):
     class Client:
         revoked = False
-        writes = []
 
         def put_object(self, **request):
-            self.writes.append(request)
             if self.revoked and denial_code is not None:
                 raise ClientError({"Error": {"Code": denial_code}}, "PutObject")
             return {}
@@ -94,17 +94,15 @@ def test_s3_revocation_repeats_the_previously_authorized_write(denial_code):
             return {"Body": BytesIO(S3_PROBE_BODY)}
 
     client = Client()
-    probe = prove_s3_write_access(client, "owned-bucket", _S3_PROBE["key"])
-    assert probe == _S3_PROBE
+    probe = ScopedStorageFenceProbe(client, "owned-bucket", _S3_PROBE["key"])
+    with pytest.raises(LocalFenceRefused, match="still_works"):
+        probe.observe_denied()
     client.revoked = True
     if denial_code == "AccessDenied":
-        assert (
-            prove_s3_write_denied(client, "owned-bucket", probe["key"]) == denial_code
-        )
+        assert probe.observe_denied()["denial_code"] == denial_code
     else:
         with pytest.raises(LocalFenceRefused, match="inconclusive|still_works"):
-            prove_s3_write_denied(client, "owned-bucket", probe["key"])
-    assert client.writes[0] == client.writes[1]
+            probe.observe_denied()
 
 
 def test_worker_cleanup_covers_partial_start_and_reports_failure():
@@ -150,7 +148,7 @@ async def test_stale_login_proof_accepts_only_authentication_denials(
             pass
 
     monkeypatch.setattr(
-        "sqlalchemy.ext.asyncio.create_async_engine", lambda *a, **kw: Engine()
+        "scripts.video_worker_fence.create_async_engine", lambda *a, **kw: Engine()
     )
     credentials = inventory_worker_database_credentials(
         _environment(), database=_DATABASE, read_secret_file=lambda path: _RESULT_DSN

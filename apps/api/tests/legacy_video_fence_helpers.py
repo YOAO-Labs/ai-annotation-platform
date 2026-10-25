@@ -6,7 +6,6 @@ observed stop and credential fence for one verifier-owned disposable environment
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from hashlib import sha256
 import os
 import re
@@ -15,10 +14,24 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from sqlalchemy import text
-from sqlalchemy.engine import URL, make_url
+from sqlalchemy.engine import make_url
+from scripts.video_worker_fence import (
+    LocalFenceRefused,
+    LocalPostgresIdentity,
+    WorkerDatabaseCredential,
+    validate_owned_postgres_container,
+)
+from scripts.video_storage_fence import S3_PROBE_BODY
+from scripts.video_worker_observation import (
+    WORKER_DATABASE_SOURCES,
+    LocalWorkerTarget,
+    WorkerCredentialInventory,
+    observe_worker_credentials,
+    observe_worker_exit,
+    validate_owned_worker_container,
+)
 
 
-_POSTGRES_IMAGE = "postgres:16-alpine"
 _PG_CONTAINER = re.compile(r"[0-9a-f]{64}\Z")
 _PG_NAME = re.compile(r"aap-module-data-[0-9a-f]{12}\Z")
 _PG_ACCEPTANCE_ID = re.compile(r"[0-9a-f]{24}\Z")
@@ -27,52 +40,6 @@ _SOURCE_REVISION = re.compile(r"[0-9a-f]{7,64}\Z")
 _ROLE_NAME = re.compile(r"[a-z][a-z0-9_]{0,62}\Z")
 _QUEUE_NAME = re.compile(r"legacy_video_fence_[0-9a-f]{20}\Z")
 _LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
-
-_WORKER_DATABASE_SOURCES = {
-    "DATABASE_URL": "identity_api_consumer",
-    "PREANNOTATION_RESULTS_DATABASE_URL_FILE": "preannotation_result_client",
-    "INFERENCE_ROUTING_DATABASE_URL": "inference_routing_client",
-    "LABELING_VIDEO_WRITER_DATABASE_URL": "labeling_video_writer_client",
-}
-
-
-class LocalFenceRefused(RuntimeError):
-    """The fixture cannot prove exact local resource or credential ownership."""
-
-
-S3_PROBE_BODY = b"owned-legacy-video-fence-probe\n"
-
-
-def prove_s3_write_access(client, bucket: str, key: str) -> dict[str, Any]:
-    """Establish the same authorized operation that must fail after revocation."""
-    result = client.put_object(Bucket=bucket, Key=key, Body=S3_PROBE_BODY)
-    response = client.get_object(Bucket=bucket, Key=key)
-    body = response["Body"]
-    try:
-        if body.read() != S3_PROBE_BODY:
-            raise LocalFenceRefused("s3_probe_content_mismatch")
-    finally:
-        body.close()
-    return {
-        "operation": "PutObject",
-        "key": key,
-        "payload_sha256": sha256(S3_PROBE_BODY).hexdigest(),
-        "succeeded_before_revoke": True,
-        "version_id": result.get("VersionId"),
-    }
-
-
-def prove_s3_write_denied(client, bucket: str, key: str) -> str:
-    from botocore.exceptions import ClientError
-
-    try:
-        client.put_object(Bucket=bucket, Key=key, Body=S3_PROBE_BODY)
-    except ClientError as error:
-        code = error.response.get("Error", {}).get("Code")
-        if code in {"InvalidAccessKeyId", "AccessDenied", "AllAccessDisabled", "403"}:
-            return str(code)
-        raise LocalFenceRefused("stale_s3_credential_probe_inconclusive") from None
-    raise LocalFenceRefused("stale_s3_credential_still_works")
 
 
 def stop_fixture_workers(*workers) -> list[LocalFenceRefused]:
@@ -86,125 +53,27 @@ def stop_fixture_workers(*workers) -> list[LocalFenceRefused]:
     return errors
 
 
-@dataclass(frozen=True)
-class WorkerDatabaseCredential:
-    source_variable: str
-    role: str
-    database: str
-    container_host: str
-    container_port: int
-    secret_file: bool
-    _url: URL = field(repr=False, compare=False)
-
-    def evidence(self) -> dict[str, Any]:
-        """Return identity metadata only; the DSN and password stay in memory."""
-        return {
-            "source_variable": self.source_variable,
-            "role": self.role,
-            "database": self.database,
-            "container_host": self.container_host,
-            "container_port": self.container_port,
-            "secret_file": self.secret_file,
-        }
-
-    def host_url(self, *, host: str, port: int) -> URL:
-        """Retarget this observed DSN to the verifier's loopback PG binding."""
-        return self._url.set(
-            drivername="postgresql+asyncpg",
-            host=host,
-            port=port,
-        )
-
-
-@dataclass(frozen=True)
-class LocalPostgresIdentity:
-    container_id: str
-    container_name: str
-    acceptance_id: str
-    database: str
-    host: str
-    port: int
-    database_oid: int
-    cluster_system_identifier: int
-    owner_role: str
-
-    def evidence(self) -> dict[str, Any]:
-        return {
-            "container_id": self.container_id,
-            "container_name": self.container_name,
-            "acceptance_id": self.acceptance_id,
-            "database": self.database,
-            "host": self.host,
-            "port": self.port,
-            "database_oid": self.database_oid,
-            "cluster_system_identifier": self.cluster_system_identifier,
-            "owner_role": self.owner_role,
-        }
-
-
-@dataclass(frozen=True)
-class WorkerCredentialInventory:
-    identity: dict[str, Any]
-    credentials: tuple[WorkerDatabaseCredential, ...] = field(repr=False)
-    write_selectors: dict[str, Any] = field(default_factory=dict)
-
-    def evidence(self) -> dict[str, Any]:
-        return {
-            "identity": dict(self.identity),
-            "database_credentials": worker_credential_evidence(self.credentials),
-            "write_selectors": dict(self.write_selectors),
-        }
-
-
-def worker_database_credentials(worker: Any) -> tuple[WorkerDatabaseCredential, ...]:
-    """Observe DSNs from the exact running container, never from shared host env."""
-    if not getattr(worker, "container_id", None):
-        raise LocalFenceRefused("worker_container_unavailable")
-    try:
-        record = worker._inspect(worker.container_id)
-        worker._verify_container_record(record)
-        worker.assert_runtime()
-    except Exception:
-        raise LocalFenceRefused("worker_container_ownership_unavailable") from None
-    config = record.get("Config") or {}
-    environment = {
-        item.split("=", 1)[0]: item.split("=", 1)[1]
-        for item in (config.get("Env") or [])
-        if isinstance(item, str) and "=" in item
-    }
-    mounts = record.get("Mounts") or []
-
-    def read_secret_file(path: str) -> str:
-        matches = [
-            mount
-            for mount in mounts
-            if mount.get("Destination") == path
-            and mount.get("Source") == str(getattr(worker, "result_dsn_file", ""))
-            and mount.get("Type") == "bind"
-            and mount.get("RW") is False
-        ]
-        if path != "/run/secrets/preannotation_results_dsn" or len(matches) != 1:
-            raise LocalFenceRefused("worker_secret_mount_ownership_mismatch")
-        try:
-            # Read only the container-owned, read-only mount. The DSN remains in
-            # process memory and is never returned in diagnostics or evidence.
-            return worker._docker(
-                "exec",
-                worker.container_id,
-                "/opt/venv/bin/python",
-                "-I",
-                "-c",
-                "import pathlib,sys; print(pathlib.Path(sys.argv[1]).read_text())",
-                path,
-            ).strip()
-        except Exception:
-            raise LocalFenceRefused("worker_secret_file_unavailable") from None
-
-    database = str(getattr(worker, "_database_name", ""))
-    return inventory_worker_database_credentials(
-        environment,
-        database=database,
-        read_secret_file=read_secret_file,
+def _worker_observation_target(worker, identity) -> LocalWorkerTarget:
+    return LocalWorkerTarget(
+        **{
+            key: identity[key]
+            for key in (
+                "container_id",
+                "container_name",
+                "acceptance_id",
+                "image_id",
+                "image_acceptance_id",
+                "source_revision",
+                "network_id",
+                "network_name",
+                "database",
+                "queue",
+                "worker_started_at",
+            )
+        },
+        result_dsn_file=str(worker.result_dsn_file),
+        postgres_container_id=worker._inspect(worker.postgres_container)["Id"],
+        redis_container_id=worker._inspect(worker.redis_container)["Id"],
     )
 
 
@@ -215,26 +84,21 @@ def inspect_live_worker_credentials(
     expected_s3_access_key: str,
     expected_media_token: str,
 ) -> WorkerCredentialInventory:
-    """Observe the exact worker container and every active write credential source."""
+    """Keep fixture ownership checks, then call the standalone live observer."""
     identity = owned_worker_identity(worker)
     if identity.get("database") != expected_database:
         raise LocalFenceRefused("worker_database_identity_mismatch")
-    record = worker._inspect(worker.container_id)
-    environment = {
-        item.split("=", 1)[0]: item.split("=", 1)[1]
-        for item in ((record.get("Config") or {}).get("Env") or [])
-        if isinstance(item, str) and "=" in item
-    }
-    credentials = worker_database_credentials(worker)
-    write_selectors = inspect_worker_write_selectors(
-        environment,
+    observed = observe_worker_credentials(
+        _worker_observation_target(worker, identity),
         expected_s3_access_key=expected_s3_access_key,
         expected_media_token=expected_media_token,
     )
+    if any(identity.get(key) != value for key, value in observed.identity.items()):
+        raise LocalFenceRefused("worker_identity_changed_during_observation")
     return WorkerCredentialInventory(
         identity=identity,
-        credentials=credentials,
-        write_selectors=write_selectors,
+        credentials=observed.credentials,
+        write_selectors=observed.write_selectors,
     )
 
 
@@ -460,6 +324,9 @@ def stop_owned_worker(worker: Any, expected: Mapping[str, Any]) -> dict[str, Any
             not in {"", "no"}
         ):
             raise LocalFenceRefused("worker_stop_boundary_unverified")
+        exit_observation = observe_worker_exit(
+            _worker_observation_target(worker, expected)
+        )
         # WorkspaceCeleryWorker.stop validates this exact ID/acceptance label
         # again, removes the container, and detaches only its private network.
         worker.stop()
@@ -484,6 +351,7 @@ def stop_owned_worker(worker: Any, expected: Mapping[str, Any]) -> dict[str, Any
         "restart_count": 0,
         "restart_policy": "no",
         "container_removed": True,
+        "observation": exit_observation,
         "queue": expected["queue"],
     }
 
@@ -767,7 +635,7 @@ def validate_local_fence_preflight(value: Mapping[str, Any]) -> None:
             for item in credentials
             if isinstance(item, Mapping)
         }
-        != set(_WORKER_DATABASE_SOURCES.items())
+        != set(WORKER_DATABASE_SOURCES.items())
         or scope.get("owner") != "tracker:" + str(scope.get("job_id", ""))
         or scope.get("operation") != "tracker"
         or scope.get("job_status") != "running"
@@ -803,7 +671,7 @@ def validate_local_fence_preflight(value: Mapping[str, Any]) -> None:
         or selectors.get("media_control_token")
         != "present_and_bound_to_owned_media_peer"
         or set(selectors.get("database_roles", []))
-        != set(_WORKER_DATABASE_SOURCES.values())
+        != set(WORKER_DATABASE_SOURCES.values())
         or selectors.get("direct_routing_token") != "absent"
         or selectors.get("direct_writer_control_token") != "absent"
         or media.get("owned_process_count") != 1
@@ -917,7 +785,7 @@ def build_local_fence_evidence(
         or database.get("non_owner_logins_remaining") != 0
         or database.get("non_owner_sessions_remaining") != 0
         or {item.get("role") for item in denied if isinstance(item, Mapping)}
-        != set(_WORKER_DATABASE_SOURCES.values())
+        != set(WORKER_DATABASE_SOURCES.values())
         or storage.get("user_removed") is not True
         or storage.get("policy_removed") is not True
         or storage.get("old_credential_denied") is not True
@@ -987,212 +855,6 @@ async def run_fence_after_preflight(
     return await fence_operation()
 
 
-async def prove_stale_worker_dsns_denied(
-    credentials: tuple[WorkerDatabaseCredential, ...],
-    *,
-    host: str,
-    port: int,
-    database: str,
-) -> list[dict[str, Any]]:
-    """Verify every observed stale worker DSN fails with a PostgreSQL auth denial."""
-    from sqlalchemy.ext.asyncio import create_async_engine
-    from sqlalchemy.pool import NullPool
-
-    denied: list[dict[str, Any]] = []
-    for item in credentials:
-        url = item.host_url(host=host, port=port)
-        if url.database != database:
-            raise LocalFenceRefused("stale_worker_database_target_changed")
-        engine = create_async_engine(
-            url,
-            poolclass=NullPool,
-            hide_parameters=True,
-            connect_args={"timeout": 3, "command_timeout": 3},
-        )
-        try:
-            try:
-                async with engine.connect() as connection:
-                    await connection.exec_driver_sql("SELECT 1")
-            except Exception as exc:
-                origin = getattr(exc, "orig", exc)
-                sqlstate = getattr(origin, "sqlstate", None) or getattr(
-                    origin, "pgcode", None
-                )
-                if sqlstate not in {"28000", "28P01"}:
-                    raise LocalFenceRefused(
-                        "stale_worker_login_probe_inconclusive"
-                    ) from None
-            else:
-                raise LocalFenceRefused("stale_worker_login_still_succeeds")
-        except LocalFenceRefused:
-            raise
-        except Exception:
-            raise LocalFenceRefused("stale_worker_login_probe_failed") from None
-        finally:
-            await engine.dispose()
-        denied.append({"source_variable": item.source_variable, "role": item.role})
-    return denied
-
-
-def inventory_worker_database_credentials(
-    environment: Mapping[str, str],
-    *,
-    database: str,
-    read_secret_file: Callable[[str], str],
-    container_host: str = "worker-postgres",
-    container_port: int = 5432,
-) -> tuple[WorkerDatabaseCredential, ...]:
-    """Parse every actual worker DB DSN, including read-only secret-file mounts.
-
-    Unknown nonempty database URL selectors are refused. Empty URL/file settings
-    do not represent credentials and are ignored.
-    """
-    observed: dict[str, WorkerDatabaseCredential] = {}
-    for source, raw in sorted(environment.items()):
-        if "DATABASE_URL" not in source:
-            continue
-        if not isinstance(raw, str):
-            raise LocalFenceRefused("worker_database_environment_invalid")
-        if not raw:
-            continue
-        if source.endswith("_FILE"):
-            if source != "PREANNOTATION_RESULTS_DATABASE_URL_FILE":
-                raise LocalFenceRefused("unrecognized_worker_database_secret_file")
-            dsn_text = read_secret_file(raw)
-            secret_file = True
-        else:
-            if source not in _WORKER_DATABASE_SOURCES:
-                raise LocalFenceRefused("unrecognized_worker_database_selector")
-            dsn_text = raw
-            secret_file = False
-        expected_role = _WORKER_DATABASE_SOURCES.get(source)
-        if expected_role is None:
-            raise LocalFenceRefused("unrecognized_worker_database_selector")
-        try:
-            url = make_url(dsn_text)
-        except Exception:
-            raise LocalFenceRefused("worker_database_identity_invalid") from None
-        if (
-            url.drivername not in {"postgresql", "postgresql+asyncpg"}
-            or url.username != expected_role
-            or not url.password
-            or url.host != container_host
-            or url.port != container_port
-            or url.database != database
-            or url.query
-            or not _ROLE_NAME.fullmatch(url.username or "")
-        ):
-            raise LocalFenceRefused("worker_database_identity_mismatch")
-        if source in observed:
-            raise LocalFenceRefused("duplicate_worker_database_selector")
-        observed[source] = WorkerDatabaseCredential(
-            source_variable=source,
-            role=expected_role,
-            database=database,
-            container_host=container_host,
-            container_port=container_port,
-            secret_file=secret_file,
-            _url=url,
-        )
-
-    if set(observed) != set(_WORKER_DATABASE_SOURCES):
-        raise LocalFenceRefused("incomplete_worker_database_inventory")
-    roles = [item.role for item in observed.values()]
-    if len(roles) != len(set(roles)):
-        raise LocalFenceRefused("ambiguous_worker_database_inventory")
-    return tuple(observed[source] for source in sorted(observed))
-
-
-def validate_owned_postgres_container(
-    record: Mapping[str, Any],
-    *,
-    container_id: str,
-    container_name: str,
-    acceptance_id: str,
-    host_url: URL,
-) -> dict[str, Any]:
-    """Verify the exact verifier-owned, loopback-only disposable PG container."""
-    labels = (record.get("Config") or {}).get("Labels") or {}
-    bindings = ((record.get("NetworkSettings") or {}).get("Ports") or {}).get(
-        "5432/tcp"
-    ) or []
-    if not (
-        _PG_CONTAINER.fullmatch(container_id)
-        and _PG_NAME.fullmatch(container_name)
-        and _PG_ACCEPTANCE_ID.fullmatch(acceptance_id)
-        and record.get("Id") == container_id
-        and record.get("Name") == f"/{container_name}"
-        and (record.get("Config") or {}).get("Image") == _POSTGRES_IMAGE
-        and labels.get("org.aap.acceptance") == "module-data-boundary"
-        and labels.get("org.aap.acceptance-id") == acceptance_id
-        and (record.get("State") or {}).get("Running") is True
-        and host_url.drivername == "postgresql+asyncpg"
-        and host_url.host in _LOCAL_HOSTS
-        and host_url.port is not None
-        and host_url.database
-        and host_url.database.endswith("_test")
-        and host_url.username == "owner"
-        and len(bindings) == 1
-        and bindings[0].get("HostIp") == "127.0.0.1"
-        and str(bindings[0].get("HostPort")) == str(host_url.port)
-    ):
-        raise LocalFenceRefused("postgres_resource_ownership_mismatch")
-    return {
-        "container_id": container_id,
-        "container_name": container_name,
-        "acceptance_id": acceptance_id,
-        "database": host_url.database,
-        "host": host_url.host,
-        "port": host_url.port,
-        "image": _POSTGRES_IMAGE,
-    }
-
-
-def validate_owned_worker_container(
-    record: Mapping[str, Any],
-    *,
-    container_id: str,
-    container_name: str,
-    acceptance_id: str,
-    image_id: str,
-    source_revision: str,
-    queue: str,
-) -> dict[str, Any]:
-    """Verify one exact installed worker, image, restart policy, and queue."""
-    labels = (record.get("Config") or {}).get("Labels") or {}
-    config = record.get("Config") or {}
-    host = record.get("HostConfig") or {}
-    restart_policy = host.get("RestartPolicy") or {}
-    command = config.get("Cmd") or []
-    queue_flags = [item for item in command if item.startswith("--queues=")]
-    if not (
-        _WORKER_ACCEPTANCE_ID.fullmatch(acceptance_id)
-        and record.get("Id") == container_id
-        and record.get("Name") == f"/{container_name}"
-        and labels.get("org.aap.acceptance") == "workspace-worker-assembly"
-        and labels.get("org.aap.acceptance-id") == acceptance_id
-        and labels.get("org.aap.source-revision") == source_revision
-        and _SOURCE_REVISION.fullmatch(source_revision)
-        and record.get("Image") == image_id
-        and (record.get("State") or {}).get("Running") is True
-        and restart_policy.get("Name", "") in {"", "no"}
-        and (record.get("RestartCount") or 0) == 0
-        and _QUEUE_NAME.fullmatch(queue)
-        and queue_flags == [f"--queues={queue}"]
-    ):
-        raise LocalFenceRefused("worker_resource_ownership_mismatch")
-    return {
-        "container_id": container_id,
-        "container_name": container_name,
-        "acceptance_id": acceptance_id,
-        "image_id": image_id,
-        "source_revision": source_revision,
-        "queue": queue,
-        "restart_policy": restart_policy.get("Name") or "no",
-        "restart_count": record.get("RestartCount") or 0,
-    }
-
-
 def validate_sanitized_local_fence_evidence(value: Mapping[str, Any]) -> None:
     """Reject accidental persistence of DSNs, passwords, tokens, or S3 secrets."""
     forbidden_keys = {
@@ -1239,70 +901,14 @@ def worker_credential_evidence(
     return [item.evidence() for item in credentials]
 
 
-def inspect_worker_write_selectors(
-    environment: Mapping[str, str],
-    *,
-    expected_s3_access_key: str,
-    expected_media_token: str,
-) -> dict[str, Any]:
-    """Bind the worker's non-DB write selectors to the fixture-owned peers."""
-    if not expected_s3_access_key or not expected_media_token:
-        raise LocalFenceRefused("worker_write_selector_identity_missing")
-    sensitive = {
-        key: value
-        for key, value in environment.items()
-        if re.search(r"(?i)(?:TOKEN|KEY|SECRET|PASSWORD)", key)
-        and isinstance(value, str)
-        and value
-        # Python's base image publishes its GPG verification fingerprint.
-        and not (key == "GPG_KEY" and re.fullmatch(r"[0-9A-F]{40}", value))
-    }
-    allowed = {
-        "SECRET_KEY",
-        "ASSETS_MEDIA_TOKEN",
-        "MINIO_ACCESS_KEY",
-        "MINIO_SECRET_KEY",
-    }
-    if set(sensitive) != allowed:
-        raise LocalFenceRefused("unrecognized_worker_write_selector")
-    if (
-        sensitive.get("ASSETS_MEDIA_TOKEN") != expected_media_token
-        or sensitive.get("MINIO_ACCESS_KEY") != expected_s3_access_key
-        or not sensitive.get("MINIO_SECRET_KEY")
-        or not sensitive.get("SECRET_KEY")
-        or environment.get("INFERENCE_ROUTING_TOKEN")
-        or environment.get("LABELING_VIDEO_WRITER_CONTROL_TOKEN")
-        or environment.get("INFERENCE_ROUTING_TOKEN_FILE")
-        or environment.get("LABELING_VIDEO_WRITER_CONTROL_TOKEN_FILE")
-    ):
-        raise LocalFenceRefused("worker_write_selector_mismatch")
-    return {
-        "database_roles": sorted(_WORKER_DATABASE_SOURCES.values()),
-        "media_control_token": "present_and_bound_to_owned_media_peer",
-        "s3_principal_id": expected_s3_access_key,
-        "process_secret": "present_local_worker_secret",
-        "direct_routing_token": "absent",
-        "direct_writer_control_token": "absent",
-    }
-
-
 __all__ = [
-    "LocalPostgresIdentity",
-    "LocalFenceRefused",
-    "WorkerCredentialInventory",
-    "WorkerDatabaseCredential",
     "build_local_fence_evidence",
     "fence_disposable_database_logins",
-    "inventory_worker_database_credentials",
     "inspect_live_worker_credentials",
-    "inspect_worker_write_selectors",
     "owned_postgres_identity",
     "owned_worker_identity",
-    "prove_stale_worker_dsns_denied",
     "run_fence_after_preflight",
     "stop_owned_worker",
-    "validate_owned_postgres_container",
-    "validate_owned_worker_container",
     "validate_local_fence_preflight",
     "validate_sanitized_local_fence_evidence",
     "worker_credential_evidence",

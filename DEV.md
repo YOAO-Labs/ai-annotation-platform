@@ -3017,6 +3017,77 @@ AAP_LEGACY_VIDEO_FENCE_LIVE=1 apps/api/.venv/bin/python \
 
 该案例必须最后执行，因为后续普通账号已不能登录。验收器在核对同一专属 PostgreSQL 容器后，仅用 owner 完成资源销毁，保留所有所有权检查，不重启已围栏角色。最新端到端案例及清理通过；它只关闭本地物理围栏前提，正式旧 Jobs 退役凭证和历史输入修复仍待实现。范围和证据见[组合验收台账](docs-site/dev/concepts/module-deployment.md#coherent-owner-operations)。
 
+#### 独立 PostgreSQL 围栏观察
+
+数据库观察器可独立运行，不加载 pytest 或主 API，也不会停 worker、修改账号或撤权：
+
+```bash
+apps/api/.venv/bin/python scripts/video_worker_fence.py \
+  --input-file .worktree/video-worker-fence-input.json
+```
+
+输入文件须由当前用户持有、其他用户不可读写、不是符号链接，且不超过 64 KiB。
+不要提交凭据文件；不要从共享配置推测旧 worker 的凭据。其 JSON 字段为：
+
+| 字段           | 内容                                                                                                                                                  |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `schema`       | 固定 `aap-local-postgres-fence-input/v1`                                                                                                              |
+| `postgres`     | 已观测目标的 `container_id`、`container_name`、`acceptance_id`、`database`、`host`、`port`、`database_oid`、`cluster_system_identifier`、`owner_role` |
+| `observer_url` | 上述目标的 `postgresql+asyncpg` 运维连接；仅用于只读目录观察                                                                                          |
+| `credentials`  | 非空数组，每项恰含 `source_variable` 和实际旧 DSN `url`；选择器名不得重复                                                                             |
+
+目标只接受现有 module-data 验收器标记、独占的 `postgres:16-alpine` 容器，数据库名以
+`_test` 结束、账号为 `owner`、端口只绑定 loopback。数据库 OID、集群 system identifier、
+容器和绑定端口必须与预先观测的身份一致，不能仅按容器名前缀认领。旧 DSN 仅改接到该
+容器的已验证 loopback 端口，用户名、密码和数据库保持；目录必须显示所列角色
+NOLOGIN／NOINHERIT、有效 CONNECT 被拒绝，且没有非 owner LOGIN、残留会话或
+prepared transaction。
+
+成功退出码为 0，stdout 是带起止时间的 `aap-local-postgres-fence-facts/v1` 观察结果；
+不完整状态、身份不符、输入错误或旧连接探测不确定时退出 2，并仅输出脱敏 reason。
+操作不会自动撤销权限来“修好”失败。它不证明历史凭据清单完整、worker 已停止、
+S3 已隔离或 broker 已排空，不能据此解除旧视频的 409。原本地视频夹具已接入同一
+观察器；本次仅独立数据库 CLI 的五场景 smoke 与 49 项定向回归通过，没有重跑整套
+视频冷组合或切换日常环境。
+
+#### 独立 worker 与作用域 S3 观察
+
+从仓库根目录运行独立 worker CLI，运行中与退出后使用相同的精确目标身份：
+
+```bash
+apps/api/.venv/bin/python -m scripts.video_worker_observation \
+  --input-file .worktree/video-worker-observation-input.json --state running
+apps/api/.venv/bin/python -m scripts.video_worker_observation \
+  --input-file .worktree/video-worker-observation-input.json --state stopped
+```
+
+输入复用前节的私有普通文件守卫，顶层恰含 `schema`、`worker`、
+`expected_s3_access_key` 和 `expected_media_token`。schema 固定为
+`aap-local-worker-observation-input/v1`；两个期望值须来自调用方已核验的作用域存储／
+Media 身份，而不是共享 `.env`。`worker` 恰含：
+
+- 容器／工件：`container_id`、`container_name`、`acceptance_id`、`image_id`、
+  `image_acceptance_id`、`source_revision`。
+- 运行边界：`network_id`、`network_name`、`database`、`queue`、`worker_started_at`。
+- 凭据／私网：`result_dsn_file`、`postgres_container_id`、`redis_container_id`。
+
+容器和网络保留原 `workspace-worker-assembly` 标签，镜像保留 `workspace-module-api`
+标签；仅接受原本地测试数据库与随机专用队列。必须观察实际启动时间及完整容器 ID，
+不能只按名称认领。运行中 CLI 返回脱敏凭据元数据，不输出 DSN／密码；退出观察要求
+原容器仍存在且身份、无重启策略与退出状态可核验。CLI 不停止容器，也不把 NotFound
+视为退出。成功退出 0，拒绝／不确定退出 2。
+
+作用域存储调用 `scripts.video_storage_fence.ScopedStorageFenceProbe`：
+构造时以调用方的窄权限 client 完成唯一 probe 对象的写入和读回；保存 `baseline`
+中的版本 ID 供原 owner 清理。在既有受限边界撤销账号后，对同一实例调用
+`observe_denied()`。同一 client、bucket、key 和内容的写入被拒绝才生成
+`aap-local-storage-fence-facts/v1`；不接受调用方提供的成功布尔值，也不把缺桶或网络
+错误当作撤权。探针只使用 `projects/<UUID>/guide/legacy-video-fence-<32位hex>.txt`
+形式的独占 key，不执行 IAM 或清理操作。调用方仍须验证整个资源及历史凭据范围。
+
+本地 worker 五场景、S3 两场景和 49 项定向回归已通过；没有重跑完整视频冷组合。
+当前运行范围、原失败收据与后续验收边界见[模块台账](docs-site/dev/concepts/module-deployment.md#legacy-video-worker-storage-facts)。
+
 ### Workspace 冷运维导入验收
 
 复用上表 API 冷镜像及其身份变量，使用独占验收数据库和全部十个隔离桶：
