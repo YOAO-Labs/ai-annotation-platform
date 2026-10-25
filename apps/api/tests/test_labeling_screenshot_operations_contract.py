@@ -77,6 +77,12 @@ def test_screenshot_operation_protocol_is_closed_and_self_consistent():
         ).read_text(encoding="utf-8")
     )
     assert schema["$id"] == SCREENSHOT_OPERATIONS_PROTOCOL
+    assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
+    assert (
+        _ROOT / "apps/api/alembic/sql/0363_labeling_screenshot_operations.schema.json"
+    ).read_bytes() == (
+        _ROOT / "apps/labeling/src/aap_labeling/screenshot-operations.schema.json"
+    ).read_bytes()
     assert (
         schema["x-postgresql-functions"][SCREENSHOT_OPERATIONS_FUNCTION]["returns"]
         == "jsonb"
