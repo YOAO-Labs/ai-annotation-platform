@@ -462,6 +462,8 @@ async def _run_image_pyramid(
                 lease_token=lease_token,
             )
             await db.commit()
+            target = await physical.transport_target(db, output)
+            context, entered = None, []
             async with await storage_access.acquire(
                 db,
                 uuid.UUID(output.storage_ref["location_id"]),
@@ -484,10 +486,20 @@ async def _run_image_pyramid(
 
                 await guard()
                 try:
-                    try:
-                        storage = StorageService()
-                    except BaseException as exc:
-                        raise storage_access.mark_unsettled(exc)
+                    if target is None:
+                        try:
+                            storage = StorageService()
+                        except BaseException as exc:
+                            raise storage_access.mark_unsettled(exc)
+                    else:
+                        context = physical.open_storage(target=target)
+
+                        def open_owned():
+                            value = context.__enter__()
+                            entered.append(True)
+                            return value
+
+                        storage = await originals.physical(open_owned)
                     async with originals.media(
                         db, authority, owner.source, guard=guard
                     ) as stage:
@@ -503,7 +515,10 @@ async def _run_image_pyramid(
                             timeout=settings.image_pyramid_job_timeout_seconds,
                         )
                 finally:
-                    if storage is not None:
+                    if entered:
+                        await originals.physical(context.__exit__, *sys.exc_info())
+                        storage = None
+                    elif storage is not None:
                         await originals.physical(
                             storage_access.close_registered, storage.client
                         )

@@ -29,7 +29,6 @@ from app.services.scheduler import (
     visible_batch_statuses_for_project_role,
     annotator_can_rework_task,
 )
-from app.services.storage import storage_service
 from app.db.models.task_batch import TaskBatch
 from app.db.models.project_member import ProjectMember
 from app.services.annotation_evidence import freeze_review_contributor_evidence
@@ -701,11 +700,6 @@ def _task_with_url(
     * ``assignee`` / ``reviewer`` (UserBrief) —— 调用方批量解析后传入
       ``briefs={str(user_id): UserBrief}``
     """
-    bucket = (
-        storage_service.datasets_bucket
-        if task.dataset_item_id or task.file_type == "point_cloud"
-        else storage_service.bucket
-    )
     from app.services.reference_keys import is_reference, parse_reference
 
     reference = is_reference(task.file_path)
@@ -729,21 +723,13 @@ def _task_with_url(
         if thumbnail_path and checked is not None and checked[0] == thumbnail_path:
             thumbnail_url = checked[1]
         blurhash = None
-    elif thumbnail_path and thumbnail_path.startswith("image-pyramids/"):
-        # Only the asynchronous owner check may supply a pyramid thumbnail URL.
-        checked = getattr(task, "_image_pyramid_thumbnail", None)
-        if checked is not None and checked[0] == thumbnail_path:
-            thumbnail_url = checked[1]
     elif thumbnail_path:
-        thumb_bucket = storage_service.bucket_for_cache_key(
-            thumbnail_path, default=bucket
-        )
-        try:
-            thumbnail_url = storage_service.generate_download_url(
-                thumbnail_path, bucket=thumb_bucket
-            )
-        except Exception:
-            pass
+        # The asynchronous sidecar checks the exact active owner and path.
+        for name in ("_image_pyramid_thumbnail", "_media_cache_thumbnail"):
+            checked = getattr(task, name, None)
+            if checked is not None and checked[0] == thumbnail_path:
+                thumbnail_url = checked[1]
+                break
 
     out = TaskOut.model_validate(task, from_attributes=True)
     out.file_url = file_url
@@ -998,6 +984,7 @@ async def _attach_image_pyramids_batch(
 ) -> dict[uuid.UUID, ImagePyramidSummary]:
     from app.services.image_pyramid import pyramid_summary, task_pyramid_assets
     from app.services.image_pyramid_objects import thumbnail_url
+    from app.services import thumbnail_outputs
 
     assets = await task_pyramid_assets(db, tasks)
     result: dict[uuid.UUID, ImagePyramidSummary] = {}
@@ -1006,6 +993,7 @@ async def _attach_image_pyramids_batch(
             task.id, (None, None, None, None, None)
         )
         task._image_pyramid_thumbnail = None
+        task._media_cache_thumbnail = None
         task._video_derivative_thumbnail = None
         if task.file_type == "video":
             from app.services import video_derivatives
@@ -1013,11 +1001,20 @@ async def _attach_image_pyramids_batch(
             checked = await video_derivatives.thumbnail(db, task_id=task.id)
             if checked is not None and checked[0] == path:
                 task._video_derivative_thumbnail = checked
-        elif path and path.startswith("image-pyramids/"):
-            task._image_pyramid_thumbnail = (
-                path,
-                await thumbnail_url(db, "task", task.id, path),
-            )
+        elif path:
+            pair = assets.get(task.id)
+            if (
+                pair is not None and getattr(pair[1], "overview_key", None) == path
+            ) or path.startswith("image-pyramids/"):
+                task._image_pyramid_thumbnail = (
+                    path,
+                    await thumbnail_url(db, "task", task.id, path),
+                )
+            else:
+                task._media_cache_thumbnail = (
+                    path,
+                    await thumbnail_outputs.thumbnail_url(db, "task", task.id, path),
+                )
         pair = assets.get(task.id)
         if pair is None:
             continue

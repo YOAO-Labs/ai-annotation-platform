@@ -11,14 +11,15 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import sys
 import stat
 from urllib.parse import urlsplit
 import uuid
+from types import SimpleNamespace
 
-from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.db.models.dataset_asset import StorageBinding, StorageLocation
 from app.services import storage_access
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.managed_original_retirement import managed_storage_identity
@@ -148,7 +149,15 @@ class Owner:
 
     def contains(self, key):
         if (
-            not _safe_key(key)
+            (
+                not _safe_key(key)
+                if self._ref["schema"] == 1
+                else not isinstance(key, str)
+                or len(key) > 1000
+                or len(key.encode("utf-8")) > 1024
+                or not key.startswith(self.prefix)
+                or not _safe_key(key[len(self.prefix) :])
+            )
             or not key.startswith(self.prefix)
             or key[len(self.prefix) :] not in ALLOWED_RELATIVE_KEYS
         ):
@@ -166,6 +175,18 @@ class Owner:
 def resolve_ref(ref, *, expected_prefix=None):
     if ref is None:
         _reject("unpinned")
+    if isinstance(ref, dict) and type(ref.get("schema")) is int and ref["schema"] == 2:
+        from app.services import media_cache_storage
+
+        try:
+            saved = media_cache_storage.resolve_ref(
+                ref, expected_prefix=expected_prefix
+            )
+            if _PREFIX.fullmatch(saved.logical_prefix) is None:
+                _reject()
+            return Owner(saved.bucket, saved.prefix, saved.ref)
+        except ValueError:
+            _reject()
     if (
         not isinstance(ref, dict)
         or set(ref) != _FIELDS
@@ -205,48 +226,31 @@ def resolve(record):
 
 
 async def allocate(db, output_id):
-    """Read an already registered compatible binding for a newly allocated UUID."""
-    prefix = prefix_for(output_id)
-    location = await db.get(StorageLocation, LEGACY_LOCATION_ID, populate_existing=True)
-    binding = await db.scalar(
-        select(StorageBinding)
-        .where(StorageBinding.purpose == "media-cache")
-        .execution_options(populate_existing=True)
-    )
-    if (
-        location is None
-        or location.id != LEGACY_LOCATION_ID
-        or location.kind != "s3"
-        or type(location.config_revision) is not int
-        or location.config_revision != 1
-        or location.enabled is not True
-        or not isinstance(location.config, dict)
-        or type(location.config.get("use_ssl")) is not bool
-        or location.config
-        != {"endpoint": settings.minio_endpoint, "use_ssl": settings.minio_use_ssl}
-        or binding is None
-        or binding.purpose != "media-cache"
-        or binding.location_id != LEGACY_LOCATION_ID
-        or type(binding.generation) is not int
-        or binding.generation != 1
-        or binding.bucket != storage_service.media_cache_bucket
-    ):
+    """Save a new attempt's target; subsequent I/O never follows the binding."""
+    from app.services import media_cache_storage
+
+    try:
+        return await media_cache_storage.allocate(db, prefix_for(output_id))
+    except ValueError:
         _reject("binding_unproven")
-    endpoint = _runtime_endpoint()
-    return resolve_ref(
-        {
-            "schema": 1,
-            "purpose": "media-cache",
-            "location_id": str(location.id),
-            "config_revision": location.config_revision,
-            "binding_generation": binding.generation,
-            "endpoint_url": endpoint,
-            "bucket": binding.bucket,
-            "prefix": prefix,
-            "storage_identity": managed_storage_identity(endpoint, binding.bucket),
-        },
-        expected_prefix=prefix,
-    ).ref
+
+
+async def transport_target(db, output, *, require_enabled=True):
+    """Capture current transport metadata without provider I/O or business locks."""
+    owner = resolve(output)
+    if owner.ref["schema"] == 1:
+        return None
+    from app.services import media_cache_storage
+
+    async with AsyncSession(
+        bind=storage_access.engine(db), expire_on_commit=False, autoflush=False
+    ) as session:
+        try:
+            return await media_cache_storage.target_for_ref(
+                session, owner.ref, require_enabled=require_enabled
+            )
+        except ValueError:
+            _reject()
 
 
 def _client(storage, owner):
@@ -279,8 +283,24 @@ def _translate(exc):
 
 
 @contextmanager
-def open_storage(factory=None):
+def open_storage(factory=None, *, target=None):
     """Keep constructor/close uncertainty inside the caller's output permit."""
+    if target is not None:
+        try:
+            context = target.client(read_timeout=30)
+            client = context.__enter__()
+        except BaseException as exc:
+            if isinstance(exc, Exception):
+                raise _translate(exc) from None
+            raise
+        try:
+            yield SimpleNamespace(client=client, media_cache_bucket=target.bucket)
+        finally:
+            try:
+                context.__exit__(*sys.exc_info())
+            except Exception as exc:
+                raise _translate(exc) from None
+        return
     try:
         storage = (factory or StorageService)()
         client = storage.client
@@ -630,6 +650,17 @@ def signed_url(storage, output, key, expires=3600):
         or not 0 < expires <= 3600
     ):
         _reject("invalid_receipt")
+    if owner.ref["schema"] == 2:
+        from app.services import media_cache_urls
+
+        return media_cache_urls.sign(
+            "video-derivative",
+            _field(output, "id"),
+            key,
+            owner.ref,
+            validate_inventory(output)[key],
+            expires,
+        )
     try:
         return storage.generate_download_url(
             key, expires_in=expires, bucket=owner.bucket, align=False

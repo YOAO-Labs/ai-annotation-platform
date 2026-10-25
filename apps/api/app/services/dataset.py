@@ -550,24 +550,15 @@ class DatasetService:
                     if checked is not None and checked[0] == item.thumbnail_path:
                         d["thumbnail_url"] = checked[1]
             elif item.thumbnail_path and not directory_owned:
-                if item.thumbnail_path.startswith("image-pyramids/"):
-                    from app.services.image_pyramid_objects import thumbnail_url
+                from app.services import image_pyramid_objects, thumbnail_outputs
 
-                    d["thumbnail_url"] = await thumbnail_url(
+                d["thumbnail_url"] = await image_pyramid_objects.thumbnail_url(
+                    self.db, "dataset_item", item.id, item.thumbnail_path
+                )
+                if d["thumbnail_url"] is None:
+                    d["thumbnail_url"] = await thumbnail_outputs.thumbnail_url(
                         self.db, "dataset_item", item.id, item.thumbnail_path
                     )
-                else:
-                    try:
-                        thumbnail_bucket = storage_service.bucket_for_cache_key(
-                            item.thumbnail_path,
-                            default=storage_service.datasets_bucket,
-                        )
-                        d["thumbnail_url"] = storage_service.generate_download_url(
-                            item.thumbnail_path,
-                            bucket=thumbnail_bucket,
-                        )
-                    except Exception:
-                        d["thumbnail_url"] = None
             out.append(d)
         return out, total
 
