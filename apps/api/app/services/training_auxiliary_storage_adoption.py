@@ -479,7 +479,7 @@ async def pin(db, purpose, identifier, actor, project, key_id):
     from fastapi import HTTPException
     from sqlalchemy import select
     from app.db.models.api_key import ApiKey
-    from app.db.models.dataset_asset import StorageBinding, StorageLocation
+    from app.db.models.dataset_asset import StorageLocation
     from app.services import storage_access
     from app.services.content_snapshot import ContentError
     from app.services.dataset_content import key_authority
@@ -595,11 +595,6 @@ async def pin(db, purpose, identifier, actor, project, key_id):
         await db.execute(
             select(StorageLocation.id)
             .where(StorageLocation.id == uuid.UUID(candidate["location_id"]))
-            .with_for_update(read=True)
-        )
-        await db.execute(
-            select(StorageBinding.purpose)
-            .where(StorageBinding.purpose == "training")
             .with_for_update(read=True)
         )
         current, current_state = await context()
