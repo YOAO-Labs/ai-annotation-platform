@@ -33,10 +33,10 @@ last_reviewed: 2026-10-25
 | Workspace：项目删除                      | 原子 Native 协调器及 Workspace 可移植命令／连接式客户端已实现                                                      | API 已通过同一请求事务调用 owner；不新增独立提交点                                               | [项目删除](#workspace-项目删除事务切片)的调用边界通过 76 项源码／受限 PG／Node／实际 API 定向检查                                                        | [退役门禁](#video-deletion-retirement)已实现并通过；无证明旧作业继续 409，遗留排空／修复入口仍缺，完整安全／恢复能力未闭合                                                                                                                                                                                                                                       |
 | Workspace：数据集解绑                    | 原协调器、可移植合同／管理器及借用事务 PostgreSQL 绑定已实现                                                       | API 通过相同 Session 调用 Workspace；原响应／缓存／提交保持                                      | [解绑切片](#workspace-数据集解绑事务切片)新增 72 项不同案例，含受限双函数 LOGIN、Node 与实际 HTTP                                                        | 调用边界、退役门禁及组合冷工件／受限凭据／恢复已通过；旧作业无证明的排空／修复入口仍缺                                                                                                                                                                                                                                                                           |
 | Assets：来源、目录、连接及媒体／输入     | 已有 Source、Catalog、Media、Images、accepted inputs 和视频输入能力                                                | 已迁移选定导入、Workbench 和推理输入消费者                                                       | [数据能力协议](/api/guides/module-data)及既有 ADR 保留受限进程／容器证据；[辅助保留](#来源删除的辅助引用)的实际删除与 HTTP 映射通过 11 项定向检查        | 已确认沿用既有辅助引用 409 guard；部分相机／轨迹引用缺少独立解除入口，任务、标注及学习证据保留；一般 Blob、其余输入、运维写入与完整装配仍待收口                                                                                                                                                                                                                  |
-| Labeling：任务、标注、审核、Mask 与视频写入 | 任务／批次生命周期、人工／批量标注、审核计数、预测／轨迹、Mask／点云质检及最终发布均已有固定 owner 能力 | 选定 API／worker 调用已迁移；原授权、UOW、缓存、锁序与 Audit 时点保持；七处标注响应刷新改用公开关系 | [集中原生验收](#labeling-native-cohort-acceptance)与既有操作证据保留；四项刷新过期状态／缺失行检查通过 | 修正后的创建标注冷 API 待复验；不将源码或局部通过记作整模块资格 |
-| Labeling：核心读取、讨论、场景与分区维护 | 十二项核心读取关系、有序锁、讨论／场景能力及预测分区 owner 已实现；0365 将效率 MV 改接已有 TaskEvent 公开事实 | API、导出、视频、工作流、兼容学习读取及选定维护调用已迁移；效率 MV 保留聚合、索引、所有者和有效显式授权 | [核心读取与维护](#labeling-current-candidate-acceptance)的既有受限读锁／分区证据保留；效率 MV 普通角色刷新与完整恢复待实测 | 本轮只修复撤销私表权限暴露出的 MV 依赖，不扩大 Insights 或暂缓领域 |
+| Labeling：任务、标注、审核、Mask 与视频写入 | 任务／批次生命周期、人工／批量标注、审核计数、预测／轨迹、Mask／点云质检及最终发布均已有固定 owner 能力 | 选定 API／worker 调用已迁移；原授权、UOW、缓存、锁序与 Audit 时点保持；七处标注响应刷新改用公开关系 | [集中原生验收](#labeling-native-cohort-acceptance)与既有操作证据保留；四项刷新过期状态／缺失行检查通过 | 创建标注的限权冷 API、幂等重放与重启读取已通过；全部运维边界仍待闭合 |
+| Labeling：核心读取、讨论、场景与分区维护 | 十二项核心读取关系、有序锁、讨论／场景能力及预测分区 owner 已实现；0365 将效率 MV 改接已有 TaskEvent 公开事实 | API、导出、视频、工作流、兼容学习读取及选定维护调用已迁移；效率 MV 保留聚合、索引、所有者和有效显式授权 | [核心读取与维护](#labeling-current-candidate-acceptance)的既有受限读锁／分区证据保留；效率 MV 普通角色实际刷新与 0365 完整恢复已通过限定验收 | 本轮只修复撤销私表权限暴露出的 MV 依赖，不扩大 Insights 或暂缓领域 |
 | Labeling：普通凭据与运维兼容 | LAN／worktree 共用固定 ACL，撤销 49 张私表及分区、列、序列和宽默认授权；E2E／截图／规模种子使用固定 owner 能力 | 兼容读取与锁、批次编号及选定种子／截图调用已迁移，原事务和作用域守卫保持 | [普通权限与兼容调用](#labeling-private-runtime-acl)：57 个不同 Native 案例的最新结果为 56 通过、1 个既有 Audit 夹具失败；三批证据组成，非单轮全绿 | Audit 夹具清理独立登记；Assets reset 手动维护仍暂缓，不能宣称全部运维入口已闭合 |
-| Labeling：完整模块工件与恢复 | 独立包、writer 及 API 消费者工件已有源码证明；视频中间状态和最终发布 owner 已接入 | 当前普通角色冷 API 与真实 worker 使用既有公开能力及限定凭据 | [当前工件与恢复](#labeling-private-runtime-acl)：源码 82ee202d5 的 120 项独立包检查、工件离线检查及两个真实 worker 用例通过 | 冷 API 响应刷新和完整恢复的 MV 依赖已修正，待定点复验；Assets reset 仍暂缓；整模块未闭合，主环境未切换 |
+| Labeling：完整模块工件与恢复 | 独立包、writer 及 API 消费者工件已有源码证明；视频中间状态和最终发布 owner 已接入 | 当前普通角色冷 API 与真实 worker 使用既有公开能力及限定凭据 | [当前工件与恢复](#labeling-private-runtime-acl)：独立包 120 项、工件离线检查、两个真实 worker 用例、冷 API、完整恢复和普通角色 MV 刷新分批通过 | 限定工件与恢复门槛已有通过证据；Assets reset 手动维护仍暂缓，全部运维边界与整模块审计／主线采用待完成；主环境未切换 |
 | Jobs／Labeling：旧视频输入保留           | 0312 的窄 Jobs 事实与 Labeling 保留投影已实现；0313 补齐历史垃圾领取围栏                                           | tracker sweep 和 video garbage claim 使用当前保留事实；pin、审核宽限期及已证明替代的前缀清理保留 | [输入保留](#tracker-input-retention)：0312 的 23 项和 0313 的 10 项定向案例及各自完整迁移往返通过；进程内取消单测单列                                    | 新领取路径的限定本地资格已闭合；已领租约仍须真实停机／凭据围栏，历史 expired 状态／已删除对象修复和无账本退役 operator 未闭合；[当前组合工件](#coherent-module-artifact)已验收，主环境尚未采用                                                                                                                                                                   |
 | Inference／Jobs：协调视频恢复            | `aap-video-restore/v1`、两类权威屏障／轮换、不可变退休证明已实现                                                   | 实际 runner 已经独立安装 CLI 恢复，同 run 新代次复用窗口并由 Labeling owner 发布                 | [ADR-0160](/dev/adr/0160-coordinated-video-restore)：五个 Native／消费者场景、源码和安装各 420 项、51 项旧路径回归、完整迁移通过                         | 本切片已闭合：独立安装 CLI 实际消费者与匹配 Inference／API 冷镜像均通过，源码提交 `968212e4e`；对象存储备份恢复、GPU／生产容量不在本切片通过范围                                                                                                                                                                                                                 |
 | Inference：控制面与其他预测路径          | Pipeline、backend 配置／探测／健康、registry ingress、routing 和 scope 退休已有选定 owner                          | 对应绑定及部分实际预测消费者已迁移                                                               | [Inference 协议](/api/guides/inference-runtime)保留各切片资格                                                                                            | 其他推理编排、GPU 租约、取消／迟到结果、完整独立装配及提供方替换仍须逐操作收口                                                                                                                                                                                                                                                                                   |
@@ -2659,11 +2659,26 @@ video writer 的 268 项安装文件均与来源一致；这些安装与离线�
 失败；原始失败与成功均保留于 `.worktree/labeling-compatibility-cold-checkpoint.json`，
 自有资源清理无错误。创建、二次推理及视频转换的七处 Annotation 刷新现统一复用
 既有公开读取逻辑，先丢弃目标对象未提交改动，再保持同一 identity-map 对象和原事务；
-四项过期状态／缺失行检查通过。修正后的冷 API 和完整恢复仍待定点复验，整模块资格
-继续开放。
+四项过期状态／缺失行检查通过。修正后的冷 API 和完整恢复已通过下述定点复验；
+Assets reset 维护调用与完整运维边界仍未闭合，整模块资格继续开放。
 
 效率物化视图现通过 `aap_labeling_v1.task_event_facts` 读取既有字段，保持原十列聚合
 和三项索引。替换前保存所有者及显式授权，重建时先清除创建角色的额外默认授权，
 以迁移身份刷新后恢复所有者并重放有效授权；回退使用相同顺序。当前配置只有所有者
 授权；若环境另有自定义授权，保留被授权者、权限及 grant option，但不承诺保留历史
-grantor 身份。没有重新开放 TaskEvent 私表读取，普通角色刷新和完整恢复仍待实测。
+grantor 身份。没有重新开放 TaskEvent 私表读取，普通角色刷新及完整恢复已通过限定实测。
+
+本轮规范收据为 `.worktree/labeling-0365-runtime-qualification.json`，SHA-256
+`ff4e730523cfdc842cb1e1bdac59ba68eb266c3b222ac71d372b8865989a1513`。
+实际 API 镜像绑定源码 `dd20f5a49`，核对 778 项安装包文件与 1,566 项应用／迁移文件；
+后续仅验收器迁移头和旧测试权限断言变化，运行文件逐字节相同，因此复用该镜像。
+冷 API 的认证／越权、标注创建、Task 锁等待、幂等重放、外键及重启读取通过；非空
+Labeling 状态的整库备份恢复也通过。普通运行角色实际刷新效率 MV、拒绝私表读取
+和 Task 直接 UPDATE 的定点复验通过。两轮均完成 `0365 → 0189 → 0365`、冻结 SQL
+及权限核对，所有自有资源清理成功，零清理错误。
+
+加上源码 `82ee202d5` 已通过的两项真实 worker 用例，共五个不同案例的最新状态
+均通过；这是一组分批来源证据，不是当前提交一次全绿。保留原四例的两项失败、
+只补冷 API 日志的失败、迁移参数和旧验收 head 的两次准备阶段失败，以及旧宽权限
+断言失败；不改写原始状态。迁移参数问题已先在独占 PostgreSQL 中以最小 SQL 复现
+并验证 text 转换。当前代码、限定运行资格与主工作树采用分别记录；未切换日常拓扑。
