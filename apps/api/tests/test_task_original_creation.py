@@ -282,16 +282,18 @@ async def test_untrusted_scope_snapshot_is_rejected_before_io(
     assert (await service._read(task_creation_db, row["id"]))["status"] == "allocated"
 
 
-async def test_task_lookup_rejects_current_bucket_drift_without_storage_io(
+async def test_task_lookup_preserves_saved_bucket_after_current_bucket_change(
     task_creation_db, client, monkeypatch
 ):
     row = await allocation(task_creation_db)
     stage(client, row)
     monkeypatch.setattr(storage_service, "bucket", "another-current-bucket")
-    with pytest.raises(ContentError, match="managed_original_configuration_changed"):
+    assert (
         await service.for_task(
             task_creation_db, task_id=row["task_id"], object_key=row["object_key"]
         )
+        == row
+    )
     assert not client.calls
     assert (await service._read(task_creation_db, row["id"]))["bucket"] == row["bucket"]
 

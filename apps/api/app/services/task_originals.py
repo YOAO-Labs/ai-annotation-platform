@@ -17,11 +17,10 @@ from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import DBAPIError
 
-from app.config import settings
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.db.models.task_original import TaskOriginal
 from app.services import managed_original_creation as creation
-from app.services import storage_access
+from app.services import annotations_storage, storage_access
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.managed_original_retirement import managed_storage_identity
@@ -99,7 +98,7 @@ class Locator:
     endpoint_url: str
 
 
-def resolve(row, *, endpoint_url=None):
+def resolve(row, *, endpoint_url=None, storage_ref=None):
     """Validate saved facts without accessing business rows, gates or objects."""
     if row is None:
         _reject("unpinned")
@@ -110,8 +109,6 @@ def resolve(row, *, endpoint_url=None):
     if (
         any(not isinstance(value, uuid.UUID) for value in identifiers)
         or identifiers[0] != identifiers[1]
-        or identifiers[4] != LEGACY_LOCATION_ID
-        or _get(row, "object_key") != key_for(identifiers[2], identifiers[0])
         or not isinstance(_get(row, "sha256"), str)
         or _SHA.fullmatch(_get(row, "sha256")) is None
         or type(_get(row, "size_bytes")) is not int
@@ -141,18 +138,33 @@ def resolve(row, *, endpoint_url=None):
         or _SHA.fullmatch(identity) is None
     ):
         _reject("invalid_location")
-    endpoint = _endpoint(
-        endpoint_url
-        if endpoint_url is not None
-        else f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}".rstrip(
-            "/"
+    reference = storage_ref if storage_ref is not None else _get(row, "storage_ref")
+    logical = key_for(identifiers[2], identifiers[0])
+    if reference is None:
+        if identifiers[4] != LEGACY_LOCATION_ID or _get(row, "object_key") != logical:
+            _reject()
+        endpoint = _endpoint(
+            endpoint_url
+            if endpoint_url is not None
+            else annotations_storage._runtime_endpoint()
         )
-    )
-    if identity != managed_storage_identity(endpoint, bucket):
-        _reject("invalid_location")
-    return Locator(
-        LEGACY_LOCATION_ID, identity, bucket, _get(row, "object_key"), endpoint
-    )
+        if identity != managed_storage_identity(endpoint, bucket):
+            _reject("invalid_location")
+    else:
+        try:
+            saved = annotations_storage.resolve_ref(reference, logical)
+        except annotations_storage.AnnotationsStorageError:
+            _reject("invalid_location")
+        if (
+            saved.location_id != identifiers[4]
+            or saved.bucket != bucket
+            or saved.object_key != _get(row, "object_key")
+            or saved.storage_identity != identity
+            or (endpoint_url is not None and endpoint_url != saved.endpoint_url)
+        ):
+            _reject("invalid_location")
+        endpoint = saved.endpoint_url
+    return Locator(identifiers[4], identity, bucket, _get(row, "object_key"), endpoint)
 
 
 _Snapshot = make_dataclass(
@@ -160,8 +172,8 @@ _Snapshot = make_dataclass(
 )
 
 
-def snapshot(row, *, endpoint_url=None):
-    resolve(row, endpoint_url=endpoint_url)
+def snapshot(row, *, endpoint_url=None, storage_ref=None):
+    resolve(row, endpoint_url=endpoint_url, storage_ref=storage_ref)
     return _Snapshot(*(_get(row, name) for name in FACTS))
 
 
@@ -194,7 +206,9 @@ async def _persist(db, values):
                 .mappings()
                 .one()
             )
-        if not same(existing, values):
+        if not same(existing, values) or existing["storage_ref"] != values.get(
+            "storage_ref"
+        ):
             _reject("creation_conflict")
         return dict(existing)
 
@@ -262,7 +276,11 @@ async def publish(db, task, allocation, created):
         for field in FACTS
         if field not in {"creation_id", "created_at"}
     }
-    values.update(creation_id=row["id"], created_at=row["completed_at"])
+    values.update(
+        creation_id=row["id"],
+        created_at=row["completed_at"],
+        storage_ref=creation.original_ref(row),
+    )
     resolve(values)
     # These are the caller's short final configuration/Gate locks. The separate
     # owner transaction only references already committed immutable evidence.

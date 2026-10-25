@@ -35,6 +35,7 @@ async def values_for(db, created):
     return values | {
         "creation_id": created.creation_id,
         "created_at": source["completed_at"],
+        "storage_ref": creation.original_ref(source),
     }
 
 
@@ -53,6 +54,8 @@ async def test_empty_roundtrip_preserves_creation_and_legacy_tasks(original_db):
     connection = await db.connection()
 
     def roundtrip(sync):
+        current = migration(sync, "0253")
+        current.downgrade()
         module = migration(sync, "0231")
         assert module.down_revision == "0230"
         schema = sync.scalar(text("SELECT current_schema()"))
@@ -64,6 +67,7 @@ async def test_empty_roundtrip_preserves_creation_and_legacy_tasks(original_db):
         assert not inspect(sync).has_table("task_originals", schema=schema)
         assert inspect(sync).has_table("managed_original_creations", schema=schema)
         module.upgrade()
+        current.upgrade()
 
     await connection.run_sync(roundtrip)
     await db.refresh(legacy)
@@ -176,7 +180,7 @@ async def test_restore_changes_only_current_bucket_and_identity(
     original_db, original_client
 ):
     db = original_db
-    task, allocation, created = await verified(db, original_client)
+    task, allocation, created = await verified(db, original_client, legacy=True)
     owner = await service.publish(db, task, allocation, created)
     before = service.snapshot(owner)
     source = await creation._read(db, owner.id)

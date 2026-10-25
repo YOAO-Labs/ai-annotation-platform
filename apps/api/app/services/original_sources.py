@@ -301,7 +301,14 @@ def _platform_location(location, *, bounded=False):
 
 
 async def saved_location(
-    db, location_id, storage_ref, *, lock=False, bounded=False, location=None
+    db,
+    location_id,
+    storage_ref,
+    *,
+    lock=False,
+    bounded=False,
+    location=None,
+    purpose="datasets",
 ):
     """Resolve saved physical facts; live credentials never enter source facts."""
     if location is None:
@@ -309,10 +316,11 @@ async def saved_location(
         location = locations[0] if len(locations) == 1 else None
     if storage_ref is None:
         return _platform_location(location, bounded=bounded)
-    from app.services import dataset_storage
+    from app.services import annotations_storage, dataset_storage
 
+    storage = annotations_storage if purpose == "annotations" else dataset_storage
     try:
-        saved = dataset_storage.resolve_ref(storage_ref)
+        saved = storage.resolve_ref(storage_ref)
         if (
             saved.location_id != location_id
             or location is None
@@ -325,7 +333,7 @@ async def saved_location(
             raise ValueError
         # This captures metadata only. DNS, decryption and client construction
         # stay inside the caller's existing registered physical operation.
-        await dataset_storage.target_for_ref(db, storage_ref)
+        await storage.target_for_ref(db, storage_ref)
         parsed = urlsplit(saved.endpoint_url)
         facts = LocationFacts(
             location.id,
@@ -344,13 +352,34 @@ async def saved_location(
 async def read_target(db, source):
     """Prepare a separate current-credential target outside business transactions."""
     from app.db.models.dataset_auxiliary_original import DatasetAuxiliaryOriginal
-    from app.services import dataset_storage
+    from app.services import annotations_storage, dataset_storage
 
+    storage = (
+        annotations_storage if source.owner_kind == "task_original" else dataset_storage
+    )
     async with AsyncSession(
         bind=storage_access.engine(db), expire_on_commit=False, autoflush=False
     ) as owned:
-        if source.location_id == LEGACY_LOCATION_ID:
-            ref = dataset_storage.legacy_ref(source.bucket, source.object_key)
+        if source.owner_kind == "task_original":
+            row = (
+                await owned.execute(
+                    select(TaskOriginal.storage_ref).where(
+                        TaskOriginal.id == source.content_id,
+                        TaskOriginal.location_id == source.location_id,
+                        TaskOriginal.bucket == source.bucket,
+                        TaskOriginal.object_key == source.object_key,
+                        TaskOriginal.sha256 == source.sha256,
+                        TaskOriginal.size_bytes == source.size_bytes,
+                    )
+                )
+            ).one_or_none()
+            if row is None:
+                raise ContentError("location_unavailable")
+            ref = row.storage_ref
+            if ref is None:
+                ref = storage.legacy_ref(source.bucket, source.object_key)
+        elif source.location_id == LEGACY_LOCATION_ID:
+            ref = storage.legacy_ref(source.bucket, source.object_key)
         else:
             if source.owner_kind == "dataset_asset":
                 query = select(DatasetAssetLocation.storage_ref).where(
@@ -374,7 +403,7 @@ async def read_target(db, source):
             if ref is None:
                 raise ContentError("location_unavailable")
         try:
-            saved = dataset_storage.resolve_ref(ref)
+            saved = storage.resolve_ref(ref)
             if (
                 saved.location_id != source.location_id
                 or saved.config_revision != source.location_revision
@@ -383,7 +412,7 @@ async def read_target(db, source):
                 or saved.object_key != source.object_key
             ):
                 raise ValueError
-            return await dataset_storage.target_for_ref(owned, ref)
+            return await storage.target_for_ref(owned, ref)
         except ValueError:
             raise ContentError("location_unavailable") from None
 
@@ -687,8 +716,18 @@ async def _task_source(db, relation, lock, *, source=None, bounded=False):
                 lock,
             )
         )
-    endpoint, location_facts = _platform_location(location, bounded=bounded)
-    locator = task_originals.resolve(receipt, endpoint_url=endpoint)
+    endpoint, location_facts = await saved_location(
+        db,
+        receipt.location_id,
+        owner.storage_ref,
+        lock=lock,
+        bounded=bounded,
+        location=location,
+        purpose="annotations",
+    )
+    locator = task_originals.resolve(
+        receipt, endpoint_url=endpoint, storage_ref=owner.storage_ref
+    )
     revision = await _gate(db, receipt.location_id, lock, bounded=bounded)
     return OriginalSource(
         "task_original",
@@ -702,7 +741,7 @@ async def _task_source(db, relation, lock, *, source=None, bounded=False):
         locator.object_key,
         locator.endpoint_url,
         locator.location_id,
-        location.config_revision,
+        location_facts.config_revision,
         revision,
         receipt,
         None,

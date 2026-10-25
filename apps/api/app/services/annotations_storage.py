@@ -186,18 +186,18 @@ def resolve_ref(ref, expected_key=None):
     )
 
 
-def make_ref(target, binding_generation, object_key):
+def make_ref(target, generation, physical_key):
     return resolve_ref(
         {
             "schema": 2,
             "purpose": "annotations",
             "location_id": str(target.location_id),
             "config_revision": target.config_revision,
-            "binding_generation": binding_generation,
+            "binding_generation": generation,
             "endpoint_url": target.endpoint_url,
             "bucket": target.bucket,
             "key_prefix": target.key_prefix,
-            "object_key": object_key,
+            "object_key": physical_key,
             "storage_identity": managed_storage_identity(
                 target.endpoint_url, target.bucket
             ),
@@ -205,7 +205,7 @@ def make_ref(target, binding_generation, object_key):
     ).ref
 
 
-def legacy_ref(bucket, object_key):
+def legacy_ref(bucket, logical_key):
     from app.services.managed_s3_target import Target
 
     return make_ref(
@@ -220,7 +220,7 @@ def legacy_ref(bucket, object_key):
             _legacy_client=storage_service.client,
         ),
         1,
-        object_key,
+        logical_key,
     )
 
 
