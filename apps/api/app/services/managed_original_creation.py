@@ -45,6 +45,7 @@ _SAFE_CODE = re.compile(r"[a-z][a-z0-9_]{0,79}")
 STAGING_PREFIX = "__aap_upload_staging__"
 TASK_ORIGINAL_PREFIX = "__aap_task_originals__"
 AUXILIARY_ORIGINAL_PREFIX = "__aap_auxiliary_originals__"
+ORIGINAL_STORAGE_PURPOSES = frozenset({"datasets", "annotations", "import"})
 
 
 @dataclass(frozen=True)
@@ -120,7 +121,7 @@ async def _configuration(db, *, lock=False):
         )
         await db.execute(
             select(StorageBinding.purpose)
-            .where(StorageBinding.purpose != "avatars")
+            .where(StorageBinding.purpose.in_(ORIGINAL_STORAGE_PURPOSES))
             .order_by(StorageBinding.purpose)
             .with_for_update(read=True)
         )
@@ -132,7 +133,7 @@ async def _configuration(db, *, lock=False):
     bindings = list(
         await db.scalars(
             select(StorageBinding)
-            .where(StorageBinding.purpose != "avatars")
+            .where(StorageBinding.purpose.in_(ORIGINAL_STORAGE_PURPOSES))
             .order_by(StorageBinding.purpose)
             .execution_options(populate_existing=True)
         )
@@ -143,7 +144,7 @@ async def _configuration(db, *, lock=False):
             "buckets": {
                 purpose: getattr(storage_service, attr)
                 for purpose, attr in PURPOSE_BUCKET_ATTRIBUTES.items()
-                if purpose != "avatars"
+                if purpose in ORIGINAL_STORAGE_PURPOSES
             },
             "location": {
                 column.key: getattr(location, column.key)
@@ -221,19 +222,19 @@ def _original_configuration(configuration):
         "buckets": {
             purpose: bucket
             for purpose, bucket in configuration.get("buckets", {}).items()
-            if purpose != "avatars"
+            if purpose in ORIGINAL_STORAGE_PURPOSES
         },
         "bindings": [
             binding
             for binding in configuration.get("bindings", [])
-            if binding.get("purpose") != "avatars"
+            if binding.get("purpose") in ORIGINAL_STORAGE_PURPOSES
         ],
     }
 
 
 async def _validate(db, row, *, lock=False):
     saved = row["configuration"]
-    # Earlier immutable ledgers include avatars. Verify their original facts
+    # Earlier immutable ledgers include unrelated purposes. Verify their facts
     # before comparing only the dependencies this original writer consumes.
     if _digest(saved) != row["input_fingerprint"]:
         reject("managed_original_configuration_changed")

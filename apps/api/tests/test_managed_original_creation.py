@@ -543,6 +543,74 @@ async def test_saved_original_configuration_fingerprint_is_still_verified(
     assert not client.calls
 
 
+@pytest.mark.parametrize("legacy_snapshot", [False, True])
+@pytest.mark.parametrize("owner_kind", ["dataset", "task"])
+async def test_report_attachment_switch_preserves_inflight_original_creation(
+    creation_db, client, monkeypatch, legacy_snapshot, owner_kind
+):
+    db = creation_db
+    configuration_for = service._configuration
+    if legacy_snapshot:
+
+        async def historical_configuration(db, *, lock=False):
+            configuration = await configuration_for(db, lock=lock)
+            bindings = list(await db.scalars(select(StorageBinding)))
+            configuration["buckets"] = {
+                purpose: getattr(service.storage_service, attr)
+                for purpose, attr in service.PURPOSE_BUCKET_ATTRIBUTES.items()
+            }
+            configuration["bindings"] = sorted(
+                [
+                    service._json(
+                        {
+                            column.key: getattr(row, column.key)
+                            for column in row.__table__.columns
+                        }
+                    )
+                    for row in bindings
+                ],
+                key=lambda row: row["purpose"],
+            )
+            return configuration
+
+        monkeypatch.setattr(service, "_configuration", historical_configuration)
+    if owner_kind == "task":
+        row = await service.allocate_task(
+            db,
+            project_id=uuid.uuid4(),
+            task_id=uuid.uuid4(),
+            logical_path="original.bin",
+            max_bytes=10,
+        )
+        client.versioned = True
+        client.store(
+            row["staging_bucket"],
+            row["staging_key"],
+            b"original",
+            content_type=row["content_type"],
+        )
+    else:
+        row = await allocation(db)
+    saved = deepcopy(row["configuration"])
+    monkeypatch.setattr(service, "_configuration", configuration_for)
+    await db.execute(
+        update(StorageBinding)
+        .where(StorageBinding.purpose == "bug-reports")
+        .values(generation=2)
+    )
+    await db.commit()
+    if owner_kind == "task":
+        result = await service.complete_direct(db, row)
+    else:
+        result = await create(db, row)
+    assert result.size_bytes == len(b"original")
+    assert client.objects[row["bucket"], row["object_key"]]["data"] == b"original"
+    current = await service._read(db, row["id"])
+    assert current["configuration"] == saved
+    assert current["input_fingerprint"] == service._digest(saved)
+    assert current["status"] == "verified"
+
+
 async def test_schema_guards_are_real_and_refuse_downgrade_with_allocated_fact(
     creation_db,
 ):
