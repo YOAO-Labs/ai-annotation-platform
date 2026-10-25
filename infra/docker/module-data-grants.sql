@@ -711,6 +711,29 @@ GRANT SELECT (
 GRANT SELECT (sequence_order),
     UPDATE (batch_id, sequence_order, assignee_is_override, total_predictions)
     ON public.tasks TO :"labeling_owner";
+GRANT CREATE ON SCHEMA public TO :"labeling_owner";
+DO $labeling_prediction_storage_owner$
+DECLARE
+    v_partition record;
+    v_owner oid := (SELECT oid FROM pg_catalog.pg_roles
+                    WHERE rolname=current_setting('aap.labeling_owner'));
+BEGIN
+    FOR v_partition IN
+        SELECT relid FROM pg_catalog.pg_partition_tree('public.predictions')
+    LOOP
+        EXECUTE pg_catalog.format('ALTER TABLE %s OWNER TO %I',
+            v_partition.relid::pg_catalog.regclass,
+            current_setting('aap.labeling_owner'));
+    END LOOP;
+    IF EXISTS (
+        SELECT FROM pg_catalog.pg_partition_tree('public.predictions') AS partition
+        JOIN pg_catalog.pg_class AS relation ON relation.oid=partition.relid
+        WHERE relation.relowner<>v_owner
+    ) THEN
+        RAISE EXCEPTION 'Prediction storage must remain with its Labeling owner';
+    END IF;
+END;
+$labeling_prediction_storage_owner$;
 GRANT SELECT (id, project_id, task_id), DELETE
     ON public.predictions TO :"labeling_owner";
 GRANT SELECT (id, object_key, task_id, linked_at, created_at),
@@ -2715,6 +2738,8 @@ ALTER FUNCTION aap_labeling_v1.video_bbox_editing_command(jsonb)
 ALTER FUNCTION aap_labeling_v1.batch_control_command(jsonb)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.prediction_record_command(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.prediction_partition_command(jsonb)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.scene_track_command(jsonb)
     OWNER TO :"labeling_owner";

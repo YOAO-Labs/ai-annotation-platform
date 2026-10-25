@@ -1311,6 +1311,7 @@ class LocalResources:
                     "aap_labeling_v1.video_bbox_editing_command(jsonb), "
                     "aap_labeling_v1.batch_control_command(jsonb), "
                     "aap_labeling_v1.prediction_record_command(jsonb), "
+                    "aap_labeling_v1.prediction_partition_command(jsonb), "
                     "aap_labeling_v1.scene_track_command(jsonb), "
                     "aap_labeling_v1.cross_frame_write_command(jsonb), "
                     "aap_labeling_v1.annotation_prediction_command(jsonb), "

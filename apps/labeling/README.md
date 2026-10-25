@@ -145,6 +145,14 @@ scope, contributor evidence, source lineage, heartbeat, audit and commit remain 
 the caller workflow. Child creation and its source update stay separate so Mask
 history and version behavior are retained.
 
+`prediction_partition_command(jsonb)` ensures one fixed UTC month partition.
+The existing monthly worker keeps its method, calendar range and caller transaction;
+it submits closed month requests instead of executing DDL. Prediction parent and
+partition ownership stays with the NOLOGIN Labeling owner, which alone receives
+public-schema CREATE for this maintenance. The prediction-client profile allows
+exactly the two prediction-write commands plus this maintenance command; callers
+still lack raw table access and DDL. User-performance MV ownership remains separate.
+
 `scene_track_command(jsonb)` owns command lock/replay/apply/inspect/list/revert,
 including operation snapshots, intervals, member changes and reversal. Current
 Task locks and revisions fence each operation. Scene/frame facts come from the

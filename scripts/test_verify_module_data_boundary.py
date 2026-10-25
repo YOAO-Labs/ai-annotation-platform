@@ -109,6 +109,11 @@ def test_module_cold_case_selects_api_bootstrap_credentials(test_path):
             "0342_labeling_prediction_records",
         ),
         (
+            verifier.IDENTITY_CLIENT_ROLES["LABELING_PREDICTION"],
+            ("aap_labeling_v1.prediction_partition_command(jsonb)",),
+            "0357_labeling_prediction_partitions",
+        ),
+        (
             verifier.IDENTITY_CLIENT_ROLES["LABELING_SCENE_TRACK_COMMAND"],
             ("aap_labeling_v1.scene_track_command(jsonb)",),
             "0343_labeling_scene_track_commands",

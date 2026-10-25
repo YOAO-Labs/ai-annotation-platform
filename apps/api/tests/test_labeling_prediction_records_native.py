@@ -263,6 +263,31 @@ async def test_function_only_prediction_records_preserve_transaction_and_cleanup
 async def test_prediction_partition_command_owns_monthly_ddl_and_rolls_back(
     test_engine,
 ):
+    async with test_engine.connect() as observer:
+        owners = (
+            (
+                await observer.execute(
+                    text(
+                        "SELECT pg_catalog.pg_get_userbyid(relation.relowner) "
+                        "FROM pg_catalog.pg_partition_tree('public.predictions') AS tree "
+                        "JOIN pg_catalog.pg_class AS relation ON relation.oid=tree.relid"
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert set(owners) == {"labeling_code"}
+        owner_profile = (
+            await observer.execute(
+                text(
+                    "SELECT rolcanlogin, pg_catalog.has_schema_privilege("
+                    "rolname,'public','CREATE') FROM pg_catalog.pg_roles "
+                    "WHERE rolname='labeling_code'"
+                )
+            )
+        ).one()
+        assert tuple(owner_profile) == (False, True)
     connection = await asyncpg.connect(
         _dsn(
             test_engine,
@@ -325,5 +350,19 @@ async def test_prediction_partition_command_owns_monthly_ddl_and_rolls_back(
                 {"name": f"public.{expected_name}"},
             )
             assert persisted is None
+
+        async with test_engine.begin() as observer:
+            await observer.execute(
+                text(f"CREATE TABLE public.{expected_name} (id integer)")
+            )
+        try:
+            with pytest.raises(
+                asyncpg.InvalidParameterValueError,
+                match="not a prediction partition",
+            ):
+                await client.ensure(request)
+        finally:
+            async with test_engine.begin() as observer:
+                await observer.execute(text(f"DROP TABLE public.{expected_name}"))
     finally:
         await connection.close()

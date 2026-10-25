@@ -148,6 +148,7 @@ GRANT EXECUTE ON FUNCTION aap_labeling_v1.video_writer_step(text,text),
     aap_labeling_v1.video_bbox_editing_command(jsonb),
     aap_labeling_v1.batch_control_command(jsonb),
     aap_labeling_v1.prediction_record_command(jsonb),
+    aap_labeling_v1.prediction_partition_command(jsonb),
     aap_labeling_v1.scene_track_command(jsonb),
     aap_labeling_v1.cross_frame_write_command(jsonb),
     aap_labeling_v1.annotation_prediction_command(jsonb),
@@ -888,19 +889,10 @@ ALTER DEFAULT PRIVILEGES FOR ROLE :"migration_role" IN SCHEMA public
 ALTER DEFAULT PRIVILEGES FOR ROLE :"migration_role" IN SCHEMA public
     GRANT USAGE, SELECT ON SEQUENCES TO :"application_role";
 
--- Retained Predictions and user-performance maintenance uses the normal runtime.
--- Audit storage remains with its module owner. Ownership is limited
--- to these objects; the migration role inherits the runtime role, never vice versa.
+-- User-performance maintenance retains this MV; prediction partitions use
+-- their Labeling owner. The migration role inherits the runtime, never vice versa.
 DO $$
-DECLARE
-    obj record;
 BEGIN
-    FOR obj IN
-        SELECT relid FROM pg_partition_tree('public.predictions')
-    LOOP
-        EXECUTE format('ALTER TABLE %s OWNER TO %I', obj.relid::regclass,
-                       current_setting('aap.application_role'));
-    END LOOP;
     EXECUTE format('ALTER MATERIALIZED VIEW public.mv_user_perf_daily OWNER TO %I',
                    current_setting('aap.application_role'));
 END $$;

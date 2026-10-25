@@ -1,9 +1,4 @@
-"""v0.10.25 · predictions 月分区维护（ADR-0006 Stage 2）
-
-ensure_future_partitions(months_ahead=3): 检查 [今月, 今月+months_ahead] 缺失分区时
-CREATE TABLE ... PARTITION OF predictions ...。与 audit_partition_service 同构，但
-predictions 无冷数据归档需求（ADR-0006 仅要求自动建分区，不归档预测结果）。
-"""
+"""Bind monthly prediction partition maintenance to the Labeling owner."""
 
 from __future__ import annotations
 

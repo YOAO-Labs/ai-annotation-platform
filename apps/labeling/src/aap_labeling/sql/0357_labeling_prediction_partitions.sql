@@ -62,6 +62,16 @@ BEGIN
         v_created := v_name;
     END IF;
 
+    IF NOT EXISTS (
+        SELECT FROM pg_catalog.pg_inherits
+        WHERE inhparent = 'public.predictions'::pg_catalog.regclass
+          AND inhrelid = pg_catalog.to_regclass(
+              pg_catalog.format('public.%I', v_name))
+    ) THEN
+        RAISE EXCEPTION 'The named object is not a prediction partition'
+            USING ERRCODE = '22023';
+    END IF;
+
     RETURN pg_catalog.jsonb_build_object(
         'schema', 'aap-labeling-prediction-partitions/v1',
         'ok', true,
