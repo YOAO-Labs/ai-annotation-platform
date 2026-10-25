@@ -363,7 +363,7 @@ def stored_content(bucket, key, size):
 async def _managed_snapshot(
     db, source, validate, check_clock, *, quality=False, node_id=None
 ):
-    from app.services import managed_original_reader as reader
+    from app.services import managed_original_reader as reader, original_sources
 
     stage = None
     try:
@@ -392,6 +392,11 @@ async def _managed_snapshot(
                 ),
                 max_bytes=snapshots.MAX_BYTES,
                 timeout_seconds=snapshots.COPY_SECONDS,
+                **(
+                    await original_sources.read_options(
+                        db, source, read_timeout=snapshots.COPY_SECONDS
+                    )
+                ),
             )
         result = await snapshots.adopt_stage(stage, inspect_quality=quality)
         stage = None  # The image snapshot now owns the exact staged file and slot.

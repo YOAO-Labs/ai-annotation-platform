@@ -265,6 +265,7 @@ async def input_image(db, authority, snapshot, *, guard=None):
                 timeout_seconds=120,
                 admission=_slots,
                 transport_timeout_seconds=30,
+                **(await original_sources.read_options(db, source)),
             )
             png, media = await bounded_thread(normalize, stage, snapshot)
             await recheck(db, authority, source, guard=guard)

@@ -593,6 +593,8 @@ async def upload_init(
         file_path=storage_key,
         file_type=file_type,
         logical_path=relative_name,
+        storage_binding=creations.original_locator(allocation),
+        storage_ref=creations.original_ref(allocation),
     )
     item_id = item.id
     item_facts = (item.dataset_id, item.file_path, item.file_name, item.file_type)
@@ -688,6 +690,11 @@ async def upload_complete(
             await db.commit()
             credentials.check_clock(upload_authority)
             created = await creations.complete_direct(db, allocation)
+            image_dims = (
+                await creations.image_dimensions(db, allocation, created)
+                if item_facts[3] == "image"
+                else None
+            )
             await credentials.reauthorize(db, upload_authority)
             await recheck_directory_write(request, db, dataset_id)
             item = await db.scalar(
@@ -731,7 +738,19 @@ async def upload_complete(
                 hash_stored_object, item.file_path, meta
             )
         await recheck_directory_write(request, db, dataset_id)
-        await register_item_asset(db, item, sha256=sha256, size_bytes=size, etag=etag)
+        await register_item_asset(
+            db,
+            item,
+            sha256=sha256,
+            size_bytes=size,
+            etag=etag,
+            binding=creations.original_locator(allocation)
+            if allocation is not None
+            else None,
+            storage_ref=creations.original_ref(allocation)
+            if allocation is not None
+            else None,
+        )
         if allocation is not None:
             await creations.attach(db, item, created.creation_id)
     except ContentError as exc:
@@ -782,9 +801,13 @@ async def upload_complete(
     item.file_size = size
 
     if item.file_type == "image" and (item.width is None or item.height is None):
-        dims = storage_service.read_image_dimensions(
-            item.file_path,
-            bucket=storage_service.datasets_bucket,
+        dims = (
+            image_dims
+            if allocation is not None
+            else storage_service.read_image_dimensions(
+                item.file_path,
+                bucket=storage_service.datasets_bucket,
+            )
         )
         if dims:
             item.width, item.height = dims
@@ -941,6 +964,7 @@ async def upload_zip(
     new_image_item_ids: list[uuid.UUID] = []
     new_video_item_ids: list[uuid.UUID] = []
     new_item_ids: list[uuid.UUID] = []
+    sealed_entries: list[dict] = []
     zip_top_level_dirs: set[str] = set()
 
     from sqlalchemy import select as sa_select
@@ -962,9 +986,6 @@ async def upload_zip(
     existing_hashes: set[str] = {r[0] for r in hash_rows.all()}
     ensure_dataset_storage_name_is_writable(ds.name)
     existing_names = await svc._existing_file_names(dataset_id)
-    from app.services.dataset_assets import ensure_legacy_bindings
-
-    binding = await ensure_legacy_bindings(db)
 
     async def check_authority():
         try:
@@ -974,6 +995,7 @@ async def upload_zip(
             await db.rollback()
             raise
 
+    await db.commit()
     for info in infos:
         name = info.source_name
         safe_relpath = info.normalized_path
@@ -1006,6 +1028,7 @@ async def upload_zip(
             db, dataset_id, sha256, legacy_md5=content_hash
         ):
             deduped += 1
+            await db.commit()
             continue
 
         basename = PurePosixPath(safe_relpath).name
@@ -1026,14 +1049,14 @@ async def upload_zip(
                 authority=getattr(request.state, "directory_dataset_authority", None),
                 content_type=content_type,
             )
+            await db.commit()
             created = await creations.create_stream(
                 db, allocation, io.BytesIO(data), content_type=content_type
             )
         except ContentError as exc:
+            await db.rollback()
             errors.append({"name": name, "error": exc.code})
             continue
-        storage_key = allocation["object_key"]
-
         width: int | None = None
         height: int | None = None
         if file_type == "image":
@@ -1041,31 +1064,64 @@ async def upload_zip(
             if dims:
                 width, height = dims
 
+        # Keep only bounded metadata and the durable Creation identifier. The
+        # archive's existing per-file buffer is released on the next iteration.
+        sealed_entries.append(
+            {
+                "creation_id": created.creation_id,
+                "logical_path": logical_path,
+                "file_type": file_type,
+                "size_bytes": len(data),
+                "md5": content_hash,
+                "sha256": sha256,
+                "etag": created.etag,
+                "width": width,
+                "height": height,
+            }
+        )
+        existing_names.add(logical_path)
+        existing_hashes.add(sha256)
+
+    archive.close()
+    # Preserve one request-level publication transaction. A later authority
+    # failure still rolls back every Item, task, scene and dataset counter.
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+        {"k": str(dataset_id)},
+    )
+    await check_authority()
+    publication_names = await svc._existing_file_names(dataset_id)
+    for entry in sealed_entries:
+        if await find_verified_content(db, dataset_id, entry["sha256"]):
+            deduped += 1
+            continue
+        allocation = await creations._read(db, entry["creation_id"])
+        logical_path = await svc._unique_file_name(
+            dataset_id, entry["logical_path"], existing_names=publication_names
+        )
         item = await svc.add_item(
             dataset_id=dataset_id,
             file_name=PurePosixPath(logical_path).name,
-            file_path=storage_key,
-            file_type=file_type,
-            file_size=len(data),
-            content_hash=content_hash,
-            width=width,
-            height=height,
-            sha256=sha256,
-            object_etag=created.etag,
-            storage_binding=binding,
+            file_path=allocation["object_key"],
+            file_type=entry["file_type"],
+            file_size=entry["size_bytes"],
+            content_hash=entry["md5"],
+            width=entry["width"],
+            height=entry["height"],
+            sha256=entry["sha256"],
+            object_etag=entry["etag"],
+            storage_binding=creations.original_locator(allocation),
+            storage_ref=creations.original_ref(allocation),
             logical_path=logical_path,
         )
-        await creations.attach(db, item, created.creation_id)
-        existing_names.add(logical_path)
-        existing_hashes.add(sha256)
+        await creations.attach(db, item, entry["creation_id"])
+        publication_names.add(logical_path)
         added += 1
         new_item_ids.append(item.id)
-        if file_type == "image":
+        if entry["file_type"] == "image":
             new_image_item_ids.append(item.id)
-        elif file_type == "video":
+        elif entry["file_type"] == "video":
             new_video_item_ids.append(item.id)
-
-    archive.close()
     linked_tasks = await svc.create_tasks_for_items(dataset_id, new_item_ids)
 
     # v0.14.0 · 上传完跑 scene_inference(mode="auto"):

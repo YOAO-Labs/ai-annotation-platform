@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import hashlib
 import logging
 import uuid
+from types import SimpleNamespace
 
 from botocore.exceptions import BotoCoreError, ClientError
 from sqlalchemy import select
@@ -169,13 +170,26 @@ async def ensure_legacy_bindings(db):
 
 
 async def register_item_asset(
-    db, item, *, sha256=None, size_bytes=None, etag=None, binding=None
+    db, item, *, sha256=None, size_bytes=None, etag=None, binding=None, storage_ref=None
 ):
     """The item lock serializes backfill and completion, without touching its row."""
     from app.services.reference_keys import reject_reference
 
     reject_reference(item.file_path)
-    binding = binding or await ensure_legacy_bindings(db)
+    if storage_ref is not None:
+        from app.services.dataset_storage import resolve_ref
+
+        saved = resolve_ref(storage_ref)
+        if saved.object_key != item.file_path or (
+            binding is not None
+            and (binding.location_id, binding.bucket)
+            != (saved.location_id, saved.bucket)
+        ):
+            raise ValueError("Dataset locator differs from its saved address")
+        binding = saved
+    elif binding is None:
+        await ensure_legacy_bindings(db)
+        binding = legacy_dataset_binding()
     await db.execute(
         select(DatasetItem.id).where(DatasetItem.id == item.id).with_for_update()
     )
@@ -213,10 +227,11 @@ async def register_item_asset(
             location_id=binding.location_id,
             bucket=binding.bucket,
             object_key=item.file_path,
+            storage_ref=storage_ref,
             reference_state="unverified",
         )
         db.add(replica)
-    elif replica.object_key != item.file_path:
+    elif replica.object_key != item.file_path or replica.storage_ref != storage_ref:
         raise ValueError("Dataset locator differs from its pinned mapping")
     if sha256 is not None:
         replica.reference_state = "present"
@@ -225,6 +240,16 @@ async def register_item_asset(
         replica.etag = etag
     await db.flush()
     return asset
+
+
+def legacy_dataset_binding():
+    """Known deployment objects retain A independently of the current binding."""
+    return SimpleNamespace(
+        purpose="datasets",
+        location_id=LEGACY_LOCATION_ID,
+        bucket=storage_service.datasets_bucket,
+        generation=1,
+    )
 
 
 async def find_verified_content(

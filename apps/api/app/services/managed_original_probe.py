@@ -5,6 +5,7 @@ from datetime import datetime
 import hashlib
 import re
 import socket
+import sys
 import time
 from typing import Literal
 from urllib.parse import urlsplit
@@ -40,6 +41,7 @@ class ProbeInput:
     storage_identity: str
     sha256: str
     size_bytes: int
+    endpoint_url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -85,10 +87,9 @@ def _validate(candidate):
         _reject("unverifiable", "managed_original_byte_budget_exceeded")
 
 
-def _endpoint():
-    value = (
-        f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}"
-    )
+def _endpoint(value=None):
+    if value is None:
+        value = f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}"
     parts = urlsplit(value)
     if (
         parts.scheme not in {"http", "https"}
@@ -182,6 +183,12 @@ def _classify(exc):
     ):
         return "failed", "managed_original_probe_timeout"
     if isinstance(exc, StorageError):
+        if exc.code == "path_unavailable":
+            return "missing", "managed_original_object_missing"
+        if exc.code == "source_changed":
+            return "changed", "managed_original_object_changed"
+        if exc.code == "permission_denied":
+            return "failed", "managed_original_access_denied"
         if exc.code == "s3_conditions_not_supported":
             return "unverifiable", "managed_original_conditions_unsupported"
         if exc.code == "s3_redirect_denied":
@@ -194,12 +201,12 @@ def _classify(exc):
     return "failed", "managed_original_probe_failed"
 
 
-def run_probe(candidate: ProbeInput) -> ProbeResult:
+def run_probe(candidate: ProbeInput, *, client_context=None) -> ProbeResult:
     """Read one bounded observation; even a match is only historical evidence."""
     observation, observed_sha256, observed_size = {}, None, None
     try:
         _validate(candidate)
-        endpoint = _endpoint()
+        endpoint = _endpoint(candidate.endpoint_url)
         if (
             managed_storage_identity(endpoint, candidate.bucket)
             != candidate.storage_identity
@@ -211,8 +218,11 @@ def run_probe(candidate: ProbeInput) -> ProbeResult:
             if time.monotonic() >= deadline:
                 _reject("failed", "managed_original_probe_timeout")
 
-        client = _client(endpoint)
+        context = client_context() if client_context is not None else None
+        client = context.__enter__() if context is not None else _client(endpoint)
         try:
+            if client is None:
+                raise mark_unsettled(StorageError("connection_unavailable"))
             if client.meta.endpoint_url.rstrip("/") != endpoint:
                 _reject(
                     "unverifiable", "managed_original_storage_configuration_changed"
@@ -271,7 +281,10 @@ def run_probe(candidate: ProbeInput) -> ProbeResult:
                 if body is not None:
                     close_registered(body)
         finally:
-            close_registered(client)
+            if context is not None:
+                context.__exit__(*sys.exc_info())
+            else:
+                close_registered(client)
         check_deadline()
         return ProbeResult("matched", None, observed_sha256, observed_size, observation)
     except BaseException as exc:

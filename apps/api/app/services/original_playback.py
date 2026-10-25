@@ -23,13 +23,14 @@ class PlaybackContext:
     session_id: UUID
 
 
-async def capture_video(spec):
+async def capture_video(spec, **read_options):
     return await reader.capture(
         spec,
         max_bytes=MAX_STAGE_BYTES,
         timeout_seconds=COPY_SECONDS,
         admission=_copy_slots,
         transport_timeout_seconds=30,
+        **read_options,
     )
 
 

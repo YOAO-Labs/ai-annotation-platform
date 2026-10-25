@@ -404,6 +404,9 @@ async def open_snapshot(db, task_id, expected, *, guard, purpose, node_id):
     try:
         permit = await settled(acquire(), late=close_permit)
         await settled(fresh())
+        read_options = await settled(
+            original_sources.read_options(db, source, read_timeout=15)
+        )
         # The reader owns/relinquishes the slot only after real file close.
         if not _slots.acquire(blocking=False):
             raise ContentError("snapshot_capacity_exceeded", 429)
@@ -428,6 +431,7 @@ async def open_snapshot(db, task_id, expected, *, guard, purpose, node_id):
                     _slots.release,
                     transport_timeout_seconds=15,
                     retain_on_close_error=True,
+                    **read_options,
                 ),
             )
         except BaseException:

@@ -24,6 +24,7 @@ from app.db.models.dataset_asset import DatasetAsset, DatasetAssetLocation  # no
 from app.services.dataset_assets import (
     LEGACY_LOCATION_ID,
     ensure_legacy_bindings,
+    legacy_dataset_binding,
     register_item_asset,
     validate_legacy_bindings,
 )  # noqa: E402
@@ -49,7 +50,9 @@ async def backfill_batch(db, *, mode, dataset_id=None, after=None, batch_size=10
     if mode not in {"apply", "verify", "dry-run"} or not 1 <= batch_size <= 500:
         raise ValueError("Invalid backfill mode or batch size")
     # Bootstrap bindings before item locks, matching online import lock order.
-    binding = await ensure_legacy_bindings(db) if mode == "apply" else None
+    if mode == "apply":
+        await ensure_legacy_bindings(db)
+    binding = legacy_dataset_binding() if mode == "apply" else None
     from app.services.reference_keys import PREFIX
 
     stmt = (

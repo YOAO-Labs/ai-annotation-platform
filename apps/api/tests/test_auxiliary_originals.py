@@ -69,6 +69,13 @@ async def auxiliary_db(creation_db):
     await connection.run_sync(
         lambda sync: migration(sync, "0235_dataset_auxiliary_originals.py").upgrade()
     )
+    # The historical scope setup precedes saved current-owner addresses.
+    await connection.execute(
+        text("ALTER TABLE dataset_asset_locations DROP COLUMN storage_ref")
+    )
+    await connection.run_sync(
+        lambda sync: migration(sync, "0251_dataset_original_targets.py").upgrade()
+    )
     await db.commit()
     return db
 

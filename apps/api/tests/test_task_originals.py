@@ -25,7 +25,7 @@ from app.services import task_originals as service
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
 from app.services.managed_original_retirement import managed_storage_identity
-from tests.test_managed_original_creation import Client
+from tests.test_managed_original_creation import Client, stage_client
 
 
 def migration(connection, number):
@@ -82,6 +82,13 @@ async def original_db(test_engine):
                 await connection.run_sync(
                     lambda sync, number=number: migration(sync, number).upgrade()
                 )
+            # The current writer also carries the independently tested staging
+            # reference; these scope fixtures keep the historical owner guards.
+            await connection.execute(
+                text(
+                    "ALTER TABLE managed_original_creations ADD COLUMN staging_ref jsonb"
+                )
+            )
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
             await ensure_legacy_bindings(db)
             await db.commit()
@@ -96,6 +103,7 @@ async def original_db(test_engine):
 def original_client(monkeypatch):
     client = Client()
     monkeypatch.setattr(creation, "create_client", lambda **_: client)
+    stage_client(monkeypatch, client)
     return client
 
 

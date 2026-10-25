@@ -48,6 +48,7 @@ async def creation_db(test_engine):
     # as a whole; never disable guards or DELETE creation history for cleanup.
     schema = "creation_test_" + uuid.uuid4().hex
     tables = (
+        "storage_connections",
         "storage_locations",
         "storage_bindings",
         "storage_maintenance_gates",
@@ -433,6 +434,7 @@ async def publication(db, row, result):
         object_key=row["object_key"],
         role="managed_original",
         etag=result.etag,
+        storage_ref=service.original_ref(row),
     )
     db.add(location)
     await db.flush()
@@ -444,6 +446,16 @@ async def test_attach_is_transactional_and_preserves_source_provenance_on_bucket
 ):
     db = creation_db
     row = await allocation(db)
+    # A current legacy NULL owner may have an immutable historical schema-one
+    # Creation; offline address changes do not rewrite that provenance.
+    row = deepcopy(row)
+    row["id"] = uuid.uuid4()
+    row["object_key"] += "-historical"
+    row["configuration"].pop("original_ref")
+    row["configuration"]["schema"] = 1
+    row["input_fingerprint"] = service._digest(row["configuration"])
+    await db.execute(Creation.__table__.insert().values(**row))
+    await db.commit()
     result = await create(db, row)
     item, location = await publication(db, row, result)
     await service.attach(db, item, row["id"])
@@ -484,7 +496,7 @@ async def test_business_rollback_does_not_erase_verified_unlinked_creation(
     assert (row["bucket"], row["object_key"]) in client.objects
 
 
-async def test_configuration_change_is_not_legacy_fallback_or_new_write(
+async def test_binding_generation_change_preserves_saved_original_allocation(
     creation_db, client
 ):
     db = creation_db
@@ -494,13 +506,12 @@ async def test_configuration_change_is_not_legacy_fallback_or_new_write(
         .where(StorageBinding.purpose == "datasets")
         .values(generation=2)
     )
-    with pytest.raises(ContentError, match="managed_original_configuration_changed"):
-        await service.for_key(
-            db, dataset_id=row["dataset_id"], object_key=row["object_key"]
-        )
-    with pytest.raises(ContentError):
-        await create(db, row)
-    assert not client.calls
+    assert await service.for_key(
+        db, dataset_id=row["dataset_id"], object_key=row["object_key"]
+    )
+    created = await create(db, row)
+    assert created.size_bytes == len(b"original")
+    assert client.objects[row["bucket"], row["object_key"]]["data"] == b"original"
 
 
 @pytest.mark.parametrize("legacy_snapshot", [False, True])

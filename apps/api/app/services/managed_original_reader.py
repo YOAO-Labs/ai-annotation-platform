@@ -22,6 +22,7 @@ from urllib.parse import urlsplit
 from botocore.exceptions import ClientError
 
 from app.services.content_snapshot import ContentError
+from app.services.filesystem_storage import FilesystemStorageError
 from app.services.storage_access import close_registered, mark_unsettled
 
 CHUNK_BYTES = 256 * 1024
@@ -211,6 +212,11 @@ def _failure(exc):
         return mark_unsettled(ContentError("storage_operation_unsettled", 503))
     if isinstance(exc, ContentError):
         return exc
+    if isinstance(exc, FilesystemStorageError):
+        if exc.code == "path_unavailable":
+            return ContentError("content_source_missing", 404)
+        if exc.code == "source_changed":
+            return ContentError("source_changed", 409)
     if isinstance(exc, ClientError):
         code = str(exc.response.get("Error", {}).get("Code", ""))
         if code in {"NoSuchKey", "NoSuchVersion", "NotFound", "404"}:
@@ -358,6 +364,7 @@ async def capture(
     timeout_seconds,
     admission=None,
     transport_timeout_seconds=None,
+    client_context=None,
 ):
     """Return a full verified file; cancellation drains every real I/O handle."""
     try:
@@ -385,6 +392,7 @@ async def capture(
         or not finite_timeout
         or timeout_seconds <= 0
         or not valid_transport_timeout
+        or (client_context is not None and not callable(client_context))
         or (admission is not None and not isinstance(admission, threading.Semaphore))
     ):
         _reject("managed_original_read_invalid")
@@ -398,6 +406,8 @@ async def capture(
     try:
         context = contextvars.copy_context()
         options = {}
+        if client_context is not None:
+            options["client_context"] = client_context
         if admission is not None:
             options["retain_on_close_error"] = True
         if transport_timeout_seconds is not None:

@@ -44,6 +44,7 @@ async def owned_import(test_engine, monkeypatch, tmp_path):
         "tasks",
         "task_dataset_item_links",
         "scene_frame_poses",
+        "storage_connections",
         "storage_locations",
         "storage_bindings",
         "storage_maintenance_gates",
@@ -101,6 +102,19 @@ async def owned_import(test_engine, monkeypatch, tmp_path):
                 await connection.run_sync(
                     lambda sync, filename=filename: migration(sync, filename).upgrade()
                 )
+            await connection.execute(
+                text(
+                    "ALTER TABLE managed_original_creations ADD COLUMN staging_ref jsonb"
+                )
+            )
+            await connection.execute(
+                text("ALTER TABLE dataset_asset_locations DROP COLUMN storage_ref")
+            )
+            await connection.run_sync(
+                lambda sync: migration(
+                    sync, "0251_dataset_original_targets.py"
+                ).upgrade()
+            )
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
             await ensure_legacy_bindings(db)
             actor = User(

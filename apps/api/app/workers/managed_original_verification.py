@@ -8,7 +8,6 @@ from fastapi import HTTPException
 
 from app.services import managed_original_verification as service, storage_access
 from app.services.async_job_notify import notify_job_terminal
-from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.workers._db import task_session
 from app.workers.celery_app import celery_app
 
@@ -79,6 +78,7 @@ async def execute(db, job_id, task_id):
         storage_identity=row.anchor["storage_identity"],
         sha256=row.expected_sha256,
         size_bytes=row.expected_size_bytes,
+        endpoint_url=(row.configuration.get("saved_ref") or {}).get("endpoint_url"),
     )
 
     async def on_acquired(permit):
@@ -86,15 +86,17 @@ async def execute(db, job_id, task_id):
 
     result, failure, cancelled = None, None, False
     try:
+        options = await service.probe_options(db, row)
         result = await storage_access.run(
             db,
-            LEGACY_LOCATION_ID,
+            uuid.UUID(row.anchor["location_id"]),
             "managed_original_verification",
             run_probe,
             request,
             expected_revision=revision,
             timeout=service.TIMEOUT_SECONDS + 10,
             on_acquired=on_acquired,
+            **options,
         )
     except asyncio.CancelledError:
         cancelled = True
