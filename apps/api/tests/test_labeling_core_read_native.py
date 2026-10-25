@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import uuid
@@ -66,9 +67,11 @@ _PUBLIC_RELATIONS = (
 async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     actor_id = project_id = dataset_id = item_id = None
+    ordered_task_id = None
     task_id = batch_id = annotation_id = lock_id = link_id = None
     segment_id = tracker_job_id = None
     connection = None
+    holder = None
     try:
         async with maker.begin() as db:
             actor = await create_user(
@@ -79,6 +82,10 @@ async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
             )
             project = await create_project(db, owner_id=actor.id)
             task = await create_task(db, project_id=project.id, status="pending")
+            ordered_task = await create_task(
+                db, project_id=project.id, status="pending"
+            )
+            ordered_task_id = ordered_task.id
             batch = TaskBatch(
                 project_id=project.id,
                 display_id=f"B-{uuid.uuid4().hex[:10]}",
@@ -156,11 +163,13 @@ async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
             )
             segment_id, tracker_job_id = segment.id, tracker_job.id
 
+        dsn = _dsn(test_engine, "AAP_MODULE_DATA_LABELING_CORE_READ_URL", _ROLE)
         connection = await asyncpg.connect(
-            _dsn(test_engine, "AAP_MODULE_DATA_LABELING_CORE_READ_URL", _ROLE),
+            dsn,
             timeout=5,
             command_timeout=10,
         )
+        holder = await asyncpg.connect(dsn, timeout=5, command_timeout=10)
         assert await connection.fetchval("SELECT current_user") == _ROLE
         for relation in _PUBLIC_RELATIONS:
             assert (
@@ -172,6 +181,18 @@ async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
         for table_name in _PRIVATE_TABLES:
             with pytest.raises(asyncpg.InsufficientPrivilegeError):
                 await connection.fetch(f"SELECT id FROM public.{table_name} LIMIT 1")
+        for relation, column, row_id in (
+            ("task_rows", "status", task_id),
+            ("batch_rows", "name", batch_id),
+            ("annotation_rows", "class_name", annotation_id),
+        ):
+            with pytest.raises(asyncpg.InsufficientPrivilegeError):
+                async with connection.transaction():
+                    await connection.execute(
+                        f"UPDATE aap_labeling_v1.{relation} "
+                        f"SET {column} = {column} WHERE id = $1",
+                        row_id,
+                    )
 
         task_row = await connection.fetchrow(
             "SELECT project_id, batch_id FROM aap_labeling_v1.task_rows WHERE id = $1",
@@ -229,8 +250,119 @@ async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
             tracker_job_row["segment_id"],
             tracker_job_row["model_key"],
         ) == (task_id, segment_id, "core-read-test")
+        ordered_task_ids = sorted((task_id, ordered_task_id), reverse=True)
+        ordered_task_rows = await connection.fetch(
+            "SELECT id FROM aap_labeling_v1.lock_task_rows_for_core_read($1)",
+            ordered_task_ids,
+        )
+        assert [row["id"] for row in ordered_task_rows] == sorted(ordered_task_ids)
 
         async with connection.transaction():
+
+            async def assert_nowait_conflicts(hold_sql, hold_args, contenders) -> None:
+                transaction = holder.transaction()
+                await transaction.start()
+                try:
+                    assert await holder.fetchrow(hold_sql, *hold_args) is not None
+                    for statement, arguments in contenders:
+                        with pytest.raises(asyncpg.PostgresError) as conflict:
+                            async with connection.transaction():
+                                await connection.fetchrow(statement, *arguments)
+                        assert conflict.value.sqlstate == "55P03"
+                finally:
+                    await transaction.rollback()
+
+            await assert_nowait_conflicts(
+                "SELECT id FROM aap_labeling_v1.lock_task_for_core_read($1, 'update', false)",
+                (task_id,),
+                [
+                    (
+                        "SELECT id FROM aap_labeling_v1.lock_task_for_core_read($1, 'update', true)",
+                        (task_id,),
+                    ),
+                    (
+                        "SELECT id FROM aap_labeling_v1.lock_task_for_core_read($1, 'share', true)",
+                        (task_id,),
+                    ),
+                    (
+                        "SELECT id FROM aap_labeling_v1.lock_task_rows_for_core_read($1)",
+                        (ordered_task_ids,),
+                    ),
+                ],
+            )
+            await assert_nowait_conflicts(
+                "SELECT id FROM aap_labeling_v1.lock_batch_rows_for_core_read($1, $2, 'update', false)",
+                ([batch_id], project_id),
+                [
+                    (
+                        "SELECT id FROM aap_labeling_v1.lock_batch_rows_for_core_read($1, $2, 'update', true)",
+                        ([batch_id], project_id),
+                    ),
+                    (
+                        "SELECT id FROM aap_labeling_v1.lock_batch_rows_for_core_read($1, $2, 'share', true)",
+                        ([batch_id], project_id),
+                    ),
+                ],
+            )
+            await assert_nowait_conflicts(
+                "SELECT id FROM aap_labeling_v1.lock_annotation_rows_for_core_read($1, $2, $3, 'update', false)",
+                ([annotation_id], task_id, project_id),
+                [
+                    (
+                        "SELECT id FROM aap_labeling_v1.lock_annotation_rows_for_core_read($1, $2, $3, 'update', true)",
+                        ([annotation_id], task_id, project_id),
+                    ),
+                    (
+                        "SELECT id FROM aap_labeling_v1.lock_annotation_rows_for_core_read($1, $2, $3, 'share', true)",
+                        ([annotation_id], task_id, project_id),
+                    ),
+                ],
+            )
+
+            segment_holder_transaction = holder.transaction()
+            await segment_holder_transaction.start()
+            locked_segment = await holder.fetchrow(
+                "SELECT id FROM aap_labeling_v1.lock_video_segment_for_core_read($1, $2)",
+                segment_id,
+                item_id,
+            )
+            assert locked_segment is not None
+            await connection.execute("SET LOCAL lock_timeout = '5s'")
+            contender_pid = await connection.fetchval(
+                "SELECT pg_catalog.pg_backend_pid()"
+            )
+            waiting_segment = asyncio.create_task(
+                connection.fetchrow(
+                    "SELECT id FROM aap_labeling_v1.lock_video_segment_for_core_read($1, $2)",
+                    segment_id,
+                    item_id,
+                )
+            )
+            try:
+                deadline = asyncio.get_running_loop().time() + 5
+                while asyncio.get_running_loop().time() < deadline:
+                    await holder.fetchval("SELECT pg_catalog.pg_stat_clear_snapshot()")
+                    wait_event_type = await holder.fetchval(
+                        "SELECT wait_event_type FROM pg_catalog.pg_stat_activity WHERE pid = $1",
+                        contender_pid,
+                    )
+                    if wait_event_type == "Lock":
+                        break
+                    await asyncio.sleep(0.02)
+                else:
+                    raise AssertionError("the competing Segment UPDATE did not wait")
+                assert not waiting_segment.done()
+                await segment_holder_transaction.commit()
+                segment_holder_transaction = None
+                released_segment = await asyncio.wait_for(waiting_segment, timeout=5)
+                assert released_segment["id"] == segment_id
+            finally:
+                if segment_holder_transaction is not None:
+                    await segment_holder_transaction.rollback()
+                if not waiting_segment.done():
+                    waiting_segment.cancel()
+                    await asyncio.gather(waiting_segment, return_exceptions=True)
+
             locked_task = await connection.fetchrow(
                 "SELECT id FROM aap_labeling_v1.lock_task_for_core_read($1, 'share', true)",
                 task_id,
@@ -309,6 +441,8 @@ async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
     finally:
         if connection is not None:
             await connection.close()
+        if holder is not None:
+            await holder.close()
         async with maker.begin() as db:
             if task_id is not None:
                 await db.execute(
@@ -320,8 +454,11 @@ async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
                 await db.execute(
                     delete(TaskDatasetItemLink).where(TaskDatasetItemLink.id == link_id)
                 )
-            if task_id is not None:
-                await db.execute(delete(Task).where(Task.id == task_id))
+            cleanup_task_ids = [
+                value for value in (task_id, ordered_task_id) if value is not None
+            ]
+            if cleanup_task_ids:
+                await db.execute(delete(Task).where(Task.id.in_(cleanup_task_ids)))
             if batch_id is not None:
                 await db.execute(delete(TaskBatch).where(TaskBatch.id == batch_id))
             if item_id is not None:
