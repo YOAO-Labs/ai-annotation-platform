@@ -1,4 +1,4 @@
--- Grant a Labeling core read data LOGIN exactly three row-lock capabilities and eight public projections.
+-- Grant a Labeling core read data LOGIN exactly five row-lock capabilities and twelve public projections.
 -- Run after migrations, module-data-grants.sql and lan-production-grants.sql.
 -- psql -v expected_database=annotation_test -v migration_role=owner \
 --   -v labeling_owner=labeling_code -v core_read_role=labeling_core_read_client \
@@ -51,9 +51,11 @@ BEGIN
         RAISE EXCEPTION 'Labeling owner and caller LOGIN have unsafe membership';
     END IF;
     FOREACH v_signature IN ARRAY ARRAY[
-        'aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean)',
+        'aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)',
         'aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)',
-        'aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)'
+        'aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)',
+        'aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid)',
+        'aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid)'
     ] LOOP
     v_function := pg_catalog.to_regprocedure(v_signature);
     IF v_function IS NULL OR NOT EXISTS (
@@ -65,9 +67,11 @@ BEGIN
           AND function.prokind='f'
           AND function.proretset
           AND function.prorettype = CASE v_signature
-              WHEN 'aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean)' THEN 'aap_labeling_v1.task_rows'::pg_catalog.regtype
+              WHEN 'aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)' THEN 'aap_labeling_v1.task_rows'::pg_catalog.regtype
               WHEN 'aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)' THEN 'aap_labeling_v1.batch_rows'::pg_catalog.regtype
               WHEN 'aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)' THEN 'aap_labeling_v1.annotation_rows'::pg_catalog.regtype
+              WHEN 'aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid)' THEN 'aap_labeling_v1.video_segment_rows'::pg_catalog.regtype
+              WHEN 'aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid)' THEN 'aap_labeling_v1.task_rows'::pg_catalog.regtype
           END
           AND function.proconfig @> ARRAY[
               'search_path=pg_catalog, pg_temp', 'TimeZone=UTC'
@@ -105,14 +109,18 @@ BEGIN
 END;
 $revoke$;
 
-REVOKE ALL ON FUNCTION aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean),
+REVOKE ALL ON FUNCTION aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid),
     aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean),
-    aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)
+    aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean),
+    aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid),
+    aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid)
     FROM :"core_read_role", PUBLIC;
 GRANT USAGE ON SCHEMA aap_labeling_v1 TO :"core_read_role";
-GRANT EXECUTE ON FUNCTION aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean),
+GRANT EXECUTE ON FUNCTION aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid),
     aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean),
-    aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)
+    aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean),
+    aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid),
+    aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid)
     TO :"core_read_role";
 GRANT SELECT ON aap_labeling_v1.task_rows,
     aap_labeling_v1.batch_rows,
@@ -121,7 +129,11 @@ GRANT SELECT ON aap_labeling_v1.task_rows,
     aap_labeling_v1.prediction_meta_rows,
     aap_labeling_v1.failed_prediction_rows,
     aap_labeling_v1.task_lock_rows,
-    aap_labeling_v1.task_dataset_item_link_rows
+    aap_labeling_v1.task_dataset_item_link_rows,
+    aap_labeling_v1.scene_track_rows,
+    aap_labeling_v1.scene_track_interval_rows,
+    aap_labeling_v1.video_segment_rows,
+    aap_labeling_v1.video_tracker_job_rows
     TO :"core_read_role";
 
 DO $verify$
@@ -129,9 +141,11 @@ DECLARE
     v_client oid := (SELECT oid FROM pg_catalog.pg_roles
                           WHERE rolname=current_setting('aap.core_read_role'));
     v_allowed oid[] := ARRAY[
-        pg_catalog.to_regprocedure('aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean)'),
+        pg_catalog.to_regprocedure('aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)'),
         pg_catalog.to_regprocedure('aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)'),
-        pg_catalog.to_regprocedure('aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)')
+        pg_catalog.to_regprocedure('aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)'),
+        pg_catalog.to_regprocedure('aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid)'),
+        pg_catalog.to_regprocedure('aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid)')
     ];
     v_allowed_relations oid[] := ARRAY[
         pg_catalog.to_regclass('aap_labeling_v1.task_rows'),
@@ -141,7 +155,11 @@ DECLARE
         pg_catalog.to_regclass('aap_labeling_v1.prediction_meta_rows'),
         pg_catalog.to_regclass('aap_labeling_v1.failed_prediction_rows'),
         pg_catalog.to_regclass('aap_labeling_v1.task_lock_rows'),
-        pg_catalog.to_regclass('aap_labeling_v1.task_dataset_item_link_rows')
+        pg_catalog.to_regclass('aap_labeling_v1.task_dataset_item_link_rows'),
+        pg_catalog.to_regclass('aap_labeling_v1.scene_track_rows'),
+        pg_catalog.to_regclass('aap_labeling_v1.scene_track_interval_rows'),
+        pg_catalog.to_regclass('aap_labeling_v1.video_segment_rows'),
+        pg_catalog.to_regclass('aap_labeling_v1.video_tracker_job_rows')
     ];
     v_projection oid;
     v_relation record;
@@ -156,7 +174,7 @@ BEGIN
            SELECT FROM pg_catalog.unnest(v_allowed) AS capability(oid)
            WHERE NOT pg_catalog.has_function_privilege(v_client,capability.oid,'EXECUTE')
        ) THEN
-        RAISE EXCEPTION 'Labeling core read data LOGIN is missing its exact three-function profile';
+        RAISE EXCEPTION 'Labeling core read data LOGIN is missing its exact five-function profile';
     END IF;
     IF EXISTS (
         SELECT FROM pg_catalog.pg_proc AS function

@@ -140,9 +140,11 @@ def test_module_cold_case_selects_api_bootstrap_credentials(test_path):
         (
             verifier.IDENTITY_CLIENT_ROLES["LABELING_CORE_READ"],
             (
-                "aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean)",
+                "aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)",
                 "aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)",
                 "aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)",
+                "aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid)",
+                "aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid)",
             ),
             "0352_labeling_core_read",
         ),

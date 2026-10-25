@@ -713,7 +713,8 @@ GRANT SELECT (sequence_order),
     ON public.tasks TO :"labeling_owner";
 GRANT SELECT (id, project_id, task_id), DELETE
     ON public.predictions TO :"labeling_owner";
-GRANT SELECT (object_key, task_id, created_at), DELETE
+GRANT SELECT (id, object_key, task_id, linked_at, created_at),
+    INSERT (id, task_id, object_key), UPDATE (created_at, linked_at), DELETE
     ON public.raster_mask_uploads TO :"labeling_owner";
 GRANT SELECT, INSERT, UPDATE, DELETE ON
     public.mask_gc_intents,
@@ -2753,7 +2754,7 @@ ALTER FUNCTION aap_labeling_v1._annotation_transfer_without_suffix(text)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1._annotation_transfer_camera_bbox_valid(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean)
+ALTER FUNCTION aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)
     OWNER TO :"labeling_owner";
@@ -2781,6 +2782,12 @@ ALTER VIEW aap_labeling_v1.prediction_meta_rows OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.failed_prediction_rows OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.task_lock_rows OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.task_dataset_item_link_rows OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid) OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid) OWNER TO :"labeling_owner";
+ALTER VIEW aap_labeling_v1.scene_track_rows OWNER TO :"labeling_owner";
+ALTER VIEW aap_labeling_v1.scene_track_interval_rows OWNER TO :"labeling_owner";
+ALTER VIEW aap_labeling_v1.video_segment_rows OWNER TO :"labeling_owner";
+ALTER VIEW aap_labeling_v1.video_tracker_job_rows OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.annotation_comment_facts OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.annotation_feedback_facts OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.task_event_facts OWNER TO :"labeling_owner";

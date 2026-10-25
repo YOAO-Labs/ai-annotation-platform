@@ -202,7 +202,7 @@ existing import, conversion, camera editing and Mask format-import ledger.
 `task_maintenance_command` owns source-less Task cleanup and derived counters.
 All borrow the original caller transaction and preserve its commit boundary.
 
-Eight public core-row views retain native column types. Three fixed row-lock
+Twelve public core-row views retain native column types. Five fixed row-lock
 functions return their explicit published column order and preserve the selected
 lock mode. The core-read LOGIN receives only these views and lock functions.
 

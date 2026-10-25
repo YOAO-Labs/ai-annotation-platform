@@ -3270,7 +3270,7 @@ python3 scripts/verify_docker_host_forwarding.py \
 `AAP_MODULE_DATA_LABELING_MASK_QUALITY_URL`、`AAP_MODULE_DATA_LABELING_SPATIAL_QUALITY_URL`、
 `AAP_MODULE_DATA_LABELING_TASK_MAINTENANCE_URL`；它们仅供验收，不是产品 DSN。
 无来源清理的实际消费者案例仍使用既有受限 API 账号，同一事务中调用固定 owner。
-核心读取账号只读八项公开关系并执行三项行锁；其余命令账号均无私有底表权限。
+核心读取账号只读十二项公开关系并执行五项固定行锁；其余命令账号均无私有底表权限。
 实现期间不逐操作启动完整冷环境；原生、冷工件及恢复按完整模块集中验收。
 
 AI Mask 溯源的独立 Pool 存在性读取使用

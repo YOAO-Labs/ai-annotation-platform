@@ -10,7 +10,6 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.dialects import postgresql
-from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.db.models.annotation import Annotation
@@ -32,7 +31,11 @@ from app.services.data_management.views import (
     builtin_views,
     invalid_filter_fields,
 )
-from app.services.labeling_core_read_relations import task_row
+from app.services.labeling_core_read_relations import (
+    alias_core_row,
+    annotation_row,
+    task_row,
+)
 
 
 def _project(*, data_type: str = "image", scene_mode: bool = False) -> Project:
@@ -119,14 +122,20 @@ def test_root_rule_and_nested_groups_compile_for_task_and_entity_grains():
 )
 @pytest.mark.parametrize("use_alias", [False, True])
 def test_issue_filter_correlates_to_the_current_annotation(field, use_alias):
-    entity = aliased(Annotation, name="candidate") if use_alias else Annotation
+    entity = (
+        alias_core_row(annotation_row, name="candidate")
+        if use_alias
+        else annotation_row
+    )
     condition = compile_entity_filter(
         {"field": field, "op": "gt", "value": 0}, entity, project=_project()
     )
-    sql = str(condition.compile(dialect=postgresql.dialect()))
-    table = "candidate" if use_alias else "annotations"
-    assert f"annotation_feedbacks.annotation_id = {table}.id" in sql
-    assert "annotation_feedbacks.task_id = tasks.id" not in sql
+    sql = str(select(entity.id).where(condition).compile(dialect=postgresql.dialect()))
+    table = "candidate" if use_alias else "aap_labeling_v1.annotation_rows"
+    assert f"annotation_feedback_facts.annotation_id = {table}.id" in sql
+    assert "FROM aap_labeling_v1.annotation_rows" in sql
+    assert "FROM aap_labeling_v1.annotation_feedback_facts" in sql
+    assert "annotation_feedback_facts.task_id = aap_labeling_v1.task_rows.id" not in sql
 
 
 @pytest.mark.parametrize("compiler", [compile_filter, compile_entity_filter])
