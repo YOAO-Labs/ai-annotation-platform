@@ -355,6 +355,11 @@ requires-dist = [
 provides-extras = ["postgres", "runtime", "publication-client", "websocket", "test"]
 
 [[package]]
+name = "aap-owner-data"
+version = "0.1.0"
+source = { editable = "../_shared/owner_data" }
+
+[[package]]
 name = "aap-preannotation-results"
 version = "0.1.0"
 source = { editable = "../preannotation-results" }
@@ -506,6 +511,7 @@ dependencies = [
 
 [package.optional-dependencies]
 test = [
+    { name = "aap-owner-data" },
     { name = "nuscenes-devkit" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -526,6 +532,7 @@ requires-dist = [
     { name = "aap-mail-transport", editable = "../_shared/mail_transport" },
     { name = "aap-media-probe", extras = ["client"], editable = "../media-probe" },
     { name = "aap-notifications", extras = ["postgres", "publication-client"], editable = "../notifications" },
+    { name = "aap-owner-data", marker = "extra == 'test'", editable = "../_shared/owner_data" },
     { name = "aap-preannotation-results", editable = "../preannotation-results" },
     { name = "aap-protocol-v2", editable = "../_shared/protocol_v2" },
     { name = "aap-task-contract", editable = "../_shared/task_contract" },

@@ -57,6 +57,7 @@ dependencies = [
 ]
 
 [tool.uv.sources]
+aap-owner-data = { path = "../_shared/owner_data", editable = true }
 aap-identity-admission = { path = "../_shared/identity_admission", editable = true }
 aap-identity = { path = "../identity", editable = true }
 aap-mail-transport = { path = "../_shared/mail_transport", editable = true }
@@ -82,6 +83,7 @@ override-dependencies = ["shapely>=2.0", "matplotlib>=3.9,<4"]
 
 [project.optional-dependencies]
 test = [
+    "aap-owner-data",
     "nuscenes-devkit==1.1.11",
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",
