@@ -1,12 +1,14 @@
 """Initial-copy evidence, crash windows and bounded resource ownership."""
 
 import hashlib
+import asyncio
 import io
 import json
 from pathlib import Path
+from types import SimpleNamespace
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import storage_migration_copy as core
 import inventory_storage_references as reference_cli
@@ -344,6 +346,75 @@ class CopyTests(unittest.TestCase):
         self.assertFalse(result["migration_ready"])
         self.assertEqual(self.run_copy()["counts"], {"verified": 2})
         self.assertIn(key, {row["source"]["key"] for row in self.rows()})
+
+    def test_neighbor_inventory_is_unknown_in_source_join_and_copy_plan(self):
+        key = "公司/%2F/objects/I-neighbor/payload"
+        source, catalog_path = inputs(self.root, [{"key": key}])
+        catalog_path.unlink()
+        family = next(
+            item
+            for item in reference_cli.FAMILIES
+            if item.table == "image_pyramid_outputs"
+        )
+        ref = {
+            "schema": 2,
+            "purpose": "media-cache",
+            "location_id": "saved-location",
+            "config_revision": 1,
+            "binding_generation": 2,
+            "endpoint_url": "http://source:9000",
+            "bucket": "source",
+            "prefix": "公司/%2F/objects/I/",
+            "key_prefix": "公司/%2F/",
+            "storage_identity": references.identity("http://source:9000", "source"),
+        }
+        row = {
+            "id": "I",
+            "storage_ref": ref,
+            "inventory_key": key,
+            "object_sha256": SHA,
+            "object_size": len(BODY),
+            "object_version": "v1",
+            "object_state": "verified",
+        }
+
+        class Result:
+            def mappings(self):
+                return self
+
+            def all(self):
+                return [row]
+
+        engine = SimpleNamespace(execute=AsyncMock(return_value=Result()))
+        spool_path = self.root / "neighbor-spool.jsonl"
+        spool = reference_cli.Spool(spool_path, references.Budget(references.Limits()))
+        try:
+            asyncio.run(
+                reference_cli.expand_inventory(
+                    engine, family, spool, spool.budget, set()
+                )
+            )
+        finally:
+            spool.stream.close()
+        record = json.loads(spool_path.read_text())
+        self.assertEqual(record["unknown"], "inventory_key_outside_saved_prefix")
+        summary = references.write_catalog(
+            catalog_path,
+            spool_path,
+            {"enumeration_complete": True, "families": [family.table]},
+            source,
+            self.root,
+            references.Budget(references.Limits()),
+        )
+        self.assertEqual(summary["matches"], {"unlocated": 1})
+        self.assertEqual(summary["source_objects_without_exact_match"], 1)
+        result = core.plan(self.path, source, catalog_path, TARGET)
+        self.assertEqual(result["source"]["exact_catalog_matches"], 0)
+        self.assertEqual(result["catalog"]["counts"]["resolution_unknown"], 1)
+        self.assertFalse(result["catalog"]["resolution_complete"])
+        # Unknown business ownership still does not block a verified source pre-copy.
+        self.assertEqual(self.run_copy()["counts"], {"verified": 1})
+        self.assertFalse(self.run_copy()["migration_ready"])
 
     def test_shared_bucket_requires_consistent_reviewed_purposes(self):
         selections = dict.fromkeys(PURPOSES, "migrate")

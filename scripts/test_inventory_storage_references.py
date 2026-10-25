@@ -361,6 +361,67 @@ class CommandTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(record["version_id"], "null")
                 self.assertNotIn("unknown", record)
 
+    async def test_inventory_keys_must_be_nonempty_literal_owner_descendants(self):
+        owner_prefix = "公司/%2F/objects/I/"
+        for table, purpose, relative in (
+            ("prediction_input_leases", "import", True),
+            ("image_pyramid_outputs", "media-cache", False),
+            ("video_derivative_outputs", "media-cache", False),
+            ("export_media_bundles", "export", False),
+        ):
+            ref = saved_reference(
+                purpose,
+                root=owner_prefix
+                if relative or table == "export_media_bundles"
+                else "公司/%2F/",
+                prefix=None
+                if relative or table == "export_media_bundles"
+                else owner_prefix,
+            )
+            keys = (
+                ("", "../opaque%2F/key")
+                if relative
+                else (
+                    owner_prefix,
+                    "公司/%2F/objects/I-neighbor/payload",
+                    "公司/%2F/objects/J/payload",
+                    owner_prefix + "../opaque%2F/key",
+                )
+            )
+            for index, key in enumerate(keys):
+                with self.subTest(table=table, key=key):
+                    row = {
+                        "id": uuid.uuid4(),
+                        "state": "retired",
+                        "storage_ref": ref,
+                        "inventory_key": key,
+                        "object_sha256": "a" * 64,
+                        "object_size": 3,
+                        "object_version": "saved-version",
+                        "object_state": "verified",
+                    }
+                    engine = SimpleNamespace(
+                        execute=AsyncMock(return_value=Result([row]))
+                    )
+                    path = self.root / f"boundary-{table}-{index}"
+                    spool = cli.Spool(path, core.Budget(core.Limits()))
+                    try:
+                        await cli.expand_inventory(
+                            engine, family_for(table), spool, spool.budget, {"state"}
+                        )
+                    finally:
+                        spool.stream.close()
+                    record = json.loads(path.read_text())
+                    self.assertEqual(
+                        record["key"], owner_prefix + key if relative else key
+                    )
+                    if index == len(keys) - 1:
+                        self.assertNotIn("unknown", record)
+                    else:
+                        self.assertEqual(
+                            record["unknown"], "inventory_key_outside_saved_prefix"
+                        )
+
     def test_staging_projection_is_separate_and_excludes_entire_config(self):
         columns = schema_columns()["managed_original_creations"] | {"staging_ref"}
         sql = cli.projection(family_for("managed_original_creations"), columns)

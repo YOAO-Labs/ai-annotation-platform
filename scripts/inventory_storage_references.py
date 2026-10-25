@@ -687,9 +687,17 @@ async def expand_inventory(connection, family, spool, budget, columns=()):
             budget.take("expanded")
             ref = row["storage_ref"] or {}
             key = row["inventory_key"]
+            prefix = ref.get(
+                "key_prefix"
+                if family.table in {"prediction_input_leases", "export_media_bundles"}
+                else "prefix"
+            )
             if family.table == "prediction_input_leases":
-                prefix = ref.get("key_prefix")
-                key = prefix + key if isinstance(prefix, str) else None
+                key = (
+                    prefix + key
+                    if isinstance(prefix, str) and isinstance(key, str)
+                    else None
+                )
             record = {
                 "type": "reference",
                 **owner_record(family, row),
@@ -709,8 +717,14 @@ async def expand_inventory(connection, family, spool, budget, columns=()):
             saved = saved_locator(family, row)
             if saved.get("unknown"):
                 record["unknown"] = saved["unknown"]
-            if key is None:
+            if not isinstance(prefix, str) or not prefix or not prefix.endswith("/"):
                 record.setdefault("unknown", "inventory_prefix_unknown")
+            elif (
+                not isinstance(key, str)
+                or not key.startswith(prefix)
+                or len(key) <= len(prefix)
+            ):
+                record.setdefault("unknown", "inventory_key_outside_saved_prefix")
             spool.emit(record)
 
 
