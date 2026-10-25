@@ -1,3 +1,8 @@
+from app.db.models.managed_original_reclaim import (
+    ManagedOriginalReclaimAttempt,
+    ManagedOriginalReclaimClaim,
+    ReferenceReconciliationState,
+)
 from app.db.models.thumbnail_output import ThumbnailOutput
 from app.db.models.mask_format_upload import MaskFormatUpload
 from app.db.models.storage_fault import StorageFaultState
@@ -379,4 +384,10 @@ __all__ += [
     "StorageMigrationCopy",
     "StorageMigrationCopyAttempt",
     "StorageMigrationCopyDelta",
+]
+
+__all__ += [
+    "ManagedOriginalReclaimAttempt",
+    "ManagedOriginalReclaimClaim",
+    "ReferenceReconciliationState",
 ]
