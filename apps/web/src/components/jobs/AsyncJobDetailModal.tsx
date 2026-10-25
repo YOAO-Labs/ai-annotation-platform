@@ -10,6 +10,7 @@ import { sampleEvaluationsApi } from "@/api/sampleEvaluations";
 import { activeLearningApi } from "@/api/activeLearning";
 import { isCurrentAuthOwner, useAuthStore } from "@/stores/authStore";
 import { getAuthSessionRevision } from "@/stores/authSession";
+import { useSessionRevision } from "@/hooks/useSessionGuard";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -78,6 +79,9 @@ export function AsyncJobDetailModal({
   returnFocusRef?: RefObject<HTMLElement | null>;
 }) {
   const userId = useAuthStore((state) => state.user?.id);
+  const role = useAuthStore((state) => state.user?.role);
+  const token = useAuthStore((state) => state.token);
+  const revision = useSessionRevision();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const pushToast = useToastStore((state) => state.push);
@@ -85,8 +89,9 @@ export function AsyncJobDetailModal({
   const [openingTarget, setOpeningTarget] = useState(false);
   const navigationRequest = useRef(0);
   const jobQ = useQuery({
-    queryKey: ["async-jobs", "detail", jobId, userId],
+    queryKey: ["async-jobs", "detail", jobId, userId, revision, role],
     queryFn: () => asyncJobsApi.get(jobId),
+    enabled: !!userId && !!token,
     retry: false,
     refetchInterval: (query) =>
       ["pending", "running"].includes(query.state.data?.status ?? "") ? 5000 : false,
@@ -113,7 +118,7 @@ export function AsyncJobDetailModal({
     return () => {
       navigationRequest.current += 1;
     };
-  }, [jobId, resetRetryMutation, userId]);
+  }, [jobId, resetRetryMutation, userId, revision, role]);
   const job = jobQ.isError ? undefined : jobQ.data;
   const failedIds = job?.result.failed_prediction_ids;
   const canRetry =
@@ -141,7 +146,7 @@ export function AsyncJobDetailModal({
     job?.kind === "export" && job.status === "completed" ? exportDownloadState(job.result) : null;
 
   const openTarget = async (
-    kind: "dataset" | "project" | "dashboard" | "evaluation" | "active-learning",
+    kind: "dataset" | "project" | "dashboard" | "evaluation" | "active-learning" | "migration",
   ) => {
     if (!job) return;
     const request = ++navigationRequest.current;
@@ -151,7 +156,9 @@ export function AsyncJobDetailModal({
     setTargetError(null);
     try {
       let url: string;
-      if (kind === "active-learning" && roundId && roundAttemptId && job.project_id) {
+      if (kind === "migration" && job.kind === "storage_migration_inventory") {
+        url = "/storage?tab=migration";
+      } else if (kind === "active-learning" && roundId && roundAttemptId && job.project_id) {
         const round = await activeLearningApi.get(job.project_id, roundId);
         if (!current()) return;
         if (
@@ -345,6 +352,15 @@ export function AsyncJobDetailModal({
             </p>
           )}
           <div className="flex flex-wrap gap-2">
+            {job.kind === "storage_migration_inventory" && (
+              <Button
+                size="sm"
+                disabled={openingTarget}
+                onClick={() => void openTarget("migration")}
+              >
+                查看迁移准备
+              </Button>
+            )}
             {roundId && roundAttemptId && job.project_id && (
               <Button
                 size="sm"

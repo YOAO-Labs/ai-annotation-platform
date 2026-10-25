@@ -91,6 +91,16 @@ mc mirror --remove-source annotations/audit-archive/  audit-archive/
 
 公开查询按位置和当前可管理来源裁剪，配置／内容范围状态只由数据库保存的事实比对，不访问物理来源。此链覆盖四类已接入来源故障，不提供完整消费者／站点健康、容量阈值、自动消警或外部通知服务。
 
+## 配置源迁移清单任务
+
+`storage_migration_inventory` AsyncJob将现有只读清单核心用于应用执行；核心位于API服务模块，运维脚本保留兼容入口，不从Worker shell启动CLI，也不复制一套LIST／版本／SHA算法。固定范围为部署端点和九用途桶映射，当前绑定及在途写入仅记录为观测，不能据此证明已停写或全业务覆盖。其他位置的新绑定不使配置源清单失去启动资格。
+
+`storage_migration_inventories`保存冻结范围、当前授权证明、预算、领取／取消状态、32MiB以内的私密报告BYTEA及SHA。单记录和总输出都在写入前约束，公开DTO与通知只返回白名单摘要；报告经独立当前超级管理员与全权Key校验下载，GET不访问源。报告沿现有终态Job30天保留及删除级联，不引入新S3对象用途或无限保留。
+
+Worker对保存task ID仅作一次pending→running领取，显式重投只针对pending，不按TTL接管运行中的原生读流。读取在无数据库锁的受控线程中执行，权限／Key、取消和冻结源范围在检查点及最终发布复核；数据库Session只在所属事件循环使用。协作停止穿透核心issue捕获路径，SDK／Body／输出真实关闭后才发布终态，未封存或关闭不明不提供成功报告。已封存的partial报告、未知覆盖、取消和失败分开表达，`migration_ready`始终false。
+
+应用0255后刷新实际执行迁移清单的所属Worker及任务注册；挂载API源码不需要重建镜像。该链只提供配置源清单，定位目录、预复制的独立耐久检查点、切换、回滚与物理退役仍按各自工作流交付，不能从清单Job完成推导这些状态。
+
 ## 平台对象占用快照
 
 `GET /api/v1/storage/buckets` 与 ML 集成 overview 读取 PostgreSQL `storage_usage_snapshots`，不执行 S3 HEAD/LIST。仅显式 `POST /api/v1/storage/usage-inventory` 开始盘点；当前有效超级管理员与全权 API Key 可读/启动/取消。九用途复用 `PURPOSE_BUCKET_ATTRIBUTES`，执行前和每页提交前核验现有 `StorageBinding` 部署映射。按 endpoint、TLS 和桶名固定统计身份，共用桶合并 `roles`，不将占用分摊为九份。

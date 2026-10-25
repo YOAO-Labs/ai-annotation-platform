@@ -136,6 +136,18 @@ def _is_restricted_expr():
     )
 
 
+def _is_migration_inventory_expr():
+    """Actual job kind wins; retain the private kind after job retention."""
+    return func.coalesce(
+        and_(
+            Notification.target_type == "async_job",
+            func.coalesce(_job_kind_expr(), Notification.payload["kind"].astext)
+            == "storage_migration_inventory",
+        ),
+        False,
+    )
+
+
 def _requires_export_capability_expr():
     """True for full-export notifications, including export-kind async jobs."""
 
@@ -304,6 +316,29 @@ class NotificationService:
             )
             jobs = {jid: (pid, kind) for jid, pid, kind in job_rows.all()}
 
+        inventory_users = {
+            row.user_id
+            for row in rows
+            if row.target_type == "async_job"
+            and (
+                jobs.get(row.target_id, (None, None))[1]
+                or (row.payload.get("kind") if isinstance(row.payload, dict) else None)
+            )
+            == "storage_migration_inventory"
+        }
+        inventory_admins = (
+            set(
+                await self.db.scalars(
+                    select(User.id).where(
+                        User.id.in_(inventory_users),
+                        User.is_active.is_(True),
+                        User.role == PlatformRole.SUPER_ADMIN.value,
+                    )
+                )
+            )
+            if inventory_users
+            else set()
+        )
         scopes: list[tuple[bool, uuid.UUID | None, bool]] = []
         for row in rows:
             payload = row.payload if isinstance(row.payload, dict) else {}
@@ -313,7 +348,14 @@ class NotificationService:
             if target_type in _ACTUAL_TARGET_TYPES:
                 job = jobs.get(row.target_id)
                 if job is None:
-                    job_project, job_kind = None, None
+                    job_project, job_kind = (
+                        None,
+                        (
+                            "storage_migration_inventory"
+                            if payload.get("kind") == "storage_migration_inventory"
+                            else None
+                        ),
+                    )
                 else:
                     job_project, job_kind = job
                 if target_type == "export":
@@ -321,6 +363,8 @@ class NotificationService:
                     export_required = True
                 else:  # async_job
                     restricted = job is None or job_project is not None
+                    if job_kind == "storage_migration_inventory":
+                        restricted = row.user_id not in inventory_admins
                     export_required = job is not None and job_kind == "export"
                 project_id = job_project
             else:
@@ -407,7 +451,11 @@ class NotificationService:
         return allowed
 
     async def notification_deliverable(
-        self, notification_id: uuid.UUID, user_id: uuid.UUID
+        self,
+        notification_id: uuid.UUID,
+        user_id: uuid.UUID,
+        *,
+        include_migration_inventory: bool = True,
     ) -> bool:
         """Whether an already-stored row may still be pushed to ``user_id``.
 
@@ -420,6 +468,19 @@ class NotificationService:
         if row is None or row.user_id != user_id:
             return False
         try:
+            if not include_migration_inventory and row.target_type == "async_job":
+                kind = await self.db.scalar(
+                    select(AsyncJob.kind).where(AsyncJob.id == row.target_id)
+                )
+                if (
+                    kind
+                    or (
+                        row.payload.get("kind")
+                        if isinstance(row.payload, dict)
+                        else None
+                    )
+                ) == "storage_migration_inventory":
+                    return False
             scopes = await self._resolve_delivery_scopes([row])
             allowed = await self._allowed_delivery_indices([row], scopes)
         except Exception:
@@ -512,7 +573,9 @@ class NotificationService:
                 e,
             )
 
-    def _scope_conditions(self, user: User) -> list:
+    def _scope_conditions(
+        self, user: User, *, include_migration_inventory=True
+    ) -> list:
         """SQL conditions hiding project-restricted rows the account cannot read.
 
         Mirrors the shared resolver: super administrators see everything; every
@@ -528,11 +591,19 @@ class NotificationService:
         notification row.
         """
 
+        inventory_filter = []
+        if (
+            not include_migration_inventory
+            or not user.is_active
+            or user.role != PlatformRole.SUPER_ADMIN.value
+        ):
+            inventory_filter = [~_is_migration_inventory_expr()]
         if user.role == PlatformRole.SUPER_ADMIN.value:
-            return []
+            return inventory_filter
         project_text = _effective_project_text_expr()
         restricted = _is_restricted_expr()
         return [
+            *inventory_filter,
             or_(~restricted, _accessible_project_clause(user, project_text)),
             or_(
                 ~_requires_export_capability_expr(),
@@ -547,11 +618,14 @@ class NotificationService:
         unread_only: bool = False,
         limit: int = 30,
         offset: int = 0,
+        include_migration_inventory: bool = True,
     ) -> tuple[list[Notification], int, int]:
-        user = await self.db.get(User, user_id)
+        user = await self.db.get(User, user_id, populate_existing=True)
         if user is None:
             return [], 0, 0
-        scope = self._scope_conditions(user)
+        scope = self._scope_conditions(
+            user, include_migration_inventory=include_migration_inventory
+        )
         base = select(Notification).where(Notification.user_id == user_id, *scope)
         count_q = select(func.count(Notification.id)).where(
             Notification.user_id == user_id, *scope
@@ -572,11 +646,15 @@ class NotificationService:
         unread = (await self.db.execute(unread_q)).scalar() or 0
         return items, int(total), int(unread)
 
-    async def unread_count(self, user_id: uuid.UUID) -> int:
-        user = await self.db.get(User, user_id)
+    async def unread_count(
+        self, user_id: uuid.UUID, *, include_migration_inventory: bool = True
+    ) -> int:
+        user = await self.db.get(User, user_id, populate_existing=True)
         if user is None:
             return 0
-        scope = self._scope_conditions(user)
+        scope = self._scope_conditions(
+            user, include_migration_inventory=include_migration_inventory
+        )
         q = select(func.count(Notification.id)).where(
             Notification.user_id == user_id,
             Notification.read_at.is_(None),
@@ -584,49 +662,88 @@ class NotificationService:
         )
         return int((await self.db.execute(q)).scalar() or 0)
 
-    async def mark_read(self, user_id: uuid.UUID, notification_id: uuid.UUID) -> bool:
-        """Mark one row read. The handler publishes ``reason=read`` after commit."""
+    async def _migration_mutation_scope(self, user_id, include_migration_inventory):
+        user = await self.db.get(User, user_id, populate_existing=True)
+        if (
+            include_migration_inventory
+            and user
+            and user.is_active
+            and user.role == PlatformRole.SUPER_ADMIN.value
+        ):
+            return []
+        return [~_is_migration_inventory_expr()]
+
+    async def mark_read(
+        self,
+        user_id: uuid.UUID,
+        notification_id: uuid.UUID,
+        *,
+        include_migration_inventory: bool = True,
+    ) -> bool:
+        """Mark one visible row read; preserve unrelated notification policies."""
+        scope = await self._migration_mutation_scope(
+            user_id, include_migration_inventory
+        )
         result = await self.db.execute(
             update(Notification)
             .where(
                 Notification.id == notification_id,
                 Notification.user_id == user_id,
                 Notification.read_at.is_(None),
+                *scope,
             )
             .values(read_at=datetime.now(timezone.utc))
         )
         return (result.rowcount or 0) > 0
 
-    async def mark_all_read(self, user_id: uuid.UUID) -> int:
-        """Mark all rows read. The handler publishes ``reason=read`` after commit."""
+    async def mark_all_read(
+        self, user_id: uuid.UUID, *, include_migration_inventory: bool = True
+    ) -> int:
+        """Mark visible rows read. The handler publishes sync after commit."""
+        scope = await self._migration_mutation_scope(
+            user_id, include_migration_inventory
+        )
         result = await self.db.execute(
             update(Notification)
             .where(
-                Notification.user_id == user_id,
-                Notification.read_at.is_(None),
+                Notification.user_id == user_id, Notification.read_at.is_(None), *scope
             )
             .values(read_at=datetime.now(timezone.utc))
         )
         return int(result.rowcount or 0)
 
     async def delete_for_user(
-        self, user_id: uuid.UUID, notification_id: uuid.UUID
+        self,
+        user_id: uuid.UUID,
+        notification_id: uuid.UUID,
+        *,
+        include_migration_inventory: bool = True,
     ) -> bool:
-        """Delete one row. The handler publishes ``reason=deleted`` after commit."""
+        """Delete one visible row. The handler publishes sync after commit."""
+        scope = await self._migration_mutation_scope(
+            user_id, include_migration_inventory
+        )
         result = await self.db.execute(
             delete(Notification).where(
                 Notification.id == notification_id,
                 Notification.user_id == user_id,
+                *scope,
             )
         )
         return (result.rowcount or 0) > 0
 
-    async def clear_read(self, user_id: uuid.UUID) -> int:
-        """Delete all read rows. The handler publishes ``reason=deleted`` after commit."""
+    async def clear_read(
+        self, user_id: uuid.UUID, *, include_migration_inventory: bool = True
+    ) -> int:
+        """Delete visible read rows. The handler publishes sync after commit."""
+        scope = await self._migration_mutation_scope(
+            user_id, include_migration_inventory
+        )
         result = await self.db.execute(
             delete(Notification).where(
                 Notification.user_id == user_id,
                 Notification.read_at.is_not(None),
+                *scope,
             )
         )
         return int(result.rowcount or 0)

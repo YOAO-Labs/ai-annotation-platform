@@ -142,7 +142,19 @@ async def _notification_message_allowed(token: str, data) -> bool:
         # closed on revocation or bogus ids.
         for attempt in range(4):
             if await db.get(Notification, notification_id) is not None:
-                return await service.notification_deliverable(notification_id, user.id)
+                from app.services import api_key_service
+
+                full_scope = True
+                if api_key_service.is_api_key_token(token):
+                    resolved = await api_key_service.resolve_token(db, token)
+                    full_scope = bool(resolved and "*" in (resolved[0].scopes or []))
+                if full_scope:
+                    return await service.notification_deliverable(
+                        notification_id, user.id
+                    )
+                return await service.notification_deliverable(
+                    notification_id, user.id, include_migration_inventory=False
+                )
             if attempt < 3:
                 await asyncio.sleep(_NOTIFICATION_GATE_RETRY_SECONDS)
         return False

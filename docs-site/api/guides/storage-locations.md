@@ -313,6 +313,25 @@ GET 只查询数据库，不读源文件、不 HEAD/LIST 对象、不启动扫�
 
 调用方兼容说明：此 GET 已从实时统计变为快照读取；应处理 nullable 计数和新增状态，不能将未知值渲染为零或依赖每次 GET 重新盘点。ML overview.storage 使用相同结构。按桶去重并完整覆盖九用途，不能按角色重复相加。后台任务取消、崩溃与授权/配置变化不会发布未完整桶的累计数。更多口径和预算见[桶布局与快照](/dev/reference/storage-buckets#平台对象占用快照)。
 
+### 配置源迁移清单任务
+
+仅当前有效超级管理员与全权API Key可调用。来源固定当前部署端点及九用途桶映射，请求不能传入任意地址、路径或凭据。以下接口位于`/api/v1/storage`，GET只读数据库，不做源端HEAD／LIST或自动重投。
+
+| 方法与路径                                      | 行为                                                                                                           |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `POST /migration-inventories`                   | 202，接受`{limits?,handling?}`，返回`{item,reused}`；复用当前操作者相同范围和输入的活动任务，活动输入冲突409。 |
+| `GET /migration-inventories?limit=20&offset=0`  | 返回`{items,total,limit,offset}`，分页读取历史及报告状态。                                                     |
+| `POST /migration-inventories/{job_id}/dispatch` | 仅显式重投pending的同一task ID；不接管或重复执行running任务。                                                  |
+| `GET /migration-inventories/{job_id}/report`    | 重新授权后下载封存JSONL，安全附件文件名与no-store，报告缺失时不返回空的成功文件。                              |
+
+`item`含`job_id,status,created_at,started_at,completed_at,scope,source_location_id,migration_ready,limits,handling,cancel_requested,complete,counts,error_code,report_available,report_sha256,report_size_bytes`。`scope=selected-configured-source`，`migration_ready=false`；尚无执行结果时`complete`与`counts`为null。counts为核心的桶、对象、删除标记、multipart、核验对象／字节、读取字节、页、问题及条目计数。对象键、端点、凭据和报告内容不放入公开DTO、AsyncJob结果或通知。
+
+limits为`max_pages`（默认1000，上限100000）、`max_entries`（默认10000，上限100000）、`max_object_bytes`（默认256MiB，上限1GiB）、`max_total_bytes`（默认2GiB，上限16GiB）、`max_seconds`（默认600，上限3600）、`read_timeout_seconds`（默认30，上限60）和`page_size`（默认1000，上限1000）；各值必须大于零。报告在生成时受32MiB硬上限约束。handling仅接受九用途的`migrate|rebuild|retain`，缺项保持`unreviewed`，不是默认迁移许可。
+
+任务kind为`storage_migration_inventory`，复用`POST /api/v1/async-jobs/{job_id}/cancel`及共享详情／通知。pending取消可立即结束，running取消先记录请求，实际线程、Body、客户端和输出收尾后才发布终态。未封存、取消、关闭不明或最终撤权／配置围栏失败时不发布成功报告；已封存但`complete=false`的观测以失败及准确摘要表达，可下载时单列。报告沿现有终态Job保留30天，级联删除不会修改源对象。
+
+完整清单也不是原子快照或全业务迁移资格；用途已切外部目标时如实保留未覆盖，不要求先切回A。此接口不建立目标、复制对象、修改绑定、执行停写或物理退役。
+
 ### 增量账目与周期对账
 
 `BucketsResponse.accounting` 为可空固定摘要：`confirmed_added_bytes`、`confirmed_removed_bytes`、`net_change_bytes`、`pending_operation_count` 和 `unknown_operation_count`。当前 `producers=[prediction_inputs, managed_original_creation, thumbnail_outputs, original_cache, image_pyramid_outputs, video_derivative_outputs, export_media_outputs]`，固定 `scope=current_objects`、`coverage=partial`、`projected_total_bytes=null`。已确认事件按准确物理地址及操作身份幂等累计，不从额度预约、业务删除或当前绑定补算历史；新增字节与移除字节分别为非负值，净变化可为负数。

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from typing import Any
 
@@ -34,6 +35,7 @@ TERMINAL_NOTIFY_KINDS = {
     "storage_usage",
     "video_asset_retry",
     "managed_original_verification",
+    "storage_migration_inventory",
     "dataset_quality",
     "dataset_quality_review",
     "mask_qc",
@@ -139,6 +141,36 @@ def _terminal_payload(job: AsyncJob) -> dict[str, Any]:
         "kind": job.kind,
         "status": job.status,
     }
+    if job.kind == "storage_migration_inventory":
+        # This global private-report task has a deliberately closed summary.
+        from app.schemas.storage_migration_inventory import (
+            StorageMigrationInventoryCounts,
+        )
+
+        payload["scope"] = "selected-configured-source"
+        payload["migration_ready"] = False
+        counts = result_in.get("counts")
+        if counts is not None:
+            try:
+                payload["counts"] = StorageMigrationInventoryCounts.model_validate(
+                    counts
+                ).model_dump()
+            except ValueError:
+                pass
+        for key in ("complete", "report_available"):
+            if type(result_in.get(key)) is bool:
+                payload[key] = result_in[key]
+        sha = result_in.get("report_sha256")
+        if (
+            isinstance(sha, str)
+            and len(sha) == 64
+            and all(c in "0123456789abcdef" for c in sha)
+        ):
+            payload["report_sha256"] = sha
+        code = result_in.get("error_code")
+        if isinstance(code, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", code):
+            payload["error_code"] = code
+        return payload
     if job.project_id is not None:
         payload["project_id"] = str(job.project_id)
     _copy_present(payload, payload_in, _PAYLOAD_SUMMARY_KEYS)

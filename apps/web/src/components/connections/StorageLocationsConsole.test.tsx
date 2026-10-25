@@ -7,6 +7,33 @@ import { StorageLocationsConsole } from "./StorageLocationsConsole";
 
 const state = vi.hoisted(() => ({ role: "super_admin", session: "session", revision: 1 }));
 const api = vi.hoisted(() => ({ locationPage: vi.fn(), location: vi.fn(), probe: vi.fn() }));
+const migration = vi.hoisted(() => ({ list: vi.fn() }));
+vi.mock("@/api/storageMigrationInventories", () => ({ storageMigrationInventoriesApi: migration }));
+vi.mock("@/components/jobs/AsyncJobDetailModal", () => ({ AsyncJobDetailModal: () => null }));
+
+it("opens migration preparation without requesting other tab data or losing URL context", async () => {
+  mount("/storage?tab=migration&page=3&page_size=50&returnTo=%2Fdatasets%3Fdataset%3Dd");
+  expect(await screen.findByText("尚无迁移清单，建立后可在此查看结果。")).toBeInTheDocument();
+  expect(migration.list).toHaveBeenCalledWith(0, 20, expect.any(AbortSignal));
+  expect(api.locationPage).not.toHaveBeenCalled();
+  expect(api.location).not.toHaveBeenCalled();
+  expect(storage.bindings).not.toHaveBeenCalled();
+  expect(screen.getByRole("link", { name: "返回数据集工作台" })).toHaveAttribute(
+    "href",
+    "/datasets?dataset=d",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "存储位置" }));
+  expect(screen.getByTestId("url")).toHaveTextContent("page=3");
+  expect(screen.getByTestId("url")).toHaveTextContent("page_size=50");
+});
+
+it("does not request migration history for ordinary managers on a migration deep link", () => {
+  state.role = "project_admin";
+  mount("/storage?tab=migration");
+  expect(screen.getByText("迁移准备仅超级管理员可查看。")).toBeInTheDocument();
+  expect(migration.list).not.toHaveBeenCalled();
+  expect(api.locationPage).not.toHaveBeenCalled();
+});
 const storage = vi.hoisted(() => ({
   bindings: vi.fn(),
   probes: vi.fn(),
@@ -143,6 +170,7 @@ beforeEach(() => {
   state.role = "super_admin";
   state.session = "session";
   state.revision = 1;
+  migration.list.mockResolvedValue({ items: [], total: 0 });
   api.locationPage.mockResolvedValue({ items: [listItem], total: 21 });
   api.location.mockResolvedValue(location);
   storage.probes.mockResolvedValue([

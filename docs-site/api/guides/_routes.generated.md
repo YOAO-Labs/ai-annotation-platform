@@ -735,6 +735,13 @@
 | POST | `/{location_id}/maintenance-preview` |
 | POST | `/{location_id}/maintenance` |
 
+## `storage_migration_inventories.py`
+
+| Method | Path |
+|---|---|
+| POST | `/{job_id}/dispatch` |
+| GET | `/{job_id}/report` |
+
 ## `storage_reclamation.py`
 
 | Method | Path |
@@ -1099,4 +1106,4 @@
 
 ---
 
-_共 98 模块 / 647 路由_
+_共 99 模块 / 649 路由_

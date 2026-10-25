@@ -101,6 +101,47 @@ describe("共享后台任务详情", () => {
     act(() => useAuthStore.getState().logout());
   });
 
+  it("迁移清单从通知详情返回迁移准备并保留真实清单结果", async () => {
+    mocks.get.mockResolvedValue({
+      ...job,
+      kind: "storage_migration_inventory",
+      project_id: null,
+      payload: {},
+      result: { complete: false, counts: { objects: 0, issues: 1 } },
+    });
+    const { onClose } = renderModal();
+    expect(await screen.findByText("清单不完整 / 对象版本 0 / 问题 1")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "查看迁移准备" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent("/storage?tab=migration"),
+    );
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("同一用户的新会话不复用旧详情，也不展示旧会话的晚返回", async () => {
+    let resolve!: (value: AsyncJob) => void;
+    const first = new Promise<AsyncJob>((done) => {
+      resolve = done;
+    });
+    mocks.get
+      .mockReturnValueOnce(first)
+      .mockResolvedValue({ ...job, payload: {}, result: { imported: 77 } });
+    renderModal();
+    await waitFor(() => expect(mocks.get).toHaveBeenCalledTimes(1));
+    act(() =>
+      useAuthStore
+        .getState()
+        .setAuth("new-session-token", { id: "u1", role: "employee" } as MeResponse),
+    );
+    await screen.findByText("导入 77");
+    await act(async () => {
+      resolve({ ...job, result: { imported: 999 } });
+      await first;
+    });
+    expect(screen.queryByText("导入 999")).not.toBeInTheDocument();
+    expect(screen.getByText("导入 77")).toBeInTheDocument();
+  });
+
   it("批量复核任务回到确切父运行和批次", async () => {
     mocks.get.mockResolvedValue({
       ...job,
@@ -395,6 +436,7 @@ describe("共享后台任务详情", () => {
 });
 
 it("restores focus to an explicit trigger after an asynchronously opened task closes", async () => {
+  useAuthStore.getState().setAuth("focus-token", { id: "u1", role: "super_admin" } as MeResponse);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   mocks.get.mockResolvedValue({
     ...job,

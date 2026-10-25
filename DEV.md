@@ -271,7 +271,7 @@ apps/api/.venv/bin/python scripts/verify_worktree_recovery.py
 
 对象存储双候选本地比较使用 `apps/api/.venv/bin/python scripts/verify_storage_candidates.py run --manifest /private/owner.json --report /private/comparison.json`。仅创建所属临时容器、卷、网络及回环端口，独立浏览器 session 在结束时关闭；不读取部署 `.env` 或连接现有业务服务。固定 digest、预算、案例状态与硬杀后精确清理见[候选本地验证](docs-site/ops/deploy/storage-candidate-poc.md)。
 
-对象存储源端迁移清单使用当前API虚拟环境和显式部署配置：`apps/api/.venv/bin/python scripts/inventory_storage_migration.py --output /private/source.jsonl`；`--verify`可离线核对同一清单。对象账号可限制为只读，命令不会建桶或修改业务行。九用途处理选择、预算、退出码及一次性实际演练见[源端迁移清单](docs-site/ops/deploy/storage-migration-inventory.md)。
+对象存储源端迁移清单使用当前API虚拟环境和显式部署配置：`apps/api/.venv/bin/python scripts/inventory_storage_migration.py --output /private/source.jsonl`；`--verify`可离线核对同一清单。超级管理员也可在“存储管理 → 迁移准备”提交同一核心的后台任务并下载报告，须应用0255及刷新所属Worker。应用报告受32MiB上限和现有终态Job30天保留规则约束；CLI输出由操作者管理。对象账号可限制为只读，命令不会建桶或修改业务行。九用途处理选择、预算、退出码及一次性实际演练见[源端迁移清单](docs-site/ops/deploy/storage-migration-inventory.md)。
 
 已保存业务定位使用独立命令：`apps/api/.venv/bin/python scripts/inventory_storage_references.py --source-inventory /private/source.jsonl --output /private/references.jsonl`。它在有界只读数据库快照结束后关联同一份完整性核验的源报告，不访问S3，覆盖27类保存归属及历史／暂存／删除声明；按各family实际schema解释九用途保存地址，未知、未展开与其他源保留。独立`--verify`只核对新目录。纯检查为`PYTHONDONTWRITEBYTECODE=1 apps/api/.venv/bin/python -m unittest discover -s scripts -p 'test_*storage*references.py'`；当前schema实际只读DB资格使用上述手册中的`verify_storage_references_current.py`，仅在所属空test环境执行。`verify_storage_references.py`保留旧0244／0245历史夹具，不用于当前head。
 
