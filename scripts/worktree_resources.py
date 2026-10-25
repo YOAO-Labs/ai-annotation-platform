@@ -1194,7 +1194,8 @@ class LocalResources:
                     f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {role}",
                     f"GRANT USAGE ON SCHEMA aap_workspace_v1, aap_workspace_membership_v1, aap_workspace_owner_transfer_v1, aap_workspace_configuration_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_inference_v1, aap_inference_pipelines_v1, aap_inference_backend_probe_v1, aap_inference_health_observation_v1, aap_inference_health_data_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1, aap_assets_v1, aap_labeling_v1, aap_labeling_class_query_v1, aap_jobs_v1, aap_learning_v1, aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_briefs_v1, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_audit_v1, aap_notifications_v1, aap_settings_v1 TO {role}",
                     "GRANT SELECT ON aap_assets_v1.spatial_item_references, "
-                    f"aap_assets_v1.spatial_scene_references TO {role}",
+                    "aap_assets_v1.spatial_scene_references, "
+                    f"aap_assets_v1.labeling_dataset_item_facts TO {role}",
                     "GRANT SELECT ON aap_identity_v1.account_profiles, "
                     f"aap_identity_v1.invitation_audit_targets TO {role}",
                     "REVOKE ALL ON TABLE aap_notifications_v1.notification_facts "
@@ -1222,7 +1223,13 @@ class LocalResources:
                     "aap_labeling_v1.video_tracker_job_rows, "
                     "aap_labeling_v1.annotation_comment_facts, "
                     "aap_labeling_v1.annotation_feedback_facts, "
-                    f"aap_labeling_v1.task_event_facts TO {role}",
+                    "aap_labeling_v1.task_event_facts, "
+                    f"aap_labeling_v1.annotation_draft_rows TO {role}",
+                    "GRANT EXECUTE ON FUNCTION "
+                    "aap_labeling_v1.next_batch_display_id(), "
+                    "aap_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[]), "
+                    "aap_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[]) "
+                    f"TO {role}",
                     "REVOKE EXECUTE ON FUNCTION aap_audit_v1.refresh_audit_bi_mv() "
                     f"FROM {role}, PUBLIC",
                     f"GRANT SELECT ON aap_workspace_v1.project_member_facts TO {role}",

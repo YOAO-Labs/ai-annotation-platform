@@ -17,9 +17,11 @@ CORE_READ_RELATIONS = (
     "scene_track_interval_rows",
     "video_segment_rows",
     "video_tracker_job_rows",
+    "annotation_draft_rows",
 )
 
 CORE_READ_COLUMNS = {
+    "annotation_draft_rows": ("id", "task_id"),
     "task_rows": (
         "id",
         "project_id",
@@ -272,4 +274,6 @@ CORE_READ_LOCK_FUNCTIONS = (
     "aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)",
     "aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)",
     "aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid)",
+    "aap_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[])",
+    "aap_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[])",
 )

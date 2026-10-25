@@ -61,7 +61,7 @@ annotation_draft_rows = table(
     "annotation_draft_rows",
     *(
         column(name, AnnotationDraft.__table__.c[name].type)
-        for name in ("id", "task_id")
+        for name in CORE_READ_COLUMNS["annotation_draft_rows"]
     ),
     schema="aap_labeling_v1",
 )

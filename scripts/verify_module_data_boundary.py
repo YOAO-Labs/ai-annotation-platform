@@ -4967,8 +4967,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0360"]:
-            raise RuntimeError("module-data acceptance requires migration head 0360")
+        if heads != ["0361"]:
+            raise RuntimeError("module-data acceptance requires migration head 0361")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         relation_sql_hashes = _read_relation_sql_input_sha256()
         evidence["migrations"]["read_relation_sql_input_sha256"] = relation_sql_hashes
