@@ -5122,7 +5122,7 @@ def main(argv: list[str] | None = None) -> int:
             encoding="utf-8"
         )
 
-        from sqlalchemy.engine import URL
+        from sqlalchemy.engine import URL, make_url
 
         from app.config import settings
         from worktree_env import load_identity, topology
@@ -8834,7 +8834,9 @@ SELECT pg_catalog.jsonb_build_object(
                 "RUN_NATIVE_IMPORT_DELIVERY_LEASE_TEST": "1",
                 "AAP_MODULE_DATA_APPEND_URL": append_url,
                 "AAP_MODULE_DATA_AUDIT_MAINTENANCE_URL": audit_maintenance_url,
-                "AAP_MODULE_DATA_AUDIT_APPEND_URL": audit_append_url,
+                "AAP_MODULE_DATA_AUDIT_APPEND_URL": make_url(audit_append_url)
+                .set(drivername="postgresql+asyncpg")
+                .render_as_string(hide_password=False),
                 "AAP_MODULE_DATA_NOTIFICATION_DELIVERY_READ_URL": notification_delivery_read_url,
                 "AAP_MODULE_DATA_JOBS_LIST_QUERY_URL": jobs_list_query_url,
                 "AAP_MODULE_DATA_JOBS_LIFECYCLE_URL": jobs_lifecycle_url,
