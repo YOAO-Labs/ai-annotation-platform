@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type {
@@ -57,6 +57,23 @@ const result: Impact = {
     cleanup_input_leases: 1,
     ready_lineage_versions: 1,
     unfinished_lineage_versions: 1,
+    target_records: 0,
+    target_annotations: 0,
+    target_datasets: 0,
+    target_training: 0,
+    target_media_cache: 0,
+    target_audit_archive: 0,
+    target_import: 0,
+    target_export: 0,
+    target_avatars: 0,
+    target_bug_reports: 0,
+    target_related_datasets: 0,
+    target_related_projects: 0,
+    target_related_tasks: 0,
+    target_versions: 0,
+    target_runs: 0,
+    current_bindings: 0,
+    unlocated_targets: 0,
   },
 };
 const clients: ReturnType<typeof createTestQueryClient>[] = [];
@@ -135,6 +152,73 @@ it("does not expose the panel to other roles or platform bindings", () => {
   view.refresh({ ...location, kind: "s3" });
   expect(screen.queryByText("维护影响")).not.toBeInTheDocument();
   expect(api.get).not.toHaveBeenCalled();
+});
+
+it("exposes the known default storage's read-only impact", async () => {
+  const id = "4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7";
+  api.get.mockResolvedValue({
+    ...result,
+    location_id: id,
+    counts: { ...result.counts, current_bindings: 9 },
+  });
+  mount({ ...location, id, kind: "s3" });
+  expand();
+  expect(await screen.findByText("9 项")).toBeInTheDocument();
+  expect(api.get.mock.calls[0][0]).toBe(`/storage-locations/${id}/maintenance-impact`);
+});
+
+it("separates saved targets, source lineage, current bindings and global unknown history", async () => {
+  api.get.mockResolvedValue({
+    ...result,
+    counts: {
+      ...result.counts,
+      ready_lineage_versions: 0,
+      unfinished_lineage_versions: 0,
+      target_records: 6,
+      target_annotations: 1,
+      target_datasets: 1,
+      target_training: 3,
+      target_media_cache: 1,
+      target_related_datasets: 1,
+      target_related_projects: 1,
+      target_related_tasks: 1,
+      target_versions: 1,
+      target_runs: 1,
+      current_bindings: 0,
+      unlocated_targets: 7,
+    },
+  });
+  mount();
+  expand();
+  const targets = within(await screen.findByRole("region", { name: "保存目标" }));
+  expect(targets.getByText("6 条")).toBeInTheDocument();
+  expect(targets.getByText("1 个数据集 · 1 个项目 · 1 个任务")).toBeInTheDocument();
+  expect(targets.getByText("1 个版本 · 1 个实验")).toBeInTheDocument();
+  expect(targets.getByText("0 项")).toBeInTheDocument();
+  const disclosure = targets.getByText("查看九用途责任明细").closest("details");
+  expect(disclosure).not.toHaveAttribute("open");
+  fireEvent.click(targets.getByText("查看九用途责任明细"));
+  expect(disclosure).toHaveAttribute("open");
+  expect(targets.getByText("3 条")).toBeInTheDocument();
+  expect(targets.getByText(/全平台未定位历史责任：7 条，未归入此位置/)).toBeInTheDocument();
+  const sources = within(screen.getByRole("region", { name: "来源关系" }));
+  expect(sources.getByText("就绪 0 · 未完成 0")).toBeInTheDocument();
+  expect(screen.getByText(/数量不是物理对象数/)).toBeInTheDocument();
+});
+
+it("does not turn an older cached response into zero saved targets", async () => {
+  api.get.mockResolvedValue({
+    ...result,
+    counts: { ...result.counts, target_records: undefined },
+  });
+  mount();
+  expand();
+  expect(await screen.findByText("保存目标盘点暂不可用，请刷新维护盘点。")).toBeInTheDocument();
+  expect(screen.queryByText("保存定位责任")).not.toBeInTheDocument();
+  api.get.mockResolvedValue(result);
+  fireEvent.click(screen.getByRole("button", { name: "刷新维护盘点" }));
+  expect(await screen.findByText("保存定位责任")).toBeInTheDocument();
+  expect(screen.queryByText("保存目标盘点暂不可用，请刷新维护盘点。")).not.toBeInTheDocument();
 });
 
 it("drops pending results and expansion when the authenticated session changes", async () => {

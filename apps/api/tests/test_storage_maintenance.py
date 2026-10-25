@@ -15,6 +15,10 @@ from app.db.models.storage_maintenance import (
 )
 from app.services import storage_access as access, storage_maintenance as svc
 from tests.test_storage_locations_api import headers
+from tests.test_storage_maintenance_targets import (
+    change_confirmation_target,
+    saved_avatar,
+)
 from tests.test_storage_maintenance_impact import (
     forbid_source_io,
     key_headers,
@@ -97,6 +101,30 @@ async def test_disabled_protocol_reports_state_but_cannot_control(
     # Rollout guard controls only the UI/API operations, not durable recording.
     async with await access.acquire(db_session, where.id, "rollout_read"):
         assert (await svc.snapshot(db_session, where.id))["open_operations"] == 1
+
+
+@pytest.mark.parametrize(
+    "change", ["replacement", "state", "binding", "unknown", "polling"]
+)
+async def test_saved_target_review_tracks_selected_responsibilities(
+    httpx_client, db_session, super_admin, where, enabled, monkeypatch, change
+):
+    row = await saved_avatar(db_session, where)
+    await db_session.commit()
+    forbid_source_io(monkeypatch)
+    reviewed = await preview(httpx_client, where, super_admin)
+    assert reviewed["impact"]["counts"]["target_avatars"] == 1
+    await change_confirmation_target(db_session, where, row, change)
+    response = await apply(httpx_client, where, super_admin, reviewed)
+    if change in {"unknown", "polling"}:
+        assert response.status_code == 200, response.text
+        assert response.json()["state"] == "draining"
+    else:
+        assert response.status_code == 409, response.text
+        assert (
+            response.json()["detail"]["code"] == "storage_maintenance_preview_changed"
+        )
+        assert (await svc.snapshot(db_session, where.id))["state"] == "active"
 
 
 async def test_preview_offline_read_only_and_cycle_increments_only_maintenance_revision(

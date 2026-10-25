@@ -78,7 +78,7 @@ AI Annotation Platform 把项目管理、Data Manager、多模态标注工作台
 
 封存源清单与配对目录可用于[本地初次复制与可恢复核验](./docs-site/ops/deploy/storage-migration-inventory.md#本地初次复制与可恢复核验)：独立 CLI 保存逐源版本的实际目标回执，支持断点续跑、显式失败重试和完整 SHA／元数据读回。工具不改应用绑定或业务定位，复制子集通过仍不表示生产迁移就绪。
 
-超级管理员可在外部存储位置详情展开[维护影响](./docs-site/user-guide/datasets/storage-connections.md#位置维护影响)，查看已保存的业务关系、活动工作与副本账本，以及位置停用、人员授权和配置修订的实际边界。位置使用范围和缓存配置先预览差异与影响，再在五分钟内确认；提交会复核权限、配置及关系，拒绝失效确认。
+超级管理员可在外部存储位置及默认托管位置详情展开[维护影响](./docs-site/user-guide/datasets/storage-connections.md#位置维护影响)，分别查看来源关系、九用途保存目标和当前用途绑定。保存责任包含在途与退休记录，来源血缘不代替输出位置；未定位历史单独显示。位置使用范围和缓存配置先预览差异与影响，再在五分钟内确认；提交会复核权限、配置及所选位置的关系，拒绝失效确认。
 
 数据集上传按稳定身份隔离原图，同名不同内容保留为独立文件；改名不移动已有原图。旧数据可按真实对象键回填内容与位置映射；未知摘要可先预览当前原件，再显式应用SHA-256补算，保留旧任务身份。参见[数据集上传与扫描](./docs-site/api/guides/datasets.md)、[兼容回填](./docs-site/dev/concepts/storage-connections.md#内容身份与兼容回填)及[旧托管原件补算](./docs-site/dev/concepts/storage-connections.md#显式补算旧托管原件)。
 

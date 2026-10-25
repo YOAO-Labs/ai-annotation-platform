@@ -11,6 +11,7 @@ from app.config import settings
 from app.db.models.storage_connection import StorageConnection
 from app.services import storage_location, storage_maintenance_impact as maintenance
 from app.services.dataset_content import key_authority
+from app.services.storage_maintenance_targets import confirmation_counts
 
 PREVIEW_TTL = timedelta(minutes=5)
 AUDIENCE = "storage-location-change"
@@ -93,7 +94,12 @@ async def review(db, location, payload, actor, api_key_id):
     before, after = public_values(location), public_values(location, candidate)
     return {
         "binding": binding,
-        "dependencies": digest({"fingerprint": fingerprint, "counts": counts}),
+        "dependencies": digest(
+            {
+                "fingerprint": fingerprint,
+                "counts": confirmation_counts(counts),
+            }
+        ),
         "changes": [
             {"field": field, "before": before[field], "after": after[field]}
             for field in PUBLIC_FIELDS

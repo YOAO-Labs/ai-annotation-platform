@@ -86,6 +86,23 @@ class StorageMaintenanceCounts(BaseModel):
     cleanup_input_leases: int
     ready_lineage_versions: int
     unfinished_lineage_versions: int
+    target_records: int
+    target_annotations: int
+    target_datasets: int
+    target_training: int
+    target_media_cache: int
+    target_audit_archive: int
+    target_import: int
+    target_export: int
+    target_avatars: int
+    target_bug_reports: int
+    target_related_datasets: int
+    target_related_projects: int
+    target_related_tasks: int
+    target_versions: int
+    target_runs: int
+    current_bindings: int
+    unlocated_targets: int
 
 
 class StorageMaintenanceImpact(BaseModel):

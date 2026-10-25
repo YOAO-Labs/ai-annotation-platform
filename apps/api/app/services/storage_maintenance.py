@@ -21,6 +21,7 @@ from app.db.models.storage_maintenance import (
 )
 from app.db.models.user import User
 from app.services import storage_access
+from app.services.storage_maintenance_targets import confirmation_counts
 
 AUDIENCE = "storage-maintenance"
 PREVIEW_TTL = timedelta(minutes=5)
@@ -289,7 +290,12 @@ async def review(db, location_id, payload, actor, api_key_id, *, initialize=Fals
         gate,
         actor,
         binding,
-        digest({"fingerprint": fingerprint, "counts": counts}),
+        digest(
+            {
+                "fingerprint": fingerprint,
+                "counts": confirmation_counts(counts),
+            }
+        ),
     )
 
 
