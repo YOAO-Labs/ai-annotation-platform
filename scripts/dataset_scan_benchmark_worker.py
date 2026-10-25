@@ -1,6 +1,7 @@
 """Observability-only bootstrap for the disposable directory scan benchmark."""
 
 from collections import Counter
+from contextlib import contextmanager
 import json
 import math
 import os
@@ -53,7 +54,7 @@ class ObservedOS:
         return ObservedIterator(os.scandir(descriptor), self.counts)
 
 
-def install(directory):
+def install(directory, *, sync=False):
     import stat
     from celery.signals import task_prerun, task_postrun
     from sqlalchemy import event
@@ -62,6 +63,15 @@ def install(directory):
 
     counts, sql, traversals, publications = Counter(), Counter(), [], []
     active = False
+    task_started = 0
+    names = {"app.workers.dataset_scan.run_dataset_scan"}
+    if sync:
+        names.update(
+            {
+                "app.workers.dataset_registration.run_dataset_registration",
+                "app.workers.dataset_source_sync.advance_source_sync",
+            }
+        )
     original_scan, original_open, original_apply = (
         fs.scan_directory,
         fs._open_beneath,
@@ -70,8 +80,9 @@ def install(directory):
 
     @task_prerun.connect(weak=False)
     def begin(sender=None, **kwargs):
-        nonlocal active
-        active = sender.name == "app.workers.dataset_scan.run_dataset_scan"
+        nonlocal active, task_started
+        active = sender.name in names
+        task_started = time.monotonic()
         counts.clear()
         sql.clear()
         traversals.clear()
@@ -124,6 +135,36 @@ def install(directory):
         applied,
     )
 
+    if sync:
+        from app.services import reference_storage
+        from dataset_read_benchmark_api import ObservedBody
+
+        original_content = reference_storage.content_file
+
+        class SyncBody(ObservedBody):
+            def __init__(self, body, category):
+                super().__init__(body, counts)
+                self.category = category
+
+            def read(self, *args):
+                value = super().read(*args)
+                counts[self.category + "_bytes"] += len(value)
+                return value
+
+        @contextmanager
+        def content(*args, **kwargs):
+            with original_content(*args, **kwargs) as (body, observation):
+                if active:
+                    category = (
+                        "added" if Path(args[2]).name.startswith("new-") else "baseline"
+                    )
+                    counts["source_content_sessions"] += 1
+                    counts[category + "_sessions"] += 1
+                    body = SyncBody(body, category)
+                yield body, observation
+
+        reference_storage.content_file = content
+
     @task_postrun.connect(weak=False)
     def finish(sender=None, task_id=None, **kwargs):
         nonlocal active
@@ -139,6 +180,9 @@ def install(directory):
             counts.setdefault(key, 0)
         values = sorted(traversals)
         data = {
+            "task_name": sender.name,
+            "started_monotonic": task_started,
+            "settled_monotonic": time.monotonic(),
             "filesystem": dict(counts),
             "sql": dict(sql),
             "directory_scan_seconds": {
@@ -160,8 +204,10 @@ if __name__ == "__main__":
     from benchmark_dataset_scan import verify_worker_environment
 
     verify_worker_environment()
-    metrics, node, queue = sys.argv[1:]
-    install(Path(metrics))
+    metrics, node, queue, *mode = sys.argv[1:]
+    if mode not in ([], ["sync"]):
+        raise ValueError("Unknown measurement mode")
+    install(Path(metrics), sync=bool(mode))
     from app.workers.celery_app import celery_app
 
     celery_app.worker_main(
