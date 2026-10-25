@@ -19,10 +19,10 @@ mkdir -m 700 /tmp/training-benchmark-private
 pnpm dev:worktree -- exec --mode test -- env DEBUG=false LOG_LEVEL=WARNING \
   PYTHONDONTWRITEBYTECODE=1 apps/api/.venv/bin/python \
   scripts/benchmark_dataset_training.py \
-  --output /tmp/training-benchmark-private/report.json
+  --sizes 1000 --output /tmp/training-benchmark-private/report.json
 ```
 
-默认依次测量1,000和10,000个样本。`--sizes 8`仅用于小规模链路校准，不能代替两档基线；自定义档位须在2–10,000内且不重复。协调器、独立API和Worker使用当前API虚拟环境，读取同一份现有业务代码；子进程不接收迁移／测试owner DSN，另核对实际连接不是数据库、schema或业务表owner。
+这是手动选择的辅助测量，不是数据集／存储功能验收或合入的前置。示例仅测1,000样本；工具未指定`--sizes`时仍会依次测1,000和10,000，长档不应自动启动。`--sizes 8`仅用于小规模链路校准；自定义档位须在2–10,000内且不重复。协调器、独立API和Worker使用当前API虚拟环境，读取同一份现有业务代码；子进程不接收迁移／测试owner DSN，另核对实际连接不是数据库、schema或业务表owner。
 
 每个测量阶段默认最多等待14,400秒，可用`--phase-timeout-seconds`调整。该值仅控制工具等待及HTTP客户端，不修改生产任务、来源读取或鉴权预算；超时会取消并等待协调操作收尾、停止所属进程，结果保持失败。
 
@@ -73,6 +73,6 @@ S3范围写在每份指标的`s3_observation_scope`中，关闭、在途SQL／S3
 
 千档耗时主要发生在预检／创建和Worker准备，同机两次小包读取远低于这些阶段，不能仅凭重复读取次数推断缓存收益。该合成暖存储结果不代表自然图像、大包或跨站点网络，也不直接触发节点缓存工程。
 
-10,000样本档在同一进程中继续，整项尚未完成，所属test资源继续保留至进程结束；失败或预算拒绝不写作通过。此次运行与C5及隔离子树的有限检查有重叠，共享PostgreSQL／MinIO与主机资源，不作独占主机性能资格。
+10,000样本档已按用户对本轮范围的纠偏主动停止，停在夹具准备阶段，没有万档测量结果，不写作通过或产品失败。已有千档结果保留；所属API／Worker已结束，test数据库／Redis／九桶已销毁。万档不再作为Epic必需交付，也不阻塞已完成存储修改合入。此次运行与C5及隔离子树检查共享PostgreSQL／MinIO和主机资源，不作独占主机性能资格。
 
 目录遍历、原图读取和增量同步分别见[扫描基线](/dev/reference/dataset-scan-benchmark)、[原图读取基线](/dev/reference/dataset-read-benchmark)和[增量同步基线](/dev/reference/dataset-sync-benchmark)，不能相互替代。
