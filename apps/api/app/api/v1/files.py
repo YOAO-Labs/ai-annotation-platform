@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,9 +34,20 @@ async def upload_init(
         task_id, upload_url = await task_uploads.initialize(
             db, current_user, request, data, _infer_file_type(data.content_type)
         )
+        expires_in = int(
+            (upload_url.deadline - datetime.now(timezone.utc)).total_seconds()
+        )
+        if expires_in <= 0:
+            from app.services.content_snapshot import ContentError
+
+            raise ContentError("import_storage_expired", 409)
     except Exception as exc:
         raise task_uploads.http_error(exc) from None
-    return UploadInitResponse(task_id=task_id, upload_url=upload_url, expires_in=900)
+    return UploadInitResponse(
+        task_id=task_id,
+        upload_url=upload_url,
+        expires_in=expires_in,
+    )
 
 
 @router.post(

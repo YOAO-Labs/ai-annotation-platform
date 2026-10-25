@@ -421,3 +421,61 @@ it("exposes export switching only for the reviewed export policy", async () => {
   expect(storage.bindingCandidates).toHaveBeenCalledWith("export", 0, expect.any(AbortSignal), 20);
   expect(storage.avatarBindingCandidates).not.toHaveBeenCalled();
 });
+
+it("opens reviewed import switching while the other four storage purposes stay locked", async () => {
+  const binding = {
+    purpose: "import",
+    location_id: ID,
+    bucket: "imports-a",
+    generation: 1,
+    location_config_revision: 1,
+    state: "configured",
+    read_policy: "consumer_owned_compatibility",
+    write_policy: "current_binding",
+    change_policy: "reviewed_import_switch",
+  };
+  const target = {
+    location_id: "22222222-2222-2222-2222-222222222222",
+    name: "导入暂存目标",
+    config_revision: 2,
+  };
+  storage.bindings.mockResolvedValue([
+    binding,
+    ...["annotations", "datasets", "media-cache", "training"].map((purpose) => ({
+      ...binding,
+      purpose,
+      write_policy: "deployment_mapping",
+      change_policy: "legacy_mapping_locked",
+    })),
+  ]);
+  storage.bindingCandidates.mockResolvedValue({ items: [target], total: 1 });
+  mount("/storage?tab=bindings");
+  const button = await screen.findByRole("button", { name: "切换导入暂存位置" });
+  for (const name of [/标注文件/, /托管数据集/, /派生媒体缓存/, /冻结训练数据/]) {
+    expect(within(screen.getByRole("row", { name })).queryByRole("button")).not.toBeInTheDocument();
+  }
+  fireEvent.click(button);
+  await screen.findByRole("option", { name: target.name });
+  expect(storage.bindingCandidates).toHaveBeenCalledWith("import", 0, expect.any(AbortSignal), 20);
+  expect(storage.avatarBindingCandidates).not.toHaveBeenCalled();
+});
+
+it("keeps import unavailable when the backend reports a locked mapping", async () => {
+  storage.bindings.mockResolvedValue([
+    {
+      purpose: "import",
+      location_id: ID,
+      bucket: "imports-a",
+      generation: 1,
+      location_config_revision: 1,
+      state: "configured",
+      read_policy: "consumer_owned_compatibility",
+      write_policy: "deployment_mapping",
+      change_policy: "legacy_mapping_locked",
+    },
+  ]);
+  mount("/storage?tab=bindings");
+  await screen.findByRole("row", { name: /导入暂存/ });
+  expect(screen.queryByRole("button", { name: "切换导入暂存位置" })).not.toBeInTheDocument();
+  expect(storage.bindingCandidates).not.toHaveBeenCalled();
+});

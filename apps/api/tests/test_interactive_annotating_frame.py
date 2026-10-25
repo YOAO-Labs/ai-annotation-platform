@@ -11,6 +11,7 @@
 """
 
 from __future__ import annotations
+from contextlib import asynccontextmanager
 
 import io
 import json
@@ -144,10 +145,34 @@ def patched(monkeypatch):
             mask_input_next=RAW_MASK_INPUT,
         )
 
-    def fake_upload(self, data, key):
-        captured["upload_key"] = key
-        captured["upload_size"] = len(data)
-        return FRAME_URL
+    @asynccontextmanager
+    async def fake_inputs(factory, **owner):
+        captured["input_owner"] = owner
+
+        class Inputs:
+            async def close(self):
+                captured["input_closed"] = True
+
+            async def upload_frame(self, task, content):
+                captured["upload_key"] = "prediction-inputs/request/original/frame.jpg"
+                captured["upload_size"] = len(content)
+                captured["upload_content"] = content
+                return FRAME_URL
+
+        try:
+            yield Inputs()
+        finally:
+            captured["input_closed"] = True
+
+    from app.api.v1 import ml_backends as routes
+
+    final_boundary = routes._reacquire_write_boundary
+
+    async def after_physical_close(*args, **kwargs):
+        assert captured.get("input_closed")
+        return await final_boundary(*args, **kwargs)
+
+    monkeypatch.setattr(routes, "_reacquire_write_boundary", after_physical_close)
 
     with (
         patch(
@@ -160,7 +185,7 @@ def patched(monkeypatch):
         ),
     ):
         monkeypatch.setattr(
-            "app.services.storage.StorageService.upload_crop_bytes", fake_upload
+            "app.services.prediction_inputs.prediction_inputs", fake_inputs
         )
         yield captured
 
@@ -196,7 +221,9 @@ async def test_frame_bytes_become_backend_file_path(
     assert patched["task_data"]["file_path"] != VIDEO_PATH
     assert patched["task_data"]["id"] == str(task.id)
     # 上传键按 task/frame 分桶，便于同帧连击命中同一对象。
-    assert patched["upload_key"] == f"frame-interactive/{task.id}/7.jpg"
+    assert patched["input_owner"]["owner_kind"] == "frame_interactive"
+    assert patched["input_owner"]["task_id"] == task.id
+    assert patched["upload_content"] == JPEG_BYTES and patched["input_closed"]
     assert patched["upload_size"] == len(JPEG_BYTES)
 
 
@@ -262,7 +289,8 @@ async def test_mask_input_next_passthrough(
     # 候选瞬态返回, 不落 Prediction (对齐图片侧交互链路)。
     assert "prediction_id" not in body
     # frame_index 进上传键 → 同 task 不同帧不会互相覆盖。
-    assert patched["upload_key"].endswith("/3.jpg")
+    assert patched["input_owner"]["owner_kind"] == "frame_interactive"
+    assert patched["upload_content"] == JPEG_BYTES and patched["input_closed"]
 
 
 async def test_native_mask_frame_validates_jpeg_size_and_returns_lineage(

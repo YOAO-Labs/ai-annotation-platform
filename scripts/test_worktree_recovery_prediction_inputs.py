@@ -54,10 +54,10 @@ class PredictionInputMapping(unittest.TestCase):
         )
 
     def mapping(self, row):
-        from app.services import prediction_inputs
+        from app.services import import_storage
 
         with patch.object(
-            prediction_inputs, "_endpoint", return_value="http://saved.test:9000"
+            import_storage, "_runtime_endpoint", return_value="http://saved.test:9000"
         ):
             return prediction_input_changes(
                 row,

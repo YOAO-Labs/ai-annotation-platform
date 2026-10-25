@@ -75,12 +75,28 @@ async def register_connection(db, connection):
 
 async def location_is_referenced(db, location_id):
     from app.db.models.audit_archive_output import AuditArchiveOutput
+    from app.db.models.prediction_input import PredictionInputLease
+    from app.db.models.managed_original_creation import ManagedOriginalCreation
+    from app.db.models.mask_format_upload import MaskFormatUpload
+    from app.db.models.mask_format_import import MaskFormatImport
     from app.db.models.export_output import ExportOutput
     from app.db.models.export_media_bundle import ExportMediaBundle
     from app.db.models.avatar_upload import AvatarUpload
     from app.db.models.bug_attachment_upload import BugAttachmentUpload
     from app.db.models.dataset_source import DatasetSource
 
+    for model, column in (
+        (PredictionInputLease, PredictionInputLease.storage_ref),
+        (ManagedOriginalCreation, ManagedOriginalCreation.staging_ref),
+        (MaskFormatUpload, MaskFormatUpload.storage_ref),
+        (MaskFormatImport, MaskFormatImport.staging_ref),
+    ):
+        if await db.scalar(
+            select(model.id)
+            .where(column["location_id"].astext == str(location_id))
+            .limit(1)
+        ):
+            return True
     return bool(
         await db.scalar(
             select(DatasetSource.id)
@@ -668,7 +684,8 @@ async def binding_rows(db):
                 else ("mismatch" if mismatch else "configured"),
                 "read_policy": "consumer_owned_compatibility",
                 "write_policy": "current_binding"
-                if purpose in {"avatars", "bug-reports", "audit-archive", "export"}
+                if purpose
+                in {"avatars", "bug-reports", "audit-archive", "export", "import"}
                 else "deployment_mapping",
                 "change_policy": "reviewed_avatar_switch"
                 if purpose == "avatars"
@@ -679,6 +696,8 @@ async def binding_rows(db):
                     if purpose == "audit-archive"
                     else "reviewed_export_switch"
                     if purpose == "export"
+                    else "reviewed_import_switch"
+                    if purpose == "import"
                     else "legacy_mapping_locked"
                 ),
             }

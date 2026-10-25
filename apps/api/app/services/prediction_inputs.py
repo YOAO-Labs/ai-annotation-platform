@@ -26,7 +26,6 @@ from sqlalchemy.dialects.postgresql import JSONB, JSONPATH, array
 from sqlalchemy.orm import load_only
 
 from app.config import settings
-from app.db.models.dataset_asset import StorageBinding, StorageLocation
 from app.db.models.prediction_input import PredictionInputLease as InputRecord
 from app.db.models.storage_maintenance import StorageOperation
 from app.services import storage_access, storage_usage_accounting as accounting
@@ -57,6 +56,8 @@ IMAGE_KINDS = frozenset(
         "predict_test",
         "mask_repair",
         "secondary_inference",
+        "frame_predict",
+        "frame_interactive",
     }
 )
 _VIDEO_EXTENSIONS = {
@@ -181,44 +182,28 @@ def _document(value, limit):
 
 
 def resolve_ref(ref, *, expected_prefix):
-    """Validate a saved import locator; never follow today's default bucket."""
-    if not isinstance(ref, dict) or set(ref) != _REF_FIELDS:
-        reject("legacy_unpinned" if ref is None else "invalid_receipt")
+    """Validate saved addresses without adopting the current binding."""
+    from app.services import import_storage
+
     try:
-        parsed = urlsplit(ref["endpoint_url"])
-        endpoint_ok = (
-            _header(ref["endpoint_url"], 2048)
-            and "\\" not in ref["endpoint_url"]
-            and parsed.scheme in {"http", "https"}
-            and bool(parsed.hostname)
-            and parsed.username is None
-            and parsed.password is None
-            and not parsed.path
-            and not parsed.query
-            and not parsed.fragment
-            and parsed.port != 0
-        )
-    except (ValueError, TypeError, AttributeError):
-        endpoint_ok = False
-    if not (
-        type(ref["schema"]) is int
-        and ref["schema"] == 1
-        and ref["purpose"] == "import"
-        and ref["location_id"] == str(LEGACY_LOCATION_ID)
-        and type(ref["config_revision"]) is int
-        and ref["config_revision"] == 1
-        and type(ref["binding_generation"]) is int
-        and ref["binding_generation"] == 1
-        and endpoint_ok
-        and _header(ref["bucket"], 255)
-        and not any(c in ref["bucket"] for c in "/\\?#@%:")
-        and ref["key_prefix"] == expected_prefix
-        and ref["storage_identity"] == _identity(ref["endpoint_url"], ref["bucket"])
-    ):
-        reject()
-    if ref["endpoint_url"] != _endpoint():
-        reject("storage_identity_changed")
-    return deepcopy(ref)
+        return import_storage.resolve_ref(ref, expected_prefix=expected_prefix).ref
+    except import_storage.ImportStorageError:
+        reject("legacy_unpinned" if ref is None else "invalid_receipt")
+
+
+def _location(record):
+    return uuid.UUID(_resolve(record)["location_id"])
+
+
+async def _target_for_record(db, record):
+    from app.services import import_storage
+
+    owner = import_storage.resolve_ref(
+        _resolve(record), expected_prefix=input_prefix(record.id)
+    )
+    if owner.location_id == LEGACY_LOCATION_ID:
+        return None
+    return await import_storage.io_target(db, owner)
 
 
 def _resolve(record):
@@ -338,33 +323,9 @@ def _same(row, record):
 
 
 async def _allocate_ref(db, identifier):
-    location = await db.get(StorageLocation, LEGACY_LOCATION_ID, populate_existing=True)
-    binding = await db.get(StorageBinding, "import", populate_existing=True)
-    if (
-        location is None
-        or not location.enabled
-        or location.kind != "s3"
-        or location.config_revision != 1
-        or location.config
-        != {"endpoint": settings.minio_endpoint, "use_ssl": settings.minio_use_ssl}
-        or binding is None
-        or binding.location_id != LEGACY_LOCATION_ID
-        or binding.generation != 1
-        or binding.bucket != settings.minio_import_bucket
-    ):
-        reject("configuration_changed")
-    ref = {
-        "schema": 1,
-        "purpose": "import",
-        "location_id": str(LEGACY_LOCATION_ID),
-        "config_revision": 1,
-        "binding_generation": 1,
-        "endpoint_url": _endpoint(),
-        "bucket": binding.bucket,
-        "key_prefix": input_prefix(identifier),
-        "storage_identity": _identity(_endpoint(), binding.bucket),
-    }
-    return resolve_ref(ref, expected_prefix=input_prefix(identifier))
+    from app.services import import_storage
+
+    return await import_storage.allocate(db, input_prefix(identifier))
 
 
 async def check_metadata(db, inputs, *, lock=True):
@@ -379,9 +340,10 @@ async def check_metadata(db, inputs, *, lock=True):
     ):
         reject("expired")
     _resolve(inputs.record)
+    await _target_for_record(db, inputs.record)
     await storage_access.check(
         db,
-        LEGACY_LOCATION_ID,
+        _location(inputs.record),
         expected_revision=inputs.record.maintenance_revision,
         lock=lock,
     )
@@ -639,8 +601,13 @@ def _read(client, bucket, key, entry, deadline, *, lease_id, written=None):
     return {**entry, "state": "verified", "etag": etag, "version_id": version}
 
 
-def _using_storage(record, call, provided=None, *, close=True):
+def _using_storage(record, call, provided=None, *, close=True, target=None):
     ref = _resolve(record)
+    if target is not None and provided is None:
+        with target.client() as client:
+            admitted = object.__new__(StorageService)
+            admitted.client = client
+            return _using_storage(record, call, admitted, close=False)
     try:
         storage = provided or make_storage()
     except BaseException as exc:
@@ -669,7 +636,7 @@ class PredictionInputs:
     def __init__(self, factory, record, storage=None, *, guard=None):
         self.factory, self.record, self.storage = factory, record, storage
         self.guard = guard
-        self.prefix = input_prefix(record.id)
+        self.prefix = _resolve(record)["key_prefix"]
         self._objects, self._uploaded = {}, set()
         self._video_receipt = None
         self._snapshot, self._images = None, []
@@ -704,7 +671,7 @@ class PredictionInputs:
                 if guard is not None:
                     await guard(db)
                 ref = await _allocate_ref(db, identifier)
-                revision = await storage_access.check(db, LEGACY_LOCATION_ID)
+                revision = await storage_access.check(db, uuid.UUID(ref["location_id"]))
                 row = InputRecord(
                     id=identifier,
                     owner_id=uuid.UUID(str(owner_id)),
@@ -748,8 +715,11 @@ class PredictionInputs:
             reject()
         if self.guard is not None:
             await self.guard(db)
+        await _target_for_record(db, self.record)
         await storage_access.check(
-            db, LEGACY_LOCATION_ID, expected_revision=self.record.maintenance_revision
+            db,
+            _location(self.record),
+            expected_revision=self.record.maintenance_revision,
         )
         return row
 
@@ -863,7 +833,7 @@ class PredictionInputs:
             await self._fresh(db)
             return await storage_access.acquire(
                 db,
-                LEGACY_LOCATION_ID,
+                _location(self.record),
                 purpose(self.record),
                 expected_revision=self.record.maintenance_revision,
             )
@@ -873,7 +843,11 @@ class PredictionInputs:
         failure, result = None, None
         try:
             await self.check_live_for_write()
-            result = await settled_io(_using_storage, self.record, call, self.storage)
+            async with self.factory() as db:
+                target = await _target_for_record(db, self.record)
+            result = await settled_io(
+                _using_storage, self.record, call, self.storage, target=target
+            )
             await self.check_live_for_write()
             if publish is not None:
                 await publish(result)
@@ -913,7 +887,9 @@ class PredictionInputs:
             bucket=self.record.bucket,
             align=False,
             version_id=_immutable_version({"VersionId": verified["version_id"]}),
-            audience="ml",
+            audience="ml"
+            if _location(self.record) == LEGACY_LOCATION_ID
+            else "internal",
         )
 
     async def _publish(self, relative, expected, verified):
@@ -949,6 +925,11 @@ class PredictionInputs:
         await _async(publish())
 
     async def _upload(self, relative, content, *, sha256, size, media_type, video=None):
+        from app.services import import_storage
+
+        import_storage.resolve_ref(
+            self.record.storage_ref, expected_prefix=input_prefix(self.record.id)
+        ).key(relative)
         expected = await self._reserve(
             relative,
             dict(
@@ -1161,6 +1142,26 @@ class PredictionInputs:
                 media_type="image/jpeg",
             )
 
+    async def upload_frame(self, task, content):
+        """Use verified frame bytes as an image input without transcoding or crop indexes."""
+        self._image_only()
+        if uuid.UUID(str(task.id)) != self.record.task_id or type(content) is not bytes:
+            reject("scope_invalid")
+        if not 0 < len(content) <= MAX_BYTES:
+            reject("too_large", 413)
+        media_type = (
+            "image/png" if content.startswith(b"\x89PNG\r\n\x1a\n") else "image/jpeg"
+        )
+        digest = hashlib.sha256(content).hexdigest()
+        async with self._lock:
+            return await self._upload(
+                f"original/{digest}.{_TYPES[media_type]}",
+                content,
+                sha256=digest,
+                size=len(content),
+                media_type=media_type,
+            )
+
     def _image_only(self):
         if self.record.contract_version != 2:
             reject("image_contract_required")
@@ -1338,7 +1339,7 @@ def _inventory(record, value):
 
 
 def _listed(client, record, expected, deadline, *, versions=False):
-    prefix = input_prefix(record.id)
+    prefix = _resolve(record)["key_prefix"]
     rows, markers, seen = {}, {}, set()
     while True:
         _deadline(deadline)
@@ -1423,7 +1424,7 @@ def _prepare_delete_known(storage, record, inventory):
         observed = _read(
             storage.client,
             record.bucket,
-            input_prefix(record.id) + relative,
+            _resolve(record)["key_prefix"] + relative,
             inventory[relative],
             deadline,
             lease_id=record.id,
@@ -1492,7 +1493,11 @@ async def purge_input(factory, input_id, *, storage=None):
     async def close_physical():
         target = physical_holder.pop("storage", None)
         if target is not None:
-            await settled_io(storage_access.close_registered, target.client)
+            context = physical_holder.pop("context", None)
+            if context is not None:
+                await settled_io(context.__exit__, None, None, None)
+            else:
+                await settled_io(storage_access.close_registered, target.client)
 
     async def select_owner():
         async with factory() as db:
@@ -1547,8 +1552,9 @@ async def purge_input(factory, input_id, *, storage=None):
                 or await db.scalar(select(_operations(input_id, ignore=permit.id)))
             ):
                 reject("cleanup_busy")
+            await _target_for_record(db, record)
             await storage_access.check(
-                db, LEGACY_LOCATION_ID, expected_revision=permit.revision
+                db, _location(record), expected_revision=permit.revision
             )
             return row
 
@@ -1573,14 +1579,24 @@ async def purge_input(factory, input_id, *, storage=None):
         async def acquire():
             async with factory() as db:
                 return await storage_access.acquire(
-                    db, LEGACY_LOCATION_ID, purpose(record)
+                    db, _location(record), purpose(record)
                 )
 
         permit = await _async(acquire(), late=_settle)
         await _async(fresh(lock=True))
 
+        async with factory() as db:
+            current_target = await _target_for_record(db, record)
+
         def prepare():
-            target = storage if storage is not None else make_storage()
+            if storage is not None or current_target is None:
+                target = storage if storage is not None else make_storage()
+            else:
+                context = current_target.client()
+                client = context.__enter__()
+                target = object.__new__(StorageService)
+                target.client = client
+                physical_holder["context"] = context
             physical_holder["storage"] = target
             return _using_storage(
                 record,
@@ -1621,8 +1637,9 @@ async def purge_input(factory, input_id, *, storage=None):
                     or await db.scalar(select(_operations(input_id, ignore=permit.id)))
                 ):
                     reject("cleanup_busy")
+                await _target_for_record(db, record)
                 await storage_access.check(
-                    db, LEGACY_LOCATION_ID, expected_revision=permit.revision, lock=True
+                    db, _location(record), expected_revision=permit.revision, lock=True
                 )
                 if row.uncertain_write and row.retain_until > now():
                     result = "retained"

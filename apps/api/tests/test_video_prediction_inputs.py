@@ -54,6 +54,12 @@ async def world(image_world, monkeypatch):  # noqa: F811
             await connection.run_sync(
                 lambda sync, name=name: _migration(sync, name).upgrade()
             )
+
+        def import_owner_constraints(sync):
+            migration = _migration(sync, "0250_import_storage_targets")
+            migration._checks(migration._NEW_CHECKS)
+
+        await connection.run_sync(import_owner_constraints)
     monkeypatch.setattr(owner, "make_storage", lambda: VideoStorage(image_world))
     return image_world
 

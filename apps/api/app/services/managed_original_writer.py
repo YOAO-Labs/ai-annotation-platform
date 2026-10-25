@@ -429,22 +429,33 @@ def _proof(value):
 
 
 def _prepare_pinned_stream(
-    client, source_bucket, source_key, bucket, key, source, content_type, seconds, check
+    client,
+    source_bucket,
+    source_key,
+    bucket,
+    key,
+    source,
+    content_type,
+    seconds,
+    check,
+    *,
+    source_client=None,
 ):
     """Replace an unqualified server copy with a fully verified bounded stream."""
+    reader = client if source_client is None else source_client
     body, prepared = None, None
     params = {
         "Bucket": source_bucket,
         "Key": source_key,
-        "VersionId": source.version_id,
         "IfMatch": source.etag,
+        **({"VersionId": source.version_id} if source.version_id is not None else {}),
     }
     try:
         try:
             check()
-            _require_conditions(client, params)
+            _require_conditions(reader, params)
             check()
-            response = client.get_object(**params)
+            response = reader.get_object(**params)
             body = response.get("Body")
             check()
             if _observation(response, source_bucket, source_key) != source.observation:
@@ -473,7 +484,7 @@ def _prepare_pinned_stream(
         # A version-pinned read cannot adopt a source which stopped being
         # current while its bytes or handle were still being consumed.
         check()
-        current = client.head_object(Bucket=source_bucket, Key=source_key)
+        current = reader.head_object(Bucket=source_bucket, Key=source_key)
         check()
         if _observation(current, source_bucket, source_key) != source.observation:
             raise WriterError("creation_source_changed")
@@ -494,6 +505,7 @@ def prepare_copy(
     *,
     content_type,
     timeout_seconds=TIMEOUT_SECONDS,
+    source_client=None,
 ):
     _locator(source_bucket, source_key)
     _locator(bucket, key)
@@ -512,6 +524,19 @@ def prepare_copy(
         or not _safe(source.etag)
     ):
         raise WriterError("creation_invalid_input")
+    if source_client is not None:
+        return _prepare_pinned_stream(
+            client,
+            source_bucket,
+            source_key,
+            bucket,
+            key,
+            source,
+            content_type,
+            timeout_seconds,
+            _clock(timeout_seconds),
+            source_client=source_client,
+        )
     if not source.size_bytes:
         return Prepared(
             source.sha256, source.md5, 0, source.head_bytes, None, (), bucket, key

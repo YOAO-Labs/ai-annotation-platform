@@ -18,7 +18,6 @@ from app.services.dataset_assets import MAX_DIRECT_UPLOAD_BYTES
 from app.services.dataset_storage_keys import normalize_dataset_relative_path
 from app.services.display_id import next_display_id
 from app.services.project_access import resolve_project_access
-from app.services.storage import storage_service
 
 
 MANAGERS = {PlatformRole.SUPER_ADMIN, PlatformRole.PROJECT_ADMIN}
@@ -132,14 +131,28 @@ async def initialize(db, actor, request, data, file_type):
     actor = await credentials.reauthorize(db, proof)
     await project_context(db, actor, data.project_id)
     await creations._validate(db, allocation, lock=True)
-    url = storage_service.generate_upload_url(
-        allocation["staging_key"],
-        data.content_type,
-        bucket=allocation["staging_bucket"],
-    )
     credentials.check_clock(proof)
     await db.commit()
     credentials.check_clock(proof)
+    url = await creations.prepare_upload_url(db, allocation)
+    actor = await credentials.reauthorize(db, proof)
+    current, _ = await task_context(db, actor, task_id)
+    if (
+        current.project_id != data.project_id
+        or current.file_path != allocation["object_key"]
+        or current.file_name != logical_path
+        or current.file_type != file_type
+        or current.status != "uploading"
+        or current.original_id is not None
+    ):
+        reject("task_original_context_changed")
+    await creations._validate(db, allocation, lock=True)
+    await creations.validate_staging(db, allocation, lock=True)
+    await credentials.reauthorize(db, proof)
+    await creations.validate_upload_url(db, allocation, url, lock=True)
+    await db.commit()
+    credentials.check_clock(proof)
+    creations.upload_expires_in(allocation)
     return task_id, url
 
 

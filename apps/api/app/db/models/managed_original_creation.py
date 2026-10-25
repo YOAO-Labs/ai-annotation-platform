@@ -19,6 +19,63 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
 
+MANAGED_CREATION_STAGING_REF_CHECK = r"""
+staging_ref IS NULL OR COALESCE((
+    origin = 'direct'
+    AND jsonb_typeof(staging_ref) = 'object'
+    AND staging_ref ?& ARRAY['schema','purpose','location_id','config_revision',
+        'binding_generation','endpoint_url','bucket','key_prefix','storage_identity']
+    AND staging_ref - ARRAY['schema','purpose','location_id','config_revision',
+        'binding_generation','endpoint_url','bucket','key_prefix','storage_identity']::text[] = '{}'::jsonb
+    AND staging_ref->>'purpose' = 'import'
+    AND jsonb_typeof(staging_ref->'location_id') = 'string'
+    AND staging_ref->>'location_id' ~ '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$'
+    AND jsonb_typeof(staging_ref->'config_revision') = 'number'
+    AND staging_ref->>'config_revision' ~ '^[1-9][0-9]*$'
+    AND jsonb_typeof(staging_ref->'binding_generation') = 'number'
+    AND staging_ref->>'binding_generation' ~ '^[1-9][0-9]*$'
+    AND jsonb_typeof(staging_ref->'endpoint_url') = 'string'
+    AND staging_ref->>'endpoint_url' ~ '^https?://[^[:space:]/?#@]+$'
+    AND position(chr(92) in (staging_ref->>'endpoint_url')) = 0
+    AND jsonb_typeof(staging_ref->'bucket') = 'string'
+    AND staging_ref->>'bucket' = staging_bucket
+    AND length(staging_bucket) BETWEEN 1 AND 255
+    AND staging_bucket !~ '[[:space:]/?#@]'
+    AND position(chr(92) in staging_bucket) = 0
+    AND jsonb_typeof(staging_ref->'key_prefix') = 'string'
+    AND staging_ref->>'key_prefix' !~ '[[:cntrl:]]|(^|/)\.{1,2}(/|$)|//'
+    AND position(chr(92) in (staging_ref->>'key_prefix')) = 0
+    AND (staging_ref->>'key_prefix') || 'payload' = staging_key
+    AND length(staging_key) <= 1000 AND octet_length(staging_key) <= 1024
+    AND jsonb_typeof(staging_ref->'storage_identity') = 'string'
+    AND staging_ref->>'storage_identity' ~ '^[0-9a-f]{64}$'
+    AND (
+        (staging_ref->'schema' = '1'::jsonb AND staging_ref->>'schema' = '1'
+         AND staging_ref->>'location_id' = '4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7'
+         AND staging_ref->>'config_revision' = '1'
+         AND staging_ref->>'binding_generation' = '1'
+         AND staging_ref->>'key_prefix' = '__aap_upload_staging__/' || id::text || '/')
+        OR
+        (staging_ref->'schema' = '2'::jsonb AND staging_ref->>'schema' = '2'
+         AND staging_ref->>'binding_generation' <> '1'
+         AND (
+             (staging_ref->>'location_id' = '4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7'
+              AND staging_ref->>'config_revision' = '1'
+              AND staging_ref->>'key_prefix' = '__aap_upload_staging__/' || id::text || '/')
+             OR
+             (staging_ref->>'location_id' <> '4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7'
+              AND (
+                  staging_ref->>'key_prefix' = '_aap_managed/import/__aap_upload_staging__/' || id::text || '/'
+                  OR right(staging_ref->>'key_prefix',
+                      length('/_aap_managed/import/__aap_upload_staging__/' || id::text || '/'))
+                      = '/_aap_managed/import/__aap_upload_staging__/' || id::text || '/'
+              ))
+         ))
+    )
+), false)
+"""
+
+
 class ManagedOriginalCreation(Base):
     __tablename__ = "managed_original_creations"
     __table_args__ = (
@@ -53,6 +110,10 @@ class ManagedOriginalCreation(Base):
         CheckConstraint(
             "(origin='direct' AND staging_bucket IS NOT NULL AND staging_key IS NOT NULL) OR (origin<>'direct' AND staging_bucket IS NULL AND staging_key IS NULL)",
             name="ck_managed_creation_staging",
+        ),
+        CheckConstraint(
+            MANAGED_CREATION_STAGING_REF_CHECK,
+            name="ck_managed_creation_staging_ref",
         ),
         CheckConstraint(
             "(prepared IS NULL AND sha256 IS NULL AND md5 IS NULL AND size_bytes IS NULL AND frozen_at IS NULL) OR (prepared IS NOT NULL AND sha256 IS NOT NULL AND md5 IS NOT NULL AND size_bytes IS NOT NULL AND frozen_at IS NOT NULL AND sha256 ~ '^[0-9a-f]{64}$' AND md5 ~ '^[0-9a-f]{32}$' AND size_bytes >= 0 AND size_bytes <= max_bytes)",
@@ -105,6 +166,7 @@ class ManagedOriginalCreation(Base):
     maintenance_revision: Mapped[int] = mapped_column(nullable=False)
     staging_bucket: Mapped[str | None] = mapped_column(String(255))
     staging_key: Mapped[str | None] = mapped_column(String(1000), unique=True)
+    staging_ref: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default="allocated"
     )

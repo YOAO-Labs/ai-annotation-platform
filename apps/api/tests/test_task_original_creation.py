@@ -17,7 +17,7 @@ from app.db.models.storage_usage import StorageUsageMutation
 from app.services import managed_original_creation as service
 from app.services.content_snapshot import ContentError
 from app.services.storage import storage_service
-from tests.test_managed_original_creation import Client
+from tests.test_managed_original_creation import Client, stage_client
 from tests.test_migration_0230_managed_original_task_scope import (
     allocation,
     legacy_creation_db as _legacy_creation_db,
@@ -39,6 +39,7 @@ async def task_creation_db(legacy_creation_db):
 def client(monkeypatch):
     value = Client()
     monkeypatch.setattr(service, "create_client", lambda **_: value)
+    stage_client(monkeypatch, value)
     return value
 
 
@@ -358,28 +359,19 @@ async def test_unknown_task_write_keeps_exact_permit_and_never_retries(
     assert len(client.calls) == calls
 
 
-@pytest.mark.parametrize("stream_fallback", [False, True])
-async def test_cancelled_task_completion_drains_copy_and_preserves_ledger(
-    task_creation_db, client, monkeypatch, stream_fallback
+@pytest.mark.parametrize("versioned", [False, True])
+async def test_cancelled_task_completion_drains_saved_source_stream_and_preserves_ledger(
+    task_creation_db, client, versioned
 ):
     db = task_creation_db
     row = await allocation(db)
-    client.versioned = stream_fallback
+    client.versioned = versioned
     stage(client, row)
     client.versioned = False
-    if stream_fallback:
-        copy = client.upload_part_copy
-
-        def no_echo(**params):
-            result = copy(**params)
-            result.pop("CopySourceVersionId")
-            return result
-
-        monkeypatch.setattr(client, "upload_part_copy", no_echo)
     entered, release = threading.Event(), threading.Event()
 
     def hold(operation, params):
-        if operation == ("part" if stream_fallback else "copy"):
+        if operation == "part":
             entered.set()
             assert release.wait(5)
 
