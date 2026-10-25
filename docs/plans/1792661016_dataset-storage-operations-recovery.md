@@ -5,6 +5,20 @@
 
 原始§5／工程任务第2项现由E12-B3交付临时输入的真实写删增量及跨盘点对账，B4接入集中托管原件新增，B5接入四类媒体缓存新增，B6接入独立导出媒体新增，B7接入导出ZIP写入净变化，B8接入报告附件受控新增，B9接入头像／评论附件／指南图片／持久RLE／审计归档受控新增；其他生产者及媒体缓存／导出移除增量仍未完整覆盖。原有LIST快照、额度预约与Creation／Retirement责任账本分别保留，不能将其中任一累计或部分覆盖冒充全平台物理增量；完整工程任务仍未勾完，也不是其他切片的新前置。
 
+## 本轮定稿：E12-B10 服务端训练归属对象覆盖写入
+
+2026-10-26，基于`f69aeb743`继续原始E12-S03／AC01、§5及工程任务第2项。本片统一覆盖四类服务端写入：TrainingDatasetVersion的冻结media／RLE masks／dataset.zip、ActiveLearningRound的保留PNG、SampleEvaluationRun的报告、TrainingRun的脱敏派生日志。producer分别为`training_dataset_outputs`、`active_learning_media`、`sample_evaluation_reports`、`training_redacted_logs`，owner使用对应业务保存责任UUID；前者分类`training_version`，后三者`other_platform`。地址来自当前操作已核验的owner.ref，尤其历史attempt使用自身保存地址，不能改取今日Run绑定。
+
+四类现有写入均为覆盖语义，沿B7的通用Observation复用单次final-send／明确ACK、完整准确版本读回、前后HEAD／有界完整版本集合／HEAD证据；不套B9的条件成功即全大小新增。保留原managed multipart、PUT、SDK配置／重试、metadata、文件与资源预算、返回形状和业务发布／清理。每次实际上传调用前独立保存耐久意图；只有本次唯一不可变非null版本、完整SHA／大小读回及前后集合只新增该版本、当前状态一致时确认新旧当前大小之差，等长覆盖为零、缩小可负。多次提交、无hook、丢ACK、null、缺权限或不完整观测保持unknown，不改变原成功业务；原生资源实际收尾不明仍遵循既有permit规则。普通读取、签名和已有副本直接复用不补造写入。
+
+新增私有`training_write_accounting.py`，直接复用B7 Observation及B9 finish，不为命名重构旧ZIP／条件写模块。明确factory接口`recorder(db, owner, owner_id, *, producer, purpose)`，导出Observation与finish供局部adapter使用。共享`training_storage_io.service/physical`增加可选accounting，只有被观测写入使用`Target.client(owned=True)`，bound transport附局部`_write_accounting`；`run`的可选accounting在原callback／native client与实际捕获permit结清后独立finish，保留原on_acquired及异常语义。三个小对象writer从局部transport取得sidecar，原完整reader仅加可选读回观测出口。脱敏日志此前未核验新输出，补有界旁路完整读回，仅观测失败保留unknown，不把新增读权限变成下载前置。
+
+冻结worker的整轮permit及临时目录由`_build_dataset`持有；其recorder传入media／mask／package真实写入，必须在原生线程、client、源stage、临时目录和实际permit均关闭后发布，不能在单次callback结束时提前确认。package先确定本地SHA／大小，再在同一所属client完成原上传／完整回读，不变更包内容或算法。ActiveLearning的prepare_image保留输入stage和permit外层收尾；SampleEvaluation正常finish与stop两条report入口共同覆盖；脱敏日志接实际download_artifact入口。后续业务拒绝、失败及清理不抹去写入事实，当前不补算删除。
+
+两个基于本合同提交的隔离树分别负责共享helper／training_storage_io／training_artifacts、三个小对象服务及两个报告Worker入口／日志API入口／schema／相关测试，以及冻结worker与其相关测试；主树负责现有容量摘要新增范围说明、README／CHANGELOG／用户／API／开发说明与计划、集成及人工环境保留。只在核实owner的一次性test资源验证真实小文件PUT／multipart、覆盖净变化、版本关联、复用无意图、业务失败、SDK重试／证据不足及native／permit／目录收尾；冻结用小包和原生RLE覆盖存储接线，不执行模型训练、规模测量或Executor部署。相关回归和正常代码／文档检查通过后，确认人工0257任务空闲、保存业务／对象／文件，刷新准确所属服务并验证18生产者及明暗宽窄摘要，再正常提交和清理。
+
+无迁移、依赖、配置、镜像、新公开接口、权限或协议变更。签名直传的实际提交在外部执行器／浏览器，迁移复制、未覆盖写入和物理移除继续独立保留，coverage仍partial、projected_total_bytes仍null。它们不是本片前置，不启动Tracker／会话／审核或训练专项，不推送或发布。
+
 ## 本轮定稿：E12-B9 其余条件创建对象增量
 
 2026-10-26，基于`bb4b21266`继续原始E12-S03／AC01、§5和工程任务第2项，将头像、评论附件、指南图片、持久RLE和审计归档五类既有条件创建入口接入增量账目。生产者分别为`avatar_uploads`、`comment_attachment_uploads`、`guide_asset_uploads`、`raster_mask_objects`、`audit_archive_outputs`，分类均为`other_platform`。owner分别为头像上传token无损转换的UUID及其余四类保存责任的UUID，不能用用户／项目／Job身份代替；RLE计实际存储编码的SHA和大小，不计canonical大小。
