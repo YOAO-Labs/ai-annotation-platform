@@ -19,6 +19,11 @@ PostgreSQL 能力与 JSON 合同，维护工件不依赖 API、Celery 或通用 
 保留调用方 flush／commit／rollback；项目范围读取使用公开 `audit_events`，
 月报与 DuckDB 继续使用现有公开关系。HTTP 元数据审计仍按原有 best-effort 语义执行。
 
+HTTP 元数据在响应生成后投递；broker 明确失败时同步回退，元数据写入失败不改变业务响应。
+投递已接受但调用方未收到结果时，同步回退可能追加第二行；提交成功后的结果不明与显式重放
+也可能重复。现有 Celery 任务提前确认消息，确认后的进程丢失可能缺行，重启不会自动补齐。
+这条旁路不提供可靠投递或去重保证；业务审计仍沿用各业务操作的原事务边界。
+
 `aap-audit-maintenance/v1` 的固定入口是
 `aap_audit_v1.maintenance_command(jsonb)`。请求包含 `schema`、`operation` 及该操作
 声明的字段，拒绝未知字段。成功回复为 `schema/ok/data`。

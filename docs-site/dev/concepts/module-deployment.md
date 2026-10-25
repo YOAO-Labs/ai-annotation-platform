@@ -112,6 +112,12 @@ Audit 与 Labeling 未暂缓范围的实现和已知调用方收口阶段已交�
 
 11 项聚焦检查零失败／错误／跳过，覆盖 36／37 边界、真实 owner 请求验证、同步／enqueue 回退、响应和取消。五项原始收据归档于 `.worktree/audit-http-metadata-parallel-evidence/`，清单 SHA-256 为 `2185ed5201d844183bbabe74a25b330f6f34cdefc9b86bd22f08e7d9b8a741de`；三项 Python 输入逐字节匹配已测试源码和集成提交。README 在测试后补充了范围说明，未将其最终字节标为运行前输入。本次没有真实 DB／broker 或冷进程验收，也不关闭完整 Audit。原 enqueue 结果不明时可能重复、之后 worker 丢失时可能缺行的最佳努力语义保持。
 
+HTTP 元数据的集中入口为 `tests/test_audit_metadata_delivery_live.py`。它复用现有资源归属、
+broker 观测和完整恢复 helpers，以真实受限追加 LOGIN、Redis 与独立 worker 进程检查同步回退、
+重复、提前确认后的进程丢失、显式重放及恢复后继续写入。publish／commit 结果不明使用测试端
+边界注入，broker、数据库提交和进程终止实际执行。原 middleware 通过最小 ASGI 路由消费，
+不声明生产 HTTP 路由、冷 API 镜像或新独立模块工件通过；运行结果须单独记录。
+
 ## Audit 全局查询 owner {#audit-global-query-owner}
 
 源码 `d1da388c9` 将 super-admin 全局列表和 CSV／JSON 导出接入固定 `aap_audit_v1.query_events(jsonb)`；同事务查询遵守原 autoflush，不提交事务。总数在游标／分页前计算，排序及过滤保持。导出仍先检查 50,000 行上限，成功后记录 `audit.export` 并提交，再返回流。内部 ID 使用完整有符号 int64 字符串，公开 API 保持整数；日期、游标、actor UUID 及 INET 序列化按实际旧 PostgreSQL／asyncpg 行为对照。project-admin 项目范围与跨域事实仍由原 API 持有。
