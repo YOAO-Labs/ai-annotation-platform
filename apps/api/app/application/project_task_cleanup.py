@@ -2,59 +2,74 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import select, text
+from sqlalchemy import bindparam, func, select
+from sqlalchemy.dialects.postgresql import ARRAY, UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.selectable import FromClause
 
 from app.application.project_workspace import lock_managed_project
 from app.db.models.project import Project
-from app.db.models.task import Task
 from app.services.active_learning_references import guard_source
 from app.services.annotation import AnnotationService
 from app.services.bug_report import BugReportService
 from app.services.labeling_tasks import LabelingTaskService
+from app.services.labeling_task_maintenance import LabelingTaskMaintenanceService
+from aap_labeling.task_maintenance_contract import (
+    TASK_MAINTENANCE_PROTOCOL,
+    LockSourceLessTasks,
+    ReadSourceLessTaskCandidates,
+)
 from aap_workspace_contract import derive_attribute_keys, derive_classes_list
 
-_ORPHAN_TASK_IDS_SQL = """
-    SELECT id FROM tasks WHERE project_id = :pid AND id NOT IN (
-        SELECT t.id FROM tasks t
-        JOIN dataset_items di ON di.id = t.dataset_item_id
-        JOIN project_datasets pd ON pd.dataset_id = di.dataset_id AND pd.project_id = t.project_id
-        WHERE t.project_id = :pid
-    )
-"""
 
-
-def _orphan_task_ids_query(project_id: uuid.UUID) -> FromClause:
-    return (
-        text(_ORPHAN_TASK_IDS_SQL)
-        .bindparams(pid=project_id)
-        .columns(id=Task.id.type)
-        .subquery("orphan_task_ids")
-    )
+def _task_ids_query(task_ids: list[uuid.UUID]) -> FromClause:
+    return select(
+        func.unnest(
+            bindparam(
+                "task_ids",
+                value=task_ids,
+                type_=ARRAY(PGUUID(as_uuid=True)),
+            )
+        ).label("id")
+    ).subquery("orphan_task_ids")
 
 
 async def delete_source_less_tasks(
     db: AsyncSession, project_id: uuid.UUID
 ) -> dict[str, int]:
-    params = {"pid": str(project_id)}
-    rows = (await db.execute(text(_ORPHAN_TASK_IDS_SQL), params)).all()
-    if not rows:
+    maintenance = LabelingTaskMaintenanceService(db)
+    candidates = await maintenance.command(
+        ReadSourceLessTaskCandidates(
+            schema=TASK_MAINTENANCE_PROTOCOL,
+            operation="read_source_less_task_candidates",
+            project_id=project_id,
+        )
+    )
+    if not candidates.task_ids:
         return {"deleted_tasks": 0, "deleted_annotations": 0}
 
-    task_ids = [row[0] for row in rows]
-    orphan_task_ids = _orphan_task_ids_query(project_id)
-    await db.execute(
-        select(Task.id).where(Task.id.in_(task_ids)).order_by(Task.id).with_for_update()
+    locked = await maintenance.command(
+        LockSourceLessTasks(
+            schema=TASK_MAINTENANCE_PROTOCOL,
+            operation="lock_source_less_tasks",
+            project_id=project_id,
+            task_ids=candidates.task_ids,
+        ),
+        flush_before=True,
     )
+    task_ids = locked.task_ids
+    if not task_ids:
+        return {"deleted_tasks": 0, "deleted_annotations": 0}
+
     await guard_source(db, task_ids=task_ids)
+    task_id_relation = _task_ids_query(task_ids)
 
     labeling = LabelingTaskService(db)
     annotation_count = await labeling.delete_source_less_task_children(
-        orphan_task_ids, task_id_values=task_ids
+        task_ids, project_id=project_id
     )
-    await BugReportService(db).detach_task_references(orphan_task_ids)
-    await labeling.delete_source_less_task_records(orphan_task_ids)
+    await BugReportService(db).detach_task_references(task_id_relation)
+    await labeling.delete_source_less_task_records(project_id, task_ids)
     await labeling.recalculate_source_less_task_counters(project_id)
     return {
         "deleted_tasks": len(task_ids),

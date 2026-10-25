@@ -5,12 +5,11 @@ from dataclasses import dataclass
 import json
 from datetime import datetime
 
-from sqlalchemy import delete, func, select, text, update
+from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.util import identity_key
 from sqlalchemy.orm.attributes import set_committed_value
-from sqlalchemy.sql.selectable import FromClause
 
 from aap_labeling.task_workflow_contract import (
     TASK_WORKFLOW_PROTOCOL,
@@ -34,6 +33,14 @@ from aap_labeling.task_workflow_contract import (
     WithdrawTask,
 )
 from aap_labeling.task_workflow_data import LabelingTaskWorkflowData
+from aap_labeling.task_maintenance_contract import (
+    TASK_MAINTENANCE_PROTOCOL,
+    DeleteSourceLessChildren,
+    DeleteSourceLessTaskRecords,
+    ReadSourceLessBatchCounters,
+    ReadSourceLessProjectBatches,
+    ReadSourceLessProjectCounters,
+)
 from app.application.task_workflow_errors import TaskWorkflowError
 from app.db.models.project import Project
 from app.db.models.task import Task
@@ -41,6 +48,10 @@ from app.services.labeling_project_counter_data import (
     clear_project_counter_projection,
     register_project_counter_projection,
 )
+from app.services.labeling_task_batch_counter_data import (
+    register_source_less_batch_counter_projection,
+)
+from app.services.labeling_task_maintenance import LabelingTaskMaintenanceService
 from app.services.labeling_task_creation_contract import (
     LabelingTaskCreationPort,
     TaskAppendResult,
@@ -56,8 +67,6 @@ from app.services.task_creation_contract import (
     decode_creation_reply,
 )
 from app.services.labeling_core_read_relations import (
-    annotation_row,
-    batch_row,
     get_core_row,
     task_row,
 )
@@ -570,113 +579,96 @@ class LabelingTaskService(LabelingTaskCreationPort):
         return result.created
 
     async def delete_source_less_task_children(
-        self, task_ids: FromClause, *, task_id_values: list[uuid.UUID]
+        self, task_id_values: list[uuid.UUID], *, project_id: uuid.UUID
     ) -> int:
-        from app.db.models.annotation import Annotation
-        from app.db.models.task_lock import AnnotationDraft, TaskLock
         from app.services.annotation_comment import AnnotationCommentService
 
-        task_id_select = select(task_ids.c.id)
-        annotation_count = (
-            await self.db.execute(
-                select(func.count(annotation_row.id)).where(
-                    annotation_row.task_id.in_(task_id_select)
-                )
-            )
-        ).scalar() or 0
-
         await AnnotationCommentService(self.db).delete_for_tasks(task_id_values)
-        await self.db.execute(
-            delete(AnnotationDraft)
-            .where(AnnotationDraft.task_id.in_(task_id_select))
-            .execution_options(synchronize_session=False)
+        data = await LabelingTaskMaintenanceService(self.db).command(
+            DeleteSourceLessChildren(
+                schema=TASK_MAINTENANCE_PROTOCOL,
+                operation="delete_source_less_children",
+                project_id=project_id,
+                task_ids=task_id_values,
+            )
         )
-        await self.db.execute(
-            update(Annotation)
-            .where(Annotation.task_id.in_(task_id_select))
-            .values(parent_prediction_id=None, parent_annotation_id=None)
-            .execution_options(synchronize_session=False)
-        )
-        await self.db.execute(
-            delete(Annotation)
-            .where(Annotation.task_id.in_(task_id_select))
-            .execution_options(synchronize_session=False)
-        )
-        await self.db.execute(
-            delete(TaskLock)
-            .where(TaskLock.task_id.in_(task_id_select))
-            .execution_options(synchronize_session=False)
-        )
-        return int(annotation_count)
+        return int(data.annotation_count)
 
-    async def delete_source_less_task_records(self, task_ids: FromClause) -> None:
-        await self.db.execute(
-            delete(Task)
-            .where(Task.id.in_(select(task_ids.c.id)))
-            .execution_options(synchronize_session=False)
+    async def delete_source_less_task_records(
+        self, project_id: uuid.UUID, task_ids: list[uuid.UUID]
+    ) -> None:
+        await LabelingTaskMaintenanceService(self.db).command(
+            DeleteSourceLessTaskRecords(
+                schema=TASK_MAINTENANCE_PROTOCOL,
+                operation="delete_source_less_task_records",
+                project_id=project_id,
+                task_ids=task_ids,
+            ),
+            flush_before=True,
         )
 
     async def recalculate_source_less_task_counters(
         self, project_id: uuid.UUID
     ) -> None:
+        from app.db.models.task_batch import TaskBatch
+
+        maintenance = LabelingTaskMaintenanceService(self.db)
         register_project_counter_projection(self.db, project_id)
         project = await get_workspace_project(self.db, project_id=project_id)
         if project:
             register_project_counter_projection(self.db, project_id)
-            row = (
-                await self.db.execute(
-                    select(
-                        func.count().label("total"),
-                        func.count()
-                        .filter(task_row.status == "completed")
-                        .label("completed"),
-                        func.count()
-                        .filter(task_row.status == "review")
-                        .label("review"),
-                        func.count()
-                        .filter(task_row.status == "in_progress")
-                        .label("in_progress"),
-                    )
-                    .select_from(task_row)
-                    .where(task_row.project_id == project_id)
+            if self.db.autoflush:
+                await self.db.flush()
+            counters = await maintenance.command(
+                ReadSourceLessProjectCounters(
+                    schema=TASK_MAINTENANCE_PROTOCOL,
+                    operation="read_source_less_project_counters",
+                    project_id=project_id,
                 )
-            ).one()
+            )
             register_project_counter_projection(self.db, project_id)
-            project.total_tasks = row.total
-            project.completed_tasks = row.completed
-            project.review_tasks = row.review
-            project.in_progress_tasks = row.in_progress
+            project.total_tasks = counters.total_tasks
+            project.completed_tasks = counters.completed_tasks
+            project.review_tasks = counters.review_tasks
+            project.in_progress_tasks = counters.in_progress_tasks
         else:
             clear_project_counter_projection(self.db, project_id)
 
-        batches = (
-            (
-                await self.db.execute(
-                    select(batch_row).where(batch_row.project_id == project_id)
-                )
+        if self.db.autoflush:
+            await self.db.flush()
+        batch_data = await maintenance.command(
+            ReadSourceLessProjectBatches(
+                schema=TASK_MAINTENANCE_PROTOCOL,
+                operation="read_source_less_project_batches",
+                project_id=project_id,
             )
-            .scalars()
-            .all()
         )
-        for batch in batches:
-            counts = (
-                await self.db.execute(
-                    select(
-                        func.count().label("total"),
-                        func.count()
-                        .filter(task_row.status == "completed")
-                        .label("completed"),
-                        func.count()
-                        .filter(task_row.status == "review")
-                        .label("review"),
-                    )
-                    .select_from(task_row)
-                    .where(task_row.batch_id == batch.id)
-                )
-            ).one()
-            batch.total_tasks = counts.total
-            batch.completed_tasks = counts.completed
-            batch.review_tasks = counts.review
+        batches = []
+        for snapshot in batch_data.batches:
+            batch = await maintenance.attach_batch(TaskBatch, snapshot)
+            batches.append(batch)
+        if not batches:
+            return
+
+        if self.db.autoflush:
+            await self.db.flush()
+        count_data = await maintenance.command(
+            ReadSourceLessBatchCounters(
+                schema=TASK_MAINTENANCE_PROTOCOL,
+                operation="read_source_less_batch_counters",
+                project_id=project_id,
+                batch_ids=[batch.id for batch in batches],
+            )
+        )
+        counts_by_id = {item.batch_id: item for item in count_data.batches}
+        for index, batch in enumerate(batches):
+            if index and self.db.autoflush:
+                await self.db.flush()
+            counts = counts_by_id[batch.id]
+            batch.total_tasks = counts.total_tasks
+            batch.completed_tasks = counts.completed_tasks
+            batch.review_tasks = counts.review_tasks
+            register_source_less_batch_counter_projection(self.db, project_id, batch)
 
     async def create_uploading_task(
         self,
