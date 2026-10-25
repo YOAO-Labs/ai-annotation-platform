@@ -1,6 +1,6 @@
 # EPIC-07：对象存储选型与 MinIO 退役迁移
 
-> 状态：源端只读清单分项已完成本地验证；候选PoC、实际复制、切换与退役仍待各自条件，完整E07活动，不分配发布版本。
+> 状态：源端清单、已保存定位目录及本地初次复制分项已验证；候选PoC、生产迁移、切换与退役仍待各自条件，完整E07活动，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 已按 [backlog promotion gate](backlog/README.md#promotion-gate) 复核当前实现与源端分项；整套实施授权沿用当前目标。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -73,6 +73,21 @@ all observations ------------------------------------> scoped comparison report
 每项在物理写入前持久保存意图及随机创建nonce，使用 `IfNoneMatch="*"` 上传；目标完整读回并验证SHA、大小、内容元数据及实际不可变版本后才发布verified。丢失PUT应答、写后提交失败或硬杀留下 writing／uncertain；恢复仅在目标创建标识、内容和版本证据均相符时认领同一结果。其他已存在对象拒绝覆盖，不能靠重复创建版本解决应答不明。`verify` 只读保存的目标版本，不上传；核验失败保留原回执与最近错误，不继续显示核验成功。I/O期间没有业务数据库事务。
 
 默认单对象256 MiB，每次实际源读取／目标上传／目标核验各最多2 GiB、最多10,000对象和30分钟协作时限；参数可显式调整但必须为有限正值。先用所属私有磁盘暂存完成源验证，内存流式有界，不引入multipart或SDK后台传输；网络另设连接／读取时限，不声称能抢占所有底层阻塞。正常完成／暂停及重启清理自己的暂存，硬杀遗留只按计划标识和精确路径收尾，不清理其他文件。磁盘满、读写／关闭失败和预算用尽均保留可恢复状态。
+
+```text
+sealed source inventory + paired catalog
+                 | full digests, one FD per input
+                 v
+       plan + private durable checkpoint
+                 |
+       verified source -> private disk temp
+                 |
+       conditional target PUT + creation nonce
+                 |
+       exact target VersionId + full readback
+                 |
+       saved verified receipt (no app cutover)
+```
 
 ### 实施与验证
 
@@ -317,3 +332,15 @@ selected source JSONL ------------------> digest + streaming join -> scoped matc
 所有轮次仅使用子树`5d342caffb761f8f:test`；结束恢复head、撤销确切临时角色并按confirmation销毁所属数据库／Redis／九桶，随后独立后端检查确认不存在。源报告、目录、SQLite、合成载荷、构建和检查中间产物清理；保留隔离Git树供集成。未启动API／Web／Worker／浏览器，未操作父树服务或冻结载荷。
 
 范围保留：完整S02／E07没有勾完。目录完整枚举不等于完整历史业务定位，私有冻结文档、缺归属、未知schema和未固定版本保持明确未知；外部写入方、旧预签名上传、停写、复制、目标后端与生产迁移均无新增证明，migration_ready始终false。未匹配不推出孤儿或删除结论，不新增历史回填或消费者改造门槛。工具回退为停用新CLI并按保留规则处理自有目录，无绑定／业务状态要回滚。
+
+## Outcome — E07-B2 本地初次复制与可恢复核验
+
+2026-10-25，以原主树 `860128595` 创建隔离树，仅交付定稿的5份新工具／检查和6份文档，不改应用、数据库schema、Worker、依赖、环境配置、镜像、绑定或冻结manifest。复用E07-B同FD封存读取及SourceIndex，完整绑定源清单／配对目录，私有SQLite持久保存处理选择、逐源版本意图／nonce、实际目标版本及完整核验回执。
+
+- 34项核心与8项CLI检查，共42项不同检查通过：原始键／版本、输入配对及损坏、同桶处理歧义、跳过事实、私有文件与锁、幂等计数、字节／对象预算、源变化、流关闭、应答丢失、保存确认版本续跑、目标历史冲突及核验失败保留回执；参数和目录摘要不能把私有字段带到终端。
+- 所属空test在0244运行新CLI，九用途包含一个共用桶；5个源对象版本覆盖空对象、中文／字面百分号／`%2F`键、同键历史版本和mutable null，另保留1个删除标记和1个未完成multipart。当前MinIO拒绝含字面`../`段的PUT，因此该键语义保留在纯检查，实际夹具不绕过服务端限制。
+- `before_item`、`before_put`、`after_put`、`after_item`四个硬退出窗口逐一以新进程续跑，均得到5项verified且每目标键只有一个版本；PUT确认窗口按创建nonce、完整字节与实际版本认领。SIGINT与SIGTERM分别暂停并重启成功，单失败项默认不重试，仅显式旗标重试；既有verified不重传。
+- 实际共观察40个目标版本，其中39个由CLI完整SHA／大小／版本／元数据核验，1个为故意预置的foreign冲突；夹具另独立GET核对四个硬退出计划的20个目标版本。源账号实际写／删拒绝2次；源对象、版本、规则、未完成上传、两份输入摘要及165张业务表指纹不变。未知目标未被覆盖，不声明业务消费者或生产目标资格。
+- Ruff／格式、正式文档frontmatter／可读性／导航、标准`pnpm docs:build`、正常提交钩子与`git diff --check`通过。只保留有界脱敏汇总；临时账号、独立目标桶与精确计划暂存已清理并核对不存在，所属test数据库／Redis／九桶随后由官方confirmation销毁，复核独立缺席。人工3100／8100、Worker／Beat及C6原进程未改动。
+
+结果仅为初次预复制：`migration_ready=false`始终保持。SeaweedFS／RustFS双候选同环境报告、真实部署目标、最终停写／增量、业务定位切换、新写入回滚、旧冻结业务资格与退役仍是原始剩余项。回退仅停用本工具并保留checkpoint和目标，不反向清理源或其他目标。

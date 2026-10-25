@@ -273,6 +273,8 @@ apps/api/.venv/bin/python scripts/verify_worktree_recovery.py
 
 已保存业务定位使用独立命令：`apps/api/.venv/bin/python scripts/inventory_storage_references.py --source-inventory /private/source.jsonl --output /private/references.jsonl`。它在有界只读数据库快照结束后关联同一份完整性核验的源报告，不访问S3，覆盖24类保存归属及历史／暂存／删除声明；未知、未展开与其他源保留。独立`--verify`只核对新目录。新检查为`PYTHONDONTWRITEBYTECODE=1 apps/api/.venv/bin/python -m unittest discover -s scripts -p 'test_*storage*references.py'`；实际只读DB资格使用上述手册中的`verify_storage_references.py`，仅在所属空test环境执行。
 
+初次预复制使用 `scripts/copy_storage_migration.py plan/run/verify/status`，输入为封存源清单与配对目录，目标凭据仅从 `0600` 私有 JSON 读取，checkpoint 位于 `0700` 目录。`run` 续跑不明确写入并仅在 `--retry-failed` 时重试失败项；`verify` 只读保存的实际目标版本。纯检查为 `PYTHONDONTWRITEBYTECODE=1 apps/api/.venv/bin/python -m unittest discover -s scripts -p 'test_*storage_migration_copy.py'`，CLI 检查为同命令模式 `test_copy_storage_migration.py`；所属空 test 实际资格使用 `verify_storage_migration_copy.py`，详细命令、预算、退出码与清理见[本地初次复制](docs-site/ops/deploy/storage-migration-inventory.md#本地初次复制与可恢复核验)。
+
 ## Codex 会话启动硬件上下文
 
 仓库内的 `.codex/hooks.json` 会在 Codex 会话启动、恢复、清空或压缩后运行

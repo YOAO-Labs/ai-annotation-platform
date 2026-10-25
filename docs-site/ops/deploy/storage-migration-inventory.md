@@ -10,7 +10,7 @@ last_reviewed: 2026-10-25
 
 迁移前可用只读命令盘点当前部署配置的九用途对象存储。清单记录物理桶、生命周期、版本控制、全部对象版本、删除标记及未完成 multipart；每个可读版本完整计算 SHA-256，共用物理桶只读取一次。
 
-它提供选定源端在观测窗口内的事实。目标选择、对象复制、用途切换与退役仍需各自的迁移方案；`migration_ready` 始终为 `false`。清单不含原件正文，也不能作为备份恢复内容。
+它提供选定源端在观测窗口内的事实。封存清单与业务定位目录可用于下文的本地初次复制；目标选择、用途切换与退役仍需各自的迁移方案；`migration_ready` 始终为 `false`。清单不含原件正文，也不能作为备份恢复内容。
 
 ## 执行与核对
 
@@ -111,6 +111,73 @@ pnpm dev:worktree -- exec --mode test -- env DEBUG=false PYTHONDONTWRITEBYTECODE
 ```
 
 夹具拥有写权限，CLI 使用临时只读数据库角色，实际核对敏感列／写入拒绝、0244／0245、退休／孤立记录和源报告关联，比较 CLI 前后全部业务表与源对象指纹。只有该空旧事实窗口会往返迁移，结束恢复 head 并撤销临时角色；调用者随后销毁所属 test 数据库、Redis 和九桶。它不会启动应用、Worker 或浏览器，也不重复全链消费者／恢复资格。
+
+## 本地初次复制与可恢复核验
+
+已有封存的源清单与配对业务定位目录后，可用独立工具预复制源对象。它保存源版本到目标实际版本的映射，不修改绑定、业务定位或冻结 manifest。生产选型、停写、增量、切换、新写入回滚与退役仍需独立完成，所有结果始终 `migration_ready=false`。
+
+先准备仅所属用户可访问的目录（`0700`）和目标配置文件（`0600`）。目标桶须事先存在且启用版本控制；目标地址不得与源清单任一物理桶相同。目标配置 JSON 仅包含以下字段，凭据值在私有文件中填写，不放在命令行或 checkpoint：
+
+```json
+{
+  "endpoint_url": "http://target.example:9000",
+  "bucket": "migration-target",
+  "key_prefix": "initial-copy/",
+  "access_key_id": "REPLACE_IN_PRIVATE_FILE",
+  "secret_access_key": "REPLACE_IN_PRIVATE_FILE"
+}
+```
+
+源凭据每次从既有部署配置读取，端点须与计划一致。目标账号需要目标桶的版本控制读取、精确版本列举及对象 PUT／GET／HEAD 权限；不需要建桶、删除或规则写入权限。工具不会创建桶、修改生命周期或删除任何源／目标对象。
+
+```sh
+apps/api/.venv/bin/python scripts/copy_storage_migration.py plan \
+  --source-inventory /secure/inventory/source.jsonl \
+  --references /secure/inventory/references.jsonl \
+  --checkpoint /secure/inventory/copy.sqlite \
+  --target-config /secure/inventory/target.json
+
+apps/api/.venv/bin/python scripts/copy_storage_migration.py run \
+  --checkpoint /secure/inventory/copy.sqlite \
+  --target-config /secure/inventory/target.json
+
+apps/api/.venv/bin/python scripts/copy_storage_migration.py verify \
+  --checkpoint /secure/inventory/copy.sqlite \
+  --target-config /secure/inventory/target.json
+
+apps/api/.venv/bin/python scripts/copy_storage_migration.py status \
+  --checkpoint /secure/inventory/copy.sqlite
+```
+
+`plan` 在各输入的同一文件描述符中验证封存、计算完整文件摘要并建立索引，核对目录与源报告的配对摘要。未封存或损坏输入拒绝；已封存但不完整的输入可生成部分计划。`--handling` 可读取同格式 `0600` 私有 JSON，明确覆盖九用途的 `migrate/rebuild/retain` 选择；选择固定进计划。共用物理桶仅计一次，所有关联用途须一致且已评审；歧义、retain、rebuild、未核验、单对象超限和删除标记均跳过并单列。未完成 multipart 保留为源事实，不复制为对象，也不自动清理。业务未知声明不阻断已知源对象预复制，目录未匹配不等于孤儿。
+
+checkpoint 是 `0600` SQLite，含计划 UUID、两个输入的完整摘要、非凭据源／目标身份、处理选择和逐源版本结果。独占进程锁、完整同步事务和记录摘要保护耐久状态；摘要检查意外损坏和改写，不提供签名认证。终端仅输出有界计数与固定错误码，原始键、元数据、nonce 和版本回执留在私有 checkpoint。不要编辑数据库或并发使用同一文件；计划创建失败留下的无效私有文件应由所属操作者调查后处理。
+
+目标键严格使用 `<key_prefix><plan_uuid>/<源定位SHA>/<源内容SHA>`；源定位摘要覆盖原端点、桶、原始 key 和 VersionId。历史版本各有独立地址和实际目标 VersionId，不假定两端版本相同；S3 键不解码或做路径归一化。源读取指定保存版本与条件 ETag，完整核对 SHA、大小、前后 HEAD 与真实内容元数据后，才由私有磁盘暂存上传。`null` 是可覆盖槽位，未固定版本另行保留；任何变化或确认不足均留下失败／未知，不能证明活跃源已停止写入。
+
+每次 PUT 之前，工具耐久保存意图与随机创建 nonce，使用 `IfNoneMatch="*"`。目标须完整读回并核对 SHA、大小、内容元数据、创建标识和实际不可变 VersionId，才能发布 verified。PUT 丢失应答或进程硬退出留下 writing／uncertain；重启先按保存标识与完整内容证据认领同一版本。已有其他对象拒绝覆盖；有历史版本或删除标记时也不会靠再次 PUT 解决不明确结果。
+
+`run` 默认续跑 pending／uncertain，已 verified 项不重复上传，failed 项仅加 `--retry-failed` 时重试。`verify` 只读已保存的目标精确版本，不上传；失败会撤销成功状态，保留原回执与最近错误。`status` 离线读取 checkpoint，计数从唯一结果行导出；`copy_subset_complete` 仅指可复制子集，源清单、业务目录、跳过项和未知覆盖分别保留。
+
+| 退出码 | 含义                                                                                |
+| ------ | ----------------------------------------------------------------------------------- |
+| 0      | 可复制子集均已 verified；不表示全量迁移或切换就绪。                                 |
+| 1      | 存在 pending、writing、uncertain、failed 或本次暂停；新计划尚待复制时通常返回此码。 |
+| 2      | 参数、输入完整性、私有文件、身份或连接等致命错误。                                  |
+
+默认单对象 256 MiB；每次调用实际源读取、目标上传、目标核验分别最多 2 GiB、最多 10,000 个待处理对象及 30 分钟。可用 `--max-object-bytes`、`--max-source-bytes`、`--max-upload-bytes`、`--max-verify-bytes`、`--max-objects`、`--max-seconds` 显式调整；只接受有限正值。计划记录默认值，run／verify 的显式覆盖仅作用于本次调用。连接／读取超时分别默认 10／60 秒，通过 `--connect-timeout-seconds`、`--read-timeout-seconds` 调整；SDK 不自动重试。正文流式处理，不使用 multipart 或后台传输；协作时限与信号不能抢占所有底层网络阻塞。
+
+SIGINT／SIGTERM 暂停后可重新执行相同 run。正常完成、暂停和重启只清理该计划精确私有暂存路径；硬杀残留由同 checkpoint 的下次 run／verify 收尾，不扫描或删除其他文件。磁盘满、读写／关闭失败和预算耗尽保留可恢复状态。回退仅停用工具并保留目标和 checkpoint，不反向删除源或其他目标。
+
+新增工具的实际复现仅在官方启动器已核验的空 test 环境运行：
+
+```sh
+pnpm dev:worktree -- exec --mode test -- env DEBUG=false PYTHONDONTWRITEBYTECODE=1 \
+  apps/api/.venv/bin/python scripts/verify_storage_migration_copy.py \
+  --report /private/copy-verification.json
+```
+
+夹具拥有随机源对象与独立目标桶、临时只读源账号和限定目标账号；实际 CLI 经过复制前后、PUT 确认窗口的强制退出和进程重启，核对显式失败项重试、空对象、原始中文／百分号键、历史版本、共享用途、mutable null、删除标记和未完成上传。它独立读回目标字节／版本／元数据并比较源规则、对象和业务表指纹。结束撤销账号、删除确切目标桶并独立确认不存在；调用者随后按官方 confirmation 销毁所属 test 数据库、Redis、源桶及其夹具。报告仅保留有界脱敏结果，不替代生产目标或应用消费者资格。
 
 ## 源对象清单的本地复现
 
