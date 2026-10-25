@@ -787,8 +787,8 @@ def main():
         "scope": "owned local controlled read-only application rollback",
         "checks": {},
         "cleanup": {},
-        "remaining": [
-            "No runtime read switch or fallback counter was implemented",
+        "scope_limits": [
+            "Controlled application rollback preserves strict current content identity; no runtime read bypass is part of this contract",
             "Production target and other rollback commits require their own qualification",
         ],
     }

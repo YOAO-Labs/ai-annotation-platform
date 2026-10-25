@@ -32,7 +32,7 @@ Promotion requires a fresh decision based on the actual repository, not a few no
 
 | 草案                                                                                               | 独立结果                              | 依赖或触发条件               |
 | -------------------------------------------------------------------------------------------------- | ------------------------------------- | ---------------------------- |
-| [E01 领域与存储抽象](../1792661016_dataset-storage-domain-abstraction.md)                          | 稳定样本/内容/位置、兼容历史真实键    | 先行兼容；不搬原件           |
+| [E01 领域与存储抽象](../archive/1792661016_dataset-storage-domain-abstraction.md)                  | 稳定样本/内容/位置、兼容历史真实键    | 完整验收归档；保留回退限制   |
 | [E02 位置、连接与用途](../1792661016_dataset-storage-locations-connections.md)                     | 只读根、节点能力、九用途映射          | E01；授权矩阵与真实挂载      |
 | [E03 已有目录原地注册（已完成）](../archive/1792661016_dataset-in-place-directory-registration.md) | 不先复制原图即可浏览、关联和标注      | E02、E04-A、E05-A；最小权限  |
 | [E04 增量同步与任务](../archive/1792661016_dataset-incremental-sync-jobs.md)                       | 完整 E04 已验收归档；保留后续范围边界 | 手动/周期/裁决/导航完成      |
