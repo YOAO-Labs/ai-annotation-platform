@@ -1,0 +1,82 @@
+{
+  "$defs": {
+    "EnsurePredictionPartition": {
+      "additionalProperties": false,
+      "properties": {
+        "month": {
+          "format": "date",
+          "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-01$",
+          "title": "Month",
+          "type": "string"
+        },
+        "operation": {
+          "const": "ensure",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-prediction-partitions/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "month"],
+      "title": "EnsurePredictionPartition",
+      "type": "object"
+    },
+    "EnsurePredictionPartitionData": {
+      "additionalProperties": false,
+      "properties": {
+        "created": {
+          "anyOf": [
+            {
+              "pattern": "^predictions_y[0-9]{4}m(0[1-9]|1[0-2])$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Created"
+        },
+        "month": {
+          "format": "date",
+          "title": "Month",
+          "type": "string"
+        },
+        "operation": {
+          "const": "ensure",
+          "title": "Operation",
+          "type": "string"
+        }
+      },
+      "required": ["operation", "month", "created"],
+      "title": "EnsurePredictionPartitionData",
+      "type": "object"
+    }
+  },
+  "$id": "aap-labeling-prediction-partitions/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "data": {
+      "$ref": "#/$defs/EnsurePredictionPartitionData"
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "request": {
+      "$ref": "#/$defs/EnsurePredictionPartition"
+    },
+    "schema": {
+      "const": "aap-labeling-prediction-partitions/v1",
+      "title": "Schema",
+      "type": "string"
+    }
+  },
+  "required": ["schema", "ok", "request", "data"],
+  "title": "PredictionPartitionReply",
+  "type": "object",
+  "x-postgresql-functions": ["aap_labeling_v1.prediction_partition_command(jsonb)"]
+}

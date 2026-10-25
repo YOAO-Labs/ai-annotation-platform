@@ -4,13 +4,18 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import asyncpg
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from aap_labeling.prediction_partition_contract import (
+    EnsurePredictionPartition,
+    PREDICTION_PARTITIONS_PROTOCOL,
+)
+from aap_labeling.prediction_partition_data import PredictionPartitionDataClient
 from aap_labeling.prediction_record_contract import (
     PREDICTION_RECORDS_PROTOCOL,
     CreateFailedPrediction,
@@ -41,6 +46,7 @@ pytestmark = [
 _PREDICTION_FUNCTIONS = {
     ("prediction_record_command", "jsonb"),
     ("annotation_prediction_command", "jsonb"),
+    ("prediction_partition_command", "jsonb"),
 }
 
 
@@ -252,3 +258,72 @@ async def test_function_only_prediction_records_preserve_transaction_and_cleanup
                 project_ids=project_ids,
                 task_ids=task_ids,
             )
+
+
+async def test_prediction_partition_command_owns_monthly_ddl_and_rolls_back(
+    test_engine,
+):
+    connection = await asyncpg.connect(
+        _dsn(
+            test_engine,
+            "AAP_MODULE_DATA_LABELING_PREDICTION_URL",
+            "labeling_prediction_client",
+        ),
+        timeout=5,
+        command_timeout=10,
+    )
+    try:
+        assert await connection.fetchval("SELECT current_user") == (
+            "labeling_prediction_client"
+        )
+        await verify_function_only_role(
+            connection,
+            schema="aap_labeling_v1",
+            functions=_PREDICTION_FUNCTIONS,
+            role="labeling_prediction_client",
+        )
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await connection.fetch("SELECT id FROM public.predictions LIMIT 1")
+        forbidden_table = f"prediction_partition_forbidden_{uuid.uuid4().hex}"
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await connection.execute(
+                f"CREATE TABLE public.{forbidden_table} (id integer)"
+            )
+
+        current_month = datetime.now(timezone.utc).date().replace(day=1)
+        month_index = current_month.year * 12 + current_month.month - 1
+        month_index += 2400 + uuid.uuid4().int % 600
+        year, zero_based_month = divmod(month_index, 12)
+        month = date(year, zero_based_month + 1, 1)
+        expected_name = f"predictions_y{month.year:04d}m{month.month:02d}"
+
+        async def execute(request_json: str):
+            return await connection.fetchval(
+                "SELECT aap_labeling_v1.prediction_partition_command($1::jsonb)",
+                request_json,
+            )
+
+        client = PredictionPartitionDataClient(execute)
+        request = EnsurePredictionPartition(
+            schema=PREDICTION_PARTITIONS_PROTOCOL,
+            operation="ensure",
+            month=month,
+        )
+        transaction = connection.transaction()
+        await transaction.start()
+        try:
+            created = await client.ensure(request)
+            assert created.created == expected_name
+            repeated = await client.ensure(request)
+            assert repeated.created is None
+        finally:
+            await transaction.rollback()
+
+        async with test_engine.connect() as observer:
+            persisted = await observer.scalar(
+                text("SELECT pg_catalog.to_regclass(:name)"),
+                {"name": f"public.{expected_name}"},
+            )
+            assert persisted is None
+    finally:
+        await connection.close()
