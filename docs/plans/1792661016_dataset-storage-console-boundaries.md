@@ -3,6 +3,49 @@
 > 状态：E09-A、B1–B11已完成各自本地交付；B12数据集原件新分配切换已完成隔离验收、主树集成与人工0251刷新。头像、报告附件、审计归档、导出、导入暂存和数据集原件六用途可受控切换，annotations、media-cache、training三用途仍锁定；Mask旧摘要问题已窄修并验证实际标注发布。位置影响、配置确认、逻辑维护与原件保留／核验沿既有E11交付；实际迁移与物理退役未完成，完整E09继续活动，不分配发布版本。
 > 转入日期：2026-10-22；A 切片验收：2026-10-23；初始调研基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 
+## 本轮定稿：E02-B20／E09-B13 媒体缓存新分配位置切换
+
+2026-10-25，基于干净`0e0ee279c`复核原始E02-S04／AC05、AC10与E09-S05／§4.4，沿整套实施／提交授权approved。下一片开放`media-cache`的新分配位置，保持已保存A／B、在途尝试、内容与现有清理语义；`annotations`和`training`仍锁定。范围覆盖现用完整原图缓存、目录预览、普通Dataset／Task缩略图、金字塔及视频派生输出，不重做预览／转码／瓦片算法、Tracker、审核、训练、规模基线或全消费者资格。
+
+### 地址、owner与迁移合同
+
+复用`managed_s3_target`、已登记legacy／global S3、当前加密凭据与白名单；新增`media_cache_storage`集中保存地址和目标解释。新schema2引用保留schema1的九个字段并增加`key_prefix`：purpose、位置、分配配置修订、绑定代次、endpoint、bucket、完整物理prefix、storage identity与受控根；完整prefix等于受控根加原逻辑UUID前缀。`_aap_managed/media-cache/`连同base_prefix最多436 UTF-8字节，为既有512字符thumbnail_path中最长76字节派生后缀留足空间；每个完整key另核对1000字符／1024字节。逻辑后缀及相对路径维持各owner原限制，受控根允许现有合法Unicode。旧schema1与旧NULL只解释为原A，不能读取当前绑定推测历史；正常密钥轮换不改保存地址、inventory、输入冻结事实或首次期限。
+
+| 所有者                                    | 本片持久合同                                                                                                                                                                                                                                                                                                                                                             |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| OriginalCacheEntry                        | 加nullable `storage_ref`保存新分配目标；保留原scope、quota、TTL、读租约和uncertain状态。`location_revision`继续表示来源位置修订，不挪作目标修订。旧key／identity算法保持；新key从保存prefix取得。发布、读取和清理不再与当前binding比较。                                                                                                                                 |
+| ImagePyramidOutput／VideoDerivativeOutput | 复用已有不可变storage_ref、inventory、租约与独立责任；保留schema1，接受schema2和完整带根prefix，更新约束与客户端接线。旧attempt、取消、全量读回、发布及准确前缀删除合同保持。                                                                                                                                                                                            |
+| 新ThumbnailOutput                         | 一个独立耐久owner覆盖`directory_preview`、`dataset_thumbnail`、`task_thumbnail`，无业务级联FK。保存UUID、owner_kind／owner_id、目录path_digest、不可变input_ref／storage_ref、SHA／大小／ETag／版本回执、building／ready／failed／retiring／deleted、首次写截止、退役／检查时间及错误。PUT前持久登记，UUID前缀独占、条件写入和完整读回；未知写入／关闭保留责任，不盲删。 |
+| DatasetSourcePreview／DatasetItem／Task   | 仅增加nullable `thumbnail_output_id`指向新owner，保留原有内容／generation／状态／path字段；新owner不随业务删除。旧NULL目录预览和`thumbnails/<id>.webp`明确走A，不能伪造已保存地址。                                                                                                                                                                                      |
+
+0252接0251，集中添加上述列、新表、必要地址约束／索引和不可变保护，不回填旧业务行或重写旧receipt；存在新事实时拒绝破坏性downgrade。分配在短事务按Connection→Location→Binding复核并保存owner，释放后才做provider I/O；已有业务锁场景使用可恢复的nowait／预分配，不反向阻塞管理员。目录预览仿既有复制的预分配／封存后发布：在源／业务final锁前准备候选，final沿原权限、内容及世代复核关联；失败留下独立责任，不提交半轮业务。普通缩略图仅把源读取接到既有canonical reader，并保持原缩略图编码、尺寸和blurhash逻辑。复用现有媒体清理任务收尾新owner，不加服务、定时任务、依赖、环境变量或公开worker签名。
+
+### 读取、浏览器与控制面
+
+统一保存引用只提供无密钥事实；实时transport另查当前连接与白名单，实际endpoint／bucket／受控根必须一致。Source gate／quota与物理目标gate分别校验，未完成缓存、退役和墓碑也保护原位置。金字塔／视频现有storage adapter和access／reading permit复用当前target客户端，所有读、签名、删除均取保存地址。保留原业务权限、冻结输入、lease与最后发布检查，不展开其状态机。
+
+普通缩略图URL沿现有异步sidecar接入`DatasetService.list_items`、tasks `_attach_image_pyramids_batch`及两个dashboard；同步serializer不发DB或物理I/O。新输出通过owner指针判断种类，不能因受控根导致`startswith("image-pyramids/")`失效后退到legacy签名。`StorageService.bucket_for_cache_key`仅保留旧路径适配。
+
+为避免把B签名交给全局A的`/minio`代理，新注册输出的浏览器URL复用既有短期能力URL语义，统一走同源`GET/HEAD /media-cache/{kind}/{output_id}/{relative:path}`。kind仅thumbnail／image-pyramid／video-derivative；签发必须在既有授权及owner／完整inventory验证后进行，沿原URL期限，不延长。独立audience的HMAC token绑定kind／UUID、准确relative、保存引用摘要、SHA／长度与到期，不携带endpoint或凭据，也不是登录token；入口复核token、owner和当前目标gate后只读相应对象，不能任意拼key或替换owner。复用现有单Range选择、关闭排空和有界传输模式，支持媒体GET／HEAD／Range，不要求新bucket CORS、公开内部端点或重建镜像。schema1的既有URL合同保持。
+
+```text
+用途Binding → 短事务owner分配 → 保存地址／不可变内容回执
+                         ↓
+API／Worker当前凭据sidecar → 原有permit → 实际S3
+                         ↓
+既有授权／inventory → 短期同源能力URL → 保存地址只读响应
+```
+
+控制面复用候选→实际探针→五分钟预览→锁内确认和审计，新增`MediaCacheBinding*` DTO与`reviewed_media_cache_switch`策略，路由为`/storage-locations/bindings/media-cache`及`/candidates`、`/change-preview`。history分项为`directory_previews`、`original_cache_entries`、`image_pyramid_outputs`、`video_derivative_outputs`、`thumbnail_outputs`、`legacy_thumbnails`，说明为不同责任记录，不求和冒充对象总量；覆盖需保留的失败／清理中／墓碑，不要求全库补认未知历史。probe只验证实际缓存写侧要求的条件PUT、完整GET／SHA、准确清理与UUID前缀LIST，不照搬原件empty PUT／MPU或性能测量。其他两用途保持锁定。
+
+### 文件与有界验证
+
+这是同一用途跨owner、provider与浏览器的地址接线，超过8文件。准确落点：上述helper、新ThumbnailOutput模型／服务／同源读取入口及0252，original_cache、directory_previews、image_pyramid_storage／objects／worker／tasks API、video_derivative_storage／objects／现有worker，media缩略图两入口，dataset／dataset_references／dataset_scans及Task／Dataset／SourcePreview模型，既有serializer sidecar；配套managed_s3_target、dataset_assets、storage_location、DTO／API路由、usage分类、workbench／source diagnostics及恢复mapper。Web仅既有storage API与居中确认Modal／用途列表、错误和history说明。同步OpenAPI／本树类型、SDK准确排除项与合同、README／CHANGELOG、用户／API／开发／恢复文档和本台账，不新增工作台业务功能。
+
+位置保护覆盖全部保存状态；usage按实际endpoint／bucket／fullkey分类，B不计入A平台总量，缓存可用性不再join当前binding。现有九桶恢复在首个映射修改前拒绝新schema2、cache保存引用和ThumbnailOutput事实，切回A或已退役也不绕过；仅验证拒绝边界，不把跨端点整库恢复加入本片。
+
+隔离树与可销毁test／e2e验证旧及在途A、新B、切回A、正常密钥轮换与旧密钥撤销、真实条件写和只读浏览器响应、各owner准确收尾／引用保护、schema1／NULL不变、错误目标及竞争拒绝。新同源读取覆盖token篡改／到期／换owner／换key、HEAD／Range和断开收尾；不改公开权限或算法。四类缓存原流程只测地址受影响调用，实际provider用小型合成图片／视频／既有inventory，不重跑渲染器资格、模型或规模测量。Modal做明暗×桌面／窄屏、Escape／焦点、溢出与请求检查。正常提交后集成、应用人工0252并刷新所属API／Worker，保留3100／8100、Beat和既有数据；最终清理本片资源，完整E02／E09继续活动。
+
 ## 本轮定稿：E02-B19／E09-B12 数据集原件新写入位置切换
 
 2026-10-25，基于干净`d11a257f1`复核原始E02-S04／AC05、AC10与E09-S05，沿用户整套实施／提交授权approved。上一轮Mask摘要修复已合入并刷新人工环境。本片完整开放`datasets`用途的新托管原件分配，覆盖普通DatasetItem及同用途的raw_lidar／map辅助原件；Task独立原件的`annotations`、预览的`media-cache`和`training`三个用途仍锁定。只实现新目标、旧定位、当前凭据、位置保护和既有读回／元数据收尾；不增加模型、训练规模、Tracker、会话或审核专项。
