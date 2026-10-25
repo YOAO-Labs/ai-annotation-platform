@@ -98,11 +98,24 @@ def validate_client_ref(ref: str | None) -> str | None:
     return build_preset_ref(slug)
 
 
-def _client_context(owner, target):
+def _client_context(owner, target, *, owned=False):
     ref = owner.ref
     if target is None:
         if ref["location_id"] != str(LEGACY_LOCATION_ID):
             raise avatar_storage.AvatarStorageError("avatar_storage_binding_unproven")
+        if owned:
+            from app.services.managed_s3_target import Target
+
+            return Target(
+                LEGACY_LOCATION_ID,
+                ref["config_revision"],
+                None,
+                owner.endpoint_url,
+                owner.bucket,
+                "",
+                purpose="avatars",
+                _legacy_client=storage_service.client,
+            ).client(owned=True)
         return nullcontext(storage_service.client)
     if (
         str(target.location_id) != ref["location_id"]
@@ -111,10 +124,12 @@ def _client_context(owner, target):
         or target.key_prefix + owner.object_key.rsplit("/", 1)[-1] != owner.object_key
     ):
         raise avatar_storage.AvatarStorageError("avatar_storage_identity_changed")
-    return target.client()
+    return target.client(**({"owned": True} if owned else {}))
 
 
-def write_avatar_object(record, data: bytes, *, target=None) -> str | None:
+def write_avatar_object(
+    record, data: bytes, *, target=None, accounting=None
+) -> str | None:
     """Write only the exact saved object, then independently verify its bytes."""
     owner = avatar_storage.resolve(record)
     if (
@@ -122,19 +137,37 @@ def write_avatar_object(record, data: bytes, *, target=None) -> str | None:
         or hashlib.sha256(data).hexdigest() != record.sha256
     ):
         raise avatar_storage.AvatarStorageError("avatar_storage_invalid_receipt")
-    with _client_context(owner, target) as client:
-        response = client.put_object(
-            Bucket=owner.bucket,
-            Key=owner.object_key,
-            Body=data,
-            IfNoneMatch="*",
-            ContentType="image/webp",
-            CacheControl=AVATAR_CACHE_CONTROL,
+    with _client_context(owner, target, owned=accounting is not None) as client:
+        from app.services.conditional_write_accounting import Observation
+
+        observation = (
+            Observation(
+                accounting,
+                client,
+                owner.object_key,
+                {"sha256": record.sha256, "size_bytes": record.size_bytes},
+            )
+            if accounting is not None
+            else None
         )
+
+        def submit():
+            return client.put_object(
+                Bucket=owner.bucket,
+                Key=owner.object_key,
+                Body=data,
+                IfNoneMatch="*",
+                ContentType="image/webp",
+                CacheControl=AVATAR_CACHE_CONTROL,
+            )
+
+        response = submit() if observation is None else observation.submit(submit)
         receipt = copy(record)
         receipt.object_version_id = version_id(response)
         if _read(client, owner, receipt) is None:
             raise avatar_storage.AvatarStorageError("avatar_storage_invalid_receipt")
+        if observation is not None:
+            observation.verified(receipt.object_version_id)
     return receipt.object_version_id
 
 

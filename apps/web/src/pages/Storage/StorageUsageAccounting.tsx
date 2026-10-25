@@ -27,6 +27,13 @@ const MEDIA_CACHE_PRODUCERS = [
   ["image_pyramid_outputs", "图像金字塔"],
   ["video_derivative_outputs", "视频派生物"],
 ] as const;
+const CONDITIONAL_PRODUCERS = [
+  ["avatar_uploads", "头像"],
+  ["comment_attachment_uploads", "评论附件"],
+  ["guide_asset_uploads", "指南图片"],
+  ["raster_mask_objects", "持久掩码"],
+  ["audit_archive_outputs", "审计归档"],
+] as const;
 const field =
   "w-full min-w-0 rounded-md border border-input bg-background px-2 py-1.5 text-sm text-foreground";
 
@@ -63,6 +70,9 @@ function AccountingOwner({ accounting, reconciliation, schedule, onAccessDenied 
   const [notice, setNotice] = useState<string | null>(null);
   const busy = saving || mutation.isPending;
   const mediaCacheProducers = MEDIA_CACHE_PRODUCERS.filter(([producer]) =>
+    accounting?.producers.includes(producer),
+  ).map(([, label]) => label);
+  const conditionalProducers = CONDITIONAL_PRODUCERS.filter(([producer]) =>
     accounting?.producers.includes(producer),
   ).map(([, label]) => label);
 
@@ -146,20 +156,41 @@ function AccountingOwner({ accounting, reconciliation, schedule, onAccessDenied 
               尚无增量账目摘要，已有盘点快照继续保留。
             </p>
           )}
+          <ul
+            aria-label="已接入计量范围"
+            className="mt-2 space-y-1 text-xs leading-relaxed text-muted-foreground"
+          >
+            {accounting?.producers.includes("prediction_inputs") && (
+              <li>已接入临时输入写入／清理。</li>
+            )}
+            {accounting?.producers.includes("managed_original_creation") && (
+              <li>已接入托管原件受控新增；原件退役不代表物理移除。</li>
+            )}
+            {mediaCacheProducers.length > 0 && (
+              <li>{`已接入媒体缓存受控新增：${mediaCacheProducers.join("、")}。缓存退休和清理记录不代表已确认移除。`}</li>
+            )}
+            {accounting?.producers.includes("export_media_outputs") && (
+              <li>
+                {accounting.producers.includes("export_zip_outputs")
+                  ? "已接入独立导出媒体受控新增；导出清理尚未计入。"
+                  : "已接入独立导出媒体受控新增；ZIP 和导出清理尚未计入。"}
+              </li>
+            )}
+            {accounting?.producers.includes("export_zip_outputs") && (
+              <li>
+                已接入导出 ZIP
+                写入观测；证据完整才计净变化，同键等长覆盖为零，重试或版本证据不明保持未知。ZIP
+                退休和清理不代表已确认移除。
+              </li>
+            )}
+            {accounting?.producers.includes("bug_attachment_uploads") && (
+              <li>已接入报告附件受控新增；重试或回执不明保持未知，附件退休和清理尚未计入。</li>
+            )}
+            {conditionalProducers.length > 0 && (
+              <li>{`已接入${conditionalProducers.join("、")}受控新增；重试或回执不明保持未知，退休和清理尚未计入。`}</li>
+            )}
+          </ul>
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-            {accounting?.producers.includes("prediction_inputs") && "已接入临时输入写入／清理。"}
-            {accounting?.producers.includes("managed_original_creation") &&
-              "已接入托管原件受控新增；原件退役不代表物理移除。"}
-            {mediaCacheProducers.length > 0 &&
-              `已接入媒体缓存受控新增：${mediaCacheProducers.join("、")}。缓存退休和清理记录不代表已确认移除。`}
-            {accounting?.producers.includes("export_media_outputs") &&
-              (accounting.producers.includes("export_zip_outputs")
-                ? "已接入独立导出媒体受控新增；导出清理尚未计入。"
-                : "已接入独立导出媒体受控新增；ZIP 和导出清理尚未计入。")}
-            {accounting?.producers.includes("export_zip_outputs") &&
-              "已接入导出 ZIP 写入观测；证据完整才计净变化，同键等长覆盖为零，重试或版本证据不明保持未知。ZIP 退休和清理不代表已确认移除。"}
-            {accounting?.producers.includes("bug_attachment_uploads") &&
-              "已接入报告附件受控新增；重试或回执不明保持未知，附件退休和清理尚未计入。"}
             其他用途和外部变动尚未覆盖，不能据此推算平台总占用。
             只计当前可见对象内容字节，不含历史版本、删除标记与磁盘开销。
           </p>

@@ -147,7 +147,7 @@ async def source_case(test_engine, monkeypatch):
         await db.rollback()
     case = SimpleNamespace(maker=maker, job_id=job_id, source=source, writes=[])
 
-    def write(receipt, file):
+    def write(receipt, file, **kwargs):
         assert not file.closed
         data = file.read()
         assert hashlib.sha256(data).hexdigest() == receipt.sha256
@@ -176,12 +176,12 @@ async def _paused_write(case, monkeypatch):
     file_handle = []
     normal = codec.write
 
-    def write(receipt, file):
+    def write(receipt, file, **kwargs):
         file_handle.append(file)
         entered.set()
         if not release.wait(15):
             raise TimeoutError("test write was not released")
-        normal(receipt, file)
+        normal(receipt, file, **kwargs)
 
     monkeypatch.setattr(codec, "write", write)
     async with case.maker() as db:
@@ -581,9 +581,9 @@ async def test_multiple_workers_publish_at_most_one_ready_month(
         async with _paused_write(case, monkeypatch) as (first_task, release, _):
             paused = codec.write
 
-            def write(receipt, file):
+            def write(receipt, file, **kwargs):
                 if receipt.job_id == case.job_id:
-                    paused(receipt, file)
+                    paused(receipt, file, **kwargs)
                 else:
                     normal_write(receipt, file)
 
@@ -799,12 +799,12 @@ async def test_later_month_failure_preserves_committed_partial_job_result(
         await db.commit()
     normal = codec.write
 
-    def write(receipt, file):
+    def write(receipt, file, **kwargs):
         if receipt.source_table == name:
             raise codec.AuditArchiveStorageError(
                 "audit_archive_storage_unavailable", status_code=503
             )
-        normal(receipt, file)
+        normal(receipt, file, **kwargs)
 
     monkeypatch.setattr(codec, "write", write)
     try:

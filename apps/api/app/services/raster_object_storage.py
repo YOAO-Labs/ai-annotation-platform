@@ -417,7 +417,13 @@ def run_io(target, client, operation, record, *args, **kwargs):
         # Keep the existing explicit legacy-client injection for local callers.
         target = replace(target, _legacy_client=client)
     try:
-        context = target.client()
+        context = target.client(
+            **(
+                {"owned": True}
+                if operation == "write" and kwargs.get("accounting") is not None
+                else {}
+            )
+        )
         physical_client = context.__enter__()
     except Exception as exc:
         storage_access.mark_unsettled(exc)
@@ -468,7 +474,7 @@ def _verified_data(record, data):
     return json.loads(canonical)
 
 
-def read(client, record, *, missing_ok=False):
+def read(client, record, *, missing_ok=False, on_verified=None):
     """Conditionally read the entire saved object and its canonical RLE."""
     owner = resolve(record)
     _client(client, owner)
@@ -526,6 +532,8 @@ def read(client, record, *, missing_ok=False):
             _reject("integrity_mismatch")
         result = _verified_data(record, b"".join(chunks))
         _budget(deadline)
+        if on_verified is not None:
+            on_verified(version)
         return result
     except ClientError as exc:
         if getattr(exc, "storage_operation_unsettled", False):
@@ -546,13 +554,26 @@ def read(client, record, *, missing_ok=False):
         raise _unavailable(exc) from None
 
 
-def write(client, record, data):
+def write(client, record, data, *, accounting=None):
     """Create without overwriting and fully verify the exact saved receipt."""
     owner = resolve(record)
     _client(client, owner)
     _verified_data(record, data)
-    try:
-        client.put_object(
+    from app.services.conditional_write_accounting import Observation
+
+    observation = (
+        Observation(
+            accounting,
+            client,
+            owner.object_key,
+            {"sha256": record.stored_sha256, "size_bytes": record.stored_size_bytes},
+        )
+        if accounting is not None
+        else None
+    )
+
+    def submit():
+        return client.put_object(
             Bucket=owner.bucket,
             Key=owner.object_key,
             Body=data,
@@ -562,6 +583,12 @@ def write(client, record, data):
             else "application/json",
             IfNoneMatch="*",
         )
+
+    try:
+        if observation is None:
+            submit()
+        else:
+            observation.submit(submit)
     except ClientError as exc:
         if getattr(exc, "storage_operation_unsettled", False):
             raise _unavailable(exc) from None
@@ -572,7 +599,11 @@ def write(client, record, data):
             raise _unavailable(exc) from None
     except Exception as exc:
         raise _unavailable(exc) from None
-    read(client, record)
+    read(
+        client,
+        record,
+        **({"on_verified": observation.verified} if observation is not None else {}),
+    )
 
 
 def delete(client, record, *, missing_ok=True):

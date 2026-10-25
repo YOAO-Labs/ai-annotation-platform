@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from tempfile import TemporaryFile
 from uuid import UUID, uuid4
@@ -14,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from app.db.models.async_job import AsyncJob, AsyncJobKind, AsyncJobStatus
 from app.db.models.audit_archive_output import AuditArchiveOutput
 from app.services import audit_archive_storage as archive_storage
+from app.services import conditional_write_accounting
 from app.services import storage_access
 from app.services.async_job import lock_job
 from app.services.audit import AuditAction, AuditService
@@ -168,7 +170,13 @@ async def _candidate(db: AsyncSession, source: SourcePartition, job_id: UUID, fi
     return receipt
 
 
-async def _write_candidate(db: AsyncSession, receipt, file) -> int:
+@dataclass
+class _WriteAccounting:
+    recorder: object
+    permit: object = None
+
+
+async def _write_candidate(db: AsyncSession, receipt, file, *, accounting=None) -> int:
     revision = None
     target = await archive_storage.io_target(db, receipt)
     if target is not None:
@@ -176,6 +184,8 @@ async def _write_candidate(db: AsyncSession, receipt, file) -> int:
 
     async def acquired(permit):
         nonlocal revision
+        if accounting is not None:
+            accounting.permit = permit
         await _begin(db)
         await _running_job(db, receipt.job_id)
         await _pending_owner(db, receipt)
@@ -198,12 +208,50 @@ async def _write_candidate(db: AsyncSession, receipt, file) -> int:
         receipt,
         file,
         **({"target": target} if target is not None else {}),
+        **({"accounting": accounting.recorder} if accounting is not None else {}),
         timeout=archive_storage.VERIFY_SECONDS,
         on_acquired=acquired,
     )
     if revision is None:
         raise AuditArchiveError("audit_archive_admission_unavailable", 503)
     return revision
+
+
+async def _archive_partition(db, source, job_id, candidate_count):
+    accounting, failure, input_settled = None, None, False
+    file = TemporaryFile(mode="w+b")
+    try:
+        receipt = await _candidate(db, source, job_id, file)
+        accounting = _WriteAccounting(
+            conditional_write_accounting.recorder(
+                db,
+                receipt,
+                producer="audit_archive_outputs",
+                purpose="other_platform",
+            )
+        )
+        revision = await _write_candidate(db, receipt, file, accounting=accounting)
+        result = await _publish(db, source, receipt, revision, candidate_count)
+    except BaseException as exc:
+        failure = exc
+    finally:
+        # run() drains native I/O before this real input owner closes its file.
+        # Publishing may fail after a verified write without changing that fact.
+        try:
+            file.close()
+            input_settled = True
+        except BaseException as closing:
+            failure = storage_access.mark_unsettled(closing)
+        if accounting is not None:
+            failure = await conditional_write_accounting.finish(
+                accounting.recorder,
+                failure,
+                settled=input_settled
+                and getattr(accounting.permit, "_settled", False) is True,
+            )
+    if failure is not None:
+        raise failure
+    return result
 
 
 async def _publish(
@@ -370,14 +418,7 @@ class AuditPartitionService:
             await db.commit()
             result = _empty_result()
             for source in children:
-                # run() drains executor I/O even under repeated cancellation,
-                # so its candidate handle is closed only after physical I/O ends.
-                with TemporaryFile(mode="w+b") as file:
-                    receipt = await _candidate(db, source, job_id, file)
-                    revision = await _write_candidate(db, receipt, file)
-                    result = await _publish(
-                        db, source, receipt, revision, len(children)
-                    )
+                result = await _archive_partition(db, source, job_id, len(children))
             return result
         except BaseException as exc:
             if fresh:

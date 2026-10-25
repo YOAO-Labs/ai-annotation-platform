@@ -15,6 +15,7 @@ from app.db.models.api_key import ApiKey
 from app.db.models.avatar_upload import AvatarUpload
 from app.db.models.user import User
 from app.services import avatar, avatar_storage, storage_access
+from app.services import conditional_write_accounting as accounting
 from app.services.audit import AuditAction, AuditService
 from app.services.content_snapshot import ContentError
 
@@ -238,62 +239,81 @@ async def upload(db, actor, data, request, *, authority=None):
     except Exception as exc:
         raise http_error(exc) from None
     await db.commit()
-    revision = None
+    recorder = accounting.recorder(
+        db,
+        receipt,
+        producer="avatar_uploads",
+        purpose="other_platform",
+        owner_id=uuid.UUID(hex=receipt.token),
+    )
+    revision, owned_permit, failure, result = None, None, None, None
 
     async def acquired(permit):
-        nonlocal revision
+        nonlocal revision, owned_permit
+        owned_permit = permit
         revision = permit.revision
 
     try:
-        version = await storage_access.run(
+        try:
+            version = await storage_access.run(
+                db,
+                uuid.UUID(ref["location_id"]),
+                "avatar_upload",
+                avatar.write_avatar_object,
+                receipt,
+                data,
+                on_acquired=acquired,
+                accounting=recorder,
+                **({"target": target} if target is not None else {}),
+            )
+            receipt = await _save_write_version(db, receipt, version)
+        except Exception as exc:
+            raise http_error(exc) from None
+        actor = await _actor(db, actor_id)
+        if await _key_proof(db, actor_id, key_id, lock=True) != key_proof:
+            raise HTTPException(403, {"code": "api_key_authority_revoked"})
+        if actor.avatar_ref != previous_ref:
+            raise HTTPException(409, {"code": "avatar_reference_changed"})
+        current = await db.scalar(
+            select(AvatarUpload)
+            .where(AvatarUpload.token == token)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if (
+            current is None
+            or current.state != "pending"
+            or current.owner_id != actor_id
+            or _snapshot(current).__dict__ != receipt.__dict__
+        ):
+            raise HTTPException(409, {"code": "avatar_upload_changed"})
+        try:
+            await storage_access.check(
+                db, uuid.UUID(ref["location_id"]), expected_revision=revision, lock=True
+            )
+        except ContentError as exc:
+            raise http_error(exc) from None
+        current.state = "ready"
+        result = await _publish_ref(
             db,
-            uuid.UUID(ref["location_id"]),
-            "avatar_upload",
-            avatar.write_avatar_object,
-            receipt,
-            data,
-            on_acquired=acquired,
-            **({"target": target} if target is not None else {}),
+            actor,
+            avatar.build_upload_ref(token),
+            previous_ref,
+            request,
+            {"kind": "upload", "bytes": len(data)},
         )
-        receipt = await _save_write_version(db, receipt, version)
-    except Exception as exc:
-        # Failed publication never authorizes physical deletion. An unknown
-        # storage outcome retains both the pending row and any unsettled permit.
-        raise http_error(exc) from None
 
-    actor = await _actor(db, actor_id)
-    if await _key_proof(db, actor_id, key_id, lock=True) != key_proof:
-        raise HTTPException(403, {"code": "api_key_authority_revoked"})
-    if actor.avatar_ref != previous_ref:
-        raise HTTPException(409, {"code": "avatar_reference_changed"})
-    current = await db.scalar(
-        select(AvatarUpload)
-        .where(AvatarUpload.token == token)
-        .with_for_update()
-        .execution_options(populate_existing=True)
+    except BaseException as exc:
+        failure = exc
+    failure = await accounting.finish(
+        recorder,
+        failure,
+        settled=owned_permit is not None
+        and getattr(owned_permit, "_settled", False) is True,
     )
-    if (
-        current is None
-        or current.state != "pending"
-        or current.owner_id != actor_id
-        or _snapshot(current).__dict__ != receipt.__dict__
-    ):
-        raise HTTPException(409, {"code": "avatar_upload_changed"})
-    try:
-        await storage_access.check(
-            db, uuid.UUID(ref["location_id"]), expected_revision=revision, lock=True
-        )
-    except ContentError as exc:
-        raise http_error(exc) from None
-    current.state = "ready"
-    return await _publish_ref(
-        db,
-        actor,
-        avatar.build_upload_ref(token),
-        previous_ref,
-        request,
-        {"kind": "upload", "bytes": len(data)},
-    )
+    if failure is not None:
+        raise failure
+    return result
 
 
 async def read(db, token):

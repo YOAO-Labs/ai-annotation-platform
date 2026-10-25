@@ -144,7 +144,7 @@ Celery default worker 执行盘点，Beat 每 30 秒回收超过 120 秒租约�
 
 报告附件可采用已登记全局 S3 位置的新写入绑定。schema2 物理键位于基前缀下 `_aap_managed/bug-reports/bug-report-attachments/<owner>/<upload>.<ext>`，公开报告键仍从 `bug-report-attachments/` 开始。旧与在途上传按保存 endpoint／bucket／key／实际版本处理；当前平台部署桶盘点不包含外部目标。分类必须同时匹配端点，不能把同桶同键的外部声明套用到当前端点对象。
 
-审计归档新分配同样可使用已登记全局 S3，schema2 的准确物理键位于基前缀下 `_aap_managed/audit-archive/{YYYY}/{MM}/{archive_uuid}.jsonl.gz`，公开逻辑键不带该前缀。旧归档和已分配 pending 保持原位置，当前凭据轮换不改历史归属。分类按保存的物理地址核对；外部未覆盖不计入当前部署桶总量，本用途尚未接入增量账目，摘要仍为 partial。
+审计归档新分配同样可使用已登记全局 S3，schema2 的准确物理键位于基前缀下 `_aap_managed/audit-archive/{YYYY}/{MM}/{archive_uuid}.jsonl.gz`，公开逻辑键不带该前缀。旧归档和已分配 pending 保持原位置，当前凭据轮换不改历史归属。分类按保存的物理地址核对；外部未覆盖不计入当前部署桶总量，本用途的受控新增已接入增量账目，清理尚未计入，摘要仍为 partial。
 
 ## 当前对象增量与周期核对
 
@@ -163,6 +163,10 @@ Celery default worker 执行盘点，Beat 每 30 秒回收超过 120 秒租约�
 `export_zip_outputs`沿ExportOutput保存地址，在普通导出和独立媒体导出的两个既有异步入口接入同一ZIP观测helper。每次managed upload先独立登记一个窗口，独占client保留原SDK配置、分段上传和重试；公开事件核对冻结Bucket／Key、实际final发送次数与最终ACK，不改全局共享实例或上传请求。Complete前失败、没有事件或多次final发送保持unknown。正常一次提交通过HEAD→完整有界版本集合→HEAD观测前后状态，并复用实际完整SHA读回；旧集合无删改、只新增本次返回版本且当前／读回版本一致时确认新旧当前大小之差。集合稳定身份排除IsLatest，不以404、VersionId排序或HEAD大小相同推断新增。明确零值不会解释过去的未决窗口，覆盖缩小的负量只表示当前内容减少。读取观测异常不改变业务结果，native线程、SDK／Body和client真正关闭后才发布；取消和业务回滚保持既有顺序。仍不统计导出清理、退休、历史版本或未完成multipart的物理占用，覆盖保持partial。
 
 `bug_attachment_uploads`在`bug_attachment_uploads.upload`→`bug_attachment_storage.write`共用入口接入同一Mutation表和Recorder，owner为独立上传UUID、分类`other_platform`。耐久意图先于条件PUT；所属独占client保留原SDK配置与重试，公开参数／before-send事件只核对冻结Bucket／Key／IfNoneMatch和实际发送次数。单次明确成功、不可变返回版本、已有准确版本完整读回和当前HEAD一致且原生资源与permit收尾后确认正量；只对明确单次412确认本窗口零，其他冲突、重复发送、无hook或未知证据保持unknown。不为记账引入历史版本LIST、条件写能力前置或新上传器；后续业务失败不抹去写入，普通发布异常保留未决事实且不改业务结果，取消排空后传播。普通读取、期限、退休与清理保持，附件移除与其他生产者仍未覆盖。
+
+其余条件创建入口共用`conditional_write_accounting`的公开事件观测和收尾逻辑，报告附件保留薄适配接口。`avatar_uploads`以上传token对应的UUID为owner，评论附件、指南图片、持久RLE、审计归档分别以其保存责任UUID为owner，producer为`comment_attachment_uploads`、`guide_asset_uploads`、`raster_mask_objects`、`audit_archive_outputs`，purpose均为`other_platform`。RLE记实际stored字节，ready复用没有PUT也不新增账目。原SDK配置／重试及算法保持，仅计量写入选择独占client；普通读和探测不变。
+
+五类均在实际PUT前独立保存意图，将原完整reader的核验版本与PUT ACK关联；归档旁路观察HEAD／GET／后置HEAD的版本，保留压缩字节和原语义核验。仅单次明确成功、不可变非null版本、完整内容和当前HEAD一致时允许正量，且原生线程、Body、client及实际permit必须结清。单次明确412为本次零，重试、无hook、版本／关闭不明仍unknown。归档保持文件Body、声明上限和单PUT算法，由外层文件owner在业务发布及输入文件关闭后收尾账目；业务失败不抹去物理写入，关闭失败不确认增量。取消先排空再传播，普通账目发布失败保留未决记录而不改原业务结果。训练／直传等其余入口和物理移除继续独立推进，接线声明不能代替完整覆盖或删除许可。
 
 盘点页每次最多1,000对象，保存准确key、实际大小和观测窗口；不解码key，不以ETag代替摘要。稳定代次为AsyncJob UUID，执行块的fence代次仅用于拒绝迟到发布。整桶成功才替换基准和对账，保留两个成功代次及当前暂存；重复key、失败和取消不发布不完整基准。数据库按对象比较两次观测，只有完全位于观测之间的已确认事件参与增量核对；跨窗口／pending／unknown及首次无基准单列未知。没有接入的写入方和外部变化只称未解释变化，不宣称精确账目漂移或物理磁盘容量。GET仅返回持久固定摘要。
 

@@ -13,6 +13,7 @@ from app.db.models.annotation_comment import AnnotationComment
 from app.db.models.comment_attachment_upload import CommentAttachmentUpload
 from app.db.models.storage_maintenance import StorageOperation
 from app.schemas._jsonb_types import Attachment
+from app.services import conditional_write_accounting as accounting
 from app.services import comment_attachment_authority as authority
 from app.services import comment_attachment_storage as storage, storage_access
 from app.services.content_snapshot import ContentError
@@ -123,6 +124,7 @@ async def capture_upload(db, actor, request, annotation_id):
 
 async def upload(db, proof, original, data, mime_type, file_name):
     """Persist pending before external writes; never compensate uncertain writes."""
+    recorder, owned_permit, failure, result = None, None, None, None
     try:
         if type(data) is not bytes or len(data) > storage.MAX_BYTES:
             reject("comment_attachment_too_large", 413)
@@ -154,11 +156,15 @@ async def upload(db, proof, original, data, mime_type, file_name):
         await reauthorize(db, proof)
         await db.commit()
         check_deadlines(proof, expiries)
+        recorder = accounting.recorder(
+            db, receipt, producer="comment_attachment_uploads", purpose="other_platform"
+        )
         revision = None
         target = None
 
         async def acquired(permit):
-            nonlocal revision, target
+            nonlocal revision, target, owned_permit
+            owned_permit = permit
             actor = await reauthorize(db, proof)
             await context(
                 db, actor, original.annotation_id, active=True, expected=original
@@ -181,7 +187,14 @@ async def upload(db, proof, original, data, mime_type, file_name):
         def write_saved():
             # Executor queueing can outlive admission; only immutable facts are used.
             check_deadlines(proof, expiries)
-            storage.run_io(target, storage_service.client, "write", receipt, data)
+            storage.run_io(
+                target,
+                storage_service.client,
+                "write",
+                receipt,
+                data,
+                accounting=recorder,
+            )
 
         await storage_access.run(
             db,
@@ -211,11 +224,23 @@ async def upload(db, proof, original, data, mime_type, file_name):
         current.state = "ready"
         await db.commit()
         check_deadlines(proof, expiries)
-        return attachment(receipt)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise http_error(exc) from None
+        result = attachment(receipt)
+    except BaseException as exc:
+        failure = exc
+    if recorder is not None:
+        failure = await accounting.finish(
+            recorder,
+            failure,
+            settled=owned_permit is not None
+            and getattr(owned_permit, "_settled", False) is True,
+        )
+    if isinstance(failure, HTTPException):
+        raise failure
+    if isinstance(failure, Exception):
+        raise http_error(failure) from None
+    if failure is not None:
+        raise failure
+    return result
 
 
 async def normalize_for_comment(db, actor_id, ctx, supplied):

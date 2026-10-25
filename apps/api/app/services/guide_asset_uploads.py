@@ -14,6 +14,7 @@ from app.db.models.project import Project
 from app.db.models.project_guide_asset import ProjectGuideAsset as Reference
 from app.db.models.project_member import ProjectMember
 from app.db.models.storage_maintenance import StorageOperation
+from app.services import conditional_write_accounting as accounting
 from app.services import comment_attachment_authority as authority
 from app.services import guide_asset_references as references
 from app.services import guide_asset_storage as storage, storage_access
@@ -144,6 +145,7 @@ async def capture_upload(db, actor, request, project_id):
 
 async def upload(db, proof, project_id, data, mime_type, file_name):
     """Preserve every uncertain write as pending, with no compensating delete."""
+    recorder, owned_permit, failure, result = None, None, None, None
     try:
         if type(data) is not bytes:
             reject("guide_asset_invalid_size", 400)
@@ -175,11 +177,15 @@ async def upload(db, proof, project_id, data, mime_type, file_name):
         await reauthorize(db, proof)
         await db.commit()
         check_clock(proof)
+        recorder = accounting.recorder(
+            db, receipt, producer="guide_asset_uploads", purpose="other_platform"
+        )
         revision = None
         target = None
 
         async def acquired(permit):
-            nonlocal revision, target
+            nonlocal revision, target, owned_permit
+            owned_permit = permit
             actor = await reauthorize(db, proof)
             await lock_projects(
                 db, actor, [project_id], write_ids=[project_id], wait=True
@@ -199,7 +205,14 @@ async def upload(db, proof, project_id, data, mime_type, file_name):
 
         def write_saved():
             check_clock(proof)
-            storage.run_io(target, storage_service.client, "write", receipt, data)
+            storage.run_io(
+                target,
+                storage_service.client,
+                "write",
+                receipt,
+                data,
+                accounting=recorder,
+            )
 
         await storage_access.run(
             db,
@@ -237,11 +250,23 @@ async def upload(db, proof, project_id, data, mime_type, file_name):
         await reauthorize(db, proof)
         await db.commit()
         check_clock(proof)
-        return entry
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise http_error(exc) from None
+        result = entry
+    except BaseException as exc:
+        failure = exc
+    if recorder is not None:
+        failure = await accounting.finish(
+            recorder,
+            failure,
+            settled=owned_permit is not None
+            and getattr(owned_permit, "_settled", False) is True,
+        )
+    if isinstance(failure, HTTPException):
+        raise failure
+    if isinstance(failure, Exception):
+        raise http_error(failure) from None
+    if failure is not None:
+        raise failure
+    return result
 
 
 def _identifier(key):

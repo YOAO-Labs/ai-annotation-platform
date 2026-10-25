@@ -23,6 +23,7 @@ from app.db.models.raster_mask_object import (
 from app.db.models.raster_mask_upload import RasterMaskUpload
 from app.db.models.storage_maintenance import StorageOperation
 from app.services import raster_object_storage as physical, storage_access
+from app.services import conditional_write_accounting as accounting
 from app.services.storage import storage_service
 
 GRACE = timedelta(hours=24)
@@ -242,11 +243,23 @@ async def _initial(db, facts, guarded):
         return receipt, revision, guard, candidate
 
 
-async def _io(db, receipt, revision, operation, storage, *args, state="ready"):
+async def _io(
+    db,
+    receipt,
+    revision,
+    operation,
+    storage,
+    *args,
+    state="ready",
+    accounting=None,
+    permits=None,
+):
     target = None
 
     async def acquired(permit):
         nonlocal target
+        if permits is not None:
+            permits.append(permit)
         async with _session(db) as session:
             row = (await _owners(session, [receipt.id], read=True)).get(receipt.id)
             _current(row, receipt, state)
@@ -260,7 +273,14 @@ async def _io(db, receipt, revision, operation, storage, *args, state="ready"):
         db,
         _location(receipt),
         purpose(operation, receipt.id),
-        lambda: physical.run_io(target, storage.client, operation, receipt, *args),
+        lambda: physical.run_io(
+            target,
+            storage.client,
+            operation,
+            receipt,
+            *args,
+            **({"accounting": accounting} if accounting is not None else {}),
+        ),
         expected_revision=revision,
         on_acquired=acquired,
     )
@@ -337,18 +357,40 @@ async def store(reference, encoded_data, *, db=None, storage=storage_service):
             context, facts, db is not None
         )
         if candidate:
-            await _io(
+            recorder = accounting.recorder(
                 context,
                 receipt,
-                revision,
-                "write",
-                storage,
-                encoded_data,
-                state="pending",
+                producer="raster_mask_objects",
+                purpose="other_platform",
             )
-            receipt, guard = await _publish(
-                context, receipt, revision, guard, db is not None, storage
+            permits, failure = [], None
+            try:
+                await _io(
+                    context,
+                    receipt,
+                    revision,
+                    "write",
+                    storage,
+                    encoded_data,
+                    state="pending",
+                    accounting=recorder,
+                    permits=permits,
+                )
+                receipt, guard = await _publish(
+                    context, receipt, revision, guard, db is not None, storage
+                )
+            except BaseException as exc:
+                failure = exc
+            failure = await accounting.finish(
+                recorder,
+                failure,
+                settled=bool(permits)
+                and all(
+                    getattr(permit, "_settled", False) is True for permit in permits
+                ),
             )
+            if failure is not None:
+                raise failure
         else:
             await _io(context, receipt, revision, "read", storage)
             await _touch(context, receipt, revision, guard)

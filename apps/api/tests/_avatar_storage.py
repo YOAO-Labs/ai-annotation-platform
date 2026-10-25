@@ -10,6 +10,7 @@ import uuid
 
 from botocore.exceptions import ClientError
 
+from tests._owned_s3 import patch_owned_client
 from app.config import settings
 from app.services import avatar, avatar_storage
 
@@ -112,6 +113,7 @@ class FakeAvatarStorage:
 
 def patch_storage(monkeypatch, fake=None):
     fake = fake or FakeAvatarStorage()
+    patch_owned_client(monkeypatch, fake.client)
     monkeypatch.setattr(avatar, "storage_service", fake)
     monkeypatch.setattr(avatar_storage, "storage_service", fake)
     return fake

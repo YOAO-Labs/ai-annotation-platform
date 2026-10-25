@@ -12,6 +12,7 @@ from app.db.models.project_guide_asset import ProjectGuideAsset as Reference
 from app.services import guide_asset_references as references
 from app.services import guide_asset_storage as storage, guide_asset_uploads as uploads
 from app.services.managed_original_retirement import managed_storage_identity
+from tests._owned_s3 import patch_owned_client
 from tests.factory import create_membership, create_project
 from tests.test_comment_attachment_uploads import Objects, bearer
 
@@ -19,6 +20,7 @@ from tests.test_comment_attachment_uploads import Objects, bearer
 @pytest.fixture
 def objects(monkeypatch):
     value = Objects()
+    patch_owned_client(monkeypatch, value.client)
     monkeypatch.setattr(storage, "storage_service", value)
     monkeypatch.setattr(uploads, "storage_service", value)
     return value

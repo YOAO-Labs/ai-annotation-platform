@@ -13,6 +13,7 @@ import pytest
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from tests._owned_s3 import patch_owned_client
 from app.config import settings
 from app.db.models.raster_mask_object import (
     RasterMaskObject as Object,
@@ -153,6 +154,7 @@ class Harness:
 @pytest.fixture
 async def harness(test_engine, monkeypatch):
     blobs = Objects()
+    patch_owned_client(monkeypatch, blobs.client)
     result = Harness(test_engine, blobs)
     monkeypatch.setattr(physical, "storage_service", blobs)
 
@@ -622,6 +624,9 @@ async def test_cancelled_commit_drains_acknowledgement_before_return(
 
     async def delayed_commit(db):
         nonlocal calls
+        # Independent accounting commits are not an RLE publication stage.
+        if not any(isinstance(row, Object) for row in db.identity_map.values()):
+            return await original(db)
         calls += 1
         current = calls
         result = await original(db)

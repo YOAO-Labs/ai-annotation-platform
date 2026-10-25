@@ -333,7 +333,13 @@ def run_io(target, client, operation, record, *args, **kwargs):
         # Keep the existing explicit legacy-client injection for local callers.
         target = replace(target, _legacy_client=client)
     try:
-        context = target.client()
+        context = target.client(
+            **(
+                {"owned": True}
+                if operation == "write" and kwargs.get("accounting") is not None
+                else {}
+            )
+        )
         physical_client = context.__enter__()
     except Exception as exc:
         storage_access.mark_unsettled(exc)
@@ -371,7 +377,7 @@ def _version(metadata):
     return value
 
 
-def read(client, record, *, missing_ok=False) -> bytes | None:
+def read(client, record, *, missing_ok=False, on_verified=None) -> bytes | None:
     """Conditionally read and hash the exact saved object, then close it."""
     owner = resolve(record)
     _client(client, owner)
@@ -444,10 +450,12 @@ def read(client, record, *, missing_ok=False) -> bytes | None:
         raise
     except Exception as exc:
         raise _unavailable(exc) from None
+    if on_verified is not None:
+        on_verified(version)
     return b"".join(chunks)
 
 
-def write(client, record, data) -> None:
+def write(client, record, data, *, accounting=None) -> None:
     """Create only the saved key; no failure authorizes compensation deletion."""
     owner = resolve(record)
     _client(client, owner)
@@ -457,8 +465,21 @@ def write(client, record, data) -> None:
         or hashlib.sha256(data).hexdigest() != record.sha256
     ):
         _reject("guide_asset_storage_integrity_mismatch")
-    try:
-        client.put_object(
+    from app.services.conditional_write_accounting import Observation
+
+    observation = (
+        Observation(
+            accounting,
+            client,
+            owner.object_key,
+            {"sha256": record.sha256, "size_bytes": record.size_bytes},
+        )
+        if accounting is not None
+        else None
+    )
+
+    def submit():
+        return client.put_object(
             Bucket=owner.bucket,
             Key=owner.object_key,
             Body=data,
@@ -466,6 +487,12 @@ def write(client, record, data) -> None:
             ContentType=record.mime_type,
             IfNoneMatch="*",
         )
+
+    try:
+        if observation is None:
+            submit()
+        else:
+            observation.submit(submit)
     except ClientError as exc:
         if getattr(exc, "storage_operation_unsettled", False):
             raise _unavailable(exc) from None
@@ -481,7 +508,11 @@ def write(client, record, data) -> None:
         raise _unavailable(exc) from None
     except Exception as exc:
         raise _unavailable(exc) from None
-    read(client, record)
+    read(
+        client,
+        record,
+        **({"on_verified": observation.verified} if observation is not None else {}),
+    )
 
 
 def delete(client, record, *, missing_ok=True) -> None:

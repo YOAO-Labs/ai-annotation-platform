@@ -394,10 +394,10 @@ async def test_cancellation_waits_for_real_put_and_retains_pending(
     entered, release = threading.Event(), threading.Event()
     original = avatar.write_avatar_object
 
-    def blocked(record, data):
+    def blocked(record, data, **kwargs):
         entered.set()
         assert release.wait(timeout=10)
-        return original(record, data)
+        return original(record, data, **kwargs)
 
     monkeypatch.setattr(avatar, "write_avatar_object", blocked)
     task = asyncio.create_task(

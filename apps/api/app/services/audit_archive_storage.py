@@ -563,11 +563,24 @@ def encode_meta(row):
     return _encoded(metadata(row))
 
 
-def _client_context(row, target):
+def _client_context(row, target, *, owned=False):
     owner = resolve(row)
     if target is None:
         if owner.ref["location_id"] != str(LEGACY_LOCATION_ID):
             _reject("audit_archive_storage_binding_unproven")
+        if owned:
+            from app.services.managed_s3_target import Target
+
+            return Target(
+                LEGACY_LOCATION_ID,
+                owner.ref["config_revision"],
+                None,
+                owner.ref["endpoint_url"],
+                owner.bucket,
+                "",
+                purpose="audit-archive",
+                _legacy_client=storage_service.client,
+            ).client(owned=True)
         return nullcontext(storage_service.client)
     if (
         str(target.location_id) != owner.ref["location_id"]
@@ -576,7 +589,7 @@ def _client_context(row, target):
         or target.key_prefix + key_for(row.year, row.month, row.id) != owner.object_key
     ):
         _reject("audit_archive_storage_identity_changed")
-    return target.client()
+    return target.client(**({"owned": True} if owned else {}))
 
 
 def _budget(deadline):
@@ -733,7 +746,7 @@ def _provider_error(exc):
     return _unavailable(exc)
 
 
-def _download(client, row, owner, limit, offset, deadline):
+def _download(client, row, owner, limit, offset, deadline, *, observation=None):
     params = {"Bucket": owner.bucket, "Key": owner.object_key}
     try:
         with storage_access.closing_registered(tempfile.TemporaryFile()) as output:
@@ -778,7 +791,12 @@ def _download(client, row, owner, limit, offset, deadline):
                 or after["ContentLength"] != row.size_bytes
             ):
                 _reject()
-            return _semantic(output, row, limit, offset, deadline)
+            result = _semantic(output, row, limit, offset, deadline)
+        if observation is not None and head.get("VersionId") == response.get(
+            "VersionId"
+        ) == after.get("VersionId"):
+            observation.verified(response.get("VersionId"))
+        return result
     except Exception as exc:
         raise _provider_error(exc) from None
 
@@ -803,12 +821,12 @@ def read(row, *, limit=100, offset=0, target=None):
         )
 
 
-def write(row, fileobject, *, target=None):
-    with _client_context(row, target) as client:
-        return _write(client, row, fileobject)
+def write(row, fileobject, *, target=None, accounting=None):
+    with _client_context(row, target, owned=accounting is not None) as client:
+        return _write(client, row, fileobject, accounting=accounting)
 
 
-def _write(client, row, fileobject):
+def _write(client, row, fileobject, *, accounting=None):
     """Create only; failures preserve the independent owner and never delete."""
     original = snapshot(row)
     owner = resolve(original)
@@ -831,16 +849,43 @@ def _write(client, row, fileobject):
             _reject()
         _semantic(fileobject, original, 1, original.row_count + 1, deadline)
         _budget(deadline)
-        client.put_object(
-            Bucket=owner.bucket,
-            Key=owner.object_key,
-            Body=fileobject,
-            ContentLength=original.size_bytes,
-            ContentType="application/gzip",
-            IfNoneMatch="*",
+        from app.services.conditional_write_accounting import Observation
+
+        observation = (
+            Observation(
+                accounting,
+                client,
+                owner.object_key,
+                {"sha256": original.sha256, "size_bytes": original.size_bytes},
+            )
+            if accounting is not None
+            else None
         )
+
+        def submit():
+            return client.put_object(
+                Bucket=owner.bucket,
+                Key=owner.object_key,
+                Body=fileobject,
+                ContentLength=original.size_bytes,
+                ContentType="application/gzip",
+                IfNoneMatch="*",
+            )
+
+        if observation is None:
+            submit()
+        else:
+            observation.submit(submit)
         _budget(deadline)
-        _download(client, original, owner, 1, original.row_count + 1, deadline)
+        _download(
+            client,
+            original,
+            owner,
+            1,
+            original.row_count + 1,
+            deadline,
+            observation=observation,
+        )
     except Exception as exc:
         raise _provider_error(exc) from None
     finally:

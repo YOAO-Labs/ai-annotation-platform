@@ -438,3 +438,49 @@ it("explains declared report attachment writes without claiming cleanup coverage
   expect(screen.getByText("部分覆盖")).toBeVisible();
   expect(screen.getByText(/不能据此推算平台总占用/)).toBeVisible();
 });
+
+it("groups all declared conditional writes while retaining unknown and cleanup limits", () => {
+  render(
+    <StorageUsageAccounting
+      accounting={{
+        ...accounting,
+        producers: [
+          "avatar_uploads",
+          "comment_attachment_uploads",
+          "guide_asset_uploads",
+          "raster_mask_objects",
+          "audit_archive_outputs",
+        ],
+      }}
+      onAccessDenied={mocks.denied}
+    />,
+  );
+  open();
+  expect(screen.getByRole("list", { name: "已接入计量范围" })).toHaveTextContent(
+    "已接入头像、评论附件、指南图片、持久掩码、审计归档受控新增；重试或回执不明保持未知，退休和清理尚未计入。",
+  );
+  expect(screen.getByText("部分覆盖")).toBeVisible();
+  expect(screen.getByText(/不能据此推算平台总占用/)).toBeVisible();
+  expect(screen.queryByText(/已接入报告附件受控新增/)).not.toBeInTheDocument();
+});
+
+it("does not infer other conditional writers from one declared writer or an unknown name", () => {
+  const view = render(
+    <StorageUsageAccounting
+      accounting={{ ...accounting, producers: ["guide_asset_uploads", "future_writer"] }}
+      onAccessDenied={mocks.denied}
+    />,
+  );
+  open();
+  expect(screen.getByText(/已接入指南图片受控新增/)).toBeVisible();
+  expect(screen.queryByText(/已接入头像/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/评论附件|持久掩码|审计归档/)).not.toBeInTheDocument();
+  view.rerender(
+    <StorageUsageAccounting
+      accounting={{ ...accounting, producers: ["future_writer"] }}
+      onAccessDenied={mocks.denied}
+    />,
+  );
+  expect(screen.queryByText(/已接入指南图片受控新增/)).not.toBeInTheDocument();
+  expect(screen.getByText(/不能据此推算平台总占用/)).toBeVisible();
+});

@@ -184,6 +184,10 @@ async def clear_closed_test_operations(db, row):
 async def test_list_is_ready_database_ownership_without_bucket_probe(
     httpx_client, super_admin, db_session, objects, monkeypatch
 ):
+    # Partition tests retain permanent owners until their disposable DB is
+    # destroyed. Preserve those rows when checking this test's new publication.
+    baseline = await httpx_client.get(ARCHIVES, headers=bearer(super_admin[1]))
+    assert baseline.status_code == 200, baseline.text
     ready, _ = await seed_archive(db_session, objects)
     await seed_archive(db_session, objects, ready=False, month=2)
     objects.audit_archive_bucket = "new-write-bucket"
@@ -193,15 +197,19 @@ async def test_list_is_ready_database_ownership_without_bucket_probe(
     )
     response = await httpx_client.get(ARCHIVES, headers=bearer(super_admin[1]))
     assert response.status_code == 200, response.text
-    assert response.json() == [
+    expected = [
+        *baseline.json(),
         {
             "year": 2024,
             "month": 1,
             "object_key": ready.storage_ref["object_key"],
             "size_bytes": ready.size_bytes,
             "archived_at": ready.published_at.isoformat(),
-        }
+        },
     ]
+    assert response.json() == sorted(
+        expected, key=lambda row: (row["year"], row["month"]), reverse=True
+    )
     assert not objects.heads and not objects.reads
     objects.client.list_objects_v2.assert_not_called()
 

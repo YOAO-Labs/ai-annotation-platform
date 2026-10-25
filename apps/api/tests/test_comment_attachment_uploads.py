@@ -14,6 +14,7 @@ import pytest
 from sqlalchemy import delete, select
 from starlette.requests import Request
 
+from tests._owned_s3 import patch_owned_client
 from app.config import settings
 from app.core.security import create_access_token, decode_access_token, hash_password
 from app.db.models.annotation_comment import AnnotationComment
@@ -98,6 +99,7 @@ class Objects:
 @pytest.fixture
 def objects(monkeypatch):
     value = Objects()
+    patch_owned_client(monkeypatch, value.client)
     monkeypatch.setattr(storage, "storage_service", value)
     monkeypatch.setattr(uploads, "storage_service", value)
     return value

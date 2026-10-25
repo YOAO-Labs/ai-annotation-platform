@@ -73,6 +73,11 @@ class StorageUsageAccountingSummary(BaseModel):
             "export_media_outputs",
             "export_zip_outputs",
             "bug_attachment_uploads",
+            "avatar_uploads",
+            "comment_attachment_uploads",
+            "guide_asset_uploads",
+            "raster_mask_objects",
+            "audit_archive_outputs",
         ]
     )
     confirmed_added_bytes: int = 0
