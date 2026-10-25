@@ -41,6 +41,7 @@ class World:
         self.ip = "172.30.20.2"
         self.counter = 0
         self.calls = []
+        self.native_records = b"0\n"
         self.source = self.container("source", native._MINIO_ID)
         self.source["Config"].update(
             Entrypoint=["/usr/bin/docker-entrypoint.sh"],
@@ -144,6 +145,15 @@ class World:
 
     def docker(self, *args):
         self.calls.append(args)
+        if args[0] == "exec":
+            assert args == (
+                "exec",
+                self.config["source_container"],
+                "/bin/sh",
+                "-c",
+                native._MULTIPART_RECORDS,
+            )
+            return self.native_records
         if len(args) == 3 and args[1] == "inspect":
             kind, _, identity = args
             if kind == "container":
@@ -195,6 +205,7 @@ class Client:
         self.rules = {bucket: None for bucket in buckets}
         self.objects = {bucket: [] for bucket in buckets}
         self.uploads = {bucket: [] for bucket in buckets}
+        self.cache_missing = False
         self.calls = []
         self.heads = {}
         self.closed = 0
@@ -233,7 +244,19 @@ class Client:
         return self.heads.get(version, {"VersionId": version})
 
     def list_multipart_uploads(self, *, Bucket, **kwargs):
-        return {"Uploads": list(self.uploads[Bucket]), "IsTruncated": False}
+        return {
+            "Uploads": [] if self.cache_missing else list(self.uploads[Bucket]),
+            "IsTruncated": False,
+        }
+
+    def list_parts(self, **kwargs):
+        self.calls.append(("parts", dict(kwargs)))
+        if any(
+            value["Key"] == kwargs["Key"] and value["UploadId"] == kwargs["UploadId"]
+            for value in self.uploads[kwargs["Bucket"]]
+        ):
+            return {"Parts": []}
+        raise ProviderError("NoSuchUpload")
 
     def abort_multipart_upload(self, **kwargs):
         self.calls.append(("abort", dict(kwargs)))
@@ -620,7 +643,9 @@ class NativeTests(unittest.TestCase):
         self.adapter.readonly()
         self.client.uploads[self.client.buckets[0]] = [{"Key": "x", "UploadId": "u"}]
         self.assertEqual(self.adapter.abort_uploads(), 1)
-        self.assertEqual([call[0] for call in self.client.calls], ["abort"])
+        self.assertEqual(
+            [call[0] for call in self.client.calls], ["parts", "abort", "parts"]
+        )
 
     def test_abort_missing_upload_allowed_other_failure_keeps_responsibility(self):
         self.use_client()
@@ -631,13 +656,182 @@ class NativeTests(unittest.TestCase):
             raise ProviderError("NoSuchUpload")
 
         self.client.abort_multipart_upload = abort
-        self.assertEqual(self.adapter.abort_uploads(), 1)
+        self.client.list_parts = abort
+        self.assertEqual(self.adapter.abort_uploads(), 0)
 
         def denied(**kw):
             raise ProviderError("AccessDenied")
 
+        self.client.list_parts = lambda **kw: {"Parts": []}
         self.client.abort_multipart_upload = denied
         self.code("source_upload_abort_failed", self.adapter.abort_uploads)
+
+    def test_resume_aborts_saved_upload_ids_when_restart_empties_list_cache(self):
+        self.use_client()
+        self.adapter.readonly()
+        bucket = self.client.buckets[0]
+        self.client.uploads[bucket] = [
+            {"Key": "with-part", "UploadId": "part-id"},
+            {"Key": "empty", "UploadId": "empty-id"},
+        ]
+        snapshot = self.adapter.prepare()
+        self.assertEqual(len(snapshot["known_uploads"]), 2)
+        self.client.cache_missing = True
+        resumed = native.DockerAdapter(self.world.config)
+        resumed._docker = self.world.docker
+        resumed._ready = lambda: None
+        resumed._admin = lambda: None
+        resumed._client = self.client_context
+        resumed.disable_lifecycle(snapshot)
+        self.assertEqual(resumed.abort_uploads(), 2)
+        self.assertEqual(resumed.abort_uploads(), 0)
+        barriers = [resumed.barrier(), resumed.barrier()]
+        observed = resumed.verify(snapshot, barriers)
+        self.assertEqual(observed["counts"]["known_uploads_verified"], 2)
+        self.assertEqual(observed["counts"]["native_multipart_records"], 0)
+        aborted = [value[1] for value in self.client.calls if value[0] == "abort"]
+        self.assertEqual({row["UploadId"] for row in aborted}, {"part-id", "empty-id"})
+        self.assertTrue(all(row["Bucket"] == bucket for row in aborted))
+
+    def test_saved_and_current_uploads_are_merged_without_duplicate_abort(self):
+        self.use_client()
+        self.adapter.readonly()
+        bucket = self.client.buckets[0]
+        self.client.uploads[bucket] = [{"Key": "x", "UploadId": "first"}]
+        snapshot = self.adapter.prepare()
+        self.adapter.disable_lifecycle(snapshot)
+        self.client.uploads[bucket].append({"Key": "y", "UploadId": "late"})
+        self.assertEqual(self.adapter.abort_uploads(), 2)
+        self.assertEqual(sum(call[0] == "abort" for call in self.client.calls), 2)
+
+    def test_saved_upload_contract_is_strict_and_bounded_before_mutation(self):
+        self.use_client()
+        self.adapter.readonly()
+        snapshot = self.adapter.prepare()
+        good = dict(bucket=self.client.buckets[0], key="x", upload_id="u")
+        bad_values = [
+            None,
+            [good, good],
+            [{**good, "bucket": "outside"}],
+            [{**good, "upload_id": ""}],
+            [{**good, "key": "x" * 1025}],
+            [{**good, "extra": "not-allowed"}],
+        ]
+        for value in bad_values:
+            with self.subTest(value=value):
+                with self.assertRaises(FenceError):
+                    self.adapter.disable_lifecycle({**snapshot, "known_uploads": value})
+        missing = dict(snapshot)
+        missing.pop("known_uploads")
+        self.code(
+            "native_snapshot_changed", lambda: self.adapter.disable_lifecycle(missing)
+        )
+        with patch.object(native, "_MAX_OUTPUT", 100):
+            self.code(
+                "source_budget_exceeded",
+                lambda: self.adapter.disable_lifecycle(snapshot),
+            )
+        self.assertEqual(self.client.calls, [])
+
+    def test_abort_ack_does_not_replace_exact_upload_absence_proof(self):
+        self.use_client()
+        self.adapter.readonly()
+        bucket = self.client.buckets[0]
+        self.client.uploads[bucket] = [{"Key": "x", "UploadId": "u"}]
+        self.client.abort_multipart_upload = lambda **kw: {}
+        self.code("source_uploads_remaining", self.adapter.abort_uploads)
+
+        def denied(**kw):
+            raise ProviderError("AccessDenied")
+
+        self.client.list_parts = denied
+        self.code("source_upload_unobservable", self.adapter.abort_uploads)
+
+    def test_verify_rechecks_saved_ids_even_with_empty_sdk_cache(self):
+        self.use_client()
+        self.adapter.readonly()
+        bucket = self.client.buckets[0]
+        self.client.uploads[bucket] = [{"Key": "hidden", "UploadId": "u"}]
+        snapshot = self.adapter.prepare()
+        self.client.cache_missing = True
+        barriers = [self.adapter.barrier(), self.adapter.barrier()]
+        self.code(
+            "source_uploads_remaining", lambda: self.adapter.verify(snapshot, barriers)
+        )
+
+    def test_native_residual_metadata_rejects_unmapped_late_upload(self):
+        self.use_client()
+        self.adapter.readonly()
+        snapshot = self.adapter.prepare()
+        barriers = [self.adapter.barrier(), self.adapter.barrier()]
+        self.world.native_records = b"1\n"
+        self.code(
+            "source_uploads_remaining", lambda: self.adapter.verify(snapshot, barriers)
+        )
+        self.assertFalse(any(call[0] == "abort" for call in self.client.calls))
+
+    def test_native_multipart_count_requires_one_bounded_integer(self):
+        for value in (b"", b"0", b"0\n1\n", b"-1\n", b"100001\n", b"error\n"):
+            with self.subTest(value=value):
+                self.world.native_records = value
+                with self.assertRaises(FenceError):
+                    self.adapter._native_multipart_records()
+        self.world.native_records = b"0\n"
+        self.assertEqual(self.adapter._native_multipart_records(), 0)
+
+    def test_fixed_native_script_counts_only_current_metadata_without_following_links(
+        self,
+    ):
+        root = Path(self.temporary.name) / "source-system"
+        root.mkdir()
+        script = native._MULTIPART_RECORDS.replace("/data/.minio.sys", str(root))
+
+        def run():
+            return native._command(["/bin/bash", "-c", script])
+
+        self.assertEqual(run(), b"0\n")
+        path = root / "multipart" / "hash" / "upload"
+        path.mkdir(parents=True)
+        (path / "xl.meta").write_bytes(b"metadata")
+        (path / "part.1").write_bytes(b"part")
+        other = root / "unrelated"
+        other.mkdir()
+        (other / "xl.json").write_bytes(b"metadata")
+        (root / "multipart" / "link").symlink_to(other, target_is_directory=True)
+        self.assertEqual(run(), b"1\n")
+        (path / "xl.json").write_bytes(b"metadata")
+        self.assertEqual(run(), b"2\n")
+
+    def test_fixed_native_script_rejects_symlink_roots_and_non_directory(self):
+        root = Path(self.temporary.name) / "source-system"
+        root.mkdir()
+        path = root / "multipart"
+        script = native._MULTIPART_RECORDS.replace("/data/.minio.sys", str(root))
+
+        def run():
+            return native._command(["/bin/bash", "-c", script])
+
+        path.symlink_to(root, target_is_directory=True)
+        self.code("native_command_failed", run)
+        path.unlink()
+        path.write_text("not a directory")
+        self.code("native_command_failed", run)
+        path.unlink()
+        root.rmdir()
+        root.symlink_to(Path(self.temporary.name), target_is_directory=True)
+        self.code("native_command_failed", run)
+
+    def test_fixed_native_script_propagates_listing_failure_and_line_cap(self):
+        root = Path(self.temporary.name) / "source-system"
+        (root / "multipart").mkdir(parents=True)
+        script = native._MULTIPART_RECORDS.replace("/data/.minio.sys", str(root))
+        for listing in ("(printf 'xl.meta\\n'; exit 1)", "/usr/bin/seq 100001"):
+            with self.subTest(listing=listing):
+                replaced = script.replace('/usr/bin/ls -1ARU -- "$path"', listing)
+                self.code(
+                    "native_command_failed",
+                    lambda: native._command(["/bin/bash", "-c", replaced]),
+                )
 
     def test_verify_requires_two_real_generations_and_closed_uploads(self):
         self.use_client()

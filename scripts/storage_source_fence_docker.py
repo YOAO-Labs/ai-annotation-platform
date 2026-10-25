@@ -52,6 +52,32 @@ _MAX_OUTPUT = 2 * 1024**2
 _MAX_PAGES = 10000
 _MAX_VERSIONS = 100000
 _MAX_RULES = 1000
+_MULTIPART_RECORDS = r"""set -eu
+set -o pipefail
+export LC_ALL=C
+root=/data/.minio.sys
+path=/data/.minio.sys/multipart
+[ ! -L "$root" ]
+[ -d "$root" ]
+[ ! -L "$path" ]
+if [ ! -e "$path" ]; then
+    printf '0\n'
+    exit 0
+fi
+[ -d "$path" ]
+/usr/bin/ls -1ARU -- "$path" | (
+    lines=0
+    records=0
+    while IFS= read -r line; do
+        lines=$((lines + 1))
+        [ "$lines" -le 100000 ]
+        case "$line" in
+            xl.meta|xl.json) records=$((records + 1));;
+        esac
+    done
+    printf '%s\n' "$records"
+)
+"""
 
 
 def _require(value, code):
@@ -292,6 +318,7 @@ class DockerAdapter:
         self.directory = Path(config["gateway_config_directory"])
         self.source_ip = None
         self.gateway_generation = None
+        self.known_uploads = []
         self._files()
 
     def close(self):
@@ -760,10 +787,10 @@ class DockerAdapter:
             _require(isinstance(values, list), "source_pagination_invalid")
             for value in values:
                 _require(
-                    isinstance(value.get("Key"), str)
-                    and isinstance(value.get("UploadId"), str),
+                    isinstance(value, dict),
                     "source_upload_invalid",
                 )
+                self._upload_record(bucket, value.get("Key"), value.get("UploadId"))
                 yield value
             _require(type(page.get("IsTruncated")) is bool, "source_pagination_invalid")
             if not page["IsTruncated"]:
@@ -780,6 +807,40 @@ class DockerAdapter:
             _require(marker not in seen, "source_pagination_invalid")
             seen.add(marker)
 
+    def _upload_record(self, bucket, key, upload_id):
+        _require(
+            bucket in self.config["purpose_buckets"].values()
+            and isinstance(key, str)
+            and 0 < len(key.encode()) <= 1024
+            and "\0" not in key
+            and isinstance(upload_id, str)
+            and 0 < len(upload_id.encode()) <= 4096
+            and "\0" not in upload_id,
+            "source_upload_invalid",
+        )
+        return dict(bucket=bucket, key=key, upload_id=upload_id)
+
+    def _merge_uploads(self, *groups):
+        merged, size = {}, 2
+        for values in groups:
+            _require(isinstance(values, list), "native_snapshot_changed")
+            for value in values:
+                _require(
+                    isinstance(value, dict)
+                    and set(value) == {"bucket", "key", "upload_id"},
+                    "native_snapshot_changed",
+                )
+                record = self._upload_record(**value)
+                identity = tuple(record.values())
+                if identity not in merged:
+                    size += len(json.dumps(record).encode()) + 1
+                    _require(
+                        len(merged) < _MAX_VERSIONS and size <= _MAX_OUTPUT,
+                        "source_budget_exceeded",
+                    )
+                    merged[identity] = record
+        return list(merged.values())
+
     def _scan(self, client):
         budget = _Budget()
         self._admin()
@@ -791,7 +852,7 @@ class DockerAdapter:
             multipart_uploads=0,
             lifecycle_rules=0,
         )
-        lifecycle = {}
+        lifecycle, known_uploads, upload_bytes = {}, [], 2
         for bucket in buckets:
             try:
                 client.get_bucket_replication(Bucket=bucket)
@@ -816,15 +877,21 @@ class DockerAdapter:
             counts["lifecycle_rules"] += len(rules or [])
             _require(counts["lifecycle_rules"] <= _MAX_RULES, "source_budget_exceeded")
             self._versions(client, bucket, budget, counts)
-            counts["multipart_uploads"] += sum(
-                1 for _ in self._uploads(client, bucket, budget)
-            )
-        return lifecycle, counts
+            for upload in self._uploads(client, bucket, budget):
+                record = self._upload_record(bucket, upload["Key"], upload["UploadId"])
+                upload_bytes += len(json.dumps(record).encode()) + 1
+                _require(
+                    len(known_uploads) < _MAX_VERSIONS and upload_bytes <= _MAX_OUTPUT,
+                    "source_budget_exceeded",
+                )
+                known_uploads.append(record)
+            counts["multipart_uploads"] = len(known_uploads)
+        return lifecycle, counts, self._merge_uploads(known_uploads)
 
     @_safe
     def preview(self):
         with self._client() as client:
-            _, counts = self._scan(client)
+            _, counts, _ = self._scan(client)
         self._observe()
         return counts
 
@@ -833,7 +900,7 @@ class DockerAdapter:
         _, _, content = self._observe()
         _require(content == gateway_config(self.source_ip, True), "native_not_readonly")
         with self._client() as client:
-            lifecycle, counts = self._scan(client)
+            lifecycle, counts, known_uploads = self._scan(client)
         self._observe()
         snapshot = dict(
             schema=_SNAPSHOT,
@@ -842,6 +909,7 @@ class DockerAdapter:
             readonly_sha256=_digest(gateway_config(self.source_ip, True)),
             writable_sha256=_digest(gateway_config(self.source_ip, False)),
             lifecycle=lifecycle,
+            known_uploads=known_uploads,
             counts=counts,
         )
         _require(
@@ -863,10 +931,21 @@ class DockerAdapter:
             == set(self.config["purpose_buckets"].values()),
             "native_snapshot_changed",
         )
+        _require(
+            len(json.dumps(snapshot).encode()) <= _MAX_OUTPUT,
+            "source_budget_exceeded",
+        )
+        uploads = self._merge_uploads(snapshot.get("known_uploads"))
+        _require(
+            len(uploads) == len(snapshot["known_uploads"]), "native_snapshot_changed"
+        )
+        return uploads
 
     def _lifecycle_change(self, snapshot, *, restore):
         self._observe()
-        self._snapshot(snapshot)
+        known_uploads = self._snapshot(snapshot)
+        if not restore:
+            self.known_uploads = known_uploads
         with self._client() as client:
             for bucket, saved in snapshot["lifecycle"].items():
                 current = self._lifecycle(client, bucket)
@@ -990,28 +1069,73 @@ class DockerAdapter:
         _, _, content = self._observe()
         _require(content == gateway_config(self.source_ip, True), "native_not_readonly")
         with self._client() as client:
+            current, current_bytes = [], 2
             for bucket in self._buckets(client, budget):
                 for upload in self._uploads(client, bucket, budget):
-                    try:
-                        client.abort_multipart_upload(
-                            Bucket=bucket,
-                            Key=upload["Key"],
-                            UploadId=upload["UploadId"],
-                        )
-                    except Exception as exc:
-                        _require(
-                            self._error_code(exc) == "NoSuchUpload",
-                            "source_upload_abort_failed",
-                        )
-                    count += 1
-                    _require(count <= _MAX_VERSIONS, "source_budget_exceeded")
+                    record = self._upload_record(
+                        bucket, upload["Key"], upload["UploadId"]
+                    )
+                    current_bytes += len(json.dumps(record).encode()) + 1
+                    _require(
+                        len(current) < _MAX_VERSIONS and current_bytes <= _MAX_OUTPUT,
+                        "source_budget_exceeded",
+                    )
+                    current.append(record)
+            self.known_uploads = self._merge_uploads(self.known_uploads, current)
+            for upload in self.known_uploads:
+                if not self._upload_exists(client, upload):
+                    continue
+                arguments = self._upload_arguments(upload)
+                try:
+                    client.abort_multipart_upload(**arguments)
+                except Exception as exc:
+                    _require(
+                        self._error_code(exc) == "NoSuchUpload",
+                        "source_upload_abort_failed",
+                    )
+                self._upload_absent(client, upload)
+                count += 1
         self._observe()
+        return count
+
+    @staticmethod
+    def _upload_arguments(upload):
+        return dict(
+            Bucket=upload["bucket"], Key=upload["key"], UploadId=upload["upload_id"]
+        )
+
+    def _upload_exists(self, client, upload):
+        try:
+            client.list_parts(**self._upload_arguments(upload), MaxParts=1)
+        except Exception as exc:
+            _require(
+                self._error_code(exc) == "NoSuchUpload", "source_upload_unobservable"
+            )
+            return False
+        return True
+
+    def _upload_absent(self, client, upload):
+        if self._upload_exists(client, upload):
+            raise FenceError("source_uploads_remaining")
+
+    def _native_multipart_records(self):
+        value = self._docker(
+            "exec", self.config["source_container"], "/bin/sh", "-c", _MULTIPART_RECORDS
+        )
+        _require(
+            re.fullmatch(rb"(?:0|[1-9][0-9]{0,5})\n", value) is not None,
+            "native_multipart_unobservable",
+        )
+        count = int(value)
+        _require(count <= 100000, "source_budget_exceeded")
         return count
 
     @_safe
     def verify(self, snapshot, barriers):
         current, gateway, content = self._observe()
-        self._snapshot(snapshot)
+        known_uploads = self._merge_uploads(
+            self._snapshot(snapshot), self.known_uploads
+        )
         _require(
             isinstance(barriers, list)
             and 2 <= len(barriers) <= 128
@@ -1037,13 +1161,18 @@ class DockerAdapter:
         )
         _require(content == gateway_config(self.source_ip, True), "native_not_readonly")
         with self._client() as client:
-            lifecycle, counts = self._scan(client)
+            lifecycle, counts, _ = self._scan(client)
             for bucket, saved in snapshot["lifecycle"].items():
                 _require(
                     lifecycle[bucket]["original"] == saved["disabled"],
                     "source_lifecycle_changed",
                 )
+            for upload in known_uploads:
+                self._upload_absent(client, upload)
         _require(counts["multipart_uploads"] == 0, "source_uploads_remaining")
+        counts["known_uploads_verified"] = len(known_uploads)
+        counts["native_multipart_records"] = self._native_multipart_records()
+        _require(counts["native_multipart_records"] == 0, "source_uploads_remaining")
         after, after_gateway, after_content = self._observe()
         _require(
             after["State"]["StartedAt"] == last["started_at"]
