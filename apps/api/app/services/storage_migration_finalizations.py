@@ -18,7 +18,7 @@ from sqlalchemy.orm import undefer
 
 from app.db.models.dataset_asset import StorageLocation
 from app.db.models.storage_connection import StorageConnection
-from app.db.models.storage_maintenance import StorageOperation
+from app.db.models.storage_maintenance import StorageMaintenanceGate, StorageOperation
 from app.db.models.storage_migration_copy import (
     StorageMigrationCopy as Copy,
     StorageMigrationCopyAttempt as Attempt,
@@ -581,13 +581,18 @@ async def _verified(db, row, window, copy):
         or attempt.target_operation_id is None
     ):
         reject("finalization_verify_required")
-    result = attempt.result if isinstance(attempt.result, dict) else {}
+    summary = copy.summary if isinstance(copy.summary, dict) else {}
+    counts = summary.get("counts")
     if (
-        result.get("attempt_subset_complete") is not True
-        or type(result.get("selected_count")) is not int
-        or type(result.get("selected_verified_count")) is not int
-        or result["selected_count"] < 0
-        or result.get("selected_verified_count") != result["selected_count"]
+        summary.get("copy_subset_complete") is not True
+        or not isinstance(counts, dict)
+        or set(counts) != set(copies.STATES)
+        or any(type(value) is not int or value < 0 for value in counts.values())
+        or any(
+            counts[state]
+            for state in copies.STATES
+            if state not in {"verified", "skipped"}
+        )
     ):
         reject("finalization_verify_required")
     await _settled(db, window)
@@ -668,16 +673,12 @@ async def finish_seal(db, actor_id, claim, expected_revision, token, evidence, n
     ):
         reject("finalization_invalid_evidence")
     counts = evidence["counts"]
-    if (
-        attempt.result["selected_count"] != counts["copied_objects"]
-        or attempt.result["selected_verified_count"] != counts["copied_objects"]
-        or any(
-            native["counts"].get(actual) != counts[expected]
-            for actual, expected in (
-                ("buckets", "source_buckets"),
-                ("versions", "current_objects"),
-                ("delete_markers", "current_delete_markers"),
-            )
+    if copy.summary["counts"]["verified"] != counts["copied_objects"] or any(
+        native["counts"].get(actual) != counts[expected]
+        for actual, expected in (
+            ("buckets", "source_buckets"),
+            ("versions", "current_objects"),
+            ("delete_markers", "current_delete_markers"),
         )
     ):
         reject("finalization_invalid_evidence")
@@ -703,13 +704,19 @@ async def begin_invalidation(db, actor_id, claim, expected_revision):
     if row is None:
         if claim["reserved"]:
             reject("finalization_unknown")
-        if (
-            type(expected_revision) is not int
-            or expected_revision != 0
-            or window.revision != claim["expected_window_revision"]
-        ):
+        if type(expected_revision) is not int or expected_revision != 0:
             reject("finalization_changed")
-        await windows.gate(db, window, exclusive=True)
+        # No database reservation ever existed for this intent. The original
+        # window may have closed after a rolled-back bind; lock its current Gate
+        # and drain real work without requiring the old stopped revision.
+        gate = await _lock(
+            db,
+            select(StorageMaintenanceGate).where(
+                StorageMaintenanceGate.location_id == window.source_location_id
+            ),
+        )
+        if gate is None:
+            reject("finalization_changed")
         await _settled(db, window)
         row = _new(window, actor_id, claim, {}, state="invalidated")
         row.invalidated_at = await db.scalar(select(func.statement_timestamp()))

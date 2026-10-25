@@ -16,6 +16,7 @@ import ipaddress
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import signal
 import socket
@@ -558,10 +559,20 @@ raise SystemExit(cli.main())
         capture_output=True,
         timeout=180,
     )
-    require(result.returncode == expected, "operator_cli_exit")
     require(
         len(result.stdout) + len(result.stderr) <= 1024**2, "operator_output_budget"
     )
+    if result.returncode != expected:
+        failure = {"action": action, "expected": expected, "actual": result.returncode}
+        try:
+            code = json.loads(result.stderr).get("code")
+        except (ValueError, AttributeError):
+            code = None
+        if isinstance(code, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", code):
+            failure["code"] = code
+        owner.data["operator_failure"] = failure
+        owner.save()
+        require(False, "operator_cli_exit")
     if crash:
         require(not result.stdout and not result.stderr, "crash_output")
         return None
@@ -1117,7 +1128,7 @@ def run(owner, args, summary, backend):
             expected=409,
         )
         require(
-            frozen.get("detail", {}).get("code") == "finalization_copy_read_only",
+            frozen.get("detail", {}).get("code") == "copy_read_only",
             "sealed_copy_not_frozen",
         )
         sealed = operator(
@@ -1321,6 +1332,8 @@ def main(argv=None):
         summary["completed"], code = True, 0
     except BaseException as exc:
         summary.update(error_code=safe_error(exc), failure_site=failure_site(exc))
+        if owner is not None and "operator_failure" in owner.data:
+            summary["operator_failure"] = owner.data["operator_failure"]
         code = 130 if isinstance(exc, KeyboardInterrupt) else 1
     finally:
         if owner is not None:

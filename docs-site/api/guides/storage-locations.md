@@ -379,6 +379,10 @@ limits为每次执行预算：`max_object_bytes`默认256MiB、最大1GiB；`max
 
 item包含`window_id,parent_copy_id,target_location_id,state,revision,source_gate_revision,source_config_revision,created_at,updated_at,created_by,registered_operations,registered_access_drained,source_quiescence_proven,migration_ready`。`state`为`draining|stopped|closing|closed`，窗口修订与来源Gate修订分别保存；物理地址、配置及授权证明不出现在公开DTO。`source_quiescence_proven=false,migration_ready=false`固定不授予全源静止或切换资格。
 
+item另含nullable `finalization`：`finalization_id,revision,state,window_revision,created_at,updated_at,native_observed_at,sealed_at,invalidated_at,inventory_job_id,copy_id,counts,error_code,migration_ready`。时间、任务／批次ID、计数和错误允许为空；状态为`bound|sealing|sealed|invalidating|invalidated`。它记录可信本地运维绑定及某次实际观测，不返回原生nonce、配置、物理地址或凭据，GET不因此访问Docker或源端。`sealed`仅表示该窗口最终清单及复制证据已封存，`migration_ready=false`保持。
+
+本地最终核验绑定会递增窗口修订，后续Inventory／B5沿既有`window_revision`固定；没有提交证明JSON的HTTP接口。存在非invalidated责任时，`close`返回409 `finalization_active`。解除进入invalidating后，来源任务准入拒绝`finalization_closing`；实际收尾再解除，不自动恢复写入。冻结的最终复制批次不能新增尝试或后继；晚到实际回执仍保存并使改变后的封存资格失效。绑定与解除流程见[运维手册](/ops/deploy/storage-migration-inventory#绑定窗口并封存最终增量)。
+
 开启原子将来源Gate从active改为draining，拒绝新普通准入；`stop`须登记操作为零及冻结配置一致，才转stopped。`close`先禁止新窗口读取；仍有操作时保持closing，实际归零后再次close才恢复来源active。取消单个任务不重开来源，不能按TTL忽略未决许可。窗口独立保留，不随AsyncJob级联清理。
 
 Inventory请求可选`window_id`，其item及Copy item另含nullable `window_id,window_revision`。窗口清单只能由该窗口固定父批次创建后继，继承目标、窗口及修订；不能拿它建立另一个根计划或给其他父批次提供来源例外。专用准入联查数据库保存的任务／attempt／task_id、窗口及停止Gate修订和冻结源身份；目标仍须普通active许可。旧无窗口任务保持原active要求；晚到物理回执仍按原协议保存。

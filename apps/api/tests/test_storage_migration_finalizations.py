@@ -200,9 +200,9 @@ async def child(db, world):
         source_operation_id=uuid.uuid4(),
         target_operation_id=uuid.uuid4(),
         result={
-            "attempt_subset_complete": True,
-            "selected_count": 0,
-            "selected_verified_count": 0,
+            "attempt_subset_complete": None,
+            "selected_count": None,
+            "selected_verified_count": None,
         },
     )
     db.add(attempt)
@@ -338,6 +338,48 @@ async def test_authority_is_rechecked_and_pending_intent_can_be_abandoned(
     )
     assert abandoned.state == "invalidated" and abandoned.invalidated_at is not None
     assert (await db_session.get(Window, control.window_id)).revision == 2
+
+
+@pytest.mark.parametrize("unsettled", [False, True])
+async def test_unreserved_intent_abandon_after_window_close(
+    db_session, control, unsettled
+):
+    closed = await windows.transition(
+        db_session,
+        control.window_id,
+        control.actor,
+        StorageMigrationWindowTransition(action="close", expected_revision=2),
+    )
+    assert closed.state == "closed" and closed.revision > 2
+    if unsettled:
+        db_session.add(
+            StorageOperation(
+                id=uuid.uuid4(),
+                location_id=inventories.LEGACY_LOCATION_ID,
+                revision=closed.source_gate_revision,
+                purpose="native-read",
+                node_id="test",
+            )
+        )
+        await db_session.flush()
+        await code(
+            "finalization_unsettled",
+            lambda: service.begin_invalidation(
+                db_session, control.actor.id, control.claim, 0
+            ),
+        )
+        assert (
+            await db_session.get(
+                Finalization, uuid.UUID(control.claim["finalization_id"])
+            )
+            is None
+        )
+    else:
+        item = await service.begin_invalidation(
+            db_session, control.actor.id, control.claim, 0
+        )
+        assert item.state == "invalidated" and item.window_revision == closed.revision
+        assert (await db_session.get(Window, control.window_id)).state == "closed"
 
 
 @pytest.mark.parametrize("kind", ["operation", "inventory", "attempt"])
@@ -485,7 +527,7 @@ async def test_latest_full_verify_required(db_session, bound, change):
     elif change == "cancelled":
         attempt.cancel_requested_at = inventories.now()
     else:
-        attempt.result = {**attempt.result, "selected_verified_count": 1}
+        row.summary = {**row.summary, "copy_subset_complete": False}
     await db_session.flush()
     await code(
         "finalization_verify_required",
@@ -704,10 +746,9 @@ async def test_seal_cross_checks_native_full_verify_and_evidence_counts(
 ):
     row, attempt, _ = await child(db_session, bound)
     if mismatch == "verify_count":
-        attempt.result = {
-            **attempt.result,
-            "selected_count": 1,
-            "selected_verified_count": 1,
+        row.summary = {
+            **row.summary,
+            "counts": {**row.summary["counts"], "verified": 1},
         }
         await db_session.flush()
     begin = await service.begin_seal(

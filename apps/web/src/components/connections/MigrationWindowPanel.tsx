@@ -68,7 +68,7 @@ export function migrationWindowError(error: unknown) {
     copy_not_prepared: "所选复制批次尚未封存计划。",
     copy_active_conflict: "所选复制批次仍有活动任务，请等待结束。",
     copy_execution_unsettled: "所选批次的底层操作尚未确认收尾，请等待或核实 Worker 状态。",
-    copy_read_only: "所选批次已有后续批次，请选择当前可继续的批次。",
+    copy_read_only: "所选批次已冻结，请刷新查看批次及绑定窗口。",
   };
   if (
     error instanceof ApiError &&

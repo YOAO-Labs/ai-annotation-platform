@@ -273,6 +273,8 @@ apps/api/.venv/bin/python scripts/verify_worktree_recovery.py
 
 受控本机 MinIO 源可用 `scripts/storage_source_fence.py init/preview/seal/status/release` 封闭原生写入。命令读取私有拓扑描述，凭据只从操作进程的 `AAP_SOURCE_FENCE_ACCESS_KEY / AAP_SOURCE_FENCE_SECRET_KEY` 取得；不读取应用 `.env`，不自动接管现有9000服务。唯一入口拒写、真实源进程退出、规则／multipart 收尾及恢复顺序见[MinIO原生源端封闭](docs-site/ops/deploy/storage-migration-inventory.md#minio-原生源端封闭)。纯检查使用 `PYTHONDONTWRITEBYTECODE=1 apps/api/.venv/bin/python -m unittest discover -s scripts -p 'test_storage_source_fence_*.py'`；真实验收脚本 `verify_storage_source_fence.py` 仅创建专属 Docker 资源，不初始化数据库模式或修改人工环境。
 
+应用最终清单／增量封存须应用0262。可信运维以现有应用数据库环境运行 `scripts/finalize_storage_migration.py bind/seal/status/invalidate`，把真实原生封闭绑定到停止窗口的新修订和准确 B5 后继；API／Worker 不需 Docker 权限。完整 verify、单入口责任、解除与独立恢复写入见[最终增量封存](docs-site/ops/deploy/storage-migration-inventory.md#绑定窗口并封存最终增量)。数据库或应答未知时保留原 claim，不删除状态绕过。批次封存不修改用途绑定或业务读取位置。
+
 对象存储源端迁移清单使用当前API虚拟环境和显式部署配置：`apps/api/.venv/bin/python scripts/inventory_storage_migration.py --output /private/source.jsonl`；`--verify`可离线核对同一清单。超级管理员也可在“存储管理 → 迁移准备”提交同一核心的后台任务并下载报告，须应用0255及刷新所属Worker。应用报告受32MiB上限和现有终态Job30天保留规则约束；CLI输出由操作者管理。对象账号可限制为只读，命令不会建桶或修改业务行。九用途处理选择、预算、退出码及一次性实际演练见[源端迁移清单](docs-site/ops/deploy/storage-migration-inventory.md)。
 
 应用侧初次复制须应用0256并刷新所属Worker。封存源清单可在控制台选择已登记全局S3目标，后台自动建立配对定位目录与持久复制计划，审阅后显式执行；原CLI目录／复制核心移入应用模块，兼容脚本入口保持。SQLite初始计划与PG逐对象delta保留nonce及准确版本，独立owner不随单次Job过期删除；当前凭据轮换、取消收尾、显式续跑、失败对象选择重试和私密检查点的边界见[控制台初次复制](docs-site/ops/deploy/storage-migration-inventory.md#从控制台执行初次复制)。该链不改Binding、业务引用、镜像或原写入渠道。

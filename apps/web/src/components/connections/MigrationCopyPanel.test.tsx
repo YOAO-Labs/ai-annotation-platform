@@ -630,6 +630,22 @@ it("filters unsealed and same reports while retaining a selected partial report 
   await waitFor(() => expect(api.generation).toHaveBeenCalledWith(COPY, NEXT_SOURCE));
 });
 
+it("shows finalization freezing without inventing a successor and keeps mutations hidden", async () => {
+  api.get.mockResolvedValue({
+    ...plan,
+    status: "completed",
+    read_only: true,
+    successor_copy_id: null,
+  });
+  mount(`/storage?tab=migration&migration_copy=${COPY}`);
+  const dialog = await review();
+  await within(dialog).findByText(/此批次已冻结用于最终核验/);
+  expect(within(dialog).queryByText(/已预留后续批次/)).not.toBeInTheDocument();
+  for (const label of ["查看后续批次", "准备后续批次", "重新核验", "开始初次复制"])
+    expect(within(dialog).queryByRole("button", { name: label })).not.toBeInTheDocument();
+  expect(within(dialog).getByRole("button", { name: "下载私密检查点" })).toBeEnabled();
+});
+
 it.each(["completed", "pending", "running"] as const)(
   "frozen %s parents retain read navigation and hide every mutation control",
   async (status) => {

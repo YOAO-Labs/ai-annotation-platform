@@ -114,6 +114,63 @@ apps/api/.venv/bin/python scripts/storage_source_fence.py status \
 
 私有 owner 清单保留真实资源 ID，正常结束按精确归属清理；验收进程被硬杀后，使用该脚本的 `--cleanup --manifest <原清单> --summary <新的私有汇总文件>` 恢复清理，不能按名称前缀批量删除。保留脱敏有界汇总，清理原始凭据、日志、报告和临时配置。此演练不代表应用路由已切换、真实 TLS 或生产迁移已经通过。
 
+## 绑定窗口并封存最终增量
+
+`scripts/finalize_storage_migration.py` 把实际原生封闭与应用窗口、新清单及 B5 后继复制绑定。命令由可信部署运维在当前应用数据库环境中执行，原生凭据仍只用上述两个操作进程变量；API 与 Worker 不需要 Docker 权限。`--actor-id` 为当前有效超级管理员 UUID。命令不接受上传的证明文件，不修改业务对象路由。
+
+1. 先完成初次复制及九用途处理评审，开启以该批次为父的迁移窗口，并停止登记访问。待旧任务与实际许可全部收尾后，实际执行原生 `seal`。
+2. 选定一个新的最终核验 UUID，在同一私有配置与状态上执行 `bind`。它先持久保存应用绑定责任，再核对数据库、源／目标和窗口，递增窗口修订；之后生成的新任务会固定此修订。
+3. 在该窗口重新生成完整源清单，以原父批次创建 B5 后继，执行增量复制及完整的 `verify`。完整核验会实际重读包括复用回执在内的准确目标版本。单项重试成功、准备完成或复制子集成功都不能代替它。
+4. 用后继批次执行最终 `seal`。命令先冻结批次，再在无数据库事务的阶段重新物化全部检查点和核对实际原生状态，最后短事务封存结果。控制台窗口详情显示核验状态、观测时间、分项数量及最终复制批次入口。
+
+```sh
+# 两种 revision 分别取原生 status 与应用窗口详情，不能混用。
+apps/api/.venv/bin/python scripts/finalize_storage_migration.py bind \
+  --config /private/source.json --state /private/fence-state.json \
+  --actor-id <super-admin-uuid> --finalization-id <new-uuid> \
+  --window-id <window-uuid> --expected-window-revision <revision> \
+  --expected-native-revision <native-revision>
+
+# 清单、后继复制及完整 verify 收尾后：
+apps/api/.venv/bin/python scripts/finalize_storage_migration.py seal \
+  --config /private/source.json --state /private/fence-state.json \
+  --actor-id <super-admin-uuid> --finalization-id <same-uuid> \
+  --copy-id <successor-uuid> --expected-revision <finalization-revision>
+```
+
+最终源清单须完整、覆盖全部唯一源桶，当前对象均已核验 SHA，且无当前问题或未完成上传。九用途和共桶处理选择须明确；`migrate` 对象必须有准确且完整核验的目标版本，`retain / rebuild` 和删除标记分别保留事实，不能用普通 `skipped` 掩盖未核验、冲突或超预算。历史目录未知、未展开和旧批次事实继续单列，不要求全历史定位归零，也不据此声明保留对象已迁走或重建已经完成。
+
+`sealed` 表示这一次窗口下的清单与复制证据已封存，附实际原生观测时刻；数据库记录不是当前源状态的永久证明。原报告中的 `source_quiescence_proven=false` 不改写，应用 `migration_ready=false` 保持，业务位置切换仍须后续执行。封存记录独立于单次任务保留，不因 AsyncJob 过期失去绑定与摘要。批次封存后不能新增尝试或后继；晚到物理回执仍保存，证据改变会使最终核验进入待解除状态。
+
+### 中断、解除与恢复写入
+
+使用 `status`（相同 `--config / --state / --actor-id / --finalization-id`）同时重新观测实际原生状态并查询绑定。中断后保留原 UUID 和 nonce 责任，先读取最新修订，再按原动作续做；命令不按 TTL 解除。配置漂移或源代次变化时拒绝继续封存，须先处理原责任并重新封闭、生成对应新窗口证据。
+
+绑定存在时，原生命令的独立解封／重封闭及窗口直接关闭均拒绝绕过。需结束本次核验时显式执行：
+
+```sh
+apps/api/.venv/bin/python scripts/finalize_storage_migration.py invalidate \
+  --config /private/source.json --state /private/fence-state.json \
+  --actor-id <super-admin-uuid> --finalization-id <same-uuid> \
+  --expected-revision <finalization-revision>
+```
+
+解除先持久进入 `invalidating`，禁止新任务读取；仍有旧任务或实际操作时保持等待，待真实收尾后以最新修订重试，成功保存 `invalidated` 后才清除原生绑定。这个命令本身不恢复写入。随后可另行执行原生 `release`，并按维护流程关闭应用窗口。
+
+数据库登记应答未知时不清除本地 claim。若尚未确认登记、同一数据库中确实没有该记录，并在锁定原窗口及其当前 Gate 后核实无旧任务或操作，可用 `--expected-revision 0` 显式废弃该登记意图并保存解除历史，原窗口已关闭也可核实后废弃；已确认登记却丢失记录时保持未知，不采用此路径。不要删除状态、换最终核验 UUID 或改数据库来绕过责任。数据库失联时保留物理只读，恢复连接后按原身份核实。
+
+### 一次性完整链路验收
+
+`scripts/verify_storage_migration_finalization.py` 仅在已核对、业务表为空的当前工作树 `test` 模式运行。它创建独立的非空源与目标、API 和 Worker，实际完成初次复制、窗口绑定、新清单、复用准确回执的增量与完整核验、封存提交后硬退出续做，以及等待真实任务收尾的解除顺序。源和目标容器使用已有镜像，API／Worker 不取得 Docker 权限；人工验收环境保持独立。
+
+```sh
+pnpm dev:worktree -- exec --mode test -- env PYTHONDONTWRITEBYTECODE=1 \
+  apps/api/.venv/bin/python scripts/verify_storage_migration_finalization.py \
+  --manifest /private/finalization-owner.json --summary /private/finalization-result.json
+```
+
+需要浏览器核验时加 `--pause-for-browser`；私有 owner 目录中的 `ready.json` 保存独立页面、临时认证状态及继续标记，不能公开。脚本按精确进程与资源归属清理；异常退出后的 `--cleanup` 使用原 manifest 和新的 summary。最后销毁本次一次性 `test` 模式，保留脱敏有界结果。此演练不表示生产后端已选定、业务位置已切换或旧存储可退役。
+
 ## 执行与核对
 
 使用当前 checkout 的 API 虚拟环境，显式加载目标部署的数据库与 S3 配置。命令读取已有 `MINIO_*` 配置，不新增配置变量。数据库账号须能查询用途绑定、位置／连接的非凭据配置及异步任务；对象账号只需读取配置、列举桶版本／未完成上传和读取对象版本的权限。命令不会调用建桶、修改规则、上传或删除操作。

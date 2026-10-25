@@ -36,7 +36,7 @@ function generationError(error: unknown) {
   const messages: Record<string, string> = {
     copy_window_changed: "清单与固定父批次的窗口绑定不匹配，请选择该窗口的封存清单。",
     migration_source_read_denied: "源读取未获准，请核实窗口状态与源访问门禁。",
-    copy_read_only: "原批次已冻结，请刷新并打开已创建的后续批次。",
+    copy_read_only: "批次已冻结，请刷新查看批次及绑定窗口。",
     copy_successor_exists: "原批次已有另一份清单的后续批次，请刷新后查看。",
     copy_generation_unchanged: "请选择与原批次不同的封存清单。",
     copy_not_prepared: "原批次尚未准备完成，请先完成原计划准备。",

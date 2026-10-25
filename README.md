@@ -88,6 +88,8 @@ AI Annotation Platform 把项目管理、Data Manager、多模态标注工作台
 
 受控本机 MinIO 源提供独立的[原生写入封闭命令](./docs-site/ops/deploy/storage-migration-inventory.md#minio-原生源端封闭)：保持原 S3 入口拒写，真实收尾已接受上传、生命周期与 multipart，核对后保留只读访问；恢复写入须显式执行，不自动切换应用路由或退役存储。
 
+运维可将原生封闭绑定到应用维护窗口，完成[最终清单与增量封存](./docs-site/ops/deploy/storage-migration-inventory.md#绑定窗口并封存最终增量)。控制台显示该次核验的状态、观测时间及最终批次；绑定期间禁止直接解封或关闭窗口，业务位置切换保持独立。
+
 另可生成[已保存业务定位目录](./docs-site/ops/deploy/storage-migration-inventory.md#已保存业务定位目录)，以只读数据库快照盘点27类归属、历史位置和暂存／删除声明，覆盖九用途当前保存地址，并按准确端点、桶和完整键关联源报告。跨端点暂存与最终原件分开定位；未固定版本、范围声明和无法定位记录分别保留，不自动复制、修复历史或切换存储。
 
 封存源清单与配对目录可用于[本地初次复制与可恢复核验](./docs-site/ops/deploy/storage-migration-inventory.md#本地初次复制与可恢复核验)：独立 CLI 保存逐源版本的实际目标回执，支持断点续跑、显式失败重试和完整 SHA／元数据读回。工具不改应用绑定或业务定位，复制子集通过仍不表示生产迁移就绪。

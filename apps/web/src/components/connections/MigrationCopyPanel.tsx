@@ -353,7 +353,9 @@ function CopyOwner({
                       </div>
                       <Badge variant="outline">
                         {readOnly(entry)
-                          ? "原批次只读"
+                          ? entry.successor_copy_id
+                            ? "原批次只读"
+                            : "批次只读"
                           : entry.prepared
                             ? "计划已封存"
                             : "准备计划"}
@@ -547,7 +549,7 @@ function CopyReview({
       <section className="rounded-md border border-border p-3">
         <h3 className="text-md font-semibold">{item.target_name ?? "已登记目标"}</h3>
         <p className="mt-1 text-xs text-muted-foreground">
-          第 {generation} 批{frozen ? " · 原批次只读" : ""}
+          第 {generation} 批{frozen ? " · 批次只读" : ""}
         </p>
         <p className="mt-2">{subset(item)}</p>
         <div className="mt-2">
@@ -578,7 +580,9 @@ function CopyReview({
         <section aria-label="批次关系" className="space-y-2">
           {frozen && (
             <p className="text-xs leading-relaxed text-muted-foreground">
-              已预留后续批次，原批次保持只读；可查看原任务和下载检查点。
+              {item.successor_copy_id
+                ? "已预留后续批次，原批次保持只读；可查看原任务和下载检查点。"
+                : "此批次已冻结用于最终核验；可查看绑定窗口、原任务和下载检查点。"}
             </p>
           )}
           <div className="flex flex-wrap gap-2">
