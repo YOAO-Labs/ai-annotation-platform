@@ -1177,6 +1177,7 @@ TEST_FILES = (
     "tests/test_audit_maintenance_module_live.py",
     "tests/test_audit_metadata_delivery_live.py",
     "tests/test_audit_consumers_cold.py",
+    "tests/test_audit_maintenance_consumers_cold.py",
     "tests/test_labeling_scale_seed_operations.py",
     "tests/test_scale_seed_workspace_native.py",
     "tests/test_workspace_e2e_native.py",
@@ -8713,6 +8714,9 @@ SELECT pg_catalog.jsonb_build_object(
         if (
             "tests/test_audit_maintenance_module_live.py" in selected_test_paths
             and os.environ.get("AAP_AUDIT_MAINTENANCE_MODULE_ACCEPTANCE") == "1"
+        ) or (
+            "tests/test_audit_maintenance_consumers_cold.py" in selected_test_paths
+            and os.environ.get("AAP_AUDIT_MAINTENANCE_CONSUMER_ACCEPTANCE") == "1"
         ):
             bucket = resources["buckets"]["MINIO_AUDIT_ARCHIVE_BUCKET"]
             tags = backend.s3.get_bucket_tagging(Bucket=bucket)["TagSet"]

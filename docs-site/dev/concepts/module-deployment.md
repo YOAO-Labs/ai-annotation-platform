@@ -179,6 +179,12 @@ JSON、IPv6、CSV／JSON 导出及导出审计先提交再返回流。原 POST 4
 组合验收，并保留暂缓 Learning 读取与业务 request ID 遗留边界。源码在当前分支，日常独立
 拓扑与生产容量未验收；训练、资产及 Go 范围保持。
 
+当前维护调度批次入口为 `tests/test_audit_maintenance_consumers_cold.py`。它复用同一 API
+镜像和现有受限运行账号，独立启动 maintenance 队列的 prefork worker 与 Beat scheduler
+进程；只在隔离夹具中缩短条目间隔并使其到期。集中核对三项既有任务、Jobs 系统作业与
+无接收者通知门禁、上传后进程丢失的原子回滚、整库恢复及显式重投。默认维护 worker 的
+迁移账号和其他维护任务保持，只有该批通过后才更新本操作资格。
+
 ## Audit 全局查询 owner {#audit-global-query-owner}
 
 源码 `d1da388c9` 将 super-admin 全局列表和 CSV／JSON 导出接入固定 `aap_audit_v1.query_events(jsonb)`；同事务查询遵守原 autoflush，不提交事务。总数在游标／分页前计算，排序及过滤保持。导出仍先检查 50,000 行上限，成功后记录 `audit.export` 并提交，再返回流。内部 ID 使用完整有符号 int64 字符串，公开 API 保持整数；日期、游标、actor UUID 及 INET 序列化按实际旧 PostgreSQL／asyncpg 行为对照。project-admin 项目范围与跨域事实仍由原 API 持有。
