@@ -769,10 +769,10 @@ BEGIN
                     RAISE EXCEPTION 'Invalid Annotation lineage edge' USING ERRCODE = '22023';
                 END IF;
                 INSERT INTO public.annotation_lineage_edges (
-                    operation_id,source_annotation_id,result_annotation_id,
+                    id,operation_id,source_annotation_id,result_annotation_id,
                     relation,source_version,result_version,frame_index
                 ) VALUES (
-                    v_operation_id,
+                    pg_catalog.gen_random_uuid(),v_operation_id,
                     (v_lineage ->> 'source_annotation_id')::uuid,
                     (v_lineage ->> 'result_annotation_id')::uuid,
                     v_lineage ->> 'relation',

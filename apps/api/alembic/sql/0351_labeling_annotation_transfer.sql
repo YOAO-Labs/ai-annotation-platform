@@ -868,19 +868,6 @@ BEGIN
                 v_deleted_ids := v_deleted_ids || jsonb_build_array(v_id);
                 v_result_versions := v_result_versions || jsonb_build_object(v_id::text,v_version);
             END IF;
-            IF v_action ->> 'kind' IN ('create','update') THEN
-                INSERT INTO public.annotation_lineage_edges(
-                    operation_id,source_annotation_id,result_annotation_id,relation,
-                    source_version,result_version,frame_index
-                ) VALUES (
-                    v_execution_id,v_id,
-                    CASE WHEN v_action ->> 'kind'='create' THEN v_created_id ELSE v_id END,
-                    'converted',(SELECT (value ->> 'version')::integer
-                        FROM jsonb_array_elements(p_request -> 'source_fences') AS fences(value)
-                        WHERE value ->> 'annotation_id'=v_id::text),v_version,
-                    (v_action ->> 'frame_index')::integer
-                );
-            END IF;
         END LOOP;
         INSERT INTO public.annotation_operations(
             id,task_id,actor_id,kind,idempotency_key,request_digest,scope_fingerprint,
@@ -890,6 +877,27 @@ BEGIN
             v_execution_digest,p_request ->> 'scope_fingerprint',v_source_versions,
             v_result_versions,p_request -> 'report','committed','{}'::jsonb
         );
+        FOR v_action IN SELECT value FROM jsonb_array_elements(p_request -> 'actions') WITH ORDINALITY AS entries(value, ordinal)
+            ORDER BY ordinal
+        LOOP
+            IF v_action ->> 'kind' IN ('create','update') THEN
+                v_id := (v_action ->> 'source_id')::uuid;
+                v_created_id := CASE
+                    WHEN v_action ->> 'kind'='create'
+                        THEN (v_action ->> 'result_id')::uuid
+                    ELSE v_id
+                END;
+                INSERT INTO public.annotation_lineage_edges(
+                    id,operation_id,source_annotation_id,result_annotation_id,relation,
+                    source_version,result_version,frame_index
+                ) VALUES (
+                    pg_catalog.gen_random_uuid(),v_execution_id,v_id,v_created_id,'converted',
+                    (v_source_versions ->> v_id::text)::integer,
+                    (v_result_versions ->> v_created_id::text)::integer,
+                    (v_action ->> 'frame_index')::integer
+                );
+            END IF;
+        END LOOP;
         UPDATE public.annotation_conversion_plans AS plan
         SET executed_operation_id=v_execution_id,executed_idempotency_key=v_idempotency_key
         WHERE plan.id=v_plan.id;

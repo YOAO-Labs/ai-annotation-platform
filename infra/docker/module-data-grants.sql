@@ -889,7 +889,7 @@ GRANT INSERT (id, annotation_id, project_id, author_id, body, mentions, attachme
 GRANT INSERT (id, kind, anchor_type, project_id, task_id, annotation_id, anchor_position, status, severity, title, body, author_id, attachments, mentions, canvas_drawing, thread_parent_id, is_active) ON public.annotation_feedbacks TO :"labeling_owner";
 GRANT INSERT (id, task_id, user_id, project_id, kind, started_at, ended_at, duration_ms, annotation_count, was_rejected, collector_version, collection_source, collection_coverage, created_at) ON public.task_events TO :"labeling_owner";
 GRANT INSERT (id, task_id, actor_id, kind, idempotency_key, request_digest, scope_fingerprint, source_versions, result_versions, report, status, response_json, created_at, completed_at) ON public.annotation_operations TO :"labeling_owner";
-GRANT INSERT (operation_id, source_annotation_id, result_annotation_id, relation, source_version, result_version, frame_index) ON public.annotation_lineage_edges TO :"labeling_owner";
+GRANT INSERT (id, operation_id, source_annotation_id, result_annotation_id, relation, source_version, result_version, frame_index) ON public.annotation_lineage_edges TO :"labeling_owner";
 GRANT INSERT (task_id, idempotency_key, request_digest, candidate_id, content_digest, prediction_id, prediction_created_at, annotation_id, source_annotation_id, source_version, result_version, actor_id, response_json) ON public.ai_mask_accept_decisions TO :"labeling_owner";
 GRANT UPDATE (body, is_resolved, is_active, attachments, updated_at) ON public.annotation_comments TO :"labeling_owner";
 GRANT UPDATE (status, resolved_at, resolved_by_id, severity, title, body, mentions, is_active, updated_at) ON public.annotation_feedbacks TO :"labeling_owner";

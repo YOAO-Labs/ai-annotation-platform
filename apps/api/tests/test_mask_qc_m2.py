@@ -228,7 +228,7 @@ async def test_mask_qc_execution_dedupes_findings_and_advances_last_seen(
     )
     persisted_first = await db_session.get(MaskQCRun, first.id, populate_existing=True)
     assert persisted_first is not None
-    assert persisted_first.status == "completed"
+    assert persisted_first.status == "completed", persisted_first.error_message
     assert persisted_first.progress_pct == 100
     first_count = int(
         (
