@@ -1,18 +1,26 @@
-"""Bind human video-tracker control to one typed Labeling Native command."""
+"""Bind video-tracker control and worker state to Labeling Native commands."""
 
 from __future__ import annotations
 
 import json
 
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import make_transient_to_detached
+from sqlalchemy.orm.util import identity_key
 
 from aap_labeling.video_control_contract import (
+    LockWorkerJob,
+    ReadWorkerJob,
+    ReadWorkerSegment,
+    StartWorkerJob,
     VideoControlCommand,
     VideoControlUnavailable,
 )
 from aap_labeling.video_control_data import VideoControlDataClient
+from app.db.models.dataset import VideoSegment
+from app.db.models.video_tracker_job import VideoTrackerJob
 from app.services.labeling_annotation_data import _native_error_fields
 
 
@@ -59,4 +67,37 @@ async def video_control_command(db: AsyncSession, request: VideoControlCommand):
         raise
 
 
-__all__ = ["VideoControlRejected", "video_control_command"]
+async def video_control_job(
+    db: AsyncSession, request: ReadWorkerJob | LockWorkerJob | StartWorkerJob
+) -> VideoTrackerJob | None:
+    data = await video_control_command(db, request)
+    if data is None:
+        return None
+    job = VideoTrackerJob(**data)
+    make_transient_to_detached(job)
+    return await db.merge(job, load=False)
+
+
+async def video_control_worker_segment(
+    db: AsyncSession, request: ReadWorkerSegment
+) -> tuple[VideoSegment | None, int]:
+    data = await video_control_command(db, request)
+    if data["segment"] is None:
+        return None, data["segment_count"]
+    segment_id = data["segment"]["id"]
+    cached = db.sync_session.identity_map.get(
+        identity_key(VideoSegment, ident=segment_id)
+    )
+    if cached is not None and not inspect(cached).expired:
+        return cached, data["segment_count"]
+    segment = VideoSegment(**data["segment"])
+    make_transient_to_detached(segment)
+    return await db.merge(segment, load=False), data["segment_count"]
+
+
+__all__ = [
+    "VideoControlRejected",
+    "video_control_command",
+    "video_control_job",
+    "video_control_worker_segment",
+]

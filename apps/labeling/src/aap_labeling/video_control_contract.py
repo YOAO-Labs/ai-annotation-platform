@@ -1,4 +1,4 @@
-"""Typed transaction-local commands for human video-tracker control."""
+"""Typed transaction-local commands for Labeling video-tracker control."""
 
 from __future__ import annotations
 
@@ -38,6 +38,23 @@ class ReadJob(_Command):
     operation: Literal["read_job"]
     job_id: uuid.UUID
     actor_id: uuid.UUID
+
+
+class ReadWorkerJob(_Command):
+    operation: Literal["read_worker_job"]
+    job_id: uuid.UUID
+
+
+class LockWorkerJob(_Command):
+    operation: Literal["lock_worker_job"]
+    job_id: uuid.UUID
+
+
+class StartWorkerJob(_Command):
+    operation: Literal["start_worker_job"]
+    job_id: uuid.UUID
+    celery_task_id: Annotated[StrictStr, Field(min_length=1)] | None
+    started_at: AwareDatetime
 
 
 class LockReviewJob(_Command):
@@ -251,6 +268,11 @@ class VideoControlSegmentsData(_Closed):
     segment_count: StrictInt = Field(ge=0)
 
 
+class VideoControlWorkerSegmentData(_Closed):
+    segment: VideoSegmentRecord | None
+    segment_count: StrictInt = Field(ge=0)
+
+
 class VideoControlExpiryData(_Closed):
     expired: StrictInt = Field(ge=0)
 
@@ -285,6 +307,11 @@ class ReadSegments(_Command):
     to_frame: StrictInt = Field(ge=0)
     nowait: StrictBool = False
     count_segments: StrictBool = True
+
+
+class ReadWorkerSegment(_Command):
+    operation: Literal["read_worker_segment"]
+    job_id: uuid.UUID
 
 
 class EnsureSegments(_Command):
@@ -412,12 +439,16 @@ class ListTimeline(_Command):
 
 VideoControlCommand = Annotated[
     ReadJob
+    | ReadWorkerJob
+    | LockWorkerJob
+    | StartWorkerJob
     | LockReviewJob
     | ReadTaskJobs
     | ReadActiveCorrection
     | ReadAnnotations
     | LockReviewAnnotations
     | ReadSegments
+    | ReadWorkerSegment
     | EnsureSegments
     | CheckReviewScopes
     | ExpireCandidates
@@ -456,6 +487,9 @@ def _decode_result(request: VideoControlCommand, data: Any):
         request,
         (
             ReadJob,
+            ReadWorkerJob,
+            LockWorkerJob,
+            StartWorkerJob,
             LockReviewJob,
             CreateJob,
             CancelJob,
@@ -466,9 +500,13 @@ def _decode_result(request: VideoControlCommand, data: Any):
     ):
         if data is None:
             return None
-        return VideoTrackerJobRecord.model_validate_json(
+        row = VideoTrackerJobRecord.model_validate_json(
             json.dumps(data, ensure_ascii=True, allow_nan=False)
         ).model_dump(mode="python")
+        if isinstance(request, (ReadWorkerJob, LockWorkerJob, StartWorkerJob)):
+            if row["id"] != request.job_id:
+                raise VideoControlUnavailable()
+        return row
     if isinstance(request, ReadTaskJobs):
         return tuple(
             value.model_dump(mode="python")
@@ -489,6 +527,10 @@ def _decode_result(request: VideoControlCommand, data: Any):
         )
     if isinstance(request, (ReadSegments, EnsureSegments)):
         return VideoControlSegmentsData.model_validate_json(
+            json.dumps(data, ensure_ascii=True, allow_nan=False)
+        ).model_dump(mode="python")
+    if isinstance(request, ReadWorkerSegment):
+        return VideoControlWorkerSegmentData.model_validate_json(
             json.dumps(data, ensure_ascii=True, allow_nan=False)
         ).model_dump(mode="python")
     if isinstance(request, ExpireCandidates):
@@ -555,6 +597,7 @@ def video_control_schema() -> dict[str, Any]:
         VideoAnnotationRecord,
         VideoSegmentRecord,
         VideoControlSegmentsData,
+        VideoControlWorkerSegmentData,
         CheckReviewScopesData,
         VideoControlExpiryData,
         VideoControlAnnotationWriteData,
@@ -566,8 +609,12 @@ def video_control_schema() -> dict[str, Any]:
     job = {"$ref": "#/$defs/VideoTrackerJobRecord"}
     annotation = {"$ref": "#/$defs/VideoAnnotationRecord"}
     segment_data = {"$ref": "#/$defs/VideoControlSegmentsData"}
+    worker_segment_data = {"$ref": "#/$defs/VideoControlWorkerSegmentData"}
     schema["x-data-contracts"] = {
         "read_job": job,
+        "read_worker_job": {"oneOf": [job, {"type": "null"}]},
+        "lock_worker_job": {"oneOf": [job, {"type": "null"}]},
+        "start_worker_job": {"oneOf": [job, {"type": "null"}]},
         "lock_review_job": job,
         "read_task_jobs": {"type": "array", "items": job},
         "read_active_correction": {
@@ -579,6 +626,7 @@ def video_control_schema() -> dict[str, Any]:
         "read_annotations": {"type": "array", "items": annotation},
         "lock_review_annotations": {"type": "array", "items": annotation},
         "read_segments": segment_data,
+        "read_worker_segment": worker_segment_data,
         "ensure_segments": segment_data,
         "check_review_scopes": {"$ref": "#/$defs/CheckReviewScopesData"},
         "expire_candidates": {"$ref": "#/$defs/VideoControlExpiryData"},
@@ -606,6 +654,7 @@ __all__ = [
     "EnsureSegments",
     "LockReviewAnnotations",
     "LockReviewJob",
+    "LockWorkerJob",
     "MarkEnqueued",
     "MarkEnqueueFailed",
     "MaskReviewScopeWrite",
@@ -615,12 +664,16 @@ __all__ = [
     "ReadJob",
     "ReadSegments",
     "ReadTaskJobs",
+    "ReadWorkerJob",
+    "ReadWorkerSegment",
     "ReviewSourceVersion",
     "SaveKeyframe",
     "SourceAnnotationWrite",
     "NewTrackWrite",
+    "StartWorkerJob",
     "VideoControlCommand",
     "VideoControlUnavailable",
+    "VideoControlWorkerSegmentData",
     "decode_video_control_command",
     "decode_video_control_reply",
     "video_control_command_json",

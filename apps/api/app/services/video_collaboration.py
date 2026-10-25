@@ -88,21 +88,23 @@ async def segment_work_bounds_for_task(
     segment: VideoSegment,
     project: Project | None = None,
     video_metadata: VideoMetadata | None = None,
+    segment_count: int | None = None,
 ) -> tuple[int, int]:
     project = project or await get_workspace_project(db, project_id=task.project_id)
     config = collaboration_config(project)
     if not config.enabled:
         return segment.start_frame, segment.end_frame
 
-    segment_count = int(
-        (
-            await db.execute(
-                select(func.count())
-                .select_from(VideoSegment)
-                .where(VideoSegment.dataset_item_id == task.dataset_item_id)
-            )
-        ).scalar_one()
-    )
+    if segment_count is None:
+        segment_count = int(
+            (
+                await db.execute(
+                    select(func.count())
+                    .select_from(VideoSegment)
+                    .where(VideoSegment.dataset_item_id == task.dataset_item_id)
+                )
+            ).scalar_one()
+        )
     if video_metadata is None:
         video_metadata = (
             await AssetsTaskMediaSummaryReader(db).current_video_metadata(

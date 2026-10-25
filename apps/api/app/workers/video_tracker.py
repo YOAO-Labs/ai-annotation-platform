@@ -3,17 +3,12 @@ from __future__ import annotations
 import asyncio
 import uuid
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
 from app.services.project_access import get_workspace_project
 from app.db.models.task import Task
-from app.db.models.video_tracker_job import (
-    VideoTrackerJob,
-    VideoTrackerJobKind,
-    VideoTrackerJobStatus,
-)
+from app.db.models.video_tracker_job import VideoTrackerJobKind, VideoTrackerJobStatus
 from app.services import async_job as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
 from app.services.gpu_arbitration.contracts import gpu_arbiter_failure_record
@@ -24,6 +19,8 @@ from app.services.video_tracking.execution import (
     TrackerExecutionLost,
     fence_tracker_write,
 )
+from app.services.video_tracking.control import video_control_command, video_control_job
+from aap_labeling.video_control_contract import LockWorkerJob, ReadWorkerJob
 from app.services.video_tracking.runner import run_tracker_job
 from app.workers.celery_app import celery_app
 
@@ -33,16 +30,17 @@ async def _sync_terminal_summary(
 ):
     """Project only a locked canonical terminal fact, never a worker exception."""
     await db.rollback()
-    canonical = (
-        await db.execute(
-            select(VideoTrackerJob.status, VideoTrackerJob.error_message)
-            .where(VideoTrackerJob.id == tracker_job_id)
-            .with_for_update(nowait=True)
-        )
-    ).first()
+    canonical = await video_control_command(
+        db,
+        LockWorkerJob(
+            schema="aap-labeling-video-control/v1",
+            operation="lock_worker_job",
+            job_id=tracker_job_id,
+        ),
+    )
     if canonical is None:
         return
-    status, error = canonical
+    status, error = canonical["status"], canonical["error_message"]
     if status == VideoTrackerJobStatus.CANCELLED.value:
         await async_job_svc.mark_cancelled(db, async_job_id)
     elif status == VideoTrackerJobStatus.FAILED.value:
@@ -76,7 +74,14 @@ async def _run_video_tracker_job(job_id: str, celery_task_id: str | None) -> Non
     dispatch_context_factory = build_gpu_dispatch_context_factory(SessionLocal)
     try:
         async with SessionLocal() as db:
-            job = await db.get(VideoTrackerJob, uuid.UUID(job_id))
+            job = await video_control_job(
+                db,
+                ReadWorkerJob(
+                    schema="aap-labeling-video-control/v1",
+                    operation="read_worker_job",
+                    job_id=uuid.UUID(job_id),
+                ),
+            )
             # v0.10.16 · async_jobs 双写（汇总索引层；失败不阻断主流程）
             async_job_id: uuid.UUID | None = None
             project_id: uuid.UUID | None = None

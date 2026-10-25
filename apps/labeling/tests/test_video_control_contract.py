@@ -1,14 +1,21 @@
 import json
 import uuid
+from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
 from aap_labeling.video_control_contract import (
     CheckReviewScopes,
+    LockWorkerJob,
     ReadJob,
+    ReadWorkerJob,
+    ReadWorkerSegment,
+    StartWorkerJob,
     VideoControlUnavailable,
     decode_video_control_reply,
     decode_video_control_command,
+    video_control_schema,
 )
 from aap_labeling.video_control_data import VideoControlDataClient
 
@@ -93,6 +100,96 @@ def test_video_control_command_rejects_untyped_authority_fields():
         decode_video_control_command(raw)
 
 
+@pytest.mark.asyncio
+async def test_worker_commands_bind_nullable_job_and_segment_rows():
+    job_id = uuid.uuid4()
+    now = datetime.now(timezone.utc)
+    request = ReadWorkerJob(
+        schema="aap-labeling-video-control/v1",
+        operation="read_worker_job",
+        job_id=job_id,
+    )
+    missing = {
+        "schema": "aap-labeling-video-control/v1",
+        "ok": True,
+        "request": request.model_dump(mode="json", by_alias=True),
+        "data": None,
+    }
+    assert decode_video_control_reply(request, missing) is None
+
+    lock = LockWorkerJob(
+        schema="aap-labeling-video-control/v1",
+        operation="lock_worker_job",
+        job_id=job_id,
+    )
+    locked = decode_video_control_reply(
+        lock,
+        {
+            **missing,
+            "request": lock.model_dump(mode="json", by_alias=True),
+            "data": _job_data(job_id),
+        },
+    )
+    assert locked["id"] == job_id
+
+    start = StartWorkerJob(
+        schema="aap-labeling-video-control/v1",
+        operation="start_worker_job",
+        job_id=job_id,
+        celery_task_id="celery-video-worker",
+        started_at=now,
+    )
+    with pytest.raises(VideoControlUnavailable):
+        decode_video_control_reply(
+            start,
+            {
+                **missing,
+                "request": start.model_dump(mode="json", by_alias=True),
+                "data": _job_data(uuid.uuid4()),
+            },
+        )
+
+    segment_request = ReadWorkerSegment(
+        schema="aap-labeling-video-control/v1",
+        operation="read_worker_segment",
+        job_id=job_id,
+    )
+    segment_id = uuid.uuid4()
+    segment = {
+        "id": str(segment_id),
+        "dataset_item_id": str(uuid.uuid4()),
+        "segment_index": 2,
+        "start_frame": 100,
+        "end_frame": 199,
+        "assignee_id": None,
+        "status": "locked",
+        "locked_by": str(uuid.uuid4()),
+        "locked_at": now.isoformat(),
+        "lock_expires_at": now.isoformat(),
+        "created_at": now.isoformat(),
+        "updated_at": now.isoformat(),
+    }
+    snapshot = decode_video_control_reply(
+        segment_request,
+        {
+            **missing,
+            "request": segment_request.model_dump(mode="json", by_alias=True),
+            "data": {"segment": segment, "segment_count": 4},
+        },
+    )
+    assert snapshot["segment"]["id"] == segment_id
+    assert snapshot["segment_count"] == 4
+    missing_segment = decode_video_control_reply(
+        segment_request,
+        {
+            **missing,
+            "request": segment_request.model_dump(mode="json", by_alias=True),
+            "data": {"segment": None, "segment_count": 0},
+        },
+    )
+    assert missing_segment == {"segment": None, "segment_count": 0}
+
+
 def test_review_scope_reply_has_a_closed_typed_projection():
     request = CheckReviewScopes(
         schema="aap-labeling-video-control/v1",
@@ -132,3 +229,13 @@ def test_review_scope_reply_has_a_closed_typed_projection():
     reply["data"]["scopes"][0]["project_id"] = str(uuid.uuid4())
     with pytest.raises(VideoControlUnavailable):
         decode_video_control_reply(request, reply)
+
+
+def test_video_control_schema_snapshots_match_the_closed_contract():
+    root = Path(__file__).resolve().parents[3]
+    expected = video_control_schema()
+    for snapshot in (
+        root / "apps/labeling/src/aap_labeling/video-control.schema.json",
+        root / "apps/api/alembic/sql/0350_labeling_video_control.schema.json",
+    ):
+        assert json.loads(snapshot.read_text()) == expected

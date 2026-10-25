@@ -737,6 +737,29 @@
       "title": "LockReviewJob",
       "type": "object"
     },
+    "LockWorkerJob": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "lock_worker_job",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "job_id"],
+      "title": "LockWorkerJob",
+      "type": "object"
+    },
     "MarkEnqueueFailed": {
       "additionalProperties": false,
       "properties": {
@@ -1331,6 +1354,52 @@
       "title": "ReadTaskJobs",
       "type": "object"
     },
+    "ReadWorkerJob": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_worker_job",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "job_id"],
+      "title": "ReadWorkerJob",
+      "type": "object"
+    },
+    "ReadWorkerSegment": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_worker_segment",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "job_id"],
+      "title": "ReadWorkerSegment",
+      "type": "object"
+    },
     "ReviewSourceVersion": {
       "additionalProperties": false,
       "properties": {
@@ -1496,6 +1565,46 @@
         "tool_unit_id"
       ],
       "title": "SourceAnnotationWrite",
+      "type": "object"
+    },
+    "StartWorkerJob": {
+      "additionalProperties": false,
+      "properties": {
+        "celery_task_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Celery Task Id"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "start_worker_job",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-video-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "job_id", "celery_task_id", "started_at"],
+      "title": "StartWorkerJob",
       "type": "object"
     },
     "VideoAnnotationRecord": {
@@ -1881,6 +1990,29 @@
       },
       "required": ["job", "project_id"],
       "title": "VideoControlTimelineRow",
+      "type": "object"
+    },
+    "VideoControlWorkerSegmentData": {
+      "additionalProperties": false,
+      "properties": {
+        "segment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VideoSegmentRecord"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "segment_count": {
+          "minimum": 0,
+          "title": "Segment Count",
+          "type": "integer"
+        }
+      },
+      "required": ["segment", "segment_count"],
+      "title": "VideoControlWorkerSegmentData",
       "type": "object"
     },
     "VideoSegmentRecord": {
@@ -2280,6 +2412,7 @@
           "list_timeline": "#/$defs/ListTimeline",
           "lock_review_annotations": "#/$defs/LockReviewAnnotations",
           "lock_review_job": "#/$defs/LockReviewJob",
+          "lock_worker_job": "#/$defs/LockWorkerJob",
           "mark_enqueue_failed": "#/$defs/MarkEnqueueFailed",
           "mark_enqueued": "#/$defs/MarkEnqueued",
           "operate_keyframe": "#/$defs/OperateKeyframe",
@@ -2288,13 +2421,25 @@
           "read_job": "#/$defs/ReadJob",
           "read_segments": "#/$defs/ReadSegments",
           "read_task_jobs": "#/$defs/ReadTaskJobs",
-          "save_keyframe": "#/$defs/SaveKeyframe"
+          "read_worker_job": "#/$defs/ReadWorkerJob",
+          "read_worker_segment": "#/$defs/ReadWorkerSegment",
+          "save_keyframe": "#/$defs/SaveKeyframe",
+          "start_worker_job": "#/$defs/StartWorkerJob"
         },
         "propertyName": "operation"
       },
       "oneOf": [
         {
           "$ref": "#/$defs/ReadJob"
+        },
+        {
+          "$ref": "#/$defs/ReadWorkerJob"
+        },
+        {
+          "$ref": "#/$defs/LockWorkerJob"
+        },
+        {
+          "$ref": "#/$defs/StartWorkerJob"
         },
         {
           "$ref": "#/$defs/LockReviewJob"
@@ -2313,6 +2458,9 @@
         },
         {
           "$ref": "#/$defs/ReadSegments"
+        },
+        {
+          "$ref": "#/$defs/ReadWorkerSegment"
         },
         {
           "$ref": "#/$defs/EnsureSegments"
@@ -2390,6 +2538,16 @@
     "lock_review_job": {
       "$ref": "#/$defs/VideoTrackerJobRecord"
     },
+    "lock_worker_job": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/VideoTrackerJobRecord"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "mark_enqueue_failed": {
       "oneOf": [
         {
@@ -2435,8 +2593,31 @@
       },
       "type": "array"
     },
+    "read_worker_job": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/VideoTrackerJobRecord"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "read_worker_segment": {
+      "$ref": "#/$defs/VideoControlWorkerSegmentData"
+    },
     "save_keyframe": {
       "$ref": "#/$defs/VideoControlAnnotationWriteData"
+    },
+    "start_worker_job": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/VideoTrackerJobRecord"
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "x-postgresql-functions": ["aap_labeling_v1.video_control_command(jsonb)"]

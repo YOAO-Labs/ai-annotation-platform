@@ -59,7 +59,32 @@ BEGIN
     END IF;
     v_operation := p_request ->> 'operation';
 
-    IF v_operation = 'read_job' OR v_operation = 'lock_review_job' THEN
+    IF v_operation IN ('read_worker_job','lock_worker_job') THEN
+        IF (p_request - ARRAY['schema','operation','job_id']) IS DISTINCT FROM '{}'::jsonb
+           OR NOT (p_request ?& ARRAY['schema','operation','job_id'])
+           OR pg_catalog.jsonb_typeof(p_request -> 'job_id') IS DISTINCT FROM 'string' THEN
+            RAISE EXCEPTION 'Invalid video worker-job request' USING ERRCODE = '22023';
+        END IF;
+        v_id := (p_request ->> 'job_id')::uuid;
+        IF v_operation = 'lock_worker_job' THEN
+            BEGIN
+                SELECT job.* INTO v_job
+                FROM public.video_tracker_jobs AS job
+                WHERE job.id = v_id
+                FOR UPDATE NOWAIT;
+            EXCEPTION WHEN lock_not_available OR serialization_failure OR deadlock_detected THEN
+                RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'aap_video_control_error',
+                    DETAIL = pg_catalog.jsonb_build_object('status_code',409,
+                        'detail',pg_catalog.jsonb_build_object('reason','tracker_job_busy'))::text;
+            END;
+        ELSE
+            SELECT job.* INTO v_job
+            FROM public.video_tracker_jobs AS job
+            WHERE job.id = v_id;
+        END IF;
+        v_data := CASE WHEN FOUND THEN pg_catalog.to_jsonb(v_job) ELSE NULL END;
+
+    ELSIF v_operation = 'read_job' OR v_operation = 'lock_review_job' THEN
         IF (p_request - ARRAY['schema','operation','job_id','actor_id']) IS DISTINCT FROM '{}'::jsonb
            OR NOT (p_request ?& ARRAY['schema','operation','job_id','actor_id'])
            OR pg_catalog.jsonb_typeof(p_request -> 'job_id') IS DISTINCT FROM 'string'
@@ -438,6 +463,33 @@ BEGIN
             v_segment_count := 0;
         END IF;
         v_data := pg_catalog.jsonb_build_object('segments',v_rows,'segment_count',v_segment_count);
+
+    ELSIF v_operation = 'read_worker_segment' THEN
+        IF (p_request - ARRAY['schema','operation','job_id']) IS DISTINCT FROM '{}'::jsonb
+           OR NOT (p_request ?& ARRAY['schema','operation','job_id'])
+           OR pg_catalog.jsonb_typeof(p_request -> 'job_id') IS DISTINCT FROM 'string' THEN
+            RAISE EXCEPTION 'Invalid video worker-segment request' USING ERRCODE = '22023';
+        END IF;
+        v_id := (p_request ->> 'job_id')::uuid;
+        v_segment_count := 0;
+        v_rows := NULL;
+        SELECT job.* INTO v_job
+        FROM public.video_tracker_jobs AS job
+        WHERE job.id = v_id;
+        IF FOUND AND v_job.segment_id IS NOT NULL THEN
+            SELECT segment.* INTO v_segment
+            FROM public.video_segments AS segment
+            WHERE segment.id = v_job.segment_id;
+            IF FOUND THEN
+                v_rows := pg_catalog.to_jsonb(v_segment);
+                SELECT pg_catalog.count(*)::integer INTO v_segment_count
+                FROM public.video_segments AS segment
+                WHERE segment.dataset_item_id = v_job.dataset_item_id;
+            END IF;
+        END IF;
+        v_data := pg_catalog.jsonb_build_object(
+            'segment',v_rows,'segment_count',v_segment_count
+        );
 
     ELSIF v_operation = 'read_segments' THEN
         IF (p_request - ARRAY['schema','operation','task_id','project_id','actor_id','dataset_item_id','segment_id','from_frame','to_frame','nowait','count_segments']) IS DISTINCT FROM '{}'::jsonb
@@ -1171,6 +1223,51 @@ BEGIN
         WHERE job.id=(p_request ->> 'job_id')::uuid
         RETURNING job.* INTO v_job;
         v_data := CASE WHEN FOUND THEN pg_catalog.to_jsonb(v_job) ELSE NULL END;
+
+    ELSIF v_operation = 'start_worker_job' THEN
+        IF (p_request - ARRAY['schema','operation','job_id','celery_task_id','started_at']) IS DISTINCT FROM '{}'::jsonb
+           OR NOT (p_request ?& ARRAY['schema','operation','job_id','celery_task_id','started_at'])
+           OR pg_catalog.jsonb_typeof(p_request -> 'job_id') IS DISTINCT FROM 'string'
+           OR pg_catalog.jsonb_typeof(p_request -> 'celery_task_id') NOT IN ('string','null')
+           OR pg_catalog.jsonb_typeof(p_request -> 'started_at') IS DISTINCT FROM 'string' THEN
+            RAISE EXCEPTION 'Invalid tracker worker-start request' USING ERRCODE = '22023';
+        END IF;
+        v_id := (p_request ->> 'job_id')::uuid;
+        v_now := (p_request ->> 'started_at')::timestamptz;
+        BEGIN
+            SELECT job.* INTO v_job
+            FROM public.video_tracker_jobs AS job
+            WHERE job.id = v_id
+            FOR UPDATE NOWAIT;
+        EXCEPTION WHEN lock_not_available OR serialization_failure OR deadlock_detected THEN
+            RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'aap_video_control_error',
+                DETAIL = pg_catalog.jsonb_build_object('status_code',409,
+                    'detail',pg_catalog.jsonb_build_object('reason','tracker_job_busy'))::text;
+        END;
+        IF NOT FOUND THEN
+            v_data := NULL;
+        ELSIF v_job.status IN ('queued','running') THEN
+            IF v_job.status IS DISTINCT FROM 'running'
+               OR v_job.started_at IS NULL
+               OR (COALESCE(p_request ->> 'celery_task_id','') <> ''
+                   AND COALESCE(v_job.celery_task_id,'') = '') THEN
+                UPDATE public.video_tracker_jobs AS job
+                SET status = 'running',
+                    celery_task_id = CASE
+                        WHEN COALESCE(job.celery_task_id,'') = ''
+                             AND COALESCE(p_request ->> 'celery_task_id','') <> ''
+                            THEN p_request ->> 'celery_task_id'
+                        ELSE job.celery_task_id
+                    END,
+                    started_at = COALESCE(job.started_at,v_now),
+                    updated_at = pg_catalog.transaction_timestamp()
+                WHERE job.id = v_id
+                RETURNING job.* INTO v_job;
+            END IF;
+            v_data := pg_catalog.to_jsonb(v_job);
+        ELSE
+            v_data := pg_catalog.to_jsonb(v_job);
+        END IF;
 
     ELSIF v_operation = 'mark_enqueue_failed' THEN
         IF (p_request - ARRAY['schema','operation','job_id','completed_at']) IS DISTINCT FROM '{}'::jsonb
