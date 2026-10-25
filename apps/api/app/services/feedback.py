@@ -144,7 +144,7 @@ class FeedbackService:
         return await self.db.scalar(query)
 
     async def read_snapshot(self, feedback_id: uuid.UUID):
-        feedback = feedback_facts_alias()
+        feedback = feedback_facts_alias(name="feedback_snapshot")
         return (
             await self.db.execute(
                 select(
@@ -692,7 +692,7 @@ class FeedbackService:
         self, root: AnnotationFeedback
     ) -> list[uuid.UUID]:
         descendants = self._descendants_cte(root)
-        feedback = feedback_facts_alias()
+        feedback = feedback_facts_alias(name="feedback_author")
         rows = await self.db.scalars(
             select(feedback.author_id)
             .select_from(descendants)
@@ -734,7 +734,7 @@ class FeedbackService:
             )
         else:
             root_map = self._root_map_cte(project_id)
-            root = feedback_facts_alias()
+            root = feedback_facts_alias(name="feedback_root")
             q = (
                 select(af)
                 .join(root_map, root_map.c.origin_id == af.id)
@@ -765,7 +765,7 @@ class FeedbackService:
 
     @staticmethod
     def _root_map_cte(project_id: uuid.UUID):
-        af = feedback_facts_alias()
+        af = feedback_facts_alias(name="feedback_origin")
         lineage = (
             select(
                 af.id.label("origin_id"),
@@ -780,7 +780,7 @@ class FeedbackService:
             .where(af.project_id == project_id)
             .cte("feedback_lineage", recursive=True)
         )
-        parent = feedback_facts_alias()
+        parent = feedback_facts_alias(name="feedback_parent")
         lineage = lineage.union_all(
             select(
                 lineage.c.origin_id,
@@ -814,7 +814,7 @@ class FeedbackService:
 
     @staticmethod
     def _descendants_cte(root: AnnotationFeedback):
-        af = feedback_facts_alias()
+        af = feedback_facts_alias(name="feedback_descendant")
         descendants = (
             select(
                 af.id.label("id"),
@@ -833,7 +833,7 @@ class FeedbackService:
             )
             .cte("feedback_descendants", recursive=True)
         )
-        child = feedback_facts_alias()
+        child = feedback_facts_alias(name="feedback_child")
         descendants = descendants.union_all(
             select(
                 child.id,

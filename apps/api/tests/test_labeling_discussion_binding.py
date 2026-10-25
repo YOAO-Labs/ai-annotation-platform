@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 import pytest
 from sqlalchemy import inspect
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -99,3 +100,46 @@ async def test_native_rows_stay_session_bound_and_refresh_through_public_project
     with pytest.raises(InvalidRequestError):
         await refresh(updated)
     await session.close()
+
+
+@pytest.mark.asyncio
+async def test_feedback_list_query_aliases_public_rows_and_keeps_page_order():
+    class EmptyResult:
+        def scalars(self):
+            return self
+
+        def all(self):
+            return []
+
+    class QuerySession:
+        async def execute(self, statement):
+            self.statement = statement
+            return EmptyResult()
+
+    project_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+    session = QuerySession()
+    rows, cursor = await FeedbackService(session).list_paged(
+        project_id=project_id,
+        task_id=task_id,
+        kind="comment",
+        anchor_type="task",
+        status="open",
+        allowed_task_ids={task_id},
+    )
+    sql = str(session.statement.compile(dialect=postgresql.dialect()))
+
+    assert rows == [] and cursor is None
+    assert "FROM aap_labeling_v1.annotation_feedback_facts AS feedback_origin" in sql
+    assert "JOIN aap_labeling_v1.annotation_feedback_facts AS feedback_parent" in sql
+    assert "JOIN aap_labeling_v1.annotation_feedback_facts AS feedback_root" in sql
+    assert "FROM aap_labeling_v1.annotation_feedback_facts " in sql
+    assert "feedback_root.is_active IS true" in sql
+    assert "FROM aap_labeling_v1.task_rows AS root_task" in sql
+    assert "FROM aap_labeling_v1.annotation_rows AS root_annotation" in sql
+    assert "aap_labeling_v1.annotation_feedback_facts.task_id IN" in sql
+    assert sql.count("FROM aap_labeling_v1.annotation_feedback_facts") == 2
+    assert sql.count("JOIN aap_labeling_v1.annotation_feedback_facts") == 2
+    assert "ORDER BY aap_labeling_v1.annotation_feedback_facts.created_at DESC" in sql
+    assert "aap_labeling_v1.annotation_feedback_facts.id DESC" in sql
+    assert "public.annotation_feedbacks" not in sql

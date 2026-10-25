@@ -60,7 +60,11 @@ annotation_feedback_facts = aliased(
 
 
 def feedback_facts_alias(name: str | None = None):
-    return aliased(AnnotationFeedback, _feedback_facts, name=name, adapt_on_names=True)
+    return aliased(
+        AnnotationFeedback,
+        _feedback_facts.alias(name),
+        adapt_on_names=True,
+    )
 
 
 task_event_facts = table(
