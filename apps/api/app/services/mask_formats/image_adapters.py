@@ -17,6 +17,7 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.schemas.mask_format import MaskFormatPlan, MaskFormatPlanItem
 from app.services.annotations_import import import_aap_json_annotations
+from app.services.labeling_core_read_relations import annotation_row
 from app.services.mask_formats.contracts import (
     MaskFormatDescriptor,
     StagedObject,
@@ -755,14 +756,14 @@ class ImageMaskImportAdapter:
             rows = (
                 (
                     await db.execute(
-                        select(Annotation)
+                        select(annotation_row)
                         .where(
-                            Annotation.task_id.in_(task_ids),
-                            Annotation.is_active.is_(True),
-                            Annotation.was_cancelled.is_(False),
-                            Annotation.geometry["type"].astext == "raster_mask",
+                            annotation_row.task_id.in_(task_ids),
+                            annotation_row.is_active.is_(True),
+                            annotation_row.was_cancelled.is_(False),
+                            annotation_row.geometry["type"].astext == "raster_mask",
                         )
-                        .order_by(Annotation.task_id, Annotation.id)
+                        .order_by(annotation_row.task_id, annotation_row.id)
                     )
                 )
                 .scalars()

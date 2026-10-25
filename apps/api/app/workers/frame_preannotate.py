@@ -573,7 +573,7 @@ async def _run_segment(
     )
 
     from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
-    from app.db.models.task import Task
+    from app.services.labeling_core_read_relations import get_core_row, task_row
     from app.services import async_job as async_job_svc
     from app.services.gpu_arbitration.dispatch import (
         build_gpu_dispatch_context_factory,
@@ -694,7 +694,7 @@ async def _run_segment(
                 )
                 return stats
 
-            task = await db.get(Task, task_uuid, populate_existing=True)
+            task = await get_core_row(db, task_row, task_uuid, populate_existing=True)
             selected_task_ids = selection.get("task_ids")
             selected_batch_id = selection.get("batch_id")
             if (
@@ -1485,21 +1485,27 @@ async def _existing_video_frame_ordinals(
     """Find completed frames by actual Job and retained plan, including empty results."""
     from sqlalchemy import select
 
-    from app.db.models.prediction import Prediction, PredictionMeta
+    from app.services.labeling_core_read_relations import (
+        prediction_meta_row,
+        prediction_row,
+    )
 
-    accepted_video = PredictionMeta.extra["accepted_video_input"]
+    accepted_video = prediction_meta_row.extra["accepted_video_input"]
     ordinal = accepted_video["entry"]["ordinal"].as_string()
     values = (
         await db.execute(
             select(ordinal)
             .join(
-                Prediction,
-                (Prediction.id == PredictionMeta.prediction_id)
-                & (Prediction.created_at == PredictionMeta.prediction_created_at),
+                prediction_row,
+                (prediction_row.id == prediction_meta_row.prediction_id)
+                & (
+                    prediction_row.created_at
+                    == prediction_meta_row.prediction_created_at
+                ),
             )
             .where(
-                Prediction.task_id == task_id,
-                PredictionMeta.extra["accepted_video_execution_job_id"].as_string()
+                prediction_row.task_id == task_id,
+                prediction_meta_row.extra["accepted_video_execution_job_id"].as_string()
                 == str(execution_job_id),
                 accepted_video["input_id"].as_string() == str(input_id),
                 accepted_video["plan_digest"].as_string() == plan_digest,

@@ -10,12 +10,15 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.task import Task
-from app.db.models.task_batch import TaskBatch
 from app.schemas.management import (
     BatchDistributionPreview,
     BatchDistributionPreviewItem,
     BatchDistributionRecipient,
+)
+from app.services.labeling_core_read_relations import (
+    batch_row,
+    lock_batch_rows_for_core_read,
+    task_row,
 )
 
 
@@ -48,19 +51,33 @@ async def preview_batch_distribution(
         + [("reviewer", user_id) for user_id in reviewer_ids],
     )
     batch_query = (
-        select(TaskBatch)
+        select(batch_row)
         .where(
-            TaskBatch.project_id == project_id,
-            TaskBatch.status != "archived",
-            TaskBatch.id.in_(batch_ids) if batch_ids is not None else True,
-            TaskBatch.id == single_batch_id if single_batch_id is not None else True,
+            batch_row.project_id == project_id,
+            batch_row.status != "archived",
+            batch_row.id.in_(batch_ids) if batch_ids is not None else True,
+            batch_row.id == single_batch_id if single_batch_id is not None else True,
         )
-        .order_by(TaskBatch.priority.desc(), TaskBatch.created_at, TaskBatch.id)
+        .order_by(batch_row.priority.desc(), batch_row.created_at, batch_row.id)
         .execution_options(populate_existing=True)
     )
     if lock_batches:
-        batch_query = batch_query.with_for_update()
-    batches = (await db.execute(batch_query)).scalars().all()
+        # The shared lock capability orders IDs for its own deadlock discipline.
+        # Management historically locks in distribution priority order, so acquire
+        # each row separately in that same sequence.
+        probe_batches = (await db.execute(batch_query)).scalars().all()
+        batches = []
+        for probe in probe_batches:
+            locked_rows = await lock_batch_rows_for_core_read(
+                db,
+                [probe.id],
+                project_id=project_id,
+                populate_existing=True,
+            )
+            if locked_rows and locked_rows[0].status != "archived":
+                batches.append(locked_rows[0])
+    else:
+        batches = (await db.execute(batch_query)).scalars().all()
     if batch_ids is not None and len(batches) != len(set(batch_ids)):
         raise HTTPException(
             status_code=409, detail="选中批次已被移除或归档，请刷新后重新选择"
@@ -71,14 +88,19 @@ async def preview_batch_distribution(
     task_groups = (
         await db.execute(
             select(
-                Task.batch_id,
-                Task.assignee_id,
-                Task.reviewer_id,
-                Task.status,
+                task_row.batch_id,
+                task_row.assignee_id,
+                task_row.reviewer_id,
+                task_row.status,
                 func.count(),
             )
-            .where(Task.batch_id.in_([batch.id for batch in batches]))
-            .group_by(Task.batch_id, Task.assignee_id, Task.reviewer_id, Task.status)
+            .where(task_row.batch_id.in_([batch.id for batch in batches]))
+            .group_by(
+                task_row.batch_id,
+                task_row.assignee_id,
+                task_row.reviewer_id,
+                task_row.status,
+            )
         )
     ).all()
     by_batch: dict[UUID, list] = {}
@@ -92,14 +114,16 @@ async def preview_batch_distribution(
     for role, user_ids in (("annotator", annotator_ids), ("reviewer", reviewer_ids)):
         if not user_ids:
             continue
-        owner_column = Task.assignee_id if role == "annotator" else Task.reviewer_id
+        owner_column = (
+            task_row.assignee_id if role == "annotator" else task_row.reviewer_id
+        )
         backlog = dict(
             (
                 await db.execute(
                     select(owner_column, func.count())
                     .where(
                         owner_column.in_(user_ids),
-                        Task.status.in_(pending_statuses[role]),
+                        task_row.status.in_(pending_statuses[role]),
                     )
                     .group_by(owner_column)
                 )

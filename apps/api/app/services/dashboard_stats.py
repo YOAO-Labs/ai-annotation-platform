@@ -8,8 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 
-from app.db.models.annotation import Annotation
-from app.db.models.task import Task
+from app.services.labeling_core_read_relations import annotation_row, task_row
 
 
 def _percentile_rank(values: list[float], target: float) -> int:
@@ -38,17 +37,17 @@ async def _reject_reason_breakdown(db, uid, start, project_id=None) -> list[dict
 
     v0.12.6 (A3)：project_id 给定时按该项目切分。
     """
-    proj = [Task.project_id == project_id] if project_id else []
+    proj = [task_row.project_id == project_id] if project_id else []
     rows = (
         await db.execute(
-            select(Task.reject_reason_type, func.count().label("n"))
+            select(task_row.reject_reason_type, func.count().label("n"))
             .where(
-                Task.assignee_id == uid,
-                Task.reject_reason_type.isnot(None),
-                Task.submitted_at >= start,
+                task_row.assignee_id == uid,
+                task_row.reject_reason_type.isnot(None),
+                task_row.submitted_at >= start,
                 *proj,
             )
-            .group_by(Task.reject_reason_type)
+            .group_by(task_row.reject_reason_type)
             .order_by(func.count().desc())
         )
     ).all()
@@ -70,17 +69,17 @@ async def _class_distribution(
 
     v0.12.6 (A3)：project_id 给定时按该项目切分。
     """
-    proj = [Annotation.project_id == project_id] if project_id else []
+    proj = [annotation_row.project_id == project_id] if project_id else []
     rows = (
         await db.execute(
-            select(Annotation.class_name, func.count().label("n"))
+            select(annotation_row.class_name, func.count().label("n"))
             .where(
-                Annotation.user_id == uid,
-                Annotation.is_active.is_(True),
-                Annotation.created_at >= start,
+                annotation_row.user_id == uid,
+                annotation_row.is_active.is_(True),
+                annotation_row.created_at >= start,
                 *proj,
             )
-            .group_by(Annotation.class_name)
+            .group_by(annotation_row.class_name)
             .order_by(func.count().desc())
             .limit(limit)
         )
@@ -88,11 +87,11 @@ async def _class_distribution(
     total = (
         await db.execute(
             select(func.count())
-            .select_from(Annotation)
+            .select_from(annotation_row)
             .where(
-                Annotation.user_id == uid,
-                Annotation.is_active.is_(True),
-                Annotation.created_at >= start,
+                annotation_row.user_id == uid,
+                annotation_row.is_active.is_(True),
+                annotation_row.created_at >= start,
                 *proj,
             )
         )
@@ -112,16 +111,16 @@ async def _first_pass_yield(db, uid, start, project_id=None) -> float | None:
 
     v0.12.6 (A3)：project_id 给定时按该项目切分。
     """
-    proj = [Task.project_id == project_id] if project_id else []
+    proj = [task_row.project_id == project_id] if project_id else []
     row = (
         await db.execute(
             select(
                 func.count().label("submitted_n"),
-                func.count().filter(Task.reopened_count == 0).label("clean_n"),
+                func.count().filter(task_row.reopened_count == 0).label("clean_n"),
             ).where(
-                Task.assignee_id == uid,
-                Task.submitted_at.isnot(None),
-                Task.submitted_at >= start,
+                task_row.assignee_id == uid,
+                task_row.submitted_at.isnot(None),
+                task_row.submitted_at >= start,
                 *proj,
             )
         )

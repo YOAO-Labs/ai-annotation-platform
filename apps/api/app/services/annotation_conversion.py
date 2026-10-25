@@ -8,13 +8,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import Request
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
 from app.services.project_access import get_workspace_project
 from app.db.models.project import Project
 from app.db.models.task import Task
+from app.services.labeling_core_read_relations import lock_task_for_core_read
 from app.db.models.user import User
 from app.schemas.annotation import AnnotationOut
 from app.schemas.annotation_conversion import (
@@ -1138,14 +1138,7 @@ class AnnotationConversionService:
                 message="conversion plan belongs to another user",
             )
 
-        task = (
-            await self.db.execute(
-                select(Task)
-                .where(Task.id == task_id)
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            )
-        ).scalar_one_or_none()
+        task = await lock_task_for_core_read(self.db, task_id, populate_existing=True)
         if task is None:
             raise AnnotationConversionError(
                 status_code=404, reason="task_not_found", message="Task not found"

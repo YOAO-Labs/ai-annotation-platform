@@ -9,9 +9,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.annotation import Annotation
 from app.db.models.project import Project
-from app.db.models.task import Task
 from app.schemas.aap_json import AAPJsonV1Envelope
 from app.schemas.mask_format import (
     MaskFormatCode,
@@ -19,6 +17,7 @@ from app.schemas.mask_format import (
     MaskFormatPlanItem,
 )
 from app.services.annotations_import import import_aap_json_annotations
+from app.services.labeling_core_read_relations import annotation_row, task_row
 from app.services.mask_formats.contracts import (
     MaskFormatDescriptor,
     StagedObject,
@@ -92,16 +91,16 @@ class LegacyPackagingAdapter:
         options: dict[str, Any],
     ) -> MaskFormatPlan:
         video_scope = VideoExportScope.from_dict(scope.get("video_export_scope"))
-        task_query = select(Task.id, Task.file_path).where(
-            Task.project_id == project.id
+        task_query = select(task_row.id, task_row.file_path).where(
+            task_row.project_id == project.id
         )
         batch_id = scope.get("batch_id")
         if batch_id:
-            task_query = task_query.where(Task.batch_id == uuid.UUID(str(batch_id)))
+            task_query = task_query.where(task_row.batch_id == uuid.UUID(str(batch_id)))
         if video_scope is not None:
-            task_query = task_query.where(Task.id == video_scope.task_id)
+            task_query = task_query.where(task_row.id == video_scope.task_id)
         task_rows = list(
-            (await db.execute(task_query.order_by(Task.id).limit(100_001))).all()
+            (await db.execute(task_query.order_by(task_row.id).limit(100_001))).all()
         )
         if len(task_rows) > 100_000:
             raise ValueError("format_preflight_task_budget_exceeded")
@@ -112,10 +111,10 @@ class LegacyPackagingAdapter:
             annotation_rows = (
                 (
                     await db.execute(
-                        select(Annotation).where(
-                            Annotation.task_id.in_(task_ids),
-                            Annotation.is_active.is_(True),
-                            Annotation.was_cancelled.is_(False),
+                        select(annotation_row).where(
+                            annotation_row.task_id.in_(task_ids),
+                            annotation_row.is_active.is_(True),
+                            annotation_row.was_cancelled.is_(False),
                         )
                     )
                 )
@@ -130,20 +129,20 @@ class LegacyPackagingAdapter:
                 counts = grouped[annotation.task_id]
                 counts[geometry_type] = counts.get(geometry_type, 0) + 1
         elif task_ids:
-            geometry_type = Annotation.geometry["type"].astext
+            geometry_type = annotation_row.geometry["type"].astext
             annotation_rows = (
                 await db.execute(
                     select(
-                        Annotation.task_id,
+                        annotation_row.task_id,
                         geometry_type,
-                        func.count(Annotation.id),
+                        func.count(annotation_row.id),
                     )
                     .where(
-                        Annotation.task_id.in_(task_ids),
-                        Annotation.is_active.is_(True),
-                        Annotation.was_cancelled.is_(False),
+                        annotation_row.task_id.in_(task_ids),
+                        annotation_row.is_active.is_(True),
+                        annotation_row.was_cancelled.is_(False),
                     )
-                    .group_by(Annotation.task_id, geometry_type)
+                    .group_by(annotation_row.task_id, geometry_type)
                 )
             ).all()
             for task_id, geometry_type, count in annotation_rows:

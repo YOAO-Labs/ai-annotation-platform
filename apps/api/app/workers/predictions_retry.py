@@ -136,11 +136,14 @@ async def _retry_job_metadata(
     db: AsyncSession, fid: uuid.UUID
 ) -> tuple[uuid.UUID | None, dict]:
     from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
-    from app.db.models.prediction import FailedPrediction
-    from app.db.models.task import Task
+    from app.services.labeling_core_read_relations import (
+        failed_prediction_row,
+        get_core_row,
+        task_row,
+    )
 
     payload: dict = {"failed_prediction_id": str(fid)}
-    fp = await db.get(FailedPrediction, fid)
+    fp = await get_core_row(db, failed_prediction_row, fid)
     if not fp:
         return None, payload
 
@@ -153,7 +156,7 @@ async def _retry_job_metadata(
             "message": (fp.message or "")[:200],
         }
     )
-    task = await db.get(Task, fp.task_id) if fp.task_id else None
+    task = await get_core_row(db, task_row, fp.task_id) if fp.task_id else None
     if task is not None:
         payload["task_display_id"] = task.display_id
     project = await get_workspace_project(db, project_id=fp.project_id)

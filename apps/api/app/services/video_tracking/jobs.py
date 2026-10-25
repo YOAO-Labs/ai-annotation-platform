@@ -9,7 +9,6 @@ from types import SimpleNamespace
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -51,6 +50,11 @@ from app.services.video_tracking.dispatch import VideoTrackerJobDispatcher
 from app.services.video_tracking.control import (
     VideoControlRejected,
     video_control_command,
+)
+from app.services.labeling_core_read_relations import (
+    get_core_row,
+    lock_task_for_core_read,
+    task_row,
 )
 from aap_labeling.video_control_contract import (
     CancelJob,
@@ -327,7 +331,7 @@ def _keyframe_digest(value: dict | None) -> str | None:
 async def _assert_task_write_allowed(
     db: AsyncSession, task_id: uuid.UUID, user_id: uuid.UUID
 ) -> None:
-    task = await db.get(Task, task_id)
+    task = await get_core_row(db, task_row, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     try:
@@ -354,14 +358,7 @@ async def save_video_mask_keyframe(
     _assert_frame_range(ctx, frame_index, frame_index)
     # Match atomic Mask mutation ordering. The Task row is the first database
     # row lock and serializes same-task writers before content/annotation locks.
-    task = (
-        await db.execute(
-            select(Task)
-            .where(Task.id == task.id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
+    task = await lock_task_for_core_read(db, task.id, populate_existing=True)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     await _assert_task_write_allowed(db, task.id, user.id)
@@ -553,14 +550,7 @@ async def operate_video_mask_keyframe(
     """
 
     _assert_frame_range(ctx, frame_index, frame_index)
-    task = (
-        await db.execute(
-            select(Task)
-            .where(Task.id == task.id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
+    task = await lock_task_for_core_read(db, task.id, populate_existing=True)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     await _assert_task_write_allowed(db, task.id, user.id)

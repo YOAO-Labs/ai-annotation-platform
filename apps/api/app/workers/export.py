@@ -23,7 +23,6 @@ from sqlalchemy.orm import aliased
 from sqlalchemy.pool import NullPool
 
 from app.config import settings
-from app.db.models.annotation import Annotation
 from app.db.models.export_artifact import ExportArtifact
 from app.db.models.project import Project
 from app.services import async_job as async_job_svc
@@ -45,6 +44,7 @@ from app.services.assets_spatial import AssetsSpatialGateway
 from app.services.labeling_scene import read_spatial_item_facts
 from app.services.workspace_read_relations import project_facts
 from app.services.labeling_core_read_relations import (
+    annotation_row,
     task_dataset_item_link_row,
     task_row,
 )
@@ -235,21 +235,23 @@ async def _scope_fingerprint(
     task_ids: list[uuid.UUID] | None = None,
 ) -> tuple[datetime | None, int]:
     """max(project/annotation updated_at) + active annotation count for cache invalidation."""
-    q = select(func.max(Annotation.updated_at), func.count(Annotation.id)).where(
-        Annotation.project_id == project_id,
-        Annotation.is_active.is_(True),
-        Annotation.was_cancelled.is_(False),
+    q = select(
+        func.max(annotation_row.updated_at), func.count(annotation_row.id)
+    ).where(
+        annotation_row.project_id == project_id,
+        annotation_row.is_active.is_(True),
+        annotation_row.was_cancelled.is_(False),
     )
     if batch_id is not None:
         # Annotation 无 batch_id 列；与 _load_data 一致，按 task.batch_id 过滤。
         q = q.where(
-            Annotation.task_id.in_(
+            annotation_row.task_id.in_(
                 select(task_row.id).where(task_row.batch_id == batch_id)
             )
         )
     if task_ids is not None:
         q = q.where(
-            Annotation.task_id.in_(
+            annotation_row.task_id.in_(
                 select(task_row.id).where(
                     task_row.project_id == project_id,
                     task_row.id.in_(task_ids),
