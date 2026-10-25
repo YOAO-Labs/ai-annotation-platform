@@ -90,6 +90,10 @@ async def location_is_referenced(db, location_id):
     from app.db.models.video_derivative import VideoDerivativeOutput
     from app.db.models.dataset_auxiliary_original import DatasetAuxiliaryOriginal
     from app.db.models.managed_original_retirement import ManagedOriginalRetirement
+    from app.db.models.comment_attachment_upload import CommentAttachmentUpload
+    from app.db.models.guide_asset_upload import GuideAssetUpload
+    from app.db.models.raster_mask_object import RasterMaskObject
+    from app.db.models.task_original import TaskOriginal
 
     for model, column in (
         (ThumbnailOutput, ThumbnailOutput.storage_ref),
@@ -99,6 +103,9 @@ async def location_is_referenced(db, location_id):
         (ManagedOriginalCreation, ManagedOriginalCreation.staging_ref),
         (MaskFormatUpload, MaskFormatUpload.storage_ref),
         (MaskFormatImport, MaskFormatImport.staging_ref),
+        (CommentAttachmentUpload, CommentAttachmentUpload.storage_ref),
+        (GuideAssetUpload, GuideAssetUpload.storage_ref),
+        (RasterMaskObject, RasterMaskObject.storage_ref),
     ):
         if await db.scalar(
             select(model.id)
@@ -111,6 +118,7 @@ async def location_is_referenced(db, location_id):
         ManagedOriginalCreation,
         DatasetAuxiliaryOriginal,
         ManagedOriginalRetirement,
+        TaskOriginal,
     ):
         if await db.scalar(
             select(model.id).where(model.location_id == location_id).limit(1)
@@ -712,6 +720,7 @@ async def binding_rows(db):
                     "import",
                     "datasets",
                     "media-cache",
+                    "annotations",
                 }
                 else "deployment_mapping",
                 "change_policy": "reviewed_avatar_switch"
@@ -729,6 +738,8 @@ async def binding_rows(db):
                     if purpose == "datasets"
                     else "reviewed_media_cache_switch"
                     if purpose == "media-cache"
+                    else "reviewed_annotations_switch"
+                    if purpose == "annotations"
                     else "legacy_mapping_locked"
                 ),
             }

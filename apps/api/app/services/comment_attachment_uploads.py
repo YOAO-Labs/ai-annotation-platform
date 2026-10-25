@@ -155,9 +155,10 @@ async def upload(db, proof, original, data, mime_type, file_name):
         await db.commit()
         check_deadlines(proof, expiries)
         revision = None
+        target = None
 
         async def acquired(permit):
-            nonlocal revision
+            nonlocal revision, target
             actor = await reauthorize(db, proof)
             await context(
                 db, actor, original.annotation_id, active=True, expected=original
@@ -172,6 +173,7 @@ async def upload(db, proof, original, data, mime_type, file_name):
             if current.expires_at <= now():
                 reject("comment_attachment_expired", 410)
             await reauthorize(db, proof)
+            target = await storage.io_target(db, receipt)
             await db.commit()
             check_deadlines(proof, expiries)
             revision = permit.revision
@@ -179,7 +181,7 @@ async def upload(db, proof, original, data, mime_type, file_name):
         def write_saved():
             # Executor queueing can outlive admission; only immutable facts are used.
             check_deadlines(proof, expiries)
-            storage.write(storage_service.client, receipt, data)
+            storage.run_io(target, storage_service.client, "write", receipt, data)
 
         await storage_access.run(
             db,
@@ -336,21 +338,23 @@ async def read(db, actor, request, annotation_id, key):
         await db.commit()
         check_deadlines(proof, expiries)
         revision = None
+        target = None
 
         async def acquired(permit):
-            nonlocal revision
+            nonlocal revision, target
             actor = await reauthorize(db, proof)
             await _read_binding(
                 db, actor, annotation_id, key, expected=original, receipt=receipt
             )
             await reauthorize(db, proof)
+            target = await storage.io_target(db, receipt)
             await db.commit()
             check_deadlines(proof, expiries)
             revision = permit.revision
 
         def read_saved():
             check_deadlines(proof, expiries)
-            return storage.read(storage_service.client, receipt)
+            return storage.run_io(target, storage_service.client, "read", receipt)
 
         data = await storage_access.run(
             db,
@@ -473,7 +477,10 @@ async def _cleanup_one(db, identifier):
         return None
     await db.commit()
 
+    target = None
+
     async def acquired(permit):
+        nonlocal target
         current = await _locked(db, identifier)
         if (
             current is None
@@ -484,15 +491,14 @@ async def _cleanup_one(db, identifier):
             or await _has_read(db, receipt)
         ):
             reject()
+        target = await storage.io_target(db, receipt)
         await db.commit()
 
     await storage_access.run(
         db,
         uuid.UUID(receipt.storage_ref["location_id"]),
         "comment_attachment_delete_" + receipt.id.hex,
-        storage.delete,
-        storage_service.client,
-        receipt,
+        lambda: storage.run_io(target, storage_service.client, "delete", receipt),
         on_acquired=acquired,
     )
     current = await _locked(db, identifier)

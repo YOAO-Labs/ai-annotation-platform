@@ -25,6 +25,7 @@ from app.db.models.dataset_asset import (
 from app.db.models.managed_original_creation import ManagedOriginalCreation as Creation
 from app.db.models.storage_maintenance import StorageOperation
 from app.services import (
+    annotations_storage,
     dataset_storage,
     storage_access,
     storage_usage_accounting as accounting,
@@ -243,13 +244,20 @@ def original_ref(row):
     )
 
 
+def _original_storage(row):
+    return annotations_storage if row["owner_kind"] == "task" else dataset_storage
+
+
 def original_locator(row):
     try:
-        return dataset_storage.resolve_ref(
-            original_ref(row)
-            or dataset_storage.legacy_ref(row["bucket"], row["object_key"])
+        storage = _original_storage(row)
+        return storage.resolve_ref(
+            original_ref(row) or storage.legacy_ref(row["bucket"], row["object_key"])
         )
-    except dataset_storage.DatasetStorageError as exc:
+    except (
+        dataset_storage.DatasetStorageError,
+        annotations_storage.AnnotationsStorageError,
+    ) as exc:
         raise ContentError(exc.code, exc.status_code) from None
 
 
@@ -259,7 +267,7 @@ async def _validate(db, row, *, lock=False):
         reject("managed_original_configuration_changed")
     reference = original_ref(row)
     if reference is not None:
-        if row["owner_kind"] not in {"dataset", "dataset_auxiliary"}:
+        if row["owner_kind"] not in {"dataset", "dataset_auxiliary", "task"}:
             reject("managed_original_configuration_changed")
         owner = original_locator(row)
         if any(
@@ -292,8 +300,11 @@ async def _validate(db, row, *, lock=False):
                         .where(StorageLocation.id == owner.location_id)
                         .with_for_update(read=True, nowait=True)
                     )
-                await dataset_storage.target_for_ref(db, reference)
-        except dataset_storage.DatasetStorageError as exc:
+                await _original_storage(row).target_for_ref(db, reference)
+        except (
+            dataset_storage.DatasetStorageError,
+            annotations_storage.AnnotationsStorageError,
+        ) as exc:
             raise ContentError(exc.code, exc.status_code) from None
     else:
         if saved.get("schema") == 2:
@@ -305,12 +316,6 @@ async def _validate(db, row, *, lock=False):
                 .where(StorageLocation.id == LEGACY_LOCATION_ID)
                 .with_for_update(read=True)
             )
-            if purpose == "annotations":
-                await db.execute(
-                    select(StorageBinding.purpose)
-                    .where(StorageBinding.purpose == purpose)
-                    .with_for_update(read=True)
-                )
         location = await db.get(
             StorageLocation, LEGACY_LOCATION_ID, populate_existing=True
         )
@@ -340,16 +345,6 @@ async def _validate(db, row, *, lock=False):
             != managed_storage_identity(saved["endpoint"], row["bucket"])
         ):
             reject("managed_original_configuration_changed")
-        if purpose == "annotations":
-            binding = await db.get(StorageBinding, purpose, populate_existing=True)
-            if (
-                binding is None
-                or binding.location_id != LEGACY_LOCATION_ID
-                or binding.bucket != row["bucket"]
-                or binding.generation != 1
-                or binding.bucket != storage_service.bucket
-            ):
-                reject("managed_original_configuration_changed")
     if row["origin"] == "direct":
         staging_owner(row)
     await storage_access.check(
@@ -666,37 +661,36 @@ async def _allocate(
         ):
             reject("managed_original_configuration_changed")
         configuration = await _configuration(current)
-        if owner_kind != "task":
-            from app.services.dataset_storage_target import target_for
+        from app.services.dataset_storage_target import target_for as dataset_target
 
-            try:
-                target = await target_for(current, location)
-                if (
-                    binding.bucket != target.bucket
-                    or binding.generation < 1
-                    or (binding.generation == 1 and location.id != LEGACY_LOCATION_ID)
-                ):
-                    reject("managed_original_configuration_changed")
-                object_key = target.key_prefix + object_key
-                if not dataset_storage.valid_key(object_key):
-                    reject("managed_original_invalid_allocation", 422)
-                reference = dataset_storage.make_ref(
-                    target, binding.generation, object_key
-                )
-            except dataset_storage.DatasetStorageError as exc:
-                raise ContentError(exc.code, exc.status_code) from None
-            configuration = {
-                **configuration,
-                "schema": 2,
-                "endpoint": target.endpoint_url,
-                "original_ref": reference,
-            }
-        elif (
-            binding.location_id != LEGACY_LOCATION_ID
-            or binding.generation != 1
-            or binding.bucket != storage_service.bucket
-        ):
-            reject("managed_original_configuration_changed")
+        storage = annotations_storage if owner_kind == "task" else dataset_storage
+        target_for = (
+            annotations_storage.target_for if owner_kind == "task" else dataset_target
+        )
+        try:
+            target = await target_for(current, location)
+            if (
+                binding.bucket != target.bucket
+                or type(binding.generation) is not int
+                or binding.generation < 1
+                or (binding.generation == 1 and location.id != LEGACY_LOCATION_ID)
+            ):
+                reject("managed_original_configuration_changed")
+            object_key = target.key_prefix + object_key
+            if not dataset_storage.valid_key(object_key):
+                reject("managed_original_invalid_allocation", 422)
+            reference = storage.make_ref(target, binding.generation, object_key)
+        except (
+            dataset_storage.DatasetStorageError,
+            annotations_storage.AnnotationsStorageError,
+        ) as exc:
+            raise ContentError(exc.code, exc.status_code) from None
+        configuration = {
+            **configuration,
+            "schema": 2,
+            "endpoint": target.endpoint_url,
+            "original_ref": reference,
+        }
         if (
             not dataset_storage.valid_key(object_key)
             or len(binding.bucket.encode()) > 255
@@ -896,7 +890,7 @@ async def _physical(db, row, stream, *, source_target=None):
                 create_client, timeout_seconds=row["timeout_seconds"]
             )
         else:
-            target = await dataset_storage.target_for_ref(db, original_ref(row))
+            target = await _original_storage(row).target_for_ref(db, original_ref(row))
             target_context = target.client(
                 read_timeout=max(10, min(row["timeout_seconds"], 3600))
             )
@@ -1258,7 +1252,7 @@ async def image_dimensions(db, allocation, created):
     owner = original_locator(allocation)
     options = {}
     if owner.location_id != LEGACY_LOCATION_ID:
-        target = await dataset_storage.target_for_ref(db, owner.ref)
+        target = await _original_storage(allocation).target_for_ref(db, owner.ref)
         options["client_context"] = partial(target.client, read_timeout=60)
     async with await storage_access.acquire(
         db,

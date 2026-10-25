@@ -320,6 +320,10 @@ async def test_bindings_get_is_read_only_and_keeps_nine_shared_bucket_purposes(
         "reviewed_bug_attachment_switch",
         "reviewed_audit_archive_switch",
         "reviewed_export_switch",
+        "reviewed_import_switch",
+        "reviewed_dataset_switch",
+        "reviewed_media_cache_switch",
+        "reviewed_annotations_switch",
     }
     training = await db_session.get(StorageBinding, "training")
     training.generation = 2
@@ -335,11 +339,17 @@ async def test_bindings_get_is_read_only_and_keeps_nine_shared_bucket_purposes(
     assert rows["training"]["location_config_revision"] == 7
     assert {row["state"] for row in rows.values()} == {"mismatch"}
     assert rows["avatars"]["change_policy"] == "reviewed_avatar_switch"
-    assert {
-        row["change_policy"]
-        for key, row in rows.items()
-        if key not in {"avatars", "bug-reports", "audit-archive", "export"}
-    } == {"legacy_mapping_locked"}
+    for purpose, policy in {
+        "import": "reviewed_import_switch",
+        "datasets": "reviewed_dataset_switch",
+        "media-cache": "reviewed_media_cache_switch",
+        "annotations": "reviewed_annotations_switch",
+        "training": "legacy_mapping_locked",
+    }.items():
+        assert rows[purpose]["change_policy"] == policy
+        assert rows[purpose]["write_policy"] == (
+            "deployment_mapping" if purpose == "training" else "current_binding"
+        )
     await db_session.refresh(training)
     await db_session.refresh(location)
     assert training.generation == 2 and location.config_revision == 7

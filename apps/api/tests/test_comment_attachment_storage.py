@@ -1,6 +1,5 @@
 """Strict attachment ownership and bounded I/O, with no database or S3 access."""
 
-from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import hashlib
 import io
@@ -181,96 +180,29 @@ def test_receipt_and_fixed_retention_are_strict(storage, changes):
     assert caught.value.code == "comment_attachment_storage_invalid_receipt"
 
 
-def allocation_db(storage):
-    location = SimpleNamespace(
-        id=LEGACY_LOCATION_ID,
-        kind="s3",
-        config_revision=1,
-        enabled=True,
-        config={"endpoint": settings.minio_endpoint, "use_ssl": settings.minio_use_ssl},
-    )
-    binding = SimpleNamespace(
-        purpose="annotations",
-        location_id=LEGACY_LOCATION_ID,
-        generation=1,
-        bucket=storage.bucket,
-    )
-    return (
-        SimpleNamespace(
-            get=AsyncMock(return_value=location), scalar=AsyncMock(return_value=binding)
-        ),
-        location,
-        binding,
-    )
-
-
-async def test_allocate_proves_current_binding_without_mutating_upload(
+async def test_allocate_uses_shared_target_without_mutating_saved_upload(
     storage, monkeypatch
 ):
-    db, _, _ = allocation_db(storage)
-    ensure = AsyncMock()
-    monkeypatch.setattr(owners, "ensure_legacy_bindings", ensure)
     row = record()
-    assert await owners.allocate(db, row) == reference(bucket=storage.bucket)
+    saved = {**reference(bucket=storage.bucket), "schema": 2, "key_prefix": ""}
+    allocate = AsyncMock(return_value=saved)
+    monkeypatch.setattr(owners.annotations_storage, "allocate", allocate)
+    db = object()
+    assert await owners.allocate(db, row) == saved
     assert row.storage_ref == reference()
-    ensure.assert_awaited_once_with(db)
-    statement = db.scalar.await_args.args[0]
-    assert statement.compile().params == {"purpose_1": "annotations"}
+    allocate.assert_awaited_once_with(db, owners.key_for(row.annotation_id, row.id))
 
 
-@pytest.mark.parametrize(
-    ("target", "field", "value"),
-    [
-        ("location", "id", uuid.UUID(int=1)),
-        ("location", "kind", "filesystem"),
-        ("location", "enabled", False),
-        ("location", "enabled", 1),
-        ("location", "config_revision", 2),
-        ("location", "config_revision", True),
-        ("location", "config", {"endpoint": "other.invalid", "use_ssl": False}),
-        (
-            "location",
-            "config",
-            {
-                "endpoint": settings.minio_endpoint,
-                "use_ssl": int(settings.minio_use_ssl),
-            },
-        ),
-        ("binding", "location_id", uuid.UUID(int=2)),
-        ("binding", "generation", 2),
-        ("binding", "generation", True),
-        ("binding", "bucket", "historical-only"),
-    ],
-)
-async def test_allocate_rejects_changed_binding(
-    storage, monkeypatch, target, field, value
-):
-    db, location, binding = allocation_db(storage)
-    monkeypatch.setattr(owners, "ensure_legacy_bindings", AsyncMock())
-    setattr(location if target == "location" else binding, field, deepcopy(value))
-    with pytest.raises(owners.CommentAttachmentStorageError) as caught:
-        await owners.allocate(db, record())
-    assert caught.value.code == "comment_attachment_storage_binding_unproven"
-
-
-@pytest.mark.parametrize("missing", ["location", "binding"])
-async def test_allocate_rejects_missing_binding(storage, monkeypatch, missing):
-    db, _, _ = allocation_db(storage)
-    monkeypatch.setattr(owners, "ensure_legacy_bindings", AsyncMock())
-    (db.get if missing == "location" else db.scalar).return_value = None
-    with pytest.raises(owners.CommentAttachmentStorageError):
-        await owners.allocate(db, record())
-
-
-async def test_allocate_exposes_no_bootstrap_details(storage, monkeypatch):
-    db, _, _ = allocation_db(storage)
+async def test_allocate_exposes_no_target_details(storage, monkeypatch):
     monkeypatch.setattr(
-        owners, "ensure_legacy_bindings", AsyncMock(side_effect=ValueError("secret"))
+        owners.annotations_storage,
+        "allocate",
+        AsyncMock(side_effect=ValueError("secret")),
     )
     with pytest.raises(owners.CommentAttachmentStorageError) as caught:
-        await owners.allocate(db, record())
+        await owners.allocate(object(), record())
+    assert caught.value.code == "comment_attachment_storage_binding_unproven"
     assert "secret" not in str(caught.value)
-    db.get.assert_not_awaited()
 
 
 def readable(storage, data=RAW):

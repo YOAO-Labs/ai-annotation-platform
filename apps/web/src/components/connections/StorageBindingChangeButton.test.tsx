@@ -7,6 +7,7 @@ import type {
   ImportBindingPreview,
   DatasetBindingPreview,
   MediaCacheBindingPreview,
+  AnnotationsBindingPreview,
   StorageBindingOut,
 } from "@/api/generated/types.gen";
 import { ApiError } from "@/api/client";
@@ -871,6 +872,127 @@ it.each([
   const dialog = await openMediaCache();
   expect(await within(dialog).findByRole("alert")).toHaveTextContent(message);
   if (code === "media_cache_binding_target_missing")
+    expect(within(dialog).getByRole("combobox", { name: "目标存储位置" })).toHaveValue("");
+  expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
+  expect(api.applyBinding).not.toHaveBeenCalled();
+});
+
+function annotationsReview(): AnnotationsBindingPreview {
+  return {
+    ...reviewed(),
+    purpose: "annotations",
+    previous: {
+      ...binding,
+      purpose: "annotations",
+      bucket: "annotationss-a",
+      change_policy: "reviewed_annotations_switch",
+    },
+    target: {
+      ...target,
+      connection_revision: 4,
+      bucket: "annotationss-b",
+      key_prefix: "company/_aap_managed/annotationss/",
+    },
+    history: {
+      task_originals: 1,
+      creation_allocations: 2,
+      raster_mask_objects: 3,
+      comment_attachments: 4,
+      guide_assets: 5,
+    },
+    capabilities: {
+      conditional_write: true,
+      full_read: true,
+      delete: true,
+      empty_put: true,
+      multipart: true,
+    },
+    impact_token: "reviewed-annotations-switch",
+  };
+}
+function mountAnnotations() {
+  const client = createTestQueryClient();
+  clients.push(client);
+  const onApplied = vi.fn().mockResolvedValue(undefined);
+  render(
+    <QueryClientProvider client={client}>
+      <StorageBindingChangeButton
+        purpose="annotations"
+        binding={annotationsReview().previous}
+        onApplied={onApplied}
+      />
+    </QueryClientProvider>,
+  );
+  return onApplied;
+}
+async function openAnnotations() {
+  fireEvent.click(screen.getByRole("button", { name: "切换标注文件位置" }));
+  const dialog = screen.getByRole("dialog", { name: "切换标注文件存储位置" });
+  await within(dialog).findByRole("option", { name: target.name });
+  fireEvent.change(within(dialog).getByRole("combobox", { name: "目标存储位置" }), {
+    target: { value: target.location_id },
+  });
+  fireEvent.click(within(dialog).getByRole("button", { name: "验证并预览" }));
+  return dialog;
+}
+
+it("reviews annotations allocation and saved owners before explicitly switching new originals", async () => {
+  api.previewBinding.mockResolvedValueOnce(annotationsReview());
+  const onApplied = mountAnnotations();
+  const dialog = await openAnnotations();
+  await within(dialog).findByRole("region", { name: "标注文件绑定变更预览" });
+  expect(api.bindingCandidates).toHaveBeenCalledWith("annotations", 0, expect.any(AbortSignal), 20);
+  expect(api.previewBinding).toHaveBeenCalledWith("annotations", {
+    expected_generation: 2,
+    target_location_id: target.location_id,
+    target_config_revision: 7,
+  });
+  expect(within(dialog).getByText(/仅后续新分配的独立任务原件/)).toHaveTextContent(
+    "已有及在途对象保留原位置，逻辑键、发布状态与期限不变",
+  );
+  expect(within(dialog).getByText(/任务原件 1 · 任务写入分配 2/)).toBeInTheDocument();
+  expect(within(dialog).getByText(/RLE 对象 3 · 评论附件 4 · 指南图片 5/)).toBeInTheDocument();
+  expect(within(dialog).getByText(/不相加作为对象总数/)).toBeInTheDocument();
+  expect(within(dialog).getByText(/空文件通过 · 分段上传通过/)).toBeInTheDocument();
+  const select = within(dialog).getByRole("combobox", { name: "目标存储位置" });
+  const hint = document.getElementById(select.getAttribute("aria-describedby")!);
+  expect(hint).toHaveClass("text-xs", "text-muted-foreground");
+  expect(hint).toHaveTextContent("空文件和分段上传的条件写入");
+  expect(within(select).queryByText(/条件写入/)).not.toBeInTheDocument();
+  expect(api.applyBinding).not.toHaveBeenCalled();
+  fireEvent.click(within(dialog).getByRole("button", { name: "确认切换" }));
+  await waitFor(() => expect(onApplied).toHaveBeenCalledTimes(1));
+  expect(api.applyBinding).toHaveBeenCalledWith("annotations", {
+    expected_generation: 2,
+    target_location_id: target.location_id,
+    target_config_revision: 7,
+    impact_token: "reviewed-annotations-switch",
+  });
+  expect(pushToast).toHaveBeenCalledWith({
+    msg: "标注文件绑定已更新，后续新分配使用新位置",
+    kind: "success",
+  });
+});
+
+it("rejects another purpose's preview when switching annotations originals", async () => {
+  api.previewBinding.mockResolvedValueOnce(importReview());
+  mountAnnotations();
+  const dialog = await openAnnotations();
+  expect(await within(dialog).findByRole("alert")).toHaveTextContent("用途绑定或目标配置已变化");
+  expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
+  expect(api.applyBinding).not.toHaveBeenCalled();
+});
+
+it.each([
+  ["annotations_binding_target_missing", "目标位置已不存在"],
+  ["annotations_storage_conditions_unsupported", "目标不支持条件写入"],
+  ["annotations_storage_unavailable", "检查连接、读写权限及分段上传能力"],
+])("keeps annotations confirmation disabled after %s", async (code, message) => {
+  api.previewBinding.mockRejectedValueOnce(new ApiError(409, "Unavailable", { code }));
+  mountAnnotations();
+  const dialog = await openAnnotations();
+  expect(await within(dialog).findByRole("alert")).toHaveTextContent(message);
+  if (code === "annotations_binding_target_missing")
     expect(within(dialog).getByRole("combobox", { name: "目标存储位置" })).toHaveValue("");
   expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
   expect(api.applyBinding).not.toHaveBeenCalled();

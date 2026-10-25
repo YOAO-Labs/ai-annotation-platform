@@ -12,18 +12,32 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.db.models.annotations_storage_ref import annotations_ref_check
+
+
+TASK_ORIGINAL_STORAGE_REF_CHECK = (
+    "storage_ref IS NULL OR ("
+    + annotations_ref_check(
+        "'__aap_task_originals__/' || task_id::text || '/' || id::text || '/payload'"
+    )
+    + " AND storage_ref->>'location_id'=location_id::text AND storage_ref->>'bucket'=bucket AND storage_ref->>'object_key'=object_key AND storage_ref->>'storage_identity'=storage_identity)"
+)
 
 
 class TaskOriginal(Base):
     __tablename__ = "task_originals"
     __table_args__ = (
+        CheckConstraint(
+            TASK_ORIGINAL_STORAGE_REF_CHECK, name="ck_task_original_storage_ref"
+        ),
         UniqueConstraint("creation_id", name="uq_task_original_creation"),
         CheckConstraint("id = creation_id", name="ck_task_original_creation_id"),
         CheckConstraint(
-            "location_id = '4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7'::uuid",
+            "storage_ref IS NOT NULL OR location_id = '4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7'::uuid",
             name="ck_task_original_location",
         ),
         CheckConstraint(
@@ -32,7 +46,7 @@ class TaskOriginal(Base):
         ),
         CheckConstraint("size_bytes >= 0", name="ck_task_original_size"),
         CheckConstraint(
-            "object_key = '__aap_task_originals__/' || task_id::text || '/' || id::text || '/payload'",
+            "object_key = COALESCE(storage_ref->>'key_prefix','') || '__aap_task_originals__/' || task_id::text || '/' || id::text || '/payload'",
             name="ck_task_original_key",
         ),
         CheckConstraint(
@@ -61,6 +75,7 @@ class TaskOriginal(Base):
     storage_identity: Mapped[str] = mapped_column(String(64), nullable=False)
     bucket: Mapped[str] = mapped_column(String(255), nullable=False)
     object_key: Mapped[str] = mapped_column(String(1000), nullable=False)
+    storage_ref: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
     # These are source write receipts, not target HEAD conditions after restore.

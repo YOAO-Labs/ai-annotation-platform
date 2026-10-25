@@ -1,6 +1,7 @@
 """Real independent publication transactions in per-test disposable schemas."""
 
 import asyncio
+from copy import deepcopy
 from dataclasses import FrozenInstanceError, replace
 from datetime import datetime, timezone
 import hashlib
@@ -43,6 +44,7 @@ def migration(connection, number):
 async def original_db(test_engine):
     schema = "task_original_test_" + uuid.uuid4().hex
     tables = (
+        "storage_connections",
         "storage_locations",
         "storage_bindings",
         "storage_maintenance_gates",
@@ -53,6 +55,9 @@ async def original_db(test_engine):
         "managed_original_retirements",
         "tasks",
         "task_dataset_item_links",
+        "comment_attachment_uploads",
+        "guide_asset_uploads",
+        "raster_mask_objects",
     )
     async with test_engine.begin() as connection:
         await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
@@ -89,6 +94,7 @@ async def original_db(test_engine):
                     "ALTER TABLE managed_original_creations ADD COLUMN staging_ref jsonb"
                 )
             )
+            await connection.run_sync(lambda sync: migration(sync, "0253").upgrade())
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
             await ensure_legacy_bindings(db)
             await db.commit()
@@ -107,7 +113,7 @@ def original_client(monkeypatch):
     return client
 
 
-async def allocated(db, *, commit=True):
+async def allocated(db, *, commit=True, legacy=False):
     task = Task(
         id=uuid.uuid4(),
         project_id=uuid.uuid4(),
@@ -128,6 +134,22 @@ async def allocated(db, *, commit=True):
         requested_by=uuid.uuid4(),
         authority={},
     )
+    if legacy:
+        allocation = deepcopy(allocation)
+        allocation["id"] = uuid.uuid4()
+        allocation["object_key"] = service.key_for(task.id, allocation["id"])
+        allocation["configuration"].pop("original_ref")
+        allocation["configuration"].pop("schema")
+        allocation["configuration"]["buckets"]["import"] = allocation["staging_bucket"]
+        allocation["input_fingerprint"] = creation._digest(allocation["configuration"])
+        allocation["staging_ref"] = None
+        allocation["staging_key"] = (
+            f"{creation.STAGING_PREFIX}/{allocation['id']}/payload"
+        )
+        async with service.storage_access.engine(db).begin() as connection:
+            await connection.execute(
+                creation.Creation.__table__.insert().values(**allocation)
+            )
     task.file_path = allocation["object_key"]
     await db.flush()
     if commit:
@@ -135,8 +157,8 @@ async def allocated(db, *, commit=True):
     return task, allocation
 
 
-async def verified(db, client, *, commit=True, data=b"original"):
-    task, allocation = await allocated(db, commit=commit)
+async def verified(db, client, *, commit=True, data=b"original", legacy=False):
+    task, allocation = await allocated(db, commit=commit, legacy=legacy)
     client.store(allocation["staging_bucket"], allocation["staging_key"], data)
     created = await creation.complete_direct(db, allocation)
     return task, allocation, created
@@ -336,7 +358,11 @@ async def test_duplicate_independent_publishers_share_one_receipt(
         for field in service.FACTS
         if field not in {"creation_id", "created_at"}
     }
-    values.update(creation_id=created.creation_id, created_at=source["completed_at"])
+    values.update(
+        creation_id=created.creation_id,
+        created_at=source["completed_at"],
+        storage_ref=creation.original_ref(source),
+    )
     left, right = await asyncio.gather(
         service._durable_owner(db, values), service._durable_owner(db, values)
     )

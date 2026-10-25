@@ -22,7 +22,7 @@ async def target_for(db, location, *, require_enabled=True):
     )
 
 
-def _probe_writer(client, target, payload):
+def _probe_writer(client, target, payload, *, purpose="datasets"):
     key = target.key_prefix + ".probe-original-" + uuid.uuid4().hex
     receipts, prepared = [], None
     completion_pending, unknown_final, failure = False, False, None
@@ -80,7 +80,7 @@ def _probe_writer(client, target, payload):
         else:
             completion_pending, prepared = False, None
             receipts.append(unexpected)
-            raise shared.error("datasets", "conditions_unsupported")
+            raise shared.error(purpose, "conditions_unsupported")
     except BaseException as exc:
         failure = exc
         unknown_final = (
@@ -108,8 +108,8 @@ def _probe_writer(client, target, payload):
                     200,
                     204,
                 }:
-                    raise shared.error("datasets", "probe_cleanup_unproven")
-                shared._prove_absent(client, params, purpose="datasets")
+                    raise shared.error(purpose, "probe_cleanup_unproven")
+                shared._prove_absent(client, params, purpose=purpose)
             except BaseException as exc:
                 if failure is not None:
                     storage_access.mark_unsettled(failure)
@@ -117,14 +117,14 @@ def _probe_writer(client, target, payload):
                     raise storage_access.mark_unsettled(exc)
 
 
-def probe_target(target):
+def probe_target(target, *, purpose="datasets"):
     """Exercise empty PUT and nonempty MPU through the production writer."""
     context, failure = target.client(read_timeout=60), None
     try:
         client = context.__enter__()
         try:
             for payload in (b"", uuid.uuid4().bytes):
-                _probe_writer(client, target, payload)
+                _probe_writer(client, target, payload, purpose=purpose)
         except BaseException as exc:
             failure = exc
             raise
@@ -137,7 +137,7 @@ def probe_target(target):
                 else:
                     raise storage_access.mark_unsettled(exc)
     except writer.WriterError as exc:
-        error = shared.error("datasets", "unavailable")
+        error = shared.error(purpose, "unavailable")
         if exc.outcome == "unknown" or getattr(
             exc, "storage_operation_unsettled", False
         ):

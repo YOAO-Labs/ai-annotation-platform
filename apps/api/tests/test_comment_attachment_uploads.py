@@ -534,7 +534,7 @@ async def test_natural_expiry_during_final_gate_wait(
 
     async def check(*args, **kwargs):
         result = await original(*args, **kwargs)
-        if kwargs.get("lock"):
+        if kwargs.get("lock") and objects.puts:
             monkeypatch.setattr(
                 authority, "now", lambda: expiration + timedelta(seconds=1)
             )

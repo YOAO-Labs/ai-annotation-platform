@@ -27,6 +27,10 @@ from app.schemas.storage_location import (
     MediaCacheBindingCandidates,
     MediaCacheBindingChange,
     MediaCacheBindingPreview,
+    AnnotationsBindingApply,
+    AnnotationsBindingCandidates,
+    AnnotationsBindingChange,
+    AnnotationsBindingPreview,
     DatasetBindingApply,
     DatasetBindingCandidates,
     DatasetBindingChange,
@@ -441,6 +445,64 @@ async def apply_dataset_binding(
     actor: User = Depends(super_admin),
 ):
     from app.services import dataset_binding_change as change
+
+    try:
+        result = await change.apply(
+            db,
+            payload,
+            actor,
+            api_key_id=getattr(request.state, "api_key_id", None),
+            request=request,
+        )
+    except change.PUBLIC_ERRORS as exc:
+        raise change.http_error(exc) from None
+    await db.commit()
+    return result
+
+
+@router.get(
+    "/bindings/annotations/candidates", response_model=AnnotationsBindingCandidates
+)
+async def annotations_binding_candidates(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(super_admin),
+    limit: int = Query(20, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    from app.services import annotations_binding_change as change
+
+    return await change.candidates(db, limit=limit, offset=offset)
+
+
+@router.post(
+    "/bindings/annotations/change-preview", response_model=AnnotationsBindingPreview
+)
+async def preview_annotations_binding(
+    payload: AnnotationsBindingChange,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(super_admin),
+):
+    from app.services import annotations_binding_change as change
+
+    try:
+        result = await change.preview(
+            db, payload, actor, api_key_id=getattr(request.state, "api_key_id", None)
+        )
+    except change.PUBLIC_ERRORS as exc:
+        raise change.http_error(exc) from None
+    await db.commit()
+    return result
+
+
+@router.patch("/bindings/annotations", response_model=StorageBindingOut)
+async def apply_annotations_binding(
+    payload: AnnotationsBindingApply,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(super_admin),
+):
+    from app.services import annotations_binding_change as change
 
     try:
         result = await change.apply(

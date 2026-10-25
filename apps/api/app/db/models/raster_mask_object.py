@@ -17,13 +17,14 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.db.models.annotations_storage_ref import annotations_ref_check
 
 RASTER_OBJECT_LOGICAL_KEY_CHECK = """
 logical_key = 'raster-masks/sha256/' || substr(canonical_sha256,1,2) || '/'
     || substr(canonical_sha256,3,2) || '/' || canonical_sha256
     || CASE WHEN storage_encoding='gzip' THEN '.json.gz' ELSE '.json' END
 """
-RASTER_OBJECT_STORAGE_REF_CHECK = """
+LEGACY_RASTER_OBJECT_STORAGE_REF_CHECK = """
 COALESCE((
     jsonb_typeof(storage_ref) = 'object'
     AND storage_ref ?& ARRAY['schema','purpose','location_id','config_revision',
@@ -48,6 +49,16 @@ COALESCE((
     AND storage_ref->>'storage_identity' ~ '^[0-9a-f]{64}$'
 ), false)
 """
+RASTER_OBJECT_STORAGE_REF_CHECK = (
+    "("
+    + LEGACY_RASTER_OBJECT_STORAGE_REF_CHECK
+    + ") OR ("
+    + annotations_ref_check(
+        "'raster-masks/objects/' || id::text || CASE WHEN storage_encoding='gzip' THEN '.json.gz' ELSE '.json' END"
+    )
+    + ")"
+)
+
 RASTER_OBJECT_PUBLICATION_CHECK = """
 (state='pending' AND published_at IS NULL)
 OR (state='ready' AND published_at IS NOT NULL AND published_at >= created_at)

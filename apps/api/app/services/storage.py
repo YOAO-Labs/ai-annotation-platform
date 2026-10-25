@@ -526,6 +526,17 @@ class StorageService:
 storage_service = StorageService()
 
 
+def require_legacy_task_path(task):
+    """Old synchronous bypasses cannot locate a rooted standalone original."""
+    original_id = getattr(task, "original_id", None)
+    if original_id is not None:
+        from app.services.content_snapshot import ContentError
+        from app.services.task_originals import key_for
+
+        if task.file_path != key_for(task.id, original_id):
+            raise ContentError("location_unavailable")
+
+
 def resolve_task_url(task: "Task") -> str:
     """Sign the task key directly for the ML backend's storage endpoint."""
     from app.services.reference_keys import is_reference
@@ -534,6 +545,7 @@ def resolve_task_url(task: "Task") -> str:
         from fastapi import HTTPException
 
         raise HTTPException(409, detail={"code": "reference_operation_not_supported"})
+    require_legacy_task_path(task)
     bucket = (
         storage_service.datasets_bucket
         if task.dataset_item_id
