@@ -126,15 +126,15 @@ async def lock_batch_rows_for_core_read(
     return (await execute_core_read(db, statement)).scalars().all()
 
 
-async def lock_batch_task_rows_for_core_read(
+async def lock_task_rows_for_core_read(
     db: AsyncSession,
     task_ids: list[uuid.UUID],
     *,
-    project_id: uuid.UUID,
-    batch_id: uuid.UUID,
+    project_id: uuid.UUID | None = None,
+    batch_id: uuid.UUID | None = None,
     populate_existing: bool = False,
 ):
-    locked = func.aap_labeling_v1.lock_batch_task_rows_for_core_read(
+    locked = func.aap_labeling_v1.lock_task_rows_for_core_read(
         task_ids, project_id, batch_id
     ).table_valued(
         *(
@@ -147,6 +147,23 @@ async def lock_batch_task_rows_for_core_read(
     if populate_existing:
         statement = statement.execution_options(populate_existing=True)
     return (await execute_core_read(db, statement)).scalars().all()
+
+
+async def lock_batch_task_rows_for_core_read(
+    db: AsyncSession,
+    task_ids: list[uuid.UUID],
+    *,
+    project_id: uuid.UUID,
+    batch_id: uuid.UUID,
+    populate_existing: bool = False,
+):
+    return await lock_task_rows_for_core_read(
+        db,
+        task_ids,
+        project_id=project_id,
+        batch_id=batch_id,
+        populate_existing=populate_existing,
+    )
 
 
 async def lock_annotation_rows_for_core_read(
@@ -208,6 +225,7 @@ __all__ = [
     "lock_batch_task_rows_for_core_read",
     "lock_annotation_rows_for_core_read",
     "lock_task_for_core_read",
+    "lock_task_rows_for_core_read",
     "prediction_meta_row",
     "prediction_row",
     "scene_track_interval_row",

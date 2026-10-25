@@ -175,10 +175,10 @@ REVOKE ALL ON FUNCTION
     aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)
 FROM PUBLIC;
 -- aap-statement-break
-CREATE FUNCTION aap_labeling_v1.lock_batch_task_rows_for_core_read(
+CREATE FUNCTION aap_labeling_v1.lock_task_rows_for_core_read(
     p_task_ids uuid[],
-    p_project_id uuid,
-    p_batch_id uuid
+    p_project_id uuid DEFAULT NULL,
+    p_batch_id uuid DEFAULT NULL
 )
 RETURNS SETOF aap_labeling_v1.task_rows
 LANGUAGE plpgsql
@@ -206,15 +206,15 @@ BEGIN
         task.reopened_count, task.last_reopened_at, task.created_at, task.updated_at
     FROM public.tasks AS task
     WHERE task.id = ANY(p_task_ids)
-      AND task.project_id = p_project_id
-      AND task.batch_id = p_batch_id
+      AND (p_project_id IS NULL OR task.project_id = p_project_id)
+      AND (p_batch_id IS NULL OR task.batch_id = p_batch_id)
     ORDER BY task.id
     FOR UPDATE NOWAIT;
 END;
 $function$;
 -- aap-statement-break
 REVOKE ALL ON FUNCTION
-    aap_labeling_v1.lock_batch_task_rows_for_core_read(uuid[],uuid,uuid)
+    aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid)
 FROM PUBLIC;
 -- aap-statement-break
 CREATE FUNCTION aap_labeling_v1.lock_video_segment_for_core_read(

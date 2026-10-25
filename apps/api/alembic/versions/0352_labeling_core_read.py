@@ -22,7 +22,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute(
-        "DROP FUNCTION aap_labeling_v1.lock_batch_task_rows_for_core_read(uuid[],uuid,uuid) RESTRICT"
+        "DROP FUNCTION aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid) RESTRICT"
     )
     op.execute(
         "DROP FUNCTION aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid) RESTRICT"

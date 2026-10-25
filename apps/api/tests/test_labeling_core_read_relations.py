@@ -34,6 +34,7 @@ from app.services.labeling_core_read_relations import (
     lock_batch_task_rows_for_core_read,
     lock_batch_rows_for_core_read,
     lock_task_for_core_read,
+    lock_task_rows_for_core_read,
     lock_video_segment_for_core_read,
 )
 
@@ -196,8 +197,23 @@ async def test_row_locks_use_only_fixed_owner_lock_functions():
     assert "aap_labeling_v1.lock_batch_rows_for_core_read" in session.sql[1]
     assert "aap_labeling_v1.lock_annotation_rows_for_core_read" in session.sql[2]
     assert "aap_labeling_v1.lock_video_segment_for_core_read" in session.sql[3]
-    assert "aap_labeling_v1.lock_batch_task_rows_for_core_read" in session.sql[4]
+    assert "aap_labeling_v1.lock_task_rows_for_core_read" in session.sql[4]
     assert all("FOR UPDATE" not in statement for statement in session.sql)
+
+
+@pytest.mark.asyncio
+async def test_task_rows_lock_accepts_id_only_scope_in_one_query():
+    session = _ReadSession()
+    task_ids = [
+        uuid.UUID("00000000-0000-0000-0000-000000000005"),
+        uuid.UUID("00000000-0000-0000-0000-000000000006"),
+    ]
+
+    assert await lock_task_rows_for_core_read(session, task_ids) == []
+    assert len(session.sql) == 1
+    assert "aap_labeling_v1.lock_task_rows_for_core_read" in session.sql[0]
+    assert "ORDER BY" in session.sql[0]
+    assert "FOR UPDATE" not in session.sql[0]
 
 
 @pytest.mark.asyncio
@@ -222,7 +238,7 @@ async def test_batch_task_lock_keeps_select_autoflush_for_empty_ids():
         == []
     )
     assert session.flush_count == 1
-    assert "aap_labeling_v1.lock_batch_task_rows_for_core_read" in session.sql[0]
+    assert "aap_labeling_v1.lock_task_rows_for_core_read" in session.sql[0]
 
 
 @pytest.mark.asyncio

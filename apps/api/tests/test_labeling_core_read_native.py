@@ -245,20 +245,24 @@ async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
                 task_id,
                 uuid.uuid4(),
             )
+            locked_id_only_tasks = await connection.fetch(
+                "SELECT id FROM aap_labeling_v1.lock_task_rows_for_core_read($1)",
+                [task_id],
+            )
             locked_batch_tasks = await connection.fetch(
-                "SELECT id FROM aap_labeling_v1.lock_batch_task_rows_for_core_read($1, $2, $3)",
+                "SELECT id FROM aap_labeling_v1.lock_task_rows_for_core_read($1, $2, $3)",
                 [task_id],
                 project_id,
                 batch_id,
             )
             foreign_project_batch_tasks = await connection.fetch(
-                "SELECT id FROM aap_labeling_v1.lock_batch_task_rows_for_core_read($1, $2, $3)",
+                "SELECT id FROM aap_labeling_v1.lock_task_rows_for_core_read($1, $2, $3)",
                 [task_id],
                 uuid.uuid4(),
                 batch_id,
             )
             foreign_batch_tasks = await connection.fetch(
-                "SELECT id FROM aap_labeling_v1.lock_batch_task_rows_for_core_read($1, $2, $3)",
+                "SELECT id FROM aap_labeling_v1.lock_task_rows_for_core_read($1, $2, $3)",
                 [task_id],
                 project_id,
                 uuid.uuid4(),
@@ -287,6 +291,7 @@ async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
             assert locked_task["id"] == task_id
             assert project_scoped_task["id"] == task_id
             assert foreign_project_task is None
+            assert [row["id"] for row in locked_id_only_tasks] == [task_id]
             assert [row["id"] for row in locked_batch_tasks] == [task_id]
             assert foreign_project_batch_tasks == []
             assert foreign_batch_tasks == []
