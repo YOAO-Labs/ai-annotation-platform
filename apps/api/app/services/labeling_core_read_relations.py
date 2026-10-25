@@ -31,7 +31,7 @@ def _row_relation(relation: str, model):
         *(column(name, model.__table__.c[name].type) for name in expected),
         schema="aap_labeling_v1",
     )
-    return aliased(model, selectable, adapt_on_names=True)
+    return aliased(model, selectable, name=model.__name__, adapt_on_names=True)
 
 
 def alias_core_row(row, name: str | None = None):
