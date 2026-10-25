@@ -1173,11 +1173,12 @@ BEGIN
                     DETAIL = jsonb_build_object('status_code',409,'detail',jsonb_build_object('reason','prediction_source_changed'))::text;
             END IF;
             INSERT INTO public.ai_mask_accept_decisions (
-                task_id,idempotency_key,request_digest,candidate_id,content_digest,
+                id,task_id,idempotency_key,request_digest,candidate_id,content_digest,
                 prediction_id,prediction_created_at,annotation_id,source_annotation_id,
                 source_version,result_version,actor_id,response_json
             ) VALUES (
-                v_task_id,p_request ->> 'idempotency_key',p_request ->> 'request_digest',
+                pg_catalog.gen_random_uuid(),v_task_id,
+                p_request ->> 'idempotency_key',p_request ->> 'request_digest',
                 p_request ->> 'candidate_id',p_request ->> 'content_digest',
                 (p_request ->> 'prediction_id')::uuid,
                 (p_request ->> 'prediction_created_at')::timestamptz,

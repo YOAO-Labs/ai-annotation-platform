@@ -394,7 +394,7 @@ BEGIN
             metric=EXCLUDED.metric,threshold=EXCLUDED.threshold,region_bbox=EXCLUDED.region_bbox,
             region_mask_ref=EXCLUDED.region_mask_ref,region_digest=EXCLUDED.region_digest,
             source=EXCLUDED.source,suggestion=EXCLUDED.suggestion,updated_at=EXCLUDED.updated_at
-        RETURNING public.mask_qc_issues.* INTO v_issue;
+        RETURNING current_issue.* INTO v_issue;
         v_data := pg_catalog.to_jsonb(v_issue);
     ELSIF v_operation = 'mark_seen' THEN
         IF pg_catalog.jsonb_typeof(p_request -> 'project_id') IS DISTINCT FROM 'string'
