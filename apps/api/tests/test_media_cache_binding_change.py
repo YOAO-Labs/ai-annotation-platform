@@ -384,9 +384,7 @@ async def test_probe_phase_rejects_revision_change_before_publishing_review(
     ).generation == 1
 
 
-async def test_switch_keeps_training_locked_and_other_bindings_unchanged(
-    world, httpx_client, super_admin
-):
+async def test_switch_keeps_other_bindings_unchanged(world, httpx_client, super_admin):
     db, _, target, _ = world
     before = {
         row.purpose: controller().binding_facts(row)
@@ -401,6 +399,6 @@ async def test_switch_keeps_training_locked_and_other_bindings_unchanged(
     assert listing.status_code == 200, listing.text
     rows = {item["purpose"]: item for item in listing.json()}
     for purpose in ("training",):
-        assert rows[purpose]["change_policy"] == "legacy_mapping_locked"
+        assert rows[purpose]["change_policy"] == "reviewed_training_switch"
         assert rows[purpose]["generation"] == before[purpose]["generation"]
         assert rows[purpose]["location_id"] == before[purpose]["location_id"]

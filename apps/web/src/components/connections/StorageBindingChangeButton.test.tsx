@@ -8,6 +8,7 @@ import type {
   DatasetBindingPreview,
   MediaCacheBindingPreview,
   AnnotationsBindingPreview,
+  TrainingBindingPreview,
   StorageBindingOut,
 } from "@/api/generated/types.gen";
 import { ApiError } from "@/api/client";
@@ -993,6 +994,128 @@ it.each([
   const dialog = await openAnnotations();
   expect(await within(dialog).findByRole("alert")).toHaveTextContent(message);
   if (code === "annotations_binding_target_missing")
+    expect(within(dialog).getByRole("combobox", { name: "目标存储位置" })).toHaveValue("");
+  expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
+  expect(api.applyBinding).not.toHaveBeenCalled();
+});
+
+function trainingReview(): TrainingBindingPreview {
+  return {
+    ...reviewed(),
+    purpose: "training",
+    previous: {
+      ...binding,
+      purpose: "training",
+      bucket: "trainings-a",
+      change_policy: "reviewed_training_switch",
+    },
+    target: {
+      ...target,
+      connection_revision: 4,
+      bucket: "trainings-b",
+      key_prefix: "company/_aap_managed/trainings/",
+    },
+    history: {
+      training_versions: 1,
+      training_runs: 2,
+      training_previews: 3,
+      sample_evaluations: 4,
+      active_learning_rounds: 5,
+      deletion_intents: 6,
+    },
+    capabilities: {
+      write: true,
+      list: true,
+      full_read: true,
+      delete: true,
+      multipart: true,
+    },
+    impact_token: "reviewed-training-switch",
+  };
+}
+function mountTraining() {
+  const client = createTestQueryClient();
+  clients.push(client);
+  const onApplied = vi.fn().mockResolvedValue(undefined);
+  render(
+    <QueryClientProvider client={client}>
+      <StorageBindingChangeButton
+        purpose="training"
+        binding={trainingReview().previous}
+        onApplied={onApplied}
+      />
+    </QueryClientProvider>,
+  );
+  return onApplied;
+}
+async function openTraining() {
+  fireEvent.click(screen.getByRole("button", { name: "切换训练文件位置" }));
+  const dialog = screen.getByRole("dialog", { name: "切换训练文件存储位置" });
+  await within(dialog).findByRole("option", { name: target.name });
+  fireEvent.change(within(dialog).getByRole("combobox", { name: "目标存储位置" }), {
+    target: { value: target.location_id },
+  });
+  fireEvent.click(within(dialog).getByRole("button", { name: "验证并预览" }));
+  return dialog;
+}
+
+it("reviews training allocation and saved owners before explicitly switching new originals", async () => {
+  api.previewBinding.mockResolvedValueOnce(trainingReview());
+  const onApplied = mountTraining();
+  const dialog = await openTraining();
+  await within(dialog).findByRole("region", { name: "训练文件绑定变更预览" });
+  expect(api.bindingCandidates).toHaveBeenCalledWith("training", 0, expect.any(AbortSignal), 20);
+  expect(api.previewBinding).toHaveBeenCalledWith("training", {
+    expected_generation: 2,
+    target_location_id: target.location_id,
+    target_config_revision: 7,
+  });
+  expect(within(dialog).getByText(/仅后续新分配的训练版本/)).toHaveTextContent(
+    "已有及在途文件保留原位置，重试、续训及清理沿保存地址，内容和首次期限不变",
+  );
+  expect(within(dialog).getByText(/训练版本 1 · 训练实验 2/)).toBeInTheDocument();
+  expect(within(dialog).getByText(/主动学习轮次 5 · 删除意图 6/)).toBeInTheDocument();
+  expect(within(dialog).getByText(/不相加作为对象总数/)).toBeInTheDocument();
+  expect(within(dialog).getByText(/普通写入通过/)).toBeInTheDocument();
+  const select = within(dialog).getByRole("combobox", { name: "目标存储位置" });
+  const hint = document.getElementById(select.getAttribute("aria-describedby")!);
+  expect(hint).toHaveClass("text-xs", "text-muted-foreground");
+  expect(hint).toHaveTextContent("普通写入、非空分段上传");
+  expect(within(select).queryByText(/条件写入/)).not.toBeInTheDocument();
+  expect(api.applyBinding).not.toHaveBeenCalled();
+  fireEvent.click(within(dialog).getByRole("button", { name: "确认切换" }));
+  await waitFor(() => expect(onApplied).toHaveBeenCalledTimes(1));
+  expect(api.applyBinding).toHaveBeenCalledWith("training", {
+    expected_generation: 2,
+    target_location_id: target.location_id,
+    target_config_revision: 7,
+    impact_token: "reviewed-training-switch",
+  });
+  expect(pushToast).toHaveBeenCalledWith({
+    msg: "训练文件绑定已更新，后续新分配使用新位置",
+    kind: "success",
+  });
+});
+
+it("rejects another purpose's preview when switching training originals", async () => {
+  api.previewBinding.mockResolvedValueOnce(importReview());
+  mountTraining();
+  const dialog = await openTraining();
+  expect(await within(dialog).findByRole("alert")).toHaveTextContent("用途绑定或目标配置已变化");
+  expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
+  expect(api.applyBinding).not.toHaveBeenCalled();
+});
+
+it.each([
+  ["training_binding_target_missing", "目标位置已不存在"],
+  ["storage_operation_unsettled", "验证操作尚未确认收尾"],
+  ["training_storage_unavailable", "检查连接、普通写入、分段上传"],
+])("keeps training confirmation disabled after %s", async (code, message) => {
+  api.previewBinding.mockRejectedValueOnce(new ApiError(409, "Unavailable", { code }));
+  mountTraining();
+  const dialog = await openTraining();
+  expect(await within(dialog).findByRole("alert")).toHaveTextContent(message);
+  if (code === "training_binding_target_missing")
     expect(within(dialog).getByRole("combobox", { name: "目标存储位置" })).toHaveValue("");
   expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
   expect(api.applyBinding).not.toHaveBeenCalled();

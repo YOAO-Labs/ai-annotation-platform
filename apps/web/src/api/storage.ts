@@ -8,6 +8,7 @@ import type {
   DatasetBindingPreview,
   MediaCacheBindingPreview,
   AnnotationsBindingPreview,
+  TrainingBindingPreview,
   AvatarBindingApply,
   AvatarBindingCandidates,
   AvatarBindingChange,
@@ -172,7 +173,8 @@ export const storageApi = {
       | "import"
       | "datasets"
       | "media-cache"
-      | "annotations",
+      | "annotations"
+      | "training",
     offset: number,
     signal?: AbortSignal,
     limit = 20,
@@ -192,7 +194,8 @@ export const storageApi = {
       | "import"
       | "datasets"
       | "media-cache"
-      | "annotations",
+      | "annotations"
+      | "training",
     payload: AvatarBindingChange,
   ) =>
     purpose === "avatars"
@@ -203,6 +206,7 @@ export const storageApi = {
           | ExportBindingPreview
           | ImportBindingPreview
           | DatasetBindingPreview
+          | TrainingBindingPreview
           | AnnotationsBindingPreview
           | MediaCacheBindingPreview
         >(`/storage-locations/bindings/${purpose}/change-preview`, payload),
@@ -215,7 +219,8 @@ export const storageApi = {
       | "import"
       | "datasets"
       | "media-cache"
-      | "annotations",
+      | "annotations"
+      | "training",
     payload: AvatarBindingApply,
   ) =>
     purpose === "avatars"

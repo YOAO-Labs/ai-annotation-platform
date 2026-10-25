@@ -116,7 +116,7 @@ last_reviewed: 2026-10-24
 
 #### 冻结前缀的存储归属
 
-`TrainingDatasetVersion.storage_ref` 在新版本创建事务中、首个对象写入前保存平台 Location、配置修订、training 绑定代次、精确 endpoint/bucket/prefix 和物理身份。固定前缀为 `projects/{project_id}/datasets/{version_id}/`，涵盖 `media/`、`masks/` 及各 attempt 的 ZIP；归属与内容 snapshot/manifest 分开，不改变历史训练摘要。`training_dataset_storage` 是共同解析 owner，已有版本不再依据当前 `training_bucket` 解释历史键。
+`TrainingDatasetVersion.storage_ref` 在新版本创建事务中、首个对象写入前保存平台 Location、配置修订、training 绑定代次、精确 endpoint/bucket/prefix 和物理身份。逻辑前缀为 `projects/{project_id}/datasets/{version_id}/`；schema2 在受控根下保存完整物理前缀，涵盖 `media/`、`masks/` 及各 attempt 的 ZIP；归属与内容 snapshot/manifest 分开，不改变历史训练摘要。`training_dataset_storage` 是共同解析 owner，已有版本不再依据当前 `training_bucket` 解释历史键。
 
 Worker 的保留媒体读取/写入、包发布与尝试清理，analysis 的图片/掩码读取（包括逐样本评估），训练 assignment 的 dataset URL 和增强 preview 的源 URL 均解析同一归属。解析在 I/O 前核对实际客户端端点和精确子键；当前用途桶变化不改已有归属，同端点凭据仍由原 StorageService 管理。端点变化、未知身份或越界键明确失败，不试探其他桶，也不改冻结 `run.config`、preview.spec 或 input_digest。实验权重由下述 Run 归属解析，预览结果仍保留独立存储 owner。
 
@@ -222,13 +222,13 @@ API 预检逐项执行有界严格读取并及时关闭临时快照，报告引�
 
 本地成员回执由 Supervisor 校验并嵌入已有执行 manifest，成功发布时 API 使用保存桶和现有有界 JSON 读取器核验 Run／Attempt／config／版本与完整集合。合同和能力均显式声明；镜像相同不能绕过能力检查。历史无声明 Run 不回填，续训按新 Attempt 重新观察，配方不复制数据绑定的成员合同，增强预览不附加训练合同。执行器源码烘焙在镜像中，宿主机源码变更不会更新已运行镜像的能力。
 
-`TrainingRun.storage_ref` 固定 `projects/{project_id}/runs/{run_id}/`，`purpose=training-run`；平台 API、自动策略与参数搜索在新实验创建事务中、首个 attempt 前显式分配。`new_attempt` 和续训不隐式分配。`training_run_storage` 复用归属校验器，并强制键位于该实验下规范的 `attempts/{attempt_id}/` 非空子路径；执行还须通过 `run_id` 外键属于该实验。输入数据使用 `TrainingDatasetVersion` 自己的归属，与产物独立。
+`TrainingRun.storage_ref` 固定逻辑 `projects/{project_id}/runs/{run_id}/` 及实际物理前缀，`purpose=training-run`；平台 API、自动策略与参数搜索在新实验创建事务中、首个 attempt 前显式分配。`new_attempt` 和续训不隐式分配。`training_run_storage` 复用归属校验器，并强制键位于该实验下规范的 `attempts/{attempt_id}/` 非空子路径；执行还须通过 `run_id` 外键属于该实验。输入数据使用 `TrainingDatasetVersion` 自己的归属，与产物独立。
 
 上传签名、完成核验、检查点续训、报告及观测日志文件、脱敏副本、模型注册和后续消费均解析 Run owner。`TrainedModelVersion` 通过同项目 Run/Attempt 外键与精确发布清单解析来源，不另存物理归属；模型安装、下载、评估和初始化不从当前 training 桶或目标实验推断来源。冻结配置、初始化 pin、模型 artifact/provenance、内容摘要和共享训练协议保持原合同。
 
-增量迁移 0221 保留旧 NULL，元数据读取仍允许，文件 I/O、签名、上传、领取、续训和注册明确拒绝；停止、失败及资源收尾继续遵守原 fence。显式核验只接收所有 attempt 已终态且无资源租约的实验，从持久 training 绑定发现候选，完整验证独立 upload/publication 清单、SHA/大小和 attempt metadata，拒绝未知额外对象。脱敏副本须能从独立核验的原日志按已知规则重建；不反序列化权重、不回读可变输入、不修补产物。读取后复核权限/API Key、配置与清单指纹、绑定及维护代次，再原子固定当前保留副本证据。
+增量迁移 0221 保留旧 NULL，元数据读取仍允许，文件 I/O、签名、上传、领取、续训和注册明确拒绝；停止、失败及资源收尾继续遵守原 fence。显式核验只接收所有 attempt 已终态且无资源租约的实验，从已登记 legacy A 位置及部署 training 桶发现候选，完整验证独立 upload/publication 清单、SHA/大小和 attempt metadata，拒绝未知额外对象。脱敏副本须能从独立核验的原日志按已知规则重建；不反序列化权重、不回读可变输入、不修补产物。读取后复核权限/API Key、配置与清单指纹、legacy 位置及维护代次，再原子固定当前保留副本证据。
 
-删除事务将完整归属复制到独立 `TrainingStorageDeletion`；NULL 旧实验或数据版本清理意图拒绝物理删除。数据库拒绝普通改写和含固定事实的破坏性降级，离线恢复仅允许表 owner 显式映射 bucket/identity。部署与旧执行器收尾见[运维步骤](/ops/deploy/storage-recovery#训练实验产物归属的部署顺序)。增强预览、逐样本评估和主动学习的自身输出仍保留独立合同，整个 training 用途切换仍未开放；不增加 ML/执行器协议，也不构成实际 GPU 输入或生命周期资格验收。
+删除事务将完整归属复制到独立 `TrainingStorageDeletion`；NULL 旧实验或数据版本清理意图拒绝物理删除。数据库拒绝普通改写和含固定事实的破坏性降级，离线恢复仅允许表 owner 显式映射 bucket/identity。部署与旧执行器收尾见[运维步骤](/ops/deploy/storage-recovery#训练实验产物归属的部署顺序)。增强预览、逐样本评估和主动学习的自身输出仍保留独立合同。training 新分配经[用途映射预览确认](/api/guides/storage-locations#训练文件用途切换)切换，已有及在途 owner 保留原地址；旧 NULL 继续显式核验，不以全历史接管作为切换门槛。带根初始化来源需执行器声明 `training_saved_prefix_schema>=2`，其余训练协议与真实模型资格要求保持。
 
 #### 资源租约与协作文件锁
 
@@ -408,7 +408,7 @@ API 预检逐项执行有界严格读取并及时关闭临时快照，报告引�
 
 #### 存储桶规划与前缀布局
 
-训练数据版本、实验、预览、逐样本评估和主动学习轮次分别持有不可变内部 `storage_ref`。共享 owner 领域校验实际 endpoint、物理身份、purpose 与规范根前缀；薄适配器再约束预览文件名、评估 attempt+内容 SHA、选样 ordinal。只有新建事务显式分配，重试／重放不为旧 NULL 自动补齐。输出与输入数据版本、来源模型的 owner 独立，冻结 spec、内容摘要与执行器 wire 不携带物理信息。
+训练数据版本、实验、预览、逐样本评估和主动学习轮次分别持有不可变内部 `storage_ref`。schema2 沿原11字段增加 `key_prefix`，由 Connection→Location→Binding 顺序短事务固定目标，首次 I/O 前保存；原 schema1、origin/evidence 与旧 NULL 保留。共享 owner 领域校验实际 endpoint、物理身份、purpose 与规范根前缀；薄适配器再约束预览文件名、评估 attempt+内容 SHA、选样 ordinal。只有新建事务显式分配，重试／重放不为旧 NULL 自动补齐。输出与输入数据版本、来源模型的 owner 独立，冻结 spec、内容摘要与执行器 wire 不携带物理信息。
 
 辅助输出的历史接管复用有界 Reader、共享进程容量和耐久 `storage_access` permit：终态及封存代际围栏、预览全部 CPU 租约与签名 PUT 期限通过后，仅从持久绑定的当前副本核验。完整条件读取与读后清单／HEAD重核完成，再复核权限／Key、全部父子行指纹、绑定及 Gate 代次。取消等物理关闭；未知关闭不释放责任。旧评估报告的独立发布回执与当前共享 Sample 证据分开，不能重写旧语义状态来通过接管。
 
