@@ -295,7 +295,7 @@ async def test_first_bind_rejects_cross_context_before_mutation(
 @pytest.mark.parametrize(
     "field,value",
     [
-        ("operation_id", str(uuid.uuid4())),
+        ("operation_id", "00000000-0000-4000-8000-000000000000"),
         ("config_digest", "f" * 64),
         ("barriers_sha256", "invalid"),
         ("counts", {"bad": True}),
