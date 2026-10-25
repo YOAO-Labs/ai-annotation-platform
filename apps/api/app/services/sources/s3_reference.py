@@ -139,7 +139,7 @@ class S3Access:
         return endpoint.rstrip("/")
 
     @contextmanager
-    def client(self):
+    def client(self, *, read_timeout=None):
         endpoint = self.endpoint
         if not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", self.config["bucket"]):
             raise StorageError("s3_bucket_not_supported")
@@ -157,7 +157,7 @@ class S3Access:
                 region_name=self.config.get("region"),
                 config=Config(
                     connect_timeout=2,
-                    read_timeout=2,
+                    read_timeout=2 if read_timeout is None else read_timeout,
                     retries={"max_attempts": 0},
                     s3={"addressing_style": "path"},
                     proxies={},

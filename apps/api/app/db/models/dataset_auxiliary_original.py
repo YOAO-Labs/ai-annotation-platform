@@ -16,6 +16,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.db.models.dataset_asset import DATASET_STORAGE_REF_CHECK
 
 
 class DatasetAuxiliaryOriginal(Base):
@@ -24,7 +25,7 @@ class DatasetAuxiliaryOriginal(Base):
         UniqueConstraint("creation_id", name="uq_auxiliary_original_creation"),
         CheckConstraint("id = creation_id", name="ck_auxiliary_original_creation_id"),
         CheckConstraint(
-            "location_id = '4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7'::uuid",
+            "storage_ref IS NOT NULL OR location_id = '4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7'::uuid",
             name="ck_auxiliary_original_location",
         ),
         CheckConstraint(
@@ -42,7 +43,7 @@ class DatasetAuxiliaryOriginal(Base):
             name="ck_auxiliary_original_contract",
         ),
         CheckConstraint(
-            "object_key = '__aap_auxiliary_originals__/' || dataset_id::text || '/' || id::text || '/payload'",
+            "object_key = COALESCE(storage_ref->>'key_prefix','') || '__aap_auxiliary_originals__/' || dataset_id::text || '/' || id::text || '/payload'",
             name="ck_auxiliary_original_key",
         ),
         CheckConstraint(
@@ -56,6 +57,13 @@ class DatasetAuxiliaryOriginal(Base):
         CheckConstraint(
             "version_id IS NULL OR (length(version_id) BETWEEN 1 AND 1024 AND version_id <> 'null' AND version_id !~ '[[:cntrl:]]')",
             name="ck_auxiliary_original_version",
+        ),
+        CheckConstraint(
+            DATASET_STORAGE_REF_CHECK, name="ck_auxiliary_original_storage_ref"
+        ),
+        CheckConstraint(
+            "storage_ref IS NULL OR storage_ref->>'storage_identity'=storage_identity",
+            name="ck_auxiliary_original_storage_identity",
         ),
     )
 
@@ -72,6 +80,7 @@ class DatasetAuxiliaryOriginal(Base):
     storage_identity: Mapped[str] = mapped_column(String(64), nullable=False)
     bucket: Mapped[str] = mapped_column(String(255), nullable=False)
     object_key: Mapped[str] = mapped_column(String(1000), nullable=False)
+    storage_ref: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
     # These are source write receipts, not target HEAD conditions after restore.
