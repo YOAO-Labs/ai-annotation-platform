@@ -620,7 +620,7 @@ GRANT INSERT (code, frame_end, frame_start, id, left_annotation_id, metric, righ
 GRANT INSERT (async_job_id, id, input_digest, input_snapshot, left_segment_id, metrics, pairs, progress_pct, requested_by_id, right_segment_id, sampling_digest, status, task_id) ON public.video_track_quality_runs TO :"labeling_owner";
 GRANT UPDATE (accepted_at, accepted_by_id, completed_at, error_message, metrics, pairs, progress_pct, stale_at, started_at, status, updated_at) ON public.video_track_quality_runs TO :"labeling_owner";
 GRANT INSERT (annotation_id, correction_frame, created_by, dataset_item_id, direction, event_channel, from_frame, id, job_kind, model_key, prompt, revision, segment_id, status, target_class_name, target_tool_unit_id, task_id, to_frame, track_id_snapshot) ON public.video_tracker_jobs TO :"labeling_owner";
-GRANT UPDATE (cancel_requested_at, celery_task_id, event_channel, prompt, revision) ON public.video_tracker_jobs TO :"labeling_owner";
+GRANT UPDATE (cancel_requested_at, celery_task_id, event_channel, prompt, revision, started_at) ON public.video_tracker_jobs TO :"labeling_owner";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.workspace_project_query_dataset_ids(uuid) TO :"labeling_owner";
 
 -- Fixed owner snapshots for the remaining Labeling operation families.
@@ -2867,6 +2867,7 @@ ALTER FUNCTION aap_learning_v1.guard_dataset_source_deletion(uuid, uuid)
 REVOKE CREATE ON SCHEMA aap_learning_v1 FROM :"learning_owner";
 
 GRANT CREATE ON SCHEMA aap_inference_v1 TO :"inference_owner";
+ALTER FUNCTION aap_inference_v1.ai_mask_pool_reference_row(uuid) OWNER TO :"inference_owner";
 ALTER FUNCTION aap_inference_v1.clear_project_ml_backend_pool(uuid)
     OWNER TO :"inference_owner";
 ALTER FUNCTION aap_inference_v1.clear_project_pipelines(uuid)

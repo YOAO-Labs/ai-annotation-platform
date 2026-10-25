@@ -15,7 +15,8 @@ API 先由 Workspace 核验当前项目管理权，再调用 Labeling 读取统�
 维护已接入固定 Native 能力；通用读取使用八项公开关系与三项行锁。普通 API／worker
 继续持有原业务事务与提交权，专用账号 profile 和验收选择器见 `DEV.md`。
 章节读取经过 Assets Media 的五列公开投影，质检账号只得到命令执行权。
-视频 worker 中间状态及 AI 路由溯源的 Inference 读取仍在收口；这些源码边界不代表完整模块独立运行
+视频 worker 中间状态及 AI 路由溯源的 Inference 读取已接入固定能力；其余 API／看板、
+查询聚合和共享工作流读取仍在迁移。这些源码边界不代表完整模块独立运行
 或备份恢复已完成，详细状态见[唯一台账](/dev/concepts/module-deployment)。
 
 ## 读取与事务

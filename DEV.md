@@ -3272,3 +3272,10 @@ python3 scripts/verify_docker_host_forwarding.py \
 无来源清理的实际消费者案例仍使用既有受限 API 账号，同一事务中调用固定 owner。
 核心读取账号只读八项公开关系并执行三项行锁；其余命令账号均无私有底表权限。
 实现期间不逐操作启动完整冷环境；原生、冷工件及恢复按完整模块集中验收。
+
+AI Mask 溯源的独立 Pool 存在性读取使用
+`infra/docker/inference-pool-reference-grants.sql`，参数为
+`inference_owner` 与 `pool_reference_role`。专用可信账号仅执行
+`aap_inference_v1.ai_mask_pool_reference_row(uuid)`；实例读取仍复用既有 Inference
+能力，不扩大 Health 或 Mask 专用账号权限。独占验收库选择器为
+`AAP_MODULE_DATA_INFERENCE_POOL_REFERENCE_URL`，仅用于验收，不新增产品 DSN。

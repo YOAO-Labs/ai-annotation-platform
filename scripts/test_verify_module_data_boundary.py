@@ -56,6 +56,11 @@ def test_module_cold_case_selects_api_bootstrap_credentials(test_path):
     "role,functions,artifact",
     [
         (
+            verifier.IDENTITY_CLIENT_ROLES["INFERENCE_POOL_REFERENCE"],
+            ("aap_inference_v1.ai_mask_pool_reference_row(uuid)",),
+            "0356_inference_pool_reference",
+        ),
+        (
             verifier.JOBS_LIST_QUERY_ROLE,
             verifier.JOBS_LIST_QUERY_FUNCTIONS,
             "0326_jobs_list_query",

@@ -195,8 +195,9 @@ Native, cold and restore qualification remains a complete-module acceptance gate
 
 ## Video control, transfer, core reads and quality
 
-`video_control_command` owns human candidate and keyframe control; its worker
-state consumers remain under migration. `annotation_transfer_command` owns the
+`video_control_command` owns human candidate, keyframe and worker state control;
+complete consumer permissions and recovery remain unqualified.
+`annotation_transfer_command` owns the
 existing import, conversion, camera editing and Mask format-import ledger.
 `task_maintenance_command` owns source-less Task cleanup and derived counters.
 All borrow the original caller transaction and preserve its commit boundary.

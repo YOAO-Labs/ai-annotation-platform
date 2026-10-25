@@ -165,3 +165,13 @@ Source process/IAM/storage fences are external prerequisites, not consequences o
 the digest. The Native contract requires READ COMMITTED. This capability is under
 local qualification; full object-store restore and whole-module replacement are
 not implied. See ADR-0160 and `infra/docker/video-restore-grants.sql`.
+
+## AI Mask Pool references
+
+`aap_inference_v1.ai_mask_pool_reference_row(uuid)` provides the existing ten Pool
+fields by primary key without a Registry/member dependency or row lock. The API
+borrows its caller transaction and keeps identity-map hits and independent routing
+lineage reads. Its SQL and typed row schema ship in the package. The dedicated
+`inference-pool-reference-grants.sql` profile grants only this function; the health
+data policy and its eleven-function profile are unchanged. Native runtime and
+recovery qualification remain separate from source integration.

@@ -88,6 +88,7 @@ NOTIFICATION_INBOX_PRIVATE_HELPER = (
     "aap_notifications_v1._visible_inbox_rows(uuid,text)"
 )
 FUNCTION_BODY_ARTIFACTS = {
+    "aap_inference_v1.ai_mask_pool_reference_row(uuid)": "0356_inference_pool_reference.sql",
     "aap_labeling_v1.video_control_command(jsonb)": "0350_labeling_video_control.sql",
     "aap_labeling_v1.annotation_transfer_command(jsonb)": "0351_labeling_annotation_transfer.sql",
     "aap_labeling_v1._annotation_transfer_exact_fields(jsonb,text[])": "0351_labeling_annotation_transfer.sql",
@@ -519,6 +520,7 @@ READ_RELATION_SPECS = {
     },
 }
 IDENTITY_CLIENT_ROLES = {
+    "INFERENCE_POOL_REFERENCE": "inference_pool_reference_client",
     "LABELING_VIDEO_CONTROL": "labeling_video_control_client",
     "LABELING_ANNOTATION_TRANSFER": "labeling_annotation_transfer_client",
     "LABELING_CORE_READ": "labeling_core_read_client",
@@ -623,6 +625,7 @@ MODULE_ROLES = (
     *IDENTITY_CLIENT_ROLES.values(),
 )
 SQL_ARTIFACTS = (
+    "0356_inference_pool_reference.sql",
     "0350_labeling_video_control.sql",
     "0351_labeling_annotation_transfer.sql",
     "0352_labeling_core_read.sql",
@@ -835,6 +838,7 @@ SQL_ARTIFACTS = (
     "0349_labeling_scene_read.sql",
 )
 SCHEMA_ARTIFACTS = (
+    "0356_inference_pool_reference.schema.json",
     "0350_labeling_video_control.schema.json",
     "0351_labeling_annotation_transfer.schema.json",
     "0353_labeling_mask_quality.schema.json",
@@ -1003,6 +1007,7 @@ SCHEMA_ARTIFACTS = (
     "0349_labeling_scene_read.schema.json",
 )
 TEST_FILES = (
+    "tests/test_inference_pool_reference_native.py",
     "tests/test_labeling_video_control_native.py",
     "tests/test_labeling_annotation_transfer_native.py",
     "tests/test_labeling_core_read_native.py",
@@ -4357,6 +4362,9 @@ def main(argv: list[str] | None = None) -> int:
         labeling_task_maintenance_grants_path = (
             ROOT / "infra/docker/labeling-task-maintenance-grants.sql"
         )
+        inference_pool_reference_grants_path = (
+            ROOT / "infra/docker/inference-pool-reference-grants.sql"
+        )
         video_restore_grants_path = ROOT / "infra/docker/video-restore-grants.sql"
         inference_pipelines_grants_path = (
             ROOT / "infra/docker/inference-pipelines-grants.sql"
@@ -4489,6 +4497,7 @@ def main(argv: list[str] | None = None) -> int:
             or not inference_health_observation_grants_path.is_file()
             or not inference_health_origin_grants_path.is_file()
             or not inference_health_data_grants_path.is_file()
+            or not inference_pool_reference_grants_path.is_file()
             or not inference_registry_ingress_grants_path.is_file()
             or not inference_routing_grants_path.is_file()
             or not video_execution_grants_path.is_file()
@@ -4635,6 +4644,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         labeling_task_maintenance_grant_sql = (
             labeling_task_maintenance_grants_path.read_text(encoding="utf-8")
+        )
+        inference_pool_reference_grant_sql = (
+            inference_pool_reference_grants_path.read_text(encoding="utf-8")
         )
         video_restore_grant_sql = video_restore_grants_path.read_text(encoding="utf-8")
         inference_pipelines_grant_sql = inference_pipelines_grants_path.read_text(
@@ -4822,8 +4834,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0355"]:
-            raise RuntimeError("module-data acceptance requires migration head 0355")
+        if heads != ["0356"]:
+            raise RuntimeError("module-data acceptance requires migration head 0356")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         relation_sql_hashes = _read_relation_sql_input_sha256()
         evidence["migrations"]["read_relation_sql_input_sha256"] = relation_sql_hashes
@@ -6835,6 +6847,22 @@ def main(argv: list[str] | None = None) -> int:
                 "migration_role": "owner",
                 "labeling_owner": "labeling_code",
                 "task_maintenance_role": "labeling_task_maintenance_client",
+            },
+        )
+        phase = "install-inference-pool-reference-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=inference_pool_reference_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "inference_owner": "inference_code",
+                "pool_reference_role": "inference_pool_reference_client",
             },
         )
         phase = "install-video-restore-grants"
