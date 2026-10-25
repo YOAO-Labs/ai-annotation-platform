@@ -53,6 +53,10 @@ class StorageMigrationInventory(Base):
     __tablename__ = "storage_migration_inventories"
     __table_args__ = (
         *(CheckConstraint(sql, name=name) for sql, name in CHECKS),
+        CheckConstraint(
+            "(window_id IS NULL AND window_revision IS NULL) OR (window_id IS NOT NULL AND window_revision IS NOT NULL AND window_revision >= 1)",
+            name="ck_migration_inventory_window",
+        ),
         Index("ix_migration_inventory_history", "created_at", "async_job_id"),
         Index(
             "uq_migration_inventory_active_source",
@@ -66,6 +70,14 @@ class StorageMigrationInventory(Base):
         ForeignKey("async_jobs.id", ondelete="CASCADE"), primary_key=True
     )
     requested_by: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    window_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            "storage_migration_windows.id",
+            ondelete="RESTRICT",
+            name="fk_migration_inventory_window",
+        )
+    )
+    window_revision: Mapped[int | None]
     task_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     source_location_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     source: Mapped[dict] = mapped_column(JSONB, nullable=False)

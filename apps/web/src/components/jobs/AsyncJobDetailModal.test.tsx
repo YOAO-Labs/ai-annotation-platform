@@ -499,3 +499,51 @@ it("restores focus to an explicit trigger after an asynchronously opened task cl
   view.unmount();
   client.clear();
 });
+
+it("renders window context from the actual job payload and restores its focus after context return", async () => {
+  useAuthStore
+    .getState()
+    .setAuth("window-context-token", { id: "u1", role: "super_admin" } as MeResponse);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  mocks.get.mockResolvedValue({
+    ...job,
+    kind: "storage_migration_inventory",
+    payload: { window_id: "fixed-window", window_revision: 3 },
+    result: {},
+  });
+  function ContextOwner() {
+    const link = useRef<HTMLButtonElement>(null);
+    const [windowOpen, setWindowOpen] = useState(false);
+    return windowOpen ? (
+      <button onClick={() => setWindowOpen(false)}>返回清单任务</button>
+    ) : (
+      <AsyncJobDetailModal
+        jobId="j1"
+        onClose={() => {}}
+        initialFocusRef={link}
+        renderContext={(current) => (
+          <button ref={link} onClick={() => setWindowOpen(true)}>
+            窗口 {String(current.payload.window_id)} · 修订{" "}
+            {String(current.payload.window_revision)}
+          </button>
+        )}
+      />
+    );
+  }
+  const view = render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
+        <ContextOwner />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "窗口 fixed-window · 修订 3" }));
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "返回清单任务" }));
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "窗口 fixed-window · 修订 3" })).toHaveFocus(),
+  );
+  view.unmount();
+  client.clear();
+  act(() => useAuthStore.getState().logout());
+});

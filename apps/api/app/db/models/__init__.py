@@ -19,6 +19,7 @@ from app.db.models.storage_usage import (
 from app.db.models.original_cache import OriginalCacheEntry, OriginalCacheReadLease
 from app.db.models.managed_original_verification import ManagedOriginalVerification
 from app.db.models.storage_migration_inventory import StorageMigrationInventory
+from app.db.models.storage_migration_window import StorageMigrationWindow
 from app.db.models.storage_migration_copy import (
     StorageMigrationCopy,
     StorageMigrationCopyAttempt,
@@ -348,6 +349,7 @@ __all__ += ["ManagedOriginalRetirement"]
 __all__ += ["ManagedOriginalRetentionHold"]
 
 __all__ += ["ManagedOriginalVerification", "StorageMigrationInventory"]
+__all__ += ["StorageMigrationWindow"]
 
 __all__ += ["ManagedOriginalCreation"]
 

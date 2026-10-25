@@ -2,7 +2,7 @@
 audience: [dev, project_admin, super_admin]
 type: reference
 status: stable
-last_reviewed: 2026-10-25
+last_reviewed: 2026-10-26
 ---
 
 # 受控存储位置
@@ -317,12 +317,12 @@ GET 只查询数据库，不读源文件、不 HEAD/LIST 对象、不启动扫�
 
 仅当前有效超级管理员与全权API Key可调用。来源固定当前部署端点及九用途桶映射，请求不能传入任意地址、路径或凭据。以下接口位于`/api/v1/storage`，GET只读数据库，不做源端HEAD／LIST或自动重投。
 
-| 方法与路径                                      | 行为                                                                                                           |
-| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `POST /migration-inventories`                   | 202，接受`{limits?,handling?}`，返回`{item,reused}`；复用当前操作者相同范围和输入的活动任务，活动输入冲突409。 |
-| `GET /migration-inventories?limit=20&offset=0`  | 返回`{items,total,limit,offset}`，分页读取历史及报告状态。                                                     |
-| `POST /migration-inventories/{job_id}/dispatch` | 仅显式重投pending的同一task ID；不接管或重复执行running任务。                                                  |
-| `GET /migration-inventories/{job_id}/report`    | 重新授权后下载封存JSONL，安全附件文件名与no-store，报告缺失时不返回空的成功文件。                              |
+| 方法与路径                                      | 行为                                                                                                                      |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `POST /migration-inventories`                   | 202，接受`{limits?,handling?,window_id?}`，返回`{item,reused}`；复用当前操作者相同范围和输入的活动任务，活动输入冲突409。 |
+| `GET /migration-inventories?limit=20&offset=0`  | 返回`{items,total,limit,offset}`，分页读取历史及报告状态。                                                                |
+| `POST /migration-inventories/{job_id}/dispatch` | 仅显式重投pending的同一task ID；不接管或重复执行running任务。                                                             |
+| `GET /migration-inventories/{job_id}/report`    | 重新授权后下载封存JSONL，安全附件文件名与no-store，报告缺失时不返回空的成功文件。                                         |
 
 `item`含`job_id,status,created_at,started_at,completed_at,scope,source_location_id,migration_ready,limits,handling,cancel_requested,complete,counts,error_code,report_available,report_sha256,report_size_bytes`。`scope=selected-configured-source`，`migration_ready=false`；尚无执行结果时`complete`与`counts`为null。counts为核心的桶、对象、删除标记、multipart、核验对象／字节、读取字节、页、问题及条目计数。对象键、端点、凭据和报告内容不放入公开DTO、AsyncJob结果或通知。
 
@@ -361,6 +361,25 @@ limits为每次执行预算：`max_object_bytes`默认256MiB、最大1GiB；`max
 `prepare`仅重试尚未封存基线的准备任务；`run`普通续跑不重传verified，也不重试failed，显式`retry_failed=true`才将全部失败项加入续跑。附加非空`retry_object_ids`时仅执行选中的failed对象，其他pending／uncertain／verified保持。选择至多1000个去重ID，未知或已改变状态的ID在建立attempt前409拒绝，不启动I/O；本次选中结果单列`attempt_subset_complete,selected_count,selected_verified_count`，普通执行为null，不替代全计划`copy_subset_complete`。`verify`只读保存的准确目标版本，不PUT。`recover`不接受新的失败选择，在服务端克隆原操作和原选择范围；已成功项不重传，原选择中的writing／uncertain可沿nonce恢复，其他对象不执行。
 
 共享取消入口仍为`POST /api/v1/async-jobs/{job_id}/cancel`。pending可立即结束，running只登记请求，真实原生资源收尾后发布终态；已写及不明回执保持。硬中断后只有确切Worker进程结束证据才能解除对应未决执行，不以TTL接管；无法确认时保留unknown。目标凭据轮换后，新attempt重新解析当前凭据，但端点、桶、前缀及计划身份必须保持。源、目标的保存责任及维护许可独立保留，不从任务终态推导切换或删除许可。
+
+### 迁移维护窗口
+
+以下端点位于`/api/v1/storage`，仅当前有效超级管理员与全权API Key可用。开启、停止及专用读取须启用既有维护协议；禁用后仍可查看保存责任和受控关闭窗口。来源固定默认配置位置，不接受路径、桶、端点或凭据。GET仅查询保存事实及登记操作数，不访问S3。
+
+| 方法与路径                                        | 行为                                                                                                     |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `GET /migration-windows?limit=20&offset=0`        | 分页历史，返回`{items,total,limit,offset}`。                                                             |
+| `POST /migration-windows`                         | 接受`{parent_copy_id}`，在已准备且执行已收尾的父批次上开启窗口，返回item；同源同时只允许一个未关闭窗口。 |
+| `GET /migration-windows/{window_id}`              | 返回安全窗口详情与当前登记操作数。                                                                       |
+| `POST /migration-windows/{window_id}/transitions` | 接受`{action,expected_revision}`，action为`stop`或`close`，按修订推进并返回item。                        |
+
+item包含`window_id,parent_copy_id,target_location_id,state,revision,source_gate_revision,source_config_revision,created_at,updated_at,created_by,registered_operations,registered_access_drained,source_quiescence_proven,migration_ready`。`state`为`draining|stopped|closing|closed`，窗口修订与来源Gate修订分别保存；物理地址、配置及授权证明不出现在公开DTO。`source_quiescence_proven=false,migration_ready=false`固定不授予全源静止或切换资格。
+
+开启原子将来源Gate从active改为draining，拒绝新普通准入；`stop`须登记操作为零及冻结配置一致，才转stopped。`close`先禁止新窗口读取；仍有操作时保持closing，实际归零后再次close才恢复来源active。取消单个任务不重开来源，不能按TTL忽略未决许可。窗口独立保留，不随AsyncJob级联清理。
+
+Inventory请求可选`window_id`，其item及Copy item另含nullable `window_id,window_revision`。窗口清单只能由该窗口固定父批次创建后继，继承目标、窗口及修订；不能拿它建立另一个根计划或给其他父批次提供来源例外。专用准入联查数据库保存的任务／attempt／task_id、窗口及停止Gate修订和冻结源身份；目标仍须普通active许可。旧无窗口任务保持原active要求；晚到物理回执仍按原协议保存。
+
+专用来源客户端仅可在冻结桶执行清单所需的版本／生命周期读取、对象／版本／multipart列表及HEAD／GET；复制仅HEAD／GET。它不放开来源写入，不证明同物理地址的其他逻辑位置、未登记调用、旧预签名或提供方自动过期已经停写。全源栅栏、历史业务路由和切换仍须各自实际执行结果，不能用操作数为零代替。
 
 ### 增量账目与周期对账
 

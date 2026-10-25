@@ -17,6 +17,12 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ListPagination, listPageSize } from "@/components/ui/ListPagination";
 import { MigrationCopyPanel } from "./MigrationCopyPanel";
+import {
+  MigrationWindowPanel,
+  MigrationWindowSelect,
+  MigrationWindowBinding,
+  migrationWindowError,
+} from "./MigrationWindowPanel";
 
 const LIMIT_FIELDS = [
   ["max_pages", "最多读取页数", 1, 100000, 1000, "每个 LIST 请求计为一页。"],
@@ -82,6 +88,12 @@ function InventoryOwner({ revision }: { revision: number }) {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [forbidden, setForbidden] = useState(false);
+  const [windowSelection, setWindowSelection] = useState({ id: "", valid: true });
+  const selectWindow = useCallback(
+    (id: string, valid: boolean) =>
+      setWindowSelection((old) => (old.id === id && old.valid === valid ? old : { id, valid })),
+    [],
+  );
   const [copySource, setCopySource] = useState<StorageMigrationInventoryItem | null>(null);
   const closeCopySource = useCallback(() => setCopySource(null), []);
   const denyCopy = useCallback(() => {
@@ -91,6 +103,7 @@ function InventoryOwner({ revision }: { revision: number }) {
   const capture = useSessionGuard();
   const client = useQueryClient();
   const trigger = useRef<HTMLElement | null>(null);
+  const windowBindingTrigger = useRef<HTMLButtonElement | null>(null);
   const downloads = useRef(new Set<AbortController>());
   useEffect(() => {
     const requests = downloads.current;
@@ -162,7 +175,7 @@ function InventoryOwner({ revision }: { revision: number }) {
       if (current()) await refresh();
     } catch (failure) {
       if (current()) {
-        setError(verifiedContentError(failure));
+        setError(migrationWindowError(failure));
         if (accessDenied(failure)) setForbidden(true);
       }
     } finally {
@@ -170,9 +183,12 @@ function InventoryOwner({ revision }: { revision: number }) {
     }
   };
   const start = () => {
+    if (!windowSelection.valid) return;
     const current = capture();
     return act("start", async () => {
-      const response = await storageMigrationInventoriesApi.start(limits);
+      const response = await (windowSelection.id
+        ? storageMigrationInventoriesApi.start(limits, windowSelection.id)
+        : storageMigrationInventoriesApi.start(limits));
       if (!current()) return;
       patch({ migration_job: response.item.job_id });
       setMessage(
@@ -225,6 +241,7 @@ function InventoryOwner({ revision }: { revision: number }) {
   };
   return (
     <section aria-label="迁移准备" className="space-y-4">
+      {!denied && <MigrationWindowPanel onDenied={denyCopy} returnFocusRef={trigger} />}
       {!denied && (
         <MigrationCopyPanel
           source={copySource}
@@ -285,9 +302,16 @@ function InventoryOwner({ revision }: { revision: number }) {
               </p>
             )}
           </details>
+          {!denied && (
+            <MigrationWindowSelect
+              onSelection={selectWindow}
+              onDenied={denyCopy}
+              disabled={!!busy}
+            />
+          )}
           <Button
             variant="primary"
-            disabled={!valid || !!busy || denied}
+            disabled={!valid || !windowSelection.valid || !!busy || denied}
             onClick={(event) => {
               trigger.current = event.currentTarget;
               void start();
@@ -367,6 +391,24 @@ function InventoryOwner({ revision }: { revision: number }) {
                       {JOB_STATUS_LABEL[item.status]}
                     </Badge>
                   </div>
+                  {item.window_id && (
+                    <p className="text-xs text-muted-foreground">
+                      窗口清单须沿固定父复制批次准备后续批次。
+                    </p>
+                  )}
+                  {item.window_id && (
+                    <MigrationWindowBinding
+                      windowId={item.window_id}
+                      windowRevision={item.window_revision}
+                      onOpen={(button) => {
+                        trigger.current = button;
+                        patch({
+                          migration_window: item.window_id!,
+                          migration_window_return: "inventory",
+                        });
+                      }}
+                    />
+                  )}
                   {item.counts && (
                     <p className="text-xs leading-relaxed text-muted-foreground tabular-nums">
                       桶 {item.counts.buckets} · 对象版本 {item.counts.objects} · 删除标记{" "}
@@ -400,7 +442,7 @@ function InventoryOwner({ revision }: { revision: number }) {
                     </p>
                   )}
                   <div className="flex flex-wrap gap-2">
-                    {item.report_available && item.report_sha256 && (
+                    {item.report_available && item.report_sha256 && !item.window_id && (
                       <Button
                         size="sm"
                         onClick={(event) => {
@@ -457,11 +499,35 @@ function InventoryOwner({ revision }: { revision: number }) {
           </>
         )}
       </Card>
-      {jobId && !denied && (
+      {jobId && !denied && !UUID.test(params.get("migration_window") ?? "") && (
         <AsyncJobDetailModal
           jobId={jobId}
           onClose={() => patch({ migration_job: null })}
           returnFocusRef={trigger}
+          initialFocusRef={
+            params.get("migration_window_return") === "inventory" ? windowBindingTrigger : undefined
+          }
+          renderContext={(job) => {
+            if (job.kind !== "storage_migration_inventory") return null;
+            const windowId =
+              typeof job.payload.window_id === "string" && UUID.test(job.payload.window_id)
+                ? job.payload.window_id
+                : null;
+            return (
+              <MigrationWindowBinding
+                windowId={windowId}
+                buttonRef={windowBindingTrigger}
+                windowRevision={
+                  typeof job.payload.window_revision === "number"
+                    ? job.payload.window_revision
+                    : null
+                }
+                onOpen={() =>
+                  patch({ migration_window: windowId!, migration_window_return: "inventory" })
+                }
+              />
+            );
+          }}
         />
       )}
     </section>

@@ -52,6 +52,7 @@ from app.api.v1 import (
     storage,
     storage_migration_inventories,
     storage_migration_copies,
+    storage_migration_windows,
     storage_connections,
     storage_locations,
     storage_maintenance,
@@ -250,4 +251,10 @@ api_router.include_router(
 
 api_router.include_router(
     storage_migration_copies.router, prefix="/storage", tags=["storage"]
+)
+
+api_router.include_router(
+    storage_migration_windows.router,
+    prefix="/storage/migration-windows",
+    tags=["storage"],
 )

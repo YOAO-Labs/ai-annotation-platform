@@ -95,6 +95,8 @@ class StorageMigrationCopyCatalogSummary(BaseModel):
 
 class StorageMigrationCopyItem(BaseModel):
     copy_id: uuid.UUID
+    window_id: uuid.UUID | None = None
+    window_revision: int | None = None
     parent_copy_id: uuid.UUID | None = None
     generation: int = Field(1, ge=1)
     successor_copy_id: uuid.UUID | None = None

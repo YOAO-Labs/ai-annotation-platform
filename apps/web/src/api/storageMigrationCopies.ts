@@ -57,6 +57,8 @@ export interface MigrationCopyGenerationSummary {
 }
 export interface MigrationCopyItem {
   copy_id: string;
+  window_id?: string | null;
+  window_revision?: number | null;
   parent_copy_id?: string | null;
   generation?: number;
   successor_copy_id?: string | null;

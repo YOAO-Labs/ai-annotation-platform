@@ -48611,6 +48611,29 @@
             "format": "date-time",
             "title": "Updated At",
             "type": "string"
+          },
+          "window_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Id"
+          },
+          "window_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Revision"
           }
         },
         "required": [
@@ -49083,6 +49106,29 @@
             ],
             "title": "Status",
             "type": "string"
+          },
+          "window_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Id"
+          },
+          "window_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Revision"
           }
         },
         "required": [
@@ -49191,6 +49237,18 @@
           },
           "limits": {
             "$ref": "#/components/schemas/StorageMigrationInventoryLimits"
+          },
+          "window_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Id"
           }
         },
         "title": "StorageMigrationInventoryRequest",
@@ -49211,6 +49269,176 @@
           "reused"
         ],
         "title": "StorageMigrationInventoryStart",
+        "type": "object"
+      },
+      "StorageMigrationWindowHistory": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StorageMigrationWindowItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "StorageMigrationWindowHistory",
+        "type": "object"
+      },
+      "StorageMigrationWindowItem": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "migration_ready": {
+            "const": false,
+            "default": false,
+            "title": "Migration Ready",
+            "type": "boolean"
+          },
+          "parent_copy_id": {
+            "format": "uuid",
+            "title": "Parent Copy Id",
+            "type": "string"
+          },
+          "registered_access_drained": {
+            "title": "Registered Access Drained",
+            "type": "boolean"
+          },
+          "registered_operations": {
+            "minimum": 0.0,
+            "title": "Registered Operations",
+            "type": "integer"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "source_config_revision": {
+            "title": "Source Config Revision",
+            "type": "integer"
+          },
+          "source_gate_revision": {
+            "title": "Source Gate Revision",
+            "type": "integer"
+          },
+          "source_quiescence_proven": {
+            "const": false,
+            "default": false,
+            "title": "Source Quiescence Proven",
+            "type": "boolean"
+          },
+          "state": {
+            "enum": [
+              "draining",
+              "stopped",
+              "closing",
+              "closed"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "target_location_id": {
+            "format": "uuid",
+            "title": "Target Location Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "window_id": {
+            "format": "uuid",
+            "title": "Window Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "window_id",
+          "parent_copy_id",
+          "target_location_id",
+          "state",
+          "revision",
+          "source_gate_revision",
+          "source_config_revision",
+          "created_at",
+          "updated_at",
+          "registered_operations",
+          "registered_access_drained"
+        ],
+        "title": "StorageMigrationWindowItem",
+        "type": "object"
+      },
+      "StorageMigrationWindowRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "parent_copy_id": {
+            "format": "uuid",
+            "title": "Parent Copy Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "parent_copy_id"
+        ],
+        "title": "StorageMigrationWindowRequest",
+        "type": "object"
+      },
+      "StorageMigrationWindowTransition": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "stop",
+              "close"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "action",
+          "expected_revision"
+        ],
+        "title": "StorageMigrationWindowTransition",
         "type": "object"
       },
       "StorageOriginalCounts": {
@@ -101975,6 +102203,218 @@
           }
         ],
         "summary": "Report",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/storage/migration-windows": {
+      "get": {
+        "operationId": "history_api_v1_storage_migration_windows_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 1000000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageMigrationWindowHistory"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "History",
+        "tags": [
+          "storage"
+        ]
+      },
+      "post": {
+        "operationId": "open_window_api_v1_storage_migration_windows_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StorageMigrationWindowRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageMigrationWindowItem"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Open Window",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/storage/migration-windows/{window_id}": {
+      "get": {
+        "operationId": "detail_api_v1_storage_migration_windows__window_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "window_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Window Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageMigrationWindowItem"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Detail",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/storage/migration-windows/{window_id}/transitions": {
+      "post": {
+        "operationId": "transition_api_v1_storage_migration_windows__window_id__transitions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "window_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Window Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StorageMigrationWindowTransition"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageMigrationWindowItem"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Transition",
         "tags": [
           "storage"
         ]

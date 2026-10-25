@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 import uuid
 
 import pytest
+from botocore.hooks import HierarchicalEmitter
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -70,7 +71,9 @@ async def world(test_engine):
 
 def fake_storage(monkeypatch, source, *, close_error=False):
     client = EmptySource()
-    client.meta = SimpleNamespace(endpoint_url=source["endpoint"])
+    client.meta = SimpleNamespace(
+        endpoint_url=source["endpoint"], events=HierarchicalEmitter()
+    )
     client.closed = False
 
     def close():

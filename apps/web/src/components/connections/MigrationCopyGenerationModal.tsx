@@ -34,6 +34,8 @@ function eligible(item: StorageMigrationInventoryItem, parent: MigrationCopyItem
 
 function generationError(error: unknown) {
   const messages: Record<string, string> = {
+    copy_window_changed: "清单与固定父批次的窗口绑定不匹配，请选择该窗口的封存清单。",
+    migration_source_read_denied: "源读取未获准，请核实窗口状态与源访问门禁。",
     copy_read_only: "原批次已冻结，请刷新并打开已创建的后续批次。",
     copy_successor_exists: "原批次已有另一份清单的后续批次，请刷新后查看。",
     copy_generation_unchanged: "请选择与原批次不同的封存清单。",
@@ -188,6 +190,11 @@ export function MigrationCopyGenerationModal({
             <div className="mt-3 space-y-1 text-xs text-muted-foreground">
               <p>{selected.complete === true ? "清单完整" : "清单不完整，仅处理合格子集"}</p>
               <p className="break-all">SHA-256：{selected.report_sha256}</p>
+              <p className="break-all">
+                {selected.window_id
+                  ? `后续批次继承窗口 ${selected.window_id} · 绑定修订 ${selected.window_revision ?? "未知"}；固定父批次与目标由服务端复核。`
+                  : "普通清单路径 · 后续批次不绑定迁移窗口"}
+              </p>
             </div>
           )}
           {inventories.isFetching && (

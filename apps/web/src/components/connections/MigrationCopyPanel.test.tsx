@@ -745,3 +745,28 @@ it("generation report permission refusal clears the private review and choices",
   expect(screen.queryByText("登记目标")).not.toBeInTheDocument();
   expect(api.generation).not.toHaveBeenCalled();
 });
+
+it("successor preparation displays inherited report window without sending an override", async () => {
+  api.inventories.mockResolvedValue({
+    items: [{ ...nextSource, window_id: TARGET, window_revision: 7 }],
+    total: 1,
+    limit: 20,
+    offset: 0,
+  });
+  mount();
+  const dialog = await generationForm();
+  await waitFor(() =>
+    expect(
+      within(within(dialog).getByLabelText("后续封存清单")).getAllByRole("option"),
+    ).toHaveLength(1),
+  );
+  fireEvent.change(within(dialog).getByLabelText("后续封存清单"), {
+    target: { value: NEXT_SOURCE },
+  });
+  expect(within(dialog).getByText(new RegExp(`后续批次继承窗口 ${TARGET}`))).toHaveTextContent(
+    "绑定修订 7",
+  );
+  fireEvent.click(within(dialog).getByRole("button", { name: "准备后续批次" }));
+  await waitFor(() => expect(api.generation).toHaveBeenCalledWith(COPY, NEXT_SOURCE));
+  expect(api.generation.mock.calls[0]).toHaveLength(2);
+});

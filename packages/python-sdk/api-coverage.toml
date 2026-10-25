@@ -489,6 +489,10 @@ watched_tags = ["projects", "guide-assets", "datasets", "batches", "tasks", "ann
 "GET /api/v1/storage/buckets" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/storage/usage-inventory" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/storage/migration-inventories" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/storage/migration-windows" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage/migration-windows" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/storage/migration-windows/{window_id}" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage/migration-windows/{window_id}/transitions" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/storage/migration-inventories" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/storage/migration-inventories/{job_id}/dispatch" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/storage/migration-inventories/{job_id}/report" = { status = "excluded", reason = "web-only" }

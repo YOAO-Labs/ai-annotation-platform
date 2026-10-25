@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.storage_migration_inventory import REPORT_LIMIT
 from app.services import storage_access, storage_migration_inventories as service
+from app.services import storage_migration_source_read as source_read
 from app.services.async_job_notify import notify_job_terminal
 from app.services.storage import StorageService
 from app.services.storage_migration_inventory import (
@@ -94,7 +95,9 @@ def scan(source, limits, handling, observations, checkpoint):
         with storage_access.closing_registered(sink):
             write_inventory(
                 None,
-                configured.client,
+                source_read.SourceRead(
+                    configured.client, source, owner_kind="inventory"
+                ),
                 actual,
                 source={
                     "label": "Configured platform storage",
@@ -131,6 +134,7 @@ async def execute(db, job_id, task_id):
         dict(row.handling),
         row.maintenance_revision,
     )
+    window_id, window_revision = row.window_id, row.window_revision
     bind, loop, stop = (
         storage_access.engine(db),
         asyncio.get_running_loop(),
@@ -170,11 +174,35 @@ async def execute(db, job_id, task_id):
             source["endpoint"],
             str(service.LEGACY_LOCATION_ID),
         )
+        if window_id is not None:
+            observations = {
+                **observations,
+                "migration_window": {
+                    "window_id": str(window_id),
+                    "window_revision": window_revision,
+                    "source_quiescence_proven": False,
+                },
+            }
         # No transaction or Session crosses the native thread. The fresh checks
         # each use their own short, read-only session on this event loop.
         await db.rollback()
-        reading = asyncio.create_task(
-            storage_access.run(
+        if window_id is not None:
+            read = source_read.run(
+                db,
+                window_id,
+                "inventory",
+                job_id,
+                task_id,
+                scan,
+                source,
+                limits,
+                handling,
+                observations,
+                checkpoint,
+                on_acquired=acquired,
+            )
+        else:
+            read = storage_access.run(
                 db,
                 service.LEGACY_LOCATION_ID,
                 service.KIND,
@@ -187,7 +215,7 @@ async def execute(db, job_id, task_id):
                 expected_revision=revision,
                 on_acquired=acquired,
             )
-        )
+        reading = asyncio.create_task(read)
         report = await asyncio.shield(reading)
     except asyncio.CancelledError:
         cancelled = True

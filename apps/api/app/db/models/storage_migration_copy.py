@@ -29,6 +29,10 @@ class StorageMigrationCopy(Base):
     __tablename__ = "storage_migration_copies"
     __table_args__ = (
         CheckConstraint(
+            "(window_id IS NULL AND window_revision IS NULL) OR (window_id IS NOT NULL AND window_revision IS NOT NULL AND window_revision >= 1)",
+            name="ck_migration_copy_window",
+        ),
+        CheckConstraint(
             "octet_length(source_report) BETWEEN 1 AND 33554432",
             name="ck_migration_copy_source_bytes",
         ),
@@ -55,6 +59,15 @@ class StorageMigrationCopy(Base):
         UniqueConstraint("parent_copy_id", name="uq_migration_copy_parent"),
     )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    window_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            "storage_migration_windows.id",
+            ondelete="RESTRICT",
+            name="fk_migration_copy_window",
+            use_alter=True,
+        )
+    )
+    window_revision: Mapped[int | None]
     parent_copy_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey(
             "storage_migration_copies.id",

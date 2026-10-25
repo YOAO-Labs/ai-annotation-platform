@@ -20,6 +20,7 @@ from app.db.models.storage_migration_copy import (
     ROW_LIMIT,
 )
 from app.services import storage_access, storage_migration_copies as service
+from app.services import storage_migration_source_read as source_read
 from app.services.async_job_notify import notify_job_terminal
 from app.services.storage import StorageService
 from app.services.storage_migration_inventory import InventoryStopped
@@ -203,7 +204,10 @@ def native(
         )
         result = copy_execute(
             state,
-            GuardedClient(source, checkpoint),
+            GuardedClient(
+                source_read.SourceRead(source, values["source"], owner_kind="copy"),
+                checkpoint,
+            ),
             GuardedClient(target, checkpoint),
             retry_failed=retry_failed,
             retry_object_ids=retry_object_ids,
@@ -229,6 +233,7 @@ async def execute(db, job_id, task_id):
         a.retry_object_ids,
     )
     revisions = dict(a.scope["maintenance"])
+    attempt_id = a.id
     values = await service.inputs(db, copy_id)
     bind, loop, stop = (
         storage_access.engine(db),
@@ -292,17 +297,31 @@ async def execute(db, job_id, task_id):
                     uuid.UUID(values["target"]["location_id"]),
                 }
             ):
-                permits.append(
-                    await stack.enter_async_context(
-                        await storage_access.acquire(
-                            db,
-                            location,
-                            service.KIND,
-                            expected_revision=revisions[str(location)],
-                            node_id=f"migration:{__import__('os').getpid()}",
-                        )
+                if (
+                    location == service.inventories.LEGACY_LOCATION_ID
+                    and values.get("window_id") is not None
+                ):
+                    from app.services.storage_migration_windows import (
+                        acquire_source_read,
                     )
-                )
+
+                    permit = await acquire_source_read(
+                        db,
+                        window_id=values["window_id"],
+                        owner_kind="copy",
+                        owner_id=attempt_id,
+                        task_id=task_id,
+                        node_id=f"migration:{__import__('os').getpid()}",
+                    )
+                else:
+                    permit = await storage_access.acquire(
+                        db,
+                        location,
+                        service.KIND,
+                        expected_revision=revisions[str(location)],
+                        node_id=f"migration:{__import__('os').getpid()}",
+                    )
+                permits.append(await stack.enter_async_context(permit))
             await service.acquired(db, job_id, task_id, permits)
             access = await fresh()
             with tempfile.TemporaryDirectory(prefix="aap-copy-attempt-") as directory:

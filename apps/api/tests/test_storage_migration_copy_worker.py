@@ -9,6 +9,7 @@ import uuid
 
 from fastapi import HTTPException
 import pytest
+from botocore.hooks import HierarchicalEmitter
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -463,7 +464,9 @@ async def add_objects(world, clients, count=2, complete=False):
         )
         endpoint = row.source["endpoint"]
         await db.commit()
-    clients.source.meta = SimpleNamespace(endpoint_url=endpoint)
+    clients.source.meta = SimpleNamespace(
+        endpoint_url=endpoint, events=HierarchicalEmitter()
+    )
 
 
 async def next_inventory(world, *, count=2, complete=False):
@@ -1030,10 +1033,15 @@ async def test_frozen_evidence_refuses_destructive_schema_downgrade(world, test_
 
     config = Config("alembic.ini")
     config.set_main_option("sqlalchemy.url", test_db_url)
+    async with world.maker() as db:
+        original_revision = await db.scalar(
+            text("SELECT version_num FROM alembic_version")
+        )
     with pytest.raises(RuntimeError, match="evidence must be retained"):
         await asyncio.to_thread(command.downgrade, config, "0255")
     async with world.maker() as db:
         assert (
-            await db.scalar(text("SELECT version_num FROM alembic_version")) == "0257"
+            await db.scalar(text("SELECT version_num FROM alembic_version"))
+            == original_revision
         )
         assert await service.owner(db, world.copy_id)

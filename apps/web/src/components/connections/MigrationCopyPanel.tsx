@@ -26,6 +26,7 @@ import {
   copyAccessDenied,
 } from "./MigrationCopyPrepareModal";
 import { MigrationCopyGenerationModal } from "./MigrationCopyGenerationModal";
+import { MigrationWindowBinding, migrationWindowError } from "./MigrationWindowPanel";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DECISIONS: Record<string, string> = {
@@ -80,7 +81,7 @@ function copyError(error: unknown) {
     String(error.detailRaw.code).endsWith("selection_changed")
   )
     return "已选失败项状态已变化，请刷新失败列表并重新选择。";
-  return verifiedContentError(error);
+  return migrationWindowError(error);
 }
 interface Props {
   source: StorageMigrationInventoryItem | null;
@@ -110,6 +111,8 @@ function CopyOwner({
   const rawId = params.get("migration_copy") ?? "";
   const copyId = UUID.test(rawId) ? rawId : "";
   const jobOpen = !!params.get("migration_job");
+  const windowOpen = UUID.test(params.get("migration_window") ?? "");
+  const windowTrigger = useRef<HTMLButtonElement | null>(null);
   const capture = useSessionGuard();
   const client = useQueryClient();
   const [error, setError] = useState("");
@@ -398,7 +401,7 @@ function CopyOwner({
           }}
         />
       )}
-      {copyId && !jobOpen && !source && !denied && preparingGeneration && item && (
+      {copyId && !windowOpen && !jobOpen && !source && !denied && preparingGeneration && item && (
         <MigrationCopyGenerationModal
           key={item.copy_id}
           parent={item}
@@ -417,14 +420,20 @@ function CopyOwner({
           }}
         />
       )}
-      {copyId && !jobOpen && !source && !denied && !preparingGeneration && (
+      {copyId && !windowOpen && !jobOpen && !source && !denied && !preparingGeneration && (
         <Modal
           open
           title={(item?.generation ?? 1) > 1 ? "审阅后续复制批次" : "审阅初次复制计划"}
           width={700}
           onClose={() => patch({ migration_copy: null })}
           returnFocusRef={trigger}
-          initialFocusRef={focusGeneration ? generationTrigger : undefined}
+          initialFocusRef={
+            params.get("migration_window_return") === "copy"
+              ? windowTrigger
+              : focusGeneration
+                ? generationTrigger
+                : undefined
+          }
         >
           {detail.isFetching && (
             <p role="status" className="mb-3 text-xs text-muted-foreground">
@@ -454,6 +463,10 @@ function CopyOwner({
               onJob={() => openJob(item)}
               onDownload={() => void download(item)}
               onDenied={deny}
+              windowTrigger={windowTrigger}
+              onWindow={() =>
+                patch({ migration_window: item.window_id!, migration_window_return: "copy" })
+              }
               generationTrigger={generationTrigger}
               onGeneration={() => {
                 setFocusGeneration(false);
@@ -489,6 +502,8 @@ function CopyReview({
   onDownload,
   onDenied,
   generationTrigger,
+  windowTrigger,
+  onWindow,
   onGeneration,
   onNavigate,
 }: {
@@ -502,6 +517,8 @@ function CopyReview({
   onDownload: () => void;
   onDenied: () => void;
   generationTrigger: MutableRefObject<HTMLButtonElement | null>;
+  windowTrigger: MutableRefObject<HTMLButtonElement | null>;
+  onWindow: () => void;
   onGeneration: () => void;
   onNavigate: (id: string) => void;
 }) {
@@ -533,6 +550,14 @@ function CopyReview({
           第 {generation} 批{frozen ? " · 原批次只读" : ""}
         </p>
         <p className="mt-2">{subset(item)}</p>
+        <div className="mt-2">
+          <MigrationWindowBinding
+            windowId={item.window_id}
+            windowRevision={item.window_revision}
+            onOpen={onWindow}
+            buttonRef={windowTrigger}
+          />
+        </div>
         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
           准备成功只代表计划可审阅。源清单{item.source_complete ? "完整" : "不完整"}
           ；未执行绑定切换、源端删除或重建。

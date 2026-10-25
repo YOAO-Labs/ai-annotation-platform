@@ -151,6 +151,8 @@ async def item(db, row):
     successor_id = await successor(db, row.id)
     return StorageMigrationCopyItem(
         copy_id=row.id,
+        window_id=row.window_id,
+        window_revision=row.window_revision,
         parent_copy_id=row.parent_copy_id,
         generation=row.generation,
         successor_copy_id=successor_id,
@@ -281,16 +283,46 @@ async def scope(db, row, *, lock=False):
         k: row.source[k] for k in ("endpoint", "purpose_buckets")
     }:
         reject("copy_source_changed")
+    window_id, window_revision = (
+        getattr(row, "window_id", None),
+        getattr(row, "window_revision", None),
+    )
+    if window_id is not None:
+        from app.db.models.storage_migration_window import StorageMigrationWindow
+
+        statement = select(StorageMigrationWindow).where(
+            StorageMigrationWindow.id == window_id
+        )
+        if lock:
+            statement = statement.with_for_update(read=True)
+        window = await db.scalar(statement.execution_options(populate_existing=True))
+        if (
+            window is None
+            or window.parent_copy_id != row.parent_copy_id
+            or window.target_location_id != row.target_location_id
+            or window.target != row.target
+        ):
+            reject("copy_window_changed")
     maintenance = {}
     for location in sorted({inventories.LEGACY_LOCATION_ID, row.target_location_id}):
-        maintenance[str(location)] = await storage_access.check(db, location, lock=lock)
-    return {
+        if location == inventories.LEGACY_LOCATION_ID and window_id is not None:
+            maintenance[str(location)] = await inventories.source_revision(
+                db, row.source, window_id, window_revision, lock=lock
+            )
+        else:
+            maintenance[str(location)] = await inventories.gate_revision(
+                db, location, lock=lock
+            )
+    result = {
         "target": revisions,
         "source": source["location_revision"],
         "maintenance": maintenance,
         "allowlist": sorted(access.allowlist),
         "target_location_id": str(row.target_location_id),
-    }, access
+    }
+    if window_id is not None:
+        result.update(window_id=str(window_id), window_revision=window_revision)
+    return result, access
 
 
 async def current(db, row, a, *, lock=False):
@@ -327,6 +359,11 @@ def public_result(row, a, *, stage=None):
     summary = row.summary or {}
     return {
         "copy_id": str(row.id),
+        **(
+            {"window_id": str(row.window_id), "window_revision": row.window_revision}
+            if row.window_id is not None
+            else {}
+        ),
         "parent_copy_id": str(row.parent_copy_id) if row.parent_copy_id else None,
         "generation": row.generation,
         "operation": a.operation,
@@ -408,6 +445,8 @@ async def start(db, actor, body, *, api_key_id=None, request=None):
         db, body.inventory_job_id, actor, api_key_id=api_key_id
     )
     inventory = await db.get(StorageMigrationInventory, body.inventory_job_id)
+    if inventory.window_id is not None:
+        reject("copy_window_requires_generation")
     source = await inventories.source_scope(db, lock=False)
     if {k: inventory.source[k] for k in ("endpoint", "purpose_buckets")} != {
         k: source[k] for k in ("endpoint", "purpose_buckets")
@@ -508,12 +547,28 @@ async def generation(db, parent_id, actor, body, *, api_key_id=None, request=Non
     )
     inventory = await db.get(StorageMigrationInventory, body.inventory_job_id)
     initial = await owner(db, parent_id)
-    await scope(db, initial, lock=True)
+    bound = (
+        SimpleNamespace(
+            parent_copy_id=initial.id,
+            source=inventory.source,
+            target_location_id=initial.target_location_id,
+            target=initial.target,
+            window_id=inventory.window_id,
+            window_revision=inventory.window_revision,
+        )
+        if inventory.window_id is not None
+        else initial
+    )
+    await scope(db, bound, lock=True)
     parent = await owner(db, parent_id, lock=True, private=True)
     child_id = await successor(db, parent.id)
     if child_id is not None:
         child = await owner(db, child_id, lock=True)
-        if child.source_report_sha256 != report_sha:
+        if (
+            child.source_report_sha256 != report_sha
+            or child.window_id != inventory.window_id
+            or child.window_revision != inventory.window_revision
+        ):
             reject("copy_successor_exists")
         a = await last(db, child, lock=True)
         if a and a.status in ACTIVE and a.requested_by != actor.id:
@@ -544,14 +599,23 @@ async def generation(db, parent_id, actor, body, *, api_key_id=None, request=Non
         parent_copy_id=parent.id,
         generation=parent.generation + 1,
         parent_evidence_sha256=parent_digest,
+        window_id=inventory.window_id,
+        window_revision=inventory.window_revision,
         input_fingerprint=inventories.digest(
             ["generation", str(parent.id), parent_digest, report_sha]
+            + (
+                [str(inventory.window_id), inventory.window_revision]
+                if inventory.window_id
+                else []
+            )
         ),
         source_inventory_job_id=body.inventory_job_id,
         source_report=raw,
         source_report_sha256=report_sha,
         source_complete=inventory.complete,
-        source=json.loads(json.dumps(parent.source)),
+        source=json.loads(
+            json.dumps(inventory.source if inventory.window_id else parent.source)
+        ),
         target_location_id=parent.target_location_id,
         target=json.loads(json.dumps(parent.target)),
         handling=json.loads(json.dumps(parent.handling)),
@@ -680,6 +744,8 @@ async def redispatch(db, copy_id, actor, *, api_key_id=None):
     job = await jobs.lock_job(db, a.async_job_id) if a and a.async_job_id else None
     if not matches(row, a, job) or a.status != "pending":
         reject("copy_not_pending")
+    if row.window_id is not None:
+        await current(db, row, a, lock=True)
     return row, job
 
 
@@ -857,6 +923,8 @@ async def input_values(db, row):
             "generation",
             "parent_copy_id",
             "parent_evidence_sha256",
+            "window_id",
+            "window_revision",
         )
     }
     values["deltas"] = [(r.object_id, r.data, r.digest) for r in deltas]

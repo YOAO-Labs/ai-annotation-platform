@@ -1,9 +1,9 @@
 import { CopyableError } from "@/components/ui/CopyableError";
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/api/client";
-import { asyncJobsApi } from "@/api/asyncJobs";
+import { asyncJobsApi, type AsyncJob } from "@/api/asyncJobs";
 import { datasetsApi } from "@/api/datasets";
 import { projectsApi } from "@/api/projects";
 import { sampleEvaluationsApi } from "@/api/sampleEvaluations";
@@ -71,7 +71,11 @@ export function AsyncJobDetailModal({
   onRetryQueued,
   navigate: navigateExternal,
   returnFocusRef,
+  renderContext,
+  initialFocusRef,
 }: {
+  renderContext?: (job: AsyncJob) => ReactNode;
+  initialFocusRef?: RefObject<HTMLElement | null>;
   jobId: string;
   onClose: () => void;
   onRetryQueued?: (queued: number) => void;
@@ -219,7 +223,14 @@ export function AsyncJobDetailModal({
   };
 
   return (
-    <Modal open onClose={onClose} title="后台任务详情" width={640} returnFocusRef={returnFocusRef}>
+    <Modal
+      open
+      onClose={onClose}
+      title="后台任务详情"
+      width={640}
+      returnFocusRef={returnFocusRef}
+      initialFocusRef={initialFocusRef}
+    >
       {jobQ.isPending && (
         <p role="status" className="text-sm text-muted-foreground">
           {jobQ.fetchStatus === "paused" ? "当前离线，联网后加载任务详情。" : "正在加载任务详情…"}
@@ -235,6 +246,7 @@ export function AsyncJobDetailModal({
       )}
       {job && (
         <div className="space-y-4 text-sm">
+          {renderContext?.(job)}
           <div className="flex items-start justify-between gap-3">
             <div>
               <h2 className="m-0 text-base font-semibold">

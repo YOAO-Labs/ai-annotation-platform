@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import re
+from types import SimpleNamespace
 import uuid
 
 from fastapi import HTTPException
@@ -130,13 +131,41 @@ def matches(row, job):
             for key, value in job.payload.items()
             if key not in {"cancel_requested", "cancel_requested_at"}
         }
-        == {"scope": "selected-configured-source", "migration_ready": False}
+        == payload(row)
     )
+
+
+def payload(row):
+    result = {"scope": "selected-configured-source", "migration_ready": False}
+    if row.window_id is not None:
+        result.update(window_id=str(row.window_id), window_revision=row.window_revision)
+    return result
+
+
+async def source_revision(db, source, window_id, window_revision, *, lock=False):
+    if window_id is None:
+        if window_revision is not None:
+            reject("inventory_context_changed")
+        return await gate_revision(db, LEGACY_LOCATION_ID, lock=lock)
+    from app.services import storage_migration_windows as windows
+
+    return await windows.check_source(db, window_id, window_revision, source, lock=lock)
+
+
+async def gate_revision(db, location_id, *, lock=False):
+    from app.services.content_snapshot import ContentError
+
+    try:
+        return await storage_access.check(db, location_id, lock=lock)
+    except ContentError as exc:
+        reject(exc.code, exc.status)
 
 
 def item(row):
     return StorageMigrationInventoryItem(
         job_id=row.async_job_id,
+        window_id=row.window_id,
+        window_revision=row.window_revision,
         status=row.status,
         created_at=row.created_at,
         started_at=row.started_at,
@@ -184,9 +213,21 @@ async def start(db, actor, request_body=None, *, api_key_id=None, request=None):
     # lock across native reads. The partial unique index independently fences it.
     await db.execute(text("SELECT pg_advisory_xact_lock(8592650717001)"))
     source = await source_scope(db, lock=True)
-    revision = await storage_access.check(db, LEGACY_LOCATION_ID, lock=True)
+    window_revision = None
+    if body.window_id is not None:
+        from app.db.models.storage_migration_window import StorageMigrationWindow
+        from app.services import storage_migration_windows as windows
+
+        revision = await windows.source_revision(db, body.window_id, source, lock=True)
+        window = await db.get(StorageMigrationWindow, body.window_id)
+        window_revision = window.revision
+    else:
+        revision = await gate_revision(db, LEGACY_LOCATION_ID, lock=True)
     limits, handling = body.limits.model_dump(), dict(body.handling)
-    fingerprint = digest([source, limits, handling])
+    inputs = [source, limits, handling]
+    if body.window_id is not None:
+        inputs.extend([str(body.window_id), window_revision])
+    fingerprint = digest(inputs)
     row = await db.scalar(
         select(Inventory)
         .where(
@@ -210,7 +251,11 @@ async def start(db, actor, request_body=None, *, api_key_id=None, request=None):
             kind=KIND,
             user_id=actor.id,
             celery_task_id=task_id,
-            payload={"scope": "selected-configured-source", "migration_ready": False},
+            payload=payload(
+                SimpleNamespace(
+                    window_id=body.window_id, window_revision=window_revision
+                )
+            ),
         )
         job.result = {"stage": "queued", "migration_ready": False}
         row = Inventory(
@@ -219,6 +264,8 @@ async def start(db, actor, request_body=None, *, api_key_id=None, request=None):
             task_id=task_id,
             source_location_id=LEGACY_LOCATION_ID,
             source=source,
+            window_id=body.window_id,
+            window_revision=window_revision,
             limits=limits,
             handling=handling,
             authority={
@@ -252,6 +299,8 @@ async def redispatch(db, job_id, actor, *, api_key_id=None):
     job = await jobs.lock_job(db, job_id)
     if not matches(row, job):
         reject("inventory_job_unavailable")
+    if row.window_id is not None:
+        await current(db, row, lock=True)
     return row, job
 
 
@@ -318,9 +367,11 @@ async def current(db, row, *, lock=False):
         or await source_scope(db, lock=lock) != row.source
     ):
         reject("inventory_source_changed")
-    await storage_access.check(
-        db, LEGACY_LOCATION_ID, expected_revision=row.maintenance_revision, lock=lock
+    revision = await source_revision(
+        db, row.source, row.window_id, row.window_revision, lock=lock
     )
+    if revision != row.maintenance_revision:
+        reject("storage_maintenance_changed")
 
 
 async def claim(db, job_id, task_id):
@@ -440,6 +491,16 @@ async def publish(
                 purpose: row.handling.get(purpose, "unreviewed") for purpose in PURPOSES
             }
             or header.get("limits") != expected_limits
+            or header.get("observations", {}).get("migration_window")
+            != (
+                {
+                    "window_id": str(row.window_id),
+                    "window_revision": row.window_revision,
+                    "source_quiescence_proven": False,
+                }
+                if row.window_id is not None
+                else None
+            )
         ):
             raise ValueError()
 

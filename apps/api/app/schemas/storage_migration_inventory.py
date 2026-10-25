@@ -34,6 +34,7 @@ class StorageMigrationInventoryLimits(BaseModel):
 class StorageMigrationInventoryRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    window_id: uuid.UUID | None = None
     limits: StorageMigrationInventoryLimits = Field(
         default_factory=StorageMigrationInventoryLimits
     )
@@ -59,6 +60,8 @@ class StorageMigrationInventoryCounts(BaseModel):
 
 class StorageMigrationInventoryItem(BaseModel):
     job_id: uuid.UUID
+    window_id: uuid.UUID | None = None
+    window_revision: int | None = None
     status: Literal["pending", "running", "completed", "failed", "cancelled"]
     created_at: datetime
     started_at: datetime | None

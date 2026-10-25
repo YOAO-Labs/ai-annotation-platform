@@ -78,6 +78,8 @@ AI Annotation Platform 把项目管理、Data Manager、多模态标注工作台
 
 来源继续变化时，可在原计划详情[准备后续增量批次](./docs-site/user-guide/datasets/storage-connections.md#准备后续增量批次)：选择同一来源的新封存清单，沿用目标和处理方式，审阅差异后显式执行。准确版本已有回执的对象只读回核验；新增和可变对象重新复制，历史责任继续保留。
 
+已有复制计划还可开启[迁移维护窗口](./docs-site/user-guide/datasets/storage-connections.md#迁移维护窗口)：停止默认来源的普通登记访问，排空后仅允许绑定窗口的清单和后继复制只读访问来源；关窗等待实际操作收尾。它不证明旧预签名、未登记调用或提供方自动过期已停止，业务读取切换与全源写栅栏仍需各自执行。
+
 对象存储可用[候选本地验证](./docs-site/ops/deploy/storage-candidate-poc.md)独立比较锁定构建的 S3、实际应用签名、浏览器代理及单节点恢复；失败和未执行类别完整保留，本地报告不等同供应商选型或生产资格。
 
 对象存储迁移前，可先生成[源端只读清单](./docs-site/ops/deploy/storage-migration-inventory.md)，覆盖当前配置的九用途桶、全部版本、删除标记、未完成上传及完整SHA；保存绑定与潜在写入方单独观测，未知覆盖不冒充迁移就绪。

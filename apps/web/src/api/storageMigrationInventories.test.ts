@@ -34,3 +34,20 @@ it("submits only the configured-source limits and leaves handling unreviewed", a
   await storageMigrationInventoriesApi.start(limits);
   expect(client.post).toHaveBeenCalledWith("/storage/migration-inventories", { limits });
 });
+
+it("adds window binding only on explicit selection", async () => {
+  const limits = {
+    max_pages: 1,
+    max_entries: 2,
+    max_object_bytes: 3,
+    max_total_bytes: 4,
+    max_seconds: 5,
+    read_timeout_seconds: 6,
+    page_size: 7,
+  };
+  await storageMigrationInventoriesApi.start(limits, "window");
+  expect(client.post).toHaveBeenCalledWith("/storage/migration-inventories", {
+    limits,
+    window_id: "window",
+  });
+});

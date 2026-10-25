@@ -26,6 +26,8 @@ export interface StorageMigrationInventoryCounts {
 
 export interface StorageMigrationInventoryItem {
   job_id: string;
+  window_id?: string | null;
+  window_revision?: number | null;
   status: AsyncJobStatus;
   created_at: string;
   started_at: string | null;
@@ -63,8 +65,11 @@ export const storageMigrationInventoriesApi = {
     apiClient.get<StorageMigrationInventoryHistory>(`${PATH}?limit=${limit}&offset=${offset}`, {
       signal,
     }),
-  start: (limits: StorageMigrationInventoryLimits) =>
-    apiClient.post<StorageMigrationInventoryStart>(PATH, { limits }),
+  start: (limits: StorageMigrationInventoryLimits, windowId?: string) =>
+    apiClient.post<StorageMigrationInventoryStart>(PATH, {
+      limits,
+      ...(windowId ? { window_id: windowId } : {}),
+    }),
   dispatch: (jobId: string) =>
     apiClient.post<StorageMigrationInventoryStart>(`${PATH}/${encodeURIComponent(jobId)}/dispatch`),
   report: (jobId: string, signal?: AbortSignal) =>

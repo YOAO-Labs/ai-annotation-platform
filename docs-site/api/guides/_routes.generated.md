@@ -756,6 +756,13 @@
 | POST | `/{job_id}/dispatch` |
 | GET | `/{job_id}/report` |
 
+## `storage_migration_windows.py`
+
+| Method | Path |
+|---|---|
+| GET | `/{window_id}` |
+| POST | `/{window_id}/transitions` |
+
 ## `storage_reclamation.py`
 
 | Method | Path |
@@ -1120,4 +1127,4 @@
 
 ---
 
-_共 100 模块 / 658 路由_
+_共 101 模块 / 660 路由_

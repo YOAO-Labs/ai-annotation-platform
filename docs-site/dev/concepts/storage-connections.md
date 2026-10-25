@@ -2,7 +2,7 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-25
+last_reviewed: 2026-10-26
 ---
 
 # 存储连接器（Storage Connections）
@@ -18,6 +18,14 @@ last_reviewed: 2026-10-25
 新检查点自包含当前对象、祖先创建身份及去重历史。复用行保留原创建 UUID、目标键、nonce 和准确回执，状态从 pending 开始；完整读回准确版本才计入本批次 verified。没有准确应答的上传沿原 nonce 恢复，不能另建身份重传；可变源重新复制，显式源版本的内容身份冲突保持独立拒绝。delta 物化同时校验创建 UUID、目标命名空间及既存 nonce，后继不能借祖先身份写任意目标。
 
 原批次一旦存在后继即只读，详情和私密检查点仍可读取；清理原 Job 不删除 lineage 或复制事实。检查点的逻辑摘要与 SQLite 页面布局无关，用于校验封存证据的一致性，不提供外部签名认证。增量准备和执行仍不修改用途绑定或业务定位，也不等同最终停写、切换与退役。操作见[迁移清单手册](/ops/deploy/storage-migration-inventory#后续清单与增量批次)。
+
+### 迁移窗口的专用来源准入
+
+`StorageMigrationWindow` 独立保存默认来源范围、配置修订、父复制计划和目标身份，不依赖短期Job保留。开启、停止和关闭使用窗口修订CAS，并与同一来源Gate的准入锁串行：draining拒绝普通准入，登记操作归零后才可停止；closing拒绝新窗口读取，实际排空后才恢复active。普通`storage_access.validate`仍只接受active。
+
+Inventory和Copy的nullable窗口引用保留旧任务兼容。窗口任务不能仅凭purpose字符串取得例外：独立准入事务联查保存的任务／Attempt、task ID和运行状态、窗口修订、固定源身份与停止Gate，再登记原有`StorageOperation`。目标始终走普通许可；来源客户端按冻结端点／桶和SDK只读方法白名单限制能力，原Body、client、原生线程、未知关闭及晚到回执责任继续由既有owner承担。
+
+窗口只证明登记访问的控制与排空。外部预签名、未登记SDK调用、相同物理桶的其他逻辑位置和提供方自动过期不受该Gate证明，公开结果固定保留`source_quiescence_proven=false,migration_ready=false`。全源写栅栏、历史准确版本路由及最终切换是迁移原有后续工作，不由窗口状态或普通任务成功推导。
 
 ## 代码入口
 
