@@ -18,6 +18,7 @@ from sqlalchemy.orm import aliased, load_only
 from app.db.models.async_job import AsyncJob
 from app.db.models.export_media_bundle import ExportMediaBundle as Bundle
 from app.db.models.storage_maintenance import StorageOperation
+from app.services import export_media_removal_accounting as removal
 from app.services import export_media_storage as physical
 from app.services import export_media_transfer as transfer
 from app.services import export_storage, storage_access
@@ -328,17 +329,22 @@ async def _guard(db, receipt, permit, *, zip_output=None):
 async def _physical_delete(db, receipt, *, zip_output=None):
     ref = zip_output.storage_ref if zip_output is not None else receipt.storage_ref
     permit = await transfer._acquire(db, receipt, uuid.UUID(ref["location_id"]))
-    failure = None
+    failure, accounting = None, None
     try:
         await transfer._async(_guard(db, receipt, permit, zip_output=zip_output))
         if zip_output is None:
             target = await transfer._async(transfer._io_target(db, receipt))
+            accounting = removal.recorder(db, receipt)
 
             def remove():
                 with physical.open_storage(
-                    receipt, **({"target": target} if target is not None else {})
+                    receipt,
+                    owned=True,
+                    **({"target": target} if target is not None else {}),
                 ) as client:
-                    return physical.delete_inventory(client, receipt)
+                    return physical.delete_inventory(
+                        client, receipt, accounting=accounting
+                    )
 
             await transfer.physical_work(remove)
         else:
@@ -361,6 +367,10 @@ async def _physical_delete(db, receipt, *, zip_output=None):
                     failure = closing
                 else:
                     transfer._uncertainty(failure, closing)
+        if accounting is not None:
+            failure = await removal.finish(
+                accounting, failure, settled=getattr(permit, "_settled", False) is True
+            )
     if failure is not None:
         raise failure
 

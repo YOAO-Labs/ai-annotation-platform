@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.db.models.export_media_bundle import ExportMediaBundle as Bundle
 from app.db.models.export_output import ExportOutput
 from app.db.models.storage_maintenance import StorageOperation
+from app.db.models.storage_usage import StorageUsageMutation
 from app.services import export_media_retirement as retirement
 from app.services import export_media_storage as physical
 from app.services import export_media_transfer as transfer
@@ -202,6 +203,7 @@ async def test_delete_lifetime_keeps_permit_through_constructor_and_real_close(
     monkeypatch.setattr(transfer, "_settle", settle)
     monkeypatch.setattr(retirement, "_guard", guard)
     monkeypatch.setattr(physical, "create_client", construct)
+    monkeypatch.setattr(retirement.removal, "recorder", lambda *args: None)
     if unknown_close:
         with pytest.raises(physical.ExportMediaStorageError) as error:
             await retirement._physical_delete(None, receipt)
@@ -232,6 +234,7 @@ async def test_cancelled_delete_drains_before_closing_client_and_permit(monkeypa
     monkeypatch.setattr(transfer, "_settle", settled)
     monkeypatch.setattr(retirement, "_guard", AsyncMock())
     monkeypatch.setattr(physical, "create_client", lambda: client)
+    monkeypatch.setattr(retirement.removal, "recorder", lambda *args: None)
     pending = asyncio.create_task(
         retirement._physical_delete(None, retirement.snapshot(row))
     )
@@ -364,6 +367,8 @@ async def gc_db(owned_db):
         "ALTER TABLE export_artifacts ADD COLUMN expires_at timestamptz",
     ):
         await db.execute(text(ddl))
+    connection = await db.connection()
+    await connection.run_sync(StorageUsageMutation.__table__.create)
     await db.commit()
     return db
 

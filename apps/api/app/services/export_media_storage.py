@@ -18,7 +18,7 @@ from urllib.parse import urlsplit
 import uuid
 
 from app.config import settings
-from app.services import storage_presigning
+from app.services import export_media_removal_accounting, storage_presigning
 from app.services.storage_access import (
     close_registered,
     closing_registered,
@@ -452,7 +452,9 @@ def _client(client, owner):
 
 
 @contextmanager
-def open_storage(record, factory=None, *, target=None, single_attempt=False):
+def open_storage(
+    record, factory=None, *, target=None, single_attempt=False, owned=False
+):
     """The caller admits/drains constructor, every operation and actual close."""
     owner = resolve(record)
     if target is not None:
@@ -464,7 +466,8 @@ def open_storage(record, factory=None, *, target=None, single_attempt=False):
         ):
             _reject()
         with target.client(
-            **({"single_attempt": True} if single_attempt else {})
+            **({"single_attempt": True} if single_attempt else {}),
+            **({"owned": True} if owned else {}),
         ) as client:
             yield _client(client, owner)
         return
@@ -822,7 +825,7 @@ def _versions(client, owner, expected, deadline, *, maximum):
         markers = next_markers
 
 
-def delete_inventory(client, record):
+def delete_inventory(client, record, *, accounting=None):
     """Retired-owner only: permit missing known entries, never delete unknown keys."""
     owner = resolve(record)
     _client(client, owner)
@@ -837,8 +840,18 @@ def delete_inventory(client, record):
             _reject("integrity_mismatch")
         for row in versions:
             _budget(deadline)
-            response = client.delete_object(Bucket=owner.bucket, **row)
+            if accounting is None:
+                response = client.delete_object(Bucket=owner.bucket, **row)
+            else:
+                observation = export_media_removal_accounting.Observation(
+                    accounting, client, row["Key"], row["VersionId"]
+                )
+                response = observation.submit(
+                    lambda: client.delete_object(Bucket=owner.bucket, **row)
+                )
             _http_ok(response, statuses=(200, 204))
+            if accounting is not None:
+                observation.complete(response)
         if _objects(client, owner, expected, deadline, limits=limits) or _versions(
             client, owner, expected, deadline, maximum=limits[2]
         ):

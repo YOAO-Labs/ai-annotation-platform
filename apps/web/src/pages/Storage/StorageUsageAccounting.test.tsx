@@ -530,3 +530,50 @@ it("limits server training descriptions to explicitly declared producers", () =>
   expect(screen.queryByText(/已接入脱敏日志写入观测/)).not.toBeInTheDocument();
   expect(screen.getByText(/不能据此推算平台总占用/)).toBeVisible();
 });
+
+it("explains declared export media removals separately from ZIP and disk reclamation", () => {
+  render(
+    <StorageUsageAccounting
+      accounting={{
+        ...accounting,
+        producers: ["export_media_outputs", "export_zip_outputs", "export_media_removals"],
+      }}
+      onAccessDenied={mocks.denied}
+    />,
+  );
+  open();
+  expect(screen.getByText("已接入独立导出媒体受控新增。")).toBeVisible();
+  expect(screen.getByText(/已接入独立导出媒体版本删除观测/)).toHaveTextContent(
+    /按删除前后当前内容计净变化，显露旧版本也会计量。\s*证据或收尾不明保持未知，ZIP 清理尚未计入，不代表磁盘释放量。/,
+  );
+  expect(screen.getByText(/ZIP 退休和清理不代表已确认移除/)).toBeVisible();
+  expect(screen.queryByText(/独立导出媒体受控新增；导出清理尚未计入/)).not.toBeInTheDocument();
+  expect(screen.getByText("部分覆盖")).toBeVisible();
+  expect(screen.getByText("确认增加")).toBeVisible();
+  expect(screen.getByText("确认减少")).toBeVisible();
+  expect(screen.queryByText("累计写入")).not.toBeInTheDocument();
+  expect(screen.queryByText("累计移除")).not.toBeInTheDocument();
+});
+
+it("does not infer export creation or other cleanup from a removal-only declaration", () => {
+  const view = render(
+    <StorageUsageAccounting
+      accounting={{ ...accounting, producers: ["export_media_removals", "future_cleanup"] }}
+      onAccessDenied={mocks.denied}
+    />,
+  );
+  open();
+  expect(screen.getByText(/已接入独立导出媒体版本删除观测/)).toBeVisible();
+  expect(screen.queryByText(/已接入独立导出媒体受控新增/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/已接入导出 ZIP 写入观测/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/已接入媒体缓存受控新增/)).not.toBeInTheDocument();
+  expect(screen.getByText(/待确认 2 次 · 结果未知 1 次/)).toBeVisible();
+  view.rerender(
+    <StorageUsageAccounting
+      accounting={{ ...accounting, producers: ["export_media_outputs"] }}
+      onAccessDenied={mocks.denied}
+    />,
+  );
+  expect(screen.queryByText(/已接入独立导出媒体版本删除观测/)).not.toBeInTheDocument();
+  expect(screen.getByText(/ZIP 和导出清理尚未计入/)).toBeVisible();
+});

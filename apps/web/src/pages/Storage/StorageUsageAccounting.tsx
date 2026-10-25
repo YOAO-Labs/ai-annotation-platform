@@ -84,6 +84,7 @@ function AccountingOwner({ accounting, reconciliation, schedule, onAccessDenied 
   const trainingProducers = TRAINING_PRODUCERS.filter(([producer]) =>
     accounting?.producers.includes(producer),
   ).map(([, label]) => label);
+  const exportMediaRemovals = accounting?.producers.includes("export_media_removals");
 
   useEffect(() => {
     setSaved(schedule);
@@ -144,8 +145,8 @@ function AccountingOwner({ accounting, reconciliation, schedule, onAccessDenied 
             <>
               <dl className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
                 {[
-                  ["累计写入", change(accounting.confirmed_added_bytes)],
-                  ["累计移除", change(-accounting.confirmed_removed_bytes)],
+                  ["确认增加", change(accounting.confirmed_added_bytes)],
+                  ["确认减少", change(-accounting.confirmed_removed_bytes)],
                   ["确认净变化", change(accounting.net_change_bytes)],
                 ].map(([label, value]) => (
                   <div key={label}>
@@ -180,9 +181,17 @@ function AccountingOwner({ accounting, reconciliation, schedule, onAccessDenied 
             )}
             {accounting?.producers.includes("export_media_outputs") && (
               <li>
-                {accounting.producers.includes("export_zip_outputs")
-                  ? "已接入独立导出媒体受控新增；导出清理尚未计入。"
-                  : "已接入独立导出媒体受控新增；ZIP 和导出清理尚未计入。"}
+                {exportMediaRemovals
+                  ? "已接入独立导出媒体受控新增。"
+                  : accounting.producers.includes("export_zip_outputs")
+                    ? "已接入独立导出媒体受控新增；导出清理尚未计入。"
+                    : "已接入独立导出媒体受控新增；ZIP 和导出清理尚未计入。"}
+              </li>
+            )}
+            {exportMediaRemovals && (
+              <li>
+                已接入独立导出媒体版本删除观测；按删除前后当前内容计净变化，显露旧版本也会计量。
+                证据或收尾不明保持未知，ZIP 清理尚未计入，不代表磁盘释放量。
               </li>
             )}
             {accounting?.producers.includes("export_zip_outputs") && (

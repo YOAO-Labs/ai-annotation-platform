@@ -82,7 +82,7 @@ async def begin_in_transaction(
     key = object_key
     if not key or len(key.encode()) > 1024 or kind not in {"create", "delete"}:
         raise ValueError("invalid_accounting_address")
-    if kind == "delete" and version in {None, "null"}:
+    if kind == "delete" and not new_request and version in {None, "null"}:
         raise ValueError("immutable_accounting_version_required")
     scope = scope_key(endpoint_url, bucket)
     identity = digest(
@@ -133,9 +133,9 @@ async def begin_in_transaction(
         )
         if row.object_key != key or row.scope_key != scope or row.kind != kind:
             raise ValueError("accounting_identity_collision")
-        if new_request and kind == "create":
-            # Every actual conditional submission has its own durable window.
-            # Earlier unresolved attempts cannot be explained by a later 412.
+        if new_request:
+            # Every explicit submission has its own durable window. A later
+            # success or absence cannot explain an earlier unresolved request.
             values["idempotency_key"] = digest(identity + ":" + str(identifier))
             values["evidence"]["logical_intent_id"] = str(row.id)
             await db.execute(insert(Mutation).values(**values))
