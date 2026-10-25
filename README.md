@@ -62,6 +62,8 @@ AI Annotation Platform 把项目管理、Data Manager、多模态标注工作台
 
 数据集上传按稳定身份隔离原图，同名不同内容保留为独立文件；改名不移动已有原图。旧数据可按真实对象键回填内容与位置映射；未知摘要可先预览当前原件，再显式应用SHA-256补算，保留旧任务身份。参见[数据集上传与扫描](./docs-site/api/guides/datasets.md)、[兼容回填](./docs-site/dev/concepts/storage-connections.md#内容身份与兼容回填)及[旧托管原件补算](./docs-site/dev/concepts/storage-connections.md#显式补算旧托管原件)。
 
+数据集存储改造后的紧急应用回退保留schema，使用独立数据库与对象存储只读权限，旧后台消费者保持停止；操作与本地演练见[受控只读应用回退](./docs-site/ops/upgrade-guide.md#数据集存储的受控只读应用回退)。
+
 [3D 质量检查](./docs-site/user-guide/workbench/3d-box.md#3d-质量检查)按已登记 PCD 原件的保存位置、完整 SHA-256、大小与坐标约定读取，持续复核审核员的任务可见性；全部读取和解析真实收尾后才统一提交问题、运行结果与通知。取消、权限或来源变化不发布半轮问题，已有人工判定保留。缺少原件合同的旧待执行／执行中运行在派发或重放时标为过期，不回源补证；历史结果仍可查看，旧原件相关问题需重新扫描。
 
 工作台支持按账号保存图片、视频和通用命令的自定义快捷键；类别直选使用 `1–9` 和 `0`，更多类别可搜索。使用方式见[工作台快捷键](./docs-site/user-guide/workbench/index.md#完整快捷键)，偏好读写契约见[认证与账号 API](./docs-site/api/guides/auth.md)。
