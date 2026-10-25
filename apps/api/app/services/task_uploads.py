@@ -149,6 +149,7 @@ async def initialize(db, actor, request, data, file_type):
     await creations._validate(db, allocation, lock=True)
     await creations.validate_staging(db, allocation, lock=True)
     await credentials.reauthorize(db, proof)
+    await creations.validate_upload_url(db, allocation, url, lock=True)
     await db.commit()
     credentials.check_clock(proof)
     return task_id, url

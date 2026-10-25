@@ -79,6 +79,11 @@ async def task_creation_db(legacy_creation_db):
     db = legacy_creation_db
     async with service.storage_access.engine(db).begin() as connection:
         await connection.run_sync(lambda sync: migration(sync).upgrade())
+        # This fixture qualifies scope, while the current runtime also persists
+        # the additive nullable staging locator covered by its own migration.
+        await connection.execute(
+            text("ALTER TABLE managed_original_creations ADD COLUMN staging_ref jsonb")
+        )
     return db
 
 

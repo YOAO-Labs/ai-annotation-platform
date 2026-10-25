@@ -2,7 +2,7 @@
 
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import math
@@ -313,6 +313,14 @@ async def validate_staging(db, row, *, lock=False, expected_revision=None):
     )
 
 
+def upload_expires_in(allocation):
+    deadline = allocation["allocated_at"] + timedelta(seconds=900)
+    seconds = int((deadline - now()).total_seconds())
+    if seconds <= 0:
+        reject("managed_original_staging_expired")
+    return min(seconds, 900)
+
+
 async def prepare_upload_url(db, allocation):
     """Use the durable source owner before callers enter final authority locks."""
     from app.services import import_storage
@@ -324,7 +332,7 @@ async def prepare_upload_url(db, allocation):
             staging_owner(allocation),
             "payload",
             content_type=allocation["content_type"],
-            expires_in=900,
+            expires_in=upload_expires_in(allocation),
         )
     except ContentError:
         raise
@@ -333,6 +341,21 @@ async def prepare_upload_url(db, allocation):
         if getattr(exc, "storage_operation_unsettled", False):
             storage_access.mark_unsettled(error)
         raise error from None
+
+
+async def validate_upload_url(db, allocation, url, *, lock=True):
+    """Recheck the exact signing credentials and deadline without provider I/O."""
+    from app.services import import_storage
+
+    return await _import_async(
+        import_storage.validate_upload_url,
+        db,
+        url,
+        owner=staging_owner(allocation),
+        relative="payload",
+        content_type=allocation["content_type"],
+        lock=lock,
+    )
 
 
 async def allocate(

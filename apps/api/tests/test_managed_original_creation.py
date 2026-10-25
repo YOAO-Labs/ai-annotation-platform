@@ -6,6 +6,7 @@ import importlib.util
 import io
 from pathlib import Path
 import threading
+from types import SimpleNamespace
 import uuid
 
 from alembic.migration import MigrationContext
@@ -84,6 +85,13 @@ async def creation_db(test_engine):
                     sync, "0230_managed_original_task_scope.py"
                 ).upgrade()
             )
+            # Keep this historical scope fixture usable by the current writer;
+            # the complete staging migration and its guards have separate tests.
+            await connection.execute(
+                text(
+                    "ALTER TABLE managed_original_creations ADD COLUMN staging_ref jsonb"
+                )
+            )
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
             await ensure_legacy_bindings(db)
             await db.commit()
@@ -110,7 +118,16 @@ class Client(MemoryS3):
 def client(monkeypatch):
     value = Client()
     monkeypatch.setattr(service, "create_client", lambda **_: value)
+    stage_client(monkeypatch, value)
     return value
+
+
+def stage_client(monkeypatch, value):
+    scheme = "https" if service.settings.minio_use_ssl else "http"
+    value.meta = SimpleNamespace(
+        endpoint_url=f"{scheme}://{service.settings.minio_endpoint}"
+    )
+    monkeypatch.setattr(service.storage_service, "client", value)
 
 
 async def allocation(db, **fields):

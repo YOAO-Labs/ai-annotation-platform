@@ -624,12 +624,14 @@ async def upload_init(
         await creations._validate(db, allocation, lock=True)
         await creations.validate_staging(db, allocation, lock=True)
         await credentials.reauthorize(db, upload_authority)
+        await creations.validate_upload_url(db, allocation, upload_url, lock=True)
         await db.commit()
         credentials.check_clock(upload_authority)
+        expires_in = creations.upload_expires_in(allocation)
     except ContentError as exc:
         raise HTTPException(exc.status, detail={"code": exc.code}) from None
     return DatasetUploadInitResponse(
-        item_id=item_id, upload_url=upload_url, expires_in=900
+        item_id=item_id, upload_url=upload_url, expires_in=expires_in
     )
 
 

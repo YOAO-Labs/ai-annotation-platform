@@ -447,8 +447,8 @@ def _prepare_pinned_stream(
     params = {
         "Bucket": source_bucket,
         "Key": source_key,
-        "VersionId": source.version_id,
         "IfMatch": source.etag,
+        **({"VersionId": source.version_id} if source.version_id is not None else {}),
     }
     try:
         try:

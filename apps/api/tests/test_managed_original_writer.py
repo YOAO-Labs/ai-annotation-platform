@@ -438,6 +438,11 @@ def test_separate_source_client_streams_to_owned_destination(versioned, data):
     assert destination.objects["owned", "final"]["data"] == data
     assert reader.objects["stage", "source"]["data"] == data
     assert all(operation in {"head", "get"} for operation, _ in reader.calls)
+    assert all(
+        ("VersionId" in params) is versioned
+        for operation, params in reader.calls
+        if operation == "get"
+    )
     assert not any(operation == "copy" for operation, _ in destination.calls)
     assert not any(params.get("Bucket") == "stage" for _, params in destination.calls)
     assert all(body.close_count == 1 for body in reader.bodies + destination.bodies)
