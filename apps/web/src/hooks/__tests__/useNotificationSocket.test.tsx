@@ -174,6 +174,107 @@ function mount(qc?: QueryClient) {
 }
 
 describe("useNotificationSocket", () => {
+  it("迁移清单提醒只允许当前超级管理员入队，旧类型仍按偏好处理", async () => {
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    });
+    seedPreferences(qc, "u1", [{ type: "job.failed", toast: true }]);
+    mount(qc);
+    const socket = MockWebSocket.instances[0];
+    const message = {
+      id: "private-inventory",
+      type: "job.failed",
+      payload: { kind: "storage_migration_inventory", error_message: "source unavailable" },
+    };
+    act(() => {
+      socket.triggerMessage(message);
+      socket.triggerMessage({
+        id: "ordinary-job",
+        type: "job.failed",
+        payload: { kind: "dataset_import", error_message: "ordinary failure" },
+      });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1100);
+    });
+    expect(errorToastMessages()).toEqual(["数据集导入失败：ordinary failure"]);
+    expect(warningToastMessages()).toEqual([]);
+    act(() => {
+      useAuthStore.setState({ user: { id: "u1", role: "super_admin" } as never });
+      seedPreferences(qc, "u1", [{ type: "job.failed", toast: true }]);
+    });
+    act(() => socket.triggerMessage(message));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1100);
+    });
+    expect(errorToastMessages()).toEqual([
+      "数据集导入失败：ordinary failure",
+      "配置源迁移清单失败：source unavailable",
+    ]);
+  });
+
+  it("延迟批次发送时重新过滤已降权的迁移清单，不抑制其他类型", async () => {
+    useAuthStore.setState({ user: { id: "u1", role: "super_admin" } as never });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    seedPreferences(qc, "u1", [
+      { type: "job.failed", toast: true },
+      { type: "task.rejected", toast: true },
+    ]);
+    mount(qc);
+    act(() => {
+      MockWebSocket.instances[0].triggerMessage({
+        id: "private-inventory",
+        type: "job.failed",
+        payload: { kind: "storage_migration_inventory", error_message: "private failure" },
+      });
+      MockWebSocket.instances[0].triggerMessage({
+        id: "ordinary-notification",
+        type: "task.rejected",
+        payload: { task_display_id: "T-ordinary" },
+      });
+      useAuthStore.setState({ user: { id: "u1", role: "project_admin" } as never });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1100);
+    });
+    expect(errorToastMessages()).toEqual(["任务 T-ordinary 被审核员退回"]);
+    expect(warningToastMessages()).toEqual([]);
+    expect(MockWebSocket.instances).toHaveLength(1);
+  });
+
+  it("相同账号凭据的新会话清除待发迁移提醒并拒绝旧连接的迟到事件", async () => {
+    useAuthStore.setState({ user: { id: "u1", role: "super_admin" } as never });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    seedPreferences(qc, "u1", [{ type: "job.failed", toast: true }]);
+    mount(qc);
+    const oldSocket = MockWebSocket.instances[0];
+    act(() => {
+      oldSocket.triggerMessage({
+        id: "old-private",
+        type: "job.failed",
+        payload: { kind: "storage_migration_inventory" },
+      });
+      useAuthStore.getState().logout();
+      useAuthStore.setState({
+        token: "old-token",
+        user: { id: "u1", role: "super_admin" } as never,
+      });
+    });
+    expect(oldSocket.closedManually).toBe(true);
+    expect(MockWebSocket.instances).toHaveLength(2);
+    act(() =>
+      oldSocket.triggerMessage({
+        id: "late-private",
+        type: "job.failed",
+        payload: { kind: "storage_migration_inventory" },
+      }),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1100);
+    });
+    expect(toastCallCount()).toBe(0);
+  });
+
   it("挂载时用 token 拼接 ws URL 并建立连接", () => {
     mount();
     expect(MockWebSocket.instances.length).toBe(1);
