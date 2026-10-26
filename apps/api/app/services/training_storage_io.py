@@ -5,8 +5,11 @@ from contextlib import contextmanager
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.services import storage_access, training_dataset_storage as owners
+from app.services import storage_migration_artifact_reads as artifact_reads
+from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.storage import StorageService, storage_service
+from app.services.training_dataset_bridge import TrainingDatasetError
 
 
 async def prepare(db, owner, *, require_enabled=True):
@@ -32,17 +35,78 @@ class _Storage(StorageService):
 def service(target, *, accounting=None):
     """Open only inside an admitted operation; never replace the global client."""
     with target.client(**({"owned": True} if accounting is not None else {})) as client:
-        bound = object.__new__(_Storage)
-        bound.__dict__.update(
-            (name, value)
-            for name, value in storage_service.__dict__.items()
-            if not callable(value)
+        yield _bound(
+            client,
+            target.bucket,
+            legacy=target.location_id == LEGACY_LOCATION_ID,
+            accounting=accounting,
         )
-        bound.client = client
-        bound.bucket = bound.training_bucket = target.bucket
-        bound._write_accounting = accounting
-        bound._legacy = target.location_id == LEGACY_LOCATION_ID
-        yield bound
+
+
+def _bound(client, bucket, *, legacy, accounting=None):
+    bound = object.__new__(_Storage)
+    bound.__dict__.update(
+        (name, value)
+        for name, value in storage_service.__dict__.items()
+        if not callable(value)
+    )
+    bound.client = client
+    bound.bucket = bound.training_bucket = bucket
+    bound._write_accounting = accounting
+    bound._legacy = legacy
+    return bound
+
+
+async def read(
+    db,
+    owner,
+    purpose,
+    callback,
+    *args,
+    object_key,
+    sha256,
+    size_bytes=None,
+    on_acquired=None,
+    close_result=None,
+    timeout=None,
+    **kwargs,
+):
+    """Read one saved artifact without changing its owner or write transport.
+
+    A missing mapping retains the original Gate and address. The read-only
+    client translates exactly one admitted address to a verified target version.
+    """
+    owner.contains(object_key)
+    try:
+        route = await artifact_reads.resolve(
+            db, owner.ref, object_key, sha256, size_bytes
+        )
+        if route is None:
+            return await run(
+                db,
+                owner,
+                purpose,
+                callback,
+                *args,
+                on_acquired=on_acquired,
+                timeout=timeout,
+                **kwargs,
+            )
+        return await artifact_reads.run(
+            db,
+            route,
+            purpose,
+            lambda client: callback(
+                _bound(client, owner.bucket, legacy=False), *args, **kwargs
+            ),
+            on_acquired=on_acquired,
+            close_result=close_result,
+            timeout=timeout,
+        )
+    except ContentError as exc:
+        raise TrainingDatasetError(
+            exc.code, "训练文件的迁移读取位置已变化，请重新读取", status_code=exc.status
+        ) from None
 
 
 def physical(target, callback, *args, accounting=None, **kwargs):
