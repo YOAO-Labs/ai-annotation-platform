@@ -37,8 +37,14 @@ async def test_empty_roundtrip_keeps_historical_inventory_id_without_job_fk(db_s
     connection = await db_session.connection()
 
     def roundtrip(conn):
+        from tests.test_migration_0263_storage_migration_read_publications import (
+            migration as read_migration,
+        )
+
+        read_migration(conn).downgrade()
         migration(conn).downgrade()
         migration(conn).upgrade()
+        read_migration(conn).upgrade()
         schema = inspect(conn)
         foreign = schema.get_foreign_keys(Finalization.__tablename__)
         assert len(foreign) == 4

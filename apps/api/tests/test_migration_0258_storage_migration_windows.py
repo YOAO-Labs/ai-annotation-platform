@@ -38,8 +38,19 @@ async def test_empty_0258_roundtrip_retains_legacy_nullable_owners(
     db_session, prepared
 ):
     connection = await db_session.connection()
+    from tests.test_migration_0262_storage_migration_finalizations import (
+        migration as finalization_migration,
+    )
+    from tests.test_migration_0263_storage_migration_read_publications import (
+        migration as read_migration,
+    )
+
+    await connection.run_sync(lambda sync: read_migration(sync).downgrade())
+    await connection.run_sync(lambda sync: finalization_migration(sync).downgrade())
     await connection.run_sync(lambda sync: migration(sync).downgrade())
     await connection.run_sync(lambda sync: migration(sync).upgrade())
+    await connection.run_sync(lambda sync: finalization_migration(sync).upgrade())
+    await connection.run_sync(lambda sync: read_migration(sync).upgrade())
     await db_session.refresh(prepared)
     assert prepared.window_id is prepared.window_revision is None
     foreign_keys = await connection.run_sync(

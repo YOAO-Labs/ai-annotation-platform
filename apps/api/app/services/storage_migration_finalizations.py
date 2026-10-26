@@ -376,6 +376,10 @@ async def require_resumable(db, location_id):
 
 
 async def frozen_copy(db, copy_id):
+    from app.services import storage_migration_read_publications as publications
+
+    if await publications.frozen_copy(db, copy_id):
+        return True
     return (
         await db.scalar(
             select(Finalization.id)
@@ -701,6 +705,9 @@ async def begin_invalidation(db, actor_id, claim, expected_revision):
     claim = await _claim(db, actor_id, claim)
     window = await _window(db, uuid.UUID(claim["window_id"]))
     row = await _existing(db, claim)
+    from app.services.storage_migration_read_publications import require_unpublished
+
+    await require_unpublished(db, uuid.UUID(claim["finalization_id"]))
     if row is None:
         if claim["reserved"]:
             reject("finalization_unknown")
@@ -736,6 +743,9 @@ async def finish_invalidation(db, actor_id, claim, expected_revision):
     row = await _existing(db, claim)
     if row is None:
         reject("finalization_unknown")
+    from app.services.storage_migration_read_publications import require_unpublished
+
+    await require_unpublished(db, row.id)
     _cas(row, expected_revision)
     if row.state == "invalidated":
         return item(row)
@@ -777,3 +787,8 @@ async def changed_checkpoint(db, copy_id):
             error_code="finalization_checkpoint_changed",
         )
     )
+    from app.services import storage_migration_read_publications as publications
+
+    # Copy -> Finalization -> Publication matches control lock order. Both
+    # eligibility changes and the actual ACK become visible in one commit.
+    await publications.changed_checkpoint(db, copy_id)
