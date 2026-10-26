@@ -176,23 +176,23 @@ BEGIN
                 INSERT INTO public.gpu_arbiter_rollouts(gpu_resource_id,state,effective_mode,target_mode,revision,created_at,updated_at)
                 VALUES(v_resource,'off','off',v_target,1,v_now,v_now);
             END IF;
-            v_result:=aap_inference_gpu_v1._rollout_snapshot(v_resource);
+            v_result:=pg_catalog.jsonb_build_object('snapshot',aap_inference_gpu_v1._rollout_snapshot(v_resource));
         ELSIF v_rollout.state IN ('promoting','demoting') THEN
-            IF v_rollout.target_mode=v_target THEN v_result:=aap_inference_gpu_v1._rollout_snapshot(v_resource);
+            IF v_rollout.target_mode=v_target THEN v_result:=pg_catalog.jsonb_build_object('snapshot',aap_inference_gpu_v1._rollout_snapshot(v_resource));
             ELSE v_result:=pg_catalog.jsonb_build_object('outcome','conflict','reason','transition_in_progress'); END IF;
         ELSIF v_target='enforce' AND v_rollout.state='enforcing' THEN
-            v_result:=aap_inference_gpu_v1._rollout_snapshot(v_resource);
+            v_result:=pg_catalog.jsonb_build_object('snapshot',aap_inference_gpu_v1._rollout_snapshot(v_resource));
         ELSIF v_target IN ('off','observe') AND v_rollout.state='off' THEN
             IF v_rollout.target_mode<>v_target THEN UPDATE public.gpu_arbiter_rollouts SET target_mode=v_target,revision=revision+1,updated_at=v_now WHERE gpu_resource_id=v_resource; END IF;
-            v_result:=aap_inference_gpu_v1._rollout_snapshot(v_resource);
+            v_result:=pg_catalog.jsonb_build_object('snapshot',aap_inference_gpu_v1._rollout_snapshot(v_resource));
         ELSIF v_transition=v_rollout.last_transition_id THEN
             v_result:=pg_catalog.jsonb_build_object('outcome','conflict','reason','transition_id_reused');
         ELSIF v_target='enforce' AND v_rollout.effective_mode='off' THEN
             UPDATE public.gpu_arbiter_rollouts SET state='promoting',target_mode='enforce',transition_id=v_transition,transition_started_at=v_now,blocker_reason=NULL,revision=revision+1,updated_at=v_now WHERE gpu_resource_id=v_resource;
-            v_result:=aap_inference_gpu_v1._rollout_snapshot(v_resource);
+            v_result:=pg_catalog.jsonb_build_object('snapshot',aap_inference_gpu_v1._rollout_snapshot(v_resource));
         ELSIF v_target IN ('off','observe') AND v_rollout.effective_mode='enforce' THEN
             UPDATE public.gpu_arbiter_rollouts SET state='demoting',target_mode=v_target,transition_id=v_transition,transition_started_at=v_now,blocker_reason=NULL,revision=revision+1,updated_at=v_now WHERE gpu_resource_id=v_resource;
-            v_result:=aap_inference_gpu_v1._rollout_snapshot(v_resource);
+            v_result:=pg_catalog.jsonb_build_object('snapshot',aap_inference_gpu_v1._rollout_snapshot(v_resource));
         ELSE v_result:=pg_catalog.jsonb_build_object('outcome','unavailable'); END IF;
 
     ELSIF p_action = 'rollout_complete' THEN
@@ -201,14 +201,14 @@ BEGIN
         PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('aap:gpu-resource:'||v_resource,0));
         SELECT * INTO v_rollout FROM public.gpu_arbiter_rollouts r WHERE r.gpu_resource_id=v_resource FOR UPDATE;
         IF NOT FOUND THEN v_result:=pg_catalog.jsonb_build_object('outcome','conflict','reason','transition_missing');
-        ELSIF v_rollout.transition_id IS NULL AND v_rollout.last_transition_id=v_transition THEN v_result:=aap_inference_gpu_v1._rollout_snapshot(v_resource);
+        ELSIF v_rollout.transition_id IS NULL AND v_rollout.last_transition_id=v_transition THEN v_result:=pg_catalog.jsonb_build_object('snapshot',aap_inference_gpu_v1._rollout_snapshot(v_resource));
         ELSIF v_rollout.transition_id<>v_transition THEN v_result:=pg_catalog.jsonb_build_object('outcome','conflict','reason','transition_changed');
         ELSIF v_rollout.state='promoting' THEN
             UPDATE public.gpu_arbiter_rollouts SET state='enforcing',effective_mode='enforce',transition_id=NULL,transition_started_at=NULL,last_transition_id=v_transition,blocker_reason=NULL,revision=revision+1,updated_at=v_now WHERE gpu_resource_id=v_resource;
-            v_result:=aap_inference_gpu_v1._rollout_snapshot(v_resource);
+            v_result:=pg_catalog.jsonb_build_object('snapshot',aap_inference_gpu_v1._rollout_snapshot(v_resource));
         ELSIF v_rollout.state='demoting' THEN
             UPDATE public.gpu_arbiter_rollouts SET state='off',effective_mode='off',transition_id=NULL,transition_started_at=NULL,last_transition_id=v_transition,blocker_reason=NULL,revision=revision+1,updated_at=v_now WHERE gpu_resource_id=v_resource;
-            v_result:=aap_inference_gpu_v1._rollout_snapshot(v_resource);
+            v_result:=pg_catalog.jsonb_build_object('snapshot',aap_inference_gpu_v1._rollout_snapshot(v_resource));
         ELSE v_result:=pg_catalog.jsonb_build_object('outcome','conflict','reason','transition_not_completable'); END IF;
 
     ELSIF p_action = 'rollout_block' THEN
@@ -217,9 +217,9 @@ BEGIN
         PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('aap:gpu-resource:'||v_resource,0));
         SELECT * INTO v_rollout FROM public.gpu_arbiter_rollouts r WHERE r.gpu_resource_id=v_resource FOR UPDATE;
         IF NOT FOUND OR v_rollout.transition_id<>v_transition THEN v_result:=pg_catalog.jsonb_build_object('outcome','conflict','reason','transition_changed');
-        ELSIF v_rollout.state='blocked' AND v_rollout.blocker_reason=v_reason THEN v_result:=aap_inference_gpu_v1._rollout_snapshot(v_resource);
+        ELSIF v_rollout.state='blocked' AND v_rollout.blocker_reason=v_reason THEN v_result:=pg_catalog.jsonb_build_object('snapshot',aap_inference_gpu_v1._rollout_snapshot(v_resource));
         ELSE UPDATE public.gpu_arbiter_rollouts SET state='blocked',blocker_reason=v_reason,revision=revision+1,updated_at=v_now WHERE gpu_resource_id=v_resource;
-            v_result:=aap_inference_gpu_v1._rollout_snapshot(v_resource); END IF;
+            v_result:=pg_catalog.jsonb_build_object('snapshot',aap_inference_gpu_v1._rollout_snapshot(v_resource)); END IF;
 
     ELSIF p_action IN ('runtime_subject','cold_runtime_subject','idle_eviction_subject','busy_eviction_subject') THEN
         IF p_action='runtime_subject' THEN
@@ -261,7 +261,9 @@ BEGIN
                 ELSIF p_action='cold_runtime_subject' AND (v_residency->>'lifecycle_gate'<>'enforce' OR v_residency->>'gpu_loaded'<>'false' OR v_residency->>'state' NOT IN ('unloaded','resident') OR v_residency->>'draining'<>'false' OR v_residency->>'evictable'<>'false' OR COALESCE((v_residency->>'active_requests')::bigint,1)<>0 OR COALESCE((v_residency->>'builders')::bigint,1)<>0 OR COALESCE((v_residency->>'borrowers')::bigint,1)<>0) THEN v_reason:='cold_runtime_not_ready';
                 ELSIF p_action='cold_runtime_subject' AND (v_residency->>'generation' IS NOT NULL AND (v_residency->>'generation')::bigint>v_fence.generation_high_water) THEN v_reason:='residency_generation_ahead';
                 ELSIF p_action='cold_runtime_subject' AND (v_residency->>'control_epoch')::bigint<>v_fence.control_epoch_high_water THEN v_reason:='residency_control_epoch_mismatch';
-                ELSIF p_action IN ('idle_eviction_subject','busy_eviction_subject') AND (v_residency->>'state'<>'resident' OR v_residency->>'gpu_loaded'<>'true' OR v_residency->>'evictable'<>'true' OR v_residency->>'generation' IS DISTINCT FROM v_expected#>>'{}' OR v_probe->>'challenge' IS DISTINCT FROM v_challenge OR (v_residency->>'control_epoch')::bigint<>v_fence.control_epoch_high_water OR (v_residency->>'generation')::bigint>v_fence.generation_high_water OR (p_action='idle_eviction_subject' AND (COALESCE((v_residency->>'active_requests')::bigint,1)<>0 OR COALESCE((v_residency->>'builders')::bigint,1)<>0 OR COALESCE((v_residency->>'borrowers')::bigint,1)<>0))) THEN v_reason:=CASE WHEN p_action='idle_eviction_subject' THEN 'idle_eviction_runtime_not_ready' ELSE 'busy_eviction_runtime_not_ready' END;
+                ELSIF p_action IN ('idle_eviction_subject','busy_eviction_subject') AND v_probe->>'challenge' IS DISTINCT FROM v_challenge THEN v_reason:=CASE WHEN p_action='idle_eviction_subject' THEN 'idle_eviction_challenge_mismatch' ELSE 'busy_eviction_challenge_mismatch' END;
+                ELSIF p_action IN ('idle_eviction_subject','busy_eviction_subject') AND v_residency->>'generation' IS NOT NULL AND v_residency->>'generation' IS DISTINCT FROM v_expected#>>'{}' THEN v_reason:=CASE WHEN p_action='idle_eviction_subject' THEN 'idle_eviction_generation_mismatch' ELSE 'busy_eviction_generation_mismatch' END;
+                ELSIF p_action IN ('idle_eviction_subject','busy_eviction_subject') AND (v_residency->>'state'<>'resident' OR v_residency->>'gpu_loaded'<>'true' OR v_residency->>'evictable'<>'true' OR (v_residency->>'control_epoch')::bigint<>v_fence.control_epoch_high_water OR (v_residency->>'generation')::bigint>v_fence.generation_high_water OR (p_action='idle_eviction_subject' AND (COALESCE((v_residency->>'active_requests')::bigint,1)<>0 OR COALESCE((v_residency->>'builders')::bigint,1)<>0 OR COALESCE((v_residency->>'borrowers')::bigint,1)<>0))) THEN v_reason:=CASE WHEN p_action='idle_eviction_subject' THEN 'idle_eviction_runtime_not_ready' ELSE 'busy_eviction_runtime_not_ready' END;
                 ELSIF p_action='cold_runtime_subject' AND v_expected<>'null'::jsonb AND v_probe->>'challenge' IS DISTINCT FROM v_challenge THEN v_reason:='cold_runtime_challenge_mismatch';
                 END IF;
                 IF v_reason IS NOT NULL THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason',v_reason);
