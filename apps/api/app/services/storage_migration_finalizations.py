@@ -705,6 +705,11 @@ async def begin_invalidation(db, actor_id, claim, expected_revision):
     claim = await _claim(db, actor_id, claim)
     window = await _window(db, uuid.UUID(claim["window_id"]))
     row = await _existing(db, claim)
+    from app.services.storage_migration_cutovers import (
+        require_finalization_invalidatable,
+    )
+
+    await require_finalization_invalidatable(db, uuid.UUID(claim["finalization_id"]))
     from app.services.storage_migration_read_publications import require_unpublished
 
     await require_unpublished(db, uuid.UUID(claim["finalization_id"]))
@@ -743,6 +748,11 @@ async def finish_invalidation(db, actor_id, claim, expected_revision):
     row = await _existing(db, claim)
     if row is None:
         reject("finalization_unknown")
+    from app.services.storage_migration_cutovers import (
+        require_finalization_invalidatable,
+    )
+
+    await require_finalization_invalidatable(db, row.id)
     from app.services.storage_migration_read_publications import require_unpublished
 
     await require_unpublished(db, row.id)

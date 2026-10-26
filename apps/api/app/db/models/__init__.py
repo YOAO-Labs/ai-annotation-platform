@@ -27,6 +27,7 @@ from app.db.models.managed_original_verification import ManagedOriginalVerificat
 from app.db.models.storage_migration_inventory import StorageMigrationInventory
 from app.db.models.storage_migration_window import StorageMigrationWindow
 from app.db.models.storage_migration_finalization import StorageMigrationFinalization
+from app.db.models.storage_migration_cutovers import StorageMigrationCutover
 from app.db.models.storage_migration_read_publication import (
     StorageMigrationReadPublication,
     StorageMigrationReadRoute,
@@ -382,6 +383,7 @@ __all__ += ["StorageFaultState"]
 __all__ += ["StorageObservationBucket"]
 
 __all__ += ["StorageMigrationFinalization"]
+__all__ += ["StorageMigrationCutover"]
 __all__ += ["StorageMigrationReadPublication", "StorageMigrationReadRoute"]
 
 __all__ += ["MaskFormatUpload"]

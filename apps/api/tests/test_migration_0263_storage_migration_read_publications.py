@@ -41,8 +41,12 @@ async def test_empty_roundtrip_and_restrict_owner_fks(db_session):
     connection = await db_session.connection()
 
     def roundtrip(conn):
+        from tests.test_storage_migration_cutovers import migration as cutover_migration
+
+        cutover_migration(conn).downgrade()
         migration(conn).downgrade()
         migration(conn).upgrade()
+        cutover_migration(conn).upgrade()
         schema = inspect(conn)
         assert len(schema.get_check_constraints(Publication.__tablename__)) == 5
         assert len(schema.get_check_constraints(Route.__tablename__)) == 3
