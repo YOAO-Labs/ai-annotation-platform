@@ -6,14 +6,17 @@ import os
 import uuid
 
 import pytest
-from sqlalchemy import event, text
+from sqlalchemy import event, select, text
+from sqlalchemy.exc import DBAPIError
 
 from app.db.models.annotation import Annotation
+from app.db.models.prediction import Prediction
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
+from app.services.labeling_core_read_relations import prediction_row
 from app.services.labeling_e2e_fixture_writes import LabelingE2EFixtureWrites
 from app.services.workspace_e2e_fixtures import create_fixture_project
-from tests.factory import create_user
+from tests.factory import create_task, create_user
 from tests.test_workspace_consumer_profile_native import _world
 
 pytestmark = [
@@ -230,3 +233,242 @@ async def test_fixture_defaults_and_caller_transaction_use_the_owner(test_engine
             )
             for sql in statements
         )
+
+
+async def _prediction_results(session_factory, prediction_ids):
+    async with session_factory() as db:
+        rows = (
+            await db.scalars(
+                select(prediction_row).where(prediction_row.id.in_(prediction_ids))
+            )
+        ).all()
+        return {row.id: row.result for row in rows}
+
+
+async def test_filtering_rendering_is_scoped_atomic_and_caller_transactional(
+    test_engine,
+):
+    async with _world(test_engine) as (owner, api, role, _url):
+        actor_id = None
+        project_ids = []
+        task_ids = []
+        predictions = {}
+        try:
+            async with owner.begin() as db:
+                actor = await create_user(
+                    db,
+                    "super_admin",
+                    f"labeling-filter-render-{uuid.uuid4()}@e2e.test",
+                    "Filtering render",
+                )
+                actor_id = actor.id
+                project = await create_fixture_project(
+                    db,
+                    owner_id=actor_id,
+                    name=f"Filtering render {uuid.uuid4().hex[:10]}",
+                )
+                foreign_project = await create_fixture_project(
+                    db,
+                    owner_id=actor_id,
+                    name=f"Foreign filtering render {uuid.uuid4().hex[:10]}",
+                )
+                project_ids = [project.id, foreign_project.id]
+                task = await create_task(
+                    db, project_id=project.id, display_id=f"T-E2E-{uuid.uuid4().hex[:10]}"
+                )
+                task.file_type = "video"
+                foreign_task = await create_task(
+                    db,
+                    project_id=foreign_project.id,
+                    display_id=f"T-E2E-{uuid.uuid4().hex[:10]}",
+                )
+                foreign_task.file_type = "video"
+                await db.flush()
+                task_ids = [task.id, foreign_task.id]
+                for name, prediction_task, model_version, confidence, with_score in (
+                    ("low", task, "filter-detector-low", 0.2, True),
+                    ("at", task, "filter-detector-at", 0.5, True),
+                    ("above", task, "filter-detector-above", 0.9, True),
+                    ("bad_at", task, "filter-detector-at", 0.7, False),
+                    ("foreign_low", foreign_task, "filter-detector-low", 0.4, True),
+                ):
+                    prediction_id = uuid.uuid4()
+                    shape = {"type": "rectanglelabels", "value": {}}
+                    if with_score:
+                        shape["score"] = confidence
+                    predictions[name] = Prediction(
+                        id=prediction_id,
+                        task_id=prediction_task.id,
+                        project_id=prediction_task.project_id,
+                        model_version=model_version,
+                        score=confidence,
+                        result=[shape],
+                    )
+                db.add_all(predictions.values())
+                await db.flush()
+
+            prediction_ids = [row.id for row in predictions.values()]
+            initial_results = await _prediction_results(owner, prediction_ids)
+            assert len(initial_results) == 5
+            async with api() as db:
+                assert await db.scalar(text("SELECT current_user")) == role
+                assert await db.scalar(
+                    text(
+                        "SELECT has_function_privilege(current_user, "
+                        "'aap_labeling_v1.prepare_filtering_rendering(jsonb)', 'EXECUTE')"
+                    )
+                )
+                for table in (
+                    "tasks",
+                    "task_batches",
+                    "annotations",
+                    "predictions",
+                ):
+                    assert not await db.scalar(
+                        text(
+                            "SELECT has_table_privilege(current_user,:relation,"
+                            "'SELECT,INSERT,UPDATE,DELETE') OR "
+                            "has_any_column_privilege(current_user,:relation,"
+                            "'SELECT,INSERT,UPDATE,REFERENCES')"
+                        ),
+                        {"relation": f"public.{table}"},
+                    ), table
+
+                writes = LabelingE2EFixtureWrites(db)
+                savepoint = await db.begin_nested()
+                try:
+                    with pytest.raises(DBAPIError) as ordinary_write:
+                        await db.execute(
+                            text(
+                                "UPDATE public.predictions SET result='[]'::jsonb "
+                                "WHERE id=:id"
+                            ),
+                            {"id": predictions["low"].id},
+                        )
+                    assert ordinary_write.value.orig.sqlstate == "42501"
+                finally:
+                    await savepoint.rollback()
+
+                async def rejected_scope(**candidate_ids):
+                    savepoint = await db.begin_nested()
+                    try:
+                        with pytest.raises(DBAPIError) as error:
+                            await writes.prepare_filtering_rendering(
+                                project_id=project.id, **candidate_ids
+                            )
+                        assert error.value.orig.sqlstate == "42501"
+                    finally:
+                        await savepoint.rollback()
+
+                await rejected_scope(
+                    low_prediction_id=predictions["low"].id,
+                    at_prediction_id=predictions["low"].id,
+                    above_prediction_id=predictions["above"].id,
+                )
+                await rejected_scope(
+                    low_prediction_id=uuid.uuid4(),
+                    at_prediction_id=predictions["at"].id,
+                    above_prediction_id=predictions["above"].id,
+                )
+                await rejected_scope(
+                    low_prediction_id=predictions["foreign_low"].id,
+                    at_prediction_id=predictions["at"].id,
+                    above_prediction_id=predictions["above"].id,
+                )
+
+                savepoint = await db.begin_nested()
+                try:
+                    with pytest.raises(DBAPIError) as partial_failure:
+                        await writes.prepare_filtering_rendering(
+                            project_id=project.id,
+                            low_prediction_id=predictions["low"].id,
+                            at_prediction_id=predictions["bad_at"].id,
+                            above_prediction_id=predictions["above"].id,
+                        )
+                    assert partial_failure.value.orig.sqlstate == "22023"
+                finally:
+                    await savepoint.rollback()
+                assert await _prediction_results(owner, prediction_ids) == initial_results
+
+                candidate_ids = [
+                    predictions[key].id for key in ("low", "at", "above")
+                ]
+                tracked = (
+                    await db.scalars(
+                        select(prediction_row).where(
+                            prediction_row.id.in_(candidate_ids)
+                        )
+                    )
+                ).all()
+                assert {row.id for row in tracked} == set(candidate_ids)
+                await writes.prepare_filtering_rendering(
+                    project_id=project.id,
+                    low_prediction_id=predictions["low"].id,
+                    at_prediction_id=predictions["at"].id,
+                    above_prediction_id=predictions["above"].id,
+                )
+                assert all(
+                    not db.is_modified(row, include_collections=True) for row in tracked
+                )
+                assert await _prediction_results(owner, candidate_ids) == {
+                    prediction_id: initial_results[prediction_id]
+                    for prediction_id in candidate_ids
+                }
+                await db.commit()
+
+            rendered = await _prediction_results(
+                owner, [predictions[key].id for key in ("low", "at", "above")]
+            )
+            for key, frame_index, confidence in (
+                ("low", 0, 0.2),
+                ("at", 0, 0.5),
+                ("above", 10, 0.9),
+            ):
+                result = rendered[predictions[key].id]
+                assert result == [
+                    {
+                        "type": "video_bbox",
+                        "class_name": "car",
+                        "geometry": {
+                            "type": "video_bbox",
+                            "frame_index": frame_index,
+                            "x": 0.62,
+                            "y": 0.62,
+                            "w": 0.12,
+                            "h": 0.15,
+                        },
+                        "confidence": confidence,
+                        "tool_unit_id": "bbox",
+                        "attributes": {},
+                    }
+                ]
+        finally:
+            async with owner.begin() as db:
+                if predictions:
+                    await db.execute(
+                        text(
+                            "DELETE FROM public.predictions "
+                            "WHERE id = ANY(CAST(:ids AS uuid[]))"
+                        ),
+                        {"ids": [row.id for row in predictions.values()]},
+                    )
+                if task_ids:
+                    await db.execute(
+                        text(
+                            "DELETE FROM public.tasks "
+                            "WHERE id = ANY(CAST(:ids AS uuid[]))"
+                        ),
+                        {"ids": task_ids},
+                    )
+                if project_ids:
+                    await db.execute(
+                        text(
+                            "SELECT aap_workspace_fixture_v1.delete_projects("
+                            "CAST(:ids AS uuid[]))"
+                        ),
+                        {"ids": project_ids},
+                    )
+                if actor_id is not None:
+                    await db.execute(
+                        text("DELETE FROM users WHERE id=:id"), {"id": actor_id}
+                    )

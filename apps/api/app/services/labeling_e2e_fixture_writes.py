@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy import inspect, select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import set_committed_value
 
 from aap_labeling.e2e_fixture_contract import (
     AnnotationFixtureRow,
@@ -18,10 +19,12 @@ from aap_labeling.e2e_fixture_contract import (
     InsertFixtureTaskDatasetItemLinks,
     InsertFixtureTasks,
     InsertFixtureVideoTrackerJobs,
+    LABELING_E2E_FILTERING_RENDER_FUNCTION,
     LabelingE2EFixtureUnavailable,
     PatchFixtureBatches,
     PatchFixtureFeedbackAnchor,
     PatchFixtureTasks,
+    PrepareFilteringRendering,
     TaskBatchFixturePatch,
     TaskBatchFixtureRow,
     TaskDatasetItemLinkFixtureRow,
@@ -32,6 +35,7 @@ from aap_labeling.e2e_fixture_contract import (
 )
 from aap_labeling.e2e_fixture_data import LabelingE2EFixtureData
 from app.db.models.annotation import Annotation
+from app.db.models.prediction import Prediction
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
@@ -46,6 +50,9 @@ from app.services.labeling_core_read_relations import (
 )
 
 _COMMAND = text("SELECT aap_labeling_v1.e2e_fixture_command(CAST(:request AS jsonb))")
+_FILTERING_RENDER = text(
+    f"SELECT {LABELING_E2E_FILTERING_RENDER_FUNCTION}(CAST(:request AS jsonb))"
+)
 
 
 class LabelingE2EFixtureWrites:
@@ -322,6 +329,58 @@ class LabelingE2EFixtureWrites:
                 detail={"reason": "labeling_e2e_fixture_unavailable"},
             )
         return data.anchor_position
+
+    async def prepare_filtering_rendering(
+        self,
+        *,
+        project_id: uuid.UUID,
+        low_prediction_id: uuid.UUID,
+        at_prediction_id: uuid.UUID,
+        above_prediction_id: uuid.UUID,
+    ) -> None:
+        request = PrepareFilteringRendering(
+            schema=LABELING_E2E_FIXTURE_PROTOCOL,
+            operation="prepare_filtering_rendering",
+            project_id=project_id,
+            low_prediction_id=low_prediction_id,
+            at_prediction_id=at_prediction_id,
+            above_prediction_id=above_prediction_id,
+        )
+
+        async def execute(payload: str):
+            with self.db.no_autoflush:
+                return await self.db.scalar(_FILTERING_RENDER, {"request": payload})
+
+        try:
+            data = await LabelingE2EFixtureData(
+                execute_filtering_rendering=execute
+            ).command(request)
+        except LabelingE2EFixtureUnavailable as exc:
+            raise HTTPException(
+                status_code=503,
+                detail={"reason": "labeling_e2e_fixture_unavailable"},
+            ) from exc
+        except DBAPIError as exc:
+            if _sqlstate(exc) == "42883":
+                raise HTTPException(
+                    status_code=503,
+                    detail={"reason": "labeling_e2e_fixture_unavailable"},
+                ) from exc
+            raise
+
+        if data.rendered_predictions is None:
+            raise HTTPException(
+                status_code=503,
+                detail={"reason": "labeling_e2e_fixture_unavailable"},
+            )
+        rendered = {row.id: row.result for row in data.rendered_predictions}
+        for prediction in self.db.identity_map.values():
+            if isinstance(prediction, Prediction):
+                identity = inspect(prediction).identity
+                if identity is not None and identity[0] in rendered:
+                    set_committed_value(
+                        prediction, "result", rendered[identity[0]]
+                    )
 
 
 def _sqlstate(exc: DBAPIError) -> str | None:

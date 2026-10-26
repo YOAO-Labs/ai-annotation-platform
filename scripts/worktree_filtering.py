@@ -104,10 +104,9 @@ async def prepare_filtering(resources: dict, manifest_path: Path) -> dict:
     from app.api.v1._test_seed_filters import FilteringSeedManifest
     from app.config import settings
     from app.db.models.dataset import Dataset
-    from app.db.models.prediction import Prediction
-    from app.services.workspace_seed_data import seed_projects
     from app.services.identity_read_relations import account_profiles
-    from app.services.predictions_import import internal_geometry_to_ls_shape
+    from app.services.labeling_e2e_fixture_writes import LabelingE2EFixtureWrites
+    from app.services.workspace_seed_data import seed_projects
 
     if os.environ.get("AAP_WORKTREE_MODE") != "e2e" or resources["mode"] != "e2e":
         raise WorktreeError("手动验收必须通过 up --mode e2e --scenario filtering 启动")
@@ -167,26 +166,16 @@ async def prepare_filtering(resources: dict, manifest_path: Path) -> dict:
                 manifest = await seed_filtering(db=db)
                 # Supply renderable geometry without changing the fixture's literal
                 # memberships/counts. The automatic tests keep their metric-only data.
-                for key, frame in (("low", 0), ("at", 0), ("above", 10)):
-                    prediction = await db.scalar(
-                        select(Prediction).where(
-                            Prediction.id == UUID(manifest.video.candidate_ids[key])
-                        )
-                    )
-                    geometry = {
-                        "type": "video_bbox",
-                        "frame_index": frame,
-                        "x": 0.62,
-                        "y": 0.62,
-                        "w": 0.12,
-                        "h": 0.15,
-                    }
-                    shape = internal_geometry_to_ls_shape(
-                        geometry, "car", prediction.result[0]["score"]
-                    )
-                    if shape is None:
-                        raise WorktreeError("手动视频候选无法转换")
-                    prediction.result = [shape]
+                await LabelingE2EFixtureWrites(db).prepare_filtering_rendering(
+                    project_id=UUID(manifest.video.project_id),
+                    low_prediction_id=UUID(
+                        manifest.video.candidate_ids["low"]
+                    ),
+                    at_prediction_id=UUID(manifest.video.candidate_ids["at"]),
+                    above_prediction_id=UUID(
+                        manifest.video.candidate_ids["above"]
+                    ),
+                )
                 await db.commit()
                 print("[dev:worktree] 已创建筛选验收数据", flush=True)
             payload = manifest.model_dump(mode="json", by_alias=True)

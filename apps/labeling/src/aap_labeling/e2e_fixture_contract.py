@@ -20,6 +20,7 @@ from pydantic import (
 
 LABELING_E2E_FIXTURE_PROTOCOL = "aap-labeling-e2e-fixtures/v1"
 LABELING_E2E_FIXTURE_FUNCTION = "aap_labeling_v1.e2e_fixture_command"
+LABELING_E2E_FILTERING_RENDER_FUNCTION = "aap_labeling_v1.prepare_filtering_rendering"
 MAX_E2E_FIXTURE_ROWS = 512
 MAX_E2E_FIXTURE_REQUEST_BYTES = 16 * 1024 * 1024
 
@@ -283,6 +284,19 @@ class PatchFixtureFeedbackAnchor(_Command):
     anchor_position: dict[str, Any]
 
 
+class PrepareFilteringRendering(_Command):
+    operation: Literal["prepare_filtering_rendering"]
+    project_id: uuid.UUID
+    low_prediction_id: uuid.UUID
+    at_prediction_id: uuid.UUID
+    above_prediction_id: uuid.UUID
+
+
+class FixtureRenderedPrediction(_Closed):
+    id: uuid.UUID
+    result: list[dict[str, Any]]
+
+
 FixtureCommand: TypeAlias = Annotated[
     InsertFixtureBatches
     | InsertFixtureTasks
@@ -291,7 +305,8 @@ FixtureCommand: TypeAlias = Annotated[
     | InsertFixtureAnnotations
     | InsertFixtureVideoTrackerJobs
     | InsertFixtureTaskDatasetItemLinks
-    | PatchFixtureFeedbackAnchor,
+    | PatchFixtureFeedbackAnchor
+    | PrepareFilteringRendering,
     Field(discriminator="operation"),
 ]
 
@@ -299,6 +314,7 @@ FixtureCommand: TypeAlias = Annotated[
 class FixtureWriteData(_Closed):
     ids: list[uuid.UUID] | None = None
     anchor_position: dict[str, Any] | None = None
+    rendered_predictions: list[FixtureRenderedPrediction] | None = None
 
 
 class FixtureWriteReply(_Closed):
@@ -340,7 +356,15 @@ def e2e_fixture_schema() -> dict[str, Any]:
                 "reply": "aap-labeling-e2e-fixtures/v1",
                 "volatility": "volatile",
                 "parallel": "unsafe",
-            }
+            },
+            LABELING_E2E_FILTERING_RENDER_FUNCTION: {
+                "arguments": "jsonb",
+                "request": {"$ref": "#/$defs/PrepareFilteringRendering"},
+                "returns": "jsonb",
+                "reply": "aap-labeling-e2e-fixtures/v1",
+                "volatility": "volatile",
+                "parallel": "unsafe",
+            },
         },
         "x-security": {
             "database": "actual database name must end in _test or _e2e",
@@ -382,6 +406,16 @@ def decode_fixture_write_reply(
         else:
             value = raw
         reply = _REPLY_ADAPTER.validate_json(json.dumps(value, allow_nan=False))
+        rendering = isinstance(request, PrepareFilteringRendering)
+        expected_rendering_ids = (
+            [
+                request.low_prediction_id,
+                request.at_prediction_id,
+                request.above_prediction_id,
+            ]
+            if rendering
+            else None
+        )
         if (
             not reply.ok
             or reply.operation != request.operation
@@ -389,11 +423,32 @@ def decode_fixture_write_reply(
                 request.operation == "patch_feedback_anchor"
                 and reply.data.anchor_position is None
             )
-            or (request.operation != "patch_feedback_anchor" and reply.data.ids is None)
+            or (
+                request.operation != "patch_feedback_anchor"
+                and reply.data.ids is None
+            )
+            or (
+                rendering
+                and (
+                    reply.data.rendered_predictions is None
+                    or reply.data.ids != expected_rendering_ids
+                    or [
+                        row.id for row in reply.data.rendered_predictions
+                    ]
+                    != expected_rendering_ids
+                )
+            )
+            or (
+                not rendering and reply.data.rendered_predictions is not None
+            )
         ):
             raise ValueError("Labeling E2E fixture reply does not match its request")
         expected_count = (
-            1 if isinstance(request, PatchFixtureFeedbackAnchor) else len(request.rows)
+            1
+            if isinstance(request, PatchFixtureFeedbackAnchor)
+            else 3
+            if rendering
+            else len(request.rows)
         )
         if reply.data.ids is not None and len(reply.data.ids) != expected_count:
             raise ValueError("Labeling E2E fixture owner returned the wrong row count")
@@ -403,6 +458,7 @@ def decode_fixture_write_reply(
 
 
 __all__ = [
+    "LABELING_E2E_FILTERING_RENDER_FUNCTION",
     "LABELING_E2E_FIXTURE_FUNCTION",
     "LABELING_E2E_FIXTURE_PROTOCOL",
     "MAX_E2E_FIXTURE_REQUEST_BYTES",
@@ -410,6 +466,7 @@ __all__ = [
     "AnnotationFixtureRow",
     "FixtureCommand",
     "FixtureWriteData",
+    "FixtureRenderedPrediction",
     "InsertFixtureAnnotations",
     "InsertFixtureBatches",
     "InsertFixtureTaskDatasetItemLinks",
@@ -419,6 +476,7 @@ __all__ = [
     "PatchFixtureBatches",
     "PatchFixtureFeedbackAnchor",
     "PatchFixtureTasks",
+    "PrepareFilteringRendering",
     "TaskBatchFixturePatch",
     "TaskBatchFixtureRow",
     "TaskDatasetItemLinkFixtureRow",

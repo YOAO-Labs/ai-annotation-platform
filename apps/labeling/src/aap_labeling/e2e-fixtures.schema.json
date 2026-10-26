@@ -259,7 +259,13 @@
           "title": "Updated At"
         }
       },
-      "required": ["id", "task_id", "project_id", "class_name", "geometry"],
+      "required": [
+        "id",
+        "task_id",
+        "project_id",
+        "class_name",
+        "geometry"
+      ],
       "title": "AnnotationFixtureRow",
       "type": "object"
     },
@@ -291,7 +297,12 @@
           "type": "array"
         }
       },
-      "required": ["schema", "operation", "project_id", "rows"],
+      "required": [
+        "schema",
+        "operation",
+        "project_id",
+        "rows"
+      ],
       "title": "InsertFixtureAnnotations",
       "type": "object"
     },
@@ -323,7 +334,12 @@
           "type": "array"
         }
       },
-      "required": ["schema", "operation", "project_id", "rows"],
+      "required": [
+        "schema",
+        "operation",
+        "project_id",
+        "rows"
+      ],
       "title": "InsertFixtureBatches",
       "type": "object"
     },
@@ -360,7 +376,13 @@
           "type": "array"
         }
       },
-      "required": ["schema", "operation", "project_id", "task_id", "rows"],
+      "required": [
+        "schema",
+        "operation",
+        "project_id",
+        "task_id",
+        "rows"
+      ],
       "title": "InsertFixtureTaskDatasetItemLinks",
       "type": "object"
     },
@@ -392,7 +414,12 @@
           "type": "array"
         }
       },
-      "required": ["schema", "operation", "project_id", "rows"],
+      "required": [
+        "schema",
+        "operation",
+        "project_id",
+        "rows"
+      ],
       "title": "InsertFixtureTasks",
       "type": "object"
     },
@@ -424,7 +451,12 @@
           "type": "array"
         }
       },
-      "required": ["schema", "operation", "project_id", "rows"],
+      "required": [
+        "schema",
+        "operation",
+        "project_id",
+        "rows"
+      ],
       "title": "InsertFixtureVideoTrackerJobs",
       "type": "object"
     },
@@ -456,7 +488,12 @@
           "type": "array"
         }
       },
-      "required": ["schema", "operation", "project_id", "rows"],
+      "required": [
+        "schema",
+        "operation",
+        "project_id",
+        "rows"
+      ],
       "title": "PatchFixtureBatches",
       "type": "object"
     },
@@ -533,8 +570,58 @@
           "type": "array"
         }
       },
-      "required": ["schema", "operation", "project_id", "rows"],
+      "required": [
+        "schema",
+        "operation",
+        "project_id",
+        "rows"
+      ],
       "title": "PatchFixtureTasks",
+      "type": "object"
+    },
+    "PrepareFilteringRendering": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-e2e-fixtures/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "prepare_filtering_rendering",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "low_prediction_id": {
+          "format": "uuid",
+          "title": "Low Prediction Id",
+          "type": "string"
+        },
+        "at_prediction_id": {
+          "format": "uuid",
+          "title": "At Prediction Id",
+          "type": "string"
+        },
+        "above_prediction_id": {
+          "format": "uuid",
+          "title": "Above Prediction Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "project_id",
+        "low_prediction_id",
+        "at_prediction_id",
+        "above_prediction_id"
+      ],
+      "title": "PrepareFilteringRendering",
       "type": "object"
     },
     "TaskBatchFixturePatch": {
@@ -565,7 +652,10 @@
           "title": "Total Tasks"
         }
       },
-      "required": ["id", "project_id"],
+      "required": [
+        "id",
+        "project_id"
+      ],
       "title": "TaskBatchFixturePatch",
       "type": "object"
     },
@@ -597,7 +687,10 @@
         "status": {
           "anyOf": [
             {
-              "enum": ["draft", "annotating"],
+              "enum": [
+                "draft",
+                "annotating"
+              ],
               "type": "string"
             },
             {
@@ -677,7 +770,12 @@
           "title": "Reviewer Id"
         }
       },
-      "required": ["id", "project_id", "display_id", "name"],
+      "required": [
+        "id",
+        "project_id",
+        "display_id",
+        "name"
+      ],
       "title": "TaskBatchFixtureRow",
       "type": "object"
     },
@@ -720,7 +818,12 @@
           "title": "Sensor Name"
         }
       },
-      "required": ["id", "task_id", "dataset_item_id", "role"],
+      "required": [
+        "id",
+        "task_id",
+        "dataset_item_id",
+        "role"
+      ],
       "title": "TaskDatasetItemLinkFixtureRow",
       "type": "object"
     },
@@ -794,7 +897,11 @@
         "file_type": {
           "anyOf": [
             {
-              "enum": ["image", "video", "point_cloud"],
+              "enum": [
+                "image",
+                "video",
+                "point_cloud"
+              ],
               "type": "string"
             },
             {
@@ -807,7 +914,14 @@
         "status": {
           "anyOf": [
             {
-              "enum": ["pending", "annotating", "submitted", "review", "completed", "rejected"],
+              "enum": [
+                "pending",
+                "annotating",
+                "submitted",
+                "review",
+                "completed",
+                "rejected"
+              ],
               "type": "string"
             },
             {
@@ -1057,7 +1171,10 @@
           "title": "Skipped At"
         }
       },
-      "required": ["id", "project_id"],
+      "required": [
+        "id",
+        "project_id"
+      ],
       "title": "TaskFixturePatch",
       "type": "object"
     },
@@ -1121,7 +1238,11 @@
         "file_type": {
           "anyOf": [
             {
-              "enum": ["image", "video", "point_cloud"],
+              "enum": [
+                "image",
+                "video",
+                "point_cloud"
+              ],
               "type": "string"
             },
             {
@@ -1134,7 +1255,14 @@
         "status": {
           "anyOf": [
             {
-              "enum": ["pending", "annotating", "submitted", "review", "completed", "rejected"],
+              "enum": [
+                "pending",
+                "annotating",
+                "submitted",
+                "review",
+                "completed",
+                "rejected"
+              ],
               "type": "string"
             },
             {
@@ -1384,7 +1512,13 @@
           "title": "Skipped At"
         }
       },
-      "required": ["id", "project_id", "display_id", "file_name", "file_path"],
+      "required": [
+        "id",
+        "project_id",
+        "display_id",
+        "file_name",
+        "file_path"
+      ],
       "title": "TaskFixtureRow",
       "type": "object"
     },
@@ -1478,7 +1612,11 @@
           "type": "string"
         },
         "direction": {
-          "enum": ["forward", "backward", "bidirectional"],
+          "enum": [
+            "forward",
+            "backward",
+            "bidirectional"
+          ],
           "title": "Direction",
           "type": "string"
         },
@@ -1630,6 +1768,9 @@
     },
     {
       "$ref": "#/$defs/PatchFixtureFeedbackAnchor"
+    },
+    {
+      "$ref": "#/$defs/PrepareFilteringRendering"
     }
   ],
   "discriminator": {
@@ -1641,7 +1782,8 @@
       "insert_video_tracker_jobs": "#/$defs/InsertFixtureVideoTrackerJobs",
       "patch_batches": "#/$defs/PatchFixtureBatches",
       "patch_feedback_anchor": "#/$defs/PatchFixtureFeedbackAnchor",
-      "patch_tasks": "#/$defs/PatchFixtureTasks"
+      "patch_tasks": "#/$defs/PatchFixtureTasks",
+      "prepare_filtering_rendering": "#/$defs/PrepareFilteringRendering"
     },
     "propertyName": "operation"
   },
@@ -1649,6 +1791,16 @@
     "aap_labeling_v1.e2e_fixture_command": {
       "arguments": "jsonb",
       "request": "oneOf",
+      "returns": "jsonb",
+      "reply": "aap-labeling-e2e-fixtures/v1",
+      "volatility": "volatile",
+      "parallel": "unsafe"
+    },
+    "aap_labeling_v1.prepare_filtering_rendering": {
+      "arguments": "jsonb",
+      "request": {
+        "$ref": "#/$defs/PrepareFilteringRendering"
+      },
       "returns": "jsonb",
       "reply": "aap-labeling-e2e-fixtures/v1",
       "volatility": "volatile",

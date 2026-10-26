@@ -5,7 +5,6 @@ import os
 from pathlib import Path
 import sys
 import tempfile
-from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 from uuid import UUID
@@ -99,6 +98,7 @@ class ManualFilteringTests(unittest.IsolatedAsyncioTestCase):
         session = AsyncMock()
         session.__aenter__.return_value = self.db
         self.seed = AsyncMock(return_value=self.manifest)
+        self.render = AsyncMock()
         for patcher in (
             patch.dict(os.environ, {"AAP_WORKTREE_MODE": "e2e"}),
             patch(
@@ -110,6 +110,11 @@ class ManualFilteringTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch("app.api.v1._test_seed._require_e2e_seed_database", new=AsyncMock()),
             patch("app.api.v1._test_seed.seed_filtering", new=self.seed),
+            patch(
+                "app.services.labeling_e2e_fixture_writes.LabelingE2EFixtureWrites."
+                "prepare_filtering_rendering",
+                new=self.render,
+            ),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -156,21 +161,17 @@ class ManualFilteringTests(unittest.IsolatedAsyncioTestCase):
         self.seed.assert_not_awaited()
         self.assertEqual(self.path.read_bytes(), original)
 
-    async def test_first_seed_supplies_two_renderable_frames_and_records_ownership(
-        self,
-    ):
-        predictions = [
-            SimpleNamespace(result=[{"score": score}]) for score in (0.2, 0.5, 0.9)
-        ]
-        self.db.scalar.side_effect = [0, 0, 0, *predictions]
+    async def test_first_seed_prepares_fixed_candidates_and_records_ownership(self):
+        self.db.scalar.side_effect = [0, 0, 0]
         result = await prepare_filtering(self.resources, self.path)
         self.seed.assert_awaited_once_with(db=self.db)
-        self.assertEqual(
-            [p.result[0]["geometry"]["frame_index"] for p in predictions], [0, 0, 10]
+        self.render.assert_awaited_once_with(
+            project_id=UUID(self.manifest.video.project_id),
+            low_prediction_id=UUID(self.manifest.video.candidate_ids["low"]),
+            at_prediction_id=UUID(self.manifest.video.candidate_ids["at"]),
+            above_prediction_id=UUID(self.manifest.video.candidate_ids["above"]),
         )
-        self.assertEqual(
-            [p.result[0]["confidence"] for p in predictions], [0.2, 0.5, 0.9]
-        )
+        self.db.commit.assert_awaited_once()
         self.assertEqual(result["owner"], "owned")
         self.assertEqual(json.loads(self.path.read_text()), result)
 
