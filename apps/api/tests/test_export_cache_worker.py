@@ -140,6 +140,32 @@ def test_export_worker_registration_and_route_are_stable() -> None:
     assert celery_app.conf.task_routes[task_name] == {"queue": "export"}
 
 
+async def test_mapped_legacy_output_honors_prepared_target_and_current_authority(
+    monkeypatch,
+):
+    candidate = SimpleNamespace(
+        storage_ref={"schema": 1}, expires_at=datetime.max.replace(tzinfo=timezone.utc)
+    )
+    db, job, prepared = object(), object(), object()
+    ready = AsyncMock(return_value="https://target.invalid/accurate-version")
+    authority = AsyncMock()
+    direct = Mock(side_effect=AssertionError("mapped legacy must not sign source"))
+    monkeypatch.setattr(export_outputs, "prepared_download", ready)
+    monkeypatch.setattr(export_worker.output_authority, "validate", authority)
+    monkeypatch.setattr(export_storage, "sign", direct)
+    assert (
+        await export_worker._sign_export_output(
+            db, job, candidate, "export.zip", prepared=prepared
+        )
+        == "https://target.invalid/accurate-version"
+    )
+    ready.assert_awaited_once_with(
+        db, candidate, download_name="export.zip", prepared=prepared
+    )
+    authority.assert_awaited_once_with(db, job, lock=True)
+    direct.assert_not_called()
+
+
 @pytest.fixture
 def owned_dispatch(monkeypatch):
     """Exercise outer routing; the shared publisher owns all terminal writes."""

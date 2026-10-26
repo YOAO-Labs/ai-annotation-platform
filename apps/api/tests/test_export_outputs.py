@@ -8,6 +8,7 @@ import io
 from pathlib import Path
 from types import SimpleNamespace
 import threading
+from unittest.mock import AsyncMock
 import uuid
 
 from botocore.exceptions import ClientError
@@ -24,8 +25,10 @@ from app.db.models.project import Project
 from app.db.models.storage_maintenance import StorageMaintenanceGate, StorageOperation
 from app.services import export_outputs, export_storage, storage_access
 from app.services.dataset_assets import LEGACY_LOCATION_ID
+from app.services.content_snapshot import ContentError
 from app.services.exporting import cache
 from tests.factory import create_project
+from tests.test_export_storage import migration_route
 from tests.test_lidar_export_inputs import input_db as input_db
 from tests.test_lidar_export_worker import worker_db as worker_db
 
@@ -414,6 +417,54 @@ async def test_endpoint_change_refuses_cache_without_fallback_or_index_deletion(
     assert not export_objects.reads and not export_objects.deleted
 
 
+@pytest.mark.parametrize("changed", [False, True])
+async def test_mapped_cache_keeps_owner_and_propagates_route_rejection(
+    db_session, export_project, export_objects, monkeypatch, changed
+):
+    row = await seed_output(db_session, export_objects, project_id=export_project.id)
+    artifact = await seed_index(db_session, row)
+    receipt = export_outputs.snapshot(row)
+    route = migration_route(receipt)
+    resolve = AsyncMock(return_value=route)
+    monkeypatch.setattr(export_outputs.artifact_reads, "resolve", resolve)
+    direct = AsyncMock(side_effect=AssertionError("source target must not open"))
+    monkeypatch.setattr(export_storage, "io_target", direct)
+
+    async def read(db, captured, purpose, callback, *, on_acquired):
+        assert captured == route
+        assert purpose == export_outputs.read_purpose(row.id)
+        await on_acquired(SimpleNamespace(revision=route.maintenance_revision))
+        if changed:
+            raise ContentError("read_publication_changed")
+        return callback(export_objects.client)
+
+    monkeypatch.setattr(export_outputs.artifact_reads, "run", read)
+    if changed:
+        with pytest.raises(ContentError, match="read_publication_changed"):
+            await export_outputs.verify_cache(db_session, artifact)
+        assert not export_objects.reads
+    else:
+        hit = await export_outputs.verify_cache(db_session, artifact)
+        assert (
+            hit.read_route == route and hit.gate_revision == route.maintenance_revision
+        )
+        assert hit.output.storage_ref == receipt.storage_ref
+        assert export_objects.reads == [
+            (receipt.storage_ref["bucket"], route.source_object_key)
+        ]
+        assert all(body.closed for body in export_objects.bodies)
+    direct.assert_not_awaited()
+    resolve.assert_awaited_once_with(
+        db_session,
+        receipt.storage_ref,
+        route.source_object_key,
+        receipt.sha256,
+        receipt.size_bytes,
+    )
+    assert await db_session.get(ExportArtifact, artifact.id) is not None
+    assert export_outputs.same(await db_session.get(ExportOutput, row.id), receipt)
+
+
 @pytest.mark.parametrize("mutation", ["index", "project", "expiry", "gate"])
 async def test_cache_signing_refuses_changes_after_verification(
     mutation,
@@ -471,29 +522,42 @@ async def test_cache_record_replaces_only_stale_indices_without_unique_conflict(
     assert not export_objects.deleted
 
 
+@pytest.mark.parametrize("migrated", [False, True])
 async def test_read_receipt_blocks_retirement_and_retired_state_blocks_new_reads(
     db_session,
     export_project,
     export_objects,
     monkeypatch,
+    migrated,
 ):
     row = await seed_output(db_session, export_objects, project_id=export_project.id)
     artifact = await seed_index(db_session, row)
     await db_session.commit()
+    read_location = uuid.uuid4() if migrated else LEGACY_LOCATION_ID
     permit = await storage_access.acquire(
-        db_session, LEGACY_LOCATION_ID, export_outputs.read_purpose(row.id)
+        db_session, read_location, export_outputs.read_purpose(row.id)
     )
-    monkeypatch.setattr(
-        export_outputs, "now", lambda: row.expires_at + timedelta(seconds=1)
-    )
-    assert (await export_outputs.cleanup(db_session))["outputs_deleted"] == 0
-    assert (await db_session.get(ExportOutput, row.id)).state == "ready"
-    assert await db_session.get(ExportArtifact, artifact.id) is not None
-    assert not export_objects.deleted
-    await permit.__aexit__(None, None, None)
-    assert (await export_outputs.cleanup(db_session))["outputs_deleted"] == 1
-    assert await db_session.get(ExportOutput, row.id) is None
-    assert export_objects.deleted
+    try:
+        monkeypatch.setattr(
+            export_outputs, "now", lambda: row.expires_at + timedelta(seconds=1)
+        )
+        assert (await export_outputs.cleanup(db_session))["outputs_deleted"] == 0
+        assert (await db_session.get(ExportOutput, row.id)).state == "ready"
+        assert await db_session.get(ExportArtifact, artifact.id) is not None
+        assert not export_objects.deleted
+        await permit.__aexit__(None, None, None)
+        assert (await export_outputs.cleanup(db_session))["outputs_deleted"] == 1
+        assert await db_session.get(ExportOutput, row.id) is None
+        assert export_objects.deleted
+    finally:
+        await permit.__aexit__(None, None, None)
+        if migrated:
+            async with storage_access.engine(db_session).begin() as connection:
+                await connection.execute(
+                    delete(StorageMaintenanceGate).where(
+                        StorageMaintenanceGate.location_id == read_location
+                    )
+                )
 
 
 async def test_retirement_commit_precedes_delete_and_failed_delete_retains_responsibility(

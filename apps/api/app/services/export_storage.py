@@ -447,6 +447,11 @@ def verify(output, *, missing_ok=False, target=None) -> bool:
         return _verify(client, output, owner, missing_ok=missing_ok)
 
 
+def verify_read(client, output, *, missing_ok=False) -> bool:
+    """Verify through an admitted, single-object migration read client."""
+    return _verify(client, output, resolve(output), missing_ok=missing_ok)
+
+
 def _verify(client, output, owner, *, missing_ok=False, observation=None):
     deadline = time.monotonic() + VERIFY_SECONDS
     params = {"Bucket": owner.bucket, "Key": owner.object_key}
@@ -608,5 +613,30 @@ def sign(output, *, download_name, now=None, target=None) -> str:
                 expires_in=seconds,
                 audience="internal",
             )
+    except Exception as exc:
+        raise _unavailable(exc) from None
+
+
+def sign_read(client, output, *, download_name, now=None) -> str:
+    """Sign the admitted read target without changing the saved logical owner."""
+    owner = resolve(output)
+    current = _instant(datetime.now(timezone.utc) if now is None else now)
+    seconds = min(
+        RETENTION_SECONDS, int((_instant(output.expires_at) - current).total_seconds())
+    )
+    if seconds <= 0:
+        _reject("export_storage_expired")
+    try:
+        return storage_presigning.generate_url(
+            client,
+            "get_object",
+            params={
+                "Bucket": owner.bucket,
+                "Key": owner.object_key,
+                "ResponseContentDisposition": f'attachment; filename="{download_name}"',
+            },
+            expires_in=seconds,
+            audience="internal",
+        )
     except Exception as exc:
         raise _unavailable(exc) from None

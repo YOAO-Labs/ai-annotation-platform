@@ -1,6 +1,7 @@
 """Strict export ownership and bounded I/O, with no database or S3 access."""
 
 from copy import deepcopy
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import hashlib
 import io
@@ -16,6 +17,7 @@ from app.config import settings
 from app.services import export_storage as owners
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.managed_original_retirement import managed_storage_identity
+from app.services.original_read_plan import ReadRoute
 
 PROJECT, JOB, OUTPUT = uuid.UUID(int=12), uuid.UUID(int=13), uuid.UUID(int=14)
 CREATED = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -57,6 +59,39 @@ def record(**changes):
             "storage_ref": reference(),
             "sha256": hashlib.sha256(RAW).hexdigest(),
             "size_bytes": len(RAW),
+            **changes,
+        }
+    )
+
+
+def migration_route(row, **changes):
+    return ReadRoute(
+        **{
+            "publication_id": uuid.UUID(int=801),
+            "publication_revision": 1,
+            "source_object_id": "a" * 64,
+            "source_location_id": uuid.UUID(row.storage_ref["location_id"]),
+            "source_endpoint_url": row.storage_ref["endpoint_url"],
+            "source_bucket": row.storage_ref["bucket"],
+            "source_object_key": row.storage_ref["object_key"],
+            "source_version_id": "source-version",
+            "sha256": row.sha256,
+            "size_bytes": row.size_bytes,
+            "source_etag": '"original-etag"',
+            "is_latest": False,
+            "target_location_id": uuid.UUID(int=802),
+            "target_location_revision": 3,
+            "target_connection_id": uuid.UUID(int=803),
+            "target_connection_revision": 4,
+            "target_endpoint_url": "https://migration-target.invalid",
+            "target_bucket": "migration-target",
+            "target_object_key": "_aap_migration/exact-zip",
+            "target_version_id": "target-exact-version",
+            "target_etag": '"copy-etag"',
+            "target_content_sha256": "b" * 64,
+            "creation_nonce": "nonce",
+            "creation_plan_uuid": str(uuid.UUID(int=804)),
+            "maintenance_revision": 7,
             **changes,
         }
     )
@@ -345,6 +380,56 @@ def test_verify_reads_full_saved_object_conditionally_and_closes(storage):
     assert storage.client.head_object.call_count == 2
 
 
+def test_migrated_read_pins_target_version_and_keeps_saved_owner(storage):
+    from app.services import storage_migration_artifact_reads as reads
+    from app.services import storage_migration_copy as copy
+
+    row, body = record(), io.BytesIO(RAW)
+    saved = deepcopy(row.storage_ref)
+    route = migration_route(row)
+    head = {
+        "ResponseMetadata": {"HTTPStatusCode": 200},
+        "VersionId": route.target_version_id,
+        "ETag": route.target_etag,
+        "ContentLength": len(RAW),
+        "ContentType": "application/zip",
+        "Metadata": {
+            "aap-copy-plan": route.creation_plan_uuid,
+            "aap-copy-object": route.source_object_id,
+            "aap-copy-nonce": route.creation_nonce,
+        },
+    }
+    route = replace(route, target_content_sha256=copy.digest(copy.content_target(head)))
+    client = SimpleNamespace(
+        head_object=Mock(return_value=head),
+        get_object=Mock(return_value={**head, "Body": body}),
+    )
+    assert owners.verify_read(reads.ReadClient(client, route), row)
+    exact = {
+        "Bucket": route.target_bucket,
+        "Key": route.target_object_key,
+        "VersionId": route.target_version_id,
+    }
+    assert client.head_object.call_count == 2
+    assert all(call.kwargs == exact for call in client.head_object.call_args_list)
+    client.get_object.assert_called_once_with(**exact, IfMatch=route.target_etag)
+    assert body.closed and row.storage_ref == saved
+
+
+def test_migrated_read_still_hashes_all_saved_bytes_and_closes(storage):
+    row = record()
+    body = io.BytesIO(b"x" * row.size_bytes)
+    metadata = {"ContentLength": row.size_bytes, "ETag": '"copied"'}
+    client = SimpleNamespace(
+        head_object=Mock(return_value=metadata),
+        get_object=Mock(return_value={**metadata, "Body": body}),
+    )
+    with pytest.raises(owners.ExportStorageError) as caught:
+        owners.verify_read(client, row)
+    assert caught.value.code == "export_storage_integrity_mismatch"
+    assert body.closed
+
+
 @pytest.mark.parametrize("data", [b"x" * len(RAW), RAW[:-1], RAW + b"x"])
 def test_corrupt_truncated_or_extra_bytes_are_closed_and_rejected(storage, data):
     body = readable(storage, data)
@@ -533,6 +618,51 @@ def test_expired_output_cannot_receive_new_signature(storage, elapsed):
         owners.sign(record(), download_name="dataset.zip", now=CREATED + elapsed)
     assert caught.value.code == "export_storage_expired"
     storage.generate_download_url.assert_not_called()
+
+
+def test_migrated_signature_uses_exact_target_and_first_expiry(storage, monkeypatch):
+    import boto3
+    from urllib.parse import parse_qs, urlsplit
+
+    from app.services.storage_migration_artifact_reads import ReadClient
+
+    row = record()
+    saved = deepcopy(row.storage_ref)
+    route = migration_route(row)
+    monkeypatch.setattr(settings, "minio_public_url", "/storage-proxy")
+    client = boto3.client(
+        "s3",
+        endpoint_url=route.target_endpoint_url,
+        aws_access_key_id="target-key",
+        aws_secret_access_key="target-secret",
+        region_name="us-east-1",
+        config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+    )
+    try:
+        url = owners.sign_read(
+            ReadClient(client, route),
+            row,
+            download_name="export.zip",
+            now=CREATED + timedelta(days=6, seconds=3),
+        )
+    finally:
+        client.close()
+    parsed = urlsplit(url)
+    assert parsed.netloc == "migration-target.invalid"
+    assert parsed.path == "/migration-target/_aap_migration/exact-zip"
+    query = parse_qs(parsed.query)
+    assert query["versionId"] == [route.target_version_id]
+    assert query["X-Amz-Expires"] == [str(86400 - 3)]
+    assert row.storage_ref == saved and row.expires_at == CREATED + timedelta(days=7)
+
+
+def test_migrated_signature_refuses_expiry_without_calling_client(storage):
+    client = SimpleNamespace(generate_presigned_url=Mock())
+    row = record()
+    with pytest.raises(owners.ExportStorageError) as caught:
+        owners.sign_read(client, row, download_name="export.zip", now=row.expires_at)
+    assert caught.value.code == "export_storage_expired"
+    client.generate_presigned_url.assert_not_called()
 
 
 def test_delete_resolves_receipt_and_exact_saved_owner(storage):

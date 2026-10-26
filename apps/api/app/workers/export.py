@@ -70,7 +70,7 @@ async def _update_export_progress(db, job_uuid, pct):
 
 
 async def _sign_export_output(db, job, candidate, download_name, *, prepared=None):
-    if candidate.storage_ref["schema"] == 1:
+    if candidate.storage_ref["schema"] == 1 and prepared is None:
         await output_authority.validate(db, job, lock=True)
         return export_storage.sign(candidate, download_name=download_name)
     url = await export_outputs.prepared_download(

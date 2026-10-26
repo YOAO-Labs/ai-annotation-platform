@@ -22,8 +22,11 @@ from app.services import (
     export_storage,
     export_zip_accounting,
     storage_access,
+    storage_migration_artifact_reads as artifact_reads,
+    storage_migration_read_publications as read_publications,
 )
 from app.services import key_removal_accounting as removal
+from app.services.original_read_plan import ReadRoute
 
 log = logging.getLogger(__name__)
 _FACTS = (
@@ -356,6 +359,7 @@ class CacheHit:
     batch_id: uuid.UUID | None
     output: OutputSnapshot
     gate_revision: int
+    read_route: ReadRoute | None = None
 
     @property
     def project_id(self):
@@ -409,7 +413,8 @@ async def verify_cache(db, artifact):
     if row.expires_at <= now():
         return None
     owner = export_storage.resolve(receipt)
-    target = await export_storage.io_target(db, receipt)
+    route = await _read_route(db, receipt)
+    target = None if route is not None else await export_storage.io_target(db, receipt)
     revision = None
 
     async def acquired(permit):
@@ -425,16 +430,27 @@ async def verify_cache(db, artifact):
         await db.commit()
 
     try:
-        present = await storage_access.run(
-            db,
-            uuid.UUID(owner.ref["location_id"]),
-            read_purpose(receipt.id),
-            export_storage.verify,
-            receipt,
-            missing_ok=True,
-            **({"target": target} if target is not None else {}),
-            on_acquired=acquired,
-        )
+        if route is not None:
+            present = await artifact_reads.run(
+                db,
+                route,
+                read_purpose(receipt.id),
+                lambda client: export_storage.verify_read(
+                    client, receipt, missing_ok=True
+                ),
+                on_acquired=acquired,
+            )
+        else:
+            present = await storage_access.run(
+                db,
+                uuid.UUID(owner.ref["location_id"]),
+                read_purpose(receipt.id),
+                export_storage.verify,
+                receipt,
+                missing_ok=True,
+                **({"target": target} if target is not None else {}),
+                on_acquired=acquired,
+            )
     except export_storage.ExportStorageError as exc:
         if exc.code not in {
             "export_storage_missing",
@@ -449,7 +465,7 @@ async def verify_cache(db, artifact):
     if not present:
         await _invalidate(db, artifact_id, receipt.id)
         return None
-    return CacheHit(artifact_id, cache_key, batch_id, receipt, revision)
+    return CacheHit(artifact_id, cache_key, batch_id, receipt, revision, route)
 
 
 @dataclass(frozen=True)
@@ -458,48 +474,96 @@ class PreparedDownload:
     download_name: str
     url: str = field(repr=False)
     gate_revision: int
+    read_route: ReadRoute | None = None
+
+
+async def _read_route(db, receipt):
+    owner = export_storage.resolve(receipt)
+    return await artifact_reads.resolve(
+        db, owner.ref, owner.object_key, receipt.sha256, receipt.size_bytes
+    )
+
+
+async def _check_read(db, receipt, revision, route, *, lock=False):
+    owner = export_storage.resolve(receipt)
+    location_id = uuid.UUID(owner.ref["location_id"])
+    if route is not None:
+        if (
+            not isinstance(route, ReadRoute)
+            or route.source_location_id != location_id
+            or route.source_endpoint_url != owner.ref["endpoint_url"]
+            or route.source_bucket != owner.bucket
+            or route.source_object_key != owner.object_key
+            or route.sha256 != receipt.sha256
+            or route.size_bytes != receipt.size_bytes
+            or route.maintenance_revision != revision
+        ):
+            reject("export_storage_invalid_receipt")
+        await read_publications.recheck(db, route, lock=lock)
+        return
+    await storage_access.check(db, location_id, expected_revision=revision, lock=lock)
 
 
 async def prepare_download(db, receipt, *, download_name, expected_revision=None):
     """Construct, sign and close an external client before final business locks."""
-    if receipt.storage_ref["schema"] == 1:
+    route = await _read_route(db, receipt)
+    if route is None and receipt.storage_ref["schema"] == 1:
         return None
-    target = await export_storage.io_target(db, receipt)
     revision = None
 
     async def acquired(permit):
         nonlocal revision
         revision = permit.revision
 
-    url = await storage_access.run(
-        db,
-        target.location_id,
-        read_purpose(receipt.id),
-        export_storage.sign,
-        receipt,
-        download_name=download_name,
-        target=target,
-        expected_revision=expected_revision,
-        on_acquired=acquired,
-    )
-    return PreparedDownload(receipt, download_name, url, revision)
+    if route is not None:
+        if (
+            expected_revision is not None
+            and expected_revision != route.maintenance_revision
+        ):
+            reject("export_storage_identity_changed")
+        url = await artifact_reads.run(
+            db,
+            route,
+            read_purpose(receipt.id),
+            lambda client: export_storage.sign_read(
+                client, receipt, download_name=download_name
+            ),
+            on_acquired=acquired,
+        )
+    else:
+        target = await export_storage.io_target(db, receipt)
+        url = await storage_access.run(
+            db,
+            target.location_id,
+            read_purpose(receipt.id),
+            export_storage.sign,
+            receipt,
+            download_name=download_name,
+            target=target,
+            expected_revision=expected_revision,
+            on_acquired=acquired,
+        )
+    return PreparedDownload(receipt, download_name, url, revision, route)
 
 
 async def prepared_download(db, receipt, *, download_name, prepared):
     """Final publication uses only a URL prepared for these exact saved facts."""
-    if receipt.storage_ref["schema"] == 1:
+    if receipt.storage_ref["schema"] == 1 and prepared is None:
+        if await _read_route(db, receipt) is not None:
+            reject("export_storage_invalid_receipt")
+        await storage_access.check(
+            db, uuid.UUID(receipt.storage_ref["location_id"]), lock=True
+        )
         return export_storage.sign(receipt, download_name=download_name)
     if (
         not isinstance(prepared, PreparedDownload)
         or prepared.download_name != download_name
         or not same(receipt, prepared.output)
+        or (receipt.storage_ref["schema"] == 1 and prepared.read_route is None)
     ):
         reject("export_storage_invalid_receipt")
-    await storage_access.check(
-        db,
-        uuid.UUID(receipt.storage_ref["location_id"]),
-        expected_revision=prepared.gate_revision,
-        lock=True,
+    await _check_read(
+        db, receipt, prepared.gate_revision, prepared.read_route, lock=True
     )
     if receipt.expires_at <= now():
         reject("export_storage_expired")
@@ -531,17 +595,16 @@ async def sign_cached(
     couple(artifact, row)
     if row.expires_at <= now():
         reject("export_storage_expired")
-    owner = export_storage.resolve(row)
-    await storage_access.check(
-        db,
-        uuid.UUID(owner.ref["location_id"]),
-        expected_revision=hit.gate_revision,
-        lock=True,
-    )
-    if hit.output.storage_ref["schema"] == 1:
+    await _check_read(db, hit.output, hit.gate_revision, hit.read_route, lock=True)
+    if hit.read_route is None and hit.output.storage_ref["schema"] == 1:
         if before_sign is not None:
             await before_sign()
         return export_storage.sign(hit.output, download_name=download_name)
+    if (
+        not isinstance(prepared, PreparedDownload)
+        or prepared.read_route != hit.read_route
+    ):
+        reject("export_storage_invalid_receipt")
     url = await prepared_download(
         db, hit.output, download_name=download_name, prepared=prepared
     )
@@ -557,8 +620,6 @@ async def _has_read(db, receipt):
         await db.scalar(
             select(StorageOperation.id)
             .where(
-                StorageOperation.location_id
-                == uuid.UUID(receipt.storage_ref["location_id"]),
                 StorageOperation.purpose == read_purpose(receipt.id),
             )
             .limit(1)

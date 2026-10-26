@@ -2,10 +2,11 @@
 
 from contextlib import contextmanager
 from copy import deepcopy
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import hashlib
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 import uuid
 
 import boto3
@@ -28,11 +29,12 @@ from app.services import (
     storage_location,
 )
 from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
+from app.services.content_snapshot import ContentError
 from app.services.managed_original_retirement import managed_storage_identity
 from app.services.managed_s3_target import Target
 from tests.test_avatar_storage_target import Objects, connection_target
 from tests.test_export_media_bundles import inputs, digest
-from tests.test_export_storage import reference, record, RAW, KEY
+from tests.test_export_storage import reference, record, migration_route, RAW, KEY
 
 LOCATION = uuid.UUID(int=551)
 ENDPOINT = "https://saved-export.example.test"
@@ -438,3 +440,230 @@ async def test_prepared_download_rechecks_first_deadline_after_gate_wait(monkeyp
             object(), receipt, download_name="export.zip", prepared=prepared
         )
     assert caught.value.code == "export_storage_expired"
+
+
+@pytest.fixture
+def routed_zip(monkeypatch):
+    started = datetime.now(timezone.utc) - timedelta(hours=1)
+    row = record(
+        state="ready", created_at=started, expires_at=started + timedelta(days=7)
+    )
+    receipt = export_outputs.snapshot(row)
+    route = migration_route(row)
+    url = "https://migration-target.invalid/exact-signed-version"
+    client = SimpleNamespace(generate_presigned_url=Mock(return_value=url))
+    resolve = AsyncMock(return_value=route)
+
+    async def run(db, captured, purpose, callback, *, on_acquired):
+        assert captured == route
+        assert purpose == export_outputs.read_purpose(row.id)
+        await on_acquired(SimpleNamespace(revision=route.maintenance_revision))
+        return callback(client)
+
+    execute = AsyncMock(side_effect=run)
+    recheck, gate = AsyncMock(), AsyncMock()
+    monkeypatch.setattr(export_outputs.artifact_reads, "resolve", resolve)
+    monkeypatch.setattr(export_outputs.artifact_reads, "run", execute)
+    monkeypatch.setattr(export_outputs.read_publications, "recheck", recheck)
+    monkeypatch.setattr(export_outputs.storage_access, "check", gate)
+    direct = AsyncMock(side_effect=AssertionError("source target must not open"))
+    monkeypatch.setattr(storage, "io_target", direct)
+    monkeypatch.setattr(
+        storage, "sign", Mock(side_effect=AssertionError("source must not sign"))
+    )
+    return SimpleNamespace(
+        row=row,
+        receipt=receipt,
+        route=route,
+        url=url,
+        resolve=resolve,
+        run=execute,
+        recheck=recheck,
+        gate=gate,
+        direct=direct,
+    )
+
+
+async def test_mapped_legacy_zip_prepares_and_rechecks_actual_target(routed_zip):
+    case, db = routed_zip, object()
+    saved = deepcopy(case.receipt.storage_ref)
+    prepared = await export_outputs.prepare_download(
+        db,
+        case.receipt,
+        download_name="export.zip",
+        expected_revision=case.route.maintenance_revision,
+    )
+    assert prepared.read_route == case.route
+    assert prepared.gate_revision == case.route.maintenance_revision
+    assert (
+        await export_outputs.prepared_download(
+            db, case.receipt, download_name="export.zip", prepared=prepared
+        )
+        == case.url
+    )
+    case.resolve.assert_awaited_once_with(
+        db,
+        saved,
+        saved["object_key"],
+        case.receipt.sha256,
+        case.receipt.size_bytes,
+    )
+    case.recheck.assert_awaited_once_with(db, case.route, lock=True)
+    # Publication recheck locks and validates the actual target Gate itself.
+    case.gate.assert_not_awaited()
+    case.direct.assert_not_awaited()
+    assert case.receipt.storage_ref == saved
+
+
+async def test_mapped_download_refuses_stale_gate_before_signing(routed_zip):
+    case = routed_zip
+    with pytest.raises(storage.ExportStorageError):
+        await export_outputs.prepare_download(
+            object(),
+            case.receipt,
+            download_name="export.zip",
+            expected_revision=case.route.maintenance_revision - 1,
+        )
+    case.run.assert_not_awaited()
+
+
+async def test_mapped_legacy_download_requires_prepared_target(routed_zip):
+    with pytest.raises(storage.ExportStorageError) as caught:
+        await export_outputs.prepared_download(
+            object(), routed_zip.receipt, download_name="export.zip", prepared=None
+        )
+    assert caught.value.code == "export_storage_invalid_receipt"
+    routed_zip.run.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("source_object_key", "different.zip"),
+        ("sha256", "f" * 64),
+        ("source_location_id", uuid.UUID(int=999)),
+        ("maintenance_revision", 99),
+    ],
+)
+async def test_prepared_route_must_match_saved_receipt(routed_zip, field, value):
+    case = routed_zip
+    prepared = export_outputs.PreparedDownload(
+        case.receipt,
+        "export.zip",
+        case.url,
+        case.route.maintenance_revision,
+        replace(case.route, **{field: value}),
+    )
+    with pytest.raises(storage.ExportStorageError) as caught:
+        await export_outputs.prepared_download(
+            object(), case.receipt, download_name="export.zip", prepared=prepared
+        )
+    assert caught.value.code == "export_storage_invalid_receipt"
+    case.recheck.assert_not_awaited()
+    case.gate.assert_not_awaited()
+
+
+async def test_prepared_route_withdrawal_prevents_url_delivery(routed_zip):
+    case = routed_zip
+    prepared = await export_outputs.prepare_download(
+        object(), case.receipt, download_name="export.zip"
+    )
+    case.recheck.side_effect = ContentError("read_publication_changed")
+    with pytest.raises(ContentError, match="read_publication_changed"):
+        await export_outputs.prepared_download(
+            object(), case.receipt, download_name="export.zip", prepared=prepared
+        )
+    case.gate.assert_not_awaited()
+
+
+@pytest.mark.parametrize("failure", [None, "route", "expiry", "authority"])
+async def test_mapped_cache_keeps_final_business_and_route_checks(
+    routed_zip, monkeypatch, failure
+):
+    case = routed_zip
+    artifact = SimpleNamespace(
+        id=uuid.uuid4(),
+        output_id=case.receipt.id,
+        project_id=case.receipt.project_id,
+        cache_key="cache-key",
+        batch_id=None,
+        object_key=case.receipt.storage_ref["object_key"],
+        size_bytes=case.receipt.size_bytes,
+        file_count=case.receipt.file_count,
+        format=case.receipt.format,
+        expires_at=case.receipt.expires_at,
+    )
+    db = SimpleNamespace(scalar=AsyncMock(return_value=artifact))
+    monkeypatch.setattr(export_outputs, "_locked", AsyncMock(return_value=case.row))
+    hit = export_outputs.CacheHit(
+        artifact.id,
+        artifact.cache_key,
+        None,
+        case.receipt,
+        case.route.maintenance_revision,
+        case.route,
+    )
+    prepared = await export_outputs.prepare_download(
+        db, case.receipt, download_name="export.zip"
+    )
+
+    async def authority():
+        if failure == "expiry":
+            monkeypatch.setattr(export_outputs, "now", lambda: case.receipt.expires_at)
+        if failure == "authority":
+            raise ContentError("export_output_authority_changed", 403)
+
+    guard = AsyncMock(side_effect=authority)
+    if failure == "route":
+        prepared = replace(
+            prepared, read_route=replace(case.route, publication_revision=2)
+        )
+
+    async def sign():
+        return await export_outputs.sign_cached(
+            db,
+            hit,
+            project_id=case.receipt.project_id,
+            download_name="export.zip",
+            before_sign=guard,
+            prepared=prepared,
+        )
+
+    if failure is not None:
+        with pytest.raises(ValueError):
+            await sign()
+    else:
+        assert await sign() == case.url
+        guard.assert_awaited_once()
+    if failure == "route":
+        guard.assert_not_awaited()
+    assert all(call.kwargs == {"lock": True} for call in case.recheck.await_args_list)
+
+
+async def test_unmapped_legacy_zip_keeps_original_prepare_contract(routed_zip):
+    case = routed_zip
+    case.resolve.return_value = None
+    assert (
+        await export_outputs.prepare_download(
+            object(), case.receipt, download_name="export.zip"
+        )
+        is None
+    )
+    case.run.assert_not_awaited()
+    case.direct.assert_not_awaited()
+
+
+async def test_legacy_download_without_prepared_target_still_checks_source_gate(
+    routed_zip,
+):
+    from fastapi import HTTPException
+
+    case = routed_zip
+    case.resolve.return_value = None
+    case.gate.side_effect = HTTPException(409, {"code": "storage_maintenance"})
+    with pytest.raises(HTTPException):
+        await export_outputs.prepared_download(
+            object(), case.receipt, download_name="export.zip", prepared=None
+        )
+    assert case.gate.await_args.args[1] == LEGACY_LOCATION_ID
+    assert case.gate.await_args.kwargs == {"lock": True}
