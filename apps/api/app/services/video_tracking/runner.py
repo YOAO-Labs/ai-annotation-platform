@@ -3901,9 +3901,9 @@ async def _run_tracker_job_claimed(
 
         def current_continuation():
             return VideoContinuationPostState(
-                last_geometry=last_geometry or None,
-                last_geom_by_instance=last_geom_by_instance,
-                mp_prev_boundary=mp_prev_boundary,
+                last_geometry=thaw_json(last_geometry) if last_geometry else None,
+                last_geom_by_instance=thaw_json(last_geom_by_instance),
+                mp_prev_boundary=thaw_json(mp_prev_boundary),
                 mp_next_global=mp_next_global[0],
             )
 
@@ -4254,7 +4254,7 @@ async def _run_tracker_job_claimed(
                 # live 预览事件用窗内 id (瞬态); 最终暂存的 results 用关联后的全局 id。
                 frame_payload = {
                     "frame_index": result.frame_index,
-                    "geometry": result.geometry,
+                    "geometry": thaw_json(result.geometry),
                     "confidence": result.confidence,
                     "outside": result.outside,
                     "source": "prediction",

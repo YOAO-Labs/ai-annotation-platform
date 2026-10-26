@@ -70,6 +70,8 @@ GPU rollout 首次启用先建立 settled `off` 状态，再在同一事务进�
 
 不可变 `FrozenModelOperation`／`ModelOperationResult` 携带确切 task IDs、阶段图、输入、实际实例 provenance、原模型 metadata 和 transport observation。Metrics 在调用方按真实 transport observation 记录一次，不用 RPC wall time 替代模型耗时。结构化错误保持 status、detail、Retry-After、GPU error code 和实际路由来源。
 
+追踪结果在进程内保持不可变；只在写入窗口 continuation、Mask 内容／引用和实时 frame 事件的 JSON 边界转换为普通对象。写入争用重试复用已接受的模型结果，不再次推理；窗口种子、检查点、取消状态和预览几何保持相同内容。
+
 Assets 提供输入与 crop 发布；Jobs 持有领取／派发／代次；Labeling 持有原始／准备结果、最终候选和业务终态。Inference 不替这些 owner 提交。最终写回仍复核原账号、项目、任务／批次、源版本、取消和结果围栏。帧级多阶段仍不支持，不因换用远程执行而扩大能力。
 
 命名流水线的公开接口保持：
