@@ -80,7 +80,9 @@ class ReadClient:
             values.get("Bucket") != route.source_bucket
             or values.get("Key") != route.source_object_key
             or (
-                "VersionId" in values and values["VersionId"] != route.source_version_id
+                "VersionId" in values
+                and values["VersionId"]
+                not in (route.source_version_id, route.target_version_id)
             )
             or "Range" in values
             or "PartNumber" in values

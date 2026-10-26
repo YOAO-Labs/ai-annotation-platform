@@ -199,7 +199,9 @@ def test_exact_target_transport_preserves_actual_version_and_business_metadata()
         assert head["ETag"] == selected.target_etag
         assert head["Metadata"] == {"business-owner": "saved-owner"}
         assert reader.meta.endpoint_url == selected.target_endpoint_url
-        result = reader.get_object(**logical(selected), IfMatch=head["ETag"])
+        result = reader.get_object(
+            **logical(selected, VersionId=head["VersionId"]), IfMatch=head["ETag"]
+        )
         assert result["Body"].read() == b"data"
         storage_access.close_registered(result["Body"])
         assert sdk.bodies[0].closes == 1

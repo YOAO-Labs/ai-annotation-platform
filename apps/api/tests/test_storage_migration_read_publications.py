@@ -177,6 +177,57 @@ async def test_same_content_versions_use_stable_source_id_when_no_latest(
     assert route.source_object_id == sealed.entries[0]["source_object_id"]
 
 
+@pytest.mark.parametrize("foreign", [False, True])
+async def test_prefix_inventory_uses_latest_source_keys_and_literal_prefix(
+    db_session, sealed, foreign
+):
+    prefix = "original/a_%/"
+    for number, entry in enumerate(sealed.entries):
+        entry["source_object_key"] = (
+            "original/aZZ/file.bin" if number == 1 and foreign else prefix + "file.bin"
+        )
+        entry["is_latest"] = number == 0 or foreign
+        entry["source_object_id"] = core.digest(
+            {
+                "endpoint_url": entry["source_endpoint_url"],
+                "bucket": entry["source_bucket"],
+                "key": entry["source_object_key"],
+                "version_id": entry["source_version_id"],
+            }
+        )
+    sealed.entries.sort(key=lambda row: row["source_object_id"])
+    await publish(db_session, sealed)
+    route = await lookup(db_session, sealed, object_key=prefix + "file.bin")
+    assert await service.prefix_inventory(
+        db_session, route, prefix=prefix, lock=True
+    ) == {prefix + "file.bin": {"sha256": "e" * 64, "size_bytes": 4}}
+
+
+async def test_prefix_inventory_refuses_retained_bucket_or_withdrawal(
+    db_session, sealed
+):
+    await publish(db_session, sealed)
+    route = await lookup(db_session, sealed)
+    sealed.copy.handling = {**sealed.copy.handling, "datasets": "retain"}
+    await db_session.flush()
+    with pytest.raises(ContentError, match="read_publication_prefix_incomplete"):
+        await service.prefix_inventory(db_session, route, prefix="original/")
+    await service.begin_withdrawal(
+        db_session, sealed.actor.id, sealed.claim, sealed.publication.revision
+    )
+    with pytest.raises(ContentError, match="read_publication_changed"):
+        await service.prefix_inventory(db_session, route, prefix="original/")
+
+
+async def test_prefix_inventory_refuses_conflicting_latest_keys(db_session, sealed):
+    for entry in sealed.entries:
+        entry["is_latest"] = True
+    await publish(db_session, sealed)
+    route = await lookup(db_session, sealed)
+    with pytest.raises(ContentError, match="read_publication_prefix_incomplete"):
+        await service.prefix_inventory(db_session, route, prefix="original/")
+
+
 @pytest.mark.parametrize(
     "operation", ["lookup", "locked_lookup", "recheck", "locked_recheck", "target"]
 )

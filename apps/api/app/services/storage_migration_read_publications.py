@@ -17,6 +17,7 @@ from sqlalchemy.exc import DBAPIError
 
 from app.db.models.dataset_asset import StorageLocation
 from app.db.models.storage_maintenance import StorageMaintenanceGate, StorageOperation
+from app.db.models.storage_migration_copy import StorageMigrationCopy as Copy
 from app.db.models.storage_migration_read_publication import (
     StorageMigrationReadPublication as Publication,
     StorageMigrationReadRoute as Route,
@@ -562,3 +563,60 @@ async def recheck(db, route, *, lock=False):
 @_read_boundary
 async def target_for_route(db, route):
     return await _rechecked(db, route)
+
+
+@_read_boundary
+async def prefix_inventory(db, route, *, prefix, lock=False):
+    """Project the sealed source's visible prefix, never a target namespace LIST.
+
+    The complete sealed bucket must have been copied. Retained or rebuilt buckets
+    cannot prove absence from their partial read mappings. Historical versions
+    remain individually readable but do not count as currently visible keys.
+    """
+    if not _text(prefix, 1024) or not route.source_object_key.startswith(prefix):
+        reject("read_publication_prefix_invalid")
+    await _rechecked(db, route, lock=lock)
+    publication = await _owner(db, route.publication_id)
+    saved = (
+        await db.execute(
+            select(Copy.source, Copy.handling, Copy.source_report_sha256).where(
+                Copy.id == publication.copy_id
+            )
+        )
+    ).one_or_none()
+    if (
+        saved is None
+        or saved.source != publication.source
+        or saved.source_report_sha256 != publication.evidence["source_report_sha256"]
+    ):
+        reject("read_publication_prefix_incomplete")
+    purposes = [
+        purpose
+        for purpose, bucket in saved.source["purpose_buckets"].items()
+        if bucket == route.source_bucket
+    ]
+    if not purposes or any(
+        saved.handling.get(purpose) != "migrate" for purpose in purposes
+    ):
+        reject("read_publication_prefix_incomplete")
+    rows = (
+        await db.execute(
+            select(Route.object_key, Route.sha256, Route.size_bytes)
+            .where(
+                Route.publication_id == route.publication_id,
+                Route.endpoint_url == route.source_endpoint_url,
+                Route.bucket == route.source_bucket,
+                Route.object_key.startswith(prefix, autoescape=True),
+                Route.is_latest.is_(True),
+            )
+            .order_by(Route.object_key, Route.source_object_id)
+            .limit(100001)
+        )
+    ).all()
+    result = {}
+    for key, sha256, size in rows:
+        if key in result or len(result) >= 100000:
+            reject("read_publication_prefix_incomplete")
+        result[key] = {"sha256": sha256, "size_bytes": size}
+    await _rechecked(db, route, lock=lock)
+    return result
