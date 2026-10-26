@@ -1,6 +1,7 @@
 """Pure frozen-owner, real-image and physical-drain checks for AL inputs."""
 
 import asyncio
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
 import hashlib
@@ -20,6 +21,8 @@ from app.services import managed_original_reclaim_fence
 from app.services import sample_evaluation_originals as bounded
 from app.services import storage_access
 from app.services.content_snapshot import ContentError
+from app.services.dataset_assets import LEGACY_LOCATION_ID
+from app.services.managed_original_retirement import managed_storage_identity
 from app.services.managed_original_reader import BinaryStage
 from app.services.original_sources import OriginalSource, TaskRelation
 from tests.sample_evaluation_fixtures import Objects
@@ -532,18 +535,37 @@ def output(world, monkeypatch):
         captured.close()
     sample = {"ordinal": 0, "snapshot": world.snapshot, **media}
     round.spec["samples"] = [sample]
-    owner = SimpleNamespace(
-        bucket="saved-output", ref={"location_id": str(uuid.uuid4())}
-    )
     objects = Objects()
     monkeypatch.setattr(learning.storage, "client", objects)
-    monkeypatch.setattr(learning.owners, "resolve", lambda _: owner)
+    endpoint = objects.meta.endpoint_url
+    round.storage_ref = {
+        "schema": 1,
+        "purpose": "active-learning",
+        "location_id": str(LEGACY_LOCATION_ID),
+        "config_revision": 1,
+        "binding_generation": 1,
+        "endpoint_url": endpoint,
+        "bucket": "saved-output",
+        "prefix": learning.owners.prefix_for(round.project_id, round.id),
+        "storage_identity": managed_storage_identity(endpoint, "saved-output"),
+        "origin": "new",
+        "evidence": None,
+    }
+    owner = learning.owners.resolve(round)
 
-    def expect(_owner, ordinal, key):
-        assert _owner is owner and ordinal == 0
-        assert key == learning.media_descriptor(round, sample)["key"]
+    @contextmanager
+    def client():
+        yield objects
 
-    monkeypatch.setattr(learning.owners, "expect_media", expect)
+    target = SimpleNamespace(
+        client=client, bucket=owner.bucket, location_id=owner.location_id
+    )
+    # This SQL-free fixture owns the physical transport and permits; durable
+    # write-accounting transactions are exercised by the accounting suites.
+    monkeypatch.setattr(
+        learning.storage_io, "prepare", AsyncMock(return_value=target)
+    )
+    monkeypatch.setattr(learning.write_accounting, "recorder", lambda *_a, **_k: None)
     monkeypatch.setattr(service, "delegated", AsyncMock(return_value=world.authority))
     return SimpleNamespace(
         world=world, round=round, sample=sample, owner=owner, objects=objects, png=png
@@ -603,11 +625,11 @@ async def test_real_png_publication_thread_is_drained_and_late_result_is_not_ret
     entered, release, ended = threading.Event(), threading.Event(), threading.Event()
     store = learning._store_png
 
-    def blocked(*args):
+    def blocked(*args, **kwargs):
         entered.set()
         try:
             assert release.wait(5), "test did not release PNG store"
-            store(*args)
+            store(*args, **kwargs)
             if finish == "unsettled":
                 raise storage_access.mark_unsettled(OSError("unknown output close"))
         finally:
