@@ -275,7 +275,8 @@ HTTP 请求持续复核原 JWT／Key 和原三个 scope；新后台轮次保存�
 | POST   | `/{run_id}/cancel`                                           | 请求停止；排队实验立即取消，运行实验等待退出确认                          |
 | POST   | `/{run_id}/resume`                                           | 使用当前执行的已发布完整检查点创建下一次执行                              |
 | POST   | `/{run_id}/storage-pin`                                      | 显式核验并固定历史终态实验的保留产物，成功返回实验摘要                    |
-| GET    | `/{run_id}/attempts/{attempt_id}/artifacts/{name}/download`  | 返回 10 分钟下载 URL、SHA-256 和大小                                      |
+| GET    | `/{run_id}/attempts/{attempt_id}/artifacts/{name}/download`  | 普通产物返回10分钟签名；日志返回认证内容地址、脱敏后SHA-256和大小         |
+| GET    | `/{run_id}/attempts/{attempt_id}/artifacts/{name}/content`   | 认证下载完整核验后的脱敏日志；不支持其他产物                              |
 | DELETE | `/{run_id}`                                                  | 删除终态实验并持久安排产物清理，返回 `204`                                |
 
 实验列表接受 `limit`（默认 20，最大 100）、`offset`（默认 0）及可组合的 `q`、`status`、`task=detect|segment`、`framework=ultralytics|libreyolo`、`created_from`、`created_to`。`q` 最长 120 字符，去除首尾空白后对实验名称或基础模型 ID 做不区分大小写的字面包含匹配；`%`、`_`、反斜杠没有通配含义。日期采用上述 UTC 日历日期规则，全部条件在 `total` 计数和分页前生效，按创建时间、实验 ID 降序稳定排列。`status` 接受实验的单个精确状态，筛选 `failed` 不包含 `lost`；不支持的状态、任务、框架或日期返回 `422`。未传筛选条件时保留原列表行为。
@@ -325,7 +326,9 @@ HTTP 请求持续复核原 JWT／Key 和原三个 scope；新后台轮次保存�
 
 ### 实验产物归属与历史核验
 
-新实验在创建事务中固定整个 `projects/{project_id}/runs/{run_id}/` 的内部存储归属，覆盖普通创建、自动训练和参数搜索派生实验。各次执行仅使用其下 `attempts/{attempt_id}/`；续训复用实验归属，不重新采用当前桶。产物上传、完成核验、报告与日志读取、脱敏副本、下载及续训检查点均核对来源实验和精确执行范围。输入数据包独立解析数据版本归属，初始化权重独立解析来源模型的实验归属，三者可以属于不同桶。
+新实验在创建事务中固定整个 `projects/{project_id}/runs/{run_id}/` 的内部存储归属，覆盖普通创建、自动训练和参数搜索派生实验。各次执行仅使用其下 `attempts/{attempt_id}/`；续训复用实验归属，不重新采用当前桶。产物上传、完成核验、报告与日志读取、下载及续训检查点均核对来源实验和精确执行范围。输入数据包独立解析数据版本归属，初始化权重独立解析来源模型的实验归属，三者可以属于不同桶。
+
+日志的`download`描述包含`requires_authentication: true`，`url`为API相对内容地址；调用方须携带当前认证获取内容，不能直接按公开S3链接打开。其`sha256`、`size_bytes`对应脱敏后字节，另保留`source_sha256`与`redaction_revision`。`content`只接受终态执行中已发布的log，完整核验原日志的大小、SHA和执行元数据后脱敏交付，读取前后重核当前权限及原产物身份；不创建远端脱敏文件，也不返回原日志。已封存迁移映射可提供原日志的准确副本，没有映射仍遵循原位置门禁。
 
 模型通过同项目来源 `run_id`、`attempt_id` 外键和已发布权重清单解析该归属；注册、下载、安装、评估及项目权重初始化均沿来源读取，不采用目标实验或当前 training 桶。内部物理归属不写入冻结配置、初始化 pin、模型产物或来源摘要，也不改变执行器与 ML 服务协议。
 

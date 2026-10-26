@@ -206,6 +206,7 @@ def case(kind, *, bucket="saved-training"):
         )
         source = b"token=secret\nnormal log line\n"
         artifact = {
+            "role": "log",
             "key": owner.key(f"attempts/{attempt.id}/train.log"),
             "sha256": hashlib.sha256(source).hexdigest(),
             "size_bytes": len(source),

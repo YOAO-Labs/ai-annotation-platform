@@ -1,4 +1,4 @@
-"""Exercise the AL owner, both report workers and real redacted download entry."""
+"""Exercise AL, report workers and the retained redacted-cache write helper."""
 
 import asyncio
 from contextlib import asynccontextmanager
@@ -15,12 +15,12 @@ import pytest
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.api.v1 import training_runs as api
 from app.config import settings
 from app.db.models.storage_maintenance import StorageOperation
 from app.db.models.storage_usage import StorageUsageMutation as Mutation
 from app.services import active_learning as active, storage, storage_access
 from app.services import training_storage_io as transport
+from app.services import training_observability as observations
 from app.services.dataset_assets import ensure_legacy_bindings
 from app.services.managed_s3_target import Target
 from app.services.managed_original_reader import BinaryStage
@@ -120,19 +120,32 @@ def active_call(monkeypatch, caller, value, provider, events, *, stage_failure=F
 def log_call(monkeypatch, caller, value):
     value.attempt.status = "failed"
     value.attempt.artifacts = {"train.log": {**value.artifact, "role": "log"}}
-    db = SimpleNamespace(
-        bind=caller.db.bind,
-        scalar=AsyncMock(return_value=value.row),
-        get=AsyncMock(return_value=value.attempt),
-    )
-    monkeypatch.setattr(api, "lock_owner", AsyncMock())
-    return lambda: api.download_artifact(
-        value.row.id,
-        value.attempt.id,
-        "train.log",
-        SimpleNamespace(id=value.row.project_id),
-        SimpleNamespace(),
-        db,
+
+    # Authenticated downloads are pure reads. Keep exercising the explicit
+    # legacy-cache helper's existing write accounting independently of that API.
+    def cached(physical):
+        result = observations.redacted_log(
+            value.row,
+            value.attempt,
+            "train.log",
+            value.attempt.artifacts["train.log"],
+            transport=physical,
+        )
+        physical.generate_download_url(result["key"], bucket=value.owner.bucket)
+        return result
+
+    return lambda: transport.run(
+        caller.db,
+        value.owner,
+        "training_artifact_download",
+        cached,
+        accounting=observations.write_accounting.recorder(
+            caller.db,
+            value.owner,
+            value.row.id,
+            producer="training_redacted_logs",
+            purpose="other_platform",
+        ),
     )
 
 

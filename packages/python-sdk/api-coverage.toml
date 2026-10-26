@@ -289,6 +289,7 @@ watched_tags = ["projects", "guide-assets", "datasets", "batches", "tasks", "ann
 "DELETE /api/v1/projects/{project_id}/training-runs/{run_id}" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/projects/{project_id}/training-runs/{run_id}" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/projects/{project_id}/training-runs/{run_id}/attempts/{attempt_id}/artifacts/{name}/download" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/projects/{project_id}/training-runs/{run_id}/attempts/{attempt_id}/artifacts/{name}/content" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/projects/{project_id}/training-runs/{run_id}/attempts/{attempt_id}/evaluation" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/projects/{project_id}/training-runs/{run_id}/cancel" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/projects/{project_id}/training-runs/{run_id}/events" = { status = "excluded", reason = "web-only" }

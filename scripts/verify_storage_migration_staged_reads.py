@@ -624,7 +624,10 @@ class StagedReads(RetainedReads):
                         name: self.value[name]
                         for name in ("project_id", "run_id", "attempt_id", "log_name")
                     },
-                    "project_path": f"/projects/{self.value['project_id']}?tab=training",
+                    "project_path": (
+                        f"/projects/{self.value['project_id']}/learning/experiments/"
+                        f"{self.value['run_id']}?tab=training&attempt={self.value['attempt_id']}"
+                    ),
                 },
             )
             require(
