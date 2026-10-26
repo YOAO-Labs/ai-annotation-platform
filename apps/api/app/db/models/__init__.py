@@ -202,7 +202,14 @@ from app.db.models.dataset_source import (
     DatasetSourceRevision,
 )
 
+from app.db.models.site_agent import Site, AgentRegistration, AgentCredential
+from app.db.models.site_agent_command import SiteAgentCommand
+
 __all__ = [
+    "Site",
+    "AgentRegistration",
+    "AgentCredential",
+    "SiteAgentCommand",
     "DatasetAuxiliaryOriginal",
     "StorageMaintenanceGate",
     "StorageOperation",

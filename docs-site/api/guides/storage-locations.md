@@ -21,6 +21,7 @@ last_reviewed: 2026-10-26
 | GET   | `/bindings`            | 超管；只读显示九个用途，即使共用桶仍逐项返回；不初始化绑定                        |
 | GET   | 空路径                 | 超管看全部，项目管理员看 global 或获授权位置；limit 默认100、最多200，支持 offset |
 | POST  | 空路径                 | 超管；登记 filesystem 位置，返回201                                               |
+| POST  | `/agent`               | 超管；登记已配对 Agent 报告的根与修订，返回201；仅只读来源                        |
 | GET   | `/{id}`                | 可见该位置的管理员；读取脱敏详情                                                  |
 | GET   | `/{id}/source-summary` | 当前可见来源及已有后台任务摘要，独立分页                                          |
 | POST  | `/{id}/change-preview` | 超管；预览候选字段与已保存关系，签发五分钟确认令牌                                |
@@ -543,3 +544,9 @@ ZIP 和独立媒体包共同使用 export 绑定。仅新分配采用新目标�
 真实探针在 SQL 锁外、既有维护许可内验证微小普通 PUT、非空 MPU、完整 SHA 读回、精确前缀 LIST 和批量 DeleteObjects／收尾。`capabilities` 为 `write / multipart / full_read / list / delete`，不额外要求条件写入、空文件、版本化桶、历史版本列举或提供方性能资格。失败或未知收尾不更新绑定。预览凭证五分钟有效，独立 audience 绑定原操作者／Key、用途代次、位置／连接修订、Gate 和历史摘要；确认重新授权并按 Connection→Location→Binding 锁序复核、写入 `storage_binding.update` 审计。重放、竞争变化和撤权拒绝后须重新预览。
 
 只有后续新分配采用新目标，涵盖五类 owner；模型与 attempt 沿来源 owner，不另分配。已有、在途、重试和续训使用保存地址，当前凭据轮换不改冻结内容、首次期限或保存引用。历史 NULL 的五个 `storage-pin` 入口仍显式核验已登记 legacy A，不跟随当前 B，不由普通 GET 自动接管。切换不迁移旧文件、不新增清理权限；[训练文件合同](./training-datasets#训练文件的新分配位置)和[部署恢复边界](/ops/deploy/storage-recovery#训练文件用途切换的部署顺序)分别说明读取与部署限制。
+
+## Agent 位置
+
+`POST /agent` 复用 filesystem 创建字段，并要求 `agent_id`、`root_revision`；`root_handle` 支持 1–64 位字母、数字、下划线及连字符。根和修订必须匹配当前配对身份的报告。响应 `kind=agent`，附 `agent_id / site_id / root_revision`，不返回宿主机绝对路径；使用范围、人员授权、缓存策略与既有位置一致。
+
+登记后通过既有 `/{id}/probe`、`/{id}/directories` 探测和浏览。Agent 主动连接中心执行远端 I/O，位置探测按远端身份保存；目录来源的 `node_id` 仍指定中心 Worker。原图使用既有授权与完整快照检查，当前客户端 Range 能力仍为 false。身份 API、私有配对与撤销边界见[站点 Agent 运维说明](/ops/deploy/site-agents)。

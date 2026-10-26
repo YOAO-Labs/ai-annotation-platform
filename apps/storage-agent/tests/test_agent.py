@@ -7,6 +7,7 @@ from uuid import uuid4
 import pytest
 
 from aap_site_agent_contract import digest, validate_command
+from aap_filesystem_read import capture_anchor
 
 from storage_agent.config import AgentError, Config, Credentials
 from storage_agent.journal import Journal
@@ -45,6 +46,27 @@ def test_read_stage_is_private_complete_and_only_removed_after_business_ack(
         runner.execute(command)
 
 
+def test_read_source_subdirectory_keeps_location_anchor(agent, command):
+    config, _, _, runner, source = agent
+    child = source / "dataset"
+    child.mkdir()
+    (child / "image.bin").write_bytes(b"nested source pixels")
+    info = child.stat()
+    command["arguments"].update(
+        source_path="dataset",
+        expected_anchor=capture_anchor(config.roots["images"]),
+        expected_source_identity=[info.st_dev, info.st_ino],
+    )
+    result = runner.execute(command)
+    assert result["status"] == "completed", result
+    assert result["result"]["observation"]["source_identity"] == [
+        info.st_dev,
+        info.st_ino,
+    ]
+    with runner.outgoing(result) as body:
+        assert body.read() == b"nested source pixels"
+
+
 def test_restart_replays_exact_result_without_rereading_changed_source(agent, command):
     config, credentials, journal, runner, source = agent
     result = runner.execute(command)
@@ -65,6 +87,16 @@ def test_interrupted_accepted_command_is_executed_after_restart(agent, command):
     with Journal(config.state_dir) as reopened:
         result = Runner(config, credentials, reopened).execute(command)
         assert result["status"] == "completed"
+
+
+def test_poll_session_survives_restart_and_changes_with_identity(agent):
+    config, credentials, journal, _, _ = agent
+    session = journal.poll_session(credentials)
+    journal.close()
+    with Journal(config.state_dir) as reopened:
+        assert reopened.poll_session(credentials) == session
+        revised = Credentials(credentials.agent_id, 2, "t" * 40, credentials.expires_at)
+        assert reopened.poll_session(revised) != session
 
 
 def test_command_and_result_conflicts_never_replace_persisted_truth(agent, command):

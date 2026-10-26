@@ -783,3 +783,9 @@ training_dataset_storage 及四个薄 adapter 复用五组现有前缀 owner；T
 分配按 Connection→Location→Binding 短事务捕获当前目标并在原业务事务保存 owner，提交后才打开 provider。I/O sidecar 选择保存目标的当前凭据，实际client／body在对应访问许可内打开和关闭；禁止仅把外部引用转成bucket交给全局客户端。旧 schema1、NULL 与 verified-retained 证据不改写，历史 storage-pin 的 legacy A 候选及最终复核独立于今天 Binding。后续重试、续训、初始化、派生日志、模型来源和现有清理沿保存位置，首次期限与冻结身份保持。
 
 控制面历史分列六类全部保存状态，未知旧对象维持原拒绝和显式核验，不作为全库接管门槛。普通PUT／非空MPU／完整SHA读回／精确LIST／批量DeleteObjects探针在SQL锁外执行，未知结果保留责任；不要求条件创建、空文件、版本化桶或版本历史列举。位置保护覆盖六类全部状态；盘点按endpoint、bucket和完整key分类，外部B不计入A。0254仅扩展现有地址约束并保护新schema2不可变，不回填旧行；新事实拒绝破坏性降级，九桶恢复在任何映射写入前拒绝未覆盖新事实。
+
+## 只读 Agent 适配
+
+`kind=agent` 使用站点身份、root handle／修订和位置相对路径，实际根仅保留在独立 Agent。中心仍持有来源、AsyncJob、扫描 generation／租约、登记记录和内容授权。Agent 执行 I/O，传输命令的 received 与业务 applied 分开；扫描 checkpoint 和业务 ACK 同事务，探测结果先复核当前权限再保存和确认。
+
+PostgreSQL 保存命令及关闭证据，有界 Redis 只中继临时分块。读取先在 Agent 完整计算 SHA 并复核来源，中心再次核验完整内容后进入既有 Snapshot 图片检查。位置根、来源目录、文件路径分别验证；远端 observation 不使用中心设备 inode 冒充。离线不删除索引，撤销只允许旧命令回报关闭证据，不允许新任务或新字节。部署和当前边界见[站点 Agent](/ops/deploy/site-agents)。

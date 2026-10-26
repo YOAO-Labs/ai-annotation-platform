@@ -828,7 +828,7 @@ async def _reference_state(db, item_id, actor, *, task_id=None, task_authorizer=
     if (
         location is None
         or not location.enabled
-        or location.kind not in {"filesystem", "s3", "sftp"}
+        or location.kind not in {"filesystem", "s3", "sftp", "agent"}
     ):
         raise snapshots.ContentError("location_unavailable")
     if (
@@ -924,18 +924,18 @@ async def reference_source_context(
     same_host = run.snapshot.get("scan_host_id") == fs.host_identity()
     expected = (
         receipt["observation"]
-        if receipt["node_id"] == node or location.kind in {"s3", "sftp"}
+        if receipt["node_id"] == node or location.kind in {"s3", "sftp", "agent"}
         else {k: receipt["observation"][k] for k in ("size", "mtime_ns", "ctime_ns")}
     )
     expected_source = (
         expected.get("source_identity")
-        if receipt["node_id"] == node
+        if receipt["node_id"] == node or location.kind == "agent"
         else source.root_identity
         if same_host
         else None
     )
     configured = await reference_storage.configuration(db, location)
-    if location.kind in {"s3", "sftp"} and (
+    if location.kind in {"s3", "sftp", "agent"} and (
         configured.anchor != run.snapshot["anchor"] or anchor != configured.anchor
     ):
         raise snapshots.ContentError("content_binding_changed")
@@ -1083,22 +1083,47 @@ async def reference_snapshot(
                     source_context.get(key) != value for key, value in context.items()
                 ):
                     raise snapshots.ContentError("content_binding_changed")
-                snapshot = await snapshots.capture_from_location(
-                    db,
-                    context["location_id"],
-                    lambda: reference_storage.content_file(
+                from app.services import agent_storage
+
+                if isinstance(source_context["config"], agent_storage.AgentAccess):
+                    await db.commit()
+                    snapshot = await agent_storage.capture(
+                        db,
                         source_context["config"],
                         source_context["base"],
                         source_context["path"],
                         expected_anchor=source_context["anchor"],
                         expected=source_context["expected"],
                         expected_source_identity=source_context["source_identity"],
-                    ),
-                    context["sha256"],
-                    expected_revision=context["maintenance_revision"],
-                    node_id=node_id,
-                    on_acquired=admitted,
-                )
+                        expected_sha256=context["sha256"],
+                        expected_revision=context["maintenance_revision"],
+                        node_id=node_id,
+                        on_acquired=admitted,
+                        fence={
+                            "source_id": str(context["source_id"]),
+                            "asset_id": str(context["asset_id"]),
+                            "run_id": str(context["run_id"]),
+                            "user_id": str(actor.id),
+                            **({"task_id": str(task_id)} if task_id else {}),
+                        },
+                    )
+                else:
+                    snapshot = await snapshots.capture_from_location(
+                        db,
+                        context["location_id"],
+                        lambda: reference_storage.content_file(
+                            source_context["config"],
+                            source_context["base"],
+                            source_context["path"],
+                            expected_anchor=source_context["anchor"],
+                            expected=source_context["expected"],
+                            expected_source_identity=source_context["source_identity"],
+                        ),
+                        context["sha256"],
+                        expected_revision=context["maintenance_revision"],
+                        node_id=node_id,
+                        on_acquired=admitted,
+                    )
         except BaseException:
             await rates.finish(db, rate_attempt, None)
             raise
@@ -1135,9 +1160,19 @@ async def reference_snapshot(
         if from_source:
             await rates.finish(db, rate_attempt, "success")
             await storage_fault_events.recover(db, observation)
+        from app.services import agent_storage
+
+        if getattr(snapshot, "_agent_receipt", None) is not None:
+            await agent_storage.accept(db, snapshot)
+            await db.commit()
         return snapshot
     except BaseException:
-        snapshot.close()
+        from app.services import agent_storage
+
+        try:
+            await agent_storage.reject(db, snapshot)
+        finally:
+            snapshot.close()
         raise
     finally:
         await rates.finish(db, rate_attempt, None)

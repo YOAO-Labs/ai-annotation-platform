@@ -167,8 +167,23 @@ async def start_preflight(db, scan_id, actor, *, api_key_id=None, worker_node=No
             raise HTTPException(409, detail={"code": "wrong_execution_node"})
         await key_authority(db, actor, api_key_id, "datasets:read")
     else:
+
+        async def probe_authority():
+            current_location, current_source, current_scan, _ = await scans.run_context(
+                db, scan_id
+            )
+            await request_authority(db, actor, api_key_id, key_proof, current_source)
+            await scans.validate_write_context(
+                db, current_location, current_source, snapshot=current_scan.snapshot
+            )
+
         result = await probe_candidates(
-            db, location, source, scan.id, locations.api_node_id()
+            db,
+            location,
+            source,
+            scan.id,
+            locations.api_node_id(),
+            guard=probe_authority,
         )
         await request_authority(db, actor, api_key_id, key_proof, source)
         await locations.store_probe(
@@ -312,7 +327,23 @@ async def claim(db, run_id, task_id, node_id):
     if node_id != run.snapshot["node_id"]:
         raise fs.FilesystemStorageError("wrong_execution_node")
     node = f"worker:{node_id}"
-    result = await probe_candidates(db, location, source, run.scan_run_id, node)
+
+    async def probe_authority():
+        current_location, current_source, current_run, current_job = await context(
+            db, run_id
+        )
+        if (
+            not current_job
+            or current_job.celery_task_id != task_id
+            or current_run.status != "pending"
+            or current_job.status != "pending"
+        ):
+            raise LostRegistrationLease()
+        await validate(db, current_location, current_source, current_run)
+
+    result = await probe_candidates(
+        db, location, source, run.scan_run_id, node, guard=probe_authority
+    )
     await validate(db, location, source, run)
     await locations.store_probe(db, location, node, result, await scans.now(db))
     if not result["ok"]:
@@ -477,8 +508,23 @@ async def other_active(db, run):
         raise HTTPException(409, "Another registration is active for this source")
 
 
-async def probe_candidates(db, location, source, scan_id, node):
+async def probe_candidates(db, location, source, scan_id, node, *, guard=None):
+    async def settled(result):
+        if location.kind == "agent":
+            if guard is None:
+                raise LostRegistrationLease()
+            await guard()
+            await locations.store_probe(db, location, node, result, await scans.now(db))
+            await db.commit()
+            result = {
+                key: value
+                for key, value in result.items()
+                if key != "_agent_command_id"
+            }
+        return result
+
     root = await locations.perform_probe(db, location, node, None)
+    root = await settled(root)
     if not root["ok"]:
         return root
     paths = list(
@@ -502,6 +548,7 @@ async def probe_candidates(db, location, source, scan_id, node):
                 location, source.config["relative_path"], path
             ),
         )
+        probe = await settled(probe)
         if location.kind == "s3" and probe["code"] == "s3_conditions_not_supported":
             return probe
         if probe["ok"]:
@@ -532,6 +579,25 @@ async def ensure_source_available(db, location, source, node):
     revision = await storage_access.check(db, location.id, lock=True)
     location_id = location.id
     await db.commit()
+    if location.kind == "agent":
+        from app.services import agent_transport
+
+        receipt = await agent_transport.exchange(
+            db,
+            location,
+            "scan",
+            {
+                "path": relative,
+                "expected_anchor": anchor,
+                "expected_identity": source.root_identity,
+            },
+            fence={"source_id": str(source.id)},
+            purpose="registration_directory",
+            expected_revision=revision,
+            node_id=node,
+        )
+        await agent_transport.acknowledge(db, receipt, accepted=True)
+        return
     try:
         await storage_access.run(
             db,

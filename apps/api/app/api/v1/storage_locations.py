@@ -19,6 +19,7 @@ from app.db.models.user import User
 from app.deps import get_db, require_roles, assert_request_scopes
 from app.schemas.storage_location import (
     FilesystemLocationCreate,
+    AgentLocationCreate,
     ExportBindingApply,
     ExportBindingCandidates,
     ExportBindingChange,
@@ -687,6 +688,35 @@ async def create_location(
     return await svc.to_out(db, location, actor)
 
 
+@router.post("/agent", response_model=StorageLocationOut, status_code=201)
+async def create_agent_location(
+    payload: AgentLocationCreate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(super_admin),
+):
+    actor = await lock_current_admin(db, actor, request)
+    try:
+        location = await svc.create_agent(db, payload)
+        await AuditService.log(
+            db,
+            actor=actor,
+            action=AuditAction.STORAGE_LOCATION_CREATE,
+            target_type="storage_location",
+            target_id=str(location.id),
+            request=request,
+            status_code=201,
+            detail={"kind": "agent"},
+        )
+        await db.commit()
+    except (FilesystemStorageError, ContentError) as exc:
+        raise filesystem_error(exc) from None
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409, "Storage location name already exists") from None
+    return await svc.to_out(db, location, actor)
+
+
 @router.get("/{location_id}/faults", response_model=StorageFaultList)
 async def source_faults(
     location_id: uuid.UUID,
@@ -936,6 +966,7 @@ async def directories(
         )
     except (FilesystemStorageError, ContentError) as exc:
         raise filesystem_error(exc) from None
+    receipt_id = result.pop("_agent_command_id", None)
     actor = await require_manager(db, actor.id)
     location = await svc.get_visible(db, location_id, actor, lock=True)
     if location.config_revision != revision or not location.enabled:
@@ -953,6 +984,12 @@ async def directories(
         )
     except ContentError as exc:
         raise filesystem_error(exc) from None
+    if receipt_id is not None:
+        from app.db.models.site_agent_command import SiteAgentCommand
+        from app.services.agent_transport import acknowledge
+
+        await acknowledge(db, await db.get(SiteAgentCommand, receipt_id), accepted=True)
+        await db.commit()
     return result
 
 
@@ -1048,7 +1085,7 @@ async def probe(
                 payload.sample_file,
                 maintenance_revision=maintenance_revision,
             )
-            if payload.node_id == "api"
+            if payload.node_id == "api" or location.kind == "agent"
             else await asyncio.wait_for(
                 asyncio.to_thread(
                     _probe_worker,
@@ -1078,6 +1115,7 @@ async def probe(
             503 if result["code"] == "storage_operation_unsettled" else 409,
             detail={"code": result["code"]},
         )
+    receipt_id = result.pop("_agent_command_id", None)
     actor = await require_manager(db, actor.id)
     if await key_authority(db, actor, key_id, "datasets:write") != key_proof:
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
@@ -1090,6 +1128,13 @@ async def probe(
         )
         result = {**result, "maintenance_revision": maintenance_revision}
         await svc.store_probe(db, location, node_id, result, observed_at)
+        if receipt_id is not None:
+            from app.db.models.site_agent_command import SiteAgentCommand
+            from app.services.agent_transport import acknowledge
+
+            await acknowledge(
+                db, await db.get(SiteAgentCommand, receipt_id), accepted=True
+            )
     except ContentError as exc:
         raise filesystem_error(exc) from None
     await AuditService.log(

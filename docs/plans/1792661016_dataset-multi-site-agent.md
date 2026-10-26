@@ -131,6 +131,8 @@ flowchart TD
 - 网络故障测试覆盖高延迟、丢包、DNS/证书错误、连接中断、旧租约重放、源目录改名和根挂载缺失。
 - 训练侧只消费版本清单，Agent 不在本地决定标签或 train/val 切分。
 
+回退约束用于实际部署或协议切换出现故障时恢复服务，沿用已确定的受控应用回退、保留 schema 与数据。日常开发以修复和针对性验证推进；不为每个工程步骤重复增加回滚演练，也不将回滚专项作为扫描、登记、读取接入的额外前置条件。
+
 ## 11. 风险和待决策
 
 - 首期支持哪些运行环境：建议 Linux 容器或系统服务先行，Windows 桌面 Agent 留待明确需求。
@@ -186,7 +188,7 @@ Agent → 出站 HTTPS 长轮询／受限中继 → 中心 API → Snapshot／�
 - `apps/_shared/site_agent_contract/pyproject.toml`、`README.md`、`src/aap_site_agent_contract/{__init__,messages}.py`、`tests/test_*.py`：协议版本、严格白名单、规范化 digest、根修订／租约、结果和 ACK。
 - `apps/storage-agent/pyproject.toml`、`storage_agent/{__init__,config,journal,runner,client,__main__}.py`、`tests/test_*.py`、`README.md`、`Dockerfile`、`deploy/storage-agent.service`：独立 Linux 进程，无入站监听，固定 HTTPS origin；只保存独立身份、本地根和有界日志／stage。
 
-A1 先实现和验证独立组件；中心未接通时不算 AC01 通过，也不能作为可用的平台接入功能发布。API 原语在 A2 转为共享 facade 后删除重复实现，保留旧异常和 monkeypatch seam。
+A1 先实现和验证独立组件；中心未接通时不算 AC01 通过，也不能作为可用的平台接入功能发布。API 保留既有异常、anchor 编码和 monkeypatch seam；共享 facade 的内部去重独立安排，不作为 Agent 接入的新增验收前置。
 
 ### A2：中心身份、扫描／登记和读取闭环
 
@@ -227,3 +229,19 @@ A3 复用存储页面和居中 Modal，新增 `apps/web/src/components/storage/S
 人工 Web3100、API8100 返回 200，DB／Redis／MinIO／Celery 均健康；没有迁移、重启或修改已有 API／Worker。1626 个文档生成文件、测试目录、wheel 中间文件、临时虚拟环境及两棵已集成隔离树清理；未创建测试数据库／对象桶。只保留 0600 的边界与结果摘要 `/tmp/aap-e06-a1-summary-s3zb6umf.json`。
 
 下一步 A2 直接接通中心独立身份／配对、传输命令、已有扫描／登记／内容快照和撤销。随后 A3／B 完成管理界面、真实隔离双站点、Range、恢复与有限副本路由。原子业务 ACK、关闭对账、中心到期鉴权尚待 A2 实现，不能用当前组件通过替代。没有新增生产站点、回滚专项或无关训练门槛。
+
+## Outcome — E06-A2 中心接入进展
+
+2026-10-26，独立身份与配对 `a37fa499b`、真实配对客户端 `ff8525de1`、既有扫描／同步 owner 接入 `f0ab661d1` 已集成；本次继续交付中心传输、Agent 位置和内容快照接入。此记录是 A2 核心链路的实施进展，E06-A／完整 E06 尚未完成，累计仍为九项 Epic 归档。
+
+中心保存独立站点、身份／凭据摘要和持久命令，支持一次性配对、心跳／根修订、drain、轮换与撤销。命令优先级、并发／中继预算、块偏移与完整 SHA、关闭证据及业务 ACK 接通；已拒绝结果不能被后续业务采纳复活。Agent 日志保存同一身份的耐久 session，丢失轮询响应可重投原命令，期限不延长。
+
+Agent 位置复用原有使用范围、探测和目录浏览。来源保留中心 Worker 身份，扫描／同步沿用原 AsyncJob、租约和 checkpoint；预检、确认登记及引用原图进入既有完整 Snapshot 和当前授权复核，不集中复制原图。位置根与来源子目录分别传递，远端 observation 不混入中心 inode。预检的每次远端探测在当前权限／作业状态复核后保存并确认，避免阻塞下一次探测，也不把内部命令 UUID 写入探测 JSON。
+
+验证口径：28 项身份测试、24 项扫描／同步测试、111 项本次传输／位置／登记读取及既有相关回归、358 项协议、103 项 Agent 和 4 项 SDK 合同通过，固定 Ruff check／format、OpenAPI 对照、前端类型生成及文档片段／208 页 frontmatter／计划 freshness 检查通过。协议／Agent 联合运行中一项旧“重启更换 session”断言随耐久 session 合同修订后单独通过，按不同节点计一次。登记读取回归中八项旧错误分支的测试驱动在 rollback 后访问过期 ORM 对象；其中一个代表节点在接入前基线同样复现，八项未算通过，单列为既有夹具问题，没有扩为本轮专项前置。
+
+新增 owner 集成用例确实经过 Agent 安全文件读取／stage、中心 SQL／Redis 和既有扫描→预检→确认登记→引用原图流程，但替换了网络等待和独立跨连接准入。真实 HTTPS 配对及独立 CLI 恢复属于组件测试；它们均不能替代 AC01 的中心不可入站拓扑或完整平台网络验收。
+
+人工环境沿用当前工作树归属服务、Web3100／API8100、原数据库及九桶；新增迁移 0265／0266，刷新本地 API／Worker 依赖，不重建后端镜像、不改共享环境或主检出。中间产物和 disposable test 模式在本轮结束清理，保留私有结果摘要 `/tmp/aap-e06-a2-summary-wo5s723.json`。
+
+后续继续实际网络闭环，再推进 A3／B 的管理界面、Range、隔离双站点与有限副本路由；API 共享 facade 去重单列，不阻塞功能接入。按原 AC 验证恢复、撤销和预算，不增加生产站点、回滚专项、万条训练或其他消费者改造门槛。

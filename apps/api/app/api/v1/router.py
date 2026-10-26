@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+from app.api.v1 import site_agents, site_agent_transport
 from app.api.v1 import (
     admin_alias_freq,
     admin_analytics,
@@ -241,6 +242,8 @@ if _e2e_seed_routes_enabled():
     api_router.include_router(_test_seed.router, prefix="/__test", tags=["_test_seed"])
 
 api_router.include_router(dataset_sources.router, tags=["dataset-sources"])
+api_router.include_router(site_agents.router, tags=["site-agents"])
+api_router.include_router(site_agent_transport.router, tags=["site-agents"])
 
 api_router.include_router(
     storage_migration_inventories.router,

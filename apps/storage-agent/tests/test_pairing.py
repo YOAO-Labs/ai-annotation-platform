@@ -374,7 +374,7 @@ def test_pairing_cli_modes_are_mutually_exclusive(pairing_case, monkeypatch, mod
     assert caught.value.code == 2
 
 
-def test_independent_process_restart_replays_received_result_with_new_session(
+def test_independent_process_restart_replays_received_result_with_durable_session(
     agent, command, tls_center, tmp_path
 ):
     config, credentials, journal, _, source = agent
@@ -428,7 +428,7 @@ def test_independent_process_restart_replays_received_result_with_new_session(
     assert peer["chunk_posts"] == [b"source pixels"]
     assert peer["paths"].count("/api/v1/site-agents/commands/poll") == 1
     last_session = peer["sessions"][-1]
-    assert UUID(first_session) and UUID(last_session) and first_session != last_session
+    assert UUID(first_session) and UUID(last_session) and first_session == last_session
 
 
 def test_pairing_refuses_pending_old_identity_before_consuming_code(

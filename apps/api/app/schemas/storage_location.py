@@ -34,6 +34,12 @@ class StorageLocationUpdate(BaseModel):
     original_cache_ttl_seconds: CacheTTL | None = None
 
 
+class AgentLocationCreate(FilesystemLocationCreate):
+    agent_id: uuid.UUID
+    root_handle: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
+    root_revision: int = Field(strict=True, ge=1)
+
+
 class StorageLocationApply(StorageLocationUpdate):
     impact_token: str = Field(min_length=1, max_length=8192)
 
@@ -47,6 +53,9 @@ class StorageLocationOut(BaseModel):
     maintenance_state: Literal["active", "draining", "stopped"] = "active"
     maintenance_revision: int = 1
     connection_id: uuid.UUID | None = None
+    agent_id: uuid.UUID | None = None
+    site_id: uuid.UUID | None = None
+    root_revision: int | None = None
     root_handle: str | None = None
     relative_path: str | None = None
     scope: str | None = None

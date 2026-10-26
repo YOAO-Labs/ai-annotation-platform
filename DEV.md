@@ -913,4 +913,4 @@ PYTHONPATH=. uv run python scripts/seed.py --profile online-training
 
 ## 只读站点 Agent 组件
 
-独立组件位于 `apps/storage-agent`，标准库共享包位于 `apps/_shared/filesystem_read` 与 `apps/_shared/site_agent_contract`。配置和测试命令见 [Agent README](apps/storage-agent/README.md)，当前只提供组件及本地配置检查，中心配对与数据集接入继续实施；无需刷新现有 API／Worker 或重建后端镜像。
+独立组件位于 `apps/storage-agent`，标准库共享包位于 `apps/_shared/filesystem_read` 与 `apps/_shared/site_agent_contract`。配置和测试命令见 [Agent README](apps/storage-agent/README.md)，中心配对、传输及扫描／预检登记／原图快照已经接通。API 虚拟环境新增两个锁定本地包；开发环境应用迁移并刷新 API 重载父进程及受影响 Worker，继续使用现有工作树归属服务与端口，无需重建现有后端镜像。管理 UI、Range 及完整隔离网络验收继续实施。

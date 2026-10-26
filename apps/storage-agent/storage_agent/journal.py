@@ -7,6 +7,7 @@ import os
 import sqlite3
 import stat
 import time
+from uuid import UUID, uuid4
 
 from aap_site_agent_contract import (
     canonical_json,
@@ -67,6 +68,10 @@ class Journal:
                 command_id TEXT PRIMARY KEY, command_digest TEXT NOT NULL,
                 command TEXT, result TEXT, result_digest TEXT, stage TEXT,
                 state TEXT NOT NULL, ack TEXT, updated REAL NOT NULL)""")
+            self.connection.execute("""CREATE TABLE IF NOT EXISTS poll_session (
+                singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                agent_id TEXT NOT NULL, credential_revision INTEGER NOT NULL,
+                session_id TEXT NOT NULL)""")
             self.connection.execute("PRAGMA user_version=1")
             self.connection.commit()
             if self.connection.execute("PRAGMA quick_check").fetchone()[0] != "ok":
@@ -112,6 +117,25 @@ class Journal:
                 json.loads(value[field]) if value[field] is not None else None
             )
         return value
+
+    def poll_session(self, credentials):
+        """Keep lost-delivery recovery bound to the exclusively locked journal."""
+        with self.transaction():
+            row = self.connection.execute("SELECT * FROM poll_session").fetchone()
+            if row is not None and (row["agent_id"], row["credential_revision"]) == (
+                credentials.agent_id,
+                credentials.credential_revision,
+            ):
+                try:
+                    return str(UUID(row["session_id"]))
+                except (ValueError, TypeError):
+                    self._corrupt()
+            session = str(uuid4())
+            self.connection.execute(
+                "INSERT OR REPLACE INTO poll_session VALUES (1, ?, ?, ?)",
+                (credentials.agent_id, credentials.credential_revision, session),
+            )
+        return session
 
     def accept(self, command):
         command_id = command["command_id"]

@@ -161,7 +161,7 @@ class Runner:
         stage = stage_content(
             lambda: content_file(
                 spec,
-                "",
+                args.get("source_path", ""),
                 args["path"],
                 expected_anchor=args["expected_anchor"],
                 expected=args["expected"],

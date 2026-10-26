@@ -8,6 +8,10 @@ from app.services.sources.sftp_reference import SftpAccess, qualified_root
 
 
 async def configuration(db, location):
+    if location.kind == "agent":
+        from app.services.agent_storage import configuration as agent_configuration
+
+        return await agent_configuration(db, location)
     if location.kind == "filesystem":
         return dict(location.config)
     if location.kind not in {"s3", "sftp"} or not location.enabled:

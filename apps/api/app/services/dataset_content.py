@@ -70,7 +70,9 @@ async def scan_context(db, run_id, path_digest, actor, *, lock=False, node_id=No
         raise HTTPException(404, "Observed image not found")
     node = node_id or locations.api_node_id()
     probe = await db.get(
-        StorageLocationProbe, (location.id, node), populate_existing=True
+        StorageLocationProbe,
+        (location.id, locations.probe_node_id(location, node)),
+        populate_existing=True,
     )
     proof = locations.probe_out(probe, location) if probe else None
     if node_id is not None and probe is not None:
@@ -125,15 +127,17 @@ async def scan_snapshot(
     )
     if receipt is None and not same_host and location.kind == "filesystem":
         raise snapshots.ContentError("initial_verification_node_mismatch")
-    expected_source = source.root_identity if same_host else None
+    expected_source = (
+        source.root_identity if same_host or location.kind == "agent" else None
+    )
     observed = receipt["observation"] if receipt else entry.observed
     expected = (
         {
             key: observed[key]
             for key in ("size", "mtime_ns", "ctime_ns", "identity")
-            if same_host or key != "identity"
+            if same_host or location.kind == "agent" or key != "identity"
         }
-        if location.kind == "filesystem"
+        if location.kind in {"filesystem", "agent"}
         else dict(observed)
     )
     if refresh_unverified and receipt is None:
@@ -211,23 +215,46 @@ async def scan_snapshot(
             async def reclaimed_guard():
                 await protect_observed_read(db, expected, anchor)
 
-            snapshot = await snapshots.capture_from_location(
-                db,
-                location.id,
-                lambda: reference_storage.content_file(
+            from app.services import agent_storage
+
+            if isinstance(config, agent_storage.AgentAccess):
+                snapshot = await agent_storage.capture(
+                    db,
                     config,
                     base,
                     path,
                     expected_anchor=anchor,
                     expected=expected,
                     expected_source_identity=expected_source,
-                ),
-                digest,
-                expected_revision=run.snapshot.get("maintenance_revision", 1),
-                node_id=node,
-                purpose="scan_content",
-                on_acquired=reclaimed_guard,
-            )
+                    expected_sha256=digest,
+                    expected_revision=run.snapshot.get("maintenance_revision", 1),
+                    node_id=node,
+                    purpose="scan_content",
+                    on_acquired=reclaimed_guard,
+                    fence={
+                        "source_id": str(source.id),
+                        "run_id": str(run.id),
+                        "user_id": str(actor.id),
+                    },
+                )
+            else:
+                snapshot = await snapshots.capture_from_location(
+                    db,
+                    location.id,
+                    lambda: reference_storage.content_file(
+                        config,
+                        base,
+                        path,
+                        expected_anchor=anchor,
+                        expected=expected,
+                        expected_source_identity=expected_source,
+                    ),
+                    digest,
+                    expected_revision=run.snapshot.get("maintenance_revision", 1),
+                    node_id=node,
+                    purpose="scan_content",
+                    on_acquired=reclaimed_guard,
+                )
     except BaseException:
         await rates.finish(db, rate_attempt, None)
         raise
@@ -282,12 +309,20 @@ async def scan_snapshot(
                 detail={"path_digest": path_digest},
                 status_code=200,
             )
+        from app.services import agent_storage
+
+        await agent_storage.accept(db, snapshot)
         await db.commit()
         await rates.finish(db, rate_attempt, "success")
         await storage_fault_events.recover(db, observation)
         return snapshot
     except BaseException:
-        snapshot.close()
+        from app.services import agent_storage
+
+        try:
+            await agent_storage.reject(db, snapshot)
+        finally:
+            snapshot.close()
         raise
     finally:
         await rates.finish(db, rate_attempt, None)
@@ -568,7 +603,42 @@ async def quality_snapshot(
     locator = identity[3]
     snapshot = None
     try:
-        if isinstance(locator, dict):
+        from app.services import agent_storage
+
+        if isinstance(locator, dict) and isinstance(
+            locator["config"], agent_storage.AgentAccess
+        ):
+            from app.services.managed_original_reclaim_fence import (
+                protect_observed_read,
+            )
+
+            async def remote_guard():
+                await validate()
+                await db.commit()
+                access.check_clock(None, key)
+                await protect_observed_read(db, locator["expected"], locator["anchor"])
+
+            snapshot = await agent_storage.capture(
+                db,
+                locator["config"],
+                locator["base"],
+                locator["path"],
+                expected_anchor=locator["anchor"],
+                expected=locator["expected"],
+                expected_source_identity=locator["source_identity"],
+                expected_sha256=identity[1],
+                expected_revision=locator["maintenance_revision"],
+                node_id=node_id,
+                purpose="quality_read",
+                inspect_quality=True,
+                on_acquired=remote_guard,
+                fence={
+                    "user_id": str(actor_id),
+                    "asset_id": str(locator["asset_id"]),
+                    "source_id": str(locator["source_id"]),
+                },
+            )
+        elif isinstance(locator, dict):
             async with await storage_access.acquire(
                 db,
                 locator["location_id"],
@@ -607,10 +677,14 @@ async def quality_snapshot(
         await validate()
         if snapshot.size != identity[2]:
             raise snapshots.ContentError("content_mismatch")
+        await agent_storage.accept(db, snapshot)
         await db.commit()
         access.check_clock(None, key)
         return snapshot
     except BaseException:
         if snapshot is not None:
-            snapshot.close()
+            try:
+                await agent_storage.reject(db, snapshot)
+            finally:
+                snapshot.close()
         raise

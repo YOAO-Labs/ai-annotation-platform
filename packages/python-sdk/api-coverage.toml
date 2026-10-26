@@ -1,5 +1,5 @@
 snapshot = "0.24.0"
-watched_tags = ["projects", "guide-assets", "datasets", "batches", "tasks", "annotations", "annotation-feedbacks", "async-jobs", "ml-backends", "admin-ml-integrations", "training-datasets", "training-runs", "training-executor", "trained-models", "learning-policies", "training-hub", "training-recipes", "training-previews", "sample-evaluations", "training-studies", "active-learning", "storage", "storage-locations", "dataset-sources", "files", "originals", "media-cache"]
+watched_tags = ["projects", "guide-assets", "datasets", "batches", "tasks", "annotations", "annotation-feedbacks", "async-jobs", "ml-backends", "admin-ml-integrations", "training-datasets", "training-runs", "training-executor", "trained-models", "learning-policies", "training-hub", "training-recipes", "training-previews", "sample-evaluations", "training-studies", "active-learning", "storage", "storage-locations", "dataset-sources", "files", "originals", "media-cache", "site-agents"]
 
 [operations]
 "DELETE /api/v1/projects/{project_id}/guide-assets" = { status = "excluded", reason = "web-only" }
@@ -552,3 +552,17 @@ watched_tags = ["projects", "guide-assets", "datasets", "batches", "tasks", "ann
 "GET /api/v1/storage-locations/bindings/training/candidates" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/storage-locations/bindings/training/change-preview" = { status = "excluded", reason = "web-only" }
 "PATCH /api/v1/storage-locations/bindings/training" = { status = "excluded", reason = "web-only" }
+
+# Independent Agent protocol and administrator registry; no SDK consumer yet.
+"GET /api/v1/site-agents/agents" = { status = "excluded", reason = "no-external-demand" }
+"GET /api/v1/site-agents/sites" = { status = "excluded", reason = "no-external-demand" }
+"POST /api/v1/site-agents/agents/{agent_id}/drain" = { status = "excluded", reason = "no-external-demand" }
+"POST /api/v1/site-agents/agents/{agent_id}/revoke" = { status = "excluded", reason = "no-external-demand" }
+"POST /api/v1/site-agents/agents/{agent_id}/rotate" = { status = "excluded", reason = "no-external-demand" }
+"POST /api/v1/site-agents/commands/poll" = { status = "excluded", reason = "no-external-demand" }
+"POST /api/v1/site-agents/commands/{command_id}/chunks" = { status = "excluded", reason = "no-external-demand" }
+"POST /api/v1/site-agents/commands/{command_id}/result" = { status = "excluded", reason = "no-external-demand" }
+"POST /api/v1/site-agents/pair" = { status = "excluded", reason = "no-external-demand" }
+"POST /api/v1/site-agents/sites" = { status = "excluded", reason = "no-external-demand" }
+"POST /api/v1/site-agents/sites/{site_id}/agents" = { status = "excluded", reason = "no-external-demand" }
+"POST /api/v1/storage-locations/agent" = { status = "excluded", reason = "no-external-demand" }

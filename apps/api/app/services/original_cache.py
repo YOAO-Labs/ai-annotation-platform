@@ -128,7 +128,7 @@ async def scope(db, source_id, asset_id, *, lock=False, check_maintenance=True):
         or not location
         or not location.enabled
         or source.location_id != location.id
-        or location.kind not in {"filesystem", "s3", "sftp"}
+        or location.kind not in {"filesystem", "s3", "sftp", "agent"}
         or location.config.get("cache_policy") != "on_demand"
         or asset.verification_state != "verified"
         or asset.checksum_algorithm != "sha256"

@@ -296,6 +296,7 @@ class Client:
         return ack
 
     def step(self, runner, *, drain=False):
+        self.session_id = runner.journal.poll_session(self.credentials)
         # Replay immutable completed results before claiming additional work.
         for row in runner.journal.pending():
             result = row["result"] or runner.execute(row["command"])

@@ -3,6 +3,8 @@ name = "anno-api"
 version = "0.26.1"
 requires-python = ">=3.11"
 dependencies = [
+    "aap-filesystem-read",
+    "aap-site-agent-contract",
     "aap-task-contract",
     "aap-training-contract",
     "aap-protocol-v2",
@@ -43,6 +45,8 @@ dependencies = [
 ]
 
 [tool.uv.sources]
+aap-filesystem-read = { path = "../_shared/filesystem_read", editable = true }
+aap-site-agent-contract = { path = "../_shared/site_agent_contract", editable = true }
 aap-task-contract = { path = "../_shared/task_contract", editable = true }
 aap-training-contract = { path = "../_shared/training_contract", editable = true }
 aap-protocol-v2 = { path = "../_shared/protocol_v2", editable = true }

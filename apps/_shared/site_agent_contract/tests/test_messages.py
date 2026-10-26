@@ -69,6 +69,13 @@ def command(operation="scan", arguments=None):
     }
 
 
+@pytest.mark.parametrize("path", ["../outside", "/outside", "a//b", "a\\b"])
+def test_read_source_path_is_relative_and_bounded(path):
+    rejects(
+        validate_command, command("read", {"path": "image.png", "source_path": path})
+    )
+
+
 def result():
     return {
         "protocol_version": 1,

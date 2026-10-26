@@ -208,7 +208,7 @@ def visible_clause(actor):
                 )
             )
         ),
-        (StorageLocation.kind == "filesystem")
+        StorageLocation.kind.in_(["filesystem", "agent"])
         & or_(
             StorageLocation.config["scope"].astext == "global",
             StorageLocation.config["use_user_ids"].contains([str(actor.id)]),
@@ -246,7 +246,7 @@ def require_filesystem(location):
 
 
 def require_reference_backend(location):
-    if location.kind not in {"filesystem", "s3", "sftp"} or (
+    if location.kind not in {"filesystem", "s3", "sftp", "agent"} or (
         location.kind in {"s3", "sftp"} and location.connection_id is None
     ):
         raise HTTPException(409, detail={"code": "reference_backend_not_supported"})
@@ -267,7 +267,7 @@ async def to_out(db, location, actor):
 def location_out(location, actor, connection, maintenance):
     """Project an already-loaded location without queries or provider access."""
     config = location.config or {}
-    reference = location.kind == "filesystem" or (
+    reference = location.kind in {"filesystem", "agent"} or (
         location.kind == "s3" and connection is not None
     )
     if location.kind == "sftp" and connection is not None:
@@ -282,7 +282,7 @@ def location_out(location, actor, connection, maintenance):
     if location.enabled and reference and maintenance["state"] == "active":
         actions.extend(["probe", "browse"])
     if actor.role == UserRole.SUPER_ADMIN and (
-        location.kind == "filesystem" or connection is not None
+        location.kind in {"filesystem", "agent"} or connection is not None
     ):
         actions.append("manage_location")
     if connection is not None and (
@@ -302,14 +302,19 @@ def location_out(location, actor, connection, maintenance):
         "original_cache_quota_bytes": config.get("original_cache_quota_bytes", 0),
         "original_cache_ttl_seconds": config.get("original_cache_ttl_seconds", 86400),
         "connection_id": location.connection_id,
+        "agent_id": config.get("agent_id") if location.kind == "agent" else None,
+        "site_id": config.get("site_id") if location.kind == "agent" else None,
+        "root_revision": config.get("root_revision")
+        if location.kind == "agent"
+        else None,
         "root_handle": config.get("root_handle")
-        if location.kind == "filesystem"
+        if location.kind in {"filesystem", "agent"}
         else None,
         "relative_path": config.get("relative_path")
-        if location.kind == "filesystem"
+        if location.kind in {"filesystem", "agent"}
         else None,
         "scope": config.get("scope")
-        if location.kind == "filesystem"
+        if location.kind in {"filesystem", "agent"}
         else (connection.scope if connection else None),
         "use_user_ids": config.get("use_user_ids", [])
         if actor.role == UserRole.SUPER_ADMIN
@@ -371,9 +376,64 @@ async def create_filesystem(db, payload):
     return location
 
 
+async def create_agent(db, payload):
+    from app.db.models.site_agent import AgentCredential, AgentRegistration
+    from app.services.site_agents import SiteAgentError, validate_current
+
+    await validate_grants(db, payload.use_user_ids)
+    agent = await db.get(
+        AgentRegistration,
+        payload.agent_id,
+        populate_existing=True,
+        with_for_update={"read": True},
+    )
+    credential = (
+        await db.get(
+            AgentCredential,
+            (agent.id, agent.credential_revision),
+            populate_existing=True,
+        )
+        if agent
+        else None
+    )
+    try:
+        validate_current(agent, credential)
+    except SiteAgentError as exc:
+        raise fs.FilesystemStorageError(exc.code) from None
+    if {
+        "root_handle": payload.root_handle,
+        "root_revision": payload.root_revision,
+    } not in agent.roots:
+        raise fs.FilesystemStorageError("agent_root_revision_changed")
+    config = {
+        "agent_id": str(agent.id),
+        "site_id": str(agent.site_id),
+        "root_handle": payload.root_handle,
+        "root_revision": payload.root_revision,
+        "relative_path": fs.relative_path(payload.relative_path),
+        "scope": payload.scope,
+        "use_user_ids": sorted({str(value) for value in payload.use_user_ids}),
+        "cache_policy": payload.cache_policy,
+        "original_cache_quota_bytes": payload.original_cache_quota_bytes,
+        "original_cache_ttl_seconds": payload.original_cache_ttl_seconds,
+    }
+    validate_cache_config(config)
+    location = StorageLocation(
+        id=uuid.uuid4(),
+        name=payload.name,
+        kind="agent",
+        config_revision=1,
+        config=config,
+        enabled=True,
+    )
+    db.add(location)
+    await db.flush()
+    return location
+
+
 async def update_candidate(db, location, payload):
     """Validate and normalize public edits without mutating the stored location."""
-    if location.kind != "filesystem":
+    if location.kind not in {"filesystem", "agent"}:
         if location.connection_id is None:
             raise HTTPException(409, "Platform storage bindings are immutable")
         if any(
@@ -424,7 +484,16 @@ def validate_cache_config(config):
         raise HTTPException(422, detail={"code": "original_cache_quota_required"})
 
 
+def probe_node_id(location, node_id):
+    return (
+        f"agent:{location.config['agent_id']}" if location.kind == "agent" else node_id
+    )
+
+
 async def node_anchor(db, location, node_id):
+    if location.kind == "agent" and location.config.get("agent_anchor") is not None:
+        return location.config["agent_anchor"]
+    node_id = probe_node_id(location, node_id)
     if node_id == location.config.get("registration_node"):
         return location.config["registration_anchor"]
     prior = await db.get(StorageLocationProbe, (location.id, node_id))
@@ -465,7 +534,30 @@ async def browse(db, location, *, path, limit, cursor, maintenance_revision=None
                 raise ValueError()
         except (JWTError, ValueError, KeyError, TypeError):
             raise HTTPException(409, "Directory cursor is invalid or stale") from None
-    if location.kind == "sftp":
+    receipt = None
+    if location.kind == "agent":
+        from app.services import agent_transport
+
+        await db.commit()
+        receipt = await agent_transport.exchange(
+            db,
+            location,
+            "browse",
+            {
+                "path": path,
+                "expected_anchor": anchor,
+                "limit": limit,
+                "after": data["after"] if data else None,
+                "snapshot": data["snapshot"] if data else None,
+            },
+            fence={},
+            purpose="browse",
+            node_id=node,
+            expected_revision=maintenance_revision,
+        )
+        result = receipt.result["result"]
+        names, more, snapshot = result["names"], result["has_more"], result["snapshot"]
+    elif location.kind == "sftp":
         from app.services.reference_storage import configuration
 
         access = await configuration(db, location)
@@ -474,19 +566,20 @@ async def browse(db, location, *, path, limit, cursor, maintenance_revision=None
         from functools import partial
 
         browse_directory = partial(fs.browse_directory, location.config)
-    names, more, snapshot = await _registered_io(
-        db,
-        location.id,
-        "browse",
-        browse_directory,
-        path,
-        expected_revision=maintenance_revision,
-        node_id=node,
-        expected_anchor=anchor,
-        limit=limit,
-        after=data["after"] if data else None,
-        snapshot=data["snapshot"] if data else None,
-    )
+    if location.kind != "agent":
+        names, more, snapshot = await _registered_io(
+            db,
+            location.id,
+            "browse",
+            browse_directory,
+            path,
+            expected_revision=maintenance_revision,
+            node_id=node,
+            expected_anchor=anchor,
+            limit=limit,
+            after=data["after"] if data else None,
+            snapshot=data["snapshot"] if data else None,
+        )
     await storage_access.check(db, location.id, expected_revision=maintenance_revision)
     next_cursor = (
         jwt.encode(
@@ -507,13 +600,16 @@ async def browse(db, location, *, path, limit, cursor, maintenance_revision=None
         if more
         else None
     )
-    return {
+    result = {
         "entries": [
             {"name": name, "relative_path": f"{path}/{name}" if path else name}
             for name in names
         ],
         "next_cursor": next_cursor,
     }
+    if receipt is not None:
+        result["_agent_command_id"] = receipt.id
+    return result
 
 
 async def perform_probe(
@@ -523,7 +619,23 @@ async def perform_probe(
     revision = await storage_access.check(
         db, location.id, expected_revision=maintenance_revision
     )
-    if location.kind in {"s3", "sftp"}:
+    if location.kind == "agent":
+        from app.services import agent_transport
+
+        anchor = await node_anchor(db, location, node_id)
+        await db.commit()
+        receipt = await agent_transport.exchange(
+            db,
+            location,
+            "probe",
+            {"sample_file": sample_file, "expected_anchor": anchor},
+            fence={},
+            purpose="probe",
+            node_id=probe_node_id(location, node_id),
+            expected_revision=revision,
+        )
+        result = {**receipt.result["result"], "_agent_command_id": receipt.id}
+    elif location.kind in {"s3", "sftp"}:
         from app.services.reference_storage import configuration
 
         access = await configuration(db, location)
@@ -627,6 +739,20 @@ async def browse_s3(db, location, path, cursor, *, maintenance_revision=None):
 
 
 async def store_probe(db, location, node_id, result, observed_at):
+    result = dict(result)
+    receipt_id = result.pop("_agent_command_id", None)
+    node_id = probe_node_id(location, node_id)
+    if location.kind == "agent" and result.get("ok"):
+        anchor = location.config.get("agent_anchor")
+        if anchor is not None and anchor != result.get("anchor"):
+            result = {
+                **result,
+                "ok": False,
+                "code": "root_identity_changed",
+                "capabilities": {},
+            }
+        elif anchor is None:
+            location.config = {**location.config, "agent_anchor": result["anchor"]}
     await storage_access.check(
         db,
         location.id,
@@ -663,6 +789,11 @@ async def store_probe(db, location, node_id, result, observed_at):
             where=StorageLocationProbe.observed_at <= observed_at,
         )
     )
+    if receipt_id is not None:
+        from app.db.models.site_agent_command import SiteAgentCommand
+        from app.services.agent_transport import acknowledge
+
+        await acknowledge(db, await db.get(SiteAgentCommand, receipt_id), accepted=True)
 
 
 def probe_out(probe, location, *, measured_at=None, include_disabled=False):
@@ -695,7 +826,9 @@ async def require_scan_node(db, location, node_id):
     revision = await storage_access.check(db, location.id, lock=True)
     if not node_id.startswith("worker:"):
         raise HTTPException(409, "Scanning requires a verified worker node")
-    probe = await db.get(StorageLocationProbe, (location.id, node_id))
+    probe = await db.get(
+        StorageLocationProbe, (location.id, probe_node_id(location, node_id))
+    )
     if (
         probe is None
         or (probe.result or {}).get("maintenance_revision", 1) != revision

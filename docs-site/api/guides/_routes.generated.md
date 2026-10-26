@@ -669,6 +669,27 @@
 | GET | `/{scene_id}/trajectory` |
 | PATCH | `/{scene_id}` |
 
+## `site_agent_transport.py`
+
+| Method | Path |
+|---|---|
+| POST | `/commands/poll` |
+| POST | `/commands/{command_id}/chunks` |
+| POST | `/commands/{command_id}/result` |
+
+## `site_agents.py`
+
+| Method | Path |
+|---|---|
+| GET | `/sites` |
+| POST | `/sites` |
+| GET | `/agents` |
+| POST | `/sites/{site_id}/agents` |
+| POST | `/agents/{agent_id}/rotate` |
+| POST | `/agents/{agent_id}/revoke` |
+| POST | `/agents/{agent_id}/drain` |
+| POST | `/pair` |
+
 ## `storage_connections.py`
 
 | Method | Path |
@@ -715,6 +736,7 @@
 | GET | `/bindings/media-cache/candidates` |
 | POST | `/bindings/media-cache/change-preview` |
 | PATCH | `/bindings/media-cache` |
+| POST | `/agent` |
 | GET | `/{location_id}/faults` |
 | GET | `/{location_id}` |
 | GET | `/{location_id}/source-summary` |
@@ -1134,4 +1156,4 @@
 
 ---
 
-_共 101 模块 / 667 路由_
+_共 103 模块 / 679 路由_

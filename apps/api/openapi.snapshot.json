@@ -544,6 +544,620 @@
         "title": "AdminResetPasswordResponse",
         "type": "object"
       },
+      "AgentChunkAck": {
+        "properties": {
+          "command_digest": {
+            "title": "Command Digest",
+            "type": "string"
+          },
+          "command_id": {
+            "format": "uuid",
+            "title": "Command Id",
+            "type": "string"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "command_id",
+          "command_digest",
+          "offset",
+          "sha256"
+        ],
+        "title": "AgentChunkAck",
+        "type": "object"
+      },
+      "AgentCommandAck": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "command_digest": {
+            "title": "Command Digest",
+            "type": "string"
+          },
+          "command_id": {
+            "format": "uuid",
+            "title": "Command Id",
+            "type": "string"
+          },
+          "protocol_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Protocol Version",
+            "type": "integer"
+          },
+          "result_digest": {
+            "title": "Result Digest",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "received",
+              "applied",
+              "rejected"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "command_id",
+          "command_digest",
+          "result_digest",
+          "state",
+          "code"
+        ],
+        "title": "AgentCommandAck",
+        "type": "object"
+      },
+      "AgentCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "limits": {
+            "$ref": "#/components/schemas/AgentLimits"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "AgentCreate",
+        "type": "object"
+      },
+      "AgentCredentialsOut": {
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "credential_revision": {
+            "title": "Credential Revision",
+            "type": "integer"
+          },
+          "expires_at": {
+            "title": "Expires At",
+            "type": "integer"
+          },
+          "token": {
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "credential_revision",
+          "token",
+          "expires_at"
+        ],
+        "title": "AgentCredentialsOut",
+        "type": "object"
+      },
+      "AgentDrainRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "draining": {
+            "title": "Draining",
+            "type": "boolean"
+          },
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_revision",
+          "draining"
+        ],
+        "title": "AgentDrainRequest",
+        "type": "object"
+      },
+      "AgentLimits": {
+        "additionalProperties": false,
+        "properties": {
+          "bandwidth_bytes_per_second": {
+            "default": 8388608,
+            "maximum": 1073741824.0,
+            "minimum": 1024.0,
+            "title": "Bandwidth Bytes Per Second",
+            "type": "integer"
+          },
+          "max_bytes": {
+            "default": 67108864,
+            "maximum": 67108864.0,
+            "minimum": 1.0,
+            "title": "Max Bytes",
+            "type": "integer"
+          },
+          "max_concurrency": {
+            "default": 1,
+            "maximum": 4.0,
+            "minimum": 1.0,
+            "title": "Max Concurrency",
+            "type": "integer"
+          }
+        },
+        "title": "AgentLimits",
+        "type": "object"
+      },
+      "AgentList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AgentOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "AgentList",
+        "type": "object"
+      },
+      "AgentLocationCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "cache_policy": {
+            "default": "preview",
+            "enum": [
+              "none",
+              "preview",
+              "on_demand"
+            ],
+            "title": "Cache Policy",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "original_cache_quota_bytes": {
+            "default": 0,
+            "maximum": 1125899906842624.0,
+            "minimum": 0.0,
+            "title": "Original Cache Quota Bytes",
+            "type": "integer"
+          },
+          "original_cache_ttl_seconds": {
+            "default": 86400,
+            "maximum": 2592000.0,
+            "minimum": 60.0,
+            "title": "Original Cache Ttl Seconds",
+            "type": "integer"
+          },
+          "relative_path": {
+            "default": "",
+            "maxLength": 1000,
+            "title": "Relative Path",
+            "type": "string"
+          },
+          "root_handle": {
+            "pattern": "^[A-Za-z0-9_-]{1,64}$",
+            "title": "Root Handle",
+            "type": "string"
+          },
+          "root_revision": {
+            "minimum": 1.0,
+            "title": "Root Revision",
+            "type": "integer"
+          },
+          "scope": {
+            "default": "restricted",
+            "enum": [
+              "restricted",
+              "global"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "use_user_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Use User Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "root_handle",
+          "agent_id",
+          "root_revision"
+        ],
+        "title": "AgentLocationCreate",
+        "type": "object"
+      },
+      "AgentOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "format": "uuid",
+            "title": "Created By",
+            "type": "string"
+          },
+          "credential_revision": {
+            "title": "Credential Revision",
+            "type": "integer"
+          },
+          "draining": {
+            "title": "Draining",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_seen": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/AgentLimits"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "pair_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pair Expires At"
+          },
+          "protocol_version": {
+            "title": "Protocol Version",
+            "type": "integer"
+          },
+          "reported_limits": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentLimits"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "roots": {
+            "items": {
+              "$ref": "#/components/schemas/AgentRoot"
+            },
+            "title": "Roots",
+            "type": "array"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "site_id": {
+            "format": "uuid",
+            "title": "Site Id",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "online",
+              "degraded",
+              "offline",
+              "revoked"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "site_id",
+          "name",
+          "protocol_version",
+          "credential_revision",
+          "state",
+          "draining",
+          "revoked_at",
+          "pair_expires_at",
+          "session_id",
+          "last_seen",
+          "roots",
+          "limits",
+          "reported_limits",
+          "created_by",
+          "created_at"
+        ],
+        "title": "AgentOut",
+        "type": "object"
+      },
+      "AgentPairRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "pair_code": {
+            "pattern": "^[A-Za-z0-9_-]{32,256}$",
+            "title": "Pair Code",
+            "type": "string"
+          },
+          "protocol_version": {
+            "title": "Protocol Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "agent_id",
+          "pair_code",
+          "protocol_version"
+        ],
+        "title": "AgentPairRequest",
+        "type": "object"
+      },
+      "AgentPairingOut": {
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "pair_code": {
+            "title": "Pair Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "pair_code",
+          "expires_at"
+        ],
+        "title": "AgentPairingOut",
+        "type": "object"
+      },
+      "AgentPollRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "credential_revision": {
+            "minimum": 1.0,
+            "title": "Credential Revision",
+            "type": "integer"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/AgentReportedLimits"
+          },
+          "protocol_version": {
+            "maximum": 1.0,
+            "minimum": 1.0,
+            "title": "Protocol Version",
+            "type": "integer"
+          },
+          "roots": {
+            "items": {
+              "$ref": "#/components/schemas/RootAdvertisement"
+            },
+            "maxItems": 32,
+            "title": "Roots",
+            "type": "array"
+          },
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "agent_id",
+          "credential_revision",
+          "session_id",
+          "roots",
+          "limits"
+        ],
+        "title": "AgentPollRequest",
+        "type": "object"
+      },
+      "AgentPollResponse": {
+        "properties": {
+          "command": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Command"
+          },
+          "protocol_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Protocol Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "title": "AgentPollResponse",
+        "type": "object"
+      },
+      "AgentReportedLimits": {
+        "additionalProperties": false,
+        "properties": {
+          "bandwidth_bytes_per_second": {
+            "maximum": 1073741824.0,
+            "minimum": 1024.0,
+            "title": "Bandwidth Bytes Per Second",
+            "type": "integer"
+          },
+          "max_bytes": {
+            "maximum": 67108864.0,
+            "minimum": 1.0,
+            "title": "Max Bytes",
+            "type": "integer"
+          },
+          "max_concurrency": {
+            "maximum": 4.0,
+            "minimum": 1.0,
+            "title": "Max Concurrency",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "max_concurrency",
+          "bandwidth_bytes_per_second",
+          "max_bytes"
+        ],
+        "title": "AgentReportedLimits",
+        "type": "object"
+      },
+      "AgentRevisionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Revision"
+          }
+        },
+        "title": "AgentRevisionRequest",
+        "type": "object"
+      },
+      "AgentRoot": {
+        "additionalProperties": false,
+        "properties": {
+          "root_handle": {
+            "pattern": "^[A-Za-z0-9_-]{1,64}$",
+            "title": "Root Handle",
+            "type": "string"
+          },
+          "root_revision": {
+            "minimum": 1.0,
+            "title": "Root Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "root_handle",
+          "root_revision"
+        ],
+        "title": "AgentRoot",
+        "type": "object"
+      },
       "AiMaskAcceptRequest": {
         "additionalProperties": false,
         "properties": {
@@ -42729,6 +43343,27 @@
         "title": "RoleImpactProject",
         "type": "object"
       },
+      "RootAdvertisement": {
+        "additionalProperties": false,
+        "properties": {
+          "root_handle": {
+            "pattern": "^[A-Za-z0-9_-]{1,64}$",
+            "title": "Root Handle",
+            "type": "string"
+          },
+          "root_revision": {
+            "minimum": 1.0,
+            "title": "Root Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "root_handle",
+          "root_revision"
+        ],
+        "title": "RootAdvertisement",
+        "type": "object"
+      },
       "RotatedBboxGeometry": {
         "additionalProperties": false,
         "description": "旋转矩形。cx,cy 为中心点，w,h 为边长，angle 为顺时针旋转角度（度，[0,360)）。",
@@ -45443,6 +46078,99 @@
         "title": "ShortcutBinding",
         "type": "object"
       },
+      "SiteCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "SiteCreate",
+        "type": "object"
+      },
+      "SiteList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SiteOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "SiteList",
+        "type": "object"
+      },
+      "SiteOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "format": "uuid",
+            "title": "Created By",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "region",
+          "created_by",
+          "created_at"
+        ],
+        "title": "SiteOut",
+        "type": "object"
+      },
       "SkipTaskRequest": {
         "properties": {
           "note": {
@@ -47714,6 +48442,18 @@
       },
       "StorageLocationListItem": {
         "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
           "allowed_actions": {
             "items": {
               "type": "string"
@@ -47821,6 +48561,17 @@
             ],
             "title": "Root Handle"
           },
+          "root_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Root Revision"
+          },
           "scope": {
             "anyOf": [
               {
@@ -47831,6 +48582,18 @@
               }
             ],
             "title": "Scope"
+          },
+          "site_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site Id"
           },
           "source_usage": {
             "$ref": "#/components/schemas/StorageSourceUsage"
@@ -47859,6 +48622,18 @@
       },
       "StorageLocationOut": {
         "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
           "allowed_actions": {
             "items": {
               "type": "string"
@@ -47963,6 +48738,17 @@
             ],
             "title": "Root Handle"
           },
+          "root_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Root Revision"
+          },
           "scope": {
             "anyOf": [
               {
@@ -47973,6 +48759,18 @@
               }
             ],
             "title": "Scope"
+          },
+          "site_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site Id"
           },
           "use_user_ids": {
             "items": {
@@ -99273,6 +100071,730 @@
         ]
       }
     },
+    "/api/v1/site-agents/agents": {
+      "get": {
+        "operationId": "list_agents_api_v1_site_agents_agents_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "site_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Site Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Agents",
+        "tags": [
+          "site-agents",
+          "site-agents"
+        ]
+      }
+    },
+    "/api/v1/site-agents/agents/{agent_id}/drain": {
+      "post": {
+        "operationId": "drain_agent_api_v1_site_agents_agents__agent_id__drain_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentDrainRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Drain Agent",
+        "tags": [
+          "site-agents",
+          "site-agents"
+        ]
+      }
+    },
+    "/api/v1/site-agents/agents/{agent_id}/revoke": {
+      "post": {
+        "operationId": "revoke_agent_api_v1_site_agents_agents__agent_id__revoke_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/AgentRevisionRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Revoke Agent",
+        "tags": [
+          "site-agents",
+          "site-agents"
+        ]
+      }
+    },
+    "/api/v1/site-agents/agents/{agent_id}/rotate": {
+      "post": {
+        "operationId": "rotate_agent_api_v1_site_agents_agents__agent_id__rotate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/AgentRevisionRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentPairingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Rotate Agent",
+        "tags": [
+          "site-agents",
+          "site-agents"
+        ]
+      }
+    },
+    "/api/v1/site-agents/commands/poll": {
+      "post": {
+        "operationId": "poll_api_v1_site_agents_commands_poll_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-agent-protocol",
+            "required": false,
+            "schema": {
+              "default": "1",
+              "title": "X-Agent-Protocol",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentPollRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentPollResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Poll",
+        "tags": [
+          "site-agents"
+        ]
+      }
+    },
+    "/api/v1/site-agents/commands/{command_id}/chunks": {
+      "post": {
+        "operationId": "chunk_api_v1_site_agents_commands__command_id__chunks_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "command_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Command Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-agent-protocol",
+            "required": false,
+            "schema": {
+              "default": "1",
+              "title": "X-Agent-Protocol",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-command-digest",
+            "required": true,
+            "schema": {
+              "title": "X-Command-Digest",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-chunk-offset",
+            "required": true,
+            "schema": {
+              "minimum": 0,
+              "title": "X-Chunk-Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-chunk-sha256",
+            "required": true,
+            "schema": {
+              "title": "X-Chunk-Sha256",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentChunkAck"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Chunk",
+        "tags": [
+          "site-agents"
+        ]
+      }
+    },
+    "/api/v1/site-agents/commands/{command_id}/result": {
+      "post": {
+        "operationId": "result_api_v1_site_agents_commands__command_id__result_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "command_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Command Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-agent-protocol",
+            "required": false,
+            "schema": {
+              "default": "1",
+              "title": "X-Agent-Protocol",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentCommandAck"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Result",
+        "tags": [
+          "site-agents"
+        ]
+      }
+    },
+    "/api/v1/site-agents/pair": {
+      "post": {
+        "operationId": "pair_agent_api_v1_site_agents_pair_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentPairRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentCredentialsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Pair Agent",
+        "tags": [
+          "site-agents",
+          "site-agents"
+        ]
+      }
+    },
+    "/api/v1/site-agents/sites": {
+      "get": {
+        "operationId": "list_sites_api_v1_site_agents_sites_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Sites",
+        "tags": [
+          "site-agents",
+          "site-agents"
+        ]
+      },
+      "post": {
+        "operationId": "create_site_api_v1_site_agents_sites_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SiteCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Site",
+        "tags": [
+          "site-agents",
+          "site-agents"
+        ]
+      }
+    },
+    "/api/v1/site-agents/sites/{site_id}/agents": {
+      "post": {
+        "operationId": "create_agent_api_v1_site_agents_sites__site_id__agents_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "site_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Site Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentPairingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Agent",
+        "tags": [
+          "site-agents",
+          "site-agents"
+        ]
+      }
+    },
     "/api/v1/storage-connections": {
       "get": {
         "description": "仅项目管理员或超级管理员可读配置；API Key 需 datasets:read。",
@@ -99760,6 +101282,52 @@
           }
         ],
         "summary": "Create Location",
+        "tags": [
+          "storage-locations"
+        ]
+      }
+    },
+    "/api/v1/storage-locations/agent": {
+      "post": {
+        "operationId": "create_agent_location_api_v1_storage_locations_agent_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentLocationCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageLocationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Agent Location",
         "tags": [
           "storage-locations"
         ]

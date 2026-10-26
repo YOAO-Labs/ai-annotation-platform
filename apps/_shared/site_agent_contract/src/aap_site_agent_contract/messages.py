@@ -248,6 +248,7 @@ def _arguments(value: Any, operation: str) -> dict:
         "browse": {"after", "snapshot"},
         "scan": {"expected_identity"},
         "read": {
+            "source_path",
             "expected",
             "expected_source_identity",
             "expected_sha256",
@@ -284,6 +285,8 @@ def _arguments(value: Any, operation: str) -> dict:
             _pair(identity, code) if identity is not None else None
         )
     else:
+        if "source_path" in value:
+            result["source_path"] = _path(value["source_path"])
         result["expected"] = _observation(value.get("expected"))
         identity, sha, size = (
             value.get("expected_source_identity"),
