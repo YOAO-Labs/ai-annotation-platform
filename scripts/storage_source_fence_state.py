@@ -15,7 +15,9 @@ import stat
 import uuid
 
 SCHEMA = "aap.storage-source-fence/v1"
+ROLLBACK_SCHEMA = "aap.storage-source-fence/v2"
 CLAIM_SCHEMA = "aap.storage-migration-fence-claim/v1"
+ROLLBACK_CLAIM_SCHEMA = "aap.storage-migration-rollback-fence-claim/v1"
 MAX_BYTES = 4 * 1024**2
 MAX_RECEIPT_BYTES = 16 * 1024
 MAX_COUNTER = 2**63 - 1
@@ -139,6 +141,40 @@ def _application_claim(value, config_digest, operation_id):
     return deepcopy(value)
 
 
+def _rollback_claim(value, config_digest, operation_id):
+    fields = {
+        "schema",
+        "cutover_id",
+        "expected_cutover_revision",
+        "database_identity",
+        "reservation_nonce",
+        "native_operation_id",
+        "config_digest",
+        "reserved",
+    }
+    try:
+        if (
+            not isinstance(value, dict)
+            or set(value) != fields
+            or value["schema"] != ROLLBACK_CLAIM_SCHEMA
+            or type(value["expected_cutover_revision"]) is not int
+            or not 1 <= value["expected_cutover_revision"] <= MAX_COUNTER
+            or type(value["reserved"]) is not bool
+            or any(
+                not isinstance(value[key], str) or not _DIGEST.fullmatch(value[key])
+                for key in ("database_identity", "config_digest")
+            )
+            or value["config_digest"] != config_digest
+            or value["native_operation_id"] != operation_id
+        ):
+            raise ValueError
+        for key in ("cutover_id", "reservation_nonce", "native_operation_id"):
+            _identifier(value[key])
+    except (ValueError, TypeError, KeyError):
+        raise FenceError("rollback_claim_invalid") from None
+    return deepcopy(value)
+
+
 def _private(info, mode, *, directory=False):
     if (
         info.st_uid != os.getuid()
@@ -234,7 +270,7 @@ class Journal:
     def _validate(self, value):
         if (
             not isinstance(value, dict)
-            or value.get("schema") != SCHEMA
+            or value.get("schema") not in (SCHEMA, ROLLBACK_SCHEMA)
             or value.get("config_digest") != self.config_digest
             or type(value.get("revision")) is not int
             or not 1 <= value["revision"] <= MAX_COUNTER
@@ -254,6 +290,12 @@ class Journal:
             _identifier(value["operation_id"])
         if value.get("release_operation_id") is not None:
             _identifier(value["release_operation_id"])
+        if "rollback_claim" in value:
+            if value["schema"] != ROLLBACK_SCHEMA or "application_claim" in value:
+                raise FenceError("journal_invalid")
+            _rollback_claim(
+                value["rollback_claim"], self.config_digest, value["operation_id"]
+            )
         if "application_claim" in value:
             _application_claim(
                 value["application_claim"], self.config_digest, value["operation_id"]
@@ -371,6 +413,8 @@ class Journal:
         self._revision = candidate["revision"]
 
     def bind_application(self, claim):
+        if "rollback_claim" in self.data:
+            raise FenceError("rollback_fence_bound")
         claim = _application_claim(claim, self.config_digest, self.data["operation_id"])
         if self.data["phase"] != "held":
             raise FenceError("application_fence_not_held")
@@ -414,6 +458,55 @@ class Journal:
             self.data["application_claim"] = claim
             raise
 
+    def bind_rollback(self, claim):
+        if "application_claim" in self.data:
+            raise FenceError("application_fence_bound")
+        claim = _rollback_claim(claim, self.config_digest, self.data["operation_id"])
+        if self.data["phase"] != "held":
+            raise FenceError("rollback_fence_not_held")
+        existing = self.data.get("rollback_claim")
+        if existing is not None:
+            if {k: v for k, v in existing.items() if k != "reserved"} != {
+                k: v for k, v in claim.items() if k != "reserved"
+            }:
+                raise FenceError("rollback_claim_conflict")
+            if json.loads(self._saved).get("rollback_claim") != existing:
+                self.save()
+            return
+        # Older controllers must reject this journal instead of ignoring its claim.
+        self.data.update(schema=ROLLBACK_SCHEMA, rollback_claim=claim)
+        self.save()
+
+    def _matching_rollback(self, cutover_id, reservation_nonce):
+        try:
+            _identifier(cutover_id)
+            _identifier(reservation_nonce)
+        except FenceError:
+            raise FenceError("rollback_claim_invalid") from None
+        claim = self.data.get("rollback_claim")
+        if claim is None or (
+            claim["cutover_id"] != cutover_id
+            or claim["reservation_nonce"] != reservation_nonce
+        ):
+            raise FenceError("rollback_claim_conflict")
+        return claim
+
+    def mark_rollback_reserved(self, cutover_id, reservation_nonce):
+        claim = self._matching_rollback(cutover_id, reservation_nonce)
+        if not claim["reserved"]:
+            claim["reserved"] = True
+        if json.loads(self._saved).get("rollback_claim") != claim:
+            self.save()
+
+    def unbind_rollback(self, cutover_id, reservation_nonce):
+        claim = self._matching_rollback(cutover_id, reservation_nonce)
+        del self.data["rollback_claim"]
+        try:
+            self.save()
+        except BaseException:
+            self.data["rollback_claim"] = claim
+            raise
+
 
 class Controller:
     def __init__(self, journal, adapter):
@@ -448,9 +541,14 @@ class Controller:
         self.journal.save()
 
     def _uncertain(self, failure):
-        # Retain only acknowledged journal facts. An oversized/unserializable
-        # new receipt must not prevent saving uncertainty about its side effect.
+        # Unacknowledged receipts cannot grant proof. A pending rollback claim
+        # must still prevent reopening after a failed journal write.
+        pending_rollback = deepcopy(self.journal.data.get("rollback_claim"))
         self.journal.data = json.loads(self.journal._saved)
+        if pending_rollback is not None:
+            self.journal.data.update(
+                schema=ROLLBACK_SCHEMA, rollback_claim=pending_rollback
+            )
         self.journal.data.update(phase="uncertain", observation=None)
         try:
             self.journal.save()
@@ -467,7 +565,7 @@ class Controller:
         if row.get("aborted_uploads") is not None:
             counts["aborted_uploads"] = row["aborted_uploads"]
         return {
-            "schema": SCHEMA,
+            "schema": row["schema"],
             "revision": row["revision"],
             "phase": row["phase"],
             "held": row["phase"] == "held" and observed is not None,
@@ -500,6 +598,8 @@ class Controller:
         return self._summary(observed)
 
     def seal(self, expected_revision: int, operation_id: str):
+        if "rollback_claim" in self.journal.data:
+            raise FenceError("rollback_fence_bound")
         if "application_claim" in self.journal.data:
             raise FenceError("application_fence_bound")
         self._cas(expected_revision)
@@ -573,6 +673,8 @@ class Controller:
         self.journal.save()
 
     def release(self, expected_revision: int, operation_id: str):
+        if "rollback_claim" in self.journal.data:
+            raise FenceError("rollback_fence_bound")
         if "application_claim" in self.journal.data:
             raise FenceError("application_fence_bound")
         self._cas(expected_revision)

@@ -1,6 +1,8 @@
 """Pure protocol tests: no Docker, database, provider, or shared runtime."""
 
 from copy import deepcopy
+import contextlib
+import io
 import json
 import os
 from pathlib import Path
@@ -18,6 +20,9 @@ from storage_source_fence_state import (
     FenceError,
     Journal,
     MAX_BYTES,
+    MAX_COUNTER,
+    ROLLBACK_CLAIM_SCHEMA,
+    ROLLBACK_SCHEMA,
     SCHEMA,
 )
 
@@ -35,6 +40,20 @@ def application_claim(**updates):
         "expected_window_revision": 3,
         "database_identity": "b" * 64,
         "reservation_nonce": str(uuid.UUID(int=12)),
+        "native_operation_id": SEAL,
+        "config_digest": DIGEST,
+        "reserved": False,
+        **updates,
+    }
+
+
+def rollback_claim(**updates):
+    return {
+        "schema": ROLLBACK_CLAIM_SCHEMA,
+        "cutover_id": str(uuid.UUID(int=20)),
+        "expected_cutover_revision": 3,
+        "database_identity": "b" * 64,
+        "reservation_nonce": str(uuid.UUID(int=21)),
         "native_operation_id": SEAL,
         "config_digest": DIGEST,
         "reserved": False,
@@ -1006,6 +1025,371 @@ class ApplicationClaimTests(Base):
             self.assertNotIn(
                 application_claim()["reservation_nonce"].encode(), result.stderr
             )
+
+
+class RollbackClaimTests(Base):
+    def held(self, journal):
+        adapter = Adapter(self.path)
+        Controller(journal, adapter).seal(journal.data["revision"], SEAL)
+        return adapter
+
+    def test_durable_bind_reserve_reload_and_unbind_keep_v2(self):
+        claim = rollback_claim()
+        with self.create() as journal:
+            self.held(journal)
+            before = journal.data["revision"]
+            journal.bind_rollback(claim)
+            self.assertEqual(journal.data["schema"], ROLLBACK_SCHEMA)
+            self.assertNotEqual(journal.data["schema"], SCHEMA)
+            self.assertEqual(journal.data["revision"], before + 1)
+            journal.bind_rollback(deepcopy(claim))
+            self.assertEqual(journal.data["revision"], before + 1)
+            journal.mark_rollback_reserved(
+                claim["cutover_id"], claim["reservation_nonce"]
+            )
+            journal.mark_rollback_reserved(
+                claim["cutover_id"], claim["reservation_nonce"]
+            )
+            journal.bind_rollback(claim)
+            self.assertEqual(journal.data["revision"], before + 2)
+        with self.reopen() as journal:
+            self.assertTrue(journal.data["rollback_claim"]["reserved"])
+            journal.unbind_rollback(claim["cutover_id"], claim["reservation_nonce"])
+        with self.reopen() as journal:
+            self.assertNotIn("rollback_claim", journal.data)
+            self.assertEqual(journal.data["schema"], ROLLBACK_SCHEMA)
+
+    def test_bind_requires_held_and_exact_native_identity(self):
+        with self.create() as journal:
+            self.assert_code(
+                "rollback_claim_invalid",
+                lambda: journal.bind_rollback(rollback_claim()),
+            )
+            self.held(journal)
+            for updates in ({"native_operation_id": NEXT}, {"config_digest": "c" * 64}):
+                self.assert_code(
+                    "rollback_claim_invalid",
+                    lambda: journal.bind_rollback(rollback_claim(**updates)),
+                )
+            journal.data.update(phase="uncertain", observation=None)
+            journal.save()
+            self.assert_code(
+                "rollback_fence_not_held",
+                lambda: journal.bind_rollback(rollback_claim()),
+            )
+
+    def test_application_and_rollback_claims_are_mutually_exclusive(self):
+        with self.create() as journal:
+            self.held(journal)
+            journal.bind_application(application_claim())
+            before = self.path.read_bytes()
+            self.assert_code(
+                "application_fence_bound",
+                lambda: journal.bind_rollback(rollback_claim()),
+            )
+            self.assertEqual(before, self.path.read_bytes())
+            journal.unbind_application(
+                application_claim()["finalization_id"],
+                application_claim()["reservation_nonce"],
+            )
+            journal.bind_rollback(rollback_claim())
+            before = self.path.read_bytes()
+            self.assert_code(
+                "rollback_fence_bound",
+                lambda: journal.bind_application(application_claim()),
+            )
+            self.assertEqual(before, self.path.read_bytes())
+
+    def test_every_immutable_group_identity_is_checked(self):
+        with self.create() as journal:
+            self.held(journal)
+            journal.bind_rollback(rollback_claim())
+            for key, value in (
+                ("cutover_id", NEXT),
+                ("expected_cutover_revision", 4),
+                ("database_identity", "c" * 64),
+                ("reservation_nonce", NEXT),
+            ):
+                self.assert_code(
+                    "rollback_claim_conflict",
+                    lambda: journal.bind_rollback(rollback_claim(**{key: value})),
+                )
+
+    def test_malformed_or_finalization_claim_cannot_mutate_journal(self):
+        with self.create() as journal:
+            self.held(journal)
+            before = self.path.read_bytes()
+            invalid = [None, {}, application_claim(), rollback_claim(extra="private")]
+            for key, values in {
+                "schema": [CLAIM_SCHEMA, "other"],
+                "cutover_id": [str(uuid.UUID(int=0xABCDEF)).upper(), "bad", None],
+                "reservation_nonce": ["a" * 64],
+                "expected_cutover_revision": [True, 0, -1, 1.0, MAX_COUNTER + 1],
+                "database_identity": ["b" * 63, "B" * 64],
+                "reserved": [0, None],
+            }.items():
+                invalid.extend(rollback_claim(**{key: value}) for value in values)
+            for claim in invalid:
+                if claim == rollback_claim():
+                    continue
+                self.assert_code(
+                    "rollback_claim_invalid", lambda: journal.bind_rollback(claim)
+                )
+            self.assertEqual(before, self.path.read_bytes())
+            self.assertEqual(journal.data["schema"], SCHEMA)
+
+    def test_loading_rejects_v1_rollback_both_claims_and_invalid_uncertain_claim(self):
+        with self.create() as journal:
+            self.held(journal)
+            saved = deepcopy(journal.data)
+        for updates, code in (
+            ({"rollback_claim": rollback_claim()}, "journal_invalid"),
+            (
+                {
+                    "schema": ROLLBACK_SCHEMA,
+                    "rollback_claim": rollback_claim(),
+                    "application_claim": application_claim(),
+                },
+                "journal_invalid",
+            ),
+            (
+                {
+                    "schema": ROLLBACK_SCHEMA,
+                    "phase": "uncertain",
+                    "observation": None,
+                    "rollback_claim": rollback_claim(native_operation_id=NEXT),
+                },
+                "rollback_claim_invalid",
+            ),
+        ):
+            with self.subTest(updates=updates):
+                self.path.write_text(json.dumps({**saved, **updates}))
+                self.assert_code(code, lambda: self.reopen().__enter__())
+
+    def test_bound_seal_release_fail_before_cas_or_any_native_call(self):
+        with self.create() as journal:
+            adapter = self.held(journal)
+            journal.bind_rollback(rollback_claim())
+            adapter.calls.clear()
+            controller = Controller(journal, adapter)
+            for revision in (1, journal.data["revision"]):
+                self.assert_code(
+                    "rollback_fence_bound", lambda: controller.seal(revision, "invalid")
+                )
+                self.assert_code(
+                    "rollback_fence_bound",
+                    lambda: controller.release(revision, "invalid"),
+                )
+            self.assertEqual(adapter.calls, [])
+
+    def test_ordinary_cli_cannot_release_or_reseal_a_bound_rollback(self):
+        import storage_source_fence as cli
+
+        self.path = self.path.with_name("fence-state.json")
+        with self.create() as journal:
+            adapter = self.held(journal)
+            journal.bind_rollback(rollback_claim())
+            revision = journal.data["revision"]
+        adapter.directory = self.path.parent / "gateway"
+        adapter.calls.clear()
+        for command in ("seal", "release"):
+            output, error = io.StringIO(), io.StringIO()
+            with (
+                patch.object(cli, "descriptor", return_value=({}, DIGEST)),
+                patch.object(cli, "DockerAdapter", return_value=adapter),
+                contextlib.redirect_stdout(output),
+                contextlib.redirect_stderr(error),
+            ):
+                result = cli.main(
+                    [
+                        command,
+                        "--config",
+                        "private-config",
+                        "--state",
+                        str(self.path),
+                        "--expected-revision",
+                        str(revision),
+                        "--operation-id",
+                        RELEASE,
+                    ]
+                )
+            self.assertEqual(result, 2)
+            self.assertEqual(output.getvalue(), "")
+            self.assertEqual(
+                json.loads(error.getvalue())["code"], "rollback_fence_bound"
+            )
+            self.assertNotIn(rollback_claim()["reservation_nonce"], error.getvalue())
+        self.assertEqual(adapter.calls, [])
+
+    def test_status_failure_retains_claim_after_reload_without_exposing_owner(self):
+        with self.create() as journal:
+            adapter = self.held(journal)
+            journal.bind_rollback(rollback_claim())
+            controller = Controller(journal, adapter)
+            result = controller.status()
+            self.assertTrue(result["held"])
+            self.assertEqual(result["schema"], ROLLBACK_SCHEMA)
+            self.assertNotIn("rollback_claim", result)
+            self.assertNotIn(rollback_claim()["reservation_nonce"], json.dumps(result))
+            adapter.fail = "verify"
+            self.assert_code("native_operation_failed", controller.status)
+        with self.reopen() as journal:
+            self.assertEqual(journal.data["phase"], "uncertain")
+            self.assertEqual(journal.data["rollback_claim"], rollback_claim())
+            self.assert_code(
+                "rollback_fence_bound",
+                lambda: Controller(journal, adapter).release(
+                    journal.data["revision"], RELEASE
+                ),
+            )
+
+    def test_wrong_owner_or_nonce_cannot_reserve_or_unbind(self):
+        with self.create() as journal:
+            self.held(journal)
+            claim = rollback_claim()
+            journal.bind_rollback(claim)
+            for method in (journal.mark_rollback_reserved, journal.unbind_rollback):
+                for ids in (
+                    (NEXT, claim["reservation_nonce"]),
+                    (claim["cutover_id"], NEXT),
+                ):
+                    self.assert_code("rollback_claim_conflict", lambda: method(*ids))
+                self.assert_code(
+                    "rollback_claim_invalid",
+                    lambda: method("bad", claim["reservation_nonce"]),
+                )
+
+    def test_failed_bind_and_reserve_retry_must_fsync_before_acknowledging(self):
+        with self.create() as journal:
+            self.held(journal)
+            claim = rollback_claim()
+            with patch.object(journal, "_write", side_effect=OSError("private")):
+                for _ in range(2):
+                    self.assert_code(
+                        "journal_write_failed", lambda: journal.bind_rollback(claim)
+                    )
+            journal.bind_rollback(claim)
+            self.assertEqual(
+                json.loads(self.path.read_bytes())["rollback_claim"], claim
+            )
+            with patch.object(journal, "_write", side_effect=OSError("private")):
+                for _ in range(2):
+                    self.assert_code(
+                        "journal_write_failed",
+                        lambda: journal.mark_rollback_reserved(
+                            claim["cutover_id"], claim["reservation_nonce"]
+                        ),
+                    )
+            journal.mark_rollback_reserved(
+                claim["cutover_id"], claim["reservation_nonce"]
+            )
+            self.assertTrue(
+                json.loads(self.path.read_bytes())["rollback_claim"]["reserved"]
+            )
+
+    def test_unacknowledged_bind_survives_status_invalidation(self):
+        with self.create() as journal:
+            adapter = self.held(journal)
+            with patch.object(journal, "_write", side_effect=OSError("private")):
+                self.assert_code(
+                    "journal_write_failed",
+                    lambda: journal.bind_rollback(rollback_claim()),
+                )
+            adapter.fail = "verify"
+            controller = Controller(journal, adapter)
+            self.assert_code("native_operation_failed", controller.status)
+            self.assert_code(
+                "rollback_fence_bound",
+                lambda: controller.release(journal.data["revision"], RELEASE),
+            )
+        with self.reopen() as journal:
+            self.assertEqual(journal.data["rollback_claim"], rollback_claim())
+            self.assertEqual(journal.data["phase"], "uncertain")
+
+    def test_failed_unbind_retains_memory_and_disk_interlock(self):
+        with self.create() as journal:
+            adapter = self.held(journal)
+            claim = rollback_claim()
+            journal.bind_rollback(claim)
+            with patch.object(journal, "_write", side_effect=OSError("private")):
+                self.assert_code(
+                    "journal_write_failed",
+                    lambda: journal.unbind_rollback(
+                        claim["cutover_id"], claim["reservation_nonce"]
+                    ),
+                )
+            self.assertEqual(journal.data["rollback_claim"], claim)
+            self.assertEqual(
+                json.loads(self.path.read_bytes())["rollback_claim"], claim
+            )
+            self.assert_code(
+                "rollback_fence_bound",
+                lambda: Controller(journal, adapter).release(
+                    journal.data["revision"], RELEASE
+                ),
+            )
+
+    def test_failed_fsync_after_rename_is_unknown_and_reloads_claim(self):
+        with self.create() as journal:
+            adapter = self.held(journal)
+            original = os.fsync
+
+            def fail_directory(descriptor):
+                if descriptor == journal._directory:
+                    raise OSError("private")
+                return original(descriptor)
+
+            with patch(
+                "storage_source_fence_state.os.fsync", side_effect=fail_directory
+            ):
+                self.assert_code(
+                    "journal_write_failed",
+                    lambda: journal.bind_rollback(rollback_claim()),
+                )
+            self.assert_code(
+                "rollback_fence_bound",
+                lambda: Controller(journal, adapter).release(
+                    journal.data["revision"], RELEASE
+                ),
+            )
+            self.assert_code(
+                "journal_changed", lambda: journal.bind_rollback(rollback_claim())
+            )
+        with self.reopen() as journal:
+            self.assertEqual(journal.data["rollback_claim"], rollback_claim())
+
+    def test_cancellation_during_unbind_keeps_interlock(self):
+        with self.create() as journal:
+            adapter = self.held(journal)
+            claim = rollback_claim()
+            journal.bind_rollback(claim)
+            with patch.object(journal, "_write", side_effect=KeyboardInterrupt):
+                with self.assertRaises(KeyboardInterrupt):
+                    journal.unbind_rollback(
+                        claim["cutover_id"], claim["reservation_nonce"]
+                    )
+            self.assert_code(
+                "rollback_fence_bound",
+                lambda: Controller(journal, adapter).release(
+                    journal.data["revision"], RELEASE
+                ),
+            )
+
+    def test_exact_unbind_allows_existing_native_release_without_schema_downgrade(self):
+        with self.create() as journal:
+            adapter = self.held(journal)
+            claim = rollback_claim()
+            journal.bind_rollback(claim)
+            journal.mark_rollback_reserved(
+                claim["cutover_id"], claim["reservation_nonce"]
+            )
+            journal.unbind_rollback(claim["cutover_id"], claim["reservation_nonce"])
+            result = Controller(journal, adapter).release(
+                journal.data["revision"], RELEASE
+            )
+            self.assertEqual(result["phase"], "released")
+            self.assertEqual(result["schema"], ROLLBACK_SCHEMA)
+            self.assertFalse(adapter.read_only)
 
 
 if __name__ == "__main__":

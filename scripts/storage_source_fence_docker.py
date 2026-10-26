@@ -243,7 +243,12 @@ class _Budget:
 
 class DockerAdapter:
     @_safe
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, *, credential_prefix="AAP_SOURCE_FENCE"):
+        _require(
+            credential_prefix in ("AAP_SOURCE_FENCE", "AAP_TARGET_FENCE"),
+            "native_credentials_invalid",
+        )
+        self.credential_prefix = credential_prefix
         _require(
             isinstance(config, dict)
             and set(config) == _FIELDS
@@ -391,7 +396,7 @@ class DockerAdapter:
             "native_image_changed",
         )
 
-    def _observe(self, *, stopped=False):
+    def _observe(self, *, stopped=False, with_frontend=False):
         source = self._inspect("container", self.config["source_container"])
         gateway = self._inspect("container", self.config["gateway_container"])
         network = self._inspect("network", self.config["network_id"])
@@ -533,7 +538,41 @@ class DockerAdapter:
                 self._generation(gateway) == self.gateway_generation,
                 "native_gateway_generation_changed",
             )
+        if with_frontend:
+            return source, gateway, content, frontend
         return source, gateway, content
+
+    @_safe
+    def application_endpoint(self):
+        """Return only the freshly verified sole gateway's frontend address."""
+        _, gateway, _, frontend = self._observe(with_frontend=True)
+        networks = gateway["NetworkSettings"]["Networks"]
+        matches = [
+            network
+            for network in networks.values()
+            if network.get("NetworkID") == self.config["gateway_frontend_network_id"]
+        ]
+        _require(len(matches) == 1, "native_endpoint_changed")
+        address = matches[0].get("IPAddress")
+        member = frontend["Containers"][self.config["gateway_container"]]
+        try:
+            ip = ipaddress.IPv4Address(address)
+            recorded = member["IPv4Address"]
+            _require(
+                isinstance(recorded, str) and "/" in recorded,
+                "native_endpoint_changed",
+            )
+            observed = ipaddress.IPv4Interface(recorded).ip
+        except (ValueError, TypeError, KeyError):
+            raise FenceError("native_endpoint_changed") from None
+        _require(
+            str(ip) == address
+            and ip == observed
+            and not (ip.is_loopback or ip.is_unspecified or ip.is_multicast)
+            and address != self.source_ip,
+            "native_endpoint_changed",
+        )
+        return f"http://{ip}:80"
 
     @staticmethod
     def _generation(container):
@@ -543,8 +582,8 @@ class DockerAdapter:
     @contextmanager
     def _client(self):
         self._observe()
-        access = os.environ.get("AAP_SOURCE_FENCE_ACCESS_KEY")
-        secret = os.environ.get("AAP_SOURCE_FENCE_SECRET_KEY")
+        access = os.environ.get(self.credential_prefix + "_ACCESS_KEY")
+        secret = os.environ.get(self.credential_prefix + "_SECRET_KEY")
         _require(bool(access) and bool(secret), "native_credentials_missing")
         import boto3
         from botocore.config import Config
@@ -590,8 +629,8 @@ class DockerAdapter:
                 raise FenceError("source_client_unsettled") from None
 
     def _admin(self):
-        access = os.environ.get("AAP_SOURCE_FENCE_ACCESS_KEY")
-        secret = os.environ.get("AAP_SOURCE_FENCE_SECRET_KEY")
+        access = os.environ.get(self.credential_prefix + "_ACCESS_KEY")
+        secret = os.environ.get(self.credential_prefix + "_SECRET_KEY")
         _require(bool(access) and bool(secret), "native_credentials_missing")
         with tempfile.TemporaryDirectory(prefix="aap-source-fence-mc-") as directory:
             environment = {

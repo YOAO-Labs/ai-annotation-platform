@@ -89,7 +89,9 @@ class World:
             Driver="bridge",
             Internal=False,
             Labels=self.labels("frontend"),
-            Containers={self.config["gateway_container"]: {}},
+            Containers={
+                self.config["gateway_container"]: {"IPv4Address": "172.31.20.2/16"}
+            },
         )
         self.images = {
             native._MINIO_ID: dict(
@@ -310,6 +312,157 @@ class NativeTests(unittest.TestCase):
         self.assertNotIn(
             "return 405", native.gateway_config(self.world.ip, False).decode()
         )
+
+    def test_application_endpoint_uses_verified_frontend_and_keeps_config_unchanged(
+        self,
+    ):
+        config = copy.deepcopy(self.adapter.config)
+        self.assertEqual(self.adapter.application_endpoint(), "http://172.31.20.2:80")
+        self.assertEqual(self.adapter.config, config)
+        self.assertNotEqual(
+            self.adapter.application_endpoint(), f"http://{self.world.ip}:9000"
+        )
+        self.assertFalse(
+            any(call[0] in {"restart", "start", "stop"} for call in self.world.calls)
+        )
+
+    def test_application_endpoint_is_fresh_and_not_taken_from_network_name(self):
+        networks = self.world.gateway["NetworkSettings"]["Networks"]
+        networks["different-name"] = networks.pop("owned-frontend")
+        self.assertEqual(self.adapter.application_endpoint(), "http://172.31.20.2:80")
+        networks["different-name"]["IPAddress"] = "172.31.20.3"
+        self.code("native_endpoint_changed", self.adapter.application_endpoint)
+        self.world.frontend["Containers"][self.world.config["gateway_container"]][
+            "IPv4Address"
+        ] = "172.31.20.3/16"
+        self.assertEqual(self.adapter.application_endpoint(), "http://172.31.20.3:80")
+
+    def test_application_endpoint_rejects_unmatched_or_invalid_ipv4(self):
+        network = self.world.gateway["NetworkSettings"]["Networks"]["owned-frontend"]
+        member = self.world.frontend["Containers"][
+            self.world.config["gateway_container"]
+        ]
+        for address, recorded in (
+            ("172.31.20.2", "172.31.20.3/16"),
+            ("172.31.20.2", "172.31.20.2"),
+            ("127.0.0.1", "127.0.0.1/8"),
+            ("0.0.0.0", "0.0.0.0/16"),
+            ("224.1.1.1", "224.1.1.1/16"),
+            ("::1", "::1/128"),
+            ("172.31.20.2;secret", "172.31.20.2/16"),
+            (self.world.ip, self.world.ip + "/16"),
+            (None, "172.31.20.2/16"),
+        ):
+            with self.subTest(address=address, recorded=recorded):
+                network["IPAddress"] = address
+                member["IPv4Address"] = recorded
+                self.code("native_endpoint_changed", self.adapter.application_endpoint)
+
+    def test_application_endpoint_requires_complete_owned_topology_each_time(self):
+        mutations = (
+            lambda: self.world.frontend["Containers"].update({"9" * 64: {}}),
+            lambda: self.world.gateway["NetworkSettings"]["Networks"].pop(
+                "owned-frontend"
+            ),
+            lambda: self.world.gateway["Config"]["Labels"].update(
+                {native.OWNER_LABEL: "b" * 32}
+            ),
+            lambda: self.world.source["HostConfig"].update(
+                PortBindings={"9000/tcp": [{"HostPort": "9000"}]}
+            ),
+            lambda: self.world.source["State"].update(Running=False, Pid=0),
+        )
+        for mutate in mutations:
+            with self.subTest(mutation=mutate):
+                saved = copy.deepcopy(self.world.__dict__)
+                self.assertEqual(
+                    self.adapter.application_endpoint(), "http://172.31.20.2:80"
+                )
+                mutate()
+                with self.assertRaises(FenceError):
+                    self.adapter.application_endpoint()
+                self.world.__dict__ = saved
+
+    def test_application_endpoint_rejects_changed_gateway_generation(self):
+        self.adapter.readonly()
+        self.world.gateway["State"]["StartedAt"] = "outside-restart"
+        self.code(
+            "native_gateway_generation_changed", self.adapter.application_endpoint
+        )
+
+    def test_credential_prefix_only_accepts_the_two_fixed_names(self):
+        for prefix in ("AWS", "", None, [], "AAP_TARGET_FENCE_ACCESS_KEY"):
+            self.code(
+                "native_credentials_invalid",
+                lambda: native.DockerAdapter(
+                    self.world.config, credential_prefix=prefix
+                ),
+            )
+
+    def test_target_sdk_and_mc_use_only_target_credentials_without_global_mutation(
+        self,
+    ):
+        target = native.DockerAdapter(
+            self.world.config, credential_prefix="AAP_TARGET_FENCE"
+        )
+        target._docker = self.world.docker
+        credentials = {
+            "AAP_SOURCE_FENCE_ACCESS_KEY": "source-access",
+            "AAP_SOURCE_FENCE_SECRET_KEY": "source-secret",
+            "AAP_TARGET_FENCE_ACCESS_KEY": "target-access",
+            "AAP_TARGET_FENCE_SECRET_KEY": "target-secret",
+        }
+        with (
+            patch.dict(os.environ, credentials),
+            patch("boto3.client", return_value=self.client) as factory,
+        ):
+            with target._client():
+                self.assertEqual(
+                    {key: os.environ[key] for key in credentials}, credentials
+                )
+            self.assertEqual(
+                factory.call_args.kwargs["aws_access_key_id"], "target-access"
+            )
+            self.assertEqual(
+                factory.call_args.kwargs["aws_secret_access_key"], "target-secret"
+            )
+            with patch.object(
+                native,
+                "_command",
+                side_effect=[
+                    b'{"status":"success","tiers":null}',
+                    b'{"enabled":false}',
+                    b'{"status":"success","jobs":null}',
+                ],
+            ) as command:
+                target._admin()
+            child = command.call_args.kwargs["environment"]
+            self.assertIn("target-access:target-secret@", child["MC_HOST_fence"])
+            self.assertNotIn("source-access", child["MC_HOST_fence"])
+            self.assertEqual({key: os.environ[key] for key in credentials}, credentials)
+            self.assertFalse(Path(child["MC_CONFIG_DIR"]).exists())
+
+    def test_missing_target_credentials_never_fall_back_to_source(self):
+        target = native.DockerAdapter(
+            self.world.config, credential_prefix="AAP_TARGET_FENCE"
+        )
+        target._docker = self.world.docker
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "AAP_SOURCE_FENCE_ACCESS_KEY": "source",
+                    "AAP_SOURCE_FENCE_SECRET_KEY": "secret",
+                },
+                clear=True,
+            ),
+            patch("boto3.client") as factory,
+        ):
+            self.code(
+                "native_credentials_missing", lambda: target._client().__enter__()
+            )
+            self.code("native_credentials_missing", target._admin)
+            factory.assert_not_called()
 
     def test_gateway_rejects_injected_address(self):
         self.code(
