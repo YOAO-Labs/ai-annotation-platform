@@ -81,6 +81,7 @@ CI 的 `Backend tests` 检查背后是 `.github/workflows/backend-test.yml` 的�
 **测试库安全护栏**：测试库连接优先读取显式 `TEST_DATABASE_URL`，否则跟随当前环境的迁移连接并固定到 `annotation_test`；解析失败会直接报错，绝不回退到默认连接串。无论来源如何，目标数据库都必须是 PostgreSQL 且库名以 `_test` 结尾（如 worktree 启动器分配的 `aap_wt_*_test`）；任何指向日常开发库或生产库的配置都会在迁移或写入前被拒绝。
 
 会独立提交持久账目的存储窗口、历史核验及训练准备测试使用 `tests/storage_migration_isolation.py` 的 `migration_engine` 和配套会话／账号夹具：克隆已登记业务表、外键及命名空间内的守卫触发器，不复制共享数据；测试或准备失败后销毁整个私有 schema，不通过清空共享访问账目、恢复旧维护修订或删除未知责任来让测试通过。
+原图缓存的真实 Celery 清理验收也使用此私有 schema：测试与独立 Worker 读取同一份隔离账目，Worker 的测试入口只指定真实数据库连接的 `search_path`，仍执行未修改的全局清理任务；不扫描其他测试留下的待处理缓存，也不增加任务超时或生产任务参数。
 
 ### 编写 API 测试示例
 

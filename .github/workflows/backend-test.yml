@@ -1,20 +1,4 @@
 # Reusable backend test workflow: one deterministic shard per call.
-#
-# Caller contract (see `CI` -> "Backend tests shard ..."):
-#   uses: ./.github/workflows/backend-test.yml
-#   with:
-#     shard-index: 0                  # 0 <= shard-index < shard-count
-#     shard-count: 4
-#   secrets:
-#     CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-#
-# Every call is a full backend validation on its own runner with its own
-# Postgres / Redis / MinIO: dependency sync, worktree runtime tests, service
-# maintenance tests, storage isolation acceptance, Alembic upgrade, migration
-# validation, OpenAPI snapshot drift, pytest with coverage, migration policy
-# tests and the Codecov upload. Sharding only narrows which pytest item runs on
-# the runner; it never skips setup or coverage. `ci.yml` keeps the stable
-# "Backend tests" check as an always-run aggregate over the four calls.
 
 name: Backend test shards
 

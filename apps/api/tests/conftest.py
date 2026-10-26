@@ -32,6 +32,8 @@ import httpx
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
+from tests import pytest_sharding
+
 if os.environ.get("AAP_WORKTREE_MODE") == "dev":
     raise pytest.UsageError(
         "开发模式不能运行数据库测试；请使用 pnpm dev:worktree -- exec --mode test -- <command>"
@@ -41,9 +43,6 @@ if os.environ.get("AAP_WORKTREE_MODE") == "dev":
 # 必须在首次 import app 前开启；否则 app.api.v1.router 不会挂载测试 Seed router。
 # 数据库名仍由下方 fixture 固定到一次性测试库，router 自身会再做后缀校验。
 os.environ["E2E_SEED_ENABLED"] = "true"
-
-# 分片插件在 E2E_SEED_ENABLED 之后导入，因此不是文件顶部 import。
-from tests import pytest_sharding  # noqa: E402
 
 
 # 可选测试分片钩子（--shard-index / --shard-count）。两个参数都不给时不改变任何

@@ -8,21 +8,39 @@ import subprocess
 import sys
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.db.models.original_cache import OriginalCacheEntry as Entry
 from app.services import original_cache as cache
 from app.workers.celery_app import celery_app
 from tests.test_original_cache import cache_world as cache_world, fill, record
+from tests.storage_migration_isolation import migration_engine
+
+# The real global sweep must not consume another test's committed due entries.
+test_engine = migration_engine
 
 _STORAGE = cache.make_storage
+_WORKER = """
+import sys
+from functools import partial
+from app.workers import original_cache
+from app.workers.celery_app import celery_app
+original_cache.create_async_engine = partial(
+    original_cache.create_async_engine,
+    connect_args={"server_settings": {"search_path": sys.argv.pop(1)}},
+)
+celery_app.worker_main(sys.argv[1:])
+"""
 
 
 async def test_actual_minio_copy_read_and_worker_recovery(
-    cache_world, monkeypatch, tmp_path
+    cache_world, test_engine, monkeypatch, tmp_path
 ):
     world = cache_world
     monkeypatch.setattr(cache, "make_storage", _STORAGE)
+    async with test_engine.connect() as connection:
+        schema = await connection.scalar(text("SELECT current_schema()"))
+    assert schema.startswith("storage_migration_test_")
     queue = f"original-cache-test-{uuid.uuid4().hex}"
     node = f"{queue}@local"
     worker = None
@@ -45,10 +63,9 @@ async def test_actual_minio_copy_read_and_worker_recovery(
         worker = subprocess.Popen(
             [
                 sys.executable,
-                "-m",
-                "celery",
-                "-A",
-                "app.workers.celery_app",
+                "-c",
+                _WORKER,
+                schema + ",public",
                 "worker",
                 "-P",
                 "solo",
@@ -62,7 +79,10 @@ async def test_actual_minio_copy_read_and_worker_recovery(
                 node,
             ],
             cwd=Path(__file__).parents[1],
-            env=os.environ.copy(),
+            env={
+                **os.environ,
+                "DATABASE_URL": test_engine.url.render_as_string(hide_password=False),
+            },
             stdout=output,
             stderr=subprocess.STDOUT,
         )
