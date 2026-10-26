@@ -31,6 +31,11 @@ from app.services import (
     storage_migration_read_publications as reads,
     storage_migration_windows as windows,
 )
+from tests.storage_migration_isolation import (
+    db_session as db_session,
+    migration_engine as migration_engine,
+    project_admin as project_admin,
+)
 from tests.test_storage_migration_finalizations import (
     bound as bound,
     control as control,

@@ -29,6 +29,11 @@ from app.services import (
 )
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.content_snapshot import ContentError
+from tests.storage_migration_isolation import (
+    annotator as annotator,
+    db_session as db_session,
+    migration_engine as migration_engine,
+)
 from tests.test_storage_migration_finalizations import (
     bound as bound,
     child,

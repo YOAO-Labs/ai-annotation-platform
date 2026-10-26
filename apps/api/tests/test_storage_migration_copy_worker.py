@@ -32,12 +32,15 @@ from app.services import storage_access, storage_migration_copies as service
 from app.services.storage_migration_copy import CopyStopped
 from app.workers import storage_migration_copy as worker
 from tests.factory import create_user
+from tests.storage_migration_isolation import migration_engine as migration_engine
 from tests.test_storage_migration_copies import seed
 
 
 @pytest.fixture
-async def world(test_engine):
-    maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+async def world(migration_engine):
+    maker = async_sessionmaker(
+        migration_engine, class_=AsyncSession, expire_on_commit=False
+    )
     async with maker() as db:
         actor = await create_user(
             db, "super_admin", f"copy-{uuid.uuid4()}@test.local", "Copy"

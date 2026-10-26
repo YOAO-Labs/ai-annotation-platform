@@ -40,14 +40,15 @@ from app.workers import (
     storage_migration_inventory as inventory_worker,
 )
 from tests.factory import create_user
+from tests.storage_migration_isolation import migration_engine as migration_engine
 from tests.test_storage_migration_copies import seed
 from tests.test_storage_migration_inventories import EmptySource
 
 
 @pytest.fixture
-async def world(test_engine, monkeypatch):
+async def world(migration_engine, monkeypatch):
     monkeypatch.setattr(settings, "storage_maintenance_protocol_enabled", True)
-    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    maker = async_sessionmaker(migration_engine, expire_on_commit=False)
     async with maker() as db:
         source_location = await db.get(StorageLocation, inventories.LEGACY_LOCATION_ID)
         source_revision = (
