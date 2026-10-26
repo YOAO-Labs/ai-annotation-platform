@@ -23,7 +23,7 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.db.models.video_tracker_job import VideoTrackerJob
-from app.services.ml_backend import MLBackendService
+from tests.conftest import create_registry_with_pool
 from tests.factory import create_project, create_task, create_user
 
 pytestmark = pytest.mark.asyncio
@@ -39,15 +39,14 @@ async def test_backend_enablement_respects_caller_rollback(test_engine):
             "Configuration rollback",
         )
         project = await create_project(session, owner_id=user.id)
-        registry = MLBackendRegistry(
+        registry, pool = await create_registry_with_pool(
+            session,
             name="rollback",
             url="https://rollback.example.test",
             state="connected",
+            is_interactive=False,
             auth_method="none",
         )
-        session.add(registry)
-        await session.flush()
-        pool = await MLBackendService(session)._create_singleton_pool(registry)
         project_id, pool_id = project.id, pool.id
         native = await _call(
             session,

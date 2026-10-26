@@ -21,6 +21,7 @@ from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
 from app.db.models.user import User
 from app.services.ml_backend import MLBackendService
+from tests.conftest import create_registry_with_pool
 from tests.labeling_class_query_helpers import assert_owned_test_database
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -188,10 +189,9 @@ async def _observe(test_engine, monkeypatch):
             trace = []
             with _backend(case, trace) as url:
                 async with maker(autoflush=autoflush) as db:
-                    registry_id = uuid.uuid4()
                     resource = f"node-health/GPU-{uuid.uuid4().hex}"
-                    backend = MLBackendRegistry(
-                        id=registry_id,
+                    backend, pool = await create_registry_with_pool(
+                        db,
                         name="Frozen health",
                         url=url,
                         state="disconnected",
@@ -202,11 +202,15 @@ async def _observe(test_engine, monkeypatch):
                         gpu_resource_id=resource if case.startswith("gpu_") else None,
                         vram_budget_mb=1024 if case.startswith("gpu_") else None,
                     )
-                    db.add(backend)
-                    await db.flush()
-                    pool = await MLBackendService(db)._create_singleton_pool(backend)
+                    registry_id = backend.id
                     if case == "cpu_drift":
-                        await MLBackendService(db)._reconcile_pool_capability(
+                        from aap_inference.health import reconcile_pool_capability
+                        from app.services.inference_health_data import (
+                            InferenceHealthData,
+                        )
+
+                        await reconcile_pool_capability(
+                            InferenceHealthData(db),
                             registry_id,
                             {"model_version": "old", "supported_prompts": ["bbox"]},
                         )

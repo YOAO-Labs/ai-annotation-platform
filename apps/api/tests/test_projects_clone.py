@@ -17,9 +17,11 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import UserRole
+from app.db.models.ml_backend_pool import MLBackendServicePool
 from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.project import Project
 from app.db.models.user import User
+from tests.conftest import create_registry_with_pool
 
 
 async def _seed_project(db: AsyncSession, owner_id: uuid.UUID, **overrides) -> Project:
@@ -41,11 +43,11 @@ async def _seed_project(db: AsyncSession, owner_id: uuid.UUID, **overrides) -> P
 
 async def _seed_backend(
     db: AsyncSession, project_id: uuid.UUID, name: str = "src-backend"
-) -> MLBackendRegistry:
+) -> tuple[MLBackendRegistry, MLBackendServicePool]:
     # v0.19.0 ADR-0044 · backend 已上提为全局注册项 (无 project_id); url 全局唯一。
     # v0.23.3 ADR-0050 · 同时建 singleton pool (克隆 / 绑定经 pool 层)。
-    b = MLBackendRegistry(
-        id=uuid.uuid4(),
+    return await create_registry_with_pool(
+        db,
         name=name,
         url=f"http://example.test/{uuid.uuid4().hex[:8]}",
         is_interactive=True,
@@ -54,12 +56,6 @@ async def _seed_backend(
         auth_token="tok-secret",
         extra_params={"variant": "tiny"},
     )
-    db.add(b)
-    await db.flush()
-    from app.services.ml_backend import MLBackendService
-
-    await MLBackendService(db)._create_singleton_pool(b)
-    return b
 
 
 async def test_clone_copies_all_cloneable_fields(httpx_client, super_admin, db_session):
@@ -168,12 +164,11 @@ async def test_clone_auto_derives_ml_backend_from_source(
 ):
     user, token = super_admin
     src = await _seed_project(db_session, user.id, ai_enabled=True)
-    backend = await _seed_backend(db_session, src.id, name="auto-clone-backend")
+    backend, src_pool = await _seed_backend(
+        db_session, src.id, name="auto-clone-backend"
+    )
     # v0.23.3: 项目主绑定存 pool id (backend 经 _seed_backend 已有 singleton pool)。
-    from app.services.ml_backend import MLBackendService
-
-    src_pool = await MLBackendService(db_session)._pool_for_registry(backend.id)
-    src.ml_backend_pool_id = src_pool.id if src_pool else None
+    src.ml_backend_pool_id = src_pool.id
     await db_session.flush()
     await db_session.commit()
 

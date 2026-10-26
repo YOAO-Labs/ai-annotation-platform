@@ -27,8 +27,8 @@ from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBacken
 from app.db.models.project import Project
 from app.db.models.project_template import ProjectTemplate
 from app.db.models.user import User
-from app.services.ml_backend import MLBackendService
 from app.services.workspace_configuration import execute_configuration
+from tests.conftest import create_registry_with_pool
 from tests.factory import create_project, create_user
 
 pytestmark = [
@@ -481,16 +481,14 @@ async def test_setup_authority_revocation_rolls_back_draft_and_pool_changes(
         for source_project in (False, True):
             async with _setup_barrier() as (origin, entered, release):
                 async with owner.begin() as db:
-                    backend = MLBackendRegistry(
-                        id=uuid.uuid4(),
+                    backend, pool = await create_registry_with_pool(
+                        db,
                         name=f"Configuration barrier {suffix}",
                         url=origin,
-                        auth_method="none",
                         state="connected",
+                        is_interactive=False,
+                        auth_method="none",
                     )
-                    db.add(backend)
-                    await db.flush()
-                    pool = await MLBackendService(db)._create_singleton_pool(backend)
                     project = await db.get(Project, source_project_id)
                     project.ml_backend_pool_id = pool.id
                     backend_ids.append(backend.id)
