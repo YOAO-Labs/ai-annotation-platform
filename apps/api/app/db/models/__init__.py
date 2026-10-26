@@ -1,3 +1,4 @@
+from app.db.models.dataset_reference_replica import DatasetReferenceReplica
 from app.db.models.managed_original_reclaim import (
     ManagedOriginalReclaimAttempt,
     ManagedOriginalReclaimClaim,
@@ -206,6 +207,7 @@ from app.db.models.site_agent import Site, AgentRegistration, AgentCredential
 from app.db.models.site_agent_command import SiteAgentCommand
 
 __all__ = [
+    "DatasetReferenceReplica",
     "Site",
     "AgentRegistration",
     "AgentCredential",

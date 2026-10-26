@@ -763,6 +763,14 @@ async def _reference_state(db, item_id, actor, *, task_id=None, task_authorizer=
         if task is None:
             raise HTTPException(404, "Task not found")
         await (task_authorizer or _assert_task_visible)(db, task, actor)
+    state = await _reference_binding_state(db, item_id, task=task if task_id else None)
+    if task_id is None:
+        await scans.require_actor(db, actor.id, state[0])
+    return state
+
+
+async def _reference_binding_state(db, item_id, *, task=None):
+    """Validate one immutable binding; callers must authorize its exact content."""
     ref = await db.get(DatasetReference, item_id, populate_existing=True)
     item = await db.get(DatasetItem, item_id, populate_existing=True)
     asset = await db.scalar(
@@ -815,8 +823,6 @@ async def _reference_state(db, item_id, actor, *, task_id=None, task_authorizer=
         (effective_run_id, accepted.path_digest if accepted else ref.path_digest),
         populate_existing=True,
     )
-    if task_id is None and source is not None:
-        await scans.require_actor(db, actor.id, source)
     if (
         source is None
         or not source.enabled
@@ -856,7 +862,7 @@ async def _reference_state(db, item_id, actor, *, task_id=None, task_authorizer=
         or asset.checksum_value != receipt["sha256"]
         or asset.size_bytes != receipt["size_bytes"]
         or item.file_path != reference_key(item.id, asset.checksum_value)
-        or (task_id is not None and task.file_path != item.file_path)
+        or (task is not None and task.file_path != item.file_path)
     ):
         raise snapshots.ContentError("content_binding_changed")
     maintenance_revision = await storage_access.check(db, location.id)
@@ -912,6 +918,11 @@ async def reference_source_context(
     state = await _reference_state(
         db, item_id, actor, task_id=task_id, task_authorizer=task_authorizer
     )
+    return await _physical_reference_context(db, state, node_id=node_id)
+
+
+async def _physical_reference_context(db, state, *, node_id=None):
+    """Qualify a binding already authorized by the original or replica owner."""
     source, location, run, entry, asset, accepted, item, maintenance_revision = state
     receipt = entry.verified_content
     node = node_id or locations.api_node_id()
@@ -1024,156 +1035,193 @@ async def reference_snapshot(
     from_source = snapshot is None
     observation = None
     rate_attempt = None
-    if from_source:
-        fault_node = node_id or locations.api_node_id()
+    selected_route = None
+    replica_grant = None
+    routes = [None]
+    from app.services import agent_storage, dataset_reference_replicas as replicas
 
-        async def fault_authority():
-            current = await reference_context(
+    async def validate_business():
+        if (
+            await reference_context(
                 db, item_id, actor, task_id=task_id, task_authorizer=task_authorizer
             )
-            if (
-                current != context
-                or await key_authority(db, actor, api_key_id, scope) != proof
-            ):
+            != context
+        ):
+            raise snapshots.ContentError("content_binding_changed")
+        if await key_authority(db, actor, api_key_id, scope) != proof:
+            raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+
+    async def physical(route):
+        if route is not None:
+            return await replicas.source_context(
+                db, context, route, actor, task_id=task_id, node_id=node_id
+            )
+        current = await reference_source_context(
+            db,
+            item_id,
+            actor,
+            task_id=task_id,
+            node_id=node_id,
+            task_authorizer=task_authorizer,
+        )
+        if any(current.get(key) != value for key, value in context.items()):
+            raise snapshots.ContentError("content_binding_changed")
+        if len(routes) > 1:
+            current["agent_authority"] = await replicas.assert_agent_readable(
+                db, current
+            )
+        return None, current
+
+    async def validate():
+        await validate_business()
+        if source_context is not None:
+            if await physical(selected_route) != (replica_grant, source_context):
                 raise snapshots.ContentError("content_binding_changed")
 
-        observation = await storage_fault_events.prepare(
-            db,
-            location_id=context["location_id"],
-            source_id=context["source_id"],
-            operation="reference_read",
-            actor_id=actor.id,
-            node_id=fault_node,
-            maintenance_revision=context["maintenance_revision"],
-            expected_context=context,
-            path_digest=context["path_digest"],
-            expected=context["sha256"],
-            target=context["locator"],
-            task_id=task_id,
-            **{key: context[key] for key in ("item_id", "asset_id", "run_id")},
-        )
-        rate_attempt = rates.begin(
-            context["location_id"], context["source_id"], "original_read"
-        )
-        try:
-            async with storage_fault_events.observe(
-                db,
-                operation="reference_read",
-                observation=observation,
-                rate_attempt=rate_attempt,
-                validate=fault_authority,
-                actor_id=actor.id,
-                task_id=task_id,
-                **{
-                    key: context[key]
-                    for key in (
-                        "location_id",
-                        "source_id",
-                        "item_id",
-                        "asset_id",
-                        "run_id",
-                    )
-                },
-            ):
-                source_context = await reference_source_context(
+    if from_source:
+        routes = await replicas.route_order(db, context)
+        for selected_route in routes:
+            source_context = None
+            replica_grant = None
+            observation = rate_attempt = None
+            try:
+                await validate_business()
+                replica_grant, source_context = await physical(selected_route)
+                observation = await storage_fault_events.prepare(
                     db,
-                    item_id,
-                    actor,
+                    location_id=source_context["location_id"],
+                    source_id=source_context["source_id"],
+                    operation="reference_read",
+                    actor_id=actor.id,
+                    node_id=node_id or locations.api_node_id(),
+                    maintenance_revision=source_context["maintenance_revision"],
+                    expected_context=source_context,
+                    path_digest=source_context["path_digest"],
+                    expected=context["sha256"],
+                    target=source_context["locator"],
                     task_id=task_id,
-                    node_id=node_id,
-                    task_authorizer=task_authorizer,
+                    **{
+                        key: source_context[key]
+                        for key in ("item_id", "asset_id", "run_id")
+                    },
                 )
-                if any(
-                    source_context.get(key) != value for key, value in context.items()
+                rate_attempt = rates.begin(
+                    source_context["location_id"],
+                    source_context["source_id"],
+                    "original_read",
+                )
+                async with storage_fault_events.observe(
+                    db,
+                    operation="reference_read",
+                    observation=observation,
+                    rate_attempt=rate_attempt,
+                    validate=validate,
+                    actor_id=actor.id,
+                    task_id=task_id,
+                    **{
+                        key: source_context[key]
+                        for key in (
+                            "location_id",
+                            "source_id",
+                            "item_id",
+                            "asset_id",
+                            "run_id",
+                        )
+                    },
                 ):
-                    raise snapshots.ContentError("content_binding_changed")
-                from app.services import agent_storage
-
-                if isinstance(source_context["config"], agent_storage.AgentAccess):
-                    await db.commit()
-                    snapshot = await agent_storage.capture(
-                        db,
-                        source_context["config"],
-                        source_context["base"],
-                        source_context["path"],
-                        expected_anchor=source_context["anchor"],
-                        expected=source_context["expected"],
-                        expected_source_identity=source_context["source_identity"],
-                        expected_sha256=context["sha256"],
-                        expected_revision=context["maintenance_revision"],
-                        node_id=node_id,
-                        on_acquired=admitted,
-                        fence={
-                            "source_id": str(context["source_id"]),
-                            "asset_id": str(context["asset_id"]),
-                            "run_id": str(context["run_id"]),
-                            "user_id": str(actor.id),
-                            **({"task_id": str(task_id)} if task_id else {}),
-                        },
-                    )
-                else:
-                    snapshot = await snapshots.capture_from_location(
-                        db,
-                        context["location_id"],
-                        lambda: reference_storage.content_file(
+                    if isinstance(source_context["config"], agent_storage.AgentAccess):
+                        await db.commit()
+                        snapshot = await agent_storage.capture(
+                            db,
                             source_context["config"],
                             source_context["base"],
                             source_context["path"],
                             expected_anchor=source_context["anchor"],
                             expected=source_context["expected"],
                             expected_source_identity=source_context["source_identity"],
+                            expected_sha256=context["sha256"],
+                            expected_revision=source_context["maintenance_revision"],
+                            node_id=node_id,
+                            on_acquired=admitted,
+                            fence={
+                                "source_id": str(source_context["source_id"]),
+                                "asset_id": str(source_context["asset_id"]),
+                                "run_id": str(source_context["run_id"]),
+                                "user_id": str(actor.id),
+                                **({"task_id": str(task_id)} if task_id else {}),
+                            },
+                        )
+                    else:
+                        snapshot = await snapshots.capture_from_location(
+                            db,
+                            source_context["location_id"],
+                            lambda: reference_storage.content_file(
+                                source_context["config"],
+                                source_context["base"],
+                                source_context["path"],
+                                expected_anchor=source_context["anchor"],
+                                expected=source_context["expected"],
+                                expected_source_identity=source_context[
+                                    "source_identity"
+                                ],
+                            ),
+                            context["sha256"],
+                            expected_revision=source_context["maintenance_revision"],
+                            node_id=node_id,
+                            on_acquired=admitted,
+                        )
+                    if (
+                        snapshot.sha256 != context["sha256"]
+                        or snapshot.size != context["size"]
+                    ):
+                        raise snapshots.ContentError("content_mismatch")
+                break
+            except BaseException as exc:
+                if snapshot is not None:
+                    try:
+                        await agent_storage.reject(db, snapshot)
+                    finally:
+                        snapshot.close()
+                        snapshot = None
+                await rates.finish(db, rate_attempt, None)
+                if (
+                    not isinstance(
+                        exc,
+                        (
+                            snapshots.ContentError,
+                            fs.FilesystemStorageError,
+                            HTTPException,
                         ),
-                        context["sha256"],
-                        expected_revision=context["maintenance_revision"],
-                        node_id=node_id,
-                        on_acquired=admitted,
                     )
-        except BaseException:
-            await rates.finish(db, rate_attempt, None)
-            raise
+                    or admission_failed
+                    or getattr(exc, "storage_operation_unsettled", False)
+                    or getattr(exc, "code", None) == "snapshot_capacity_exceeded"
+                ):
+                    raise
+                # A lost original grant or API key can never be repaired by B.
+                await validate_business()
+                if selected_route == routes[-1]:
+                    raise
     try:
-
-        async def validate():
-            if (
-                await reference_context(
-                    db, item_id, actor, task_id=task_id, task_authorizer=task_authorizer
-                )
-                != context
-            ):
-                raise snapshots.ContentError("content_binding_changed")
-            if (
-                source_context is not None
-                and await reference_source_context(
-                    db,
-                    item_id,
-                    actor,
-                    task_id=task_id,
-                    node_id=node_id,
-                    task_authorizer=task_authorizer,
-                )
-                != source_context
-            ):
-                raise snapshots.ContentError("content_binding_changed")
-            if await key_authority(db, actor, api_key_id, scope) != proof:
-                raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
-
         await validate()
-        if from_source and cache_factory:
+        if (
+            from_source
+            and cache_factory
+            and source_context["source_policy"]
+            == source_context["location_policy"]
+            == "on_demand"
+        ):
             await _retain_snapshot(original_cache, cache_factory, context, snapshot)
             await validate()
         if from_source:
             await rates.finish(db, rate_attempt, "success")
             await storage_fault_events.recover(db, observation)
-        from app.services import agent_storage
-
         if getattr(snapshot, "_agent_receipt", None) is not None:
             await agent_storage.accept(db, snapshot)
             await db.commit()
         snapshot._range_supported = context["location_kind"] == "agent"
         return snapshot
     except BaseException:
-        from app.services import agent_storage
-
         try:
             await agent_storage.reject(db, snapshot)
         finally:
