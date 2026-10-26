@@ -37,7 +37,7 @@ Promotion requires a fresh decision based on the actual repository, not a few no
 | [E03 已有目录原地注册（已完成）](../archive/1792661016_dataset-in-place-directory-registration.md) | 不先复制原图即可浏览、关联和标注      | E02、E04-A、E05-A；最小权限            |
 | [E04 增量同步与任务](../archive/1792661016_dataset-incremental-sync-jobs.md)                       | 完整 E04 已验收归档；保留后续范围边界 | 手动/周期/裁决/导航完成                |
 | [E05 文件访问与缓存](../archive/1792661016_dataset-asset-access-cache.md)                          | 同内容读取、分离原图/预览和缓存       | E01/E02；读取/提交授权                 |
-| [E06 多站点 Agent](1792661016_dataset-multi-site-agent.md)                                         | 隔离站点出站扫描/读取和断线恢复       | 真实网络触发；不阻塞首目录             |
+| [E06 多站点 Agent](../1792661016_dataset-multi-site-agent.md)                                      | 隔离站点出站扫描/读取和断线恢复       | 已晋升；本地隔离工程实施中             |
 | [E07 S3 选型与迁移](../1792661016_dataset-s3-selection-migration.md)                               | 候选契约、全用途迁移及回滚            | 试验独立；切换另过恢复门               |
 | [E08 数据集工作台与质量](../archive/1792661016_dataset-workbench-quality.md)                       | 完整 E08 已验收归档；含项目上下文统计 | 共享／近似重复按原计划后置             |
 | [E09 存储控制台与去重](../archive/1792661016_dataset-storage-console-boundaries.md)                | 唯一配置、准确指标和上下文深链        | E02；与 E08 迁旧入口                   |
@@ -45,7 +45,7 @@ Promotion requires a fresh decision based on the actual repository, not a few no
 | [E11 权限与生命周期](../archive/1792661016_dataset-permissions-lifecycle.md)                       | 只读/修订保护、影响预览、恢复/回收    | 原始矩阵与准确版本回收已收口，完整归档 |
 | [E12 容量、运维与恢复](../archive/1792661016_dataset-storage-operations-recovery.md)               | 异步统计、定位故障、一致恢复          | 本地已完成并归档；生产目标另验         |
 
-实施前逐项通过本页 promotion gate，不能直接从 backlog 开始编码。E07 生产迁移和 E06 站点部署需要各自触发条件与实施授权，不能从本次转草案请求推定。
+实施前逐项通过本页 promotion gate，不能直接从 backlog 开始编码。E07 生产迁移和 E06 生产部署仍需现场条件；E06 已获持续实施授权，按原 AC01 的本地隔离拓扑实施，不等待生产目标。
 
 ## 在线学习闭环
 

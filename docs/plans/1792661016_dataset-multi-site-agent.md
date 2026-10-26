@@ -1,8 +1,8 @@
 # EPIC-06：多端部署、站点 Agent 与就近读取
 
-> 状态：trigger-gated research-draft；未排期，未批准实施，未分配发布版本。
-> 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
-> 实施前须通过 [backlog promotion gate](README.md#promotion-gate)。[草案总览](1792661016_dataset-storage-roadmap.md)、[架构契约](1792661016_dataset-storage-architecture.md)和[交付验收](1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
+> 状态：approved / implementing；依据用户持续推进整套 Epic 及先推进当前环境可实施部分的授权；不分配发布版本。
+> 晋升日期：2026-10-26；重审基线：`93902bb7b22ff15d6822d74f4a78659207ed6946`，工作树干净。
+> 实施前须通过 [promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
 > 优先级：P2，M3；M1 允许通过只读共享挂载先覆盖可直连服务器。
 > 负责人角色：后端、运维；训练服务、前端协作。
@@ -10,19 +10,21 @@
 
 ## 本项目基线与改造落点
 
-下列为固定提交的静态证据，尚非运行/浏览器验收结果。
+本轮重新核对扫描、登记、权限、内容快照与原图缓存。SFTP 拉取不是站点 Agent；当前没有配对和出站任务，不能宣称 E06 已实现。原 AC01 要求的是隔离测试拓扑，不要求先提供生产站点。已授权本地实施，删除把生产目标解释为工程前置的限制。
 
-| 当前 owner / 代码锚点                                             | 已有能力、缺口与复用约束                                                                                       |
-| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| [sftp.py](../../../apps/api/app/services/sources/sftp.py)         | 只有中心主动拉取；SSH allow_agent 不是站点 Agent。当前没有 Site/AgentRegistration、配对/撤销、心跳和出站读流。 |
-| [async_job.py](../../../apps/api/app/services/async_job.py)       | 复用中心任务记录；Agent 本地执行 checkpoint 和中心已确认水位分开，不建第二任务历史。                           |
-| [gpu_arbitration](../../../apps/api/app/services/gpu_arbitration) | 计算调度由现有 owner 负责，近端存储候选不能覆盖项目权限、计算资格和预算。                                      |
+| 当前 owner                                         | 复用边界                                                                              |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `services/filesystem_storage.py`                   | 抽取 Linux openat2、根 anchor、整目录快照与读前读后复核到标准库包。                   |
+| `dataset_scans.py`、`workers/dataset_scan.py`      | 中心继续持有 AsyncJob／Run、generation／租约和目录原子 checkpoint；Agent 只执行 I/O。 |
+| `dataset_registration.py`、`dataset_references.py` | 复用预检、人工确认和幂等登记，不建第二套任务历史。                                    |
+| `content_snapshot.py`、`original_cache.py`         | 中心继续核验完整内容和授权；临时 stage 不等于持久缓存。                               |
+| `storage_access.py`                                | 位置准入与实际 I/O 收尾；网络断开不能证明远端关闭。                                   |
 
-候选修改入口：[base.py](../../../apps/api/app/services/sources/base.py)、[async_job.py](../../../apps/api/app/services/async_job.py)、[config.py](../../../apps/api/app/config.py)、[storage.py](../../../apps/api/app/services/storage.py)。新增表、适配器、迁移、测试和准确文件范围在晋升时固定，不直接由逻辑实体生成数据库。
+保留人工 Web3100／API8100、既有数据／原件、共享 `.env` 和 Node 依赖。不重建后端镜像，不触碰主检出服务，不重开训练规模、Tracker 或全部消费者资格验证。
 
 ## 1. 问题与当前基础
 
-已有 SFTP 与 S3 拉取适配器可处理外部来源，但这不等同于跨网络站点的持续读取、离线恢复与本地计算能力。现有任务文件解析仍主要围绕全局对象桶；多站点需要可定位的内容和可选择的访问路径。[SFTP 适配器](../../../apps/api/app/services/sources/sftp.py)、[存储解析](../../../apps/api/app/services/storage.py)
+已有 SFTP 与 S3 拉取适配器可处理外部来源，但这不等同于跨网络站点的持续读取、离线恢复与本地计算能力。现有任务文件解析仍主要围绕全局对象桶；多站点需要可定位的内容和可选择的访问路径。[SFTP 适配器](../../apps/api/app/services/sources/sftp.py)、[存储解析](../../apps/api/app/services/storage.py)
 
 本 Epic 解决“图片在不同服务器，平台统一管理但不全部集中复制”。它不等于建设分布式文件系统，也不要求用户先部署 Ceph 或把所有机器加入一个存储集群。
 
@@ -121,9 +123,9 @@ flowchart TD
 | E06-AC08 | Agent 撤销后不能获取新任务和新读取授权；已签发授权的最长残留有效期有记录并通过测试。                       |
 | E06-AC09 | 接入一个远端站点不会改变同机/共享挂载位置的现有读取、扫描和标注流程。                                      |
 
-## 10. 灰度、回滚与测试
+## 10. 部署兼容与测试
 
-- 首先用一个只读站点、一个非生产目录验证；平台保留独立开关，暂停新 Agent 接入不影响已有本地位置。
+- 首先用一个只读站点、一个非生产目录验证；按明确的 Agent 位置类型分派，暂停接入不影响已有本地位置。
 - Agent 协议至少支持明确的服务端兼容版本范围；升级前验证在跑任务 drain，不能让不兼容 Agent 继续领取任务。
 - 回滚至旧 Agent 仅在协议、checkpoint 格式兼容时允许；不兼容时停止任务后重新配对，保留原内容标识。
 - 网络故障测试覆盖高延迟、丢包、DNS/证书错误、连接中断、旧租约重放、源目录改名和根挂载缺失。
@@ -147,7 +149,7 @@ flowchart TD
 
 ## 本项目推进切片与晋升条件
 
-触发条件：运维提交至少一个无法通过共享挂载或已验证直连覆盖的真实站点，确认出站 HTTPS、Linux 运行环境、只读根和带宽预算。首选复用 Python 技术栈；只有实测表明默认通道不能满足才改选。配对产生独立身份凭据，不复用个人连接密钥。
+实施拓扑：当前环境部署真实隔离的 Linux 中心和 Agent，中心不能入站，Agent 可出站 HTTPS；使用非生产受控根和明确预算。第二站点也可本机隔离，不等待生产部署目标。独立配对凭据不复用个人或训练执行器凭据。
 
 | 切片  | 独立结果            | 交付范围                                                                                       | 验收 / 回退边界                                                   |
 | ----- | ------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
@@ -156,8 +158,58 @@ flowchart TD
 
 前置合同不等于等待前置 Epic 全量完成。每个切片合并后系统仍须可用；含新来源的回退保留兼容读取和授权，不能把其相对路径交给旧 S3 拼接逻辑。预计多数切片涉及超过 8 个文件，实施时明确大范围边界与准确清单。
 
-已有回归入口：[test_dataset_import.py](../../../apps/api/tests/test_dataset_import.py)、[test_connector_crypto_guard.py](../../../apps/api/tests/test_connector_crypto_guard.py)、[test_storage_connections_api.py](../../../apps/api/tests/test_storage_connections_api.py)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
+已有回归入口：[test_dataset_import.py](../../apps/api/tests/test_dataset_import.py)、[test_connector_crypto_guard.py](../../apps/api/tests/test_connector_crypto_guard.py)、[test_storage_connections_api.py](../../apps/api/tests/test_storage_connections_api.py)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
 
-实现时同步：[index.md](../../../docs-site/ops/deploy/index.md)、[network-security.md](../../../docs-site/ops/deploy/network-security.md)、[storage-connections.md](../../../docs-site/dev/concepts/storage-connections.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
+实现时同步：[index.md](../../docs-site/ops/deploy/index.md)、[network-security.md](../../docs-site/ops/deploy/network-security.md)、[storage-connections.md](../../docs-site/dev/concepts/storage-connections.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
 
-完成实施后按[计划规范](../README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
+完成实施后按[计划规范](README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
+
+## 当前实施合同、文件范围与验证顺序
+
+本 Epic 超过 8 个文件、跨共享包／独立 Agent／中心 API 与 Worker／Web。以下是依赖有序的工程步骤，不缩减原 E06-A 的闭环或 AC01–09。
+
+```text
+管理员／Web → 中心权限与 StorageLocation → AsyncJob／扫描／登记 owner
+                                          ↓ 持久传输命令
+Agent → 出站 HTTPS 长轮询／受限中继 → 中心 API → Snapshot／既有缓存 → 客户端
+  ↓
+受控只读根 → 完整 SHA stage → 分块提交
+  ↓
+耐久本地日志：本地完成 ≠ 中心已确认
+```
+
+### A1：共享原语、严格协议与可执行 Agent 基座
+
+准确新增文件范围：
+
+- `apps/_shared/filesystem_read/pyproject.toml`、`README.md`、`src/aap_filesystem_read/{__init__,roots,stage}.py`、`tests/test_*.py`：无 API／数据库依赖，显式根映射；完整读取与退出复核后才产出 stage。
+- `apps/_shared/site_agent_contract/pyproject.toml`、`README.md`、`src/aap_site_agent_contract/{__init__,messages}.py`、`tests/test_*.py`：协议版本、严格白名单、规范化 digest、根修订／租约、结果和 ACK。
+- `apps/storage-agent/pyproject.toml`、`storage_agent/{__init__,config,journal,runner,client,__main__}.py`、`tests/test_*.py`、`README.md`、`Dockerfile`、`deploy/storage-agent.service`：独立 Linux 进程，无入站监听，固定 HTTPS origin；只保存独立身份、本地根和有界日志／stage。
+
+A1 先实现和验证独立组件；中心未接通时不算 AC01 通过，也不能作为可用的平台接入功能发布。API 原语在 A2 转为共享 facade 后删除重复实现，保留旧异常和 monkeypatch seam。
+
+### A2：中心身份、扫描／登记和读取闭环
+
+准确文件范围：
+
+- 新增 `apps/api/app/db/models/site_agent.py`、`schemas/site_agent.py`、`services/site_agents.py`、`services/agent_transport.py`、`api/v1/site_agents.py`、`alembic/versions/0265_site_agents.py` 及对应 `tests/test_site_agents*.py`／`test_agent_transport*.py`。
+- 修改 `db/models/__init__.py`、`api/v1/router.py`、`schemas/storage_location.py`、`services/storage_location.py`、`api/v1/storage_locations.py`：站点、独立身份／一次性配对、轮换／撤销、心跳、root handle 与 `kind=agent`。
+- 修改 `services/filesystem_storage.py`、`apps/api/pyproject.toml`／`uv.lock`：共享原语 facade 与依赖；容器构建／挂载按实际入口调整，不重建当前后端镜像。
+- 修改 `services/reference_storage.py`、`dataset_scans.py`、`dataset_registration.py`、`dataset_source_sync.py`、`dataset_content.py`、`dataset_references.py`、`content_snapshot.py`、`storage_access.py`、`original_cache.py`、`workers/dataset_scan.py`：Agent I/O 分派、远端 observation、完整内容与授权复验；中心 worker node_id 保持原语义。
+- 修改 `api/v1/originals.py`、`api/v1/dataset_sources.py`：完整内容核验后提供同 revision 单范围读取，不把现有 Accept-Ranges:none 误报为已支持。
+
+迁移基于当前 head 0264 追加，保留 schema。命令和关闭证据存 PostgreSQL，不建第二任务历史；临时块通过有界 Redis 中继，不登记新原件或强制开启持久缓存，不依赖 API 进程粘滞。源文件最多 64 MiB、块最多 256 KiB；临时中继过期／缺块明确失败。网络超时未获关闭证据时保留 unsettled 责任，后续对账收尾。
+
+协议只允许 `probe / browse / scan / read`，严格拒绝未知字段／任意目标 URL。目录沿用单目录 5000 项、扫描 50000 项／5000 目录。命令绑定身份／根资格／位置配置／维护修订、业务租约、用途和内容身份。网络等待前提交；锁序保持 Location→Source→Job→Run，传输 received 与业务 applied 分开，业务 ACK 和 checkpoint 同事务。
+
+### A3 与 B：管理界面及双站点
+
+A3 复用存储页面和居中 Modal，新增 `apps/web/src/components/storage/SiteAgentsPanel.tsx` 与组件测试，接入实际页面／API 层前固定父文件清单。展示心跳、可用根、预算和影响位置；数据集维持原图／预览分开。B 在既有内容身份与授权筛选后做有限站点／健康路由，不改 GPU 调度或建设通用复制系统。
+
+### 分层验证和文档
+
+- A1：当前 API 虚拟环境 pytest，明确 `PYTHONPATH` 指向独立包；验证路径边界／替换、完整 SHA／stage、协议拒绝、ACK 重放、日志恢复／预算。固定 Ruff 0.15.22 check 与 format；清理任务产物。
+- A2：通过现有 launcher 核实 disposable test 库后运行 SQL／租约并发及受影响扫描／登记／读取回归；公开接口同步 OpenAPI／前端类型和 SDK manifest。人工库不作为测试库。
+- A3／B：新增 `scripts/verify_site_agent.py` 和直接纯测试；真实隔离 HTTPS 双 Agent 完成配对、扫描、登记、读取／Range，注入断网重启、旧租约、重复提交、撤权、副本变化和预算优先级，逐项对应 AC01–09。
+- Web 变更按既有约定做 token lint、组件测试、真实明暗／宽窄截图及交互、请求、控制台检查。A1 无 Web 变更不重复既有 UI 验收。
+- 随实际实现更新 `docs-site/ops/deploy/site-agents.md`、部署索引／网络安全、`dev/concepts/storage-connections.md`、API／用户指南、README／DEV 与 CHANGELOG。未实现的中心接入明确标注；整项完成追加 Outcome，不把组件测试写成 Epic 已验收。
