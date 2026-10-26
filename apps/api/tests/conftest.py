@@ -42,6 +42,23 @@ if os.environ.get("AAP_WORKTREE_MODE") == "dev":
 # 数据库名仍由下方 fixture 固定到一次性测试库，router 自身会再做后缀校验。
 os.environ["E2E_SEED_ENABLED"] = "true"
 
+# 分片插件在 E2E_SEED_ENABLED 之后导入，因此不是文件顶部 import。
+from tests import pytest_sharding  # noqa: E402
+
+
+# 可选测试分片钩子（--shard-index / --shard-count）。两个参数都不给时不改变任何
+# 收集/执行行为；实现与分区算法见 tests/pytest_sharding.py。
+def pytest_addoption(parser):
+    pytest_sharding.pytest_addoption(parser)
+
+
+def pytest_configure(config):
+    pytest_sharding.pytest_configure(config)
+
+
+def pytest_collection_modifyitems(config, items):
+    pytest_sharding.pytest_collection_modifyitems(config, items)
+
 
 def _validate_test_db_target(url: str) -> str:
     """校验解析出的测试库目标确实是获准的一次性测试库。
