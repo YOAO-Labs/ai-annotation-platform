@@ -93,10 +93,8 @@ def clear_observation_selection(monkeypatch):
         monkeypatch.setattr(settings, name, "")
 
 
-async def select_binding(stack, monkeypatch, test_engine, binding="http"):
+async def select_binding(stack, monkeypatch, test_engine):
     """Bind the only remaining observation selector: the HTTP owner process."""
-    if binding != "http":
-        raise ValueError("health observation is HTTP-only")
     from app.config import settings
 
     clear_observation_selection(monkeypatch)

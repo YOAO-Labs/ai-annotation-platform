@@ -161,7 +161,7 @@ async def test_restored_key_and_role_contract_keep_database_binding_and_caller_c
             with pytest.raises(BackendHealthObservationUnavailable):
                 await data.open_subject(subject, registry_id, request_id)
             async with AsyncExitStack() as stack:
-                await select_binding(stack, monkeypatch, restored, "dsn")
+                await select_binding(stack, monkeypatch, restored)
                 restored_maker = async_sessionmaker(restored, expire_on_commit=False)
                 async with restored_maker() as caller:
                     assert await MLBackendService(caller).check_health(registry_id)
