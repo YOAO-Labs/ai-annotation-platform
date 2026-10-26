@@ -82,17 +82,10 @@ async def available_preview_keys(db, source_ids):
                     preview.object_key,
                 ):
                     continue
-                target_key = tuple(
-                    sorted(
-                        (key, value)
-                        for key, value in saved.ref.items()
-                        if key != "prefix"
-                    )
-                )
+                target_key = ("thumbnail", output.id)
                 if target_key not in targets:
                     targets[target_key] = False
-                    await media_cache_storage.target_for_ref(db, saved.ref)
-                    await storage_access.check(db, saved.location_id)
+                    await thumbnail_outputs.qualify_read(db, output)
                     targets[target_key] = True
             if not targets[target_key]:
                 continue

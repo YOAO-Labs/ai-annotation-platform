@@ -1,6 +1,7 @@
 """Saved thumbnail responsibility shared by directory and ordinary image previews."""
 
 import asyncio
+from copy import deepcopy
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -17,6 +18,8 @@ from app.db.models.thumbnail_output import ThumbnailOutput
 from app.services import media_cache_storage, media_cache_urls, original_sources
 from app.services import media_cache_accounting
 from app.services import storage_access
+from app.services import storage_migration_artifact_reads as migrated_reads
+from app.services import storage_migration_read_publications as publications
 from app.services.content_snapshot import ContentError
 from app.services.filesystem_storage import FilesystemStorageError
 from app.services.storage import storage_service
@@ -312,33 +315,98 @@ def _legacy_path(path):
 
 
 def _verified_bytes(target, output):
+    with target.client(read_timeout=30) as client:
+        return read_from_client(client, output)
+
+
+def read_from_client(client, output):
+    """Verify saved logical bytes while retaining the actual transport headers."""
     saved = owner(output)
+    route = client.route if isinstance(client, migrated_reads.ReadClient) else None
+    expected_version = (
+        route.target_version_id if route is not None else output.version_id
+    )
+    expected_etag = (
+        route.target_etag if route is not None else getattr(output, "etag", None)
+    )
     params = {"Bucket": saved.bucket, "Key": saved.key(RELATIVE_KEY)}
     if output.version_id not in (None, "null"):
         params["VersionId"] = output.version_id
     if getattr(output, "etag", None) is not None:
         params["IfMatch"] = output.etag
-    with target.client(read_timeout=30) as client:
-        response = client.get_object(**params)
-        with storage_access.closing_registered(response["Body"]) as body:
-            data = body.read(MAX_BYTES + 1)
-            extra = body.read(1)
-        if (
-            response.get("ResponseMetadata", {}).get("HTTPStatusCode") != 200
-            or response.get("ContentRange") is not None
-            or response.get("DeleteMarker")
-            or getattr(output, "etag", None) is not None
-            and response.get("ETag") != output.etag
-            or output.version_id not in (None, "null")
-            and response.get("VersionId") != output.version_id
-            or response.get("ContentLength") != output.size_bytes
-            or len(data) != output.size_bytes
-            or len(data) > MAX_BYTES
-            or extra
-            or hashlib.sha256(data).hexdigest() != output.sha256
-        ):
-            raise ContentError("thumbnail_content_changed")
+    response = client.get_object(**params)
+    with storage_access.closing_registered(response["Body"]) as body:
+        data = body.read(MAX_BYTES + 1)
+        extra = body.read(1)
+    if (
+        response.get("ResponseMetadata", {}).get("HTTPStatusCode") != 200
+        or response.get("ContentRange") is not None
+        or response.get("DeleteMarker")
+        or expected_etag is not None
+        and response.get("ETag") != expected_etag
+        or expected_version not in (None, "null")
+        and response.get("VersionId") != expected_version
+        or response.get("ContentLength") != output.size_bytes
+        or len(data) != output.size_bytes
+        or len(data) > MAX_BYTES
+        or extra
+        or hashlib.sha256(data).hexdigest() != output.sha256
+    ):
+        raise ContentError("thumbnail_content_changed")
     return data
+
+
+async def qualify_read(db, output):
+    """Qualify saved reads without committing or opening a physical client."""
+    saved = owner(output)
+    route = await migrated_reads.resolve(
+        db,
+        saved.ref,
+        saved.key(RELATIVE_KEY),
+        output.sha256,
+        output.size_bytes,
+        source_version_id=(
+            output.version_id
+            if output.version_id is not None
+            else publications.ANY_VERSION
+        ),
+        source_etag=getattr(output, "etag", None),
+    )
+    if route is not None:
+        return route, None
+    await media_cache_storage.target_for_ref(db, saved.ref)
+    return None, await storage_access.check(db, saved.location_id)
+
+
+async def _recheck_read(db, saved, route, revision):
+    if route is not None:
+        await publications.recheck(db, route, lock=True)
+    else:
+        target = await media_cache_storage.target_for_ref(db, saved.ref)
+        await storage_access.check(db, saved.location_id, expected_revision=revision)
+        return target
+
+
+def _receipt(output):
+    return (
+        deepcopy(output.storage_ref),
+        output.sha256,
+        output.size_bytes,
+        getattr(output, "etag", None),
+        output.version_id,
+    )
+
+
+def _same_source(output, source, *, migrated):
+    current, expected = source_facts(source), output.input_ref.get("source")
+    if not migrated:
+        return current == expected
+    if not isinstance(expected, dict):
+        return False
+    transport = {"maintenance_revision", "read_route"}
+    return {key: value for key, value in current.items() if key not in transport} == {
+        key: value for key, value in expected.items() if key not in transport
+    }
 
 
 async def read_bytes(db, output_id):
@@ -349,11 +417,13 @@ async def read_bytes(db, output_id):
         if output is None or output.state != "ready" or output.uncertain_write:
             raise ContentError("thumbnail_output_changed")
         saved = owner(output)
-        revision = await storage_access.check(current, saved.location_id)
+        expected = _receipt(output)
+        route, revision = await qualify_read(current, output)
         await current.commit()
-        async with await storage_access.acquire(
-            current, saved.location_id, purpose(output_id), expected_revision=revision
-        ):
+        target = None
+
+        async def acquired(permit):
+            nonlocal output, target
             async with original_sources._reads(current, True):
                 output = await current.get(
                     ThumbnailOutput,
@@ -365,14 +435,24 @@ async def read_bytes(db, output_id):
                 output is None
                 or output.state != "ready"
                 or output.uncertain_write
-                or output.storage_ref != saved.ref
+                or _receipt(output) != expected
             ):
                 raise ContentError("thumbnail_output_changed")
-            target = await media_cache_storage.target_for_ref(current, saved.ref)
-            await storage_access.check(
-                current, saved.location_id, expected_revision=revision
-            )
+            target = await _recheck_read(current, saved, route, revision)
             await current.commit()
+
+        if route is not None:
+            return await migrated_reads.run(
+                current,
+                route,
+                purpose(output_id),
+                lambda client: read_from_client(client, output),
+                on_acquired=acquired,
+            )
+        async with await storage_access.acquire(
+            current, saved.location_id, purpose(output_id), expected_revision=revision
+        ) as permit:
+            await acquired(permit)
             pending = asyncio.create_task(
                 asyncio.to_thread(_verified_bytes, target, output)
             )
@@ -415,29 +495,36 @@ async def thumbnail_url(db, owner_kind, owner_id, path):
                 or output.uncertain_write
                 or (output.owner_kind, output.owner_id) != (kind, identifier)
                 or owner(output).key(RELATIVE_KEY) != path
-                or source_facts(await _source(current, kind, identifier))
-                != output.input_ref.get("source")
             ):
                 return None
             saved = owner(output)
-            revision = await storage_access.check(current, saved.location_id)
+            expected = _receipt(output)
+            route, revision = await qualify_read(current, output)
+            source = await _source(current, kind, identifier)
+            if not _same_source(output, source, migrated=route is not None):
+                return None
+            if route is not None:
+                await original_sources.recheck_read_route(current, source)
             await current.commit()
             await read_bytes(current, output.id)
-            if await _business_pointer(
-                current, owner_kind, owner_id, path
-            ) != pointer or source_facts(
-                await _source(current, kind, identifier)
-            ) != output.input_ref.get("source"):
+            if await _business_pointer(current, owner_kind, owner_id, path) != pointer:
                 return None
+            source = await _source(current, kind, identifier)
+            if not _same_source(output, source, migrated=route is not None):
+                return None
+            if route is not None:
+                await original_sources.recheck_read_route(current, source)
             output = await current.get(
                 ThumbnailOutput, output_id, populate_existing=True
             )
-            if output is None or output.state != "ready" or output.uncertain_write:
+            if (
+                output is None
+                or output.state != "ready"
+                or output.uncertain_write
+                or _receipt(output) != expected
+            ):
                 return None
-            await media_cache_storage.target_for_ref(current, saved.ref)
-            await storage_access.check(
-                current, saved.location_id, expected_revision=revision
-            )
+            await _recheck_read(current, saved, route, revision)
             return media_cache_urls.sign(
                 "thumbnail",
                 output.id,

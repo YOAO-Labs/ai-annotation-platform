@@ -98,12 +98,16 @@ async def test_saved_b_cleanup_after_return_to_a_and_location_disable(
     assert clock > output.writer_until
 
 
-async def test_read_operation_blocks_retiring_collection(media_db, client, monkeypatch):
+@pytest.mark.parametrize("read_location", ["source", "published"])
+async def test_read_operation_blocks_retiring_collection(
+    media_db, client, monkeypatch, read_location
+):
     output = await create(media_db)
     await retire(media_db, output, monkeypatch)
     saved = outputs.owner(output)
+    location_id = saved.location_id if read_location == "source" else uuid.uuid4()
     async with await storage_access.acquire(
-        media_db, saved.location_id, outputs.purpose(output.id)
+        media_db, location_id, outputs.purpose(output.id)
     ):
         assert await cleanup.reconcile(media_db) == 0
         assert (saved.bucket, saved.key("thumbnail.webp")) in client.objects

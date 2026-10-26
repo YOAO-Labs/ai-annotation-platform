@@ -179,6 +179,9 @@ async def prepare(db, source, entry, snapshot):
                         prepared.baseline,
                         reuse=True,
                     )
+        except ContentError as exc:
+            if exc.code.startswith("read_publication_"):
+                raise
         except Exception:
             pass
     prepared = replace(
@@ -252,8 +255,7 @@ async def output_for_row(db, row):
         output.size_bytes,
     ):
         raise ContentError("preview_binding_changed")
-    await outputs.media_cache_storage.target_for_ref(db, saved.ref)
-    await storage_access.check(db, saved.location_id)
+    await outputs.qualify_read(db, output)
     return output
 
 
