@@ -28,6 +28,15 @@ from tests.factory import create_user
 from tests.test_training_runs import ready_dataset
 
 
+@pytest.fixture(autouse=True)
+def isolated_cleanup_transport(monkeypatch):
+    # Durable intent/commit ordering is under test; physical transport routing
+    # and its credentials have dedicated storage suites.
+    from tests.training_consumer_fixtures import mock_legacy_transport
+
+    mock_legacy_transport(monkeypatch)
+
+
 async def terminal_record(db, owner, kind):
     project, dataset = await ready_dataset(db, owner)
     if kind == "datasets":

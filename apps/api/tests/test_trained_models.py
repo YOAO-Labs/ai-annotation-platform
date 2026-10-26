@@ -629,6 +629,14 @@ async def test_pending_job_replay_keeps_original_release_after_new_publication(
     db_session.add(d2)
     await db_session.flush()
     task = await create_task(db_session, project_id=project.id)
+    from app.services import prediction_references
+
+    async def capture_authority(*args, **kwargs):
+        # Original-reader ownership has dedicated coverage; this case freezes
+        # the job's model reference across publication replay.
+        return {"schema": 2, "tasks": [{"original": {"schema": 1}}]}
+
+    monkeypatch.setattr(prediction_references, "capture_authority", capture_authority)
     mock_live_receipts(monkeypatch, db_session)
     await publish(httpx_client, token, project, v1, d1, 0)
     dispatch = Mock(

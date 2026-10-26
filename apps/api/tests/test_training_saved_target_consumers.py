@@ -606,6 +606,9 @@ async def test_first_missing_b_png_is_classified_inside_current_target_client(
         yield raw, sample, None
 
     monkeypatch.setattr(learning.originals, "input_image", input_image)
+    # This SQL-free fixture owns the physical transport and permits; durable
+    # write-accounting transactions are exercised by the accounting suites.
+    monkeypatch.setattr(learning.write_accounting, "recorder", lambda *_a, **_k: None)
     db = Database()
     if failure == "missing":
         assert await learning.prepare_image(db, world.run, sample) == raw

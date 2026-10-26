@@ -284,8 +284,21 @@ async def test_permit_settlement_failure_disposes_captured_snapshot(monkeypatch)
 
 
 async def test_retained_training_copy_does_not_check_source_maintenance(monkeypatch):
-    from app.workers import training_dataset as worker
+    from types import SimpleNamespace
 
+    from app.services import training_dataset_storage as owners
+    from app.workers import training_dataset as worker
+    from tests.test_training_storage_targets import target
+
+    project_id, version_id = uuid.uuid4(), uuid.uuid4()
+    version = SimpleNamespace(
+        id=version_id,
+        project_id=project_id,
+        storage_ref=owners.make_ref(
+            target(legacy=True), 1, owners.prefix_for(project_id, version_id)
+        ),
+    )
+    owner = owners.resolve(version)
     retained = {"task_id": "frozen", "sha256": "a" * 64}
     monkeypatch.setattr(worker, "materialize_image", lambda *args: retained)
 
@@ -295,7 +308,15 @@ async def test_retained_training_copy_does_not_check_source_maintenance(monkeypa
     monkeypatch.setattr(storage_access, "check", forbidden)
     monkeypatch.setattr(worker, "assert_dataset_authority", forbidden)
     assert (
-        await worker.materialize_sample(None, None, {}, "prefix", "digest", None, None)
+        await worker.materialize_sample(
+            None,
+            version,
+            {"task_id": retained["task_id"]},
+            owner.prefix.rstrip("/"),
+            "digest",
+            None,
+            None,
+        )
         is retained
     )
 
