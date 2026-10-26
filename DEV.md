@@ -636,6 +636,9 @@ docker compose --project-name aap-jobs-development --env-file /private/path/comp
 该组合只发布 `127.0.0.1:8190`；宿主 API 使用此地址和同一 bearer，容器内 relay
 仍使用私网 queue 地址。它不会启动 Beat 或业务 worker；应用迁移／窄授权后，
 还须刷新实际消费者、核对其任务签名与队列，并验证 API、queue、relay 的独立秘密。
+运行环境文件不保存迁移 DSN；先用单独 operator 进程完成升级和窄授权，再启动
+普通 API／worker。`dev:api` 的启动版本检查不能替代该 operator 步骤，也不应
+为了自动升级而把迁移 owner 凭据交给长期运行的消费者。
 
 发布结果不明或发布后回执丢失时，relay 在退避／租约到期后复用原消息和全部执行 ID，不重建业务参数；旧代次回执不能确认新租约。已确认发布不会自动重投；业务终态不再派发，取消 tracker 仅允许对已取消 canonical tracker 的原任务做退役重投。帧任务以冻结的逻辑段回执聚合，重复 header 不能提前完成。租约过期不是 worker 已停止的证明，不授予项目删除或历史执行退役权限。当前工件、真实消费者和恢复的验收状态见[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
 

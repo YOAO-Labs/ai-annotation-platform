@@ -62,6 +62,8 @@ last_reviewed: 2026-10-26
 | `JOBS_DISPATCH_RELAY_BATCH_SIZE` | `100` | — |
 | `JOBS_DISPATCH_RELAY_LEASE_SECONDS` | `30` | — |
 | `JOBS_DISPATCH_RELAY_POLL_SECONDS` | `1` | — |
+| `AAP_JOBS_QUEUE_RUNTIME_IMAGE` | `—` | 本机独立 Compose 组合：使用已验收镜像和已核实的基础设施网络，不创建第二份 Redis／PostgreSQL。 |
+| `AAP_JOBS_DEVELOPMENT_NETWORK` | `—` | — |
 
 ## 对象存储 (MinIO / S3 兼容)
 
