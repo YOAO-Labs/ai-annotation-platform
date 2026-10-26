@@ -350,6 +350,7 @@ async def check(
     *,
     token=None,
     gate_revision=None,
+    read_plan=None,
     lock=True,
     write=False,
     building=False,
@@ -413,9 +414,27 @@ async def check(
     ):
         reject("video_derivative_lease_lost")
     ref = physical.resolve(current).ref
-    revision = await storage_access.check(
-        db, uuid.UUID(ref["location_id"]), expected_revision=gate_revision, lock=lock
-    )
+    if token is None and not building and current.state == "ready":
+        from app.services import video_derivative_objects as objects
+
+        plan = read_plan or objects.consumed(db, output, authority)
+        if plan is None:
+            plan = await objects.read_plan(
+                db, current, (physical.resolve(current).key("metadata.json"),)
+            )
+        await objects.check_reads(db, current, plan, lock=lock)
+        revision = plan.revision
+        if gate_revision is not None and gate_revision != revision:
+            reject("storage_maintenance_changed")
+    else:
+        if read_plan is not None:
+            reject()
+        revision = await storage_access.check(
+            db,
+            uuid.UUID(ref["location_id"]),
+            expected_revision=gate_revision,
+            lock=lock,
+        )
     originals.clock(authority)
     return item, slot, current, revision
 
@@ -553,13 +572,21 @@ async def verified(db, output, authority, *, relative=None, bytes_limit=None):
     validate_result(receipt, receipt.result, receipt.inventory)
     factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
 
+    owner = physical.resolve(receipt)
+    keys = [owner.key("metadata.json")]
+    if relative is not None:
+        keys.append(owner.key(relative))
+    async with factory() as selected:
+        plan = await objects.read_plan(selected, receipt, keys)
+
     async def guard(revision):
         async with factory() as fresh:
-            await check(fresh, receipt, authority, gate_revision=revision)
+            await check(
+                fresh, receipt, authority, gate_revision=revision, read_plan=plan
+            )
 
     value = None
-    async with objects.access(db, receipt, guard) as storage:
-        owner = physical.resolve(receipt)
+    async with objects.read_access(db, receipt, plan, guard) as storage:
         result_bytes = await originals.physical(
             physical.read_bytes, storage, receipt, owner.key("metadata.json")
         )
@@ -581,6 +608,7 @@ async def verified(db, output, authority, *, relative=None, bytes_limit=None):
                     physical.read_bytes, storage, receipt, key, max_bytes=bytes_limit
                 )
     originals.clock(authority)
+    objects.remember_reads(db, receipt, authority, plan)
     return value
 
 
@@ -613,6 +641,7 @@ async def poster(db, item, authority):
     from sqlalchemy.ext.asyncio import async_sessionmaker
     from app.services import video_derivative_objects as objects
 
+    objects.begin_reads(db, authority)
     factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
     async with factory() as fresh:
         source = await originals.check(fresh, authority)
@@ -653,6 +682,7 @@ async def thumbnail(db, *, item_id=None, task_id=None):
             path = output.result["video"].get("poster_frame_path")
         if path is None:
             return None
+        objects.begin_reads(db, authority)
         url = await verified(db, output, authority, relative="poster.webp")
         return path, url
     except (ContentError, physical.VideoDerivativeStorageError, HTTPException):

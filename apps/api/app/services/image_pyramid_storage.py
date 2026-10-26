@@ -22,6 +22,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.services import media_cache_accounting
 from app.services import storage_access
+from app.services import storage_migration_artifact_reads as migration_reads
+from app.services import storage_presigning
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.managed_original_retirement import managed_storage_identity
 from app.services.storage import storage_service
@@ -239,6 +241,46 @@ async def transport_target(db, output, *, require_enabled=True):
             )
         except ValueError:
             _reject()
+
+
+@dataclass(frozen=True)
+class ReadStorage:
+    """Explicit ready-only transports for the selected immutable members."""
+
+    reference: dict
+    members: tuple
+    source: object
+    readers: object
+
+
+def _reading_client(storage, owner, key, receipt):
+    if not isinstance(storage, ReadStorage):
+        return _client(storage, owner)
+    if storage.reference != owner.ref:
+        _reject()
+    selected = [member for member in storage.members if member[0] == key]
+    if len(selected) != 1 or selected[0][1:3] != (
+        receipt["sha256"],
+        receipt["size_bytes"],
+    ):
+        _reject()
+    route = selected[0][3]
+    if route is None:
+        return _client(storage.source, owner)
+    if not isinstance(storage.readers, migration_reads.ReadClientSet):
+        _reject()
+    reader = storage.readers.reader_for(owner.bucket, key)
+    if (
+        reader.route != route
+        or str(route.source_location_id) != owner.ref["location_id"]
+        or route.source_endpoint_url != owner.ref["endpoint_url"]
+        or route.source_bucket != owner.bucket
+        or route.source_object_key != key
+        or route.sha256 != receipt["sha256"]
+        or route.size_bytes != receipt["size_bytes"]
+    ):
+        _reject()
+    return reader
 
 
 def _client(storage, owner):
@@ -536,11 +578,11 @@ def upload_and_verify(
 
 def verify_object(storage, output, key):
     owner = resolve(output)
-    client = _client(storage, owner)
     owner.contains(key)
     receipt = _inventory(output, owner).get(key)
     if receipt is None:
         _reject("invalid_key")
+    client = _reading_client(storage, owner, key, receipt)
     try:
         return _read(
             client,
@@ -555,7 +597,6 @@ def verify_object(storage, output, key):
 
 def read_manifest(storage, output, expected_digest):
     owner = resolve(output)
-    client = _client(storage, owner)
     key = owner.key("manifest.json")
     receipt = _inventory(output, owner).get(key)
     if (
@@ -564,6 +605,7 @@ def read_manifest(storage, output, expected_digest):
         or expected_digest != "sha256:" + receipt["sha256"]
     ):
         _reject("invalid_receipt")
+    client = _reading_client(storage, owner, key, receipt)
     try:
         data = _read(
             client,
@@ -584,18 +626,27 @@ def read_manifest(storage, output, expected_digest):
 def signed_url(storage, output, key, expires):
     """Sign only an inventoried key after the caller's existing full readback."""
     owner = resolve(output)
-    _client(storage, owner)
     owner.contains(key)
     inventory = _inventory(output, owner)
     if key not in inventory or type(expires) is not int or not 0 < expires <= 3600:
         _reject("invalid_receipt")
+    client = _reading_client(storage, owner, key, inventory[key])
     if owner.ref["schema"] == 2:
         from app.services import media_cache_urls
 
         return media_cache_urls.sign(
             "image-pyramid", output.id, key, owner.ref, inventory[key], expires
         )
-    return storage.generate_download_url(
+    if isinstance(client, migration_reads.ReadClient):
+        return storage_presigning.generate_url(
+            client,
+            "get_object",
+            params={"Bucket": owner.bucket, "Key": key},
+            expires_in=expires,
+            audience="internal",
+        )
+    source = storage.source if isinstance(storage, ReadStorage) else storage
+    return source.generate_download_url(
         key, bucket=owner.bucket, expires_in=expires, align=False
     )
 

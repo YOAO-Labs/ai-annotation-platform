@@ -1,9 +1,10 @@
 """Independent pyramid outputs, durable admission and short publication guards."""
 
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, ExitStack, asynccontextmanager, contextmanager
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from datetime import timedelta
+import asyncio
 import uuid
 import re
 import sys
@@ -22,6 +23,8 @@ from app.services import image_pyramid_originals as originals
 from app.services import image_pyramid_storage as physical
 from app.services import key_removal_accounting as removal
 from app.services import storage_access
+from app.services import storage_migration_artifact_reads as migration_reads
+from app.services import storage_migration_read_publications as read_publications
 from app.services.content_snapshot import ContentError
 from app.services.storage import storage_service
 
@@ -43,6 +46,7 @@ class Receipt:
     storage_ref: dict
     inventory: dict | None
     state: str
+    _read_storage: object = field(default=None, repr=False, compare=False)
 
 
 def snapshot(row):
@@ -56,6 +60,171 @@ def snapshot(row):
         deepcopy(row.inventory),
         row.state,
     )
+
+
+@dataclass(frozen=True)
+class ReadPlan:
+    receipt: Receipt
+    members: tuple
+    source_revision: int | None
+
+    @property
+    def routes(self):
+        return tuple(member[3] for member in self.members if member[3] is not None)
+
+    @property
+    def revision(self):
+        return (
+            self.source_revision
+            if self.source_revision is not None
+            else self.routes[0].maintenance_revision
+        )
+
+
+async def read_plan(db, output, keys):
+    receipt = snapshot(output)
+    if receipt.state != "ready":
+        reject()
+    owner = physical.resolve(receipt)
+    inventory = physical.validate_inventory(receipt)
+    members = []
+    for key in sorted(set(keys)):
+        facts = inventory.get(key)
+        if facts is None:
+            reject()
+        route = await migration_reads.resolve(
+            db, owner.ref, key, facts["sha256"], facts["size_bytes"]
+        )
+        members.append((key, facts["sha256"], facts["size_bytes"], route))
+    if not members:
+        reject()
+    revision = None
+    if any(member[3] is None for member in members):
+        revision = await storage_access.check(db, uuid.UUID(owner.ref["location_id"]))
+    plan = ReadPlan(receipt, tuple(members), revision)
+    await check_reads(db, receipt, plan)
+    return plan
+
+
+async def check_reads(db, output, plan, *, lock=False):
+    if (
+        not isinstance(plan, ReadPlan)
+        or snapshot(output) != plan.receipt
+        or output.state != "ready"
+    ):
+        reject()
+    if not plan.members or len({member[0] for member in plan.members}) != len(
+        plan.members
+    ):
+        reject()
+    if any(member[3] is None for member in plan.members) != (
+        plan.source_revision is not None
+    ):
+        reject()
+    if plan.routes:
+        # The facade constructor validates the entire immutable context without
+        # opening a client. Reject mixed publications before provider construction.
+        migration_reads.ReadClientSet(None, plan.routes)
+    owner = physical.resolve(output)
+    inventory = physical.validate_inventory(output)
+    for key, sha, size, route in plan.members:
+        if inventory.get(key) != {"sha256": sha, "size_bytes": size}:
+            reject()
+        if route is not None:
+            if (
+                route.source_location_id != uuid.UUID(owner.ref["location_id"])
+                or route.source_endpoint_url != owner.ref["endpoint_url"]
+                or route.source_bucket != owner.bucket
+                or route.source_object_key != key
+                or route.sha256 != sha
+                or route.size_bytes != size
+            ):
+                reject()
+            await read_publications.recheck(db, route, lock=lock)
+    if any(member[3] is None for member in plan.members):
+        if plan.source_revision is None:
+            reject()
+        await storage_access.check(
+            db,
+            uuid.UUID(owner.ref["location_id"]),
+            expected_revision=plan.source_revision,
+            lock=lock,
+        )
+
+
+@asynccontextmanager
+async def read_access(db, receipt, plan, guard):
+    """Close every selected physical handle before releasing its actual permits."""
+    factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
+    session = factory()
+    try:
+        await check_reads(session, receipt, plan)
+        source_target = (
+            await physical.transport_target(session, receipt)
+            if plan.source_revision is not None
+            else None
+        )
+        await session.commit()
+        async with AsyncExitStack() as admissions:
+            if plan.source_revision is not None:
+                await admissions.enter_async_context(
+                    await storage_access.acquire(
+                        session,
+                        uuid.UUID(receipt.storage_ref["location_id"]),
+                        purpose(receipt.id),
+                        expected_revision=plan.source_revision,
+                    )
+                )
+            admitted = None
+            if plan.routes:
+                admitted = await admissions.enter_async_context(
+                    migration_reads.admit(session, plan.routes[0], purpose(receipt.id))
+                )
+            await guard(plan.revision)
+            await check_reads(session, receipt, plan, lock=True)
+            await session.commit()
+
+            @contextmanager
+            def opened():
+                with ExitStack() as contexts:
+                    source = None
+                    if plan.source_revision is not None:
+                        source = (
+                            contexts.enter_context(
+                                physical.open_storage(target=source_target)
+                            )
+                            if source_target is not None
+                            else storage_service
+                        )
+                    readers = (
+                        contexts.enter_context(
+                            migration_reads.clients(plan.routes, admitted.target)
+                        )
+                        if admitted is not None
+                        else None
+                    )
+                    yield physical.ReadStorage(
+                        deepcopy(receipt.storage_ref), plan.members, source, readers
+                    )
+
+            context, entered = opened(), []
+
+            def open_owned():
+                value = context.__enter__()
+                entered.append(True)
+                return value
+
+            try:
+                storage = await originals.physical(open_owned)
+                yield storage
+            finally:
+                if entered:
+                    await originals.physical(context.__exit__, *sys.exc_info())
+            await guard(plan.revision)
+            await check_reads(session, receipt, plan, lock=True)
+            await session.commit()
+    finally:
+        await storage_access.finish(asyncio.create_task(session.close()))
 
 
 async def allocate(db, asset, generation, token):
@@ -93,6 +262,7 @@ async def check(
     authority=None,
     lease_token=None,
     gate_revision=None,
+    read_plan=None,
     lock=True,
 ):
     """Never commit caller state or perform provider I/O under these locks."""
@@ -143,12 +313,18 @@ async def check(
         ):
             reject("lease_lost")
     ref = physical.resolve(output).ref
-    revision = await storage_access.check(
-        db,
-        uuid.UUID(ref["location_id"]),
-        expected_revision=gate_revision,
-        lock=lock,
-    )
+    if read_plan is not None:
+        if lease_token is not None:
+            reject()
+        await check_reads(db, snapshot(output), read_plan, lock=lock)
+        revision = read_plan.revision
+    else:
+        revision = await storage_access.check(
+            db,
+            uuid.UUID(ref["location_id"]),
+            expected_revision=gate_revision,
+            lock=lock,
+        )
     if authority is not None:
         originals.clock(authority)
     return snapshot(output), revision
@@ -273,9 +449,32 @@ async def manifest(storage, output, generation):
 
 
 @asynccontextmanager
-async def reading(db, owner, generation, *, authority=None):
+async def reading(db, owner, generation, *, authority=None, keys=None):
     if generation.output_id is None:
         reject("image_pyramid_storage_unpinned")
+    if keys is not None:
+        factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
+        async with factory() as selected:
+            row = await selected.get(Output, generation.output_id)
+            if row is None:
+                reject()
+            plan = await read_plan(selected, row, keys)
+
+        async def guard(_revision):
+            async with factory() as fresh:
+                await check(
+                    fresh,
+                    owner,
+                    generation.asset_id,
+                    generation.generation,
+                    generation.output_id,
+                    authority=authority,
+                    read_plan=plan,
+                )
+
+        async with read_access(db, plan.receipt, plan, guard) as storage:
+            yield replace(plan.receipt, _read_storage=storage)
+        return
     factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
     async with factory() as session:
         output, revision = await check(
@@ -319,6 +518,9 @@ async def reading(db, owner, generation, *, authority=None):
 @asynccontextmanager
 async def transport(db, output):
     """Use live credentials while the enclosing reading permit owns all I/O."""
+    if getattr(output, "_read_storage", None) is not None:
+        yield output._read_storage
+        return
     target = await physical.transport_target(db, output)
     if target is None:
         yield storage_service
@@ -358,7 +560,7 @@ async def thumbnail_url(db, owner_kind, owner_id, path):
             if generation is None or generation.overview_key != path:
                 return None
             await session.commit()
-            async with reading(session, owner, generation) as output:
+            async with reading(session, owner, generation, keys=(path,)) as output:
                 async with transport(session, output) as storage:
                     await originals.physical(
                         physical.verify_object, storage, output, path

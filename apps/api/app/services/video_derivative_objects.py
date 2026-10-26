@@ -1,7 +1,7 @@
 """Independent video outputs, durable client ownership and guarded collection."""
 
 import asyncio
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, ExitStack, asynccontextmanager, contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -18,6 +18,8 @@ from app.db.models.dataset import DatasetItem, VideoChunk, VideoFrameCache
 from app.db.models.storage_maintenance import StorageOperation
 from app.db.models.video_derivative import VideoDerivativeOutput as Output
 from app.services import storage_access
+from app.services import storage_migration_artifact_reads as migration_reads
+from app.services import storage_migration_read_publications as read_publications
 from app.services import key_removal_accounting as removal
 from app.services import video_derivative_originals as originals
 from app.services import video_derivative_storage as physical
@@ -61,6 +63,214 @@ def snapshot(row):
     return Receipt(
         **{name: deepcopy(getattr(row, name)) for name in Receipt.__dataclass_fields__}
     )
+
+
+@dataclass(frozen=True)
+class ReadPlan:
+    receipt: Receipt
+    members: tuple
+    source_revision: int | None
+
+    @property
+    def routes(self):
+        return tuple(member[3] for member in self.members if member[3] is not None)
+
+    @property
+    def revision(self):
+        return (
+            self.source_revision
+            if self.source_revision is not None
+            else self.routes[0].maintenance_revision
+        )
+
+
+async def read_plan(db, output, keys):
+    receipt = snapshot(output)
+    if receipt.state != "ready":
+        reject()
+    owner = physical.resolve(receipt)
+    inventory = physical.validate_inventory(receipt)
+    members = []
+    for key in sorted(set(keys)):
+        facts = inventory.get(key)
+        if facts is None:
+            reject()
+        route = await migration_reads.resolve(
+            db, owner.ref, key, facts["sha256"], facts["size_bytes"]
+        )
+        members.append((key, facts["sha256"], facts["size_bytes"], route))
+    if not members:
+        reject()
+    revision = None
+    if any(member[3] is None for member in members):
+        revision = await storage_access.check(db, uuid.UUID(owner.ref["location_id"]))
+    plan = ReadPlan(receipt, tuple(members), revision)
+    await check_reads(db, receipt, plan)
+    return plan
+
+
+async def check_reads(db, output, plan, *, lock=False):
+    if (
+        not isinstance(plan, ReadPlan)
+        or snapshot(output) != plan.receipt
+        or output.state != "ready"
+    ):
+        reject()
+    if not plan.members or len({member[0] for member in plan.members}) != len(
+        plan.members
+    ):
+        reject()
+    if any(member[3] is None for member in plan.members) != (
+        plan.source_revision is not None
+    ):
+        reject()
+    if plan.routes:
+        # The facade constructor validates the entire immutable context without
+        # opening a client. Reject mixed publications before provider construction.
+        migration_reads.ReadClientSet(None, plan.routes)
+    owner = physical.resolve(output)
+    inventory = physical.validate_inventory(output)
+    for key, sha, size, route in plan.members:
+        if inventory.get(key) != {"sha256": sha, "size_bytes": size}:
+            reject()
+        if route is not None:
+            if (
+                route.source_location_id != uuid.UUID(owner.ref["location_id"])
+                or route.source_endpoint_url != owner.ref["endpoint_url"]
+                or route.source_bucket != owner.bucket
+                or route.source_object_key != key
+                or route.sha256 != sha
+                or route.size_bytes != size
+            ):
+                reject()
+            await read_publications.recheck(db, route, lock=lock)
+    if any(member[3] is None for member in plan.members):
+        if plan.source_revision is None:
+            reject()
+        await storage_access.check(
+            db,
+            uuid.UUID(owner.ref["location_id"]),
+            expected_revision=plan.source_revision,
+            lock=lock,
+        )
+
+
+@asynccontextmanager
+async def read_access(db, receipt, plan, guard):
+    """Close every selected physical handle before releasing its actual permits."""
+    factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
+    session = factory()
+    try:
+        await check_reads(session, receipt, plan)
+        source_target = (
+            await physical.transport_target(session, receipt)
+            if plan.source_revision is not None
+            else None
+        )
+        await session.commit()
+        async with AsyncExitStack() as admissions:
+            if plan.source_revision is not None:
+                await admissions.enter_async_context(
+                    await storage_access.acquire(
+                        session,
+                        uuid.UUID(receipt.storage_ref["location_id"]),
+                        purpose(receipt.id),
+                        expected_revision=plan.source_revision,
+                    )
+                )
+            admitted = None
+            if plan.routes:
+                admitted = await admissions.enter_async_context(
+                    migration_reads.admit(session, plan.routes[0], purpose(receipt.id))
+                )
+            await guard(plan.revision)
+            await check_reads(session, receipt, plan, lock=True)
+            await session.commit()
+
+            @contextmanager
+            def opened():
+                with ExitStack() as contexts:
+                    source = None
+                    if plan.source_revision is not None:
+                        source = contexts.enter_context(
+                            physical.open_storage(
+                                **(
+                                    {"target": source_target}
+                                    if source_target is not None
+                                    else {}
+                                )
+                            )
+                        )
+                    readers = (
+                        contexts.enter_context(
+                            migration_reads.clients(plan.routes, admitted.target)
+                        )
+                        if admitted is not None
+                        else None
+                    )
+                    yield physical.ReadStorage(
+                        deepcopy(receipt.storage_ref), plan.members, source, readers
+                    )
+
+            context, entered = opened(), []
+
+            def open_owned():
+                value = context.__enter__()
+                entered.append(True)
+                return value
+
+            try:
+                storage = await originals.physical(open_owned)
+                yield storage
+            finally:
+                if entered:
+                    await originals.physical(context.__exit__, *sys.exc_info())
+            await guard(plan.revision)
+            await check_reads(session, receipt, plan, lock=True)
+            await session.commit()
+    finally:
+        await originals.drain(asyncio.create_task(session.close()))
+
+
+READS_INFO = "video_derivative_consumed_reads"
+
+
+def begin_reads(db, authority):
+    db.info[READS_INFO] = (authority, {})
+
+
+def consumed(db, output, authority):
+    scope, plans = getattr(db, "info", {}).get(READS_INFO, (None, {}))
+    plan = plans.get(output.id) if scope == authority else None
+    if plan is not None and plan.receipt != snapshot(output):
+        reject()
+    return plan
+
+
+def remember_reads(db, output, authority, plan):
+    if db.info.get(READS_INFO, (None,))[0] != authority:
+        begin_reads(db, authority)
+    previous = consumed(db, output, authority)
+    if previous is not None:
+        members = {member[0]: member for member in previous.members}
+        for member in plan.members:
+            if member[0] in members and members[member[0]] != member:
+                reject("read_publication_changed")
+            members[member[0]] = member
+        if (
+            previous.source_revision is not None
+            and plan.source_revision is not None
+            and previous.source_revision != plan.source_revision
+        ):
+            reject("storage_maintenance_changed")
+        plan = ReadPlan(
+            plan.receipt,
+            tuple(members[key] for key in sorted(members)),
+            previous.source_revision
+            if previous.source_revision is not None
+            else plan.source_revision,
+        )
+    db.info[READS_INFO][1][output.id] = plan
 
 
 async def allocate(

@@ -213,6 +213,7 @@ async def _metadata_preparing(db, ctx, *, force=False):
 
 
 async def _physical_context(db, ctx: VideoContext) -> VideoContext:
+    objects.begin_reads(db, ctx.authority)
     source = await originals.check(db, ctx.authority)
     if source.item_id != ctx.item.id:
         raise ContentError("content_binding_changed")

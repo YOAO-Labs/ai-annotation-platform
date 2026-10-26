@@ -230,7 +230,7 @@ def same_session_reading(monkeypatch):
     """
 
     @asynccontextmanager
-    async def reading(db, owner, generation, *, authority=None):
+    async def reading(db, owner, generation, *, authority=None, keys=None):
         await originals.check(db, authority, lock=True)
         output = await db.get(ImagePyramidOutput, generation.output_id)
         assert output.asset_id == generation.asset_id

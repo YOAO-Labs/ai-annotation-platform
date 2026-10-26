@@ -37,6 +37,7 @@ from app.services.image_pyramid import (
     ImagePyramidError,
     get_active_generation_for_task,
     manifest_etag,
+    pyramid_levels,
     pyramid_eligible,
     pyramid_required,
     source_matches_generation,
@@ -268,7 +269,11 @@ async def get_image_pyramid(
     await db.commit()
     try:
         async with objects.reading(
-            db, owner, generation, authority=authority
+            db,
+            owner,
+            generation,
+            authority=authority,
+            keys=(generation.manifest_key, generation.overview_key),
         ) as output_owner:
             async with objects.transport(db, output_owner) as storage:
                 manifest = await objects.manifest(storage, output_owner, generation)
@@ -400,10 +405,11 @@ async def create_image_pyramid_asset_urls(
             detail={"reason": "stale_generation", "active_generation": None},
         )
 
+    keys = _requested_keys(generation, payload)
     await db.commit()
     try:
         async with objects.reading(
-            db, owner, generation, authority=authority
+            db, owner, generation, authority=authority, keys=keys
         ) as output_owner:
             async with objects.transport(db, output_owner) as storage:
                 manifest = await objects.manifest(storage, output_owner, generation)
@@ -427,6 +433,35 @@ async def create_image_pyramid_asset_urls(
         await originals.check(db, authority, lock=True)
         await _invalidate_ready(db, asset, generation, exc.code)
         raise HTTPException(409, {"reason": "inconsistent_ready"}) from None
+
+
+def _requested_keys(generation, payload):
+    levels = {
+        level["level"]: level
+        for level in pyramid_levels(generation.width, generation.height)
+    }
+    keys = [generation.manifest_key]
+    for item in payload.items:
+        if item.generation != generation.generation:
+            raise HTTPException(
+                409,
+                {
+                    "reason": "stale_generation",
+                    "active_generation": generation.generation,
+                },
+            )
+        if item.kind == "overview":
+            if not generation.overview_key:
+                raise HTTPException(409, {"reason": "inconsistent_ready"})
+            keys.append(generation.overview_key)
+        else:
+            level = levels.get(item.level)
+            if level is None or item.x >= level["columns"] or item.y >= level["rows"]:
+                raise HTTPException(422, {"reason": "invalid_coordinate"})
+            # Only the saved output's namespace is used below; no current binding.
+            suffix = f"tiles/{item.level}/{item.x}/{item.y}.webp"
+            keys.append(generation.manifest_key.removesuffix("manifest.json") + suffix)
+    return tuple(dict.fromkeys(keys))
 
 
 async def _asset_urls(

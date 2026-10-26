@@ -626,6 +626,7 @@ async def _read_frame_urls(db, ctx, frame_indices: list[int]) -> dict[int, str]:
                 outputs.append(
                     objects.snapshot(await core.ready_output(fresh, row, authority))
                 )
+    objects.begin_reads(db, authority)
     urls = {}
     for output in outputs:
         urls[output.spec["frame_index"]] = await core.verified(
@@ -633,7 +634,13 @@ async def _read_frame_urls(db, ctx, frame_indices: list[int]) -> dict[int, str]:
         )
     async with factory() as final:
         for output in outputs:
-            _, slot, _, _ = await core.check(final, output, authority, write=True)
+            _, slot, _, _ = await core.check(
+                final,
+                output,
+                authority,
+                write=True,
+                read_plan=objects.consumed(db, output, authority),
+            )
             slot.last_accessed_at = core.now()
         await final.commit()
     return urls

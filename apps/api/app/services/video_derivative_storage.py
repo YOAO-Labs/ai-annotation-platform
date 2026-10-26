@@ -23,6 +23,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.services import media_cache_accounting
 from app.services import storage_access
+from app.services import storage_migration_artifact_reads as migration_reads
+from app.services import storage_presigning
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.managed_original_retirement import managed_storage_identity
 from app.services.storage import StorageService, storage_service
@@ -253,6 +255,46 @@ async def transport_target(db, output, *, require_enabled=True):
             )
         except ValueError:
             _reject()
+
+
+@dataclass(frozen=True)
+class ReadStorage:
+    """Explicit ready-only transports for the selected immutable members."""
+
+    reference: dict
+    members: tuple
+    source: object
+    readers: object
+
+
+def _reading_client(storage, owner, key, receipt):
+    if not isinstance(storage, ReadStorage):
+        return _client(storage, owner)
+    if storage.reference != owner.ref:
+        _reject()
+    selected = [member for member in storage.members if member[0] == key]
+    if len(selected) != 1 or selected[0][1:3] != (
+        receipt["sha256"],
+        receipt["size_bytes"],
+    ):
+        _reject()
+    route = selected[0][3]
+    if route is None:
+        return _client(storage.source, owner)
+    if not isinstance(storage.readers, migration_reads.ReadClientSet):
+        _reject()
+    reader = storage.readers.reader_for(owner.bucket, key)
+    if (
+        reader.route != route
+        or str(route.source_location_id) != owner.ref["location_id"]
+        or route.source_endpoint_url != owner.ref["endpoint_url"]
+        or route.source_bucket != owner.bucket
+        or route.source_object_key != key
+        or route.sha256 != receipt["sha256"]
+        or route.size_bytes != receipt["size_bytes"]
+    ):
+        _reject()
+    return reader
 
 
 def _client(storage, owner):
@@ -625,8 +667,8 @@ def write_result(storage, output, result, *, accounting=None):
 def verify_file(storage, output, key, expected=None):
     """Verify complete binary content without collecting chunk/playback bytes."""
     owner = resolve(output)
-    client = _client(storage, owner)
     receipt = _expected(output, owner, key, expected)
+    client = _reading_client(storage, owner, key, receipt)
     try:
         return _read(client, owner, key, receipt)
     except Exception as exc:
@@ -636,8 +678,8 @@ def verify_file(storage, output, key, expected=None):
 def verify_object(storage, output, key, expected=None, *, max_bytes=MAX_RESULT_BYTES):
     """Read a small verified object; callers must stream large video via verify_file."""
     owner = resolve(output)
-    client = _client(storage, owner)
     receipt = _expected(output, owner, key, expected)
+    client = _reading_client(storage, owner, key, receipt)
     if (
         type(max_bytes) is not int
         or not 0 < max_bytes <= MAX_RESULT_BYTES
@@ -676,7 +718,6 @@ def verify_inventory(storage, output, inventory):
 def signed_url(storage, output, key, expires=3600):
     """Sign one saved inventory key at its saved endpoint/bucket, without I/O."""
     owner = resolve(output)
-    _client(storage, owner)
     owner.contains(key)
     if (
         key not in validate_inventory(output)
@@ -684,6 +725,7 @@ def signed_url(storage, output, key, expires=3600):
         or not 0 < expires <= 3600
     ):
         _reject("invalid_receipt")
+    client = _reading_client(storage, owner, key, validate_inventory(output)[key])
     if owner.ref["schema"] == 2:
         from app.services import media_cache_urls
 
@@ -696,7 +738,16 @@ def signed_url(storage, output, key, expires=3600):
             expires,
         )
     try:
-        return storage.generate_download_url(
+        if isinstance(client, migration_reads.ReadClient):
+            return storage_presigning.generate_url(
+                client,
+                "get_object",
+                params={"Bucket": owner.bucket, "Key": key},
+                expires_in=expires,
+                audience="internal",
+            )
+        source = storage.source if isinstance(storage, ReadStorage) else storage
+        return source.generate_download_url(
             key, expires_in=expires, bucket=owner.bucket, align=False
         )
     except Exception as exc:
