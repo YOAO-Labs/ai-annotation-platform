@@ -55,6 +55,19 @@ uv run pytest -k "batch_lifecycle"           # 按关键字过滤
 uv run pytest --cov=app --cov-report=html    # 生成 HTML 覆盖率报告（输出至 htmlcov/index.html）
 ```
 
+### CI 分片运行
+
+CI 的 `Backend tests` 检查背后是 `.github/workflows/backend-test.yml` 的四个独立分片，每个分片在自己的 GitHub runner 上拥有独立的 Postgres / Redis / MinIO。分片只决定 pytest 收集哪些用例；依赖同步、worktree 运行时与 setup 测试、服务维护测试、存储隔离验收、`alembic upgrade head`、迁移校验、OpenAPI 快照漂移、`migration policy` 纯规则测试与覆盖率上传在每个分片上都完整执行，任何分片都不会因为分片而跳过检查。
+
+- **固定输入**：四个调用方分别传入 `--shard-index 0..3 --shard-count 4`。本地复现任一 CI 分片：
+  ```bash
+  cd apps/api
+  uv run pytest --shard-index 2 --shard-count 4
+  ```
+- **划分规则**：分片键是 nodeid 中第一个 `::` 之前的测试文件路径（如 `tests/test_foo.py`），分桶为 `int.from_bytes(hashlib.sha256(key.encode()).digest()[:8], "big") % count`；同一文件的所有用例落在同一分片，分片内部保持原有收集顺序。不传分片参数时保持原有的完整串行运行，本地与其它入口行为不变。
+- **产物**：每个分片上传 `backend-test-results-<index>` JUnit 产物，并以相同 `backend` flag 上传覆盖率，Codecov 按同一 commit 合并。
+- **聚合检查**：`ci.yml` 中的 `pytest` / `Backend tests` 是固定名称的聚合 job，四个分片任意一个 `failed`、`cancelled` 或 `skipped` 都会让该检查失败；只有四个真实分片全部 `success` 才会通过。
+
 ### 核心 Fixture
 
 `tests/conftest.py` 提供开箱即用的测试夹具：
@@ -243,7 +256,7 @@ Playwright 会自动准备专用逻辑数据库 `annotation_e2e`、执行迁移�
 
 - **智能路由入口（`scripts/plan-e2e-suites.mjs`）**：PR 默认运行“有界核心 smoke + 按变更路径触发的领域专项（Mask×3、`video-pipeline`、`pointcloud`）”。若触及共享依赖、运行时配置、未映射路径、空 diff、跨多域或文件重命名/删除，则保守放大为全量套件；纯文档变更（白名单 `.md`）显式跳过应用 E2E 并记录原因。设置仓库变量 `E2E_SELECTION_MODE=legacy` 可随时无代码回退至固定全量矩阵。
 - **规划报告传输**：完整的 legacy/planned 对照、变更路径分类和原因写入 `E2E_SHADOW_PATH`（默认 `e2e-shadow.json`），CLI 仅输出 `shadow_path` 文件指针。CI 从文件生成步骤摘要，并上传 `e2e-selection-report` 产物；不要将完整报告放入步骤输出或进程环境，以免大型 PR 超过进程参数上限。矩阵、必需 manifest 和 ML CPU 调度继续使用原有有界输出。
-- **视频工具准备**：后端与 E2E runner 先复用已有的 `ffmpeg` / `ffprobe`，缺少时才以 `--no-install-recommends` 安装 FFmpeg，避免下载无关驱动及语音模型占满 Job 预算；两者版本均写入步骤日志，测试选集和超时不变。
+- **视频工具准备**：后端分片与 E2E runner 先复用已有的 `ffmpeg` / `ffprobe`，缺少时才以 `--no-install-recommends` 安装 FFmpeg，避免下载无关驱动及语音模型占满 Job 预算；安装前先把 runner 的 `/etc/apt/apt-mirrors.txt` 指回 HTTPS 的 `archive.ubuntu.com`，避免区域 HTTP 镜像拖慢同一个 `apt-get`；两者版本均写入步骤日志，测试选集和超时不变。
 - **真实提供方验收**：版本、删除标记与净变化用例通过共用的 `live_provider_guard` 验证目标：本地仅允许工作树专属 `test` 桶；GitHub 托管 runner 可使用本次 Job 的临时 PostgreSQL、MinIO 与 Redis。远程存储、开发模式和非托管 runner 均拒绝，不用伪造工作树标记或跳过用例代替验收。
 - **必需套件审计（`scripts/audit-e2e-requirements.mjs`）**：核心 smoke 以 `--retries=0` 且 `flakyPolicy=forbid` 运行（重试后通过仍会阻断审计）；专项套件保留一次诊断重试并单独标记 flaky。审计脚本按计划 manifest 严格核对每个选中套件的产物，任何缺失、取消、setup 失败、套件名不匹配或核心 flaky 都会令汇总步骤失败（不会把缺失报告当作通过）。
 - **全量触发入口**：`push` 主分支与每日北京时间 03:00 的 `E2E extended` 定时工作流（`E2E_SCHEDULE_SCOPE=full`）执行全量套件；手动触发可通过 `scope` / `e2e_scope` 选择 `extended` 或 `full`。修改分类或调度规则后，可运行 `node --test scripts/plan-e2e-suites.test.mjs` 自检。
