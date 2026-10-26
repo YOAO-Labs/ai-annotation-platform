@@ -1,3 +1,5 @@
+/// <reference lib="es2021.promise" />
+
 /**
  * E2E 共享 fixtures：调用后端 _test_seed router 造数与跳登录。
  *
@@ -586,24 +588,19 @@ export class SeedAPI {
     this.ownedNamespaces.length = 0;
   }
 
-  /**
-   * Close the pages this instance bound through `injectToken`, before their
-   * owned namespaces are deleted. A page left on a video workbench keeps
-   * admitting source/derivative reads (chunk uploads, frame prefetch) for the
-   * whole bounded cleanup drain, which ends in
-   * `e2e_seed_video_operation_unsettled`; no new work is admitted once its own
-   * pages are gone. Only these exact pages are retired — unknown contexts,
-   * pages the fixture never saw and API-only tests stay untouched — and
-   * `cleanupOwned()` during a test never closes a live page. Close failures
-   * propagate to the caller.
-   */
+  /** Stop only bound pages from admitting media work before final fixture cleanup. */
   async retireOwnedPages(): Promise<void> {
-    const pages = [...this.boundPages];
-    this.boundPages.clear();
-    for (const page of pages) {
+    const errors: unknown[] = [];
+    for (const page of this.boundPages) {
       if (page.isClosed()) continue;
-      await page.close();
+      try {
+        await page.close();
+      } catch (error) {
+        errors.push(error);
+      }
     }
+    this.boundPages.clear();
+    if (errors.length) throw new AggregateError(errors, "Owned page retirement failed");
   }
 
   /** Build the multi-project employee-role acceptance fixture for this test's namespace. */
@@ -1035,11 +1032,8 @@ export const test = base.extend<Fixtures>({
     // playwright fixture 的 use 不是 React Hook
     // eslint-disable-next-line react-hooks/rules-of-hooks
     await use(api);
-    // Only the pages this fixture bound are retired, after Playwright captured
-    // the finish-time failure screenshot and while the trace is still recording,
-    // so a failed body keeps its screenshot, trace and errors. The close must
-    // precede the owned-cleanup request: a live workbench keeps admitting video
-    // reads and turns cleanup into `e2e_seed_video_operation_unsettled`.
+    // Finish-time screenshots already exist; the context trace remains open.
+    // Retire exact page owners before deleting their media, even after failure.
     try {
       await api.retireOwnedPages();
     } catch (error) {
