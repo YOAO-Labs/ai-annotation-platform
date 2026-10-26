@@ -4,15 +4,20 @@ import asyncio
 from datetime import timedelta
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
+import time
+from urllib.parse import urlsplit
 import uuid
 
+from celery import Celery, states
+from redis import Redis
 from sqlalchemy import select, text
 
+from app.config import settings
 from app.db.models.original_cache import OriginalCacheEntry as Entry
 from app.services import original_cache as cache
-from app.workers.celery_app import celery_app
 from tests.test_original_cache import cache_world as cache_world, fill, record
 from tests.storage_migration_isolation import migration_engine
 
@@ -20,6 +25,11 @@ from tests.storage_migration_isolation import migration_engine
 test_engine = migration_engine
 
 _STORAGE = cache.make_storage
+TASK = "app.workers.original_cache.maintain_original_cache"
+_CREDENTIALS = re.compile(
+    r"(?i)(?:[a-z][a-z0-9+.-]*://)[^\s/@]+@"
+    r"|[a-z_]*(?:secret|password|token|access_key)[a-z_]*\s*[=:]\s*\S+"
+)
 _WORKER = """
 import sys
 from functools import partial
@@ -33,6 +43,96 @@ celery_app.worker_main(sys.argv[1:])
 """
 
 
+def _owned_app():
+    """Producer and result client built from the canonical transport settings.
+
+    ``celery_app`` is one process-wide object whose backend, producer pool and
+    result consumer are shared with every other test in the shard, so a tick
+    that borrows them inherits whatever transport state an earlier test left
+    behind. This client names the same broker and result backend the worker
+    reads, and readiness is read from the durable meta rather than from the
+    backend's fire-and-forget pub/sub delivery.
+    """
+    return Celery(
+        "annotation_worker",
+        broker=settings.effective_celery_broker,
+        backend=settings.effective_celery_broker,
+    )
+
+
+def _redacted(line):
+    return _CREDENTIALS.sub("***", line)
+
+
+def _tail(lines, *, limit=60, size=8000):
+    body = "\n".join(lines[-limit:])
+    return body[-size:]
+
+
+def _await_result(app, task_id, *, timeout):
+    """Poll the worker's durable meta; a pub/sub message is not evidence."""
+    backend = app.backend
+    deadline = time.monotonic() + timeout
+    while True:
+        meta = backend.get_task_meta(task_id)
+        if meta.get("status") in states.READY_STATES:
+            if meta["status"] != states.SUCCESS:
+                raise AssertionError(
+                    _redacted(
+                        "%s: %s" % (meta["status"], meta.get("traceback") or meta)
+                    )
+                )
+            return meta["result"]
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"no durable result within {timeout}s")
+        time.sleep(0.1)
+
+
+def _diagnostics(node, app, worker, task_id, log_path, queue):
+    """Bounded, credential-safe facts that name the timed-out phase."""
+    facts = [f"task={task_id}"]
+    try:
+        target = urlsplit(settings.redis_url)
+        facts.append(f"redis_target={target.hostname}:{target.port}{target.path}")
+    except Exception as exc:
+        facts.append(f"redis_target={type(exc).__name__}")
+    try:
+        facts.append(
+            "worker="
+            + ("alive" if worker.poll() is None else f"exited {worker.returncode}")
+        )
+    except Exception as exc:
+        facts.append(f"worker={type(exc).__name__}")
+    try:
+        facts.append(f"meta={app.backend.get_task_meta(task_id).get('status')}")
+    except Exception as exc:
+        facts.append(f"meta={type(exc).__name__}")
+    try:
+        with Redis.from_url(settings.redis_url) as client:
+            facts.append(f"queued={client.llen(queue)}")
+            facts.append(
+                f"stored={client.exists(app.backend.get_key_for_task(task_id))}"
+            )
+    except Exception as exc:
+        facts.append(f"redis={type(exc).__name__}")
+    try:
+        queues = (
+            app.control.inspect(destination=[node], timeout=2).active_queues() or {}
+        )
+        facts.append(
+            "consumes=" + repr([item["name"] for item in queues.get(node, [])])
+        )
+        active = app.control.inspect(destination=[node], timeout=2).active() or {}
+        facts.append(f"active={[item['id'] for item in active.get(node, [])]}")
+    except Exception as exc:
+        facts.append(f"inspect={type(exc).__name__}")
+    try:
+        lines = log_path.read_text(errors="replace").splitlines()
+    except OSError as exc:
+        lines = [f"log unavailable: {type(exc).__name__}"]
+    return "\n".join([*facts, _tail([_redacted(line) for line in lines])])
+
+
 async def test_actual_minio_copy_read_and_worker_recovery(
     cache_world, test_engine, monkeypatch, tmp_path
 ):
@@ -43,8 +143,9 @@ async def test_actual_minio_copy_read_and_worker_recovery(
     assert schema.startswith("storage_migration_test_")
     queue = f"original-cache-test-{uuid.uuid4().hex}"
     node = f"{queue}@local"
+    app = _owned_app()
+    task = None
     worker = None
-    result = None
     log_path = tmp_path / "worker.log"
     output = log_path.open("wb")
     try:
@@ -69,7 +170,7 @@ async def test_actual_minio_copy_read_and_worker_recovery(
                 "worker",
                 "-P",
                 "solo",
-                "--loglevel=WARNING",
+                "--loglevel=INFO",
                 "--without-gossip",
                 "--without-mingle",
                 "--without-heartbeat",
@@ -87,31 +188,28 @@ async def test_actual_minio_copy_read_and_worker_recovery(
             stderr=subprocess.STDOUT,
         )
         # The result deadline covers only the task, never a cold worker import.
-        deadline = asyncio.get_running_loop().time() + 60
-        while asyncio.get_running_loop().time() < deadline:
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
             registered = await asyncio.to_thread(
                 lambda: (
-                    celery_app.control.inspect(
-                        destination=[node], timeout=1
-                    ).registered()
+                    app.control.inspect(destination=[node], timeout=1).registered()
                     or {}
                 )
             )
-            if "app.workers.original_cache.maintain_original_cache" in registered.get(
-                node, []
-            ):
+            if TASK in registered.get(node, []):
                 break
             assert worker.poll() is None, "Owned cache worker exited at startup"
             await asyncio.sleep(0.1)
         else:
             raise AssertionError("Owned cache worker did not register")
-        result = celery_app.send_task(
-            "app.workers.original_cache.maintain_original_cache", queue=queue
-        )
-        response = await asyncio.to_thread(
-            result.get, timeout=40, disable_sync_subtasks=False
-        )
-        assert response["removed"] >= 1 and await record(world) is None
+        task = app.send_task(TASK, queue=queue)
+        try:
+            response = await asyncio.to_thread(_await_result, app, task.id, timeout=40)
+            assert response["removed"] >= 1 and await record(world) is None
+        except Exception as exc:
+            raise AssertionError(
+                _diagnostics(node, app, worker, task.id, log_path, queue)
+            ) from exc
         storage = _STORAGE()
         try:
             found = await asyncio.to_thread(
@@ -130,8 +228,9 @@ async def test_actual_minio_copy_read_and_worker_recovery(
             except subprocess.TimeoutExpired:
                 worker.kill()
                 await asyncio.to_thread(worker.wait, timeout=5)
-        if result:
-            await asyncio.to_thread(result.forget)
+        if task:
+            await asyncio.to_thread(task.forget)
+        app.close()
         output.close()
         log_path.unlink(missing_ok=True)
         # Failure paths also remove only this test's durable exact-key intents.
