@@ -202,7 +202,7 @@ test("aborted native playback lease revokes stay a documented unload cancellatio
   const lease = "00000000-0000-0000-0000-000000000000";
   const dataset = "00000000-0000-0000-0000-000000000000";
   for (const path of [
-    `${task}/original-playback/${lease}`,
+    `/api/v1/files/tasks/${lease}/original-playback/${lease}`,
     `/api/v1/datasets/${dataset}/items/${dataset}/original-playback/${lease}`,
   ]) {
     expectAllowed({ ...abort, method: "DELETE", path }, videoWorkbenchAborts);
@@ -220,10 +220,7 @@ test("aborted native playback lease revokes stay a documented unload cancellatio
       expectDenied({ ...abort, method: "DELETE", path: deeper }, videoWorkbenchAborts);
   }
   // Retiring the task still cancels its owned original read as a GET only.
-  expectDenied(
-    { ...abort, method: "DELETE", path: `${task}/original` },
-    videoWorkbenchAborts,
-  );
+  expectDenied({ ...abort, method: "DELETE", path: `${task}/original` }, videoWorkbenchAborts);
 });
 
 test("console and page errors never classify as request cancellations", () => {

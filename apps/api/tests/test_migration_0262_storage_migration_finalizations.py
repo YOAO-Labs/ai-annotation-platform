@@ -36,7 +36,9 @@ def migration(connection):
     return module
 
 
-async def test_empty_roundtrip_keeps_historical_inventory_id_without_job_fk(test_engine):
+async def test_empty_roundtrip_keeps_historical_inventory_id_without_job_fk(
+    test_engine,
+):
     # Schema roundtrip drops named indexes/constraints, so it must run against
     # the real public schema, not the isolation clone (LIKE renames them).
     async with test_engine.connect() as connection:
@@ -65,7 +67,9 @@ async def test_empty_roundtrip_keeps_historical_inventory_id_without_job_fk(test
                 assert not any(
                     "inventory_job_id" in row["constrained_columns"] for row in foreign
                 )
-                assert len(schema.get_check_constraints(Finalization.__tablename__)) == 6
+                assert (
+                    len(schema.get_check_constraints(Finalization.__tablename__)) == 6
+                )
 
             await connection.run_sync(roundtrip)
         finally:

@@ -613,7 +613,9 @@ async def test_attachment_download_returns_verified_saved_bytes_with_visibility(
     _, _, annotation, other_annotation = await _seed_task(db_session, user.id)
     await db_session.commit()
     key = f"comment-attachments/{annotation.id}/file.png"
-    receipt = SimpleNamespace(mime_type="image/png", file_name='r\u00e9sum\u00e9 "f".png')
+    receipt = SimpleNamespace(
+        mime_type="image/png", file_name='r\u00e9sum\u00e9 "f".png'
+    )
     read = AsyncMock(return_value=(receipt, b"saved-attachment-bytes"))
     monkeypatch.setattr(comment_attachment_uploads, "read", read)
     path = f"/api/v1/annotations/{annotation.id}/comment-attachments/download"

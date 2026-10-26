@@ -392,7 +392,7 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
     // settle. Wait for this frame and the prefetched neighbour frame's original
     // reads to drain so the command never races them into a retryable 409.
     const sceneTaskIds = new Set(lidar.lidar_task_ids);
-    const pendingOriginalReads = new Map<Request, string>();
+    const pendingOriginalReads = new Set<Request>();
     let lastOriginalActivity = Date.now();
     const sceneOriginal = (request: Request) => {
       if (request.method() !== "GET") return null;
@@ -404,7 +404,7 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
     };
     page.on("request", (request) => {
       if (sceneOriginal(request)) {
-        pendingOriginalReads.set(request, request.url());
+        pendingOriginalReads.add(request);
         lastOriginalActivity = Date.now();
       }
     });

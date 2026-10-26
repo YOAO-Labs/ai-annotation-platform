@@ -223,7 +223,7 @@ def test_segment_pin_freezes_raw_and_registered_evidence_independently(monkeypat
     )
     assert frozen_metrics == metrics
     monkeypatch.setattr(
-        "app.services.training_runs.verify_artifact", lambda *args: None
+        "app.services.training_runs.verify_artifact", lambda *args, **kwargs: None
     )
     service.verify_storage(pin, metrics, owner=owner, full=True)
     assert not service.compatible_pin(pin, "ultralytics", "yolo11n-seg", ["shape"])
@@ -241,10 +241,11 @@ def test_normalized_metric_drift_and_report_tampering_are_rejected(monkeypatch):
     changed = copy.deepcopy(report)
     changed["comparison"]["evaluator"]["options"]["iou"] = 0.8
     monkeypatch.setattr(
-        "app.services.training_runs.verify_artifact", lambda *args: None
+        "app.services.training_runs.verify_artifact", lambda *args, **kwargs: None
     )
     monkeypatch.setattr(
-        "app.services.training_artifacts.read_json_artifact", lambda *args: changed
+        "app.services.training_artifacts.read_json_artifact",
+        lambda *args, **kwargs: changed,
     )
     with pytest.raises(ValueError, match="报告不一致"):
         service.verify_storage(pin, metrics, owner=owner, full=True)

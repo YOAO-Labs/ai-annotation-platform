@@ -19,8 +19,10 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-# The storage-migration control plane, its registered-access ledger, the
-# reclaim fence checks it consults, and the job/audit rows its fixtures write.
+from app.db.base import Base
+
+# Required control-plane tables plus every registered business root consulted
+# by scope-wide observations; no row lookup may fall through to public data.
 TABLES = (
     "users",
     "api_keys",
@@ -51,7 +53,7 @@ def _checked(names):
     missing = [name for name in TABLES if name not in names]
     if missing:
         raise AssertionError(f"Isolated schema tables are missing: {missing}")
-    return TABLES
+    return tuple(sorted(set(TABLES) | (set(Base.metadata.tables) & names)))
 
 
 async def _clone(source, schema):
@@ -105,6 +107,12 @@ async def _clone(source, schema):
             if relation in tables:
                 await connection.exec_driver_sql(
                     definition.replace(" ON public.", " ON ")
+                    .replace(
+                        "EXECUTE FUNCTION public.", f'EXECUTE FUNCTION "{schema}".'
+                    )
+                    .replace(
+                        "EXECUTE PROCEDURE public.", f'EXECUTE PROCEDURE "{schema}".'
+                    )
                 )
 
 

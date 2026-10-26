@@ -41,8 +41,8 @@ export interface AbortAllowRule {
 const UUID = "[0-9a-f-]{36}";
 
 /**
- * Keep-alive session telemetry may be reported as aborted on unload even
- * though the API accepted it. This is the only write-shaped allowance.
+ * Keep-alive session telemetry may be reported as aborted on unload.
+ * Session telemetry stays restricted to these two POST routes.
  */
 export const sessionTelemetryAborts: readonly AbortAllowRule[] = [
   {

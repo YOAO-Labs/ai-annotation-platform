@@ -31,8 +31,7 @@ async def test_unused_reference_schema_roundtrip(test_engine):
                 assert relation(sync, schema, "dataset_references") is None
                 module.upgrade()
                 assert (
-                    relation(sync, schema, "dataset_references")
-                    == "dataset_references"
+                    relation(sync, schema, "dataset_references") == "dataset_references"
                 )
 
             await connection.run_sync(verify)

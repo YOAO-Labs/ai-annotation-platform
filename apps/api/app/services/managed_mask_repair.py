@@ -414,13 +414,7 @@ class ManagedRepairSource:
         self.request, self.authorize, self.scope = request, authorize, scope
         self.expected = normalize_binding(expected) if expected is not None else None
         self.read_only = self.expected is None
-        # Read receipts (`annotation_read` / `candidate_read`) only observe an
-        # already-committed mask. They qualify under shared Task/Annotation
-        # locks plus the shared form of the task edit scope, exactly like the
-        # video read receipt: two authorized readers of the same task are a
-        # normal browser pattern (overlay preview + explicit content fetch) and
-        # must not exclude each other (`prediction_acceptance_task_locked`),
-        # while an in-flight task writer still excludes them.
+        # Read receipts coexist; writers retain exclusive task-edit and row locks.
         self.read_scope = scope.endswith(":read")
         if self.read_only and not self.read_scope:
             raise ContentError("repair_original_requires_new_plan")

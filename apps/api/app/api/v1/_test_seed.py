@@ -498,7 +498,7 @@ def _fixture_video_source_locations(outputs):
 
 
 def _fixture_video_busy(exc):
-    """Map a NOWAIT ownership conflict to the same bounded busy convention.
+    """Map a bounded ownership conflict to the same busy convention.
 
     A request that is allocating a new owner for the same item holds that row
     with ``FOR UPDATE``. That is known fixture work, so teardown reports a busy
@@ -562,17 +562,35 @@ async def _drain_fixture_video_operations(
         await asyncio.sleep(min(FIXTURE_VIDEO_DRAIN_INTERVAL, remaining))
 
 
-async def _fixture_video_outputs(db, scope, *, lock=False):
+async def _fixture_video_lock_deadline(db, deadline):
+    remaining = int((deadline - asyncio.get_running_loop().time()) * 1000)
+    if remaining <= 0:
+        raise HTTPException(409, detail={"code": "e2e_seed_video_cleanup_busy"})
+    await db.execute(
+        text("SELECT set_config('lock_timeout', :timeout, true)"),
+        {"timeout": f"{remaining}ms"},
+    )
+
+
+async def _fixture_video_outputs(db, scope, *, lock=False, deadline=0):
     from sqlalchemy import select
     from app.db.models.dataset import Dataset, DatasetItem
     from app.db.models.video_derivative import VideoDerivativeOutput
 
+    if lock:
+        deadline = deadline or (
+            asyncio.get_running_loop().time() + FIXTURE_VIDEO_DRAIN_SECONDS
+        )
+        previous_timeout = await db.scalar(
+            text("SELECT current_setting('lock_timeout')")
+        )
     if lock and scope.dataset_ids:
+        await _fixture_video_lock_deadline(db, deadline)
         await db.execute(
             select(Dataset.id)
             .where(Dataset.id.in_(scope.dataset_ids))
             .order_by(Dataset.id)
-            .with_for_update(nowait=True)
+            .with_for_update()
         )
     item_ids = tuple(
         await db.scalars(
@@ -585,11 +603,12 @@ async def _fixture_video_outputs(db, scope, *, lock=False):
         )
     )
     if lock and item_ids:
+        await _fixture_video_lock_deadline(db, deadline)
         await db.execute(
             select(DatasetItem.id)
             .where(DatasetItem.id.in_(item_ids))
             .order_by(DatasetItem.id)
-            .with_for_update(nowait=True)
+            .with_for_update()
         )
     statement = (
         select(VideoDerivativeOutput)
@@ -597,10 +616,17 @@ async def _fixture_video_outputs(db, scope, *, lock=False):
         .order_by(VideoDerivativeOutput.id)
     )
     if lock:
-        statement = statement.with_for_update(nowait=True)
-    return item_ids, list(
+        await _fixture_video_lock_deadline(db, deadline)
+        statement = statement.with_for_update()
+    outputs = list(
         await db.scalars(statement.execution_options(populate_existing=True))
     )
+    if lock:
+        await db.execute(
+            text("SELECT set_config('lock_timeout', :timeout, true)"),
+            {"timeout": previous_timeout},
+        )
+    return item_ids, outputs
 
 
 async def _fixture_video_foreign_refs(db, item_ids, output_ids):
@@ -661,7 +687,7 @@ async def _prepare_fixture_video_cleanup(db, scope):
     deadline = asyncio.get_running_loop().time() + FIXTURE_VIDEO_DRAIN_SECONDS
     # Drain before taking the ownership locks: a request that is still returning
     # bytes must be allowed to release its permit instead of holding the item
-    # rows this cleanup locks with NOWAIT.
+    # rows this cleanup must lock within the same drain deadline.
     _, pending = await _fixture_video_outputs(db, scope)
     if not await _drain_fixture_video_operations(
         db,
@@ -671,7 +697,9 @@ async def _prepare_fixture_video_cleanup(db, scope):
     ):
         raise HTTPException(409, detail={"code": "e2e_seed_video_operation_unsettled"})
     try:
-        item_ids, outputs = await _fixture_video_outputs(db, scope, lock=True)
+        item_ids, outputs = await _fixture_video_outputs(
+            db, scope, lock=True, deadline=deadline
+        )
     except DBAPIError as exc:
         busy = _fixture_video_busy(exc)
         if busy is None:
@@ -714,7 +742,7 @@ async def _delete_fixture_video_objects(db, plan, resolve_scope):
     for receipt in plan.receipts:
         served = []
 
-        def acquired(permit, served=served):
+        async def acquired(permit, served=served):
             served.append(permit.id)
 
         async def guard(revision, receipt=receipt, served=served):
@@ -726,7 +754,7 @@ async def _delete_fixture_video_objects(db, plan, resolve_scope):
                 # This collector already owns the exact purpose, so a read admitted
                 # before it can no longer be replaced; only that earlier work is
                 # drained, and it must settle before the row lock is taken so an
-                # exiting reader never turns into a NOWAIT conflict.
+                # exiting reader can complete before ownership is fenced.
                 if not await _drain_fixture_video_operations(
                     fresh,
                     plan.deadline,
@@ -737,11 +765,19 @@ async def _delete_fixture_video_objects(db, plan, resolve_scope):
                     raise HTTPException(
                         409, detail={"code": "e2e_seed_video_operation_unsettled"}
                     )
+                previous_timeout = await fresh.scalar(
+                    text("SELECT current_setting('lock_timeout')")
+                )
+                await _fixture_video_lock_deadline(fresh, plan.deadline)
                 current = await fresh.scalar(
                     select(VideoDerivativeOutput)
                     .where(VideoDerivativeOutput.id == receipt.id)
-                    .with_for_update(nowait=True)
+                    .with_for_update()
                     .execution_options(populate_existing=True)
+                )
+                await fresh.execute(
+                    text("SELECT set_config('lock_timeout', :timeout, true)"),
+                    {"timeout": previous_timeout},
                 )
                 if (
                     current is None
@@ -796,7 +832,18 @@ async def _finalize_fixture_video_cleanup(db, plan, resolve_scope):
 
     if await resolve_scope(db) != plan.scope:
         raise HTTPException(409, detail={"code": "e2e_seed_video_scope_changed"})
-    item_ids, outputs = await _fixture_video_outputs(db, plan.scope, lock=True)
+    deadline = asyncio.get_running_loop().time() + FIXTURE_VIDEO_DRAIN_SECONDS
+    _, pending = await _fixture_video_outputs(db, plan.scope)
+    if not await _drain_fixture_video_operations(
+        db,
+        deadline,
+        locations=_fixture_video_source_locations(pending),
+        purposes=_fixture_video_purposes(pending),
+    ):
+        raise HTTPException(409, detail={"code": "e2e_seed_video_operation_unsettled"})
+    item_ids, outputs = await _fixture_video_outputs(
+        db, plan.scope, lock=True, deadline=deadline
+    )
     expected = {receipt.id: receipt for receipt in plan.receipts}
     current = {output.id for output in outputs}
     if item_ids != plan.item_ids or set(expected) - current:
@@ -818,13 +865,6 @@ async def _finalize_fixture_video_cleanup(db, plan, resolve_scope):
         ):
             raise HTTPException(409, detail={"code": "e2e_seed_video_owner_changed"})
         stale.append(output.id)
-    if not await _drain_fixture_video_operations(
-        db,
-        asyncio.get_running_loop().time() + FIXTURE_VIDEO_DRAIN_SECONDS,
-        locations=_fixture_video_source_locations(outputs),
-        purposes=_fixture_video_purposes(outputs),
-    ):
-        raise HTTPException(409, detail={"code": "e2e_seed_video_operation_unsettled"})
     identifiers = [*expected, *stale]
     await _fixture_video_foreign_refs(db, item_ids, identifiers)
     await _fixture_video_source_operations(db, plan.receipts)
@@ -3813,6 +3853,11 @@ def _make_test_raster_mask(
         # 损坏 fixture 必须拥有独有内容：保留标记矩形，并在首行写入 64 位随机
         # 位图，使每次注入的 RLE 摘要唯一。这样它建立的是自己的存储归属，随后
         # 删除物理对象只影响本夹具，绝不会波及共享或未知的同内容行。
+        if len(pixels) < 64:
+            raise HTTPException(
+                status_code=422,
+                detail="corrupt mask fixture needs 64 pixels for unique content",
+            )
         _rect(6, 30, 18, 42)
         for offset, byte in enumerate(secrets.token_bytes(8)):
             for bit in range(8):
@@ -3872,7 +3917,14 @@ async def _delete_owned_raster_mask_object(db, reference) -> None:
             receipt = physical.snapshot(row)
         finally:
             await owned.rollback()
-    physical.delete(storage_service.client, receipt)
+    deletion = asyncio.create_task(
+        asyncio.to_thread(physical.delete, storage_service.client, receipt)
+    )
+    try:
+        await asyncio.shield(deletion)
+    except asyncio.CancelledError:
+        await storage_access.finish(deletion)
+        raise
 
 
 @router.post(

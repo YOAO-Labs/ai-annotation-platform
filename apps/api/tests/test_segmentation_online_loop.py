@@ -45,6 +45,8 @@ from app.db.models.training_run import TrainingAttempt, TrainingRun
 from app.schemas.training_run import TrainingRunCreate
 from app.services import (
     learning_policies,
+    managed_original_reader,
+    storage as storage_module,
     trained_models,
     training_datasets,
     training_run_storage,
@@ -69,6 +71,7 @@ from tests.factory import (
 )
 from tests.test_training_runs import ready_dataset
 from tests.test_training_runs import training_config as training_config_fixture  # noqa: F401, F811
+from tests.training_original_fixtures import register_original
 
 pytestmark = pytest.mark.usefixtures("training_config_fixture")
 
@@ -93,25 +96,45 @@ def memory_objects(monkeypatch, training_config_fixture):  # noqa: F811
 
     def put(*, Bucket, Key, Body, Metadata=None, **kwargs):
         if kwargs.get("IfNoneMatch") == "*" and (Bucket, Key) in values:
-            raise ClientError({"Error": {"Code": "PreconditionFailed"}}, "PutObject")
+            raise ClientError(
+                {
+                    "Error": {"Code": "PreconditionFailed"},
+                    "ResponseMetadata": {"HTTPStatusCode": 412},
+                },
+                "PutObject",
+            )
         raw = Body.read() if hasattr(Body, "read") else bytes(Body)
         values[Bucket, Key] = (raw, dict(Metadata or {}))
         return {"ETag": '"' + hashlib.sha256(raw).hexdigest() + '"'}
 
     def head(*, Bucket, Key, **kwargs):
         if (Bucket, Key) not in values:
-            raise ClientError({"Error": {"Code": "NoSuchKey"}}, "HeadObject")
+            raise ClientError(
+                {
+                    "Error": {"Code": "NoSuchKey"},
+                    "ResponseMetadata": {"HTTPStatusCode": 404},
+                },
+                "HeadObject",
+            )
         raw, metadata = values[Bucket, Key]
         return {
+            "ResponseMetadata": {"HTTPStatusCode": 200},
             "ContentLength": len(raw),
             "Metadata": dict(metadata),
             "ETag": '"' + hashlib.sha256(raw).hexdigest() + '"',
+            "LastModified": datetime(2026, 1, 1, tzinfo=timezone.utc),
         }
 
     def get(*, Bucket, Key, IfMatch=None, **kwargs):
         result = head(Bucket=Bucket, Key=Key)
         if IfMatch is not None and IfMatch != result["ETag"]:
-            raise ClientError({"Error": {"Code": "PreconditionFailed"}}, "GetObject")
+            raise ClientError(
+                {
+                    "Error": {"Code": "PreconditionFailed"},
+                    "ResponseMetadata": {"HTTPStatusCode": 412},
+                },
+                "GetObject",
+            )
         raw = values[Bucket, Key][0]
         if kwargs.get("Range"):
             raw = raw[: 1024 * 1024]
@@ -153,6 +176,15 @@ def memory_objects(monkeypatch, training_config_fixture):  # noqa: F811
     )
     # Owned mask writes build a per-call transport from the saved client config.
     patch_owned_client(monkeypatch, storage.client)
+    monkeypatch.setattr(
+        managed_original_reader,
+        "create_client",
+        lambda **_: (
+            storage_module.StorageService(
+                client_config=storage.client.meta.config
+            ).client
+        ),
+    )
     monkeypatch.setattr(training_datasets, "dispatch_dataset", AsyncMock())
     monkeypatch.setattr(dataset_worker, "notify_job_terminal", AsyncMock())
     monkeypatch.setattr(settings, "raster_mask_read_enabled", True)
@@ -391,7 +423,7 @@ async def loop_source(db_session, project_admin, httpx_client, memory_objects):
     await db_session.flush()
     pixels = [1, 1, 1, 0, 0, 1, 0, 1, 0, 0, 1, 1, 1, 0, 1]
     rle = encode_coco_rle(pixels, 5, 3)
-    reference = await store_coco_rle(rle)
+    reference = await store_coco_rle(rle, db=db_session)
     tasks, annotations = [], {}
     for index in range(3):
         task = await create_task(db_session, project_id=project.id)
@@ -411,6 +443,13 @@ async def loop_source(db_session, project_admin, httpx_client, memory_objects):
         db_session.add(item)
         await db_session.flush()
         task.dataset_item_id = item.id
+        await register_original(
+            db_session,
+            task,
+            owner,
+            raw=raw.getvalue(),
+            bucket=storage.datasets_bucket,
+        )
         annotation = await AnnotationService(db_session).create(
             task.id,
             owner.id,

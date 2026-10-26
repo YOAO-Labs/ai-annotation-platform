@@ -505,29 +505,45 @@ async def test_stage_holds_binary_capacity_until_closed(provider, monkeypatch):
 
 
 @pytest.mark.parametrize("phase", ["read", "client_close"])
-@pytest.mark.parametrize("finish", ["cancel", "deadline"])
+@pytest.mark.parametrize("finish", ["cancel", "timeout"])
 async def test_interruption_drains_thread_before_return_and_releases_own_slot(
     provider, monkeypatch, phase, finish
 ):
     entered, release = threading.Event(), threading.Event()
-    elapsed = [0.0]
     monkeypatch.setattr(service, "_slots", threading.BoundedSemaphore(1))
-    # The pinned deadline is driven by this test instead of wall-clock jitter:
-    # a blocked provider call must outlive it without an early return.
-    monkeypatch.setattr(service, "time", SimpleNamespace(monotonic=lambda: elapsed[0]))
+    # Keep the thread deadline stable; expire the real loop timer only after
+    # the provider blocks, so executor startup cannot win the timeout race.
+    monkeypatch.setattr(service, "time", SimpleNamespace(monotonic=lambda: 0.0))
+    timers = []
+
+    async def controlled_wait_for(awaitable, _seconds):
+        async with asyncio.timeout(None) as timer:
+            timers.append(timer)
+            return await awaitable
+
+    if finish == "timeout":
+        monkeypatch.setattr(
+            service,
+            "asyncio",
+            SimpleNamespace(**(vars(asyncio) | {"wait_for": controlled_wait_for})),
+        )
 
     def blocked(*args):
         entered.set()
         assert release.wait(3)
 
     setattr(provider, phase + "_hook", blocked)
-    operation = asyncio.create_task(capture(timeout_seconds=3))
+    operation = asyncio.create_task(
+        capture(timeout_seconds=0.05 if finish == "timeout" else 3)
+    )
     try:
         assert await asyncio.to_thread(entered.wait, 1)
         if finish == "cancel":
             operation.cancel()
         else:
-            elapsed[0] = 4.0
+            timers[0].reschedule(asyncio.get_running_loop().time() - 1)
+            while not timers[0].expired():
+                await asyncio.sleep(0)
         await asyncio.sleep(0)
         assert not operation.done() and service._slots._value == 0
         operation.cancel()

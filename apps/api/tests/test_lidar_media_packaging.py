@@ -44,9 +44,6 @@ def world(tmp_path, monkeypatch):
     db = SimpleNamespace(get=forbidden, execute=forbidden)
     monkeypatch.setattr(packaging, "ExportService", forbidden)
     monkeypatch.setattr(packaging, "_load_lidar_link_items", forbidden)
-    monkeypatch.setattr(packaging, "resolve_calibration_states", forbidden)
-    monkeypatch.setattr(packaging, "_hash_dataset_object", forbidden)
-    monkeypatch.setattr(packaging, "_read_dataset_object", forbidden)
     monkeypatch.setattr(packaging.storage_service, "generate_download_url", forbidden)
     monkeypatch.setattr(
         packaging, "_new_zip_tempfile", lambda: str(root / "export.zip")

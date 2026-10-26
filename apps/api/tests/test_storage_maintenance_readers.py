@@ -300,7 +300,7 @@ async def test_retained_training_copy_does_not_check_source_maintenance(monkeypa
     )
     owner = owners.resolve(version)
     retained = {"task_id": "frozen", "sha256": "a" * 64}
-    monkeypatch.setattr(worker, "materialize_image", lambda *args: retained)
+    monkeypatch.setattr(worker, "materialize_image", lambda *args, **kwargs: retained)
 
     async def forbidden(*args, **kwargs):
         pytest.fail("Retained copies must not depend on current source access")

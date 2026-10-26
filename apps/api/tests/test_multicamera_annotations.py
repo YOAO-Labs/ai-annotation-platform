@@ -448,8 +448,6 @@ async def test_multicamera_coco_package_contains_trusted_media_contract(
     )
     forbidden = Mock(side_effect=AssertionError("trusted delivery must not read raw"))
     monkeypatch.setattr(packaging.storage_service, "generate_download_url", forbidden)
-    monkeypatch.setattr(packaging, "_hash_dataset_object", forbidden)
-    monkeypatch.setattr(packaging, "_read_dataset_object", forbidden)
 
     zip_path, file_count, _size = await packaging.build_export_zip(
         db_session,

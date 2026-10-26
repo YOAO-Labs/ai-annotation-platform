@@ -21,7 +21,6 @@ from __future__ import annotations
 from app.services.exporting.contracts import export_contracts
 
 import asyncio
-import hashlib
 import json
 import math
 import os
@@ -1047,39 +1046,6 @@ def _lidar_readme(target: str) -> str:
             "fingerprinted images at their COCO file_name paths.\n"
         )
     return common
-
-
-def _read_dataset_object(key: str) -> bytes:
-    response = storage_service.client.get_object(
-        Bucket=storage_service.datasets_bucket,
-        Key=key,
-    )
-    body = response["Body"]
-    try:
-        return body.read()
-    finally:
-        close = getattr(body, "close", None)
-        if close is not None:
-            close()
-
-
-def _hash_dataset_object(key: str) -> tuple[int, str]:
-    response = storage_service.client.get_object(
-        Bucket=storage_service.datasets_bucket,
-        Key=key,
-    )
-    body = response["Body"]
-    size = 0
-    digest = hashlib.sha256()
-    try:
-        while chunk := body.read(1024 * 1024):
-            size += len(chunk)
-            digest.update(chunk)
-    finally:
-        close = getattr(body, "close", None)
-        if close is not None:
-            close()
-    return size, digest.hexdigest()
 
 
 def _trusted_media_entry(

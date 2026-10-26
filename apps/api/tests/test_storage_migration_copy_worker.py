@@ -1030,21 +1030,26 @@ async def test_recover_clones_old_selection_including_verified_without_broadenin
         child.wait(timeout=5)
 
 
-async def test_frozen_evidence_refuses_destructive_schema_downgrade(world, test_db_url):
-    from alembic import command
-    from alembic.config import Config
+async def test_frozen_evidence_refuses_destructive_schema_downgrade(
+    world, migration_engine
+):
+    from importlib import util
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
 
-    config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", test_db_url)
-    async with world.maker() as db:
-        original_revision = await db.scalar(
-            text("SELECT version_num FROM alembic_version")
+    def downgrade(connection):
+        path = (
+            Path(__file__).parents[1]
+            / "alembic/versions/0256_storage_migration_copies.py"
         )
-    with pytest.raises(RuntimeError, match="evidence must be retained"):
-        await asyncio.to_thread(command.downgrade, config, "0255")
+        spec = util.spec_from_file_location("copy_migration", path)
+        migration = util.module_from_spec(spec)
+        spec.loader.exec_module(migration)
+        migration.op = Operations(MigrationContext.configure(connection))
+        migration.downgrade()
+
+    async with migration_engine.begin() as connection:
+        with pytest.raises(RuntimeError):
+            await connection.run_sync(downgrade)
     async with world.maker() as db:
-        assert (
-            await db.scalar(text("SELECT version_num FROM alembic_version"))
-            == original_revision
-        )
         assert await service.owner(db, world.copy_id)

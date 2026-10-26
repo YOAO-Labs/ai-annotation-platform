@@ -170,7 +170,8 @@ async def test_start_reuses_exact_input_and_conflicts_for_other_inputs_or_actor(
             StorageMigrationInventoryRequest(handling={"datasets": "retain"}),
         )
     assert caught.value.detail == {"code": "inventory_active_conflict"}
-    payload = service.item(row).model_dump_json()
+    # Public handling keys are purpose names, not private bucket locators.
+    payload = service.item(row).model_dump_json(exclude={"handling"})
     for private in [
         row.source["endpoint"],
         *row.source["purpose_buckets"].values(),

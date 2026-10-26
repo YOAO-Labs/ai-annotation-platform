@@ -21,6 +21,10 @@ from tests.test_storage_migration_windows import (
     reader_world as reader_world,
     copy_worker_world as copy_worker_world,
 )
+from tests.storage_migration_isolation import (
+    db_session as db_session,
+    migration_engine as migration_engine,
+)
 
 
 def expired():
@@ -104,8 +108,8 @@ async def test_current_training_receipt_survives_item_cascade_and_unknown_is_exp
     assert changed["fingerprint"] != result["fingerprint"]
 
 
-async def test_shared_fence_is_transactional_and_excludes_gc(test_engine):
-    sessions = async_sessionmaker(test_engine, expire_on_commit=False)
+async def test_shared_fence_is_transactional_and_excludes_gc(migration_engine):
+    sessions = async_sessionmaker(migration_engine, expire_on_commit=False)
     bucket, key = "fence-bucket", "fence/" + uuid.uuid4().hex
     async with sessions() as publication, sessions() as gc:
         await fence.shared(publication, bucket, key)

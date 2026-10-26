@@ -137,6 +137,10 @@ jobs:
           python-version: "3.11"
       - name: Install video fixture tools
         run: |
+          # Avoid the regional HTTP mirror that consumed the suite's entire deadline.
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          fi
           if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
             sudo apt-get update
             sudo apt-get install -y --no-install-recommends ffmpeg

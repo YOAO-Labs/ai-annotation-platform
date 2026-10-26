@@ -174,6 +174,7 @@ async def test_image_thumbnail_signing_remains_separate_from_original_identity(
     path = "thumbnails/derived.webp"
     task.thumbnail_path = path
     await db_session.flush()
+    await db_session.refresh(task, ["updated_at"])
     signed = []
 
     def sign(key, **kwargs):

@@ -25,7 +25,8 @@ class _Owned:
 
 
 def patch_owned_client(monkeypatch, client):
-    client.meta.config = Config(retries={"max_attempts": 3})
+    if not isinstance(getattr(client.meta, "config", None), Config):
+        client.meta.config = Config(retries={"max_attempts": 3})
 
     def create(*, client_config):
         assert client_config is client.meta.config

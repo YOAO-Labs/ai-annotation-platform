@@ -263,9 +263,7 @@ async def test_cleanup_drains_known_work_before_judging_live_permits(
         plan = await seed._prepare_fixture_video_cleanup(db, object())
         drain.assert_awaited_once()
         assert drain.await_args.kwargs["locations"] == {location}
-        assert drain.await_args.kwargs["purposes"] == (
-            objects.purpose(output.id),
-        )
+        assert drain.await_args.kwargs["purposes"] == (objects.purpose(output.id),)
         assert output.state == "retiring"
         assert plan.receipts == (output,)
         db.commit.assert_awaited_once()
@@ -307,7 +305,8 @@ async def test_cleanup_deletes_only_saved_owner_and_keeps_rows_on_close_failure(
     plan = seed._FixtureVideoCleanup(scope, (), (receipt,))
     client, db = object(), SimpleNamespace(delete=AsyncMock())
     fresh = SimpleNamespace(
-        scalar=AsyncMock(return_value=receipt),
+        scalar=AsyncMock(side_effect=["0", receipt, "0", receipt]),
+        execute=AsyncMock(),
         scalars=AsyncMock(return_value=[SimpleNamespace(revision=7)]),
         commit=AsyncMock(),
     )
@@ -374,7 +373,8 @@ async def test_cleanup_keeps_saved_owner_when_known_work_outlives_the_drain(
     plan = seed._FixtureVideoCleanup(scope, (), (receipt,))
     client, db = object(), SimpleNamespace(delete=AsyncMock())
     fresh = SimpleNamespace(
-        scalar=AsyncMock(return_value=receipt),
+        scalar=AsyncMock(side_effect=["0", receipt, "0", receipt]),
+        execute=AsyncMock(),
         scalars=AsyncMock(return_value=[SimpleNamespace(revision=7)]),
         commit=AsyncMock(),
     )
@@ -442,9 +442,9 @@ async def test_fixture_video_drain_settles_known_work_and_reports_expiry():
         locations={uuid.uuid4()},
     )
     assert expired is False
-    assert (
-        await seed._drain_fixture_video_operations(Probe([]), deadline) is True
-    ), "an empty scope has nothing to drain"
+    assert await seed._drain_fixture_video_operations(Probe([]), deadline) is True, (
+        "an empty scope has nothing to drain"
+    )
 
 
 async def test_finalize_adopts_only_idle_unbuilt_owners_allocated_during_cleanup(

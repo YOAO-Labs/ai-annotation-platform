@@ -10,12 +10,18 @@ from urllib.parse import urlsplit
 from urllib.request import urlopen
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
 from app.db.models.prediction import FailedPrediction, Prediction, PredictionMeta
-from app.services import prediction_inputs, raster_mask_storage as masks
+from app.services import (
+    prediction_inputs,
+    raster_mask_objects,
+    raster_mask_storage as masks,
+)
 from app.services.storage import storage_service
 from app.workers import tasks as worker
+from tests.prediction_input_live_assertions import ensure_versioned_import_bucket
 from tests.test_dataset_content import content_world as content_world, headers
 from tests.test_dataset_references import reference_world as reference_world
 from tests.test_prediction_inputs import input_world as input_world
@@ -34,6 +40,10 @@ async def test_http_minio_native_reference_generation_content_and_acceptance(
     native_world, httpx_client, super_admin, monkeypatch
 ):
     w = native_world
+    await ensure_versioned_import_bucket()
+    # The worker reuses the business transaction; mask owners still commit
+    # through the real independent factory, not its pass-through substitute.
+    monkeypatch.setattr(raster_mask_objects, "async_sessionmaker", async_sessionmaker)
     monkeypatch.setattr(masks, "store_coco_rle", _STORE)
     monkeypatch.setattr(masks, "load_coco_rle", _LOAD)
     monkeypatch.setattr(prediction_inputs, "make_storage", _INPUT_STORAGE)

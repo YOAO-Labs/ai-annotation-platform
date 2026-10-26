@@ -40,10 +40,9 @@ async def test_empty_managed_retirement_schema_roundtrip(test_engine):
                 verification.downgrade()
                 retention.downgrade()
                 module.downgrade()
-                assert (
-                    "managed_original_retirements"
-                    not in inspect(sync).get_table_names()
-                )
+                assert "managed_original_retirements" not in inspect(
+                    sync
+                ).get_table_names(schema=_schema)
                 module.upgrade()
                 actual = inspect(sync)
                 assert not actual.get_foreign_keys("managed_original_retirements")

@@ -41,9 +41,9 @@ async def test_empty_roundtrip_preserves_old_snapshot_and_populated_ledger_block
                         )
                         == 5
                     )
-                    assert (
-                        "storage_usage_mutations" not in inspect(conn).get_table_names()
-                    )
+                    assert "storage_usage_mutations" not in inspect(
+                        conn
+                    ).get_table_names(schema=_schema)
                     assert (
                         conn.scalar(
                             text(
@@ -60,8 +60,8 @@ async def test_empty_roundtrip_preserves_old_snapshot_and_populated_ledger_block
                     )
                     with pytest.raises(RuntimeError, match="must be retained"):
                         migration.downgrade()
-                    assert (
-                        "storage_usage_mutations" in inspect(conn).get_table_names()
+                    assert "storage_usage_mutations" in inspect(conn).get_table_names(
+                        schema=_schema
                     )
 
             await connection.run_sync(check)

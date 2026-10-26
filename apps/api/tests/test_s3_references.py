@@ -184,14 +184,11 @@ async def test_exact_keys_register_without_original_copies(db_session, s3_world)
         snapshot = await reference_snapshot(db_session, result["item_id"], actor)
         assert snapshot.file.read() == memory.data
         snapshot.close()
-    assert (
-        await db_session.scalar(
-            select(func.count())
-            .select_from(DatasetItem)
-            .where(DatasetItem.dataset_id == dataset.id)
-        )
-        == len(keys)
-    )
+    assert await db_session.scalar(
+        select(func.count())
+        .select_from(DatasetItem)
+        .where(DatasetItem.dataset_id == dataset.id)
+    ) == len(keys)
     assert (
         await db_session.scalar(
             select(func.count())

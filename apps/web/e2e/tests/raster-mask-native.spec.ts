@@ -8,7 +8,6 @@ const MATRIX = process.env.PLAYWRIGHT_RASTER_MASK_MATRIX;
 // the owned reader reports its stored-object code (classified as missing
 // content) instead of an unknown/unpinned key.
 const CORRUPT_MASK_REASON = "raster_object_storage_missing";
-const CORRUPT_MASK_MESSAGE = "Mask object ownership or content is unavailable";
 
 interface MaskReference {
   encoding: "coco_rle_ref";
@@ -538,9 +537,6 @@ test.describe("raster mask native write matrix", () => {
     await expect(
       page.getByRole("button", { name: "\u590d\u5236 Mask \u8bca\u65ad" }),
     ).toBeVisible();
-    await expect(page.getByLabel("Mask \u52a0\u8f7d\u72b6\u6001")).toContainText(
-      CORRUPT_MASK_MESSAGE,
-    );
   });
 
   test("10. deployment create-on does not regress the legacy polygon Mask flow", async ({

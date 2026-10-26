@@ -242,6 +242,7 @@ Playwright 会自动准备专用逻辑数据库 `annotation_e2e`、执行迁移�
 - **智能路由入口（`scripts/plan-e2e-suites.mjs`）**：PR 默认运行“有界核心 smoke + 按变更路径触发的领域专项（Mask×3、`video-pipeline`、`pointcloud`）”。若触及共享依赖、运行时配置、未映射路径、空 diff、跨多域或文件重命名/删除，则保守放大为全量套件；纯文档变更（白名单 `.md`）显式跳过应用 E2E 并记录原因。设置仓库变量 `E2E_SELECTION_MODE=legacy` 可随时无代码回退至固定全量矩阵。
 - **规划报告传输**：完整的 legacy/planned 对照、变更路径分类和原因写入 `E2E_SHADOW_PATH`（默认 `e2e-shadow.json`），CLI 仅输出 `shadow_path` 文件指针。CI 从文件生成步骤摘要，并上传 `e2e-selection-report` 产物；不要将完整报告放入步骤输出或进程环境，以免大型 PR 超过进程参数上限。矩阵、必需 manifest 和 ML CPU 调度继续使用原有有界输出。
 - **视频工具准备**：后端与 E2E runner 先复用已有的 `ffmpeg` / `ffprobe`，缺少时才以 `--no-install-recommends` 安装 FFmpeg，避免下载无关驱动及语音模型占满 Job 预算；两者版本均写入步骤日志，测试选集和超时不变。
+- **真实提供方验收**：版本、删除标记与净变化用例通过共用的 `live_provider_guard` 验证目标：本地仅允许工作树专属 `test` 桶；GitHub 托管 runner 可使用本次 Job 的临时 PostgreSQL、MinIO 与 Redis。远程存储、开发模式和非托管 runner 均拒绝，不用伪造工作树标记或跳过用例代替验收。
 - **必需套件审计（`scripts/audit-e2e-requirements.mjs`）**：核心 smoke 以 `--retries=0` 且 `flakyPolicy=forbid` 运行（重试后通过仍会阻断审计）；专项套件保留一次诊断重试并单独标记 flaky。审计脚本按计划 manifest 严格核对每个选中套件的产物，任何缺失、取消、setup 失败、套件名不匹配或核心 flaky 都会令汇总步骤失败（不会把缺失报告当作通过）。
 - **全量触发入口**：`push` 主分支与每日北京时间 03:00 的 `E2E extended` 定时工作流（`E2E_SCHEDULE_SCOPE=full`）执行全量套件；手动触发可通过 `scope` / `e2e_scope` 选择 `extended` 或 `full`。修改分类或调度规则后，可运行 `node --test scripts/plan-e2e-suites.test.mjs` 自检。
 

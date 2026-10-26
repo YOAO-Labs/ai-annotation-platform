@@ -64,9 +64,7 @@ def _mock_seed_storage(monkeypatch):
     async def saved_original(db, authority, source, *, guard=None):
         yield None
 
-    monkeypatch.setattr(
-        "app.services.video_derivative_originals.media", saved_original
-    )
+    monkeypatch.setattr("app.services.video_derivative_originals.media", saved_original)
 
 
 async def _ready_profile(db):
