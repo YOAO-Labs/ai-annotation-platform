@@ -29,6 +29,13 @@ from tests import test_training_preview_storage_flow as preview_flow
 from tests import test_training_run_storage_flow as run_flow
 
 
+@pytest.fixture(autouse=True)
+def migration_metadata_boundary(monkeypatch):
+    monkeypatch.setattr(
+        storage_io.artifact_reads, "resolve", AsyncMock(return_value=None)
+    )
+
+
 @pytest.fixture
 def run_owned(monkeypatch):
     return run_flow.owned.__wrapped__(monkeypatch)

@@ -36,6 +36,9 @@ def legacy_transport_boundary(monkeypatch):
         return callback(storage_service, *args, **kwargs)
 
     monkeypatch.setattr(training_storage_io, "run", run)
+    monkeypatch.setattr(
+        training_storage_io.artifact_reads, "resolve", AsyncMock(return_value=None)
+    )
 
 
 class Objects:

@@ -198,7 +198,7 @@ async def register(db, project, user, body):
     classes = run.config["classes"]
     validate_bindings(project, classes, body.bindings, config_task(run.config))
     try:
-        await storage_io.run(
+        await storage_io.read(
             db,
             owner,
             "training_model_read",
@@ -209,14 +209,20 @@ async def register(db, project, user, body):
                 bucket=owner.bucket,
                 transport=transport,
             ),
+            object_key=weights["key"],
+            sha256=weights["sha256"],
+            size_bytes=weights["size_bytes"],
         )
-        evaluation = await storage_io.run(
+        evaluation = await storage_io.read(
             db,
             owner,
             "training_model_read",
             lambda transport: read_json_artifact(
                 metrics, attempt.id, bucket=owner.bucket, transport=transport
             ),
+            object_key=metrics["key"],
+            sha256=metrics["sha256"],
+            size_bytes=metrics["size_bytes"],
         )
         if (
             run.config["framework"] == "libreyolo"
@@ -487,21 +493,27 @@ async def install_and_trial(db, project, version, deployment):
     backend = await enabled_backend(db, project.id, deployment.registry_id)
     await assert_routable_backend(db, project.id, deployment.registry_id)
     client = MLBackendClient(backend)
-    weights_url = await storage_io.run(
+    weights_url = await storage_io.read(
         db,
         weights_owner,
         "training_model_url",
         lambda transport: download_url(
             version.artifact["key"], bucket=weights_owner.bucket, transport=transport
         ),
+        object_key=version.artifact["key"],
+        sha256=version.artifact["sha256"],
+        size_bytes=version.artifact["size_bytes"],
     )
-    sample_url = await storage_io.run(
+    sample_url = await storage_io.read(
         db,
         owner,
         "training_model_url",
         lambda transport: download_url(
             sample_key, bucket=owner.bucket, transport=transport
         ),
+        object_key=sample_key,
+        sha256=sample.get("sha256"),
+        size_bytes=sample.get("size_bytes"),
     )
     receipt = await client.install_trained_model(
         {

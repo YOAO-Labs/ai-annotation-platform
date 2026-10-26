@@ -426,13 +426,16 @@ async def recovery(db, run, *, check_storage=True, lease=None):
     if checkpoint and check_storage:
         try:
             owner = training.attempt_storage_owner(run, attempt, checkpoint["key"])
-            available = await storage_io.run(
+            available = await storage_io.read(
                 db,
                 owner,
                 "training_checkpoint_read",
                 lambda transport: checkpoint_available(
                     run, attempt, checkpoint, transport=transport
                 ),
+                object_key=checkpoint["key"],
+                sha256=checkpoint["sha256"],
+                size_bytes=checkpoint["size_bytes"],
             )
         except Exception:
             available = False

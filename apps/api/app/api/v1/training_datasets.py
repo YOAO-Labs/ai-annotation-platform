@@ -373,8 +373,14 @@ async def download_version(
         )
 
     try:
-        url = await training_storage_io.run(
-            db, owner, "training_dataset_download", download
+        url = await training_storage_io.read(
+            db,
+            owner,
+            "training_dataset_download",
+            download,
+            object_key=version.package_key,
+            sha256=version.package_sha256,
+            size_bytes=version.size_bytes,
         )
     except TrainingDatasetError as exc:
         fail(exc)

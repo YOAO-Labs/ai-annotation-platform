@@ -24,6 +24,7 @@ from app.services import training_dataset_storage as owners
 from app.services import training_preview_storage as preview_owners
 from app.services import training_run_storage as run_owners
 from app.services import training_previews, training_runs, trained_models
+from app.services import training_storage_io
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.managed_original_retirement import managed_storage_identity
 from app.services.storage import storage_service
@@ -31,6 +32,18 @@ from app.services.training_dataset_bridge import TrainingDatasetError
 from app.workers import training_dataset as worker
 from tests.training_original_fixtures import original_receipt, staged_image
 from training_contract.dataset import instance_rle_evidence
+
+
+@pytest.fixture(autouse=True)
+def legacy_transport_boundary(monkeypatch):
+    # These unit cases isolate business ownership from database admission.
+    async def run(db, owner, purpose, callback, *args, **kwargs):
+        return callback(storage_service, *args, **kwargs)
+
+    monkeypatch.setattr(training_storage_io, "run", run)
+    monkeypatch.setattr(
+        training_storage_io.artifact_reads, "resolve", AsyncMock(return_value=None)
+    )
 
 
 class Objects:
@@ -109,6 +122,7 @@ def frozen(monkeypatch):
         storage_ref=ref,
         snapshot_digest="d" * 64,
         package_sha256="e" * 64,
+        size_bytes=25,
         manifest={"samples": [{"task_id": task_id, "split": "val"}]},
     )
     version.package_key = (
@@ -357,7 +371,14 @@ async def test_run_assignment_pins_dataset_but_keeps_other_artifact_owners(
         run_id=run.id,
     )
     checkpoint_key = run.storage_ref["prefix"] + f"attempts/{parent.id}/checkpoint.pt"
-    parent.artifacts = {"checkpoint": {"role": "checkpoint", "key": checkpoint_key}}
+    parent.artifacts = {
+        "checkpoint": {
+            "role": "checkpoint",
+            "key": checkpoint_key,
+            "sha256": "f" * 64,
+            "size_bytes": 12,
+        }
+    }
     if extra == "resume":
         attempt.resume_from_id = parent.id
     elif extra == "initialization":
@@ -380,7 +401,9 @@ async def test_run_assignment_pins_dataset_but_keeps_other_artifact_owners(
 
     config_before = deepcopy(run.config)
     result = await training_runs.assignment(
-        SimpleNamespace(get=get, scalar=AsyncMock(return_value=source_run)),
+        SimpleNamespace(
+            get=get, scalar=AsyncMock(return_value=source_run), commit=AsyncMock()
+        ),
         run,
         attempt,
         "token",
@@ -410,7 +433,7 @@ async def test_run_assignment_does_not_sign_an_unresolved_dataset(frozen, invali
         frozen.version.package_key = "another-version/dataset.zip"
     else:
         frozen.version.project_id = uuid.uuid4()
-    db = SimpleNamespace(get=AsyncMock(return_value=frozen.version))
+    db = SimpleNamespace(get=AsyncMock(return_value=frozen.version), commit=AsyncMock())
     with pytest.raises(HTTPException) as error:
         await training_runs.assignment(db, run, attempt, "token")
     assert error.value.status_code == 409
@@ -437,7 +460,7 @@ def preview_for(frozen):
 async def test_preview_assignment_resolves_owner_without_rewriting_spec(frozen):
     preview = preview_for(frozen)
     original_spec = deepcopy(preview.spec)
-    db = SimpleNamespace(get=AsyncMock(return_value=frozen.version))
+    db = SimpleNamespace(get=AsyncMock(return_value=frozen.version), commit=AsyncMock())
     result = await training_previews.assignment(db, preview)
     assert result["source_urls"][frozen.sample.task_id].startswith(
         f"https://owned-storage/{frozen.bucket}/"

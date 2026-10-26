@@ -2,6 +2,8 @@
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from copy import deepcopy
+import io as binary_io
 import uuid
 
 import pytest
@@ -137,3 +139,212 @@ async def test_route_failures_keep_safe_training_error(monkeypatch, stage):
             "db", owner(), "read", object(), object_key="saved/object", sha256="a" * 64
         )
     assert caught.value.code == failure.code and caught.value.status_code == 409
+
+
+@pytest.mark.parametrize("resume", [False, True])
+async def test_assignment_routes_each_saved_input_with_its_content(monkeypatch, resume):
+    from app.services import training_runs
+    from app.db.models.training_dataset import TrainingDatasetVersion
+    from tests.test_training_run_storage_flow import owned
+
+    world = owned.__wrapped__(monkeypatch)
+    world.dataset.package_sha256, world.dataset.size_bytes = "a" * 64, 17
+    parent = SimpleNamespace(id=uuid.uuid4(), run_id=world.run.id)
+    checkpoint = {
+        "role": "checkpoint",
+        "sha256": "b" * 64,
+        "size_bytes": 19,
+        "key": world.run.storage_ref["prefix"] + f"attempts/{parent.id}/last.pt",
+    }
+    parent.artifacts = {"last.pt": checkpoint}
+    if resume:
+        world.attempt.resume_from_id = parent.id
+    calls = []
+
+    async def read(db, saved, purpose, callback, **kwargs):
+        calls.append((saved.ref, kwargs))
+        return callback(io.storage_service)
+
+    async def get(model, identifier):
+        return world.dataset if model is TrainingDatasetVersion else parent
+
+    monkeypatch.setattr(io, "read", read)
+    before = deepcopy(world.run.config)
+    result = await training_runs.assignment(
+        SimpleNamespace(get=get, commit=AsyncMock()),
+        world.run,
+        world.attempt,
+        "lease",
+    )
+    assert calls[0] == (
+        world.dataset.storage_ref,
+        {
+            "object_key": world.dataset.package_key,
+            "sha256": "a" * 64,
+            "size_bytes": 17,
+        },
+    )
+    if resume:
+        assert calls[1] == (
+            world.run.storage_ref,
+            {
+                "object_key": checkpoint["key"],
+                "sha256": "b" * 64,
+                "size_bytes": 19,
+            },
+        )
+        assert checkpoint["key"] in result["resume"]["url"]
+    assert len(calls) == (2 if resume else 1)
+    assert world.run.config == before
+
+
+async def test_initialization_keeps_weight_and_report_reads_separate(monkeypatch):
+    from app.services import training_initialization as initialization
+    from app.services import training_artifacts, training_runs, training_run_storage
+    from app.services.training_dataset_bridge import content_digest
+    from tests.test_training_run_storage_flow import owned, artifact
+
+    world = owned.__wrapped__(monkeypatch)
+    weights, metrics = (
+        artifact(world),
+        artifact(world, "metrics.json", "metrics", b"{}"),
+    )
+    saved = training_run_storage.resolve(world.run)
+    report = {"score": 1}
+    pin = {
+        "artifact": weights,
+        "attempt_id": str(world.attempt.id),
+        "task": "detect",
+        "evaluation": {"report_digest": content_digest(report)},
+    }
+    calls = []
+
+    async def read(db, owner, purpose, callback, **kwargs):
+        assert owner == saved
+        calls.append(kwargs)
+        return callback(io.storage_service)
+
+    monkeypatch.setattr(io, "read", read)
+    monkeypatch.setattr(training_runs, "verify_artifact", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        training_artifacts, "read_json_artifact", lambda *args, **kwargs: report
+    )
+    await initialization.read_storage(None, pin, metrics, owner=saved, full=True)
+    assert calls == [
+        {
+            "object_key": spec["key"],
+            "sha256": spec["sha256"],
+            "size_bytes": spec["size_bytes"],
+        }
+        for spec in (weights, metrics)
+    ]
+
+
+async def test_preview_image_reads_two_objects_and_owns_undelivered_file(monkeypatch):
+    from app.api.v1 import training_previews as api
+    from app.services import training_previews as previews
+    from datetime import datetime, timezone, timedelta
+
+    saved = owner()
+    report_spec = {"key": "report.json", "sha256": "a" * 64, "size_bytes": 11}
+    image_spec = {"key": "image.png", "sha256": "b" * 64, "size_bytes": 13}
+    preview = SimpleNamespace(
+        status="succeeded",
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=2),
+        spec={"count": 1},
+        artifacts={"report.json": report_spec, "image.png": image_spec},
+    )
+    output = SimpleNamespace(index=0, image="image.png")
+    captured = binary_io.BytesIO(b"png")
+    calls = []
+
+    async def read(db, owner, purpose, callback, **kwargs):
+        assert owner is saved
+        calls.append(kwargs)
+        return callback(io.storage_service)
+
+    monkeypatch.setattr(api, "lock_owner", AsyncMock())
+    monkeypatch.setattr(api, "load", AsyncMock(return_value=preview))
+    monkeypatch.setattr(previews, "storage_owner", lambda value: saved)
+    monkeypatch.setattr(
+        previews,
+        "read_report",
+        lambda *args, **kwargs: SimpleNamespace(outputs=[output]),
+    )
+    monkeypatch.setattr(previews, "read_image", lambda *args, **kwargs: captured)
+    monkeypatch.setattr(io, "read", read)
+    response = await api.image(
+        uuid.uuid4(),
+        0,
+        project=SimpleNamespace(id=uuid.uuid4()),
+        user=object(),
+        db=SimpleNamespace(commit=AsyncMock()),
+    )
+    try:
+        assert [
+            {key: value for key, value in call.items() if key != "close_result"}
+            for call in calls
+        ] == [
+            {
+                "object_key": spec["key"],
+                "sha256": spec["sha256"],
+                "size_bytes": spec["size_bytes"],
+            }
+            for spec in (report_spec, image_spec)
+        ]
+        assert callable(calls[1]["close_result"])
+        calls[1]["close_result"](captured)
+        assert captured.closed
+    finally:
+        await response.background()
+
+
+async def test_mapped_active_learning_png_never_opens_original_write_target(
+    monkeypatch,
+):
+    from app.services import active_learning as learning
+
+    saved, route = owner(), object()
+    saved.key = lambda relative: "saved/object"
+    sample = {"ordinal": 0, "derived_sha256": "a" * 64}
+    context = SimpleNamespace(proof=None, key=None)
+    db = SimpleNamespace(commit=AsyncMock())
+    monkeypatch.setattr(learning.owners, "resolve", lambda value: saved)
+    monkeypatch.setattr(
+        learning.originals, "delegated", AsyncMock(return_value=context)
+    )
+    check = AsyncMock()
+    monkeypatch.setattr(learning.originals, "check", check)
+    monkeypatch.setattr(learning.originals.access, "check_clock", lambda *args: None)
+    resolve = AsyncMock(return_value=route)
+    monkeypatch.setattr(io.artifact_reads, "resolve", resolve)
+    recheck = AsyncMock()
+    monkeypatch.setattr(io.artifact_reads.publications, "recheck", recheck)
+    monkeypatch.setattr(
+        io, "prepare", AsyncMock(side_effect=AssertionError("A target opened"))
+    )
+    monkeypatch.setattr(
+        learning, "read_retained_png", lambda *args, **kwargs: b"retained PNG"
+    )
+    seen = []
+
+    async def read(database, owner, purpose, callback, **kwargs):
+        assert database is db and owner is saved
+        seen.append((purpose, kwargs))
+        return callback(io.storage_service)
+
+    monkeypatch.setattr(io, "read", read)
+    assert await learning.prepare_image(db, object(), sample) == b"retained PNG"
+    assert seen == [
+        (
+            "active_learning_media",
+            {
+                "object_key": "saved/object",
+                "sha256": "a" * 64,
+            },
+        )
+    ]
+    resolve.assert_awaited_once_with(db, saved.ref, "saved/object", "a" * 64)
+    assert check.await_count == 2
+    recheck.assert_awaited_once_with(db, route)
+    db.commit.assert_awaited_once()

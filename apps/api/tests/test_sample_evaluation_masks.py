@@ -522,12 +522,18 @@ async def test_frozen_rle_truth_reads_the_sample_once_and_rejects_oversize_befor
     version = SimpleNamespace(manifest={"schema": 4})
     from app.services import training_dataset_storage, training_storage_io
 
-    monkeypatch.setattr(training_dataset_storage, "resolve", lambda version: object())
+    retained_owner = SimpleNamespace(key=lambda relative: "saved/" + relative)
+    monkeypatch.setattr(
+        training_dataset_storage, "resolve", lambda version: retained_owner
+    )
 
-    async def retained_read(db, owner, purpose, callback):
+    async def retained_read(db, owner, purpose, callback, **kwargs):
+        assert owner is retained_owner
+        assert kwargs["sha256"] == member["label_sha256"]
+        assert kwargs["object_key"] == f"saved/masks/{member['task_id']}.json"
         return callback(object())
 
-    monkeypatch.setattr(training_storage_io, "run", retained_read)
+    monkeypatch.setattr(training_storage_io, "read", retained_read)
     result = await service.frozen_mask_truth(
         uuid.uuid4(), version, member, {}, ["shape"], db=None
     )

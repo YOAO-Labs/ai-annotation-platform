@@ -355,13 +355,17 @@ async def execute(factory, attempt_id, celery_task_id=None):
                 from app.services import training_dataset_storage
 
                 async with factory() as db:
-                    png, preprocessing = await service.storage_io.run(
+                    source_owner = training_dataset_storage.resolve(version)
+                    png, preprocessing = await service.storage_io.read(
                         db,
-                        training_dataset_storage.resolve(version),
+                        source_owner,
                         "sample_evaluation_source",
                         lambda transport: service.prepare_input(
                             run, version, frozen, transport=transport
                         ),
+                        object_key=source_owner.key(f"media/{frozen['task_id']}"),
+                        sha256=frozen["sha256"],
+                        size_bytes=frozen["size_bytes"],
                     )
             except Exception:
                 async with factory() as db:

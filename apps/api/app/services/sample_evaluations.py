@@ -92,7 +92,7 @@ async def frozen_mask_truth(project_id, version, member, source, classes, *, db)
         from app.services import training_dataset_storage
 
         source_owner = training_dataset_storage.resolve(version)
-        retained_instances = await storage_io.run(
+        retained_instances = await storage_io.read(
             db,
             source_owner,
             "sample_evaluation_source",
@@ -110,6 +110,8 @@ async def frozen_mask_truth(project_id, version, member, source, classes, *, db)
                 ],
                 transport=transport,
             ),
+            object_key=source_owner.key(f"masks/{member['task_id']}.json"),
+            sha256=member["label_sha256"],
         )
         for instance in member["instances"]:
             index = instance["class_index"]
@@ -785,7 +787,7 @@ async def read_report(db, run, attempt):
     except (KeyError, TypeError) as exc:
         raise reject("report_corrupt", "报告存储身份不匹配") from exc
     try:
-        report = await storage_io.run(
+        report = await storage_io.read(
             db,
             owner,
             "sample_evaluation_read",
@@ -797,6 +799,9 @@ async def read_report(db, run, attempt):
                 required_metadata=report_metadata(run, attempt),
                 node_budget=engine.REPORT_NODE_BUDGET,
             ),
+            object_key=artifact["key"],
+            sha256=artifact["sha256"],
+            size_bytes=artifact["size_bytes"],
         )
         if report.get("status") != attempt.status:
             raise ValueError("Report state differs from terminal attempt")

@@ -82,14 +82,18 @@ async def read(
             db, owner.ref, object_key, sha256, size_bytes
         )
         if route is None:
+            options = {}
+            if on_acquired is not None:
+                options["on_acquired"] = on_acquired
+            if timeout is not None:
+                options["timeout"] = timeout
             return await run(
                 db,
                 owner,
                 purpose,
                 callback,
                 *args,
-                on_acquired=on_acquired,
-                timeout=timeout,
+                **options,
                 **kwargs,
             )
         return await artifact_reads.run(

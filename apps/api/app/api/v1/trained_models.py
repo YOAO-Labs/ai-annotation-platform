@@ -156,7 +156,15 @@ async def model_detail(
             owner, key = service.frozen_sample_location(
                 project.id, dataset, item.trial["task_id"]
             )
-            url = await service.storage_io.run(
+            sample = next(
+                (
+                    member
+                    for member in dataset.manifest.get("samples", [])
+                    if member.get("task_id") == item.trial["task_id"]
+                ),
+                {},
+            )
+            url = await service.storage_io.read(
                 db,
                 owner,
                 "training_model_url",
@@ -166,6 +174,9 @@ async def model_detail(
                     bucket=owner.bucket,
                     align=False,
                 ),
+                object_key=key,
+                sha256=sample.get("sha256"),
+                size_bytes=sample.get("size_bytes"),
             )
             rendered["trial"] = {**rendered["trial"], "sample_url": url}
         rendered_deployments.append(rendered)
@@ -311,7 +322,7 @@ async def download_model(
     await lock_owner(db, user, project)
     version = await service.load_version(db, project.id, version_id)
     owner = await service.owner_for_model(db, version)
-    url = await service.storage_io.run(
+    url = await service.storage_io.read(
         db,
         owner,
         "training_model_url",
@@ -322,6 +333,9 @@ async def download_model(
             download_name="best.pt",
             align=False,
         ),
+        object_key=version.artifact["key"],
+        sha256=version.artifact["sha256"],
+        size_bytes=version.artifact["size_bytes"],
     )
     return {
         "url": url,

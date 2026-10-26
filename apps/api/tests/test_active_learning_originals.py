@@ -515,6 +515,9 @@ async def test_physical_tempfile_close_keeps_permit_and_quota_until_settled(
 
 @pytest.fixture
 def output(world, monkeypatch):
+    monkeypatch.setattr(
+        learning.storage_io.artifact_reads, "resolve", AsyncMock(return_value=None)
+    )
     round = SimpleNamespace(
         id=uuid.uuid4(),
         project_id=world.authority.project_id,

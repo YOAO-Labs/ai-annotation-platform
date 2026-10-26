@@ -374,19 +374,20 @@ async def assignment(db, preview, *, stop=False):
                 detail={"code": exc.code, "message": str(exc)},
             ) from None
         await db.commit()
-        urls = await storage_io.run(
-            db,
-            owner,
-            "training_preview_assignment",
-            lambda transport: {
-                source["task_id"]: transport.client.generate_presigned_url(
+        for source in preview.spec["sources"]:
+            urls[source["task_id"]] = await storage_io.read(
+                db,
+                owner,
+                "training_preview_assignment",
+                lambda transport: transport.client.generate_presigned_url(
                     "get_object",
                     Params={"Bucket": owner.bucket, "Key": source["media_key"]},
                     ExpiresIn=LIMITS["execution_seconds"],
-                )
-                for source in preview.spec["sources"]
-            },
-        )
+                ),
+                object_key=source["media_key"],
+                sha256=source.get("sha256"),
+                size_bytes=source.get("size_bytes"),
+            )
     return dict(
         preview_id=str(preview.id),
         lease_token=token_for(preview, preview.claim_id),
@@ -851,11 +852,15 @@ async def output(preview, *, include_report=True, db):
     ):
         try:
             owner = storage_owner(preview)
-            report = await storage_io.run(
+            artifact = preview.artifacts.get("report.json") or {}
+            report = await storage_io.read(
                 db,
                 owner,
                 "training_preview_read",
                 lambda transport: read_report(preview, transport=transport),
+                object_key=artifact_key(owner, "report.json", artifact.get("key")),
+                sha256=artifact.get("sha256"),
+                size_bytes=artifact.get("size_bytes"),
             )
         except HTTPException:
             raise

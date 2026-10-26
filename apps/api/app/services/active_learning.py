@@ -441,8 +441,29 @@ def read_retained_png(round, sample, *, transport=None, observation=None):
 
 async def prepare_image(db, round, sample, *, guard=None):
     owner = owners.resolve(round)
-    target = await storage_io.prepare(db, owner)
     context = await originals.delegated(db, round)
+    artifact = media_descriptor(round, sample)
+    route = await storage_io.artifact_reads.resolve(
+        db, owner.ref, artifact["key"], artifact["sha256"]
+    )
+    if route is not None:
+        await originals.check(db, context, guard=guard)
+        png = await storage_io.read(
+            db,
+            owner,
+            "active_learning_media",
+            lambda transport: read_retained_png(round, sample, transport=transport),
+            object_key=artifact["key"],
+            sha256=artifact["sha256"],
+        )
+        await originals.check(db, context, commit=False, guard=guard)
+        if owners.resolve(round) != owner:
+            raise originals.ContentError("content_binding_changed")
+        await storage_io.artifact_reads.publications.recheck(db, route)
+        await db.commit()
+        originals.access.check_clock(context.proof, context.key)
+        return png
+    target = await storage_io.prepare(db, owner)
     location_id = uuid.UUID(owner.ref["location_id"])
     permit = await originals.storage_access.acquire(
         db, location_id, "active_learning_media"

@@ -235,13 +235,16 @@ async def read_evaluation(run, attempt, offset, limit, *, db):
 
     owner = owner_for_attempt(run, attempt, metrics[0], weights[0])
     try:
-        report = await storage_io.run(
+        report = await storage_io.read(
             db,
             owner,
             "training_evaluation_read",
             lambda transport: read_json_artifact(
                 metrics[0], attempt.id, bucket=owner.bucket, transport=transport
             ),
+            object_key=metrics[0]["key"],
+            sha256=metrics[0]["sha256"],
+            size_bytes=metrics[0]["size_bytes"],
         )
         return parse_evaluation(
             report, run, attempt, metrics[0], weights[0], offset, limit

@@ -179,13 +179,28 @@ async def image(
     try:
         owner = service.storage_owner(preview)
 
-        def read(transport):
-            nonlocal source
-            report = service.read_report(preview, transport=transport)
-            output = next(item for item in report.outputs if item.index == index)
-            source = service.read_image(preview, output, transport=transport)
-
-        await service.storage_io.run(db, owner, "training_preview_read", read)
+        report_artifact = preview.artifacts["report.json"]
+        report = await service.storage_io.read(
+            db,
+            owner,
+            "training_preview_read",
+            lambda transport: service.read_report(preview, transport=transport),
+            object_key=report_artifact["key"],
+            sha256=report_artifact["sha256"],
+            size_bytes=report_artifact["size_bytes"],
+        )
+        output = next(item for item in report.outputs if item.index == index)
+        image_artifact = preview.artifacts[output.image]
+        source = await service.storage_io.read(
+            db,
+            owner,
+            "training_preview_read",
+            lambda transport: service.read_image(preview, output, transport=transport),
+            object_key=image_artifact["key"],
+            sha256=image_artifact["sha256"],
+            size_bytes=image_artifact["size_bytes"],
+            close_result=lambda result: result.close(),
+        )
         await db.commit()
         return StreamingResponse(
             stream_media(source),

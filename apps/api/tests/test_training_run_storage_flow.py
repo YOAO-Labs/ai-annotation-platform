@@ -35,6 +35,9 @@ def legacy_transport_boundary(monkeypatch):
         return callback(storage_service, *args, **kwargs)
 
     monkeypatch.setattr(training_storage_io, "run", run)
+    monkeypatch.setattr(
+        training_storage_io.artifact_reads, "resolve", AsyncMock(return_value=None)
+    )
 
 
 class Objects:
@@ -124,6 +127,9 @@ def owned(monkeypatch):
     dataset = SimpleNamespace(
         id=dataset_id,
         project_id=project_id,
+        package_sha256=None,
+        size_bytes=None,
+        manifest={"samples": []},
         storage_ref=reference(
             project_id,
             dataset_id,

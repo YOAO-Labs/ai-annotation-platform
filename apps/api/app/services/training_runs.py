@@ -883,31 +883,40 @@ async def assignment(db, run, attempt, token):
             "source_digest": pin["source_digest"],
         }
     await db.commit()
-    result["dataset_url"] = await storage_io.run(
+    result["dataset_url"] = await storage_io.read(
         db,
         owner,
         "training_assignment",
         lambda transport: internal_download(
             dataset.package_key, bucket=owner.bucket, transport=transport
         ),
+        object_key=dataset.package_key,
+        sha256=dataset.package_sha256,
+        size_bytes=dataset.size_bytes,
     )
     if result["resume"] is not None:
-        result["resume"]["url"] = await storage_io.run(
+        result["resume"]["url"] = await storage_io.read(
             db,
             run_owner,
             "training_assignment",
             lambda transport: internal_download(
                 checkpoint["key"], bucket=run_owner.bucket, transport=transport
             ),
+            object_key=checkpoint["key"],
+            sha256=checkpoint.get("sha256"),
+            size_bytes=checkpoint.get("size_bytes"),
         )
     elif "initialization" in result:
-        result["initialization"]["url"] = await storage_io.run(
+        result["initialization"]["url"] = await storage_io.read(
             db,
             source_owner,
             "training_assignment",
             lambda transport: internal_download(
                 pin["artifact"]["key"], bucket=source_owner.bucket, transport=transport
             ),
+            object_key=pin["artifact"]["key"],
+            sha256=pin["artifact"]["sha256"],
+            size_bytes=pin["artifact"]["size_bytes"],
         )
     return result
 

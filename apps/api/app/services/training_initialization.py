@@ -181,13 +181,16 @@ async def source_pin(db, project_id, version_id):
         from app.services.training_evaluations import parse_evaluation
 
         try:
-            report = await storage_io.run(
+            report = await storage_io.read(
                 db,
                 owner,
                 "training_initialization_read",
                 lambda transport: read_json_artifact(
                     metrics[0], attempt.id, bucket=owner.bucket, transport=transport
                 ),
+                object_key=metrics[0]["key"],
+                sha256=metrics[0]["sha256"],
+                size_bytes=metrics[0]["size_bytes"],
             )
         except (BotoCoreError, ClientError, OSError) as exc:
             raise ValueError("分割初始化的真实来源评估对象不可用") from exc
@@ -270,17 +273,7 @@ def verify_storage(pin, metrics, *, owner, full, transport=None):
         report = read_json_artifact(
             metrics, pin["attempt_id"], bucket=owner.bucket, transport=transport
         )
-        if content_digest(report) != pin["evaluation"]["report_digest"]:
-            raise ValueError("来源评估与候选注册时的报告不一致")
-        if pin["task"] == SEGMENTATION and (
-            content_digest(report.get("comparison"))
-            != pin["evaluation"]["descriptor_digest"]
-            or report.get("validation_digest") != pin["validation_digest"]
-            or report.get("comparison", {}).get("candidate", {}).get("weights_sha256")
-            != artifact["sha256"]
-            or metrics["sha256"] != pin["evaluation"]["report_sha256"]
-        ):
-            raise ValueError("分割初始化真实报告的权重或评估器身份不一致")
+        _verify_metrics(pin, metrics, report)
     else:
         head = transport.client.head_object(Bucket=owner.bucket, Key=artifact["key"])
         if (
@@ -288,6 +281,74 @@ def verify_storage(pin, metrics, *, owner, full, transport=None):
             or head.get("Metadata", {}).get("attempt-id") != pin["attempt_id"]
         ):
             raise ValueError("来源对象大小或执行身份不符")
+
+
+def _verify_metrics(pin, metrics, report):
+    if content_digest(report) != pin["evaluation"]["report_digest"]:
+        raise ValueError("来源评估与候选注册时的报告不一致")
+    if pin["task"] == SEGMENTATION and (
+        content_digest(report.get("comparison"))
+        != pin["evaluation"]["descriptor_digest"]
+        or report.get("validation_digest") != pin["validation_digest"]
+        or report.get("comparison", {}).get("candidate", {}).get("weights_sha256")
+        != pin["artifact"]["sha256"]
+        or metrics["sha256"] != pin["evaluation"]["report_sha256"]
+    ):
+        raise ValueError("分割初始化真实报告的权重或评估器身份不一致")
+
+
+async def read_storage(db, pin, metrics, *, owner, full):
+    """Read separate retained weight/report objects under their own route permits."""
+    from app.services.training_runs import verify_artifact
+    from app.services.training_artifacts import read_json_artifact
+    from app.services.training_run_storage import expect_attempt
+
+    artifact = pin["artifact"]
+    expect_attempt(owner, pin["attempt_id"], artifact["key"])
+    expect_attempt(owner, pin["attempt_id"], metrics["key"])
+    await storage_io.read(
+        db,
+        owner,
+        "training_initialization_read",
+        (
+            lambda transport: verify_artifact(
+                artifact["key"],
+                artifact,
+                pin["attempt_id"],
+                bucket=owner.bucket,
+                transport=transport,
+            )
+        )
+        if full
+        else (
+            lambda transport: verify_storage(
+                pin,
+                metrics,
+                owner=owner,
+                full=False,
+                transport=transport,
+            )
+        ),
+        object_key=artifact["key"],
+        sha256=artifact["sha256"],
+        size_bytes=artifact["size_bytes"],
+    )
+    if full:
+        report = await storage_io.read(
+            db,
+            owner,
+            "training_initialization_read",
+            lambda transport: read_json_artifact(
+                metrics,
+                pin["attempt_id"],
+                bucket=owner.bucket,
+                transport=transport,
+            ),
+            object_key=metrics["key"],
+            sha256=metrics["sha256"],
+            size_bytes=metrics["size_bytes"],
+        )
+        _verify_metrics(pin, metrics, report)
 
 
 async def eligibility(
@@ -355,14 +416,7 @@ async def eligibility(
         }
     try:
         owner = await source_storage_owner(db, pin)
-        await storage_io.run(
-            db,
-            owner,
-            "training_initialization_read",
-            lambda transport: verify_storage(
-                pin, metrics, owner=owner, full=False, transport=transport
-            ),
-        )
+        await read_storage(db, pin, metrics, owner=owner, full=False)
     except Exception:
         reasons.append("来源权重对象缺失或身份不符；不会使用其他权重替代")
     return {
@@ -406,14 +460,7 @@ async def resolve(
         raise HTTPException(status_code=409, detail=str(exc)[:500]) from exc
     try:
         owner = await source_storage_owner(db, pin)
-        await storage_io.run(
-            db,
-            owner,
-            "training_initialization_read",
-            lambda transport: verify_storage(
-                pin, metrics, owner=owner, full=full, transport=transport
-            ),
-        )
+        await read_storage(db, pin, metrics, owner=owner, full=full)
     except Exception as exc:
         raise HTTPException(
             status_code=409, detail="初始化权重或评估对象校验失败，请检查保留的来源产物"

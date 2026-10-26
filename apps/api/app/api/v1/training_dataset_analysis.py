@@ -329,13 +329,16 @@ async def sample_mask(
         raise HTTPException(status_code=404, detail="数据版本已删除")
     row = await sample_row(db, version_id, task_id)
     try:
-        return await training_storage_io.run(
+        storage_owner = training_dataset_storage.resolve(version)
+        return await training_storage_io.read(
             db,
-            training_dataset_storage.resolve(version),
+            storage_owner,
             "training_dataset_mask",
             lambda bound: service.read_instance_mask(
                 project.id, version, row, annotation_id, transport=bound
             ),
+            object_key=storage_owner.key(f"masks/{row.task_id}.json"),
+            sha256=row.label_sha256,
         )
     except TrainingDatasetError as exc:
         raise HTTPException(
@@ -384,13 +387,18 @@ async def sample_media(
             status_code=409, detail="该任务未纳入训练包，没有可读取的冻结成员媒体"
         )
     try:
-        source, content_type = await training_storage_io.run(
+        storage_owner = training_dataset_storage.resolve(version)
+        source, content_type = await training_storage_io.read(
             db,
-            training_dataset_storage.resolve(version),
+            storage_owner,
             "training_dataset_media",
             lambda bound: service.read_media(
                 project.id, version, row, preview=preview, transport=bound
             ),
+            object_key=storage_owner.key(f"media/{row.task_id}"),
+            sha256=row.sha256,
+            size_bytes=row.size_bytes,
+            close_result=lambda result: result[0].close(),
         )
     except TrainingDatasetError as exc:
         row.media_state = (

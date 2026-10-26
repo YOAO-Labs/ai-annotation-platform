@@ -598,8 +598,14 @@ async def download_artifact(
             "size_bytes": artifact["size_bytes"],
         }
 
-    return await service.storage_io.run(
-        db, owner, "training_artifact_download", download
+    return await service.storage_io.read(
+        db,
+        owner,
+        "training_artifact_download",
+        download,
+        object_key=artifact["key"],
+        sha256=artifact["sha256"],
+        size_bytes=artifact["size_bytes"],
     )
 
 
