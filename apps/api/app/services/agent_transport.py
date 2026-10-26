@@ -137,6 +137,13 @@ async def enqueue(
             "issued_at": issued,
             "expires_at": expires,
             "max_bytes": min(max_bytes, MAX_BYTES, agent.limits["max_bytes"]),
+            "bandwidth_bytes_per_second": min(
+                agent.limits["bandwidth_bytes_per_second"],
+                (agent.reported_limits or {}).get(
+                    "bandwidth_bytes_per_second",
+                    agent.limits["bandwidth_bytes_per_second"],
+                ),
+            ),
             "timeout_seconds": 10,
             "fence": {
                 **fence,
@@ -195,8 +202,6 @@ async def lease(db, agent_id, session_id):
         AgentCredential, (agent.id, agent.credential_revision), populate_existing=True
     )
     validate_current(agent, credential)
-    if agent.draining:
-        return None
     await db.execute(
         update(Command)
         .where(
@@ -213,20 +218,27 @@ async def lease(db, agent_id, session_id):
         select(Command)
         .where(
             Command.agent_id == agent_id,
-            Command.state == "leased",
+            Command.state.in_(("leased", "unsettled")),
             Command.lease_session_id == session_id,
-            Command.expires_at > now(),
+            Command.result.is_(None),
         )
         .order_by(Command.created_at)
         .with_for_update()
         .limit(1)
     )
     if prior is not None:
+        # A lost delivery can outlive the grant. The original expired envelope
+        # lets the same durable journal report a closed failure without source I/O.
+        # Do not manufacture a new deadline or infer closure from a heartbeat.
+        if now().timestamp() >= prior.payload["expires_at"]:
+            return prior.payload
         try:
             await _authority(db, prior)
         except (ContentError, SiteAgentError):
             return None
         return prior.payload
+    if agent.draining:
+        return None
     active = await db.scalar(
         select(func.count())
         .select_from(Command)

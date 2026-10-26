@@ -69,6 +69,31 @@ def command(operation="scan", arguments=None):
     }
 
 
+def test_optional_bandwidth_preserves_legacy_envelope_and_digest():
+    legacy = validate_command(command())
+    assert "bandwidth_bytes_per_second" not in legacy
+    assert validate_command(legacy) == legacy
+    limited = validate_command({**legacy, "bandwidth_bytes_per_second": 1024})
+    assert limited == {**legacy, "bandwidth_bytes_per_second": 1024}
+    assert digest(legacy) != digest(limited)
+    assert validate_command(limited) == limited
+
+
+@pytest.mark.parametrize("rate", [None, True, 1.5, "1024", 1023, 1024**3 + 1])
+def test_command_bandwidth_is_a_strict_bounded_integer(rate):
+    with pytest.raises(ProtocolError, match="invalid_command"):
+        validate_command({**command(), "bandwidth_bytes_per_second": rate})
+
+
+def test_command_bandwidth_accepts_the_maximum():
+    assert (
+        validate_command({**command(), "bandwidth_bytes_per_second": 1024**3})[
+            "bandwidth_bytes_per_second"
+        ]
+        == 1024**3
+    )
+
+
 @pytest.mark.parametrize("path", ["../outside", "/outside", "a//b", "a\\b"])
 def test_read_source_path_is_relative_and_bounded(path):
     rejects(

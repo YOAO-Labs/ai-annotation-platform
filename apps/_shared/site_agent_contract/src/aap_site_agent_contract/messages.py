@@ -326,7 +326,7 @@ def validate_command(value: dict) -> dict:
             "timeout_seconds",
             "fence",
         },
-        set(),
+        {"bandwidth_bytes_per_second"},
         code,
     )
     result = dict(value)
@@ -349,6 +349,10 @@ def validate_command(value: dict) -> dict:
     if not 0 < expires - issued <= MAX_COMMAND_LIFETIME_SECONDS:
         raise ProtocolError(code)
     result["max_bytes"] = _int(value["max_bytes"], code, 1, MAX_CONTENT_BYTES)
+    if "bandwidth_bytes_per_second" in value:
+        result["bandwidth_bytes_per_second"] = _int(
+            value["bandwidth_bytes_per_second"], code, 1024, 1024**3
+        )
     result["timeout_seconds"] = _int(
         value["timeout_seconds"], code, 1, MAX_TIMEOUT_SECONDS
     )

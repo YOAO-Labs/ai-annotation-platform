@@ -46,10 +46,30 @@ class NoRedirect(request.HTTPRedirectHandler):
 class DeadlineConnection(http.client.HTTPSConnection):
     """Recheck expiry after TLS before writing request headers or content."""
 
-    def __init__(self, *args, command_deadline=None, clock=time.time, **kwargs):
+    def __init__(
+        self, *args, command_deadline=None, clock=time.time, bandwidth=None, **kwargs
+    ):
         super().__init__(*args, **kwargs)
         self.command_deadline = command_deadline
         self.clock = clock
+        self.bandwidth = bandwidth
+
+    def _send_output(self, message_body=None, encode_chunked=False):
+        if self.bandwidth is not None and message_body is not None:
+            body = message_body
+
+            def paced_body():
+                size = min(256 * 1024, self.bandwidth.rate)
+                for offset in range(0, len(body), size):
+                    chunk = body[offset : offset + size]
+                    self.bandwidth.consume(len(chunk))
+                    self.remaining()
+                    yield chunk
+
+            message_body = paced_body()
+        # Request.data remains the original bounded bytes. Only the socket body
+        # is segmented; HTTP/TLS headers are outside the payload rate budget.
+        return super()._send_output(message_body, encode_chunked=encode_chunked)
 
     def remaining(self):
         if self.command_deadline is None:
@@ -81,6 +101,7 @@ class DeadlineHTTPSHandler(request.HTTPSHandler):
             DeadlineConnection,
             command_deadline=getattr(req, "agent_deadline", None),
             clock=getattr(req, "agent_clock", time.time),
+            bandwidth=getattr(req, "agent_bandwidth", None),
         )
         return self.do_open(connection, req, context=self._context)
 
@@ -134,6 +155,7 @@ class Client:
         headers=None,
         deadline=None,
         allow_expired_receipt=False,
+        paced=False,
     ):
         if not path.startswith("/api/v1/site-agents/") or "?" in path or "#" in path:
             raise AgentError("invalid_center_endpoint")
@@ -156,6 +178,9 @@ class Client:
         )
         req.agent_deadline = deadline
         req.agent_clock = self.clock
+        if paced:
+            req.agent_bandwidth = self.bandwidth
+            req.add_header("Content-Length", str(len(payload)))
         timeout = 25 if deadline is None else min(25, deadline - self.clock())
         if timeout <= 0:
             raise AgentError("command_expired")
@@ -232,11 +257,19 @@ class Client:
         if row is None:
             raise AgentError("result_identity_mismatch")
         command = row["command"]
+        self.bandwidth.rate = min(
+            self.config.bandwidth_bytes_per_second,
+            command.get(
+                "bandwidth_bytes_per_second", self.config.bandwidth_bytes_per_second
+            ),
+        )
         endpoint = "/api/v1/site-agents/commands/" + command_id + "/result"
         try:
             # Closure evidence remains admissible after expiry or revocation.
             # A valid ACK avoids replaying bytes already accepted by the center.
-            response = self._post(endpoint, result, allow_expired_receipt=True)
+            response = self._post(
+                endpoint, result, allow_expired_receipt=True, paced=True
+            )
         except ContentIncompleteError:
             deadline = min(command["expires_at"], self.credentials.expires_at)
             if self.clock() >= deadline:
@@ -246,16 +279,14 @@ class Client:
                 raise AgentError("content_stage_missing") from None
             try:
                 offset = 0
-                while data := body.read(
-                    min(256 * 1024, self.config.bandwidth_bytes_per_second)
-                ):
-                    self.bandwidth.consume(len(data))
+                while data := body.read(min(256 * 1024, self.bandwidth.rate)):
                     if self.clock() >= deadline:
                         raise AgentError("command_expired")
                     receipt = self._post(
                         "/api/v1/site-agents/commands/" + command_id + "/chunks",
                         data=data,
                         deadline=deadline,
+                        paced=True,
                         headers={
                             "X-Command-Digest": result["command_digest"],
                             "X-Chunk-Offset": str(offset),
@@ -279,7 +310,9 @@ class Client:
                     offset += len(data)
             finally:
                 body.close()
-            response = self._post(endpoint, result, allow_expired_receipt=True)
+            response = self._post(
+                endpoint, result, allow_expired_receipt=True, paced=True
+            )
         ack = validate_ack(response)
         if any(
             ack[key] != value
