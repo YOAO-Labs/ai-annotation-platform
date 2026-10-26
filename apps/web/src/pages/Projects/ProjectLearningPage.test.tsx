@@ -471,6 +471,104 @@ describe("project learning data versions", () => {
     ]);
     expect(document.body).not.toHaveTextContent(taskA);
     expect(document.body).not.toHaveTextContent(taskB);
+    expect(
+      screen.queryByRole("link", { name: "处理原图来源（新标签页）" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/入口会在新标签页打开样本检查器/)).not.toBeInTheDocument();
+  });
+  it("opens authorized reference issues in a new tab while retaining the preparation form and report", async () => {
+    const datasetId = "11111111-2222-4333-8444-555555555555";
+    const itemId = "66666666-7777-4888-9999-aaaaaaaaaaaa";
+    vi.mocked(trainingDatasetsApi.preflight).mockResolvedValueOnce({
+      ...report,
+      ready: false,
+      issues: [
+        {
+          code: "agent_offline",
+          message: "来源 Agent 暂时离线",
+          dataset_id: datasetId,
+          dataset_item_id: itemId,
+        },
+      ],
+    } as never);
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByRole("button", { name: "准备新版本" }));
+    const name = screen.getByLabelText("版本名称");
+    await user.clear(name);
+    await user.type(name, "引用图片首轮");
+    await user.click(screen.getByRole("button", { name: "检查训练数据" }));
+    const link = await screen.findByRole("link", { name: "处理原图来源（新标签页）" });
+    expect(link).toHaveAttribute("href", `/datasets/${datasetId}?tab=data&item=${itemId}`);
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(screen.getByText(/可核验原图、关联备用来源/)).toHaveTextContent(
+      "联系来源管理员恢复连接",
+    );
+    expect(screen.getByText(/当前准备表单和预检报告会保留/)).toHaveTextContent(
+      "返回此页点击“检查训练数据”重试",
+    );
+    await user.click(link);
+    expect(screen.getByText("/projects/project-1/learning?tab=data")).toBeVisible();
+    expect(name).toHaveValue("引用图片首轮");
+    expect(screen.getByText("来源 Agent 暂时离线")).toBeVisible();
+    expect(screen.getByText("需要处理数据问题")).toBeVisible();
+    expect(trainingDatasetsApi.create).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "检查训练数据" }));
+    expect(await screen.findByText("数据检查通过")).toBeVisible();
+    expect(name).toHaveValue("引用图片首轮");
+    expect(trainingDatasetsApi.preflight).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(trainingDatasetsApi.preflight).mock.calls[1][1]).toEqual(
+      vi.mocked(trainingDatasetsApi.preflight).mock.calls[0][1],
+    );
+  });
+  it("only constructs sample paths from complete UUID strings and never from issue URLs or text", async () => {
+    const datasetId = "11111111-2222-4333-8444-555555555555";
+    const itemId = "66666666-7777-4888-9999-aaaaaaaaaaaa";
+    const invalid = [
+      {},
+      { dataset_id: datasetId, task_id: itemId },
+      { dataset_item_id: itemId },
+      { dataset_id: "/cephfs/images", dataset_item_id: itemId },
+      { dataset_id: datasetId, dataset_item_id: "https://example.invalid/sample" },
+      { dataset_id: datasetId, dataset_item_id: `${itemId}&tab=sources` },
+      { dataset_id: `${datasetId}/../other`, dataset_item_id: itemId },
+      { dataset_id: [datasetId], dataset_item_id: itemId },
+      { dataset_id: datasetId, dataset_item_id: { id: itemId } },
+      { dataset_id: ` ${datasetId}`, dataset_item_id: itemId },
+      { dataset_id: datasetId, dataset_item_id: itemId.slice(1) },
+      { dataset_id: null, dataset_item_id: 123 },
+    ];
+    vi.mocked(trainingDatasetsApi.preflight).mockResolvedValueOnce({
+      ...report,
+      ready: false,
+      issues: [
+        ...invalid.map((fields, index) => ({
+          code: "invalid",
+          message: `旧问题 ${index}`,
+          ...fields,
+          url: "https://example.invalid/sample",
+          path: "/cephfs/images",
+        })),
+        {
+          code: "agent_offline",
+          message: "https://example.invalid/not-a-destination",
+          dataset_id: datasetId,
+          dataset_item_id: itemId.toUpperCase(),
+        },
+      ],
+    } as never);
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByRole("button", { name: "准备新版本" }));
+    await user.click(screen.getByRole("button", { name: "检查训练数据" }));
+    const links = await screen.findAllByRole("link", { name: "处理原图来源（新标签页）" });
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveAttribute(
+      "href",
+      `/datasets/${datasetId}?tab=data&item=${itemId.toUpperCase()}`,
+    );
+    invalid.forEach((_, index) => expect(screen.getByText(`旧问题 ${index}`)).toBeVisible());
   });
   it("filters task versions before pagination and preserves a separate draft for each task", async () => {
     const user = userEvent.setup();

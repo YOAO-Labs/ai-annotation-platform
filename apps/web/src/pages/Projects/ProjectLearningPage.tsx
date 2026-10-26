@@ -83,6 +83,20 @@ const exclusionReasons: Record<string, string> = {
   unconfirmed_negative: "空标注尚未明确确认为无目标",
 };
 
+function issueSamplePath(issue: TrainingDatasetPreflight["issues"][number]): string | null {
+  const datasetId = issue.dataset_id;
+  const itemId = issue.dataset_item_id;
+  const idPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (
+    typeof datasetId !== "string" ||
+    !idPattern.test(datasetId) ||
+    typeof itemId !== "string" ||
+    !idPattern.test(itemId)
+  )
+    return null;
+  return `/datasets/${datasetId}?${new URLSearchParams({ tab: "data", item: itemId })}`;
+}
+
 export function ProjectLearningPage() {
   const { id = "" } = useParams();
   const createButtonRef = useRef<HTMLButtonElement>(null);
@@ -1605,6 +1619,7 @@ function ProjectLearningContent({
                   {report.issues.map((issue, index) => {
                     const taskId = typeof issue.task_id === "string" ? issue.task_id : "";
                     const taskOrdinal = taskId ? issueTaskOrdinals.get(taskId) : undefined;
+                    const samplePath = issueSamplePath(issue);
                     return (
                       <p className="mt-2 text-status-danger" key={index}>
                         {String(issue.message ?? issue.code)}
@@ -1614,9 +1629,25 @@ function ProjectLearningContent({
                             <CopyValueButton value={taskId} kind="id" label="复制问题任务 ID" />
                           </span>
                         )}
+                        {samplePath && (
+                          <Link
+                            to={samplePath}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="ml-2 inline-flex text-sm text-primary hover:underline"
+                          >
+                            处理原图来源（新标签页）
+                          </Link>
+                        )}
                       </p>
                     );
                   })}
+                  {report.issues.some((issue) => issueSamplePath(issue)) && (
+                    <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                      入口会在新标签页打开样本检查器，可核验原图、关联备用来源；必要时联系来源管理员恢复连接。
+                      当前准备表单和预检报告会保留，处理后返回此页点击“检查训练数据”重试。
+                    </p>
+                  )}
                   {report.excluded.length > 0 && (
                     <details className="mt-2">
                       <summary className="cursor-pointer">查看排除原因</summary>
