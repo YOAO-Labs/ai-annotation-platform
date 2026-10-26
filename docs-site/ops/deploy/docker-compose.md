@@ -3,7 +3,7 @@ audience: [ops]
 type: how-to
 since: v0.1.0
 status: stable
-last_reviewed: 2026-08-14
+last_reviewed: 2026-10-26
 ---
 
 # 生产部署（Docker Compose）
@@ -791,6 +791,18 @@ docker compose -f docker-compose.training.yml --profile training up -d training-
 训练镜像使用仓库根目录构建上下文：`docker build -f apps/training-executor/Dockerfile .`。专用 `Dockerfile.dockerignore` 仅包含执行器及共享参数包，避免将工作树运行数据或凭据发送到构建上下文。API 镜像也安装同一 `aap-training-contract` 包；更改定义后需要重建执行器、刷新对应 API/worker，并检查 runtime 的精确 `supported_configs` 与目录状态。
 
 保留历史冻结配置和旧镜像。仅在完成原生及恢复资格后，可为当前受控框架目录增加 `legacy_images: ["sha256:旧镜像身份"]`；它只允许新镜像执行已冻结的修订 1 实验，不能扩展参数或跨版本、跨资源领取。未配置时仍要求精确镜像。镜像目录改变后自动策略暂停，负责人重新保存后才采用新环境；不要改写历史配置摘要或强行释放 GPU 租约。
+
+#### 5. 实际训练成员回执的部署验收
+
+执行器健康、源码更新或镜像构建成功都不能替代实际领取与发布验收。新增成员合同要求 runtime 上报匹配的 `input_receipt_policy_digest`；即使镜像摘要相同，缺少能力也不能领取。
+
+1. **核对环境与空闲状态。** 检查容器的 Compose 项目、配置文件、API 地址、节点 ID、GPU UUID 和 `/state` 挂载。确认没有排队、执行或上传中的实验，再升级对应服务。工作树使用自己的 API、凭据和部署配置，不修改共享 `.env` 或借用主工作区的执行器。不同 GPU 可以使用独立状态目录；同一物理 GPU 上的执行器必须沿用同一节点 ID 和同一个持久 `/state`，不能靠更换 Compose 项目名绕过资源锁。
+2. **同步不可变镜像身份。** 构建并发布包含执行器和共享合同的镜像，将 registry manifest digest 同步到目标 API 的训练目录和 Executor 配置。刷新使用该目录的 API、策略 worker 与 scheduler，再按固定摘要重建对应 Executor 容器。保留状态目录、模型文件及历史镜像；不挂载宿主源码冒充镜像升级。
+3. **检查实际能力。** 从运行容器调用 `training_executor.worker.runtime_identity()`，核对 `image_digest`、`gpu_uuid`、框架版本、`supported_configs` 和 `input_receipt_policy_digest`。项目训练目录应显示节点在线，所选基础权重已准备且兼容。API、目录与容器必须指向同一个节点和同一个镜像摘要。
+4. **执行真实小实验。** 使用含完整成员清单、训练和验证分区都非空的就绪数据版本，检查预检返回的 `config.input_contract`，再通过正常实验入口提交有界训练。至少覆盖本次部署启用的框架与数据桥接；不要通过直接调用训练子进程、替换 loader、手写回执或补写数据库终态获得成功。
+5. **独立核对发布结果。** 实验成功后，从产物下载 `manifest.json`，核验文件 SHA、`run_id`、`attempt_id`、配置摘要及 `input_membership`。成员回执的数据版本、包摘要、策略、train／val 数量和完整成员集合须与冻结清单一致；终态后确认该执行已释放资源。下载地址与凭据不写入公共日志。
+
+原生加载器接纳集合的回执不是节点缓存命中证明，也不记录每轮抽样轨迹。旧实验保留原镜像、资源和配置身份；部署新镜像不会自动授权跨镜像续训，不为验收添加未经核验的兼容映射。协议字段见[实际训练成员回执](/api/guides/training-datasets#实际训练成员回执)。
 
 ### 进一步阅读
 

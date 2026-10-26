@@ -199,6 +199,8 @@ LibreYOLO 使用自己的回调、完整状态恢复与评估，不接受 Ultral
 
 `TRAINING_EXECUTOR_TOKEN_PATH` 为仅管理员可读的凭据文件，`TRAINING_MODELS_PATH` 为校验过的只读基础权重目录，`TRAINING_API_URL` 指向目标 API 的 `/api/v1/internal/training`。不要将 executor 指向其他工作树。该服务不挂 Docker socket，不读取 API `.env`，不持有数据库或 MinIO 管理凭据。
 
+成员回执能力变更需要实际重建执行器镜像，并同步目标 API 的目录摘要；宿主源码更新或服务在线不能证明新实验可领取。升级前核对服务归属、空闲队列和持久状态，部署后用正常入口完成小实验，独立核对 `manifest.json` 的 `input_membership` 与资源释放。多工作树不得共用指向另一 API 的执行器或修改共享 `.env`；同一物理 GPU 必须共享节点身份和状态锁。完整流程见[成员回执部署验收](docs-site/ops/deploy/docker-compose.md#5-实际训练成员回执的部署验收)。
+
 模型回流需要重建 YOLO 镜像、应用迁移并刷新预测 worker。内置 YOLO 默认使用 `managed:yolo`，平台自动管理私有凭据；已有手动 `YOLO_MANAGED_MODELS_TOKEN` 优先，继续使用匹配的手动 `token`。Ultralytics 训练与推理使用相同的已验证版本；LibreYOLO 原生 CPU 适配器固定 LibreYOLO、Torch 与 torchvision 版本，并严格核对全部主模型张量、类别顺序和任务。此扩展无需新增迁移或环境变量；重建包含共享 qualification helper 的 YOLO 镜像并刷新 API／预测 worker。安装文件持久保存于 YOLO checkpoints 卷的 `managed/`，不能删除仍被部署使用的权重与收据。先更新实例健康与能力，再执行候选加载、固定验证图试用和发布。路由仅允许对应部署的确切实例；`off/observe` 模式下该实例还须是服务池的 legacy 实例。重新加载可恢复缺失或损坏的本地副本，不能改变版本身份。
 
 五个第一方推理服务默认使用独立系统托管认证，API 启动时在 `data/inference-auth/<provider>/token` 安全生成一次并持久保存。目录为 `0700`、文件为 `0600`，并发初始化复用相同文件，异常文件不会覆盖。各 backend 只读自己的子目录，业务协议和 GPU 控制路由要求 Bearer；`/health` 与 `/metrics` 保持公开，GPU 控制签名仍独立验证。平台 worker 使用 registry 中已同步的凭据，无需读取这些文件。
