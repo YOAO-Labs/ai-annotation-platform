@@ -736,6 +736,8 @@ def browser_pause(
     email,
     password,
     seconds,
+    *,
+    extra=None,
 ):
     web_port = free_port()
     config = owner.private / "vite.config.mjs"
@@ -827,6 +829,7 @@ def browser_pause(
                 "auth_state": str(auth),
                 "continue_marker": str(marker),
                 "continue_contents": nonce,
+                **(extra or {}),
             }
         ).encode(),
     )
@@ -1324,6 +1327,7 @@ def main(argv=None):
     parser.add_argument("--artifact-reads", action="store_true")
     parser.add_argument("--retained-reads", action="store_true")
     parser.add_argument("--cache-reads", action="store_true")
+    parser.add_argument("--staged-reads", action="store_true")
     parser.add_argument("--browser-wait-seconds", type=int, default=1200)
     args = parser.parse_args(argv)
     owner = None
@@ -1369,12 +1373,18 @@ def main(argv=None):
                         args.artifact_reads,
                         args.retained_reads,
                         args.cache_reads,
+                        args.staged_reads,
                     )
                 )
                 <= 1,
                 "fixture_conflict",
             )
-            if args.cache_reads:
+            if args.staged_reads:
+                from verify_storage_migration_staged_reads import StagedReads
+
+                fixture = StagedReads()
+                summary["schema"] = "aap.storage-migration-staged-reads-verification/v1"
+            elif args.cache_reads:
                 from verify_storage_migration_cache_reads import CacheReads
 
                 fixture = CacheReads()
