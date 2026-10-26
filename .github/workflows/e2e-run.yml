@@ -82,8 +82,9 @@ jobs:
     # Fail-closed via the needs dependency: a failed shared build skips every
     # suite (the aggregate Frontend E2E then fails on the skipped result);
     # `skipped` is only legitimate when no built suite was selected at all.
+    # Unlike always(), !cancelled() lets superseded PRs release workflow concurrency.
     needs: [build]
-    if: always() && (needs.build.result == 'success' || needs.build.result == 'skipped')
+    if: ${{ !cancelled() && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
     # Each runner owns its services; never parallelize workers against shared fixtures.
     strategy:
       fail-fast: false
