@@ -59,6 +59,14 @@ Mask导入暂存以保存的完整定位及预期SHA选择单对象读取计划�
 
 Creation、PredictionInputLease、训练产物创建和export building仍保存原写入责任。准入Gate与原生栅栏分别封闭登记操作和旧签名／已接受写入；未完成任务排空或取消后显式新建，不把迁移读取代理用作写客户端。准确源删除和不明关闭保持原责任，原位置停止时清理延期；不从B读取成功推断A删除成功，也不为本片新增通用暂存状态机或GC。
 
+### 九用途事务与回滚责任
+
+`StorageMigrationCutover`以Publication ID为耐久组身份，固定已发布映射摘要、源窗口及前后九用途绑定向量。运维CLI事务外执行各用途原有探测，短期签名review覆盖当前管理员、全部代际、配置和Gate修订。服务同事务比较并更新九行、创建组记录；不调用九次单用途apply，不改已有owner保存地址。连接、位置、绑定及控制责任按一致顺序加NOWAIT锁，冲突不产生部分切换。
+
+组状态为`active → rollback_draining → rollback_bound → rollback_restoring → rolled_back`。B排空后用独立Journal封闭原生写入；rollback claim先fsync，再提交B Gate停止及九项A地址恢复，代际仍递增。A release UUID先持久保存，再撤回读取发布、解除Finalization、解绑A claim、实际恢复A入口并关闭Window。最后复核完整回滚向量及B仍held，原子恢复B应用读取准入。B物理仍只读、claim继续保留；应用Gate active不代表B可写，既有B pending owner不能跟随Binding重定向。
+
+B claim采用独立闭合schema，与A application claim互斥；首次绑定提升Journal schema，旧命令不能忽略新责任直接解封。两端配置使用不同私有父目录及锁，凭据按实例独立选择。B应用入口仅从完整核验的唯一gateway/frontend网络推出，不接受用户别名或内部MinIO地址。提交未知按同一组、claim和release UUID核实；不可变历史、状态单向演进和禁止删除由数据库约束维护。有组责任时禁止降级移除该表，回滚完成也仍承担B只读责任。
+
 ## 代码入口
 
 | 关注点          | 位置                                                                                               |

@@ -55,6 +55,8 @@ last_reviewed: 2026-10-26
 | `MINIO_SECRET_KEY` | `minioadmin` | MinIO 密钥（相当于 AWS Secret Access Key）；生产环境务必更换 |
 | `AAP_SOURCE_FENCE_ACCESS_KEY` | `—` | 仅原生源端封闭运维命令使用，在操作进程中导出，不加入API或Worker配置。 |
 | `AAP_SOURCE_FENCE_SECRET_KEY` | `—` | 显式登记来源的root密钥，不写入描述文件、状态或报告。 |
+| `AAP_TARGET_FENCE_ACCESS_KEY` | `—` | 仅整组切换回滚运维CLI使用的独立B凭据，不回退为A凭据，不加入API或Worker配置。 |
+| `AAP_TARGET_FENCE_SECRET_KEY` | `—` | — |
 | `MINIO_BUCKET` | `annotations` | 存放标注文件（图片、音频等）的桶名称 |
 | `MINIO_DATASETS_BUCKET` | `datasets` | 数据集源文件桶（图片/视频/文本原始文件） |
 | `MINIO_BUG_REPORTS_BUCKET` | `bug-reports` | Bug 反馈截图桶（180 天 lifecycle） |

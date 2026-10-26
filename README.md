@@ -90,6 +90,8 @@ AI Annotation Platform 把项目管理、Data Manager、多模态标注工作台
 
 对象存储迁移前，可先生成[源端只读清单](./docs-site/ops/deploy/storage-migration-inventory.md)，覆盖当前配置的九用途桶、全部版本、删除标记、未完成上传及完整SHA；保存绑定与潜在写入方单独观测，未知覆盖不冒充迁移就绪。
 
+完成最终封存和历史读取发布后，可信运维可[原子切换九用途并受控回滚](./docs-site/ops/deploy/storage-migration-inventory.md#九用途原子切换与新写入回滚)。九项绑定在同一事务中更新；回滚将未来分配切回原端，目标上的新对象及业务引用保持原定位可读，目标继续物理只读。原端观察、保留和退役仍须独立决定。
+
 受控本机 MinIO 源提供独立的[原生写入封闭命令](./docs-site/ops/deploy/storage-migration-inventory.md#minio-原生源端封闭)：保持原 S3 入口拒写，真实收尾已接受上传、生命周期与 multipart，核对后保留只读访问；恢复写入须显式执行，不自动切换应用路由或退役存储。
 
 运维可将原生封闭绑定到应用维护窗口，完成[最终清单与增量封存](./docs-site/ops/deploy/storage-migration-inventory.md#绑定窗口并封存最终增量)。控制台显示该次核验的状态、观测时间及最终批次；绑定期间禁止直接解封或关闭窗口，业务位置切换保持独立。

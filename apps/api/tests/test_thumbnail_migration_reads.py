@@ -271,7 +271,7 @@ async def test_owner_is_rechecked_after_permit_before_sdk_open(
 
 @pytest.mark.parametrize("mapped", [True, False])
 @pytest.mark.parametrize("published_source", [True, False])
-async def test_only_published_signing_ignores_source_transport_facts(
+async def test_ready_signing_uses_current_admission_and_ignores_saved_transport_facts(
     monkeypatch, mapped, published_source
 ):
     row, selected = saved()
@@ -302,27 +302,30 @@ async def test_only_published_signing_ignores_source_transport_facts(
     url = await outputs.thumbnail_url(
         session, "dataset_item", row.owner_id, selected.source_object_key
     )
-    if mapped or published_source:
-        assert url.startswith(f"/api/v1/media-cache/thumbnail/{row.id}/thumbnail.webp?")
-        token = url.split("token=", 1)[1]
-        capability = media_cache_urls.decode(
-            token, kind="thumbnail", output_id=row.id, relative="thumbnail.webp"
-        )
-        assert capability.reference == media_cache_urls.reference_digest(
-            row.storage_ref
-        )
-        assert capability.sha256 == row.sha256
-        if mapped:
-            recheck.assert_awaited_once_with(session, selected, lock=True)
-        read.assert_awaited_once()
-    else:
-        assert url is None
-        read.assert_not_awaited()
+    assert url.startswith(f"/api/v1/media-cache/thumbnail/{row.id}/thumbnail.webp?")
+    token = url.split("token=", 1)[1]
+    capability = media_cache_urls.decode(
+        token, kind="thumbnail", output_id=row.id, relative="thumbnail.webp"
+    )
+    assert capability.reference == media_cache_urls.reference_digest(row.storage_ref)
+    assert capability.sha256 == row.sha256
+    if mapped:
+        recheck.assert_awaited_once_with(session, selected, lock=True)
+    read.assert_awaited_once()
     assert vars(row) == before
 
 
 @pytest.mark.parametrize(
-    "changed", ["source", "pointer", "publication", "original_publication"]
+    "changed",
+    [
+        "source",
+        "location",
+        "config",
+        "pointer",
+        "publication",
+        "original_publication",
+        "source_gate",
+    ],
 )
 async def test_signing_keeps_business_and_publication_bookends(monkeypatch, changed):
     row, selected = saved()
@@ -339,6 +342,12 @@ async def test_signing_keeps_business_and_publication_bookends(monkeypatch, chan
         if changed == "original_publication"
         else source(),
     ]
+    if changed == "location":
+        sources[1] = replace(source(), location_id=uuid.uuid4())
+    elif changed == "config":
+        sources[1] = replace(source(), location_revision=99)
+    elif changed == "source_gate":
+        sources[1] = ContentError("storage_maintenance")
     monkeypatch.setattr(outputs, "_source", AsyncMock(side_effect=sources))
     monkeypatch.setattr(
         original_sources,

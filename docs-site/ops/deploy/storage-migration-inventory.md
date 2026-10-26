@@ -197,6 +197,58 @@ apps/api/.venv/bin/python scripts/finalize_storage_migration.py withdraw-reads \
 
 撤回先提交`withdrawing`，阻止新映射I/O，再等待实际属于此发布的许可全部结束；未结束时用返回的当前修订续做，不以TTL清理责任。`withdrawn`后保留映射历史、Copy和原生claim，不自动恢复A写入、不删除任一端对象；随后才可按原顺序显式`invalidate`与原生`release`。同一发布不能重新激活，新发布需要新窗口与新最终核验。提交结果未知时保留相同身份核实，禁止换ID绕过。即使原生状态未知，仍可撤回读取；这不授予源端解封资格。
 
+## 九用途原子切换与新写入回滚
+
+应用0264并刷新实际API／Worker后，由可信部署运维运行 `scripts/cutover_storage_migration.py`。切换范围是本次已封存A的完整九用途，目标为该Publication固定的B；A保持原生封闭及应用停止，读取发布处于active。单用途已提前漂移时整组拒绝，不将当前部分向量当成新的基线。历史未知继续单列，不增加全库补认门槛。当前双端原生回滚适配受控本机MinIO拓扑；其他供应商的原生封闭与部署资格仍须按实际目标实现和核实。
+
+```sh
+apps/api/.venv/bin/python scripts/cutover_storage_migration.py preview \
+  --config /private/a/source.json --state /private/a/fence-state.json \
+  --actor-id <super-admin-uuid> --cutover-id <publication-uuid> \
+  --expected-finalization-revision <sealed-revision> \
+  --expected-publication-revision <active-publication-revision> \
+  --review-file /private/review.json
+
+apps/api/.venv/bin/python scripts/cutover_storage_migration.py activate \
+  --config /private/a/source.json --state /private/a/fence-state.json \
+  --actor-id <super-admin-uuid> --cutover-id <same-publication-uuid> \
+  --review-file /private/review.json
+```
+
+review所在目录须私有，文件必须不存在；命令独占创建0600文件并同步落盘。stdout提供审阅内容但不输出确认token。预览在事务外分别执行九用途已有能力探测，完整复核后签发五分钟确认；过期或任一代际、配置、Gate、发布身份变化均需重新预览。activate将九项绑定和组记录放在同一事务，代际各加一；已保存地址不改写。提交结果未知时先查询同一组，不能重复生成另一个ID。
+
+```sh
+apps/api/.venv/bin/python scripts/cutover_storage_migration.py status \
+  --actor-id <super-admin-uuid> --cutover-id <same-publication-uuid>
+
+apps/api/.venv/bin/python scripts/cutover_storage_migration.py begin-rollback \
+  --actor-id <super-admin-uuid> --cutover-id <same-publication-uuid> \
+  --expected-revision <active-cutover-revision>
+```
+
+`status`无需原生Journal或其中仍有A claim，只查询耐久组责任。`begin-rollback`进入`rollback_draining`，停止B新准入并等待实际操作。随后在B自己的原生描述／Journal中运行既有`storage_source_fence.py seal`，验证B唯一入口拒写、已接受PUT与multipart收尾。B描述、gateway和state使用独立私有父目录，不与A共用锁。此单端原生命令的操作进程使用B自己的`AAP_SOURCE_FENCE_ACCESS_KEY / AAP_SOURCE_FENCE_SECRET_KEY`。
+
+组合回滚命令中，A凭据使用操作进程的`AAP_SOURCE_FENCE_ACCESS_KEY / AAP_SOURCE_FENCE_SECRET_KEY`，B凭据使用`AAP_TARGET_FENCE_ACCESS_KEY / AAP_TARGET_FENCE_SECRET_KEY`；两套均不写描述、状态或报告，不传给API／Worker，不跨端回退。B应用访问地址由完整拓扑核验推出gateway在frontend网络中的唯一IPv4:80，不使用裸MinIO地址，也不放开连接器回环地址限制。
+
+```sh
+apps/api/.venv/bin/python scripts/cutover_storage_migration.py bind-rollback \
+  --target-config /private/b/source.json --target-state /private/b/fence-state.json \
+  --actor-id <super-admin-uuid> --cutover-id <same-publication-uuid> \
+  --expected-revision <rollback-draining-revision>
+
+apps/api/.venv/bin/python scripts/cutover_storage_migration.py restore-source \
+  --config /private/a/source.json --state /private/a/fence-state.json \
+  --target-config /private/b/source.json --target-state /private/b/fence-state.json \
+  --actor-id <super-admin-uuid> --cutover-id <same-publication-uuid> \
+  --expected-revision <rollback-bound-or-current-restoring-revision>
+```
+
+bind先在B Journal持久保存独立rollback claim，再同事务停止B Gate、恢复九项A地址并进入`rollback_bound`；代际继续加一，不恢复旧数值。restore先提交唯一A release操作ID并进入`rollback_restoring`，再依次撤回A读取发布并等待实际许可、解除最终封存、解绑A claim、按保存ID实际恢复A写入及关闭窗口。最后复核九项回滚向量、A开放和B仍held，将B应用Gate恢复active并进入`rolled_back`。这只恢复保存B对象的读取准入，B原生仍拒绝PUT，rollback claim继续保留，普通原生release禁止解封。
+
+中断或提交未知时先status取得当前组修订，再以同一组执行相应命令；restore从已有A release UUID续做，A claim已经解绑也能恢复，已经释放的A仍实际verify_open。B claim未确认不等于可删，不能因数据库暂不可达而解除任一物理封闭。普通维护恢复B和过早解除A最终封存均受组责任约束。
+
+回滚后A旧对象与B新对象按各自保存定位读取并核验内容，业务引用及冻结事实保持；未来分配回到A。B上未完成写入须显式重建，不能把旧owner重定向。不要恢复旧数据库快照覆盖切换后的业务行，也不要删除B新对象。B保留、旧链接观察及两端最终退役继续独立安排。
+
 ### 一次性完整链路验收
 
 `scripts/verify_storage_migration_finalization.py` 仅在已核对、业务表为空的当前工作树 `test` 模式运行。它创建独立的非空源与目标、API 和 Worker，实际完成初次复制、窗口绑定、新清单、复用准确回执的增量与完整核验、封存提交后硬退出续做，以及等待真实任务收尾的解除顺序。源和目标容器使用已有镜像，API／Worker 不取得 Docker 权限；人工验收环境保持独立。
@@ -214,6 +266,8 @@ pnpm dev:worktree -- exec --mode test -- env PYTHONDONTWRITEBYTECODE=1 \
 训练及ZIP读取的扩展验收使用 `scripts/verify_storage_migration_artifact_reads.py`，同样要求所属空test模式。它核对源离线和目标同键新版本／marker下的认证训练包下载、独立Worker冻结媒体／mask和ZIP完整核验、新签名GET及真实打开GET的撤回排空；已发出的目标S3签名继续按原期限可用。其余保留文件的实际验收入口为 `scripts/verify_storage_migration_retained_reads.py`，参数相同；涵盖头像HTTP和七类读取的独立Worker，使用持久头像／RLE owner及其余物理读取接缝，核对源离线、目标foreign latest／marker、准确签名和真实GET撤回排空。各业务权限与owner最终复核仍由相应SQL回归验证，不将物理接缝测试称为全部业务流程验收。所属资源及launcher测试模式分别按owner清理，不使用人工环境作为测试库。
 
 媒体缓存扩展验收入口为 `scripts/verify_storage_migration_cache_reads.py`，参数和空test约束相同。它建立持久缩略图／金字塔／视频输出及通过正常store创建的原图缓存，源离线且目标有foreign latest／marker时，核对同源HEAD／完整GET／Range、独立Worker缓存读取与金字塔／视频物理读取计划、旧schema直接准确签名，以及真实打开Range GET的撤回排空。视频payload为合成传输字节，不作为编解码或播放资格；物理计划不代替业务权限／当前代际的SQL回归。
+
+九用途切换的实际入口为 `scripts/verify_storage_migration_cutover.py`，同样仅接受核验归属且业务为空的test模式和新的私有manifest／summary。它建立独立双端原生拓扑，以正常Task直传和独立Celery缩略图形成B新对象，切换并回滚后核对A旧／B新对象的认证读取、完整内容和保存回执；旧B签名仍有效时验证物理拒写，并核对未来分配回到A。其资源由原owner清理，launcher测试数据库／Redis／九桶另行销毁；结果不授予生产切换或退役资格。
 
 ## 执行与核对
 

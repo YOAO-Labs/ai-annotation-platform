@@ -281,6 +281,8 @@ apps/api/.venv/bin/python scripts/verify_worktree_recovery.py
 
 有保存摘要的Mask暂存沿同一发布读取；日志下载改为认证获取完整核验后的脱敏内容，不再向旧Run位置写派生物。所属空test模式入口为 `scripts/verify_storage_migration_staged_reads.py --manifest <私有绝对路径> --summary <新的私有绝对路径>`，核验真实离线A／B准确副本、API预检与日志下载、独立Worker暂存materialize和实际GET撤回排空，不代表整批导入或模型训练。旧Creation、预标租约、训练产物创建和export building仍按保存owner排空或显式重建，不因当前Binding变化原地续写。
 
+九用途原子切换须应用0264，可信运维入口为 `scripts/cutover_storage_migration.py preview/activate/status/begin-rollback/bind-rollback/restore-source`。预览执行九用途既有探测，五分钟内按完整向量确认；回滚恢复未来A分配，B新对象保持保存位置和物理只读。组合命令分别使用操作进程的 `AAP_SOURCE_FENCE_ACCESS_KEY / AAP_SOURCE_FENCE_SECRET_KEY` 与 `AAP_TARGET_FENCE_ACCESS_KEY / AAP_TARGET_FENCE_SECRET_KEY`，不向API／Worker传递，不在A/B之间回退凭据。空test模式实际入口为 `scripts/verify_storage_migration_cutover.py --manifest <私有绝对路径> --summary <新的私有绝对路径>`；两端独立原生拓扑、恢复步骤及中断续做见[整组切换运维](docs-site/ops/deploy/storage-migration-inventory.md#九用途原子切换与新写入回滚)。
+
 对象存储源端迁移清单使用当前API虚拟环境和显式部署配置：`apps/api/.venv/bin/python scripts/inventory_storage_migration.py --output /private/source.jsonl`；`--verify`可离线核对同一清单。超级管理员也可在“存储管理 → 迁移准备”提交同一核心的后台任务并下载报告，须应用0255及刷新所属Worker。应用报告受32MiB上限和现有终态Job30天保留规则约束；CLI输出由操作者管理。对象账号可限制为只读，命令不会建桶或修改业务行。九用途处理选择、预算、退出码及一次性实际演练见[源端迁移清单](docs-site/ops/deploy/storage-migration-inventory.md)。
 
 应用侧初次复制须应用0256并刷新所属Worker。封存源清单可在控制台选择已登记全局S3目标，后台自动建立配对定位目录与持久复制计划，审阅后显式执行；原CLI目录／复制核心移入应用模块，兼容脚本入口保持。SQLite初始计划与PG逐对象delta保留nonce及准确版本，独立owner不随单次Job过期删除；当前凭据轮换、取消收尾、显式续跑、失败对象选择重试和私密检查点的边界见[控制台初次复制](docs-site/ops/deploy/storage-migration-inventory.md#从控制台执行初次复制)。该链不改Binding、业务引用、镜像或原写入渠道。

@@ -397,13 +397,12 @@ def _receipt(output):
     )
 
 
-def _same_source(output, source, *, migrated):
-    migrated = migrated or getattr(source, "read_route", None) is not None
+def _same_source(output, source):
     current, expected = source_facts(source), output.input_ref.get("source")
-    if not migrated:
-        return current == expected
     if not isinstance(expected, dict):
         return False
+    # Ready bytes retain their content identity across maintenance windows.
+    # Current source admission and read routes are checked at both bookends.
     transport = {"maintenance_revision", "read_route"}
     return {key: value for key, value in current.items() if key not in transport} == {
         key: value for key, value in expected.items() if key not in transport
@@ -502,7 +501,7 @@ async def thumbnail_url(db, owner_kind, owner_id, path):
             expected = _receipt(output)
             route, revision = await qualify_read(current, output)
             source = await _source(current, kind, identifier)
-            if not _same_source(output, source, migrated=route is not None):
+            if not _same_source(output, source):
                 return None
             await original_sources.recheck_read_route(current, source)
             await current.commit()
@@ -510,7 +509,7 @@ async def thumbnail_url(db, owner_kind, owner_id, path):
             if await _business_pointer(current, owner_kind, owner_id, path) != pointer:
                 return None
             source = await _source(current, kind, identifier)
-            if not _same_source(output, source, migrated=route is not None):
+            if not _same_source(output, source):
                 return None
             await original_sources.recheck_read_route(current, source)
             output = await current.get(
