@@ -246,6 +246,7 @@ class GPUAuthorityPostgresData(_BorrowedGPUData):
                 connection,
                 schema=GPU_AUTHORITY_SCHEMA,
                 functions=_AUTHORITY_FUNCTIONS,
+                role="inference_gpu_authority_client",
             )
             policy = _decode_object(
                 await connection.fetchval(_AUTHORITY_POLICY_SQL),
