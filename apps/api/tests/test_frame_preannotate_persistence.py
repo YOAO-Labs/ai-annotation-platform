@@ -34,13 +34,8 @@ from tests.test_video_input_ledger_lifecycle import (
 )
 
 
-from aap_inference_contract.execution import (
-    ExecutionProvenance,
-    ModelExecutionObservation,
-    ModelOperationResult,
-    ModelTaskResult,
-    thaw_json,
-)
+from aap_inference_contract.execution import ModelTaskResult, thaw_json
+from tests.inference_execution_test_ports import FakeModelExecutionPort
 
 
 def _install_frame_execution_fake(
@@ -49,47 +44,43 @@ def _install_frame_execution_fake(
     *,
     actual_instance_id=None,
 ):
-    class FakePort:
-        async def execute(self, operation):
+    """Install the shared immutable-result fake at the frame execution port.
+
+    ``predict`` is awaited once per model operation as ``predict(inputs,
+    context)`` and answers one namespace (or ``ModelTaskResult``) per task input.
+    Result identity, provenance and observation come from the shared consumer
+    fake, so frame inference crosses the same typed boundary as production.
+    """
+    responses_by_request: dict[uuid.UUID, tuple] = {}
+
+    async def respond(operation, task_input):
+        responses = responses_by_request.get(operation.request_id)
+        if responses is None:
             inputs = tuple(thaw_json(item) for item in operation.task_inputs)
-            context = thaw_json(operation.context)
-            responses = await predict(inputs, context)
-            instance_id = actual_instance_id or operation.requested_registry_id
-            return ModelOperationResult(
-                request_id=operation.request_id,
-                operation=operation.operation,
-                results=tuple(
-                    ModelTaskResult(
-                        task_id=getattr(response, "task_id", inputs[index]["id"]),
-                        result=response.result,
-                        score=response.score,
-                        model_version=response.model_version,
-                        inference_time_ms=response.inference_time_ms,
-                        meta=response.meta,
-                    )
-                    for index, response in enumerate(responses)
-                ),
-                provenance=ExecutionProvenance(
-                    requested_registry_id=operation.requested_registry_id,
-                    requested_pool_id=operation.requested_pool_id,
-                    registry_id=instance_id,
-                    pool_id=operation.requested_pool_id,
-                    instance_id=instance_id,
-                    route_scope_id=uuid.uuid4(),
-                    attempt_id=operation.request_id,
-                ),
-                observation=ModelExecutionObservation(
-                    backend_id=str(instance_id),
-                    operation="predict",
-                    outcome="success",
-                    elapsed_seconds=0.0,
-                ),
-                wall_time_ms=0,
-            )
+            responses = tuple(await predict(inputs, thaw_json(operation.context)))
+            responses_by_request[operation.request_id] = responses
+        index = next(
+            position
+            for position, item in enumerate(operation.task_inputs)
+            if item["id"] == task_input["id"]
+        )
+        response = responses[index]
+        if isinstance(response, ModelTaskResult):
+            return response
+        return ModelTaskResult(
+            task_id=str(task_input["id"]),
+            result=response.result,
+            score=response.score,
+            model_version=response.model_version,
+            inference_time_ms=response.inference_time_ms,
+            meta=response.meta,
+        )
 
     monkeypatch.setattr(
         "app.services.inference_model_execution.model_execution_port",
-        lambda *_args, **_kwargs: FakePort(),
+        lambda *_args, **_kwargs: FakeModelExecutionPort(
+            respond, instance_id=actual_instance_id
+        ),
     )
 
 
