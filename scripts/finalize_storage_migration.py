@@ -2,7 +2,8 @@
 
 Run as a trusted deployment operator with the existing application database
 environment. API and Worker processes never receive Docker authority or this
-command's native credentials. No command changes business object routing.
+command's native credentials. Read publication uses sealed, exact-version
+evidence without changing saved business locators or new-write Bindings.
 """
 
 from __future__ import annotations
@@ -61,7 +62,15 @@ def nonnegative(value):
 def parser():
     command = SafeParser(description=__doc__)
     modes = command.add_subparsers(dest="command", required=True)
-    for name in ("bind", "seal", "invalidate", "status"):
+    for name in (
+        "bind",
+        "seal",
+        "invalidate",
+        "status",
+        "publish-reads",
+        "status-reads",
+        "withdraw-reads",
+    ):
         mode = modes.add_parser(name)
         mode.add_argument("--config", type=Path, required=True)
         mode.add_argument("--state", type=Path, required=True)
@@ -75,7 +84,7 @@ def parser():
             mode.add_argument(
                 "--expected-native-revision", type=positive, required=True
             )
-        elif name in {"seal", "invalidate"}:
+        elif name in {"seal", "invalidate", "publish-reads", "withdraw-reads"}:
             mode.add_argument(
                 "--expected-revision",
                 type=nonnegative if name == "invalidate" else positive,
@@ -97,6 +106,13 @@ def application():
     from app.workers._db import task_session
 
     return service, task_session, settled_io, build_final_evidence
+
+
+def read_application():
+    from app.services import storage_migration_read_publications as service
+    from app.services.storage_migration_read_evidence import build_read_mapping
+
+    return service, build_read_mapping
 
 
 async def transaction(session, call, *args):
@@ -198,6 +214,48 @@ async def execute(args, journal, adapter, config):
         return result
 
     claim = matching_claim(journal, args.finalization_id)
+    if args.command in {"publish-reads", "status-reads", "withdraw-reads"}:
+        reads, mapping = read_application()
+        if args.command == "withdraw-reads":
+            result = await call(
+                reads.begin_withdrawal, actor, claim, args.expected_revision
+            )
+            if result.state != "withdrawn":
+                result = await call(
+                    reads.finish_withdrawal, actor, claim, result.revision
+                )
+            if result.state != "withdrawn":
+                raise FenceError("read_publication_unsettled")
+            # Keep the Journal claim and source fence. Read withdrawal does
+            # not transfer or release Finalization's native responsibility.
+            return result
+
+        if args.command == "status-reads":
+            # Durable publication status also recovers a withdrawal after the
+            # source becomes unavailable. It is not a current native proof.
+            return await call(reads.status, actor, claim)
+        before = native_proof(journal, adapter, config)
+        prepared = await call(
+            reads.preflight_publish, actor, claim, args.expected_revision, before
+        )
+        proof = await settled_io(
+            mapping,
+            prepared["values"],
+            window_id=claim["window_id"],
+            window_revision=prepared["item"].window_revision,
+        )
+        after = native_proof(journal, adapter, config)
+        stable_native(before, after)
+        return await call(
+            reads.publish,
+            actor,
+            claim,
+            args.expected_revision,
+            prepared["token"],
+            proof,
+            after,
+        )
+
     if args.command == "invalidate":
         result = await call(
             service.begin_invalidation, actor, claim, args.expected_revision

@@ -850,7 +850,7 @@ def browser_pause(
     raise TimeoutError
 
 
-def run(owner, args, summary, backend):
+def run(owner, args, summary, backend, *, fixture=None):
     summary["stage"] = "provision"
     (
         endpoint,
@@ -930,6 +930,9 @@ def run(owner, args, summary, backend):
         )
         command([sys.executable, str(seed_wrapper)], env=environment)
         seed = json.loads(seed_output.read_bytes())
+        if fixture is not None:
+            fixture.prepare(owner, environment, seed, source, buckets)
+            application = application_environment(environment)
         api_port = free_port()
         api = owner.start_process(
             "api",
@@ -958,7 +961,7 @@ def run(owner, args, summary, backend):
                 "-m",
                 "celery",
                 "-A",
-                "app.workers.celery_app",
+                fixture.worker_app if fixture is not None else "app.workers.celery_app",
                 "worker",
                 "--pool=solo",
                 "--concurrency=1",
@@ -1149,6 +1152,32 @@ def run(owner, args, summary, backend):
         require(
             object_facts(source, buckets.values()) == before, "source_content_changed"
         )
+        if fixture is not None:
+            fixture.after_seal(
+                owner=owner,
+                args=args,
+                summary=summary,
+                environment=environment,
+                native_environment=native_environment,
+                http=http,
+                source=source,
+                target=target,
+                buckets=buckets,
+                config=config,
+                state=state,
+                seed=seed,
+                finalization_id=finalization_id,
+                sealed=sealed,
+                final_rows=final_rows,
+                api_port=api_port,
+                endpoint=endpoint,
+                window_id=window_id,
+                child=child,
+                first=first,
+                email=email,
+                password=password,
+            )
+            return
         if args.pause_for_browser:
             summary["stage"] = "browser_pause"
             browser_pause(
@@ -1291,6 +1320,7 @@ def main(argv=None):
     parser.add_argument("--summary", type=Path, required=True)
     parser.add_argument("--cleanup", action="store_true")
     parser.add_argument("--pause-for-browser", action="store_true")
+    parser.add_argument("--original-reads", action="store_true")
     parser.add_argument("--browser-wait-seconds", type=int, default=1200)
     args = parser.parse_args(argv)
     owner = None
@@ -1328,7 +1358,15 @@ def main(argv=None):
                 backend.s3.close()
         owner = LiveOwner(args.manifest, create=not args.cleanup)
         if not args.cleanup:
-            run(owner, args, summary, backend)
+            fixture = None
+            if args.original_reads:
+                from verify_storage_migration_original_reads import OriginalReads
+
+                fixture = OriginalReads()
+                summary["schema"] = (
+                    "aap.storage-migration-original-reads-verification/v1"
+                )
+            run(owner, args, summary, backend, fixture=fixture)
         summary["completed"], code = True, 0
     except BaseException as exc:
         summary.update(error_code=safe_error(exc), failure_site=failure_site(exc))

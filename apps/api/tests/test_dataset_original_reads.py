@@ -2,7 +2,6 @@
 
 from contextlib import contextmanager
 from dataclasses import asdict
-from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import uuid
 
@@ -239,6 +238,11 @@ async def test_saved_b_cannot_follow_a_redirected_or_disabled_location(
         await sources.resolve_task(db, task.id)
 
 
-async def test_legacy_sidecar_does_not_change_old_callback_contract():
-    source = SimpleNamespace(location_id=LEGACY_LOCATION_ID)
-    assert await sources.read_options(None, source) == {}
+async def test_legacy_sidecar_does_not_change_old_callback_contract(saved_db):
+    db = saved_db
+    _item, _asset, _replica, task = await dataset_rows(db)
+    await db.commit()
+    source = await sources.resolve_task(db, task.id)
+    await db.commit()
+    assert source.location_id == LEGACY_LOCATION_ID and source.read_route is None
+    assert await sources.read_options(db, source) == {}

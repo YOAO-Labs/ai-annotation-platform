@@ -65,6 +65,30 @@ class ArgumentsTests(unittest.TestCase):
             "finalization_changed",
         )
 
+    def test_read_commands_require_positive_revisions_without_copy_argument(self):
+        common = [
+            "--config",
+            "private",
+            "--state",
+            "state",
+            "--actor-id",
+            ACTOR,
+            "--finalization-id",
+            FINAL,
+        ]
+        for command in ("publish-reads", "withdraw-reads"):
+            with self.subTest(command=command):
+                args = cli.parser().parse_args(
+                    [command, *common, "--expected-revision", "1"]
+                )
+                self.assertEqual(args.expected_revision, 1)
+                with self.assertRaises(FenceError):
+                    cli.parser().parse_args(
+                        [command, *common, "--expected-revision", "0"]
+                    )
+        args = cli.parser().parse_args(["status-reads", *common])
+        self.assertFalse(hasattr(args, "expected_revision"))
+
     def test_stable_native_identity_ignores_observation_clock_and_revision(self):
         before = dict(
             config_digest=DIGEST,
@@ -142,6 +166,19 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
             return_value={"database_identity": DIGEST, "source": deepcopy(SOURCE)}
         )
         self.adapter = Mock()
+        self.reads = SimpleNamespace(
+            **{
+                name: AsyncMock(return_value=self.result)
+                for name in (
+                    "preflight_publish",
+                    "publish",
+                    "status",
+                    "begin_withdrawal",
+                    "finish_withdrawal",
+                )
+            }
+        )
+        self.mapping = Mock(return_value={"mapping_sha256": DIGEST})
 
     @asynccontextmanager
     async def session(self):
@@ -187,6 +224,9 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
                 cli,
                 "native_proof",
                 side_effect=observations or (lambda *_: deepcopy(self.native)),
+            ),
+            patch.object(
+                cli, "read_application", return_value=(self.reads, self.mapping)
             ),
         ):
             return await cli.execute(args, self.journal, self.adapter, self.config)
@@ -339,6 +379,93 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(FenceError):
             await self.run_bridge(args)
         self.service.status.assert_not_called()
+
+    def prepare_reads(self):
+        self.attach()
+        self.reads.preflight_publish.return_value = {
+            "item": self.result,
+            "values": {"bounded": True},
+            "token": {"sequence": 2},
+            "evidence": {"sealed": True},
+        }
+
+    async def test_read_publication_materializes_outside_database_transactions(self):
+        self.prepare_reads()
+        await self.run_bridge(self.args("publish-reads"))
+        self.assertEqual(
+            self.events,
+            [
+                "transaction_open",
+                "commit",
+                "transaction_closed",
+                "evidence",
+                "transaction_open",
+                "commit",
+                "transaction_closed",
+            ],
+        )
+        self.mapping.assert_called_once_with(
+            {"bounded": True},
+            window_id=WINDOW,
+            window_revision=self.result.window_revision,
+        )
+        self.assertEqual(
+            self.reads.publish.await_args.args[-2], {"mapping_sha256": DIGEST}
+        )
+        self.assertIsNotNone(self.journal.data.get("application_claim"))
+
+    async def test_read_publication_rejects_native_drift_before_publish(self):
+        self.prepare_reads()
+        with self.assertRaises(FenceError):
+            await self.run_bridge(
+                self.args("publish-reads"),
+                observations=[self.native, {**self.native, "counts": {"versions": 2}}],
+            )
+        self.reads.publish.assert_not_called()
+        self.assertIsNotNone(self.journal.data.get("application_claim"))
+
+    async def test_unknown_publication_commit_preserves_same_claim(self):
+        self.prepare_reads()
+        claim = deepcopy(self.journal.data["application_claim"])
+        self.fail_commit = 2
+        with self.assertRaises(OSError):
+            await self.run_bridge(self.args("publish-reads"))
+        self.assertEqual(self.journal.data["application_claim"], claim)
+        self.service.begin_invalidation.assert_not_called()
+
+    async def test_read_status_remains_available_when_native_source_is_offline(self):
+        self.attach()
+        await self.run_bridge(
+            self.args("status-reads"), observations=FenceError("source_offline")
+        )
+        self.reads.status.assert_awaited_once()
+        self.mapping.assert_not_called()
+
+    async def test_withdrawal_keeps_native_release_interlock_after_commit(self):
+        claim = self.attach()
+        self.reads.begin_withdrawal.return_value = SimpleNamespace(
+            state="withdrawing", revision=2
+        )
+        self.reads.finish_withdrawal.return_value = SimpleNamespace(
+            state="withdrawn", revision=3
+        )
+        await self.run_bridge(self.args("withdraw-reads"))
+        self.assertEqual(self.journal.data["application_claim"], claim)
+        self.mapping.assert_not_called()
+        self.service.begin_invalidation.assert_not_called()
+
+    async def test_unsettled_withdrawal_retains_claim_and_never_releases_source(self):
+        claim = self.attach()
+        self.reads.begin_withdrawal.return_value = SimpleNamespace(
+            state="withdrawing", revision=2
+        )
+        self.reads.finish_withdrawal.side_effect = FenceError(
+            "read_publication_unsettled"
+        )
+        with self.assertRaises(FenceError):
+            await self.run_bridge(self.args("withdraw-reads"))
+        self.assertEqual(self.journal.data["application_claim"], claim)
+        self.adapter.assert_not_called()
 
 
 if __name__ == "__main__":

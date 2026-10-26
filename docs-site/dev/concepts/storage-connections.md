@@ -41,6 +41,14 @@ Inventory和Copy的nullable窗口引用保留旧任务兼容。窗口任务不�
 
 窗口关闭、原生解封和冻结批次的新尝试／后继均服从最终核验责任。晚到物理 delta 继续持久保存，若改变已封存证据则进入待解除状态；不能为维持绿色状态丢弃回执。显式解除先阻止新任务、等待真实收尾并提交数据库失效，再移除原生 claim；原生恢复写入仍是另一次明确动作。数据库提交未知、中断或原生漂移均不自动解封。命令与恢复步骤见[最终增量封存](/ops/deploy/storage-migration-inventory#绑定窗口并封存最终增量)。
 
+### 已封存的原件读取映射
+
+`StorageMigrationReadPublication`与不可变Route保存已sealed全量Copy的准确映射，发布ID沿用Finalization ID。可信本地运维在Journal锁内前后观察真实栅栏，事务外物化baseline和全部delta、重算最终证据，再以短CAS事务发布有界映射；不接收HTTP证明JSON。当前清单内已完整verify的历史源版本可发布，previous-only历史、retain、rebuild和marker保留原事实。
+
+`OriginalSource`继续保存逻辑A的位置、内容身份和关系事实，只附独立不可变的`read_route`。`PhysicalReadPlan`选择实际B位置及Gate修订，以`migration_read_<publication UUID hex>`登记实际许可；原业务授权、源关系和冻结receipt继续复核。普通内容身份读取以完整逻辑地址及SHA／大小匹配，同内容的多个源版本按latest优先及对象ID稳定排序；旧创建VersionId不变成新的读取条件。显式版本合同的其他产物须另行接入，不用全局SHA或同名key猜测。
+
+reader的两次HEAD、条件探测和GET均固定目标回执VersionId及ETag，完整SHA／大小保持原合同。当前目标连接、物理身份、发布修订及Gate在准入和交付边界重验，凭据从当前连接获取；SDK响应不伪装成源A。活动或撤回中的Publication独立保留Copy责任，并禁止普通Finalization解除。撤回先提交withdrawing，禁止新路由I/O，实际所属许可全部结束后提交withdrawn；历史不删除、同一发布不重新激活。晚到物理回执照常保存并使活动发布进入withdrawing，不能为保持封存状态而丢弃事实。
+
 ## 代码入口
 
 | 关注点          | 位置                                                                                               |
