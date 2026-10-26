@@ -354,7 +354,7 @@ async def seed_database(input_path, output_path):
         await engine.dispose()
 
 
-def provision(owner):
+def provision(owner, *, target_factory=None):
     from storage_source_fence_docker import MINIO_IMAGE, NGINX_IMAGE, gateway_config
 
     for image in (MINIO_IMAGE, NGINX_IMAGE):
@@ -420,25 +420,28 @@ def provision(owner):
     owner.action(gateway, "network", "connect", "--ip", gateway_ip, network["id"])
     owner.start(gateway)
     endpoint = f"http://127.0.0.1:{host_port(owner, gateway, 80)}"
-    target_volume = owner.resource("volume", "target-data")
-    target = owner.service(
-        "target",
-        MINIO_IMAGE,
-        args=(
-            "--pull=never",
-            "--publish",
-            "127.0.0.1::9000",
-            "--volume",
-            target_volume["id"] + ":/data",
-            "--env-file",
-            str(files[1]),
-        ),
-        cmd=("server", "/data", "--console-address", ":9001"),
-    )
-    target_ip = owner.verified(target)["NetworkSettings"]["Networks"]["bridge"][
-        "IPAddress"
-    ]
-    target_endpoint = f"http://{target_ip}:9000"
+    if target_factory is not None:
+        target_endpoint, target_ip = target_factory(owner, target_credentials, files[1])
+    else:
+        target_volume = owner.resource("volume", "target-data")
+        target = owner.service(
+            "target",
+            MINIO_IMAGE,
+            args=(
+                "--pull=never",
+                "--publish",
+                "127.0.0.1::9000",
+                "--volume",
+                target_volume["id"] + ":/data",
+                "--env-file",
+                str(files[1]),
+            ),
+            cmd=("server", "/data", "--console-address", ":9001"),
+        )
+        target_ip = owner.verified(target)["NetworkSettings"]["Networks"]["bridge"][
+            "IPAddress"
+        ]
+        target_endpoint = f"http://{target_ip}:9000"
     buckets = {
         purpose: "final-" + purpose + "-" + owner.data["nonce"][:12]
         for purpose in sorted(PURPOSES)
@@ -863,7 +866,7 @@ def run(owner, args, summary, backend, *, fixture=None):
         target_ip,
         buckets,
         config,
-    ) = provision(owner)
+    ) = provision(owner, target_factory=getattr(fixture, "provision_target", None))
     limits = Limits(connect_timeout_seconds=3, read_timeout_seconds=15)
     with (
         closing(client(endpoint, *credentials, limits)) as source,
@@ -968,7 +971,7 @@ def run(owner, args, summary, backend, *, fixture=None):
                 "worker",
                 "--pool=solo",
                 "--concurrency=1",
-                "--queues=default",
+                "--queues=" + getattr(fixture, "worker_queues", "default"),
                 "--hostname=" + worker_name,
                 "--loglevel=WARNING",
                 "--without-gossip",
@@ -1328,6 +1331,7 @@ def main(argv=None):
     parser.add_argument("--retained-reads", action="store_true")
     parser.add_argument("--cache-reads", action="store_true")
     parser.add_argument("--staged-reads", action="store_true")
+    parser.add_argument("--cutover", action="store_true")
     parser.add_argument("--browser-wait-seconds", type=int, default=1200)
     args = parser.parse_args(argv)
     owner = None
@@ -1374,12 +1378,18 @@ def main(argv=None):
                         args.retained_reads,
                         args.cache_reads,
                         args.staged_reads,
+                        args.cutover,
                     )
                 )
                 <= 1,
                 "fixture_conflict",
             )
-            if args.staged_reads:
+            if args.cutover:
+                from verify_storage_migration_cutover import Cutover
+
+                fixture = Cutover()
+                summary["schema"] = "aap.storage-migration-cutover-verification/v1"
+            elif args.staged_reads:
                 from verify_storage_migration_staged_reads import StagedReads
 
                 fixture = StagedReads()
