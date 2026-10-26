@@ -3,7 +3,7 @@ title: 视频派生媒体
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-25
+last_reviewed: 2026-10-26
 ---
 
 # 视频派生媒体
@@ -14,7 +14,7 @@ Task 的 `/tasks/{task_id}/video/...` 和可见 Task 支撑的 `/videos/{dataset
 
 ## 元数据与时序
 
-存储管理的 `POST /api/v1/storage/video-assets/retry` 返回 `202`，包含 `job_id`、`asset_type`、`dataset_item_id` 和 `status`。正常受理为 `queued`；队列投递无法确认时为 `dispatch_pending`，仍返回可查询的任务，不能据此断定执行失败。可由原重试入口重新派发尚未认领的输出；本人对同一输出和资产类型的活动请求复用任务，其他发起者获得各自可见的任务。详情使用 `GET /api/v1/async-jobs/{job_id}`，仅本人或超级管理员可见；该任务不提供通用取消或失败预测重试动作。
+存储管理提供两个接口排查和恢复视频派生异常：`GET /api/v1/storage/video-assets/failures`（支持 `limit` 1–200、默认 50 与 `offset` 分页）按当前管理范围列出失败、缺失归属或与当前元数据代次失配的 `metadata`、`chunk`、`frame` 资产条目；`POST /api/v1/storage/video-assets/retry` 返回 `202`，包含 `job_id`、`asset_type`、`dataset_item_id` 和 `status`。正常受理为 `queued`；队列投递无法确认时为 `dispatch_pending`，仍返回可查询的任务，不能据此断定执行失败。可由原重试入口重新派发尚未认领的输出；本人对同一输出和资产类型的活动请求复用任务，其他发起者获得各自可见的任务。详情使用 `GET /api/v1/async-jobs/{job_id}`，仅本人或超级管理员可见；该任务不提供通用取消或失败预测重试动作。
 
 任务状态跟随既有输出的认领、发布、失败和过期收尾，`kind=video_asset_retry`。只返回安全 ID、目标类型及成功／失败计数，不公开原件定位或凭据。metadata ready 不代表所有派生资产成功，海报和时间表分别按本次请求结果判定；普通 Worker 返回也不等于资产成功。执行端状态未知且仍有未收尾访问时，任务保留等待状态，沿用现有输出维护机制，不承诺立即判定崩溃失败。chunk／frame 缺可信元数据时，仍先准备元数据并返回原有 `503 video_metadata_preparing`，此次不登记目标资产重试任务。
 
@@ -40,4 +40,4 @@ ready frame/chunk DTO 包含 `output_id`、小写 `sha256`、`byte_size` 和 `me
 
 业务删除和缓存 TTL 先解除逻辑引用，独立输出保留待回收。已发布输出从退役起重新等待至少一小时，保护已签地址；仅在没有在用操作时，按保存位置删除准确前缀。新对象位于 `video-derivatives/objects/{output_id}/`，不受旧 `videos/` 自动过期规则支配。旧无 owner 的对象不猜测、签名、采纳或盲删。
 
-未知原生进程／关闭保留 StorageOperation 和 `anno-video-derived-{output_id}-...` 临时目录。应按输出 UUID 与操作账核对实际进程收尾，不能用目录年龄或直接清账代替证明。运维步骤见[视频帧服务 Runbook](../../ops/runbooks/video-frame-service)。完整用途切换仍关闭。
+未知原生进程／关闭保留 StorageOperation 和 `anno-video-derived-{output_id}-...` 临时目录。应按输出 UUID 与操作账核对实际进程收尾，不能用目录年龄或直接清账代替证明。运维步骤见[视频帧服务 Runbook](../../ops/runbooks/video-frame-service)。`media-cache` 用途的后续新分配位置切换已开放（见[媒体缓存用途切换](./storage-locations#媒体缓存用途切换)），历史已生成派生输出继续按保存位置读取；源端存量对象的全量迁移、读取路由发布与原子切换则按[对象存储迁移与切换](/ops/deploy/storage-migration-inventory)独立治理。

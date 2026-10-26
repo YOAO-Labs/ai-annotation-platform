@@ -1,8 +1,9 @@
 ---
+title: 架构地图
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-26
 ---
 
 # 架构地图
@@ -41,6 +42,8 @@ last_reviewed: 2026-10-19
   Task 状态机、锁、审核流、跨帧传播与可见性规则
 - [标注模块](./annotation-module)：
   Annotation 的几何联合模型、预测采纳、乐观锁版本控制与派生回写
+- [数据集、目录来源与增量同步架构](./dataset-sources-and-sync)：
+  内容身份模型、受控目录与 S3/SFTP 原地引用、可恢复扫描登记、增量同步状态机、数据集工作台与质量复核
 - [在线学习与训练体系](./training-datasets)：
   训练数据版本流、独立执行器 GPU 独占排他锁、逐样本评估、模型谱系与自训权重回流
 - [视频标注工作台](./video-annotation-workbench)：
@@ -79,8 +82,12 @@ last_reviewed: 2026-10-19
   `pre_annotated` 的进入、人工接管、清理与回滚边界
 - [数据流](./data-flow)：
   标注主链、AI 预标注、异步导出、在线学习闭环与实时通知的完整调用序列
-- [存储连接器](./storage-connections)：
-  外部对象存储连接配置、凭证加密、安全校验与只读列举导入
+- [存储位置、连接器与用途绑定](./storage-connections)：
+  外部存储连接器、受控存储位置注册、九用途保存目标隔离与位置访问维护协议
+- [原件验证读取、缓存与保留回收架构](./original-access-and-retention)：
+  统一 `OriginalSource` 严格读取、认证下载与视频分片舞台、按需原图缓存、条件创建与准确版本回收
+- [对象存储迁移、站点 Agent 与容量观测架构](./storage-migration-and-ops)：
+  配置源迁移清单与复制批次、维护窗口与原生源写封闭、已封存读取映射、九用途原子切换、只读站点 Agent 与容量账目
 - [系统设置运行时覆盖](./system-settings)：
   数据库级系统设置如何安全覆盖默认配置并保持多进程缓存一致
 

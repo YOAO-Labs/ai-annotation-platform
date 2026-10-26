@@ -1,4 +1,5 @@
 ---
+title: 生产部署（Docker Compose）
 audience: [ops]
 type: how-to
 since: v0.1.0
@@ -812,16 +813,6 @@ docker compose -f docker-compose.training.yml --profile training up -d training-
 
 ---
 
-## 9. 待补（roadmap）
-
-参考 ROADMAP.md：
-
-- HTTPS 强制 / HSTS / CSP middleware（B §安全）
-- 审计日志归档按月 PARTITION + S3 冷备（B §治理）
-- 真正的 K8s helm chart / terraform module — 暂未维护，进 P3
-
-如团队需要，请先开 issue 讨论需求边界。
-
 ## 受控存储根目录
 
 对 CephFS、NFS 或本地数据目录，推荐统一挂载少量受控根，再通过[存储位置 API](/api/guides/storage-locations)动态登记根内目录。下面是额外 Compose override 示例，部署者按实际节点填写；仓库默认不挂载业务数据根：
@@ -869,7 +860,7 @@ services:
 
 严格图片读取使用请求内临时文件，每个 API 进程最多4份、每份64MiB，临时字节上限256MiB并另有图片解码内存。给系统临时目录预留空间，多进程按进程数累加；不将临时目录放进只读业务源。异常或断连清理快照，源原图保持只读。完整合同见[内容核验与严格读取](/api/guides/verified-content)。
 
-完整原图缓存已具备内部配额、读租约和持久恢复服务，公开策略与读图入口尚未开放。部署迁移后，保持 beat 和消费 `cleanup` 队列的 worker 运行，确认注册 `app.workers.original_cache.maintain_original_cache`；每分钟最多核对五十条记录。`original_cache_entries` 不随来源或业务样本删除而消失，需随数据库备份，不能仅因业务对象不存在就手动删账本。`storage_cleanup_failed` 保留占用等待重试；`storage_identity_changed` 表示当前 endpoint/桶和记录不同，应恢复原目的配置后再核对，不能把清理请求转发给新服务器。缓存对象不需备份为原件；完整迁移或回退须保留清理记录。资源层参数与边界见[存储架构](/dev/concepts/storage-connections#完整原图缓存的资源归属)。
+完整原图缓存已开放位置与来源级 `cache_policy=none|preview|on_demand`、位置配额（`original_cache_quota_bytes`）、TTL（`original_cache_ttl_seconds`）及基于独立归属账本的受控清理（`GET /api/v1/storage-locations/{id}/original-cache`、`POST /api/v1/storage-locations/{id}/original-cache/cleanup`）。部署迁移后，保持 beat 和消费 `cleanup` 队列的 worker 运行，确认注册 `app.workers.original_cache.maintain_original_cache`；每分钟最多核对五十条记录。`original_cache_entries` 不随来源或业务样本删除而消失，需随数据库备份，不能仅因业务对象不存在就手动删账本。`storage_cleanup_failed` 保留占用等待重试；`storage_identity_changed` 表示当前 endpoint/桶和记录不同，应恢复原目的配置后再核对，不能把清理请求转发给新服务器。缓存对象不需备份为原件；完整迁移或回退须保留清理记录。资源层参数与边界见[存储架构](/dev/concepts/storage-connections#完整原图缓存的资源归属)与[完整原图缓存 API](/api/guides/storage-locations#完整原图缓存)。
 
 ## 只读 SFTP 引用
 
@@ -906,3 +897,13 @@ STORAGE_SFTP_ROOTS={"company-sftp":{"host":"sftp.example.internal","port":22,"us
 确认 default worker 注册 `app.workers.dataset_source_sync.tick_source_syncs`，来源节点注册 `app.workers.dataset_source_sync.advance_source_sync` 并消费自己的 worker_direct 队列。实际节点会刷新自身探测，人工确认仍需 API 当前节点可读。节点离线时计划延后，不补跑历史周期。观察来源计划的最近检查/错误和既有任务中心；等待核对差异不是调度故障。
 
 工作树 `dev:worktree up --with-worker` 启动普通和 maintenance worker，不包含 beat；本地周期验收需要同一隔离环境的 beat，不应借用主 checkout 的调度器。回退应用前先暂停周期、等待或单独取消活动任务，保留计划及扫描/登记证据；存在计划记录时不得直接降级0202。
+
+## 9. 待补（roadmap）
+
+参考 ROADMAP.md：
+
+- HTTPS 强制 / HSTS / CSP middleware（B §安全）
+- 审计日志归档按月 PARTITION + S3 冷备（B §治理）
+- 真正的 K8s helm chart / terraform module — 暂未维护，进 P3
+
+如团队需要，请先开 issue 讨论需求边界。

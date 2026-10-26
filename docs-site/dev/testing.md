@@ -1,8 +1,9 @@
 ---
+title: 测试指南
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-24
+last_reviewed: 2026-10-26
 ---
 
 # 测试指南
@@ -23,20 +24,21 @@ last_reviewed: 2026-10-24
 
 ### 分层归属与运行入口
 
-| 层级             | 保护目标                                       | 运行入口                                                                                        | 真值来源                      |
-| ---------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------- |
-| 后端纯规则       | 授权谓词、作业终态分派、schema 归一等纯函数    | `cd apps/api && uv run pytest <file>`                                                           | 无需数据库                    |
-| 后端集成         | 事务、行锁、成员并发、通知顺序、在线学习控制面 | `pnpm dev:worktree -- exec --mode test -- bash -lc 'cd apps/api && .venv/bin/python -m pytest'` | worktree 自有 `aap_wt_*_test` |
-| 训练执行器       | 训练配方执行、Trial 调度、评估、权重回传与脱敏 | `cd apps/training-executor && uv run pytest`                                                    | 沙盒临时目录与受控假数据      |
-| 前端纯规则       | URL 编解码、几何换算、工作台与训练状态机       | `pnpm --filter @anno/web test <file>`                                                           | 无需后端                      |
-| 前端页面集成     | 页面装配与 API 边界契约                        | `pnpm --filter @anno/web test <page-dir>`                                                       | MSW                           |
-| 浏览器 E2E       | 真实画布、渲染、跨页面长链路                   | `pnpm test:e2e`（见下文）                                                                       | 隔离服务与 `annotation_e2e`   |
-| 在线学习全栈冒烟 | 数据集冻结、训练执行、评估、模型回传与在线推理 | [COCO8 夹具与界面验收](./tutorials/local-dev#_2-准备-coco8-检测夹具)                            | 真实本地服务栈 + MinIO        |
-| SDK / 示例       | 对外契约与文档示例                             | `packages/python-sdk`、`docs-site/dev/examples/*`                                               | OpenAPI snapshot              |
+| 层级             | 保护目标                                                   | 运行入口                                                                                                                                                                                                                                                         | 真值来源                      |
+| ---------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| 后端纯规则       | 授权谓词、作业终态分派、schema 归一等纯函数                | `cd apps/api && uv run pytest <file>`                                                                                                                                                                                                                            | 无需数据库                    |
+| 后端集成         | 事务、行锁、成员并发、通知顺序、在线学习控制面             | `pnpm dev:worktree -- exec --mode test -- bash -lc 'cd apps/api && .venv/bin/python -m pytest'`                                                                                                                                                                  | worktree 自有 `aap_wt_*_test` |
+| 训练执行器       | 训练配方执行、Trial 调度、评估、权重回传与脱敏             | `cd apps/training-executor && uv run pytest`                                                                                                                                                                                                                     | 沙盒临时目录与受控假数据      |
+| 站点存储 Agent   | 只读 `openat2` 原语、站点协议契约、本地 TLS 配对与断网恢复 | `PYTHONPATH=apps/storage-agent:apps/_shared/filesystem_read/src:apps/_shared/site_agent_contract/src apps/api/.venv/bin/python -m pytest apps/_shared/filesystem_read/tests apps/_shared/site_agent_contract/tests apps/storage-agent/tests -p no:cacheprovider` | 临时受控目录与本机 TLS 夹具   |
+| 前端纯规则       | URL 编解码、几何换算、工作台与训练状态机                   | `pnpm --filter @anno/web test <file>`                                                                                                                                                                                                                            | 无需后端                      |
+| 前端页面集成     | 页面装配与 API 边界契约                                    | `pnpm --filter @anno/web test <page-dir>`                                                                                                                                                                                                                        | MSW                           |
+| 浏览器 E2E       | 真实画布、渲染、跨页面长链路                               | `pnpm test:e2e`（见下文）                                                                                                                                                                                                                                        | 隔离服务与 `annotation_e2e`   |
+| 在线学习全栈冒烟 | 数据集冻结、训练执行、评估、模型回传与在线推理             | [COCO8 夹具与界面验收](./tutorials/local-dev#_2-准备-coco8-检测夹具)                                                                                                                                                                                             | 真实本地服务栈 + MinIO        |
+| SDK / 示例       | 对外契约与文档示例                                         | `packages/python-sdk`、`docs-site/dev/examples/*`                                                                                                                                                                                                                | OpenAPI snapshot              |
 
 当前测试基线的两条重要事实：
 
-- **ML CPU 契约套件全量入 CI**：PR 触及 `apps/_shared/**`（`backend_runtime` / `mask_utils` / `protocol_v2` / `training_contract` / `task_contract`）或任一 `apps/*-backend/` 路径时，`.github/workflows/ml-cpu-test.yml` 会在每个套件独立的一次性虚拟环境中运行 pytest（纯 CPU：`grounded-sam2` 与 `sam3` 使用 CPU torch wheel，其余免 torch；`onnxtools` 额外安装 `opencv-python-headless`）。各 backend 的 `pyproject.toml` 通过 `pythonpath` 注入 `../_shared/*/src`，无需 editable 安装；注意不同 backend 可解析的共享包集合并不完全相同（仅图像/视频 backend 包含 `mask_utils`）。
+- **ML CPU 与共享契约套件**：PR 触及 `apps/_shared/**`（7 个共享包：`backend_runtime` / `mask_utils` / `protocol_v2` / `training_contract` / `task_contract` / `filesystem_read` / `site_agent_contract`）、`apps/training-executor/`、`apps/storage-agent/` 或任一 `apps/*-backend/` 路径时，可在纯 CPU 虚拟环境中运行 pytest（其中 ML 与相关共享包由 `.github/workflows/ml-cpu-test.yml` 在独立一次性虚拟环境中自动执行：`grounded-sam2` 与 `sam3` 使用 CPU torch wheel，其余免 torch；`onnxtools` 额外安装 `opencv-python-headless`）。各 backend 的 `pyproject.toml` 通过 `pythonpath` 注入 `../_shared/*/src`，无需 editable 安装；注意不同 backend 可解析的共享包集合并不完全相同（仅图像/视频 backend 包含 `mask_utils`）。
 - **前端页面测试聚焦 MSW 边界**：页面集成测试统一通过 `src/test/renderWithProviders.tsx` 与 `src/test/dataManagerApi.ts` 在 MSW API 边界描述响应；已下沉到 `*UrlState.test.ts` 的纯规则不要在页面测试中重复断言。
 
 ---
@@ -111,6 +113,38 @@ CI 中的 `tests/test_openapi_contract.py` 会校验 `openapi.snapshot.json` 与
    ```
    覆盖训练数据集版本冻结、实验任务租约 CAS、心跳续租、尝试级观测指标、受控模型发布（`trained_models`）以及审核驱动的主动学习回流。
 3. **真实链路验收**：按[本地开发](./tutorials/local-dev#在线学习与训练执行器联调-可选)准备独立环境、执行器和 COCO8 检测夹具，再通过界面完成训练、回流和人工发布。单元测试、夹具构建成功或模拟 API 页面测试均不能替代真实权重推理验收。
+
+---
+
+## 数据集、存储迁移与只读站点 Agent 测试
+
+数据集与受控存储领域的验证分为纯标准库/组件单测、隔离容器拓扑演练与资源基线测量三层：
+
+1. **只读文件原语、站点协议与 Agent 组件单测（无需数据库或 Redis）**：
+   ```bash
+   PYTHONDONTWRITEBYTECODE=1 \
+   PYTHONPATH=apps/storage-agent:apps/_shared/filesystem_read/src:apps/_shared/site_agent_contract/src \
+   apps/api/.venv/bin/python -m pytest \
+     apps/_shared/filesystem_read/tests \
+     apps/_shared/site_agent_contract/tests \
+     apps/storage-agent/tests -p no:cacheprovider
+   ```
+   覆盖 Linux `openat2` 防符号链接/越界、`0600 VerifiedStage`、一次性本机 TLS 配对、`renameat2(RENAME_NOREPLACE)` 原子落盘、256 KiB 分块限速以及进程重启后沿同一 `session_id` 重放 stage 恢复。
+2. **跨网络隔离拓扑真实演练（`scripts/verify_site_agent.py`）**：
+   在双 Docker bridge 隔离网络（中心无法向站点发起入站连接）中验证端到端链路，支持三种场景（`--scenario basic | recovery | replicas`）：
+   ```bash
+   apps/api/.venv/bin/python scripts/verify_site_agent.py \
+     --state /tmp/aap-site-agent-verify \
+     --scenario basic
+   ```
+   分别验证基础配对/扫描/预检登记/Range 读取（`basic`）、断网与重启恢复及撤销凭据关闭回执（`recovery`），以及主站点离线时显式同内容备用来源（`DatasetReferenceReplica`）的委托读取（`replicas`）。
+3. **数据集与存储资源基线测量脚本**：
+   在当前工作树专属且业务表为空的可丢弃 `e2e` / `test` 模式下运行，严禁指向非空开发库：
+   - `scripts/benchmark_dataset_workbench.py`：[数据集工作台规模测量](./reference/dataset-workbench-benchmark)（1k / 10k 索引分页、组合筛选与项目统计）
+   - `scripts/benchmark_dataset_scan.py`：[目录扫描资源基线](./reference/dataset-scan-benchmark)（真实 Worker 元信息扫描、取消与恢复）
+   - `scripts/benchmark_dataset_read.py`：[目录原图读取资源基线](./reference/dataset-read-benchmark)（无缓存严格 SHA-256 核验与 HTTP 传输）
+   - `scripts/benchmark_dataset_sync.py`：[本地增量同步资源基线](./reference/dataset-sync-benchmark)（Beat 调度、扫描、完整预检与新增登记闭环）
+   - `scripts/benchmark_dataset_training.py`：[训练准备与重复传输资源基线](./reference/dataset-training-benchmark)（托管图片预检、物化打包与重复下载读取）
 
 ---
 

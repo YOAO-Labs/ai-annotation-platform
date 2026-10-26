@@ -3,10 +3,29 @@ title: 在线学习与模型训练 API
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-24
+last_reviewed: 2026-10-26
 ---
 
 # 在线学习与模型训练 API
+
+## 基路径与权限速查
+
+| 模块                 | 基路径                                                                        | 角色要求                                  | API Key Scopes（读 / 写）                                                         | 详细章节                                              |
+| -------------------- | ----------------------------------------------------------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| 训练数据版本         | `/api/v1/projects/{project_id}/training-datasets`                             | 项目负责人 / `super_admin`                | `annotations:read` + `datasets:read`（删除、`storage-pin` 另需 `datasets:write`） | [训练数据版本](#托管图片预检与构建)                   |
+| 项目任务数据集流     | `/api/v1/projects/{project_id}/task-datasets`                                 | 项目负责人 / `super_admin`                | `annotations:read` + `datasets:read`                                              | [项目任务数据集与版本筛选](#项目任务数据集与版本筛选) |
+| 人工主动选样         | `/api/v1/projects/{project_id}/active-learning-rounds`                        | 项目负责人 / `super_admin`                | 读：`annotations:read` + `datasets:read`；写：另需 `datasets:write`               | [人工主动选样 API](#人工主动选样-api)                 |
+| 逐样本评估           | `/api/v1/projects/{project_id}/sample-evaluations`                            | 项目负责人 / `super_admin`                | 读：`annotations:read` + `datasets:read`；写：另需 `datasets:write`               | [逐样本评估 API](#逐样本评估-api)                     |
+| 训练总览             | `/api/v1/training`                                                            | `project_admin` / `super_admin`           | `annotations:read` + `datasets:read`                                              | [训练总览 API](#训练总览-api)                         |
+| 训练实验             | `/api/v1/projects/{project_id}/training-runs`                                 | 项目负责人 / `super_admin`                | 读：`annotations:read` + `datasets:read`；写：另需 `datasets:write`               | [训练实验 API](#训练实验-api)                         |
+| 参数搜索             | `/api/v1/projects/{project_id}/training-studies`                              | 项目负责人 / `super_admin`                | 读：`annotations:read` + `datasets:read`；写：另需 `datasets:write`               | [参数搜索 API](#参数搜索-api)                         |
+| 原生增强预览         | `/api/v1/projects/{project_id}/training-previews`                             | 项目负责人 / `super_admin`                | 读：`annotations:read` + `datasets:read`；写：另需 `datasets:write`               | [原生增强预览 API](#原生增强预览-api)                 |
+| 训练配方与克隆       | `/api/v1/projects/{project_id}/training-recipes`                              | 项目负责人 / `super_admin`                | 读：`annotations:read` + `datasets:read`；写/解析：另需 `datasets:write`          | [项目训练配方与克隆](#项目训练配方与克隆)             |
+| 模型注册、部署与谱系 | `/api/v1/projects/{project_id}/{trained-models,model-releases,model-lineage}` | 项目负责人 / `super_admin`                | 读：`annotations:read` + `datasets:read`；写：另需 `datasets:write`               | [模型注册、部署与发布](#模型注册、部署与发布)         |
+| 自动训练策略         | `/api/v1/projects/{project_id}/learning-policy`                               | 项目负责人 / `super_admin`                | 读：`annotations:read` + `datasets:read`；写：另需 `datasets:write`               | [自动训练策略](#自动训练策略)                         |
+| 执行器内部回报       | `/api/v1/internal/training`                                                   | 独立执行器（`X-Training-Executor-Token`） | 不使用用户 JWT / API Key                                                          | [实际训练成员回执](#实际训练成员回执)                 |
+
+训练执行器容器部署与成员回执验收见[生产部署：实际训练成员回执的部署验收](/ops/deploy/docker-compose#5-实际训练成员回执的部署验收)，训练相关存储归属、历史 `storage-pin` 与新分配位置切换的恢复边界见[一致备份与隔离恢复演练](/ops/deploy/storage-recovery)。
 
 原地引用图片使用相同项目版本 API。含引用的预检 `summary` 增加 `reference_samples` 与 `original_copy_bytes`（所选原图预计新增持久字节）；读取异常写入逐任务 `issues` 并令 `ready=false`。新 snapshot/manifest 以 `asset_source_contract.schema=1` 和样本 `asset_reference.schema=1` 固定业务 Asset/SHA；不改变几何合同、历史字节或现有 ZIP 消费。Worker 必须具备自身节点的读取 anchor，源变化返回明确构建错误，未就绪版本无法下载。
 

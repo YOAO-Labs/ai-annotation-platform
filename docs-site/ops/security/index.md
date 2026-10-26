@@ -1,9 +1,10 @@
 ---
+title: 安全模型
 audience: [ops]
 type: reference
 since: v0.1.0
 status: stable
-last_reviewed: 2026-09-19
+last_reviewed: 2026-10-26
 ---
 
 # 安全模型
@@ -303,6 +304,18 @@ MinIO 的 presigned **GET / download URL** 默认 1 小时 TTL（`apps/api/app/s
 ### 7.3 Sentry 数据脱敏
 
 `apps/api/app/main.py:28-36` 的 `_sentry_before_send` 钩子把 `Authorization` header 改为 `[REDACTED]`。同时 `send_default_pii=False`，Sentry 不会上传 cookies / 用户 IP。
+
+---
+
+## 存储访问、保留与站点 Agent 安全边界
+
+数据集与存储体系在应用层强制执行以下纵深防御边界（详见[受控存储位置 API](/api/guides/storage-locations)、[内容核验与严格读取](/api/guides/verified-content)与[只读站点 Agent](/ops/deploy/site-agents)）：
+
+- **受控只读根与无越界打开**：本地/网络挂载位置仅接受部署配置的 `STORAGE_FILESYSTEM_ROOTS` 句柄与相对路径，底层通过 Linux `openat2`（禁止符号链接穿越、`..` 跳转与跨子挂载）执行只读打开；SFTP 引用强制匹配 `STORAGE_SFTP_ROOTS` 固定主机公钥与 root 拥有的 `ChrootDirectory` 只读 jail。API 响应与公开 DTO 从不暴露宿主机绝对路径或明文连接凭据。
+- **请求内完整核验与授权复核**：严格图片/点云/视频读取在交付字节或签发短期地址前，完整核对已保存的 SHA-256、字节数、固定位置/版本与维护门禁，并在 I/O 前后复查当前账号、项目/数据集权限与原始 API Key 状态（撤销、轮换或缩权立即阻断）。
+- **五分钟预览确认令牌（`impact_token`）**：存储位置变更、访问维护切换、数据集归档/恢复、九用途新分配绑定切换、保留策略/Hold 变更及原件准确版本回收均采用“只读预览 → 签发 5 分钟绑定令牌 → 锁内复核提交”。令牌绑定操作者、原 API Key、目标修订与关系快照指纹，跨人、跨用途或状态漂移立即返回 `409`。
+- **保留锁与物理操作未收尾保护**：托管原件回收受活跃业务引用、冻结版本、保留期限、备份/迁移 Hold 及迁移窗口共同阻断；物理读取、上传或删除遇到超时、取消或进程中断时，`storage_operations` 与回收 tombstone 持久保留责任，绝不按 TTL 自动清零或跳过关闭证明。
+- **只读站点 Agent 出站隔离**：Agent 仅发起出站 HTTPS 连接（强制校验证书、拒绝重定向与环境变量代理），不监听入站端口、不开放远程命令执行或源端写删。一次性配对码 10 分钟有效、单次消费，中心仅存 SHA-256 摘要；Agent Bearer 凭据最长 30 天有效，且不能替代平台用户 JWT/API Key。撤销或过期凭据仅允许向已有命令提交 `closed` 关闭回执，不能领取新任务或上传文件分块。
 
 ---
 

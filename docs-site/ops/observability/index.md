@@ -1,9 +1,10 @@
 ---
+title: 可观测性 / 运维监控
 audience: [ops, dev]
 type: reference
 since: v0.8.7
 status: stable
-last_reviewed: 2026-07-22
+last_reviewed: 2026-10-26
 ---
 
 # 可观测性 / 运维监控
@@ -350,6 +351,18 @@ release latch 关闭时，周期 worker 不创建仲裁 Redis client。开启后
 管理查询会保守读取 Redis runtime 供排障。observe 的 shadow 日志仍按上一节工作。worker 结果通过
 Celery 结果与进程日志暴露，当前不应把 worker 进程内的普通
 Prometheus Gauge 当作 API `/metrics` 可见的跨进程指标。
+
+---
+
+## 存储与数据集运维观测
+
+平台提供一套只读数据库快照与有界增量账目接口，用于观测九用途对象存储占用、增量变化、长任务进度以及外部目录来源的回源与故障状态（接口详情见[受控存储位置与迁移 API](/api/guides/storage-locations)）：
+
+- **平台桶占用快照与分类明细（`GET /api/v1/storage/buckets`）**：只读返回最近一次 `storage_usage` 盘点任务的成功快照与尝试状态，不在线执行 S3 `HEAD/LIST`。按唯一物理桶去重统计九用途对象数与字节数，并在 `breakdown` 中按 `managed_original`、`preview_cache`、`training_version`、`temporary`、`other_platform`、`unclassified` 六类给出基于已保存归属账本的分类小计；未知或未完成覆盖显式返回 `null` 或 `partial`，不会回落渲染为 `0`。
+- **增量账目与周期对账（`BucketsResponse.accounting` / `reconciliation`）**：26 类受控写入与准确版本/删除标记清理生产者在物理操作前后持久化意图与观察窗口，汇总为 `confirmed_added_bytes`、`confirmed_removed_bytes`、`net_change_bytes`、`pending_operation_count` 与 `unknown_operation_count`。周期盘点在此基础上输出 `reconciliation` 对账摘要，将未接入生产者或外部写入单列为 `unexplained_change_bytes`，不把未知变化当作账目损坏或清理许可。
+- **15 分钟后台任务进度提示（`0259`）**：目录扫描、登记、质量检测、占用盘点与迁移复制等异步存储任务持久化心跳与阶段进度提示。超过 15 分钟未推进的运行中任务在管理端展示停滞提示供运维排查 Worker 与源端状态，但不会仅凭超时自动释放物理操作许可或将未确认关闭标为已结束。
+- **每日 UTC 回源与预览观测率（`0261` · `GET /api/v1/storage-locations/{id}/faults`）**：`rates` 字段按当日 UTC 零点至当前数据库时刻聚合可见来源的已记录尝试，分别给出 `original_read`（仅计实际严格回源完整读取，排除缓存命中与短探针）和 `preview_generate`（仅计实际新生成并提交发布的结果）的 `success_count / failure_count / total_count / failure_rate`。无记录或读取失败返回 `null`，不伪造 `0%`。
+- **去重来源故障状态与转换审计（`0249`）**：目录来源扫描、核验读取與预览生成遇到 `root_unavailable`、`access_denied`、`source_changed`、`preview_failed` 时，按范围去重维护 `active / recovered` 状态行并累计失败次数；仅在首次发生、重新发生或同范围实际成功恢复时写入 `storage.fault` / `storage.fault.recovered` 审计（含 `fault_id` 与 `transition=opened|reopened|recovered`），避免高频重复报错刷爆审计表。
 
 ---
 

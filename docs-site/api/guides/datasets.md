@@ -3,12 +3,12 @@ title: 数据集上传与扫描
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-25
+last_reviewed: 2026-10-26
 ---
 
 # 数据集上传与扫描
 
-端点均位于 `/api/v1/datasets`，沿用已有登录和数据集操作权限。文件位置属于服务端契约，客户端应使用返回的上传地址、item ID 与文件 URL，不按数据集名称拼接桶名或对象键。
+数据集生命周期、上传、扫描、工作台视图与质量检测端点位于 `/api/v1/datasets`，引用样本同内容显式备用来源端点位于 `/api/v1/dataset-items/{item_id}/reference-replicas`（及 `/reference-replica-candidates`），均沿用已有登录和数据集/来源管理权限。文件位置属于服务端契约，客户端应使用返回的上传地址、item ID 与文件 URL，不按数据集名称拼接桶名或对象键。
 
 ## 生命周期与列表状态
 

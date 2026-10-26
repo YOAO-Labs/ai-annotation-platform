@@ -1,8 +1,9 @@
 ---
+title: 可见性与权限
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-26
 ---
 
 # 可见性与权限
@@ -136,6 +137,23 @@ last_reviewed: 2026-10-19
 为什么不复用 `assert_project_visible`：后者对 `project_admin` 的 owner 校验失败后会 **fallback 到 `ProjectMember` 查询**（见 `apps/api/app/deps.py` 中的 `assert_project_visible`），这是项目级数据访问的通用宽松策略，但对成员绩效语义过宽——会让「身为他人项目 member 的 `project_admin`」读到他人产能 / reject 率 / 类别分布。`_resolve_people_scope` 自行校验 `owner_id` 以收死 IDOR 安全边界，所有产能 / 质量 / 活跃聚合都按该 `project_id` 过滤。
 
 同一原则也适用于视频追踪任务聚合：`GET /video-tracker-jobs` 的 role 门只决定谁能进入管理列表；`project_admin` 的 items、counts 和显式 `project_id` 过滤还必须与 `Project.owner_id == current_user.id` 求交集。工作台恢复候选使用任务级 reviewable 端点：先校验 task 可见性，普通用户再按 `created_by` 收窄，项目 owner / 超级管理员才可恢复该 task 的全部候选。
+
+## 数据集、存储位置与连接器权限边界
+
+除项目/批次/任务三层外，数据集与存储子系统维护独立的平台级与所有权守卫（详见[存储位置、连接器与用途绑定](./storage-connections)与[数据集、目录来源与增量同步架构](./dataset-sources-and-sync#目录管理的最小授权)）：
+
+1. **目录数据集最小管理边界（`Dataset.created_by`）**：
+   - 活跃 `super_admin` 可管理全部数据集；活跃 `project_admin` 仅可管理自己创建的目录数据集（`dataset_source_access` 在来源列表、扫描/预检/登记 Run 与保留的 AsyncJob 查询中强制同一 SQL 谓词）。
+   - 对已绑定目录来源的数据集执行混合上传、ZIP、连接器复制或项目关联建题时，均叠加创建者与位置可见性守卫，并在耗时 I/O 后及分块提交前重验初始授权与 API Key 证明。
+2. **受控存储位置授权与启停隔离（`StorageLocation`）**：
+   - 位置注册、配置修改、额度/TTL 调整、维护 Gate 排空/停止与站点 Agent 管理仅限 `super_admin`。
+   - `project_admin` 按位置的 `global` 作用域或 `use_user_ids` 白名单获得来源浏览、探测与登记使用权；普通 `employee` / `viewer` 不得枚举存储位置或目录。
+   - 管理员位置使用权仅控制管理面；撤回管理员使用权不会剥夺标注员对既有已创建任务的读图权限，唯有停用来源或停止位置维护 Gate 才会阻断回源读取。
+3. **存储连接器配置读取与 `datasets:read`**：
+   - `GET /api/v1/storage-connections` 列表与详情仅对 `super_admin`（全部可见）与 `project_admin`（仅 `global` 与自建连接可见）开放；使用 API Key 调用时还必须具备 `datasets:read` scope。账号降为 `employee` 后，即使仍是 `created_by` 创建者也立即失去配置读取权。
+4. **数据集归档生命周期（`Dataset.archived_at` / `lifecycle_revision`）**：
+   - 归档/恢复由数据集创建者或 `super_admin` 经预览确认执行，递增 `lifecycle_revision` 并阻断新增样本导入、来源扫描/登记、质量复核及新训练版本选样；同时令归档前排队的旧作业票据失效。
+   - 归档不通过停用底层 `DatasetSource` 或 `StorageLocation` 实现，因此已关联项目的既有 Task 原图验证读取、人工标注与个人保存视图（`DatasetSavedView`，仅需 `datasets:read`）继续按各自权限正常工作。
 
 ## 现阶段最该注意的坑
 

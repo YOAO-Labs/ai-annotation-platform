@@ -12,6 +12,8 @@
 | POST | `/{round_id}/storage-pin` |
 | GET | `/pool` |
 | POST | `:preview` |
+| POST | `/` |
+| GET | `/` |
 | GET | `/{round_id}` |
 | POST | `/{round_id}/cancel` |
 | POST | `/{round_id}/retry` |
@@ -83,6 +85,12 @@
 | POST | `/admin/preannotate-queue/bulk-clear` |
 | GET | `/admin/preannotate-summary` |
 
+## `admin_system_health.py`
+
+| Method | Path |
+|---|---|
+| GET | `/` |
+
 ## `annotation_comments.py`
 
 | Method | Path |
@@ -131,6 +139,8 @@
 
 | Method | Path |
 |---|---|
+| GET | `/` |
+| POST | `/` |
 | PATCH | `/{key_id}` |
 | POST | `/{key_id}/rotate` |
 | DELETE | `/{key_id}` |
@@ -148,6 +158,7 @@
 
 | Method | Path |
 |---|---|
+| GET | `/` |
 | GET | `/monthly-summary` |
 | GET | `/archives` |
 | GET | `/archives/{year}/{month}` |
@@ -179,8 +190,10 @@
 
 | Method | Path |
 |---|---|
+| GET | `/` |
 | GET | `/unclassified-count` |
 | GET | `/{batch_id}` |
+| POST | `/` |
 | PATCH | `/{batch_id}` |
 | POST | `/{batch_id}/assignment-preview` |
 | POST | `/{batch_id}/assignment-apply` |
@@ -277,6 +290,7 @@
 | Method | Path |
 |---|---|
 | POST | `/preview` |
+| GET | `/` |
 | GET | `/{batch_id}` |
 | GET | `/{batch_id}/members` |
 | POST | `/{batch_id}/execute` |
@@ -286,6 +300,8 @@
 
 | Method | Path |
 |---|---|
+| GET | `/` |
+| POST | `/` |
 | GET | `/{run_id}` |
 | POST | `/{run_id}/resume` |
 | GET | `/{run_id}/results` |
@@ -345,6 +361,8 @@
 
 | Method | Path |
 |---|---|
+| GET | `/` |
+| POST | `/` |
 | PUT | `/{view_id}` |
 | DELETE | `/{view_id}` |
 
@@ -352,6 +370,8 @@
 
 | Method | Path |
 |---|---|
+| GET | `/` |
+| POST | `/` |
 | GET | `/{dataset_id}` |
 | PUT | `/{dataset_id}` |
 | POST | `/{dataset_id}/sniff-axis-convention` |
@@ -391,7 +411,9 @@
 
 | Method | Path |
 |---|---|
+| GET | `/` |
 | GET | `/query` |
+| POST | `/` |
 | PATCH | `/{group_id}` |
 | DELETE | `/{group_id}` |
 
@@ -416,6 +438,7 @@
 
 | Method | Path |
 |---|---|
+| GET | `/` |
 | GET | `/query` |
 | GET | `/stats` |
 | GET | `/export` |
@@ -435,9 +458,12 @@
 
 | Method | Path |
 |---|---|
+| GET | `/` |
+| PUT | `/` |
 | POST | `/disable` |
 | POST | `/check` |
 | GET | `/triggers` |
+| DELETE | `/` |
 
 ## `mask_formats.py`
 
@@ -474,6 +500,7 @@
 | Method | Path |
 |---|---|
 | POST | `/heartbeat` |
+| PATCH | `/` |
 | POST | `/avatar` |
 | PATCH | `/avatar` |
 | DELETE | `/avatar` |
@@ -494,6 +521,8 @@
 
 | Method | Path |
 |---|---|
+| POST | `/` |
+| GET | `/` |
 | GET | `/available` |
 | PUT | `/{backend_id}/enablement` |
 | GET | `/{backend_id}` |
@@ -607,6 +636,8 @@
 
 | Method | Path |
 |---|---|
+| GET | `/` |
+| POST | `/` |
 | GET | `/{pipeline_id}` |
 | PUT | `/{pipeline_id}` |
 | DELETE | `/{pipeline_id}` |
@@ -615,12 +646,15 @@
 
 | Method | Path |
 |---|---|
+| GET | `/` |
 | GET | `/unrecognized-versions` |
 
 ## `project_templates.py`
 
 | Method | Path |
 |---|---|
+| GET | `/` |
+| POST | `/` |
 | GET | `/{template_id}` |
 | PATCH | `/{template_id}` |
 | DELETE | `/{template_id}` |
@@ -630,8 +664,10 @@
 
 | Method | Path |
 |---|---|
+| GET | `/` |
 | GET | `/query` |
 | GET | `/stats` |
+| POST | `/` |
 | GET | `/{project_id}` |
 | GET | `/{project_id}/readiness` |
 | PATCH | `/{project_id}` |
@@ -661,6 +697,8 @@
 |---|---|
 | POST | `/{run_id}/storage-pin` |
 | GET | `/qualification` |
+| POST | `/` |
+| GET | `/` |
 | GET | `/compare` |
 | GET | `/{evaluation_id}` |
 | POST | `/{evaluation_id}/cancel` |
@@ -675,9 +713,16 @@
 
 | Method | Path |
 |---|---|
+| GET | `/` |
 | GET | `/{scene_id}` |
 | GET | `/{scene_id}/trajectory` |
 | PATCH | `/{scene_id}` |
+
+## `search.py`
+
+| Method | Path |
+|---|---|
+| GET | `/` |
 
 ## `site_agent_transport.py`
 
@@ -708,6 +753,8 @@
 | PUT | `/allowlist` |
 | DELETE | `/allowlist` |
 | GET | `/deployment-sftp-preset` |
+| GET | `/` |
+| POST | `/` |
 | GET | `/{conn_id}` |
 | PATCH | `/{conn_id}` |
 | DELETE | `/{conn_id}` |
@@ -746,6 +793,8 @@
 | GET | `/bindings/media-cache/candidates` |
 | POST | `/bindings/media-cache/change-preview` |
 | PATCH | `/bindings/media-cache` |
+| GET | `/` |
+| POST | `/` |
 | POST | `/agent` |
 | GET | `/{location_id}/faults` |
 | GET | `/{location_id}` |
@@ -785,6 +834,8 @@
 
 | Method | Path |
 |---|---|
+| POST | `/` |
+| GET | `/` |
 | POST | `/{job_id}/dispatch` |
 | GET | `/{job_id}/report` |
 
@@ -792,6 +843,8 @@
 
 | Method | Path |
 |---|---|
+| GET | `/` |
+| POST | `/` |
 | GET | `/{window_id}` |
 | POST | `/{window_id}/transitions` |
 
@@ -907,6 +960,7 @@
 
 | Method | Path |
 |---|---|
+| GET | `/` |
 | GET | `/next` |
 | GET | `/{task_id}` |
 | GET | `/{task_id}/neighbors` |
@@ -1030,6 +1084,7 @@
 
 | Method | Path |
 |---|---|
+| GET | `/` |
 | GET | `/classes` |
 | GET | `/compare` |
 | GET | `/samples` |
@@ -1042,6 +1097,8 @@
 | Method | Path |
 |---|---|
 | POST | `:preflight` |
+| POST | `/` |
+| GET | `/` |
 | GET | `/{version_id}` |
 | POST | `/{version_id}/retry` |
 | GET | `/{version_id}/download` |
@@ -1069,6 +1126,7 @@
 | Method | Path |
 |---|---|
 | GET | `/capabilities` |
+| POST | `/` |
 | POST | `/{preview_id}/storage-pin` |
 | GET | `/{preview_id}` |
 | POST | `/{preview_id}/cancel` |
@@ -1080,6 +1138,8 @@
 | Method | Path |
 |---|---|
 | POST | `:resolve` |
+| GET | `/` |
+| POST | `/` |
 | POST | `/{recipe_id}/revisions` |
 | GET | `/{recipe_id}` |
 | GET | `/{recipe_id}/revisions` |
@@ -1094,6 +1154,8 @@
 | GET | `/initialization-sources/{model_id}` |
 | POST | `:preflight` |
 | GET | `/parameter-schema` |
+| POST | `/` |
+| GET | `/` |
 | POST | `/{run_id}/storage-pin` |
 | GET | `/{run_id}` |
 | GET | `/{run_id}/events` |
@@ -1109,6 +1171,8 @@
 | Method | Path |
 |---|---|
 | POST | `:preview` |
+| POST | `/` |
+| GET | `/` |
 | GET | `/{study_id}` |
 | POST | `/{study_id}/cancel` |
 
@@ -1118,6 +1182,7 @@
 |---|---|
 | GET | `/stats` |
 | GET | `/query` |
+| GET | `/` |
 | GET | `/export` |
 | POST | `/invite` |
 | POST | `/bulk-invite/preview` |
@@ -1138,6 +1203,7 @@
 
 | Method | Path |
 |---|---|
+| GET | `/` |
 | GET | `/{job_id}` |
 | DELETE | `/{job_id}` |
 | POST | `/{job_id}/accept` |
@@ -1166,4 +1232,4 @@
 
 ---
 
-_共 104 模块 / 684 路由_
+_共 104 模块 / 740 路由_

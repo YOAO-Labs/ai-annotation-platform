@@ -1,7 +1,5 @@
 # 开发指南
 
-同机另建生产环境时，使用独立 `docker-compose.lan-prod.yml`，详见[局域网生产部署](docs-site/ops/deploy/lan-production.md)。从现有 `.env` 派生本地 `.env.production`，设置 `LAN_BIND_IP`、`AAP_SHARED_NETWORK`、`AAP_IMAGE_TAG`、`AAP_PRODUCTION_STATE_DIR`；生产数据库、九个存储桶、Redis、Worker 和 DuckDB 独立，前端/API 使用 HTTPS 3030/8080。命令始终显式带 `--env-file .env.production -f docker-compose.lan-prod.yml`，不要与开发或整栈生产 Compose 叠加。
-
 > 完整的开发文档（架构、How-to、测试、规范）在 VitePress 文档站：
 > 本地预览 `pnpm docs:dev`，部署版 [GitHub Pages](https://yyq19990828.github.io/ai-annotation-platform/dev/)。
 > 本文件仅保留快速参考。
@@ -56,6 +54,8 @@ ai-annotation-platform/
 │   │   │   └── utils/           # 工具函数
 │   │   └── pyproject.toml
 │   │
+│   ├── storage-agent/           # 跨网络只读站点存储 Agent
+│   ├── training-executor/       # 受控单 GPU 在线学习训练执行器
 │   ├── grounded-sam2-backend/   # Grounded-SAM-2 GPU backend
 │   │   ├── vendor/              # IDEA-Research/Grounded-SAM-2 镜像副本（sync_vendor.sh）
 │   │   ├── predictor.py         # 三种 prompt (point/bbox/text) 路由
@@ -67,8 +67,16 @@ ai-annotation-platform/
 │   ├── rapidocr-backend/        # OCR backend
 │   │
 │   └── _shared/                 # 跨子应用共享 Python 包
-│       └── mask_utils/          # mask→polygon (sam2-backend / sam3-backend 共用)
+│       ├── backend_runtime/     # ML Backend 运行时公共工具与健康/认证基座
+│       ├── filesystem_read/     # 受控根目录解析与只读快照原语
+│       ├── mask_utils/          # mask→polygon (sam2-backend / sam3-backend 共用)
+│       ├── protocol_v2/         # ML Backend 协议 schema 与能力词表
+│       ├── site_agent_contract/ # 中心与只读站点 Agent 传输消息契约
+│       ├── task_contract/       # 统一任务类型、媒体与导出契约
+│       └── training_contract/   # 受控训练参数、输入成员、谱系与模型回流契约
 │
+├── packages/
+│   └── python-sdk/              # Python SDK、CLI 与 TUI 客户端
 ├── infra/docker/                # Dockerfile + Nginx (web/api)
 ├── scripts/                     # 工具脚本（seed.py / eval_simplify.py / sync_vendor.sh）
 ├── docs-site/                   # VitePress 用户手册 + 开发文档 + API
@@ -311,91 +319,14 @@ agent 上下文。脚本只使用 Node.js 标准库和系统自带查询命令�
 node scripts/test-codex-session-start.mjs
 ```
 
-## 快速开始
+## 本地启动与开发细则
 
-### 1. 启动基础服务
+标准前置依赖、本地启动步骤与技术栈总览见 [README.md#快速开始](README.md#快速开始)。以下补充本地开发常用的环境变量、GPU 绑定与热重载细则：
 
-```bash
-docker compose up -d
-```
-
-这会启动：
-
-- PostgreSQL 16 — `localhost:5432` (user/pass/annotation)
-- Redis 7 — `localhost:6379`
-- MinIO — `localhost:9000` (控制台 `localhost:9001`, minioadmin/minioadmin)
-- Mailpit — SMTP `localhost:1025`、收件箱 `localhost:8025`
-- Celery default / GPU / CPU / export worker 与 beat；按任务队列隔离并发
-
-如需测试 MinIO 放在指定磁盘上的性能，可在 `.env` 设置：
-
-```bash
-MINIO_DATA_DIR=/mnt/fast-disk/ai-annotation-platform/minio
-```
-
-该变量只影响 MinIO 的 `/data` 挂载；留空时仍使用 Docker 托管的 `miniodata` 命名卷。切换前后数据不会自动迁移，已有对象需要先复制到新目录。
-
-> **GPU profile（可选，需要标注工作台 SAM 工具或 `/ai-pre` 文本批量预标）**：GPU backend 在叠加文件 `docker-compose.ml.yml`，须同时 `-f` 两个文件：
->
-> ```bash
-> docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu up -d grounded-sam2-backend
-> ```
->
-> 嫌麻烦可在 `.env` 设 `COMPOSE_FILE=docker-compose.yml:docker-compose.ml.yml`，之后省去 `-f`。首次启动自动下载 ~900MB checkpoints（cache 在 `gsam2_checkpoints` volume）；启动 health 探活周期 120s，`curl http://localhost:8001/health` 应返回 `{"ok":true,"loaded":true}`。需 NVIDIA driver ≥ 525 + nvidia-container-toolkit。
->
-> **多卡机器指定 GPU backend 用哪张卡**：`docker-compose.ml.yml` 里各 GPU profile backend 固定绑定一张物理卡（`deploy.reservations.devices.device_ids`），不再是 `count: 1` 由 Docker 自动挑卡。默认 GSAM2/YOLO/ONNXTOOLS/RAPIDOCR 用卡 0、SAM3 用卡 1（双卡机器错开显存）；可在 `.env` 用 `GSAM2_GPU_DEVICE_ID` / `SAM3_GPU_DEVICE_ID` / `YOLO_GPU_DEVICE_ID` / `ONNXTOOLS_GPU_DEVICE_ID` / `RAPIDOCR_GPU_DEVICE_ID` 覆盖。**单卡机器必须把 `SAM3_GPU_DEVICE_ID=0`**，否则容器找不到卡 1 起不来。
-
-### 2. 启动前端
-
-```bash
-pnpm install
-pnpm codegen
-pnpm dev:web
-```
-
-> 首次 clone / 清空 `apps/web/src/api/generated/` 后，先跑 `pnpm codegen` 再跑
-> `pnpm dev:web`。`pnpm dev:web` 直接启动 Vite，不触发 `prebuild` 的生成检查；若缺
-> `src/api/generated/capabilityVocab.gen.ts`，页面会报
-> `Failed to resolve import "./generated/capabilityVocab.gen"`。如果
-> `apps/api/capability-registry.snapshot.json` 也缺失，先运行：
-> `cd apps/api && uv run python ../../scripts/export_capability_registry.py`。
-
-打开 http://localhost:3000
-
-### 3. 启动后端
-
-```bash
-pnpm dev:api
-```
-
-该命令先执行 `alembic upgrade head`，再启动
-`uvicorn app.main:app --reload --port 8000 --timeout-graceful-shutdown 3`。若 `DATABASE_URL`
-使用无 DDL 权限的普通运行角色，在 `.env` 另设 schema owner 的
-`MIGRATION_DATABASE_URL`；FastAPI 仍只使用 `DATABASE_URL`。依赖由一次性 setup 中的
-`uv sync --extra test` 安装，不要在本地手工拼装依赖列表。迁移完成后启动脚本会清空
-owner 连接，运行进程不保留 DDL 凭据。
-
-> `--timeout-graceful-shutdown 3`：代码改动触发 `--reload` 时，若有浏览器标签页还连着
-> WebSocket（工作台 / AI 预标页），uvicorn 默认会无限等待这些连接结束，卡在
-> `Waiting for background tasks to complete`，新代码迟迟不生效。设 3s 上限后到点强制
-> 掐断 WS 放行 reload，客户端收到 1006 自走指数退避重连。
-
-API 文档：http://localhost:8000/docs
-
-## 技术栈
-
-| 层        | 技术                                                 |
-| --------- | ---------------------------------------------------- |
-| 前端框架  | React 18 + TypeScript                                |
-| 构建工具  | Vite 6                                               |
-| 状态管理  | Zustand                                              |
-| 后端框架  | FastAPI (Python 3.12)                                |
-| ORM       | SQLAlchemy 2.0 (async)                               |
-| 数据库    | PostgreSQL 16                                        |
-| 缓存/队列 | Redis 7                                              |
-| 对象存储  | MinIO (开发) / 阿里云 OSS (生产)                     |
-| 任务队列  | Celery（default / GPU / CPU / export worker + beat） |
-| 容器化    | Docker Compose                                       |
+- **指定磁盘挂载 MinIO（`MINIO_DATA_DIR`）**：如需测试 MinIO 放在指定磁盘上的性能，可在 `.env` 设置 `MINIO_DATA_DIR=/mnt/fast-disk/ai-annotation-platform/minio`。该变量只影响 MinIO 的 `/data` 挂载；留空时仍使用 Docker 托管的 `miniodata` 命名卷。切换前后数据不会自动迁移，已有对象需要先复制到新目录。
+- **GPU Profile 与多卡绑定（`*_GPU_DEVICE_ID`）**：GPU backend 在叠加文件 `docker-compose.ml.yml`，须同时传 `-f docker-compose.yml -f docker-compose.ml.yml`（或在 `.env` 设 `COMPOSE_FILE=docker-compose.yml:docker-compose.ml.yml`）。首次启动 `grounded-sam2-backend` 会自动下载 ~900MB checkpoints（缓存在 `gsam2_checkpoints` volume），探活周期 120s，`curl http://localhost:8001/health` 应返回 `{"ok":true,"loaded":true}`，需 NVIDIA driver ≥ 525 + nvidia-container-toolkit。各 GPU profile backend 固定绑定一张物理卡（`deploy.reservations.devices.device_ids`）：默认 GSAM2/YOLO/ONNXTOOLS/RAPIDOCR 用卡 0、SAM3 用卡 1（双卡机器错开显存）；可在 `.env` 用 `GSAM2_GPU_DEVICE_ID` / `SAM3_GPU_DEVICE_ID` / `YOLO_GPU_DEVICE_ID` / `ONNXTOOLS_GPU_DEVICE_ID` / `RAPIDOCR_GPU_DEVICE_ID` 覆盖。**单卡机器必须把 `SAM3_GPU_DEVICE_ID=0`**，否则容器找不到卡 1 起不来。
+- **首次启动前端前先生成代码（`pnpm codegen`）**：首次 clone 或清空 `apps/web/src/api/generated/` 后，先跑 `pnpm codegen` 再跑 `pnpm dev:web`。`pnpm dev:web` 直接启动 Vite，不触发 `prebuild` 的生成检查；若缺 `src/api/generated/capabilityVocab.gen.ts`，页面会报 `Failed to resolve import "./generated/capabilityVocab.gen"`。如果 `apps/api/capability-registry.snapshot.json` 也缺失，先运行 `cd apps/api && uv run python ../../scripts/export_capability_registry.py`。
+- **迁移独立账号（`MIGRATION_DATABASE_URL`）与后端热重载（`--timeout-graceful-shutdown 3`）**：`pnpm dev:api` 先执行 `alembic upgrade head`，再启动 `uvicorn app.main:app --reload --port 8000 --timeout-graceful-shutdown 3`。若 `DATABASE_URL` 使用无 DDL 权限的普通运行角色，在 `.env` 另设 schema owner 的 `MIGRATION_DATABASE_URL`；FastAPI 仍只使用 `DATABASE_URL`，迁移完成后启动脚本会清空 owner 连接，运行进程不保留 DDL 凭据。设 `--timeout-graceful-shutdown 3` 是为了在代码改动触发 `--reload` 且浏览器标签页仍连着 WebSocket（工作台 / AI 预标页）时，避免 uvicorn 无限等待在 `Waiting for background tasks to complete`；到 3s 上限后强制断开 WS 放行 reload，客户端收到 1006 后自动指数退避重连。
 
 ## 前端开发
 
@@ -535,6 +466,10 @@ docker compose --env-file .env.production \
 
 > 开发态不带 `-f docker-compose.prod.yml`，api/web 仍跑宿主机。
 > 单独构建镜像：`docker build -f infra/docker/Dockerfile.web -t anno-web .` / `docker build -f infra/docker/Dockerfile.api -t anno-api .`。API 镜像需要仓库根目录作为 context，以复制 `apps/_shared/protocol_v2`。
+
+### 局域网生产环境（同机共存）
+
+同机另建生产环境时，使用独立 `docker-compose.lan-prod.yml`，详见[局域网生产部署](docs-site/ops/deploy/lan-production.md)。从现有 `.env` 派生本地 `.env.production`，设置 `LAN_BIND_IP`、`AAP_SHARED_NETWORK`、`AAP_IMAGE_TAG`、`AAP_PRODUCTION_STATE_DIR`；生产数据库、九个存储桶、Redis、Worker 和 DuckDB 独立，前端/API 使用 HTTPS 3030/8080。命令始终显式带 `--env-file .env.production -f docker-compose.lan-prod.yml`，不要与开发或整栈生产 Compose 叠加。
 
 ## 测试与文档
 
@@ -861,9 +796,9 @@ PYTHONPATH=. uv run python scripts/seed.py --profile online-training
 [实例分割在线学习验收](docs-site/dev/how-to/validate-segmentation-online-learning.md)。
 夹具不创建实验或启用策略，也不要求生成时已开启训练目录。COCO8 用于流程试跑，不能据此评估模型质量。
 
-## 下一步计划
+## 数据集、存储与站点 Agent 开发核验
 
-详见 [CHANGELOG.md](CHANGELOG.md) 顶部的 roadmap 与 [docs/plans/](docs/plans/) 下的具体计划。
+### 自动训练策略调度核验
 
 自动训练策略默认关闭。部署迁移后刷新 default/export worker 与 beat，确认注册 `app.workers.learning_policy.check_policies`；beat 每分钟分批检查策略，独立训练执行器仍按固定 GPU 领取。负责人明确保存门槛、检查间隔和冷却时间后才启用；没有 beat 的工作树环境可通过「立即检查与同步」验收相同路径。关闭策略不要求训练目录仍在线，成功训练不会自动发布。
 
@@ -913,7 +848,7 @@ PYTHONPATH=. uv run python scripts/seed.py --profile online-training
 
 核验仅对当前可证明的平台定位和可信历史SHA/大小读取，固定5GiB、256KiB块、60秒协作预算，客户端短超时且单次尝试；超预算返回明确未完成。纯流完整摘要适用于多种文件，不引入图像解码或完整暂存。任意核验事实阻止0218破坏性降级；恢复历史不做物理映射，旧context失效后显式核验目标。见[核验合同](docs-site/dev/concepts/storage-connections.md#已登记原件的完整内容观测)。
 
-## 只读站点 Agent 组件
+### 只读站点 Agent 组件
 
 独立组件位于 `apps/storage-agent`，标准库共享包位于 `apps/_shared/filesystem_read` 与 `apps/_shared/site_agent_contract`。配置和测试命令见 [Agent README](apps/storage-agent/README.md)，中心配对、传输及扫描／预检登记／原图快照已经接通。超级管理员入口为 `/storage?tab=agents`，Agent 图片支持完整核验后的单区间 Range。API 虚拟环境新增两个锁定本地包；开发环境应用迁移并刷新 API 重载父进程及受影响 Worker，继续使用现有工作树归属服务与端口，无需重建现有后端镜像。
 
@@ -922,3 +857,7 @@ PYTHONPATH=. uv run python scripts/seed.py --profile online-training
 E06 的 `verify_site_agent.py --scenario recovery` 在同一自有拓扑中以中心较低带宽限制执行原图上传中断／重启、丢领取响应至原期限失效、扫描断网恢复和撤销检查；只观察数据库，不写造租约或回执。`basic` 保持单站点扫描登记和完整／Range 合同。三个场景都只用 launcher 的一次性 test 资源。
 
 引用图片备用来源管理使用迁移0267和`dataset-items/{item_id}/reference-replicas`端点；对应管理UI位于样本检查器的默认折叠区。`test_dataset_reference_replicas.py`覆盖定向授权、同内容候选、完整读取、撤销、缓存策略和冻结身份；真实双Agent验证沿`verify_site_agent.py`的自有隔离拓扑执行，不重建后端镜像。
+
+## 下一步计划
+
+数据集与存储全系列 Epic 的执行队列、归档状态与活跃切片见 [docs/plans/1792752668_dataset-storage-epic-execution.md](docs/plans/1792752668_dataset-storage-epic-execution.md)，其他专项计划见 [docs/plans/](docs/plans/)。

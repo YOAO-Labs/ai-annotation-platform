@@ -1,8 +1,9 @@
 ---
+title: 项目模块
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-22
+last_reviewed: 2026-10-26
 ---
 
 # 项目模块
@@ -216,6 +217,13 @@ Project 决定 task 的这些上层语义：
 - task 锁 TTL
 
 这也是为什么 task 虽然有独立状态机，但很多行为仍要回读 project 配置。
+
+### Project ↔ Dataset 关联与筛选冻结
+
+项目与数据集通过 `ProjectDataset(project_id, dataset_id)` 建立多对多关联（`DatasetService.link_project`）：
+
+- **类型门禁与同步/异步建题**：关联前严格校验项目类型与数据集媒体类型/场景属性（`kind_mismatch_detail`）以及数据集归档/来源创建者权限。当样本数 `<= task_create_sync_threshold` 时在请求内分块同步创建 `batch_id=NULL` 的未分批任务；超过阈值时创建 `AsyncJob(kind=create_tasks)` 异步补建。后续数据集新增样本（含增量同步采纳）会通过 `create_tasks_for_items` 自动向已关联项目补建空白任务。
+- **数据集工作台筛选冻结与训练选样**：在数据集工作台或训练数据版本创建中选择关联项目与组合筛选条件（`source_id`、`availability`、`scene_id`、文件名、扩展名、尺寸区间）时，`dataset_workbench.project_filtered_item_ids` 会校验 `ProjectDataset` 关联并在版本创建时将命中的样本/任务与内容身份不可变地冻结至 `TrainingDatasetVersion.snapshot`（详见[数据集、目录来源与增量同步架构](./dataset-sources-and-sync)）。
 
 ## 主要 API 面
 

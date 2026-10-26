@@ -1,8 +1,9 @@
 ---
+title: 仓库地图：模块归属与调用链
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-26
 ---
 
 # 仓库地图：模块归属与调用链
@@ -22,9 +23,13 @@ last_reviewed: 2026-10-19
 | 服务层          | `apps/api/app/services/**`                                                                  | 授权真值在 `project_access`，聚合 SQL 在 `project_aggregates`                   |
 | Worker          | `apps/api/app/workers/**`                                                                   | 复用服务层；作业终态统一走 `async_job_terminal`                                 |
 | ML 共享运行时   | `apps/_shared/backend_runtime`                                                              | 无状态叶子函数 + `ManagedLruPool` 池内核                                        |
+| 光栅掩码工具    | `apps/_shared/mask_utils`                                                                   | RLE 编解码、多边形与掩码转换等无状态图像/视频共享工具                           |
 | ML 协议         | `apps/_shared/protocol_v2`                                                                  | 五个 backend 共用的 schema 与受控词表                                           |
 | 任务契约        | `apps/_shared/task_contract`                                                                | 纯 Python 统一视觉操作名（`detect`/`segment`/`classify` 等）与别名映射          |
 | 训练参数契约    | `apps/_shared/training_contract`                                                            | 纯 Python 原生框架字段快照、catalog 依赖校验、预算与回流契约                    |
+| 只读文件原语    | `apps/_shared/filesystem_read`                                                              | 标准库 Linux `openat2` 只读目录/文件锚点校验与 `0600` 本地 `VerifiedStage`      |
+| 站点 Agent 契约 | `apps/_shared/site_agent_contract`                                                          | 中心与跨网络只读站点 Agent 共用的命令、回执、摘要与协议模型                     |
+| 站点存储 Agent  | `apps/storage-agent`                                                                        | 独立出站 HTTPS 只读目录扫描与分块传输守护进程（零入站监听、本地 SQLite 状态）   |
 | 训练执行器      | `apps/training-executor`                                                                    | 独立拉取式执行器，OS `flock` 协调同一资源的执行器，管理原生训练子进程与脱敏日志 |
 | ML backend      | `apps/{grounded-sam2,sam3,yolo,rapidocr,onnxtools}-backend`                                 | 各自的模型池包装、观测指标、GPU 生命周期与受控模型热加载                        |
 
@@ -68,13 +73,21 @@ last_reviewed: 2026-10-19
    - 冻结逐样本评估（`app/services/sample_evaluations.py`）与主动学习选样（`app/services/active_learning.py`）在 `ml.cpu` 队列执行，自动重训策略（`app/services/learning_policies.py`）由 Beat `check_policies` 周期巡检。
 5. **模型谱系与决策**：`app/services/model_lineage.py`（路由 `app/api/v1/model_lineage.py`）提供单跳谱系投影与 `model_decisions` 追加式处置记录。详见[在线学习与训练体系](./training-datasets)。
 
+## 5.5 数据集、目录来源与受控存储调用链
+
+1. **存储位置、连接器与九用途绑定**：`app/services/storage_connection.py`（Fernet 加密 + `connector_guard.py` SSRF 白名单）与 `storage_location.py` 管理外部连接及四类存储位置（`filesystem` / `s3` / `sftp` / `agent`）；`dataset_binding_change.py` 与各用途 `*_storage.py` 管理九用途绑定切换与 27 家族保存目标（`storage_ref`）隔离。位置级访问准入与排空由 `storage_access.py` 和 `storage_maintenance.py` 维护。
+2. **目录扫描、预检登记与增量同步**：`app/services/dataset_scans.py`、`dataset_registration.py`、`dataset_source_changes.py`、`dataset_source_revisions.py` 与 `dataset_source_sync.py` 编排目录枚举（底层调用 `apps/_shared/filesystem_read`、`sources/s3_reference.py`、`sources/sftp_reference.py` 或 `agent_storage.py`）、六类增量差异预检、内容修订与 Beat 周期同步。
+3. **跨网络只读站点 Agent**：`apps/storage-agent` 轮询 `app/api/v1/site_agent_transport.py`（`app/services/agent_transport.py`），借由 `apps/_shared/site_agent_contract` 校验命令并上传 `256 KiB` 分块；显式同内容备用来源由 `dataset_reference_replicas.py` 调度。
+4. **原件验证读取、缓存与保留回收**：`app/services/original_sources.py`、`managed_original_reader.py`、`original_binary.py` 与 `original_playback.py` 提供严格内容核验读取、认证下载与原生视频分片舞台；`original_cache.py` 管理按需完整原图缓存；`managed_original_creation.py`、`managed_original_retirement.py`、`managed_original_retention.py`、`managed_original_verification.py` 与 `managed_original_reclaim.py` 管理条件创建、删除保留账本、声明保留要求与准确版本回收。
+5. **数据集工作台、质量检测与存储迁移**：`app/services/dataset_workbench.py` 提供六态观测聚合、组合筛选与关联项目可见任务统计；`dataset_quality.py` 与 `dataset_quality_review.py` 执行可恢复图片质量检测与固定范围批量复核；`storage_migration_*.py` 与 `storage_usage*.py` 提供配置源迁移清单、复制批次、维护窗口、已封存读取映射（`PhysicalReadPlan`）、九用途原子切换与六分类容量盘点。详见[存储位置、连接器与用途绑定](./storage-connections)。
+
 ## 6. 测试层级与运行入口
 
 分层口径、运行命令与接线状态见[测试指南](/dev/testing)：
 
 - **后端测试**：纯规则测试不落库；事务、锁顺序与通知测试使用独立测试数据库连接。
 - **前端测试**：页面测试优先在 MSW API 边界描述响应（`src/test/` 提供最小 fixture）；纯 URL 与几何规则下沉至 `*UrlState.test.ts` 与几何单测。
-- **ML 与共享契约包测试**：5 个 ML backend 与 `apps/_shared` 下 5 个共享包（`backend_runtime` / `mask_utils` / `protocol_v2` / `task_contract` / `training_contract`）及 `apps/training-executor` 均通过 `scripts/run-ml-cpu-tests.sh`（CI 工作流 `.github/workflows/ml-cpu-test.yml`）在纯 CPU 环境下运行。
+- **ML、存储 Agent 与共享契约包测试**：5 个 ML backend、`apps/_shared` 下 7 个共享包（`backend_runtime` / `mask_utils` / `protocol_v2` / `task_contract` / `training_contract` / `filesystem_read` / `site_agent_contract`）、`apps/training-executor` 与 `apps/storage-agent` 均可在纯 CPU 环境下独立运行 pytest（其中 ML 与相关共享包通过 `scripts/run-ml-cpu-tests.sh` 在 CI `.github/workflows/ml-cpu-test.yml` 中执行）。
 
 ## 7. 改动时的对齐约定
 

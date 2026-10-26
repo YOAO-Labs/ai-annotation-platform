@@ -1,6 +1,6 @@
 # 只读文件系统原语
 
-`aap-filesystem-read` 是仅依赖 Python 标准库的独立包，供中心和站点 Agent 共享安全读取语义。它不导入 API Settings、数据库、Redis、Celery、训练执行器或图像解码依赖。目前仅交付组件；中心接入、站点配对、网络传输和平台 Range 接口尚未由本包实现。
+`aap-filesystem-read` 是仅依赖 Python 标准库的独立包，供中心和站点 Agent 共享安全读取语义。它不导入 API Settings、数据库、Redis、Celery、训练执行器或图像解码依赖。本包提供中心与站点 Agent 共用的本地只读文件系统原语；站点配对、网络传输与平台 Range 由 `aap-site-agent-contract`、`apps/storage-agent` 和中心 API 实现。
 
 来源根通过不可变 `RootSpec(root_handle, absolute_root, relative_base="", binding_revision=1)` 显式传入，不从环境变量读取映射。根路径不能是 `/`，必须是规范化绝对路径；根内路径只能是 UTF-8 相对路径。调用方负责授权、绑定修订核验和已确认进度，本包不决定业务权限。
 

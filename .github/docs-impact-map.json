@@ -34,9 +34,11 @@
         "docs-site/dev/concepts/counters-and-derived-fields.md"
       ],
       "acceptDocs": [
+        "docs-site/dev/concepts/",
         "docs-site/dev/concepts/project-module.md",
         "docs-site/dev/concepts/visibility-and-permissions.md",
         "docs-site/dev/concepts/counters-and-derived-fields.md",
+        "docs-site/user-guide/",
         "docs-site/user-guide/projects/",
         "docs/adr/"
       ]
@@ -182,10 +184,12 @@
         "docs-site/user-guide/projects/ai-preannotate.md"
       ],
       "acceptDocs": [
+        "docs-site/dev/concepts/",
         "docs-site/dev/concepts/ai-preannotate-handoff.md",
         "docs-site/dev/concepts/prediction-pipeline.md",
         "docs-site/dev/concepts/ai-models.md",
         "docs-site/dev/concepts/batch-module.md",
+        "docs-site/user-guide/",
         "docs-site/user-guide/projects/ai-preannotate.md",
         "docs-site/user-guide/ai/",
         "docs-site/user-guide/workflows/failed-prediction-recovery.md",
@@ -373,6 +377,35 @@
       "codeMatchers": [".env.example", "apps/api/app/config.py", "docker-compose*.yml"],
       "recommendDocs": [".env.example", "DEV.md", "docs-site/dev/reference/env-vars.md"],
       "acceptDocs": [".env.example", "DEV.md", "docs-site/dev/reference/env-vars.md"]
+    },
+    {
+      "id": "dataset-storage",
+      "name": "Datasets, storage locations, purpose bindings, retention, migration, and site agents",
+      "codeMatchers": [
+        "apps/api/app/services/dataset*.py",
+        "apps/api/app/services/storage*.py",
+        "apps/api/app/services/managed_original*.py",
+        "apps/api/app/services/site_agent*.py",
+        "apps/api/app/workers/dataset*.py",
+        "apps/api/app/workers/storage*.py",
+        "apps/web/src/pages/Datasets/**",
+        "apps/web/src/pages/Storage/**",
+        "apps/storage-agent/**",
+        "apps/_shared/filesystem_read/**",
+        "apps/_shared/site_agent_contract/**"
+      ],
+      "recommendDocs": [
+        "docs-site/user-guide/datasets/",
+        "docs-site/dev/concepts/",
+        "docs-site/ops/deploy/",
+        "docs-site/api/guides/"
+      ],
+      "acceptDocs": [
+        "docs-site/user-guide/datasets/",
+        "docs-site/dev/concepts/",
+        "docs-site/ops/deploy/",
+        "docs-site/api/guides/"
+      ]
     }
   ]
 }

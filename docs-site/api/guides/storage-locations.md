@@ -1,4 +1,5 @@
 ---
+title: 受控存储位置与迁移
 audience: [dev, project_admin, super_admin]
 type: reference
 status: stable
@@ -13,7 +14,7 @@ last_reviewed: 2026-10-26
 
 ## 端点和权限
 
-所有路径前缀为 `/api/v1/storage-locations`。无权访问的位置返回 `404`；员工无目录浏览权限。所有 GET 要求 `datasets:read`，POST/PATCH 要求 `datasets:write`；JWT 保留当前角色权限。
+本页涵盖两组路由前缀：位置登记、九用途绑定切换、目录浏览、节点探测、故障关联与访问维护位于 `/api/v1/storage-locations`；平台桶占用快照、增量账目、对象存储迁移（清单、复制、维护窗口）以及托管原件保留与准确版本回收位于 `/api/v1/storage`。无权访问的位置返回 `404`；员工无目录浏览权限。`/api/v1/storage-locations` 下所有 GET 要求 `datasets:read`，POST/PATCH 要求 `datasets:write`；`/api/v1/storage` 下的平台级盘点、迁移与回收接口要求超级管理员及全权 `*`（视频派生故障与重试按项目/数据集管理范围授权）。JWT 保留当前角色权限。
 
 | 方法  | 路径                   | 权限与行为                                                                        |
 | ----- | ---------------------- | --------------------------------------------------------------------------------- |
@@ -68,6 +69,22 @@ last_reviewed: 2026-10-26
 已授权的数据集来源核验读取、引用图片读取、扫描失败与预览生成可产生 `storage.fault` 审计，`target_type=storage_location`、`target_id` 为实际位置 UUID。沿既有 `GET /api/v1/audit-logs?action=storage.fault&target_type=storage_location&target_id=<location_id>` 查询，或用 `detail_key=source_id&detail_value=<source_id>` 按来源过滤；审计权限沿原接口，不赋予普通来源用户全局日志权限。
 
 明细的 `category` 为 `root_unavailable / access_denied / source_changed / preview_failed`，`code`为受控错误码，`operation`为`scan / scan_content / reference_read / preview_generate`。其余关联 UUID 只在真实解析后提供；HTTP request_id在安全长度与格式内原样保留，后台无请求上下文时不提供。无路径、对象键、签名 URL、凭据或异常原文。该观测不改变读取响应、不触发源 I/O，也不构成实时位置健康或全部消费者／站点覆盖证明。
+
+### 九用途新分配切换速览
+
+九种平台用途均支持通过 `/api/v1/storage-locations/bindings/{purpose}/{candidates,change-preview}` 与 `PATCH /api/v1/storage-locations/bindings/{purpose}` 将**后续新分配**切换到已启用的默认托管位置或已登记全局 S3 位置（仅限超级管理员 + `datasets:write`），已有对象与在途写入继续按保存位置读写：
+
+| 用途（`purpose`） | `change_policy`                  | 外部受控前缀                  | 探针能力要求                                            | 详细章节                                  |
+| ----------------- | -------------------------------- | ----------------------------- | ------------------------------------------------------- | ----------------------------------------- |
+| `import`          | `reviewed_import_switch`         | `_aap_managed/import/`        | 条件写入、完整读回、准确删除、桶版本控制与对象/版本列举 | [导入暂存用途切换](#导入暂存用途切换)     |
+| `avatars`         | `reviewed_avatar_switch`         | `_aap_managed/avatars/`       | 条件写入、完整读回、准确删除（`unlocated_users=0`）     | [头像用途切换](#头像用途切换)             |
+| `bug-reports`     | `reviewed_bug_attachment_switch` | `_aap_managed/bug-reports/`   | 条件写入、完整读回、准确删除                            | [报告附件用途切换](#报告附件用途切换)     |
+| `audit-archive`   | `reviewed_audit_archive_switch`  | `_aap_managed/audit-archive/` | 条件写入、完整读回、准确删除                            | [审计归档用途切换](#审计归档用途切换)     |
+| `export`          | `reviewed_export_switch`         | `_aap_managed/export/`        | 条件写入、完整读回、准确删除、对象与版本列举            | [导出用途切换](#导出用途切换)             |
+| `datasets`        | `reviewed_dataset_switch`        | `_aap_managed/datasets/`      | 空 PUT、非空条件分段上传（MPU）、完整读回与准确收尾     | [数据集原件用途切换](#数据集原件用途切换) |
+| `media-cache`     | `reviewed_media_cache_switch`    | `_aap_managed/media-cache/`   | 条件写入、完整读回、准确删除、前缀列举                  | [媒体缓存用途切换](#媒体缓存用途切换)     |
+| `annotations`     | `reviewed_annotations_switch`    | `_aap_managed/annotations/`   | 条件写入、空 PUT、非空条件 MPU、完整读回与准确删除      | [标注文件用途切换](#标注文件用途切换)     |
+| `training`        | `reviewed_training_switch`       | `_aap_managed/training/`      | 普通 PUT、非空 MPU、完整 SHA 读回、前缀列举与批量删除   | [训练文件用途切换](#训练文件用途切换)     |
 
 ## 导入暂存用途切换
 

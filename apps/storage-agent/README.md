@@ -77,7 +77,7 @@ python3 -m venv /opt/aap-storage-agent
 - `--once` 执行一轮；`--drain` 只处理待确认结果，不领取新任务。过期凭据仅可向旧命令的结果接口交关闭回执，不能轮询或上传原图；撤销、过期或旧凭据的结果由中心决定是否保存关闭证据并返回 `rejected`。其他鉴权失败、协议不兼容和旧 fence 拒绝直接停止，不无限重试。
 - 同一身份的 session UUID 随独占本地日志耐久保存，进程重启后复用，身份修订变化时更新；认证请求使用 `X-Agent-Session` 回报该值。中心可按原 session 重投丢失响应的命令，保留原 ID 和到期时间；session 不构成独立授权。跨进程恢复仍依赖同一身份、命令 digest、耐久结果和中心 ACK，本地日志独占锁阻止两个实例同时操作。
 
-`Dockerfile` 和 `deploy/storage-agent.service` 提供独立部署骨架，中心接通前不要启用为生产服务。容器以 UID/GID 65532 运行，部署时须给配置／凭据正确属主，把来源以只读方式挂载，并将状态目录单独可写挂载；不挂载 Docker socket 或宿主机根目录。systemd 使用独立静态账户 `aap-storage-agent`，文件属主与权限要求相同。
+`Dockerfile` 和 `deploy/storage-agent.service` 提供独立部署骨架，生产部署前请按运维文档核对文件属主、只读根挂载与内部 CA 配置。容器以 UID/GID 65532 运行，部署时须给配置／凭据正确属主，把来源以只读方式挂载，并将状态目录单独可写挂载；不挂载 Docker socket 或宿主机根目录。systemd 使用独立静态账户 `aap-storage-agent`，文件属主与权限要求相同。
 
 ## 组件验证
 
