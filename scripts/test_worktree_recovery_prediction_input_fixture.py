@@ -418,7 +418,6 @@ class PredictionInputFixtureContracts(unittest.IsolatedAsyncioTestCase):
                     self.assertTrue(body.closed)
                     self.assertEqual(objects, before)
 
-
     def test_actual_owner_cleanup_rejects_restored_null_version_before_delete(self):
         from app.services import prediction_inputs
 

@@ -87,9 +87,9 @@ async def test_accept_revalidates_every_duplicate_member_not_only_representative
             world.originals.objects[replacement.bucket, replacement.object_key],
         )
     batches_before = await db_session.scalar(
-        select(func.count()).select_from(TaskBatch).where(
-            TaskBatch.project_id == world.project.id
-        )
+        select(func.count())
+        .select_from(TaskBatch)
+        .where(TaskBatch.project_id == world.project.id)
     )
     expected_error = HTTPException if change == "assignment" else ContentError
     with pytest.raises(expected_error):
@@ -110,11 +110,14 @@ async def test_accept_revalidates_every_duplicate_member_not_only_representative
         )
     )
     assert all(task.batch_id is None for task in world.tasks)
-    assert await db_session.scalar(
-        select(func.count()).select_from(TaskBatch).where(
-            TaskBatch.project_id == world.project.id
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(TaskBatch)
+            .where(TaskBatch.project_id == world.project.id)
         )
-    ) == batches_before
+        == batches_before
+    )
     assert all(body.closed for body in world.originals.bodies)
 
 
