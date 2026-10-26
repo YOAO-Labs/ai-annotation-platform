@@ -24,8 +24,6 @@ async def test_video_execution_status_uses_configured_http_owner(monkeypatch):
         lease_token=uuid.UUID("cb72f60a-61b0-4e76-b355-f8e8b976c4a2"),
     )
     monkeypatch.setattr(settings, "inference_routing_url", "http://routing-owner")
-    monkeypatch.setattr(settings, "inference_routing_database_url", "")
-    monkeypatch.setattr(settings, "inference_routing_database_url_file", "")
     monkeypatch.setattr(settings, "inference_routing_token", "private-token")
     monkeypatch.setattr(settings, "inference_routing_token_file", "")
     secret_values = iter(("", "private-token"))

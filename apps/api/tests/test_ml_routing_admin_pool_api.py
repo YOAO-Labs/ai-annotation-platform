@@ -58,8 +58,6 @@ async def _routing_owner_http(test_engine, monkeypatch):
     monkeypatch.setattr(settings, "inference_routing_url", f"http://127.0.0.1:{port}")
     monkeypatch.setattr(settings, "inference_routing_token", token)
     monkeypatch.setattr(settings, "inference_routing_token_file", "")
-    monkeypatch.setattr(settings, "inference_routing_database_url", "")
-    monkeypatch.setattr(settings, "inference_routing_database_url_file", "")
     try:
         yield
     finally:
