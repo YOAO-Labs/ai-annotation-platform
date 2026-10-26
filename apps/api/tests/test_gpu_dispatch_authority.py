@@ -1343,14 +1343,22 @@ async def _dispatch_health_refresher(_backend_id: uuid.UUID, _challenge: str) ->
     return True
 
 
+def _unopened_store_factory():
+    raise AssertionError("GPU store must not be opened by this dispatch")
+
+
+def _unopened_signer_factory():
+    raise AssertionError("GPU signer must not be opened by this dispatch")
+
+
 def _build_dispatch_context_factory(data_provider, **kwargs):
     return authority_module.build_gpu_dispatch_context_factory(
         data_provider,
         _DispatchEndpointSource(),
         _dispatch_test_transport,
         config=kwargs.pop("config", Settings(_env_file=None)),
-        store_factory=kwargs.pop("store_factory"),
-        signer_factory=kwargs.pop("signer_factory"),
+        store_factory=kwargs.pop("store_factory", _unopened_store_factory),
+        signer_factory=kwargs.pop("signer_factory", _unopened_signer_factory),
         health_refresher=kwargs.pop("health_refresher", _dispatch_health_refresher),
         clock=kwargs.pop("clock", _DispatchTestClock()),
         **kwargs,
