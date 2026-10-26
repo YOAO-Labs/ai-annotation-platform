@@ -1108,6 +1108,48 @@ async def _register_fixture_original(db, item, payload: bytes):
     )
 
 
+def _raster_image_bytes(index: int, *, width: int = 64, height: int = 48) -> bytes:
+    """Deterministic 64x48 raster image for image-workbench fixtures.
+
+    The qualified original reader admits only decoded raster media; a vector
+    document has no native pixels for Mask/SAM receipts. Keep the previous
+    fixture palette and label so the rendered task looks the same.
+    """
+    import colorsys
+    from io import BytesIO
+
+    from PIL import Image, ImageDraw, ImageFont
+
+    red, green, blue = colorsys.hls_to_rgb((index * 48 % 360) / 360, 0.88, 0.30)
+    fill = (round(red * 255), round(green * 255), round(blue * 255))
+    image = Image.new("RGB", (width, height), fill)
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((4, 4, width - 5, height - 5), outline="#64748b", width=1)
+    label = f"E2E {index + 1}"
+    font = None
+    for name in ("LiberationSerif-Regular.ttf", "DejaVuSerif.ttf"):
+        try:
+            font = ImageFont.truetype(name, 9)
+            break
+        except OSError:
+            continue
+    if font is None:
+        try:
+            font = ImageFont.load_default(size=9)
+        except TypeError:  # Pillow < 10.1 has no scalable default font.
+            font = ImageFont.load_default()
+    left, top, right, bottom = draw.textbbox((0, 0), label, font=font)
+    draw.text(
+        ((width - (right - left)) / 2 - left, (height - (bottom - top)) / 2 - top),
+        label,
+        fill="#334155",
+        font=font,
+    )
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
 @dataclass(frozen=True)
 class _ImageWorkbenchFixture:
     """Identifiers used by the standard image-workbench fixture builder."""
@@ -1204,7 +1246,8 @@ async def _build_image_workbench_fixture(
     await db.flush()
 
     # 原生图片 raster_mask 校验必须有真实 DatasetItem 及宽高。
-    # 用固定 MinIO key 覆写一组小 SVG，避免每次 reset 制造孤儿对象。
+    # 用固定 MinIO key 覆写一组 64x48 真彩 PNG：qualified original reader
+    # 只接受可解码的栅格原件，Mask/SAM 回执需要原生像素。
     from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
     from app.services.storage import storage_service
 
@@ -1224,34 +1267,26 @@ async def _build_image_workbench_fixture(
     tasks = []
     task_created_at = datetime.now(timezone.utc)
     for index in range(5):
-        image_key = f"{ids.image_key_prefix}task-{index + 1}.svg"
-        svg = (
-            '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="48" '
-            'viewBox="0 0 64 48">'
-            f'<rect width="64" height="48" fill="hsl({index * 48} 30% 88%)"/>'
-            '<rect x="4" y="4" width="56" height="40" rx="3" '
-            'fill="none" stroke="#64748b" stroke-width="1"/>'
-            f'<text x="32" y="27" text-anchor="middle" font-size="9" '
-            f'fill="#334155">E2E {index + 1}</text></svg>'
-        ).encode("utf-8")
+        image_key = f"{ids.image_key_prefix}task-{index + 1}.png"
+        raster = _raster_image_bytes(index)
         storage_service.client.put_object(
             Bucket=storage_service.datasets_bucket,
             Key=image_key,
-            Body=svg,
-            ContentType="image/svg+xml",
+            Body=raster,
+            ContentType="image/png",
         )
         item = DatasetItem(
             dataset_id=image_dataset.id,
-            file_name=f"task-{index + 1}.svg",
+            file_name=f"task-{index + 1}.png",
             file_path=image_key,
             file_type="image",
-            file_size=len(svg),
+            file_size=len(raster),
             width=64,
             height=48,
         )
         db.add(item)
         await db.flush()
-        await _register_fixture_original(db, item, svg)
+        await _register_fixture_original(db, item, raster)
         t = await create_task(
             db,
             project_id=project.id,

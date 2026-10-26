@@ -35,10 +35,13 @@ async def prepare():
     try:
         async with engine.begin() as connection:
             row = (await connection.execute(text("SELECT dataset_item_id, file_path FROM tasks WHERE id=:id FOR UPDATE"), {"id": task_id})).one()
-            # Owned fixtures name the seed SVG after their namespace; derive the
+            # Owned fixtures keep their images under the namespace; derive the
             # directory from the task itself so the replacement PNG stays inside
             # the same owned prefix and owned-cleanup removes it.
-            owned = re.fullmatch(r"e2e/owned/([a-z0-9]{4,12})/image/task-[0-9]+[.]svg", row.file_path or "")
+            owned = re.fullmatch(
+                r"e2e/owned/([a-z0-9]{4,12})/image/task-[0-9]+[.][A-Za-z0-9]+",
+                row.file_path or "",
+            )
             assert owned, f"expected an owned image fixture task path, got {row.file_path!r}"
             storage = StorageService()
             buffer = io.BytesIO()

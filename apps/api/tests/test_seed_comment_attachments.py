@@ -724,8 +724,8 @@ async def test_repeated_cancellation_drains_legacy_delete_before_retry_reuses_ke
     project_id, comment_id = uuid.UUID(world["project_id"]), uuid.UUID(comment_id)
     prefix = seed._parse_owned_namespace(world["namespace"]).image_key_prefix
     media = {
-        (ctx.objects.datasets_bucket, f"{prefix}task-{index}.svg"): ctx.objects.data[
-            ctx.objects.datasets_bucket, f"{prefix}task-{index}.svg"
+        (ctx.objects.datasets_bucket, f"{prefix}task-{index}.png"): ctx.objects.data[
+            ctx.objects.datasets_bucket, f"{prefix}task-{index}.png"
         ]
         for index in range(1, 6)
     }

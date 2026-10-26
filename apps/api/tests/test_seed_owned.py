@@ -408,7 +408,7 @@ async def test_owned_fixture_builds_complete_namespaced_workbench(
         Bucket=storage_service.datasets_bucket, Prefix=f"e2e/owned/{A}/image/"
     )
     assert {obj["Key"] for obj in listing.get("Contents", [])} == {
-        f"e2e/owned/{A}/image/task-{index}.svg" for index in range(1, 6)
+        f"e2e/owned/{A}/image/task-{index}.png" for index in range(1, 6)
     }
 
     assert (await _cleanup_owned(httpx_client, A)).status_code == 200
