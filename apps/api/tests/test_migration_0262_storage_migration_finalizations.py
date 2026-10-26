@@ -13,6 +13,10 @@ from sqlalchemy.exc import IntegrityError
 from app.db.models.storage_migration_finalization import (
     StorageMigrationFinalization as Finalization,
 )
+from tests.storage_migration_isolation import (
+    db_session as db_session,
+    migration_engine as migration_engine,
+)
 from tests.test_storage_migration_finalizations import (
     bound as bound,
     control as control,
@@ -32,32 +36,40 @@ def migration(connection):
     return module
 
 
-async def test_empty_roundtrip_keeps_historical_inventory_id_without_job_fk(db_session):
-    assert await db_session.scalar(select(Finalization.id).limit(1)) is None
-    connection = await db_session.connection()
+async def test_empty_roundtrip_keeps_historical_inventory_id_without_job_fk(test_engine):
+    # Schema roundtrip drops named indexes/constraints, so it must run against
+    # the real public schema, not the isolation clone (LIKE renames them).
+    async with test_engine.connect() as connection:
+        transaction = await connection.begin()
+        try:
+            assert await connection.scalar(select(Finalization.id).limit(1)) is None
 
-    def roundtrip(conn):
-        from tests.test_storage_migration_cutovers import migration as cutover_migration
-        from tests.test_migration_0263_storage_migration_read_publications import (
-            migration as read_migration,
-        )
+            def roundtrip(conn):
+                from tests.test_storage_migration_cutovers import (
+                    migration as cutover_migration,
+                )
+                from tests.test_migration_0263_storage_migration_read_publications import (
+                    migration as read_migration,
+                )
 
-        cutover_migration(conn).downgrade()
-        read_migration(conn).downgrade()
-        migration(conn).downgrade()
-        migration(conn).upgrade()
-        read_migration(conn).upgrade()
-        cutover_migration(conn).upgrade()
-        schema = inspect(conn)
-        foreign = schema.get_foreign_keys(Finalization.__tablename__)
-        assert len(foreign) == 4
-        assert all(row["options"]["ondelete"] == "RESTRICT" for row in foreign)
-        assert not any(
-            "inventory_job_id" in row["constrained_columns"] for row in foreign
-        )
-        assert len(schema.get_check_constraints(Finalization.__tablename__)) == 6
+                cutover_migration(conn).downgrade()
+                read_migration(conn).downgrade()
+                migration(conn).downgrade()
+                migration(conn).upgrade()
+                read_migration(conn).upgrade()
+                cutover_migration(conn).upgrade()
+                schema = inspect(conn)
+                foreign = schema.get_foreign_keys(Finalization.__tablename__)
+                assert len(foreign) == 4
+                assert all(row["options"]["ondelete"] == "RESTRICT" for row in foreign)
+                assert not any(
+                    "inventory_job_id" in row["constrained_columns"] for row in foreign
+                )
+                assert len(schema.get_check_constraints(Finalization.__tablename__)) == 6
 
-    await connection.run_sync(roundtrip)
+            await connection.run_sync(roundtrip)
+        finally:
+            await transaction.rollback()
 
 
 async def test_nonempty_downgrade_preserves_history(db_session, bound):
