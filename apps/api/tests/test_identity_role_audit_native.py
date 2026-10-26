@@ -54,11 +54,19 @@ def _canonical(value):
     return value
 
 
+@pytest.fixture
+async def empty_audit_engine(test_engine):
+    # The verifier's shared database deliberately contains a Notifications probe.
+    async with historical_audit_database(test_engine, revision="head") as (engine, _):
+        yield engine
+
+
 @pytest.mark.parametrize("scenario", ["empty", "full", "managers"])
 @pytest.mark.parametrize("max_rows", [1, 1000])
 async def test_role_audit_report_replay(
-    test_engine, scenario, max_rows, record_property
+    empty_audit_engine, scenario, max_rows, record_property
 ):
+    test_engine = empty_audit_engine
     sequence = {}
 
     def fixed_fixture_ids(_mapper, _connection, target):
@@ -413,9 +421,9 @@ async def test_labeling_audit_installer_rejects_drift_atomically(test_engine, in
                     text("CREATE TABLE aap_labeling_audit_v1.unexpected(id uuid)")
                 )
         try:
-            options = (
-                {"expected_database": "wrong_test"} if invalid == "database" else {}
-            )
+            options = {"labeling_owner": "labeling_code"}
+            if invalid == "database":
+                options["expected_database"] = "wrong_test"
             if invalid == "owner":
                 options["labeling_owner"] = "identity_code"
             result = await _grants(test_engine, installer, role, **options)
@@ -445,7 +453,9 @@ async def test_labeling_audit_installer_rejects_drift_atomically(test_engine, in
                     await db.execute(
                         text("DROP TABLE aap_labeling_audit_v1.unexpected")
                     )
-            recovered = await _grants(test_engine, installer, role)
+            recovered = await _grants(
+                test_engine, installer, role, labeling_owner="labeling_code"
+            )
             assert recovered.returncode == 0, recovered.stderr
         async with read_only_audit_session(reader) as db:
             await collect_report(db)
@@ -570,11 +580,11 @@ async def test_historical_profile_tracks_preparation_and_node(
                     text("UPDATE public.user_invitations SET project_role='reviewer'")
                 )
             await _node_audit_reader(reader, prepared=True, project_role="reviewer")
-            installed = _grants(
+            installed = await _grants(
                 historical,
-                "labeling-role-audit-grants.sql",
+                ROOT / "infra/docker/labeling-role-audit-grants.sql",
+                _role,
                 labeling_owner="labeling_code",
-                consumer_role=_role,
             )
             assert installed.returncode == 0, installed.stderr
             async with read_only_audit_session(reader) as db:

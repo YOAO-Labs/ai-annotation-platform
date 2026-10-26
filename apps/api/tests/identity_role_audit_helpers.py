@@ -19,11 +19,11 @@ ROOT = Path(__file__).resolve().parents[3]
 
 
 @asynccontextmanager
-async def historical_audit_database(test_engine, *, initialize=True):
+async def historical_audit_database(test_engine, *, initialize=True, revision="0171"):
     _verify_postgres(test_engine.url)
     name = "aap_role_audit_" + uuid.uuid4().hex[:16] + "_test"
     marker = "identity-role-audit:" + uuid.uuid4().hex
-    evidence = {"database": name, "revision": "0171", "removed": False}
+    evidence = {"database": name, "revision": revision, "removed": False}
     engine = None
     async with test_engine.connect() as connection:
         db = await connection.execution_options(isolation_level="AUTOCOMMIT")
@@ -43,7 +43,8 @@ async def historical_audit_database(test_engine, *, initialize=True):
         environment["AAP_ROLE_AUDIT_HISTORICAL_URL"] = url.render_as_string(
             hide_password=False
         )
-        code = "from alembic import command; from alembic.config import Config; import os; c=Config('alembic.ini'); c.set_main_option('sqlalchemy.url',os.environ['AAP_ROLE_AUDIT_HISTORICAL_URL']); command.upgrade(c,'0171')"
+        environment["AAP_ROLE_AUDIT_REVISION"] = revision
+        code = "from alembic import command; from alembic.config import Config; import os; c=Config('alembic.ini'); c.set_main_option('sqlalchemy.url',os.environ['AAP_ROLE_AUDIT_HISTORICAL_URL']); command.upgrade(c,os.environ['AAP_ROLE_AUDIT_REVISION'])"
         command = [sys.executable, "-c", code]
         result = await asyncio.to_thread(
             subprocess.run,
@@ -64,6 +65,17 @@ async def historical_audit_database(test_engine, *, initialize=True):
         )
         assert result.returncode == 0, log.read_text()[-4000:]
         engine = create_async_engine(url, hide_parameters=True)
+        if revision == "head":
+            from scripts.audit_project_roles import script_heads
+
+            async with engine.connect() as db:
+                observed = await db.scalar(
+                    text("SELECT version_num FROM alembic_version")
+                )
+                assert [observed] == script_heads()
+                evidence["revision"] = observed
+            yield engine, evidence
+            return
         async with engine.begin() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM alembic_version"))
