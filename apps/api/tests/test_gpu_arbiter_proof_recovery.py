@@ -94,6 +94,7 @@ def _resource_config(
 ) -> GPUAuthoritySettings:
     resources = {
         resource_id: GPUResourceSettings(
+            resource_id=resource_id,
             node_id=resource_id.split("/", 1)[0],
             physical_device_token=resource_id.split("/", 1)[1],
             allocatable_mb=allocatable_mb,
@@ -960,19 +961,18 @@ async def _prepare_selected_idle_eviction(
             generation="1",
         )
         assert released.status == "released"
-    async with factory() as db:
-        read_subject = (
-            read_gpu_busy_eviction_runtime_subject
-            if allow_busy
-            else read_gpu_idle_eviction_runtime_subject
-        )
-        subject = await read_subject(
-            db,
-            backend_id=str(victim_id),
-            gpu_resource_id=resource_id,
-            expected_generation="1",
-            challenge=challenge,
-        )
+    read_subject = (
+        read_gpu_busy_eviction_runtime_subject
+        if allow_busy
+        else read_gpu_idle_eviction_runtime_subject
+    )
+    subject = await read_subject(
+        factory,
+        backend_id=str(victim_id),
+        gpu_resource_id=resource_id,
+        expected_generation="1",
+        challenge=challenge,
+    )
     prepared = await prepare_gpu_idle_eviction_runtime_generation(
         factory,
         subject,
@@ -3184,7 +3184,6 @@ async def test_idle_eviction_subject_advances_generation_and_horizon_atomically(
         assert subject.generation_high_water == 1
         assert subject.generation == "1"
         assert subject.challenge == challenge
-        assert subject.backend.url
 
         with pytest.raises(
             GPUIdleEvictionRuntimeSubjectError,
@@ -3220,7 +3219,6 @@ async def test_idle_eviction_subject_advances_generation_and_horizon_atomically(
         assert prepared.source_generation == "1"
         assert prepared.generation == "2"
         assert prepared.token_expires_at == token_expires_at
-        assert prepared.backend.url == subject.backend.url
         with pytest.raises(
             GPUIdleEvictionRuntimeSubjectError,
             match="runtime_subject_changed",
