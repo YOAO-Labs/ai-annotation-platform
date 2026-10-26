@@ -191,7 +191,7 @@ SFTP 复用逐目录检查点、取消恢复及末次目录清单核对，每目
 
 `POST /dataset-registrations/{registration_id}/changes/{path_digest}/revalidate` 使用与内容接纳相同的请求和权限，只接受完整预检的 `changed/observation_changed`，要求前后 SHA 相同、前驱仍为当前头。差异行的 `can_revalidate` 表示可发起该操作；来源资格变化仍被阻断。
 
-重新完整读取后，追加同 Item/Asset 的接纳修订并推进当前路径头，`created=false`；不新建样本、Task 或原图副本，不改原 Reference、标注和样本元数据。托管复制继承原媒体所有权。原地任务只使用同来源、同 Item/Asset 的最新已明确接纳观测严格读取；失败不回退其他凭据或同摘要样本。读取期间凭据切换会拒绝交付。
+重新完整读取后，追加同 Item/Asset 的接纳修订并推进当前路径头，`created=false`；不新建样本、Task 或原图副本，不改原 Reference、标注和样本元数据。托管复制继承原媒体所有权。原地任务只使用同来源、同 Item/Asset 的最新已明确接纳观测严格读取；失败不会自动尝试其他凭据或同摘要样本；仅可沿管理员明确发布的[备用来源关联](./datasets#引用样本备用来源)读取同一准确内容。读取期间凭据切换会拒绝交付。
 
 重复确认返回原记录；过期前驱或候选变化返回409。差异、原错误和周期核对门禁保持历史语义。修订历史的 `acceptance_kind` 区分 `initial`、`content_revision` 与 `observation_revalidation`。已打开且读图失败的任务需要点击重新读取或重开页面。此操作不恢复外部已丢失的字节，路径移动使用下文独立重定位入口，资格变更仍被阻断。
 

@@ -291,6 +291,16 @@
 | GET | `/{run_id}/results` |
 | POST | `/{run_id}/results/{result_id}/review` |
 
+## `dataset_reference_replicas.py`
+
+| Method | Path |
+|---|---|
+| GET | `/dataset-items/{item_id}/reference-replicas` |
+| GET | `/dataset-items/{item_id}/reference-replica-candidates` |
+| POST | `/dataset-items/{item_id}/reference-replicas` |
+| PATCH | `/dataset-items/{item_id}/reference-replicas/{replica_id}` |
+| DELETE | `/dataset-items/{item_id}/reference-replicas/{replica_id}` |
+
 ## `dataset_sources.py`
 
 | Method | Path |
@@ -1156,4 +1166,4 @@
 
 ---
 
-_共 103 模块 / 679 路由_
+_共 104 模块 / 684 路由_

@@ -614,3 +614,39 @@ async def test_original_cache_precedes_unreachable_or_revoked_physical_candidate
         assert len(reads) == 1 and reads[0][0] == w.original[5].id
     finally:
         snapshot.close()
+
+
+async def test_offline_workbench_retains_explicit_replica_read_attempt_only(
+    db_session, replica_world, httpx_client, super_admin
+):
+    from app.db.models.dataset_reference_replica import DatasetReferenceReplica
+
+    w = replica_world
+    agent, _, _ = await attach_agent(db_session, w.original[4], w.actor)
+    agent.last_seen = None
+    await db_session.commit()
+    url = f"/api/v1/datasets/{w.original[3].id}/items/{w.item_id}"
+
+    async def current():
+        response = await httpx_client.get(url, headers=headers(super_admin))
+        assert response.status_code == 200, response.text
+        value = response.json()["availability"]
+        assert value["state"] == "unavailable"
+        assert value["reason_code"] == "agent_offline"
+        assert not value["original_cache_recorded"]
+        return value["allowed_actions"]
+
+    assert "read_original" not in await current()
+    link = await publish(db_session, w)
+    assert "read_original" in await current()
+    # B's enabled state and current manager scope control the attempt action.
+    w.other[5].enabled = False
+    await db_session.commit()
+    assert "read_original" not in await current()
+    w.other[5].enabled = True
+    await db_session.commit()
+    assert "read_original" in await current()
+    row = await db_session.get(DatasetReferenceReplica, link["id"])
+    row.revoked_at, row.revoked_by = datetime.now(timezone.utc), w.actor.id
+    await db_session.commit()
+    assert "read_original" not in await current()

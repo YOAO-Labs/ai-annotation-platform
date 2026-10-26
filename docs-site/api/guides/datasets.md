@@ -137,3 +137,23 @@ Agent 引用样本的 `availability.agent_status` 提供当前获授权的站点
 逐项锁定并比较完整证据及复核修订；变化记录 conflict，其他成员继续。成功决定、审计和 applied checkpoint 同事务提交；即使状态相同也追加这次复核。批次状态为 preview/pending/running/completed/partial/failed/cancelled；summary 提供 applied_count、conflict_count、blocked_count、processed_count、partial。含冲突或阻止的执行终态为 partial，通用 AsyncJob 为 completed 并附计数。取消使用通用任务接口；恢复不重放 applied/conflict/blocked。
 
 通用任务类型为 `dataset_quality_review`，payload 中 run_id 始终指父质量运行，batch_id 指本批次；不含成员数组、凭据或内部授权证明。工作节点在每项写入前后重新授权，租约恢复及旧 task/generation fencing 保留已提交进度。任务清理 SET NULL 后重复确认仍返回账本，不重新派发。
+
+## 引用样本备用来源
+
+当前来源管理者可为已接纳的引用图片显式关联同一数据集内的同内容图片。两端须已核验SHA256与大小一致；相同摘要本身不会自动关联或授予访问。关联保持两份样本、任务和既有版本独立，不产生传递授权。接口不返回物理路径或凭据。
+
+| 方法   | 路径                                                       | 行为                                      |
+| ------ | ---------------------------------------------------------- | ----------------------------------------- |
+| GET    | `/dataset-items/{item_id}/reference-replicas`              | 已关联来源，返回items／total              |
+| GET    | `/dataset-items/{item_id}/reference-replica-candidates`    | 当前可管理的同内容候选，排除已关联项      |
+| POST   | `/dataset-items/{item_id}/reference-replicas`              | `{replica_item_id,priority}`，201返回关联 |
+| PATCH  | `/dataset-items/{item_id}/reference-replicas/{replica_id}` | `{priority}`，更新优先级                  |
+| DELETE | `/dataset-items/{item_id}/reference-replicas/{replica_id}` | 204撤销关联，不删除文件或样本             |
+
+以上路径相对`/api/v1`；GET要求`datasets:read`，写操作要求`datasets:write`，均只允许当前可管理两端来源的管理员。归档数据集只读。两个列表支持limit（默认50，1–200）和offset（默认0），total在分页前统计。已关联响应包含原样本、备用样本／Asset、来源／位置、可空站点／Agent状态、priority和创建时间。
+
+优先级为0–1000整数，默认100，当前原来源为100；数字较小的候选先尝试，相同优先级参考当前连接状态并稳定排序，不推断网络距离。既有获授权完整缓存优先。原来源业务权限、来源启用及内容身份始终有效；管理直读须仍可管理候选来源，任务读者只可通过已发布关联读取原任务的准确内容，不能枚举或直接读取备用来源的其他文件。
+
+每个候选完整读取并核验后才交付，失败可尝试其他合格候选，不拼接不同来源的部分字节。交付前重新检查当前权限、关联与内容身份；有未收尾物理责任时停止继续尝试。新完整缓存留存同时要求原来源和实际备用来源的来源／位置策略均允许。冻结版本仍记录原业务样本的身份与来源血缘，已就绪包不改变。
+
+原来源离线且存在当前可管理的显式备用来源时，样本检查器保留“核验读取原图”尝试入口；连接观测仍显示原来源状态，不据关联记录宣称备用文件在线或已读成功。

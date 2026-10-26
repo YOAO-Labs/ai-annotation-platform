@@ -566,3 +566,10 @@ watched_tags = ["projects", "guide-assets", "datasets", "batches", "tasks", "ann
 "POST /api/v1/site-agents/sites" = { status = "excluded", reason = "no-external-demand" }
 "POST /api/v1/site-agents/sites/{site_id}/agents" = { status = "excluded", reason = "no-external-demand" }
 "POST /api/v1/storage-locations/agent" = { status = "excluded", reason = "no-external-demand" }
+
+# Reference replica administration remains available through the platform API/UI.
+"GET /api/v1/dataset-items/{item_id}/reference-replicas" = { status = "excluded", reason = "no-external-demand" }
+"GET /api/v1/dataset-items/{item_id}/reference-replica-candidates" = { status = "excluded", reason = "no-external-demand" }
+"POST /api/v1/dataset-items/{item_id}/reference-replicas" = { status = "excluded", reason = "no-external-demand" }
+"PATCH /api/v1/dataset-items/{item_id}/reference-replicas/{replica_id}" = { status = "excluded", reason = "no-external-demand" }
+"DELETE /api/v1/dataset-items/{item_id}/reference-replicas/{replica_id}" = { status = "excluded", reason = "no-external-demand" }

@@ -29,7 +29,7 @@ from app.services.data_management.task_filters import (
     compile_filter,
 )
 from app.services.dataset_source_access import source_scope_clause
-from app.services import agent_availability
+from app.services import agent_availability, dataset_reference_replicas
 from app.services.directory_policy import preview_policy_clause
 from app.services.project_access import is_privileged_for_project
 from app.services.project_aggregates import (
@@ -428,6 +428,14 @@ def observations(
                     ),
                     else_=None,
                 ).label("agent_unavailable_reason"),
+                and_(
+                    manageable,
+                    ref,
+                    ~disabled,
+                    dataset_reference_replicas.active_replica_exists(
+                        DatasetAsset.id, actor=actor
+                    ),
+                ).label("reference_replica_recorded"),
                 *agent_availability.projection(manageable),
             ]
         )
@@ -495,7 +503,9 @@ def availability(row):
     if row["can_manage"] and row["source_id"]:
         actions.extend(["manage_source", "view_location"])
         if row["is_reference"] and (
-            state == "verified" or row["original_cache_recorded"]
+            state == "verified"
+            or row["original_cache_recorded"]
+            or row["reference_replica_recorded"]
         ):
             actions.append("read_original")
     if row["preview_available"]:
