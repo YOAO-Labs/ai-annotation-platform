@@ -427,6 +427,9 @@ class Permit:
 
 @pytest.fixture
 def media_setup(monkeypatch):
+    monkeypatch.setattr(
+        service.original_sources, "read_options", AsyncMock(return_value={})
+    )
     state = SimpleNamespace(source=original(), events=[], provider=Provider())
     state.authority = object()
     state.permit = Permit(state.events)

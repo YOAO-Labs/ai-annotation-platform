@@ -254,6 +254,9 @@ class Permit:
 
 @pytest.fixture
 def world(monkeypatch):
+    monkeypatch.setattr(
+        service.original_sources, "read_options", AsyncMock(return_value={})
+    )
     provider = Provider()
     raw = pcd()
     provider.raw = provider.actual = raw

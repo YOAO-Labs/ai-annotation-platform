@@ -46,6 +46,8 @@ def routing(monkeypatch):
             "migration/copied-original.png",
             digest,
             len(raw),
+            expected_version_id=provider.version,
+            expected_etag=provider.etag,
         ),
         purpose=lambda _label: "migration_read_" + publication_id.hex,
     )
@@ -91,11 +93,9 @@ def routing(monkeypatch):
     async def recheck(_db, source):
         state.rechecks.append(source)
 
-    monkeypatch.setattr(
-        original_sources, "read_plan", lambda _source: plan, raising=False
-    )
+    monkeypatch.setattr(original_sources, "read_plan", lambda _source: plan)
     monkeypatch.setattr(original_sources, "read_options", options)
-    monkeypatch.setattr(original_sources, "recheck_read_route", recheck, raising=False)
+    monkeypatch.setattr(original_sources, "recheck_read_route", recheck)
     monkeypatch.setattr(storage_access, "acquire", acquire)
     return state
 
@@ -110,6 +110,7 @@ def assert_physical_reads(state):
     assert all(
         params["Bucket"] == state.plan.spec.bucket
         and params["Key"] == state.plan.spec.object_key
+        and params["VersionId"] == state.provider.version
         for params in operations
     )
     assert state.source.bucket == "saved-bucket"

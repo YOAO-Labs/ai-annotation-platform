@@ -159,6 +159,9 @@ class ObservedPermit:
 
 @pytest.fixture
 def world(monkeypatch):
+    monkeypatch.setattr(
+        service.original_sources, "read_options", AsyncMock(return_value={})
+    )
     raw = image_bytes()
     provider = Provider()
     provider.raw = provider.actual = raw

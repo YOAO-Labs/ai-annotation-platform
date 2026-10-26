@@ -472,6 +472,7 @@ async def test_interrupted_close_settles_only_after_known_native_close(unknown):
 async def test_full_stage_adoption_keeps_source_permit_through_actual_snapshot_close(
     monkeypatch,
 ):
+    monkeypatch.setattr(original_sources, "read_options", AsyncMock(return_value={}))
     content = io.BytesIO()
     with Image.new("RGB", (24, 16), (15, 25, 35)) as image:
         image.save(content, "PNG")

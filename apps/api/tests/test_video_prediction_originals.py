@@ -228,6 +228,9 @@ async def test_resolver_is_bounded_and_task_version_remains_with_business_owner(
 
 @pytest.fixture
 def world(monkeypatch):
+    monkeypatch.setattr(
+        videos.original_sources, "read_options", AsyncMock(return_value={})
+    )
     original, sessions = source(), []
     permit = SimpleNamespace(__aexit__=AsyncMock())
 

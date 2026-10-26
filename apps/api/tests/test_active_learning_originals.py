@@ -16,6 +16,7 @@ import pytest
 
 from app.services import active_learning as learning
 from app.services import active_learning_originals as service
+from app.services import managed_original_reclaim_fence
 from app.services import sample_evaluation_originals as bounded
 from app.services import storage_access
 from app.services.content_snapshot import ContentError
@@ -144,6 +145,10 @@ class Permit:
 
 @pytest.fixture
 def world(monkeypatch):
+    monkeypatch.setattr(
+        service.original_sources, "read_options", AsyncMock(return_value={})
+    )
+    monkeypatch.setattr(managed_original_reclaim_fence, "protect_source", AsyncMock())
     provider = Provider()
     raw = image_bytes()
     provider.raw = provider.actual = raw
