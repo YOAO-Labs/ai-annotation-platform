@@ -1238,7 +1238,13 @@
         "vram_budget_mb",
         "eviction_priority",
         "max_concurrency",
-        "runtime_epoch_baseline"
+        "runtime_epoch_baseline",
+        "retired_at",
+        "retire_reason",
+        "retired_generation_high_water",
+        "retired_control_epoch_high_water",
+        "retired_runtime_epoch_high_water",
+        "retired_token_expiry_high_water"
       ],
       "properties": {
         "backend_registry_id": { "$ref": "#/$defs/uuid" },
@@ -1248,7 +1254,19 @@
         "vram_budget_mb": { "type": "integer", "minimum": 1 },
         "eviction_priority": { "type": "integer" },
         "max_concurrency": { "type": "integer", "minimum": 1, "maximum": 10000 },
-        "runtime_epoch_baseline": { "$ref": "#/$defs/nonnegative_int64" }
+        "runtime_epoch_baseline": { "$ref": "#/$defs/nonnegative_int64" },
+        "retired_at": { "$ref": "#/$defs/nullable_timestamp" },
+        "retire_reason": { "type": ["string", "null"], "maxLength": 32 },
+        "retired_generation_high_water": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/nonnegative_int64" }]
+        },
+        "retired_control_epoch_high_water": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/nonnegative_int64" }]
+        },
+        "retired_runtime_epoch_high_water": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/nonnegative_int64" }]
+        },
+        "retired_token_expiry_high_water": { "$ref": "#/$defs/nullable_timestamp" }
       },
       "additionalProperties": false
     },

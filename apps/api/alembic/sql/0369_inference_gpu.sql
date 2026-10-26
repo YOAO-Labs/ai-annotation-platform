@@ -218,7 +218,13 @@ AS $function$
         'vram_budget_mb', m.vram_budget_mb,
         'eviction_priority', m.eviction_priority,
         'max_concurrency', m.max_concurrency,
-        'runtime_epoch_baseline', m.runtime_epoch_baseline
+        'runtime_epoch_baseline', m.runtime_epoch_baseline,
+        'retired_at', aap_inference_gpu_v1._iso(m.retired_at),
+        'retire_reason', m.retire_reason,
+        'retired_generation_high_water', m.retired_generation_high_water,
+        'retired_control_epoch_high_water', m.retired_control_epoch_high_water,
+        'retired_runtime_epoch_high_water', m.retired_runtime_epoch_high_water,
+        'retired_token_expiry_high_water', aap_inference_gpu_v1._iso(m.retired_token_expiry_high_water)
     )
     FROM public.gpu_backend_memberships AS m
     WHERE m.backend_registry_id = p_backend AND m.gpu_resource_id = p_resource
@@ -406,7 +412,7 @@ BEGIN
        OR pg_catalog.jsonb_typeof(p_value->'boot_id') IS DISTINCT FROM 'string'
        OR p_value->>'boot_id'='' OR pg_catalog.length(p_value->>'boot_id')>128 THEN RETURN false; END IF;
     IF pg_catalog.jsonb_typeof(p_value->'pools') IS DISTINCT FROM 'object'
-       OR pg_catalog.jsonb_object_length(p_value->'pools')=0 THEN RETURN false; END IF;
+       OR p_value->'pools'='{}'::jsonb THEN RETURN false; END IF;
     FOREACH v_member IN ARRAY ARRAY[p_value->'active_requests',p_value->'builders',p_value->'borrowers'] LOOP
         IF pg_catalog.jsonb_typeof(v_member) IS DISTINCT FROM 'number' THEN RETURN false; END IF;
         v_text:=v_member::text;
@@ -536,6 +542,10 @@ DECLARE
     v_blocker text;
     v_wait boolean;
     v_status text;
+    v_trusted_empty boolean;
+    v_reset_ack boolean;
+    v_intent_matches boolean;
+    v_enforce_intent boolean;
     v_rollout public.gpu_arbiter_rollouts%ROWTYPE;
     v_cancel public.gpu_backend_cancel_intents%ROWTYPE;
     v_key bigint;
@@ -1018,43 +1028,104 @@ BEGIN
         v_id:=aap_inference_gpu_v1._uuid(v_args->'backend_registry_id'); v_resource:=aap_inference_gpu_v1._resource(v_args->'gpu_resource_id'); v_next:=aap_inference_gpu_v1._int(v_args->'membership_epoch',1,9223372036854775807); v_budget:=aap_inference_gpu_v1._int(v_args->'token_ttl_seconds',1,300);
         IF pg_catalog.jsonb_typeof(v_args->'evidence_ttl_seconds')<>'number' OR (v_args->>'evidence_ttl_seconds')::numeric<=0 OR (v_args->>'evidence_ttl_seconds')::numeric>300 THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
         IF p_action='prepare_rollout_control' THEN v_transition:=aap_inference_gpu_v1._uuid(v_args->'transition_id'); v_target:=aap_inference_gpu_v1._string(v_args->'target_gate',16); IF v_target NOT IN ('legacy','enforce') THEN PERFORM aap_inference_gpu_v1._fail(); END IF; END IF;
-        PERFORM aap_inference_gpu_v1._lock_resource(v_resource,true);
-        SELECT * INTO v_membership FROM public.gpu_backend_memberships m WHERE m.backend_registry_id=v_id AND m.gpu_resource_id=v_resource FOR UPDATE;
-        SELECT * INTO v_fence FROM public.gpu_backend_fences f WHERE f.backend_registry_id=v_id FOR UPDATE;
-        SELECT * INTO v_registry FROM public.ml_backend_registry r WHERE r.id=v_id;
-        v_now:=pg_catalog.transaction_timestamp();
-        IF v_membership.backend_registry_id IS NULL OR v_membership.membership_epoch<>v_next OR v_membership.state NOT IN ('pending','active') OR v_fence.backend_registry_id IS NULL OR v_registry.id IS NULL THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','membership_changed');
-        ELSIF v_registry.gpu_resource_id<>v_resource OR v_registry.state<>'connected' OR v_registry.vram_budget_mb<>v_membership.vram_budget_mb OR v_registry.eviction_priority<>v_membership.eviction_priority OR aap_inference_gpu_v1._max_concurrency(v_registry.extra_params)<>v_membership.max_concurrency THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','registry_claim_mismatch');
-        ELSIF p_action='prepare_rollout_control' AND NOT EXISTS(SELECT 1 FROM public.gpu_arbiter_rollouts r WHERE r.gpu_resource_id=v_resource AND r.transition_id=v_transition AND ((v_target='enforce' AND r.state='promoting') OR (v_target='legacy' AND r.state='demoting'))) THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','rollout_transition_changed');
+        IF NOT aap_inference_gpu_v1._lock_resource(v_resource,false) THEN
+            v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','gpu_resource_busy');
         ELSE
-            v_health:=v_registry.health_meta; v_residency:=v_health->'residency'; v_probe:=v_health->'gpu_arbiter_probe';
-            v_operation:=CASE WHEN p_action='prepare_legacy_ack' THEN 'reset' WHEN v_target='enforce' THEN 'mode_enforce' ELSE 'mode_legacy' END;
-            IF pg_catalog.jsonb_typeof(v_health)<>'object' OR pg_catalog.jsonb_typeof(v_probe)<>'object' OR NOT aap_inference_gpu_v1._residency_shape(v_residency) OR v_probe->>'protocol_version'<>'1' OR v_probe->>'challenge' !~ '^[0-9a-f]{64}$' OR v_probe->>'backend_registry_id'<>v_id::text OR v_probe->>'gpu_resource_id'<>v_resource OR v_probe->>'membership_epoch'<>v_membership.membership_epoch::text OR v_probe->>'membership_state' NOT IN ('pending','active') OR (v_membership.state='active' AND v_probe->>'membership_state'<>'active') OR (v_residency->'identity'<>'null'::jsonb AND v_residency->'identity' IS DISTINCT FROM pg_catalog.jsonb_build_object('audience','aap-gpu-lifecycle','backend_registry_id',v_id::text,'gpu_resource_id',v_resource)) OR v_residency->>'control_epoch' IS NULL OR (v_fence.control_epoch_high_water::text IS DISTINCT FROM v_residency->>'control_epoch' AND (v_residency->>'control_epoch')::numeric>v_fence.control_epoch_high_water) OR v_registry.last_checked_at IS NULL OR v_registry.last_checked_at>v_now OR v_now-v_registry.last_checked_at>make_interval(secs=>(v_args->>'evidence_ttl_seconds')::double precision) OR v_probe->>'observed_at' IS NULL OR v_registry.last_checked_at IS DISTINCT FROM (v_probe->>'observed_at')::timestamp with time zone THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','legacy_ack_runtime_unavailable');
-            ELSIF p_action='prepare_legacy_ack' AND v_membership.state='active' AND v_residency->>'lifecycle_gate'='legacy' AND v_residency->>'control_epoch'=v_fence.control_epoch_high_water::text THEN
-                v_result:=pg_catalog.jsonb_build_object('status','ok','preparation',pg_catalog.jsonb_build_object('action','acknowledged','backend_id',v_id,'resource_id',v_resource,'membership_epoch',v_membership.membership_epoch,'boot_id',v_residency->>'boot_id','runtime_epoch',v_fence.runtime_epoch_high_water::text,'control_epoch',v_fence.control_epoch_high_water::text,'token_expires_at',NULL,'proof_ready',true));
-            ELSIF p_action='prepare_rollout_control' AND v_membership.state='active' AND v_residency->>'lifecycle_gate'=v_target AND v_residency->>'control_epoch'=v_fence.control_epoch_high_water::text THEN
-                v_time:=COALESCE(v_fence.rollout_control_token_expires_at,v_now);
-                v_result:=pg_catalog.jsonb_build_object('status','ok','preparation',pg_catalog.jsonb_build_object('action','acknowledged','operation',v_operation,'target_gate',v_target,'backend_id',v_id,'resource_id',v_resource,'membership_epoch',v_membership.membership_epoch,'transition_id',v_transition,'boot_id',v_residency->>'boot_id','control_epoch',v_fence.control_epoch_high_water::text,'token_expires_at',aap_inference_gpu_v1._iso(v_time),'reason','fresh_health_matches_target'));
-            ELSIF p_action='prepare_rollout_control' AND v_fence.rollout_control_operation=v_operation AND v_fence.rollout_control_transition_id=v_transition AND v_fence.rollout_control_epoch=v_fence.control_epoch_high_water AND v_fence.rollout_control_membership_epoch=v_membership.membership_epoch AND v_fence.rollout_control_boot_id=v_residency->>'boot_id' AND v_fence.rollout_control_token_expires_at IS NOT NULL THEN
-                v_control:=v_fence.rollout_control_epoch; v_time:=v_fence.rollout_control_token_expires_at;
-                IF v_time<=v_now THEN
-                    v_result:=pg_catalog.jsonb_build_object('status','ok','preparation',pg_catalog.jsonb_build_object('action','awaiting_health','operation',v_operation,'target_gate',v_target,'backend_id',v_id,'resource_id',v_resource,'membership_epoch',v_membership.membership_epoch,'transition_id',v_transition,'boot_id',v_residency->>'boot_id','control_epoch',v_control::text,'token_expires_at',aap_inference_gpu_v1._iso(v_time),'reason','rollout_control_awaiting_fresh_health'));
-                ELSE
-                    v_result:=pg_catalog.jsonb_build_object('status','ok','preparation',pg_catalog.jsonb_build_object('action','issue','operation',v_operation,'target_gate',v_target,'backend_id',v_id,'resource_id',v_resource,'membership_epoch',v_membership.membership_epoch,'transition_id',v_transition,'boot_id',v_residency->>'boot_id','control_epoch',v_control::text,'token_expires_at',aap_inference_gpu_v1._iso(v_time),'reason','rollout_control_prepared'));
-                END IF;
-            ELSIF v_fence.control_epoch_high_water=9223372036854775807 OR (v_membership.state='pending' AND v_fence.runtime_epoch_high_water=9223372036854775807) THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','high_water_exhausted');
+            PERFORM m.backend_registry_id FROM public.gpu_backend_memberships AS m WHERE m.gpu_resource_id=v_resource ORDER BY m.backend_registry_id FOR UPDATE OF m;
+            PERFORM f.backend_registry_id FROM public.gpu_backend_fences AS f WHERE f.backend_registry_id IN (SELECT m.backend_registry_id FROM public.gpu_backend_memberships AS m WHERE m.gpu_resource_id=v_resource) ORDER BY f.backend_registry_id FOR UPDATE OF f;
+            SELECT * INTO v_membership FROM public.gpu_backend_memberships m WHERE m.backend_registry_id=v_id AND m.gpu_resource_id=v_resource;
+            SELECT * INTO v_fence FROM public.gpu_backend_fences f WHERE f.backend_registry_id=v_id;
+            SELECT * INTO v_registry FROM public.ml_backend_registry r WHERE r.id=v_id;
+            v_now:=pg_catalog.transaction_timestamp();
+            IF v_membership.backend_registry_id IS NULL OR v_membership.membership_epoch<>v_next OR v_membership.state NOT IN ('pending','active') THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','membership_changed');
+            ELSIF v_fence.backend_registry_id IS NULL THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','fence_missing');
+            ELSIF v_registry.id IS NULL THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','registry_missing');
+            ELSIF p_action='prepare_rollout_control' AND v_membership.state<>'active' THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','membership_not_active');
+            ELSIF p_action='prepare_rollout_control' AND NOT EXISTS(SELECT 1 FROM public.gpu_arbiter_rollouts r WHERE r.gpu_resource_id=v_resource AND r.transition_id=v_transition AND ((v_target='enforce' AND r.state='promoting') OR (v_target='legacy' AND r.state='demoting'))) THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','rollout_transition_changed');
+            ELSIF p_action='prepare_legacy_ack' AND v_membership.state='pending' AND v_fence.runtime_epoch_high_water<>v_membership.runtime_epoch_baseline THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','pending_runtime_epoch_mismatch');
+            ELSIF v_membership.state='active' AND v_fence.runtime_epoch_high_water<=v_membership.runtime_epoch_baseline THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','active_runtime_epoch_invalid');
+            ELSIF v_registry.gpu_resource_id<>v_resource OR v_registry.state<>'connected' OR v_registry.vram_budget_mb<>v_membership.vram_budget_mb OR v_registry.eviction_priority<>v_membership.eviction_priority OR aap_inference_gpu_v1._max_concurrency(v_registry.extra_params)<>v_membership.max_concurrency THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','registry_claim_mismatch');
             ELSE
-                IF v_membership.state='pending' THEN
-                    PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('aap:gpu-membership-promotion',0));
-                    UPDATE public.gpu_backend_fences f SET runtime_epoch_high_water=f.runtime_epoch_high_water+1 WHERE f.backend_registry_id=v_id RETURNING f.runtime_epoch_high_water INTO v_runtime;
-                    UPDATE public.gpu_backend_memberships m SET state='active',updated_at=v_now WHERE m.backend_registry_id=v_id AND m.gpu_resource_id=v_resource;
-                ELSE v_runtime:=v_fence.runtime_epoch_high_water; END IF;
-                v_control:=v_fence.control_epoch_high_water+1; v_time:=v_now+make_interval(secs=>v_budget);
-                UPDATE public.gpu_backend_fences f SET control_epoch_high_water=v_control,token_expiry_high_water=GREATEST(COALESCE(f.token_expiry_high_water,v_time),v_time),rollout_control_operation=CASE WHEN p_action='prepare_rollout_control' THEN v_operation ELSE f.rollout_control_operation END,rollout_control_transition_id=CASE WHEN p_action='prepare_rollout_control' THEN v_transition ELSE f.rollout_control_transition_id END,rollout_control_epoch=CASE WHEN p_action='prepare_rollout_control' THEN v_control ELSE f.rollout_control_epoch END,rollout_control_membership_epoch=CASE WHEN p_action='prepare_rollout_control' THEN v_membership.membership_epoch ELSE f.rollout_control_membership_epoch END,rollout_control_boot_id=CASE WHEN p_action='prepare_rollout_control' THEN v_residency->>'boot_id' ELSE f.rollout_control_boot_id END,rollout_control_token_expires_at=CASE WHEN p_action='prepare_rollout_control' THEN v_time ELSE f.rollout_control_token_expires_at END,updated_at=v_now WHERE f.backend_registry_id=v_id;
-                IF p_action='prepare_legacy_ack' THEN
-                    v_result:=pg_catalog.jsonb_build_object('status','ok','preparation',pg_catalog.jsonb_build_object('action','issue','backend_id',v_id,'resource_id',v_resource,'membership_epoch',v_membership.membership_epoch,'boot_id',v_residency->>'boot_id','runtime_epoch',v_runtime::text,'control_epoch',v_control::text,'token_expires_at',aap_inference_gpu_v1._iso(v_time),'proof_ready',true));
+                v_health:=v_registry.health_meta; v_residency:=v_health->'residency'; v_probe:=v_health->'gpu_arbiter_probe';
+                IF pg_catalog.jsonb_typeof(v_health) IS DISTINCT FROM 'object' OR pg_catalog.jsonb_typeof(v_probe) IS DISTINCT FROM 'object' OR NOT aap_inference_gpu_v1._residency_shape(v_residency) THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','residency_schema_invalid');
+                ELSIF v_probe->>'managed_lifecycle_sha256' IS NULL OR v_probe->>'managed_lifecycle_sha256' !~ '^[0-9a-f]{64}$' OR pg_catalog.jsonb_typeof(v_health#>'{capabilities,managed_lifecycle}') IS DISTINCT FROM 'object' THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','managed_lifecycle_capability_mismatch');
+                ELSIF v_probe->>'protocol_version' IS DISTINCT FROM '1' OR v_probe->>'challenge' IS NULL OR v_probe->>'challenge' !~ '^[0-9a-f]{64}$' OR v_probe->>'backend_registry_id' IS DISTINCT FROM v_id::text OR v_probe->>'gpu_resource_id' IS DISTINCT FROM v_resource OR v_probe->>'membership_epoch' IS DISTINCT FROM v_membership.membership_epoch::text OR v_probe->>'membership_state' IS NULL OR v_probe->>'membership_state' NOT IN ('pending','active') OR v_probe->>'membership_state' IS DISTINCT FROM v_membership.state THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','probe_membership_mismatch');
+                ELSIF v_probe->>'observed_at' IS NULL OR v_probe->>'observed_at' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,6})?(Z|[+-][0-9]{2}(:[0-9]{2})?)$' OR v_probe->>'probe_started_at' IS NULL OR v_probe->>'probe_started_at' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,6})?(Z|[+-][0-9]{2}(:[0-9]{2})?)$' THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','probe_registry_clock_mismatch');
                 ELSE
-                    v_result:=pg_catalog.jsonb_build_object('status','ok','preparation',pg_catalog.jsonb_build_object('action','issue','operation',v_operation,'target_gate',v_target,'backend_id',v_id,'resource_id',v_resource,'membership_epoch',v_membership.membership_epoch,'transition_id',v_transition,'boot_id',v_residency->>'boot_id','control_epoch',v_control::text,'token_expires_at',aap_inference_gpu_v1._iso(v_time),'reason','rollout_control_prepared'));
+                    v_observed:=(v_probe->>'observed_at')::timestamp with time zone;
+                    v_probe_started:=(v_probe->>'probe_started_at')::timestamp with time zone;
+                    v_trusted_empty:=v_residency->>'state' IN ('unloaded','resident') AND v_residency->'gpu_loaded'='false'::jsonb AND v_residency->'generation'='null'::jsonb AND v_residency->'evictable'='false'::jsonb AND NOT EXISTS(SELECT 1 FROM pg_catalog.jsonb_each(v_residency->'pools') p(pool_id,pool_value) WHERE p.pool_value->'resident' IS DISTINCT FROM 'false'::jsonb);
+                    v_enforce_intent:=FALSE; v_reset_ack:=FALSE; v_intent_matches:=FALSE;
+                    IF v_registry.last_checked_at IS NULL OR v_registry.last_checked_at IS DISTINCT FROM v_observed THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','probe_registry_clock_mismatch');
+                    ELSIF v_observed>v_now THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','probe_from_future');
+                    ELSIF v_now-v_observed>make_interval(secs=>(v_args->>'evidence_ttl_seconds')::double precision) THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','probe_expired');
+                    ELSIF v_residency->'identity'<>'null'::jsonb AND v_residency->'identity' IS DISTINCT FROM pg_catalog.jsonb_build_object('audience','aap-gpu-lifecycle','backend_registry_id',v_id::text,'gpu_resource_id',v_resource) THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','residency_identity_mismatch');
+                    ELSIF p_action='prepare_legacy_ack' AND (v_residency->>'lifecycle_gate'<>'legacy' OR v_residency->'generation'<>'null'::jsonb OR v_residency->'evictable'<>'false'::jsonb OR v_residency->>'state' NOT IN ('unloaded','resident') OR v_residency->'gpu_loaded'='null'::jsonb OR (v_residency->>'active_requests')::bigint<>0 OR (v_residency->>'builders')::bigint<>0 OR (v_residency->>'borrowers')::bigint<>0 OR v_residency->'draining'<>'false'::jsonb OR EXISTS(SELECT 1 FROM pg_catalog.jsonb_each(v_residency->'pools') p(pool_id,pool_value) WHERE pg_catalog.jsonb_typeof(p.pool_value->'resident') IS DISTINCT FROM 'boolean')) THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','legacy_residency_not_stably_idle');
+                    ELSIF p_action='prepare_legacy_ack' AND v_residency->'gpu_loaded'='true'::jsonb AND (v_residency->>'state'<>'resident' OR NOT EXISTS(SELECT 1 FROM pg_catalog.jsonb_each(v_residency->'pools') p(pool_id,pool_value) WHERE p.pool_value->'resident'='true'::jsonb)) THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','legacy_residency_loaded_inconsistent');
+                    ELSIF p_action='prepare_legacy_ack' AND v_membership.state='pending' AND (v_residency->'identity'<>'null'::jsonb OR v_residency->'control_epoch'<>'null'::jsonb) THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','pending_lifecycle_identity_already_bound');
+                    ELSIF p_action='prepare_legacy_ack' AND v_membership.state='active' AND ((v_residency->'identity'='null'::jsonb)<>(v_residency->'control_epoch'='null'::jsonb)) THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','active_lifecycle_identity_incomplete');
+                    ELSIF p_action='prepare_legacy_ack' AND v_residency->'control_epoch'<>'null'::jsonb AND (v_residency->>'control_epoch')::numeric>v_fence.control_epoch_high_water THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','residency_control_epoch_ahead');
+                    ELSIF p_action='prepare_rollout_control' AND (v_residency->'identity'='null'::jsonb OR v_residency->'control_epoch'='null'::jsonb) THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','residency_control_identity_missing');
+                    ELSIF p_action='prepare_rollout_control' AND (v_residency->>'control_epoch')::numeric>v_fence.control_epoch_high_water THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','residency_control_epoch_ahead');
+                    ELSIF p_action='prepare_rollout_control' AND (v_residency->>'state' NOT IN ('unloaded','resident') OR v_residency->'gpu_loaded'='null'::jsonb OR (v_residency->>'active_requests')::bigint<>0 OR (v_residency->>'builders')::bigint<>0 OR (v_residency->>'borrowers')::bigint<>0 OR v_residency->'draining'<>'false'::jsonb OR EXISTS(SELECT 1 FROM pg_catalog.jsonb_each(v_residency->'pools') p(pool_id,pool_value) WHERE pg_catalog.jsonb_typeof(p.pool_value->'resident') IS DISTINCT FROM 'boolean')) THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','rollout_control_residency_not_stably_idle');
+                    ELSIF p_action='prepare_rollout_control' AND v_residency->'gpu_loaded'='true'::jsonb AND (v_residency->>'state'<>'resident' OR NOT EXISTS(SELECT 1 FROM pg_catalog.jsonb_each(v_residency->'pools') p(pool_id,pool_value) WHERE p.pool_value->'resident'='true'::jsonb)) THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','rollout_control_residency_loaded_inconsistent');
+                    ELSIF p_action='prepare_rollout_control' AND v_residency->'gpu_loaded'='false'::jsonb AND EXISTS(SELECT 1 FROM pg_catalog.jsonb_each(v_residency->'pools') p(pool_id,pool_value) WHERE p.pool_value->'resident' IS DISTINCT FROM 'false'::jsonb) THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','rollout_control_residency_unloaded_inconsistent');
+                    ELSE
+                        IF p_action='prepare_legacy_ack' THEN
+                            v_operation:='reset';
+                        ELSE
+                            v_enforce_intent:=v_fence.rollout_control_operation='mode_enforce' AND v_fence.rollout_control_transition_id=v_transition AND v_fence.rollout_control_epoch=v_fence.control_epoch_high_water AND v_fence.rollout_control_membership_epoch=v_membership.membership_epoch AND v_fence.rollout_control_boot_id=v_residency->>'boot_id' AND v_fence.rollout_control_token_expires_at IS NOT NULL;
+                            v_reset_ack:=v_fence.rollout_control_operation='reset' AND v_fence.rollout_control_transition_id=v_transition AND v_fence.rollout_control_epoch=v_fence.control_epoch_high_water AND v_fence.rollout_control_membership_epoch=v_membership.membership_epoch AND v_fence.rollout_control_boot_id=v_residency->>'boot_id' AND v_fence.rollout_control_token_expires_at IS NOT NULL AND v_residency->>'control_epoch'=v_fence.rollout_control_epoch::text AND v_residency->>'lifecycle_gate'='legacy' AND v_probe_started>v_fence.rollout_control_token_expires_at AND v_trusted_empty;
+                            IF v_target='legacy' THEN v_operation:='mode_legacy';
+                            ELSIF v_enforce_intent THEN v_operation:='mode_enforce';
+                            ELSIF v_residency->>'lifecycle_gate'='enforce' THEN v_operation:='mode_enforce';
+                            ELSIF v_reset_ack THEN v_operation:='mode_enforce';
+                            ELSE v_operation:='reset'; END IF;
+                            v_intent_matches:=v_fence.rollout_control_operation=v_operation AND v_fence.rollout_control_transition_id=v_transition AND v_fence.rollout_control_epoch=v_fence.control_epoch_high_water AND v_fence.rollout_control_membership_epoch=v_membership.membership_epoch AND v_fence.rollout_control_boot_id=v_residency->>'boot_id' AND v_fence.rollout_control_token_expires_at IS NOT NULL;
+                        END IF;
+                        v_status:='create';
+                        IF p_action='prepare_legacy_ack' AND v_membership.state='active' AND v_residency->>'control_epoch'=v_fence.control_epoch_high_water::text THEN
+                            v_status:='legacy_acknowledged';
+                        ELSIF v_intent_matches AND v_probe_started>v_fence.rollout_control_token_expires_at AND v_residency->>'control_epoch'=v_fence.rollout_control_epoch::text AND ((v_operation='mode_legacy' AND v_residency->>'lifecycle_gate'='legacy' AND v_residency->'evictable'='false'::jsonb) OR (v_operation<>'mode_legacy' AND v_trusted_empty AND v_residency->>'lifecycle_gate'=(CASE WHEN v_operation='reset' THEN 'legacy' ELSE 'enforce' END))) THEN
+                            v_status:='acknowledged';
+                        ELSIF v_intent_matches THEN
+                            v_control:=v_fence.rollout_control_epoch; v_time:=v_fence.rollout_control_token_expires_at;
+                            IF v_time>v_now THEN v_status:='replay';
+                            ELSIF v_probe_started<=v_time THEN v_status:='awaiting_control_health';
+                            END IF;
+                        END IF;
+                        IF v_status='legacy_acknowledged' THEN
+                            v_result:=pg_catalog.jsonb_build_object('status','ok','preparation',pg_catalog.jsonb_build_object('action','acknowledged','backend_id',v_id,'resource_id',v_resource,'membership_epoch',v_membership.membership_epoch,'boot_id',v_residency->>'boot_id','runtime_epoch',v_fence.runtime_epoch_high_water::text,'control_epoch',v_fence.control_epoch_high_water::text,'token_expires_at',NULL,'proof_ready',COALESCE(v_fence.token_expiry_high_water IS NOT NULL AND v_probe_started>v_fence.token_expiry_high_water AND v_trusted_empty,false)));
+                        ELSIF v_status='acknowledged' THEN
+                            v_result:=pg_catalog.jsonb_build_object('status','ok','preparation',pg_catalog.jsonb_build_object('action','acknowledged','operation',v_operation,'target_gate',v_target,'backend_id',v_id,'resource_id',v_resource,'membership_epoch',v_membership.membership_epoch,'transition_id',v_transition,'boot_id',v_residency->>'boot_id','control_epoch',v_fence.control_epoch_high_water::text,'token_expires_at',aap_inference_gpu_v1._iso(v_fence.rollout_control_token_expires_at),'reason','fresh_health_acknowledged'));
+                        ELSIF v_status='replay' THEN
+                            v_result:=pg_catalog.jsonb_build_object('status','ok','preparation',pg_catalog.jsonb_build_object('action','issue','operation',v_operation,'target_gate',v_target,'backend_id',v_id,'resource_id',v_resource,'membership_epoch',v_membership.membership_epoch,'transition_id',v_transition,'boot_id',v_residency->>'boot_id','control_epoch',v_control::text,'token_expires_at',aap_inference_gpu_v1._iso(v_time),'reason','control_intent_replay'));
+                        ELSIF v_status='awaiting_control_health' THEN
+                            v_result:=pg_catalog.jsonb_build_object('status','ok','preparation',pg_catalog.jsonb_build_object('action','awaiting_health','operation',v_operation,'target_gate',v_target,'backend_id',v_id,'resource_id',v_resource,'membership_epoch',v_membership.membership_epoch,'transition_id',v_transition,'boot_id',v_residency->>'boot_id','control_epoch',v_control::text,'token_expires_at',aap_inference_gpu_v1._iso(v_time),'reason','control_health_not_after_token_horizon'));
+                        ELSIF p_action='prepare_rollout_control' AND v_operation='reset' AND (v_residency->>'lifecycle_gate'<>'legacy' OR v_residency->'evictable'<>'false'::jsonb) THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','reset_requires_legacy_gate');
+                        ELSIF p_action='prepare_rollout_control' AND v_operation='mode_enforce' AND NOT v_trusted_empty THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','enforce_mode_requires_reset_empty');
+                        ELSIF p_action='prepare_rollout_control' AND v_operation='mode_enforce' AND v_residency->>'lifecycle_gate'='legacy' AND NOT v_reset_ack THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','enforce_mode_requires_reset_ack');
+                        ELSIF p_action='prepare_rollout_control' AND v_operation='mode_legacy' AND v_residency->>'lifecycle_gate' NOT IN ('legacy','enforce') THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','legacy_mode_source_gate_invalid');
+                        ELSIF p_action='prepare_rollout_control' AND v_fence.token_expiry_high_water IS NULL THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','token_horizon_missing');
+                        ELSIF p_action='prepare_legacy_ack' AND v_fence.token_expiry_high_water IS NOT NULL AND v_probe_started<=v_fence.token_expiry_high_water THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','probe_not_after_token_horizon');
+                        ELSIF p_action='prepare_rollout_control' AND v_probe_started<=v_fence.token_expiry_high_water THEN
+                            v_result:=pg_catalog.jsonb_build_object('status','ok','preparation',pg_catalog.jsonb_build_object('action','awaiting_health','operation',v_operation,'target_gate',v_target,'backend_id',v_id,'resource_id',v_resource,'membership_epoch',v_membership.membership_epoch,'transition_id',v_transition,'boot_id',v_residency->>'boot_id','control_epoch',v_fence.control_epoch_high_water::text,'token_expires_at',aap_inference_gpu_v1._iso(v_fence.token_expiry_high_water),'reason','control_health_not_after_token_horizon'));
+                        ELSIF v_fence.control_epoch_high_water=9223372036854775807 OR (v_membership.state='pending' AND v_fence.runtime_epoch_high_water=9223372036854775807) THEN PERFORM aap_inference_gpu_v1._fail();
+                        ELSE
+                            IF v_membership.state='pending' THEN
+                                PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('aap:gpu-membership-promotion',0));
+                                UPDATE public.gpu_backend_fences f SET runtime_epoch_high_water=f.runtime_epoch_high_water+1 WHERE f.backend_registry_id=v_id RETURNING f.runtime_epoch_high_water INTO v_runtime;
+                                UPDATE public.gpu_backend_memberships m SET state='active',updated_at=v_now WHERE m.backend_registry_id=v_id AND m.gpu_resource_id=v_resource;
+                            ELSE v_runtime:=v_fence.runtime_epoch_high_water; END IF;
+                            v_control:=v_fence.control_epoch_high_water+1; v_time:=v_now+make_interval(secs=>v_budget);
+                            UPDATE public.gpu_backend_fences f SET control_epoch_high_water=v_control,token_expiry_high_water=GREATEST(COALESCE(f.token_expiry_high_water,v_time),v_time),rollout_control_operation=CASE WHEN p_action='prepare_rollout_control' THEN v_operation ELSE f.rollout_control_operation END,rollout_control_transition_id=CASE WHEN p_action='prepare_rollout_control' THEN v_transition ELSE f.rollout_control_transition_id END,rollout_control_epoch=CASE WHEN p_action='prepare_rollout_control' THEN v_control ELSE f.rollout_control_epoch END,rollout_control_membership_epoch=CASE WHEN p_action='prepare_rollout_control' THEN v_membership.membership_epoch ELSE f.rollout_control_membership_epoch END,rollout_control_boot_id=CASE WHEN p_action='prepare_rollout_control' THEN v_residency->>'boot_id' ELSE f.rollout_control_boot_id END,rollout_control_token_expires_at=CASE WHEN p_action='prepare_rollout_control' THEN v_time ELSE f.rollout_control_token_expires_at END,updated_at=v_now WHERE f.backend_registry_id=v_id;
+                            IF p_action='prepare_legacy_ack' THEN
+                                v_result:=pg_catalog.jsonb_build_object('status','ok','preparation',pg_catalog.jsonb_build_object('action','issue','backend_id',v_id,'resource_id',v_resource,'membership_epoch',v_membership.membership_epoch,'boot_id',v_residency->>'boot_id','runtime_epoch',v_runtime::text,'control_epoch',v_control::text,'token_expires_at',aap_inference_gpu_v1._iso(v_time),'proof_ready',false));
+                            ELSE
+                                v_result:=pg_catalog.jsonb_build_object('status','ok','preparation',pg_catalog.jsonb_build_object('action','issue','operation',v_operation,'target_gate',v_target,'backend_id',v_id,'resource_id',v_resource,'membership_epoch',v_membership.membership_epoch,'transition_id',v_transition,'boot_id',v_residency->>'boot_id','control_epoch',v_control::text,'token_expires_at',aap_inference_gpu_v1._iso(v_time),'reason','control_intent_created'));
+                            END IF;
+                        END IF;
+                    END IF;
                 END IF;
             END IF;
         END IF;
@@ -1266,7 +1337,7 @@ BEGIN
             IF NOT aap_inference_gpu_v1._residency_shape(v_residency) THEN
                 RAISE EXCEPTION 'invalid bounded GPU collector request' USING ERRCODE='22023';
             END IF;
-            v_proof:=NULL;
+
         END IF;
 
         PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('aap:gpu-resource:'||v_resource,0));

@@ -79,17 +79,24 @@ def _timestamp(value: object, *, optional: bool = False) -> datetime | None:
     return result.astimezone(UTC)
 
 
-def _preparation(result: dict[str, object], expected: set[str]) -> dict[str, object]:
-    if set(result) != expected:
+def _preparation(result: object) -> dict[str, object]:
+    """Decode one closed preparation reply, validating the blocked shape first."""
+
+    if type(result) is not dict:
         raise GPUAuthorityUnavailable()
-    if result.get("status") == "blocked":
+    if set(result) == {"status", "reason"}:
+        if result.get("status") != "blocked":
+            raise GPUAuthorityUnavailable()
         reason = result.get("reason")
         if type(reason) is not str or not reason:
             raise GPUAuthorityUnavailable()
         raise ValueError(reason)
-    if result.get("status") != "ok" or type(result.get("preparation")) is not dict:
+    if set(result) != {"status", "preparation"} or result.get("status") != "ok":
         raise GPUAuthorityUnavailable()
-    return result["preparation"]
+    value = result.get("preparation")
+    if type(value) is not dict:
+        raise GPUAuthorityUnavailable()
+    return value
 
 
 def _legacy_ack_preparation(value: object) -> GPULegacyAckPreparation:
@@ -229,8 +236,7 @@ async def prepare_gpu_backend_legacy_ack(
         },
     )
     try:
-        value = _preparation(result, {"status", "preparation"})
-        preparation = _legacy_ack_preparation(value)
+        preparation = _legacy_ack_preparation(_preparation(result))
     except ValueError as exc:
         if readiness_demoter is not None:
             await readiness_demoter(gpu_resource_id)
@@ -240,6 +246,12 @@ async def prepare_gpu_backend_legacy_ack(
         or preparation.resource_id != gpu_resource_id
     ):
         raise GPUAuthorityUnavailable()
+    if not preparation.proof_ready:
+        # Activating a member or advancing its control epoch/token horizon must
+        # never complete while cached readiness still advertises this card.
+        if readiness_demoter is None:
+            raise GPULegacyAckBlockedError("readiness_demotion_unavailable")
+        await readiness_demoter(gpu_resource_id)
     return preparation
 
 
@@ -289,8 +301,7 @@ async def prepare_gpu_backend_rollout_control(
         },
     )
     try:
-        value = _preparation(result, {"status", "preparation"})
-        preparation = _rollout_preparation(value)
+        preparation = _rollout_preparation(_preparation(result))
     except ValueError as exc:
         if readiness_demoter is not None:
             await readiness_demoter(gpu_resource_id)
@@ -302,6 +313,12 @@ async def prepare_gpu_backend_rollout_control(
         or preparation.target_gate != target_gate
     ):
         raise GPUAuthorityUnavailable()
+    if preparation.action == "issue" and preparation.reason != "control_intent_replay":
+        # A fresh reset/mode intent advances the control epoch and token horizon;
+        # cached readiness must be revoked before the caller issues backend HTTP.
+        if readiness_demoter is None:
+            raise GPURolloutControlBlockedError("readiness_demotion_unavailable")
+        await readiness_demoter(gpu_resource_id)
     return preparation
 
 
