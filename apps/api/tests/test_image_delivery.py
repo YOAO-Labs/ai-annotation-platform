@@ -3,8 +3,7 @@
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import hashlib
-from types import ModuleType, SimpleNamespace
-import sys
+from types import SimpleNamespace
 import uuid
 
 import pytest
@@ -12,6 +11,8 @@ import pytest
 from app.services.content_snapshot import ContentError
 from app.services.exporting import image_delivery
 from tests.test_image_export_frozen import facts, forbidden
+
+MANAGED_BYTES = b"managed"
 
 
 @pytest.fixture
@@ -34,41 +35,60 @@ def world(monkeypatch):
         fail_at=None,
         revoke_after_copy=False,
     )
-    inputs = ModuleType("app.services.exporting.image_inputs")
-    paths = ModuleType("app.services.exporting.image_media_paths")
+    state.db = SimpleNamespace(commit=forbidden, add=forbidden, flush=forbidden)
+
+    def task_paths(snapshot):
+        return {
+            uuid.UUID(row["id"]): f"tasks/{row['id']}/{row['file_name']}"
+            for row in snapshot["tasks"]
+        }
+
+    def archive_paths(snapshot):
+        return {key: ["images/" + value] for key, value in task_paths(snapshot).items()}
+
+    def logical_sources(snapshot):
+        relative = task_paths(snapshot)
+        return {
+            target: {
+                relative.get(uuid.UUID(row["task_id"]), "unknown"): row["source_key"]
+                for row in snapshot["media"]
+            }
+            for target in snapshot["targets"]
+        }
 
     async def check_source(db, binding):
+        # The real resolver re-reads the frozen Task binding from storage. Keep
+        # that authorization meaningful without a borrowed database session.
+        assert db is state.db
         state.checks.append(binding["task_id"])
+        frozen = next(
+            (
+                row
+                for row in state.data["media"]
+                if row["task_id"] == binding["task_id"]
+            ),
+            None,
+        )
+        if (
+            frozen is None
+            or binding["role"] != "image"
+            or binding["link_id"] is not None
+            or binding["source_key"] != frozen["source_key"]
+            or binding["source"] != frozen["source"]
+        ):
+            raise ContentError("image_export_original_changed")
         if state.revoke_after_copy and state.copies:
             raise ContentError("source_authority_revoked")
         return deepcopy(binding["source"])
 
-    inputs.check_source = check_source
-    paths.paths = lambda snapshot: {
-        uuid.UUID(row["id"]): "tasks/" + row["id"] + "/same.png"
-        for row in snapshot["tasks"]
-    }
-    paths.archive_paths = lambda snapshot: {
-        key: ["images/" + value] for key, value in paths.paths(snapshot).items()
-    }
-    paths.logical_sources = lambda snapshot: {
-        target: {
-            paths.paths(snapshot).get(uuid.UUID(row["task_id"]), "unknown"): row[
-                "source_key"
-            ]
-            for row in snapshot["media"]
-        }
-        for target in snapshot["targets"]
-    }
-    monkeypatch.setitem(sys.modules, inputs.__name__, inputs)
-    monkeypatch.setitem(sys.modules, paths.__name__, paths)
-    from app.services import exporting
-
-    monkeypatch.setattr(exporting, "image_inputs", inputs, raising=False)
-
-    def objects(saved, logical):
-        assert saved is receipt and logical == paths.logical_sources(data)
-        return {row["source_key"]: prefix + row["source_key"] for row in data["media"]}
+    def objects(saved, logical_intents):
+        # Only managed sources get a physical copy plan, once per owner.
+        assert saved is receipt
+        assert set(logical_intents) == set(state.data["targets"])
+        keys = {row["source_key"] for row in state.data["media"]}
+        for mapping in logical_intents.values():
+            assert set(mapping.values()) == keys
+        return {key: prefix + key for key in keys}
 
     class Owner:
         def contains(self, key):
@@ -83,12 +103,15 @@ def world(monkeypatch):
         await resolve_source(db, binding)
         if state.fail_at == len(state.calls):
             raise ContentError("copy_failed")
-        state.copies[relative] = b"managed"
+        source = binding["source"]
+        assert source["sha256"] == hashlib.sha256(MANAGED_BYTES).hexdigest()
+        assert source["size_bytes"] == len(MANAGED_BYTES)
+        state.copies[relative] = MANAGED_BYTES
         await guard(db)
         await resolve_source(db, binding)
         return SimpleNamespace(
-            original_sha=hashlib.sha256(b"managed").hexdigest(),
-            size=7,
+            original_sha=source["sha256"],
+            size=source["size_bytes"],
             url="/minio/saved/" + relative + "?signature=private",
         )
 
@@ -97,7 +120,14 @@ def world(monkeypatch):
         state.guards += 1
 
     state.guard = guard
-    state.db = SimpleNamespace(commit=forbidden, add=forbidden, flush=forbidden)
+    # image_delivery binds these collaborators as module globals, so patch the
+    # names it actually calls instead of unrelated package attributes.
+    monkeypatch.setattr(image_delivery, "paths", task_paths)
+    monkeypatch.setattr(image_delivery, "archive_paths", archive_paths)
+    monkeypatch.setattr(image_delivery, "logical_sources", logical_sources)
+    monkeypatch.setattr(
+        image_delivery, "image_inputs", SimpleNamespace(check_source=check_source)
+    )
     monkeypatch.setattr(image_delivery.bundles, "source_objects", objects)
     monkeypatch.setattr(image_delivery.physical, "resolve", lambda saved: Owner())
     monkeypatch.setattr(image_delivery.transfer, "copy_source", copy_source)
@@ -131,8 +161,8 @@ async def test_deduplicates_canonical_owner_checks_every_binding_and_keeps_snaps
     first_entry = delivery.entry(second)
     assert first_entry["expires_at"] == world.receipt.expires_at.isoformat()
     assert (
-        first_entry["size_bytes"] == 7
-        and first_entry["sha256"] == hashlib.sha256(b"managed").hexdigest()
+        first_entry["size_bytes"] == len(MANAGED_BYTES)
+        and first_entry["sha256"] == hashlib.sha256(MANAGED_BYTES).hexdigest()
     )
     first_entry["sha256"] = "wrong"
     assert delivery.entry(second)["sha256"] != "wrong"

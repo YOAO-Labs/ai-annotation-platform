@@ -248,6 +248,16 @@ async def test_all_async_image_formats_embed_verified_bytes_and_share_paths(
             side_effect=AssertionError("current-bucket original signing is forbidden")
         ),
     )
+    # Owned copies are signed through the saved transport. The fake provider
+    # returns a placeholder, but the packaged fetcher validates that a managed
+    # receipt carries a real URL, so emulate the signed link it would receive.
+    monkeypatch.setattr(
+        image_transport.copy,
+        "generate_presigned_url",
+        lambda operation, **_params: (
+            "https://saved-export.invalid/copied-object?signature=receipt"
+        ),
+    )
 
     async def guard(owned):
         await worker._reauthorize_export_final_write(owned, job.id, None)
