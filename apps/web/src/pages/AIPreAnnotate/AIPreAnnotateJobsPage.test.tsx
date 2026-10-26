@@ -510,4 +510,36 @@ describe("AIPreAnnotateJobsPage", () => {
       expect.anything(),
     );
   });
+
+  it("越界页兜底让位给未应用的搜索草稿", async () => {
+    let resolveList: ((value: { items: never[]; total: number }) => void) | undefined;
+    mockAsyncJobsList.mockReturnValue(
+      new Promise<{ items: never[]; total: number }>((resolve) => {
+        resolveList = resolve;
+      }),
+    );
+    renderUI("/ai-pre/jobs?tab=image&page=2");
+    fireEvent.change(screen.getByPlaceholderText("搜索 prompt..."), {
+      target: { value: "bus" },
+    });
+    mockAsyncJobsList.mockClear();
+
+    act(() => resolveList?.({ items: [], total: 1 }));
+
+    await waitFor(() =>
+      expect(mockAsyncJobsList).toHaveBeenCalledWith(
+        expect.objectContaining({ search: "bus", offset: 0 }),
+        expect.anything(),
+      ),
+    );
+    expect(
+      mockAsyncJobsList.mock.calls.some(([params]) => {
+        const call = params as { offset?: number; search?: string };
+        return call.offset === 0 && !call.search;
+      }),
+    ).toBe(false);
+    await waitFor(() =>
+      expect(screen.getByTestId("location-search")).not.toHaveTextContent("page="),
+    );
+  });
 });

@@ -302,13 +302,11 @@ test("image job search keeps spaces and applies its page reset with the debounce
   page,
   filtering,
 }) => {
+  const query = keysOf(filtering).keys.jobs;
   const initial = getResponse(page, "/async-jobs", { offset: "20" });
   await page.goto("/ai-pre/jobs?page=2&keep=filter-test");
   await checked(await initial);
-  const applied = getResponse(page, "/async-jobs", {
-    search: keysOf(filtering).keys.jobs,
-    offset: "0",
-  });
+  const applied = getResponse(page, "/async-jobs", { search: query, offset: "0" });
   const seen: string[] = [];
   page.on("request", (request) => {
     const url = new URL(request.url());
@@ -316,19 +314,26 @@ test("image job search keeps spaces and applies its page reset with the debounce
       seen.push(url.search);
   });
   const search = page.getByPlaceholder("搜索 prompt...");
-  await search.pressSequentially(keysOf(filtering).keys.jobs, { delay: 15 });
+  await search.press(query[0]);
+  // From the first keystroke on the panel may only ask for the typed query:
+  // its page reset rides along with the debounced apply instead of fetching the
+  // unfiltered first page in between.
+  const typedAt = seen.length;
+  await search.pressSequentially(query.slice(1), { delay: 15 });
   const jobs = await checked(await applied);
   expect(jobs.items.map((job: { id: string }) => job.id)).toEqual([
     filtering.operations.job_ids[0],
   ]);
-  await expect(search).toHaveValue(keysOf(filtering).keys.jobs);
-  await expect
-    .poll(() => new URL(page.url()).searchParams.get("q"))
-    .toBe(keysOf(filtering).keys.jobs);
+  await expect(search).toHaveValue(query);
+  await expect.poll(() => new URL(page.url()).searchParams.get("q")).toBe(query);
   expect(new URL(page.url()).searchParams.has("page")).toBe(false);
-  expect(seen).toHaveLength(1);
+  const unfilteredWhileTyping = seen.slice(typedAt).filter((request) => {
+    const params = new URLSearchParams(request);
+    return params.get("offset") === "0" && !(params.get("search") ?? "").trim();
+  });
+  expect(unfilteredWhileTyping).toEqual([]);
   await page.reload();
-  await expect(search).toHaveValue(keysOf(filtering).keys.jobs);
+  await expect(search).toHaveValue(query);
   expect(new URL(page.url()).searchParams.get("keep")).toBe("filter-test");
 });
 
