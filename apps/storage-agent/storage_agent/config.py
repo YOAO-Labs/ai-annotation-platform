@@ -40,7 +40,7 @@ def private_directory(path):
     return path
 
 
-def private_json(path, *, max_bytes=65536):
+def private_json(path, *, max_bytes=65536, required_mode=None):
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
     try:
         info = os.fstat(fd)
@@ -48,6 +48,10 @@ def private_json(path, *, max_bytes=65536):
             not stat.S_ISREG(info.st_mode)
             or info.st_uid != os.getuid()
             or stat.S_IMODE(info.st_mode) & 0o077
+            or (
+                required_mode is not None
+                and stat.S_IMODE(info.st_mode) != required_mode
+            )
             or info.st_size > max_bytes
         ):
             raise AgentError("private_config_file_required")
@@ -74,8 +78,16 @@ class Credentials:
 
     @classmethod
     def load(cls, path):
-        value = private_json(path)
-        if set(value) != {"agent_id", "credential_revision", "token", "expires_at"}:
+        return cls.from_value(private_json(path))
+
+    @classmethod
+    def from_value(cls, value):
+        if not isinstance(value, dict) or set(value) != {
+            "agent_id",
+            "credential_revision",
+            "token",
+            "expires_at",
+        }:
             raise AgentError("invalid_credentials")
         try:
             identity = str(UUID(value["agent_id"]))

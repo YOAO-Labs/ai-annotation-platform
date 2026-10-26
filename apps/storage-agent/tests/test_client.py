@@ -1,12 +1,14 @@
 from dataclasses import replace
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from io import BytesIO
 import json
 import socket
 import ssl
 import subprocess
 import threading
 from urllib import error
+from uuid import uuid4
 
 import pytest
 
@@ -80,6 +82,14 @@ def tls_center(tmp_path):
         "redirect": False,
         "paths": [],
         "authorization": [],
+        "sessions": [],
+        "pair_requests": [],
+        "pair_response": None,
+        "pair_status": 200,
+        "drop_pair_response": False,
+        "poll_command": None,
+        "ack_state": "applied",
+        "chunk_posts": [],
     }
 
     class Handler(BaseHTTPRequestHandler):
@@ -91,13 +101,24 @@ def tls_center(tmp_path):
             body = self.rfile.read(size)
             state["paths"].append(self.path)
             state["authorization"].append(self.headers["Authorization"])
+            state["sessions"].append(self.headers["X-Agent-Session"])
             if state["redirect"]:
                 self.send_response(302)
                 self.send_header("Location", "/credential-sink")
                 self.send_header("Content-Length", "0")
                 self.end_headers()
                 return
-            if self.path.endswith("/chunks"):
+            status = 200
+            if self.path == "/api/v1/site-agents/pair":
+                state["pair_requests"].append(json.loads(body))
+                if state["drop_pair_response"]:
+                    self.connection.shutdown(socket.SHUT_RDWR)
+                    self.connection.close()
+                    return
+                value = state["pair_response"]
+                status = state["pair_status"]
+            elif self.path.endswith("/chunks"):
+                state["chunk_posts"].append(body)
                 command_id = self.path.split("/")[-2]
                 offset = int(self.headers["X-Chunk-Offset"])
                 key = (command_id, offset)
@@ -113,16 +134,39 @@ def tls_center(tmp_path):
             elif self.path.endswith("/result"):
                 result = json.loads(body)
                 state["result_posts"].append(result)
+                received = b"".join(
+                    chunk
+                    for (command_id, _), chunk in sorted(state["chunks"].items())
+                    if command_id == result["command_id"]
+                )
+                if (
+                    state["ack_state"] != "rejected"
+                    and result["status"] == "completed"
+                    and "sha256" in result["result"]
+                    and (
+                        len(received) != result["result"]["size_bytes"]
+                        or hashlib.sha256(received).hexdigest()
+                        != result["result"]["sha256"]
+                    )
+                ):
+                    payload = canonical_json(
+                        {"detail": {"code": "agent_content_incomplete"}}
+                    )
+                    self.send_response(409)
+                    self.send_header("Content-Length", str(len(payload)))
+                    self.end_headers()
+                    self.wfile.write(payload)
+                    return
                 if state["drop_first_result"]:
                     state["drop_first_result"] = False
                     self.connection.shutdown(socket.SHUT_RDWR)
                     self.connection.close()
                     return
-                value = acknowledgement(result)
+                value = acknowledgement(result, state["ack_state"])
             else:
-                value = {"protocol_version": 1, "command": None}
+                value = {"protocol_version": 1, "command": state["poll_command"]}
             payload = canonical_json(value)
-            self.send_response(200)
+            self.send_response(status)
             self.send_header("Content-Length", str(len(payload)))
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -161,8 +205,9 @@ def test_actual_tls_lost_ack_then_restart_replays_same_stage(
         Client(config, credentials).run(restarted, once=True)
         assert restarted_journal.get(command["command_id"])["state"] == "applied"
         assert not list(restarted_journal.stages.iterdir())
-    assert peer["result_posts"] == [result, result]
+    assert peer["result_posts"] == [result, result, result]
     assert list(peer["chunks"].values()) == [b"source pixels"]
+    assert peer["chunk_posts"] == [b"source pixels"]
     assert set(peer["authorization"]) == {"Bearer " + credentials.token}
 
 
@@ -205,8 +250,11 @@ def test_http_failures_never_look_like_ack(agent, status, retryable, code):
 def test_wrong_chunk_ack_keeps_local_stage(agent, command):
     config, credentials, journal, runner, _ = agent
     result = runner.execute(command)
-    opener = Opener(
-        lambda req: Response(
+
+    def reply(req):
+        if req.full_url.endswith("/result"):
+            raise incomplete(req)
+        return Response(
             {
                 "command_id": command["command_id"],
                 "command_digest": result["command_digest"],
@@ -214,11 +262,12 @@ def test_wrong_chunk_ack_keeps_local_stage(agent, command):
                 "sha256": "0" * 64,
             }
         )
-    )
+
+    opener = Opener(reply)
     with pytest.raises(AgentError, match="chunk_ack_mismatch"):
         Client(config, credentials, opener=opener).submit(runner, result)
     assert journal.get(command["command_id"])["state"] == "completed"
-    assert len(opener.calls) == 1
+    assert len(opener.calls) == 2
 
 
 def test_expired_command_never_replays_source_bytes(agent, command):
@@ -279,6 +328,15 @@ def test_poll_reports_handles_and_limits_without_absolute_roots(agent, command):
     assert payload["roots"] == [{"root_handle": "images", "root_revision": 1}]
     assert str(source).encode() not in opener.calls[0].data
     assert payload["limits"]["max_concurrency"] == 1
+    assert set(payload) == {
+        "protocol_version",
+        "agent_id",
+        "credential_revision",
+        "session_id",
+        "roots",
+        "limits",
+    }
+    assert opener.calls[0].get_header("X-agent-session") == payload["session_id"]
 
 
 @pytest.mark.parametrize("ack_state", ["received", "rejected", "applied"])
@@ -311,7 +369,7 @@ def test_unsettled_source_close_stops_further_work_after_reporting(
     assert row in journal.pending()
 
 
-def test_actual_tls_expiry_during_handshake_sends_no_headers_or_bytes(
+def test_actual_tls_expiry_during_chunk_handshake_sends_no_chunk_headers_or_bytes(
     agent, command, tls_center, monkeypatch
 ):
     import http.client
@@ -321,10 +379,13 @@ def test_actual_tls_expiry_during_handshake_sends_no_headers_or_bytes(
     result = runner.execute(command)
     now = [command["issued_at"]]
     original = http.client.HTTPSConnection.connect
+    connections = []
 
     def delayed_tls(connection):
         original(connection)
-        now[0] = command["expires_at"]
+        connections.append(connection)
+        if len(connections) == 2:
+            now[0] = command["expires_at"]
 
     monkeypatch.setattr(http.client.HTTPSConnection, "connect", delayed_tls)
     client = Client(
@@ -334,5 +395,125 @@ def test_actual_tls_expiry_during_handshake_sends_no_headers_or_bytes(
     )
     with pytest.raises(AgentError, match="command_expired"):
         client.submit(runner, result)
-    assert peer["paths"] == []
+    assert peer["paths"] == [
+        "/api/v1/site-agents/commands/" + command["command_id"] + "/result"
+    ]
     assert journal.get(command["command_id"])["state"] == "completed"
+
+
+def incomplete(req):
+    return error.HTTPError(
+        req.full_url,
+        409,
+        "content incomplete",
+        {},
+        BytesIO(canonical_json({"detail": {"code": "agent_content_incomplete"}})),
+    )
+
+
+@pytest.mark.parametrize("state", ["received", "applied", "rejected"])
+def test_existing_receipt_ack_never_opens_or_replays_stage(
+    agent, command, monkeypatch, state
+):
+    config, credentials, journal, runner, _ = agent
+    result = runner.execute(command)
+    monkeypatch.setattr(runner, "outgoing", lambda _: pytest.fail("ACK needs no stage"))
+    opener = Opener(lambda _: Response(acknowledgement(result, state)))
+    assert (
+        Client(config, credentials, opener=opener).submit(runner, result)["state"]
+        == state
+    )
+    assert len(opener.calls) == 1 and opener.calls[0].full_url.endswith("/result")
+    assert journal.get(command["command_id"])["state"] == state
+
+
+def test_expired_credentials_submit_only_closure_receipt_without_bytes(agent, command):
+    config, credentials, journal, runner, _ = agent
+    result = runner.execute(command)
+    expired = replace(credentials, expires_at=1)
+    opener = Opener(lambda _: Response(acknowledgement(result, "rejected")))
+    client = Client(config, expired, opener=opener)
+    assert client.submit(runner, result)["state"] == "rejected"
+    assert len(opener.calls) == 1 and opener.calls[0].full_url.endswith("/result")
+    assert journal.get(command["command_id"])["state"] == "rejected"
+    with pytest.raises(AgentError, match="credential_expired"):
+        client.poll()
+    with pytest.raises(AgentError, match="credential_expired"):
+        client._post(
+            "/api/v1/site-agents/commands/" + command["command_id"] + "/chunks",
+            data=b"no",
+        )
+    assert len(opener.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/site-agents/commands/poll",
+        "/api/v1/site-agents/commands/not-uuid/result",
+        "/api/v1/site-agents/commands/" + str(uuid4()) + "/chunks",
+    ],
+)
+def test_expired_receipt_exception_cannot_authorize_other_endpoints(agent, path):
+    config, credentials, _, _, _ = agent
+    opener = Opener(lambda _: pytest.fail("Invalid exception must not send a request"))
+    with pytest.raises(AgentError, match="invalid_receipt_endpoint"):
+        Client(config, credentials, opener=opener)._post(
+            path, {}, allow_expired_receipt=True
+        )
+
+
+@pytest.mark.parametrize("credential_expired", [False, True])
+def test_incomplete_receipt_cannot_authorize_expired_byte_replay(
+    agent, command, credential_expired
+):
+    config, credentials, journal, runner, _ = agent
+    result = runner.execute(command)
+    now = command["issued_at"]
+    if credential_expired:
+        credentials = replace(credentials, expires_at=now)
+    else:
+        now = command["expires_at"]
+    opener = Opener(lambda req: (_ for _ in ()).throw(incomplete(req)))
+    with pytest.raises(AgentError, match="command_expired"):
+        Client(config, credentials, opener=opener, clock=lambda: now).submit(
+            runner, result
+        )
+    assert (
+        len(opener.calls) == 1
+        and journal.get(command["command_id"])["state"] == "completed"
+    )
+
+
+def test_chunk_deadline_also_respects_credential_expiry(agent, command):
+    config, credentials, _, runner, _ = agent
+    result = runner.execute(command)
+    credentials = replace(credentials, expires_at=command["expires_at"] - 10)
+
+    def response(req):
+        if req.full_url.endswith("/result"):
+            raise incomplete(req)
+        assert req.agent_deadline == credentials.expires_at
+        raise error.URLError("stop after checking deadline")
+
+    with pytest.raises(RetryableError):
+        Client(config, credentials, opener=Opener(response)).submit(runner, result)
+
+
+@pytest.mark.parametrize("expired", [False, True])
+def test_actual_tls_rejected_receipt_never_replays_bytes(
+    agent, command, tls_center, expired
+):
+    config, credentials, journal, runner, _ = agent
+    origin, ca, peer = tls_center
+    result = runner.execute(command)
+    peer.update(ack_state="rejected", drop_first_result=False)
+    if expired:
+        credentials = replace(credentials, expires_at=1)
+    client = Client(replace(config, center_url=origin, ca_file=ca), credentials)
+    assert client.submit(runner, result)["state"] == "rejected"
+    assert peer["chunks"] == {} and peer["chunk_posts"] == []
+    assert peer["paths"] == [
+        "/api/v1/site-agents/commands/" + command["command_id"] + "/result"
+    ]
+    assert journal.get(command["command_id"])["state"] == "rejected"
