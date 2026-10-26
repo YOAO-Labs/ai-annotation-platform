@@ -48,8 +48,11 @@ psql -U owner -d "$DB" -v expected_database="$DB" -v migration_role=owner \
 psql -U owner -d "$DB" -v expected_database="$DB" -v migration_role=owner \
   -v labeling_owner=labeling_code -v consumer_role=role_auditor \
   -f infra/docker/labeling-role-audit-grants.sql
-psql -U owner -d "$DB" -c \
-  'GRANT USAGE ON SCHEMA public TO role_auditor; GRANT SELECT ON public.alembic_version TO role_auditor;'
+psql -U owner -d "$DB" -v audit_database="$DB" <<'SQL'
+GRANT CONNECT ON DATABASE :"audit_database" TO role_auditor;
+GRANT USAGE ON SCHEMA public TO role_auditor;
+GRANT SELECT ON public.alembic_version TO role_auditor;
+SQL
 ```
 
 安装器只绑定目标库中已有的安全角色并显式创建固定投影，不创建 LOGIN、不改业务数据或

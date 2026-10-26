@@ -44,6 +44,17 @@ def mask_content_policy(bucket: str, *, cleanup: bool = False) -> dict:
                 },
             }
         )
+        # An explicit deny also fences versions under a broader parent identity.
+        statements.append(
+            {
+                "Effect": "Deny",
+                "Action": ["s3:DeleteObjectVersion"],
+                "Resource": [
+                    f"{arn}/raster-masks/sha256/*",
+                    f"{arn}/raster-mask-gc/v1/*",
+                ],
+            }
+        )
     return {"Version": "2012-10-17", "Statement": statements}
 
 

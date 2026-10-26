@@ -26,9 +26,6 @@ def test_mask_content_and_cleanup_have_disjoint_mutations_and_fixed_prefix():
             for item in statements
             for resource in item["Resource"]
         )
-        assert all(
-            "s3:DeleteObjectVersion" not in item["Action"] for item in statements
-        )
         listings = [item for item in statements if "s3:ListBucket" in item["Action"]]
         assert bool(listings) is cleanup
         if cleanup:

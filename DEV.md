@@ -428,6 +428,14 @@ Mask cleanup 不公开宿主端口。内容和清理 S3 身份分离，策略由
 只读审计和负面权限检查可在空日常库执行，真实标注／候选写入验证必须使用独占测试库。
 实际执行结果及未覆盖范围以[模块台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)为准。
 
+只读审计使用独立的0600 `labeling-development/audit.env`，不要默认继承普通API或迁移连接：
+
+```bash
+cd apps/api
+UV_ENV_FILE="$HOME/.local/state/ai-annotation-platform/labeling-development/audit.env" \
+  uv run --locked python scripts/audit_project_roles.py --pretty
+```
+
 ### 独立素材探测服务
 
 `apps/media-probe` 提供视频元数据、完整帧时间表和分块 packet 样本的独立 HTTP

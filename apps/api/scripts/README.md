@@ -217,7 +217,8 @@ psql -U "$MIGRATION_ROLE" -d "$DB" \
 上述安装器要求目标库已有迁移角色、各领域非 LOGIN owner 和受限审计 LOGIN；
 安装器仅为审计投影向 Labeling owner 授予以下私表列读取权限：`tasks`、`task_batches`、
 `annotations`、`task_locks`；审计 LOGIN 只获固定审计视图的 `SELECT`，不获这些私表的表级或列级权限。还需显式授予该 LOGIN 读取
-`public.alembic_version` 的 `SELECT` 和 `public` schema 的 `USAGE`。
+`public.alembic_version` 的 `SELECT`、`public` schema 的 `USAGE`，以及目标数据库的
+`CONNECT`；安装器不会恢复已从 `PUBLIC` 撤销的连接权限。
 
 若目标库之后应用 0173，维护者须显式重新运行 `labeling-role-audit-grants.sql`，
 使 task 投影读取新增准备列；审计 CLI 不自动安装或刷新任何关系。

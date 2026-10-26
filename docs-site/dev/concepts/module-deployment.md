@@ -47,6 +47,10 @@ Workspace 已按[本机日常采用](#workspace-daily-adoption)切换普通 API 
 下文原始操作切片中的“日常未切换”限定其当时证据；当前状态以上方说明、唯一台账及采用节为准，
 不据此将其他模块或生产环境一并标为已采用。
 
+Labeling 未暂缓范围的运维、当前工件与本地模块门槛现已闭合，并在本机采用五个独立
+进程；[采用证据](#labeling-operational-boundary)单列实际权限、HTTP／S3 与只读预览。
+这不关闭 Assets reset、Learning、通用旧库退役或生产资格。
+
 <!-- prettier-ignore -->
 | 模块／操作组                             | 实现                                                                                                               | 消费者迁移                                                                                       | 独立运行验收与证据                                                                                                                                       | 剩余阻塞／下一交付                                                                                                                                                                                                                                                                                                                                               |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -56,10 +60,10 @@ Workspace 已按[本机日常采用](#workspace-daily-adoption)切换普通 API 
 | Workspace：项目删除 | 原子 Native 协调器及 Workspace 可移植命令／连接式客户端已实现 | API 已通过同一请求事务调用 owner；不新增独立提交点 | [项目删除](#workspace-项目删除事务切片)通过76项源码／受限 PG／Node／实际 API 定向检查，当前组合冷恢复通过 | 当前支持协议与[退役门禁](#video-deletion-retirement)已通过；未知旧作业仍409；通用旧库排空／修复是条件性未实现能力，不作为本机缺资料阻塞 |
 | Workspace：数据集解绑 | 原协调器、可移植合同／管理器及借用事务 PostgreSQL 绑定已实现 | API 通过相同 Session 调用 Workspace；原响应／缓存／提交保持 | [解绑切片](#workspace-数据集解绑事务切片)通过72项不同案例，含受限双函数 LOGIN、Node、实际 HTTP 与当前组合冷恢复 | 当前调用、退役门禁、受限凭据与恢复已通过；未知旧作业仍409；通用旧库排空／修复适用性与项目删除相同 |
 | Assets：来源、目录、连接及媒体／输入     | 已有 Source、Catalog、Media、Images、accepted inputs 和视频输入能力                                                | 已迁移选定导入、Workbench 和推理输入消费者                                                       | [数据能力协议](/api/guides/module-data)及既有 ADR 保留受限进程／容器证据；[辅助保留](#来源删除的辅助引用)的实际删除与 HTTP 映射通过 11 项定向检查        | 已确认沿用既有辅助引用 409 guard；部分相机／轨迹引用缺少独立解除入口，任务、标注及学习证据保留；一般 Blob、其余输入、运维写入与完整装配仍待收口                                                                                                                                                                                                                  |
-| Labeling：任务、标注、审核、Mask 与视频写入 | 任务／批次生命周期、人工／批量标注、审核计数、预测／轨迹、Mask／点云质检及最终发布均已有固定 owner 能力 | 选定 API／worker 调用已迁移；原授权、UOW、缓存、锁序与 Audit 时点保持；七处标注响应刷新改用公开关系 | [集中原生验收](#labeling-native-cohort-acceptance)与既有操作证据保留；四项刷新过期状态／缺失行检查通过 | 创建标注的限权冷 API、幂等重放与重启读取已通过；全部运维边界仍待闭合 |
+| Labeling：任务、标注、审核、Mask 与视频写入 | 任务／批次生命周期、人工／批量标注、审核计数、预测／轨迹、Mask／点云质检及最终发布均已有固定 owner 能力 | 非暂缓 API／worker／运维调用已迁移；原授权、UOW、缓存、锁序与 Audit 时点保持 | [集中原生验收](#labeling-native-cohort-acceptance)及[当前运维／工件](#labeling-operational-boundary)通过；限权冷 API、幂等重放、重启读取与完整恢复保留 | 非暂缓当前协议的本地门槛及本机采用完成；Assets reset 仍暂缓，其他环境／替代语言提供方与生产容量不据此通过 |
 | Labeling：核心读取、讨论、场景与分区维护 | 十三项核心读取关系、七项固定行锁、讨论／场景能力及预测分区 owner 已实现；0365 将效率 MV 改接已有 TaskEvent 公开事实 | API、导出、视频、工作流、兼容学习读取及选定维护调用已迁移；效率 MV 保留聚合、索引、所有者和有效显式授权 | [核心读取与维护](#labeling-current-candidate-acceptance)的既有受限读锁／分区证据保留；效率 MV 普通角色实际刷新与完整恢复已通过限定验收 | 不扩大 Insights 或暂缓领域；本阶段运维／当前工件资格按下行更新 |
-| Labeling：普通凭据与运维兼容 | LAN／worktree 共用固定 ACL，撤销 49 张私表及分区、列、序列和宽默认授权；E2E／截图／规模种子使用固定 owner 能力 | 兼容读取与锁、批次编号及选定种子／截图调用已迁移，原事务和作用域守卫保持 | [普通权限与兼容调用](#labeling-private-runtime-acl)：原有 56 项 Native 通过证据保留；原 Audit 筛选失败已通过本阶段真实 HTTP 复验，另补共享清理和维护凭据／守卫证据；不是当前头全套重跑 | 未暂缓的已知生产／运维调用已收口；Assets reset 手动维护仍暂缓，完整模块资格和独立拓扑采用待完成 |
-| Labeling：完整模块工件与恢复 | 独立包、writer 及 API 消费者工件已有源码证明；视频中间状态和最终发布 owner 已接入 | 当前普通角色冷 API 与真实 worker 使用既有公开能力及限定凭据 | [当前工件与恢复](#labeling-private-runtime-acl)：独立包 120 项、工件离线检查、两个真实 worker 用例、冷 API、完整恢复和普通角色 MV 刷新分批通过 | 限定工件与恢复门槛已有通过证据；Assets reset 手动维护仍暂缓，全部运维边界与整模块审计与独立拓扑采用待完成；主环境运行资格未更新 |
+| Labeling：普通凭据与运维兼容 | LAN／worktree 共用 ACL，撤销49张私表及分区、列、序列和宽默认授权；E2E／截图／规模种子及历史审计使用固定 owner 能力 | 手动 filtering 与历史角色审计的最后两处私表入口已迁移；原事务及未知值语义保持 | [当前运维资格](#labeling-operational-boundary)33个不同原生案例、4个当前工件场景通过；本机普通／专用账号对55项私有关系无直接权限 | 本机当前采用完成；Assets reset 手动维护仍暂缓，不开放生产 fixture EXECUTE |
+| Labeling：完整模块工件与恢复 | 当前便携包、class-query／writer／Mask GC／字节端及API工件已独立构建 | 当前普通账号冷 API、真实审计 CLI 与日常 HTTP 提供方使用限定凭据；未变 worker 核心复用原证据 | [当前工件与采用](#labeling-operational-boundary)：136项wheel／sdist资源、107项非editable便携测试、当前冷API／CLI／完整PG恢复及真实S3权限／预览通过 | 非暂缓当前协议的本地资格与五进程采用完成；原worker两案不重复计数，Assets reset、一般Blob／历史部署与生产仍不在闭合范围 |
 | Jobs／Labeling：旧视频输入保留 | 0312 的窄 Jobs 事实与 Labeling 保留投影已实现；0313 补齐历史垃圾领取围栏 | tracker sweep 和 video garbage claim 使用当前保留事实；pin、审核宽限期及已证明替代的前缀清理保留 | [输入保留](#tracker-input-retention)：0312的23项与0313的10项定向案例及完整迁移往返通过；进程内取消单测单列 | 新领取路径的本地资格完成；已领租约仍须真实停机／凭据围栏；历史 expired／已删对象修复和无账本退役 operator 未实现，适用旧库时单列代码项；[当前组合工件](#coherent-module-artifact)已验收，日常拓扑未采用 |
 | Inference／Jobs：协调视频恢复            | `aap-video-restore/v1`、两类权威屏障／轮换、不可变退休证明已实现                                                   | 实际 runner 已经独立安装 CLI 恢复，同 run 新代次复用窗口并由 Labeling owner 发布                 | [ADR-0160](/dev/adr/0160-coordinated-video-restore)：五个 Native／消费者场景、源码和安装各 420 项、51 项旧路径回归、完整迁移通过                         | 本切片已闭合：独立安装 CLI 实际消费者与匹配 Inference／API 冷镜像均通过，源码提交 `968212e4e`；对象存储备份恢复、GPU／生产容量不在本切片通过范围                                                                                                                                                                                                                 |
 | Inference：控制面与其他预测路径          | Pipeline、backend 配置／探测／健康、registry ingress、routing 和 scope 退休已有选定 owner                          | 对应绑定及部分实际预测消费者已迁移                                                               | [Inference 协议](/api/guides/inference-runtime)保留各切片资格                                                                                            | 其他推理编排、GPU 租约、取消／迟到结果、完整独立装配及提供方替换仍须逐操作收口                                                                                                                                                                                                                                                                                   |
@@ -87,7 +91,7 @@ Workspace 已按[本机日常采用](#workspace-daily-adoption)切换普通 API 
 | Audit：分区、保留与冷归档 | 固定维护合同／Native 能力与调用方事务适配已实现，上传成功后以同事务快照锁退役分区 | 原 API／Celery 入口已迁移；独立 CLI 使用专用写凭据，管理员列表／读取使用独立只读凭据 | [维护冷验收](#audit-maintenance-cold-qualification)：真实 CLI、上传后 SIGKILL／回滚、孤儿接管、整库恢复、重复执行及原 ASGI HTTP 权限通过 | 独立 CLI 与[既有 Beat／Celery 消费者](#audit-maintenance-consumers)的限定本地资格通过；归档桶在 PostgreSQL 恢复期间保留，未验证对象存储灾难恢复；日常调度未切换 |
 | Audit：独立工件、凭据与恢复 | 独立一次性 CLI、锁定包／镜像／Compose、单函数 LOGIN 与 owner 收权源码已齐 | 现有 API／Celery 调用保持事务和签名；公开归档读者保留授权与只读绑定 | [维护冷验收](#audit-maintenance-cold-qualification)：非 editable ARM64 镜像、29 份安装文件、真实 DB／分离 S3 凭据及完整 PostgreSQL 恢复通过 | 维护／归档工件、[当前 API／元数据 worker](#audit-cold-consumers)及[既有维护调度消费者](#audit-maintenance-consumers)均通过；Learning 暂缓读取、独立拓扑采用及单列的业务 request ID 遗留边界仍保留 |
 | Notifications：完整 Python 模块 | 固定数据合同、独立 publisher／socket、共享准入及兼容绑定已实现并冻结 | 既有 SQL 操作、API 即时发布与原 WS 地址已迁移；候选保留主线 Jobs 读取 | [候选整模块资格](#notifications-primary-adoption-candidate)：源码 913d3fc5c 的四镜像、真实 REST／Node／WS 组合、最终凭据及 0325 完整恢复通过；224／48／50 项未变组件证据复用 | 本地 Python 模块与采用候选资格完成；源码已合回当前分支且日常库已升级；独立拓扑仍未切换。日常库已含 0313，后续暂缓的训练／资产功能合并仍须复核兼容；完整替代语言 owner 与生产容量未验证 |
-| Runtime assembly：全模块启动、迁移和运维 | 已有独立包、受限角色及 Compose 模式可复用                                                                          | 主 API 仍承担过渡装配；旧绑定继续工作                                                            | 各切片冷镜像证据单独保存                                                                                                                                 | 逐模块完成入口、凭据、启动／健康、全局迁移升级／回退及独立恢复；默认混合维护 worker 仍用迁移账号，Audit 三项任务受限运行已通过，整体凭据切换仍待其他维护操作收口；[宿主机转发诊断](#runtime-host-forwarding)已完成本机抓包，35／65 秒复用对照高度吻合活跃 gVisor 的 TIME_WAIT 转发缺陷；尚无已验收的修复构建，旧路径仍未修复；历史三类业务 503 的逐次归因仍未证实，保持已验收的私网数据库路径                                                                      |
+| Runtime assembly：全模块启动、迁移和运维 | 已有独立包、受限角色及 Compose 模式可复用 | 主 API 仍承担过渡装配；旧绑定继续工作 | 各切片冷镜像证据单独保存，Workspace／Labeling本机采用分别核实 | 逐模块完成启动、凭据和恢复；混合维护worker整体凭据切换仍待其他维护操作收口。既有普通workflow profile全量重施的洁净凭据要求，以及5项未改API分层失败见[本阶段界限](#labeling-operational-boundary)，不以放宽权限解决。[宿主机转发](#runtime-host-forwarding)旧路径仍未修复，保留已验收私网数据库路径；历史业务503逐次归因未证实 |
 
 这些模块的公开 HTTP 仍由主 API 聚合。端口、owner 表台账和架构守卫本身不能证明独立二进制、独立部署、最小凭据或跨语言兼容；各模块以其实际运行证据为准。下述建题数据接口只覆盖选定的事务操作，不能代替整模块验收。
 
@@ -3153,7 +3157,42 @@ Labeling 状态的整库备份恢复也通过。普通运行角色实际刷新�
 候选，保留 seed 之后的独立提交、原 confidence 与帧 0／0／10 几何。普通自动 seed 不变。
 两项边界均无通用编辑、私表回退或新的业务授权。审计安装器不迁移历史库，不补造未知证据。
 
-源码与调用迁移已完成，受影响的集中原生／CLI、当前安装工件及本机适用采用正在验收；
-此实现说明不提前提升下表的运行资格。既有成功 worker／恢复证据按原源码和作用域保留，
-不会因新夹具函数重复执行未受影响的视频执行场景。Assets reset、训练／Learning
-仍暂缓，不以抽检或本机空库冒充其他部署的历史退役授权。
+源码 `67505fcea` 的33个不同原生案例由首批21项成功及12项失败恢复组成；保留原失败，
+没有重跑已通过的筛选 CLI／owner 写入。真实0171、0173准备转换、NULL／未知值、完整
+报告与明细截断、快照／回滚、安装器原子拒绝／重装及 Node 消费者均保持。四个当前
+工件场景一次通过：两项真实非editable审计CLI、限权冷API与完整Labeling PostgreSQL恢复。
+各自的0367→0189→0367、冻结SQL安装／回滚及自有资源清理通过。
+
+当前ARM64 API双用途工件核对4,270项COPY输入、780项安装资源与2,864项应用／迁移／CLI
+文件；API镜像未内置普通UID，离线及冷API使用10001，审计CLI使用10003，不冒充默认非root。
+四个owner镜像均为内置普通UID、禁网／只读／无源码挂载的精确资源证明；Mask旧镜像完整
+输入不相同，因此重建。wheel／sdist各136项资源相同，独立非editable便携安装107项通过。
+最终审计README仅补CONNECT说明；该文档字节不与冻结API工件宣称相同，运行代码未变。
+
+原两项真实worker通过范围继续保留，原始完整日志在本轮工作区不可用，不声称重检。
+实际旧／新writer安装资源对照仅有四项E2E合同／数据／0367 SQL差异，依赖版本和视频
+核心不变；因此不重跑已通过的worker案例，不把旧结果计为当前新执行。
+
+本机在私有备份之后升级0367，转交新函数规范owner并应用LAN与3／1／6函数专用profile、
+三域只读审计profile及显式CONNECT。全量owner重施因现有迁移期workflow账号仍有Assets
+回执读取而原子拒绝；未放宽检查，仅应用本次新增函数的规范owner差量，通用装配另列。
+实际API仍为 `aap_development_app`，四项HTTP选择器、无迁移连接及原Workspace选择器均核实。
+五个独立进程健康，普通UID／只读根／64PIDs／unless-stopped；GC自动轮询明确关闭。
+实际类统计、Mask put/get、分离IAM、普通删除与只读GC预览通过；主库业务行、sweep及
+intent均保持零，没有播种账号／任务或启动Celery。
+
+真实S3检查先发现清理身份能物理删除非null保留版本；规范策略现显式Deny版本删除。
+同类自有版本化桶复验为AccessDenied、保留字节仍可读且普通当前键删除可用；临时桶、
+版本、身份与策略均清除。纯策略5项及既有真实Mask角色／条件操作案例通过。
+该修复只更新IAM策略，未重建未变运行工件或重复33项／4项验收。
+
+通用API分层检查仍有5项既有失败（annotation_evidence、async_job、labeling_tasks、
+labeling_scene、annotation_comment）；本轮不豁免或扩修，Labeling自身SCC通过。
+Assets reset、训练／Learning、通用旧库退役与生产资格继续保持原范围。
+
+规范收据 `.worktree/labeling-operational-qualification.json` 的 SHA-256 为
+`e2415fac8e719d2d882d90c224589daf2ccaf57813b2af28aea1b1a62a01a50f`；
+131份逐项核验的原始记录、工件清单和失败／烟测配方保存在
+`.worktree/labeling-operational-evidence.tar.gz`，SHA-256 为
+`164ec45916c342858b6b2f04139774fc931df904157a8a09d8a84bcfb07ee9cb`。
+私有凭据、环境、备份内容、依赖缓存及虚拟环境均不进入证据包。
