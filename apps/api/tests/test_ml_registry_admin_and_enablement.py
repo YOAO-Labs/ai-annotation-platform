@@ -30,9 +30,11 @@ from aap_inference.gpu.contracts import (
     GPUArbiterDispatchError,
     GPUArbiterErrorCode,
 )
-from app.services.ml_backend import MLBackendService
+from aap_inference_contract.topology import PoolFacts
+from app.services.ml_backend import MLBackendDeleteBlocked, MLBackendService
 from app.services.ml_routing.contracts import RoutingCandidate, TrafficState
 from app.services.ml_routing.router import make_ledger_from_settings
+from tests.conftest import create_registry_with_pool
 
 
 async def _seed_project(db: AsyncSession, owner_id: uuid.UUID, **overrides) -> Project:
@@ -51,8 +53,19 @@ async def _seed_project(db: AsyncSession, owner_id: uuid.UUID, **overrides) -> P
     return proj
 
 
+async def _singleton_pool(db: AsyncSession, registry_id: uuid.UUID) -> PoolFacts | None:
+    """Resolve a registry's singleton service pool through the routing owner."""
+    service = MLBackendService(db)
+    pool_id = await service.pool_id_for_registry(registry_id)
+    if pool_id is None:
+        return None
+    return await service.get_pool(pool_id)
+
+
 async def _seed_registry(db: AsyncSession, name: str = "g") -> MLBackendRegistry:
-    b = MLBackendRegistry(
+    # v0.23.3 ADR-0050 · 每 registry 须有 singleton pool (alembic 0132 backfill 语义)。
+    registry, _pool = await create_registry_with_pool(
+        db,
         id=uuid.uuid4(),
         name=name,
         url=f"http://reg/{uuid.uuid4().hex[:8]}",
@@ -60,18 +73,14 @@ async def _seed_registry(db: AsyncSession, name: str = "g") -> MLBackendRegistry
         state="connected",
         last_checked_at=datetime.now(UTC),
     )
-    db.add(b)
-    await db.flush()
-    # v0.23.3 ADR-0050 · 每 registry 须有 singleton pool (alembic 0132 backfill 语义)。
-    await MLBackendService(db)._create_singleton_pool(b)
-    return b
+    return registry
 
 
 async def _drain_registry_member(
     db: AsyncSession, registry_id: uuid.UUID, monkeypatch
 ) -> uuid.UUID:
     service = MLBackendService(db)
-    pool = await service._pool_for_registry(registry_id)
+    pool = await _singleton_pool(db, registry_id)
     assert pool is not None
     await service.drain_pool_member(pool.id, registry_id)
     await db.commit()
@@ -418,7 +427,7 @@ async def test_project_admin_cannot_create_or_update_global_registry_row(
     user, token = project_admin
     project = await _seed_project(db_session, user.id)
     backend = await _seed_registry(db_session, name="shared-global")
-    pool = await MLBackendService(db_session)._pool_for_registry(backend.id)
+    pool = await _singleton_pool(db_session, backend.id)
     db_session.add(
         ProjectMLBackendPool(
             project_id=project.id,
@@ -1137,12 +1146,10 @@ async def test_delete_registry_clears_all_matching_primary_bindings_only(
 ):
     user, token = super_admin
     backend = await _seed_registry(db_session, name="todel")
-    pool = await MLBackendService(db_session)._pool_for_registry(backend.id)
+    pool = await _singleton_pool(db_session, backend.id)
     assert pool is not None
     unrelated_backend = await _seed_registry(db_session, name="unrelated")
-    unrelated_pool = await MLBackendService(db_session)._pool_for_registry(
-        unrelated_backend.id
-    )
+    unrelated_pool = await _singleton_pool(db_session, unrelated_backend.id)
     assert unrelated_pool is not None
 
     affected = [await _seed_project(db_session, user.id) for _ in range(2)]
@@ -1192,7 +1199,7 @@ async def test_delete_missing_registry_preserves_unrelated_binding(
 ):
     user, token = super_admin
     backend = await _seed_registry(db_session, name="still-present")
-    pool = await MLBackendService(db_session)._pool_for_registry(backend.id)
+    pool = await _singleton_pool(db_session, backend.id)
     assert pool is not None
     project = await _seed_project(db_session, user.id, ml_backend_pool_id=pool.id)
     await db_session.commit()
@@ -1217,7 +1224,7 @@ async def test_delete_gpu_fenced_registry_preserves_primary_binding(
 ):
     user, token = super_admin
     backend = await _seed_registry(db_session, name="gpu-fenced")
-    pool = await MLBackendService(db_session)._pool_for_registry(backend.id)
+    pool = await _singleton_pool(db_session, backend.id)
     assert pool is not None
     project = await _seed_project(db_session, user.id, ml_backend_pool_id=pool.id)
     db_session.add(
@@ -1248,7 +1255,7 @@ async def test_delete_registry_with_running_prediction_preserves_binding(
 ):
     user, token = super_admin
     backend = await _seed_registry(db_session, name="busy-prediction")
-    pool = await MLBackendService(db_session)._pool_for_registry(backend.id)
+    pool = await _singleton_pool(db_session, backend.id)
     assert pool is not None
     project = await _seed_project(db_session, user.id, ml_backend_pool_id=pool.id)
     db_session.add(
@@ -1290,12 +1297,16 @@ async def test_registry_running_work_capability_preserves_caller_autoflush(
     db_session.add(pending)
     service = MLBackendService(db_session)
     if autoflush:
-        assert await service._count_running_predictions(backend.id) == 1
+        with pytest.raises(MLBackendDeleteBlocked) as blocked:
+            await service.validate_delete(backend.id)
+        assert blocked.value.running_jobs == 1
     else:
         with db_session.no_autoflush:
-            assert await service._count_running_predictions(backend.id) == 0
+            assert await service.validate_delete(backend.id) is True
         await db_session.flush()
-        assert await service._count_running_predictions(backend.id) == 1
+        with pytest.raises(MLBackendDeleteBlocked) as blocked:
+            await service.validate_delete(backend.id)
+        assert blocked.value.running_jobs == 1
     await db_session.rollback()
 
 
@@ -1304,7 +1315,7 @@ async def test_delete_registry_requires_member_draining(
 ):
     user, token = super_admin
     backend = await _seed_registry(db_session, name="not-draining")
-    pool = await MLBackendService(db_session)._pool_for_registry(backend.id)
+    pool = await _singleton_pool(db_session, backend.id)
     assert pool is not None
     project = await _seed_project(db_session, user.id, ml_backend_pool_id=pool.id)
     await db_session.commit()
@@ -1331,7 +1342,7 @@ async def test_delete_registry_rejects_live_redis_route_lease(
 ):
     user, token = super_admin
     backend = await _seed_registry(db_session, name="live-route-lease")
-    pool = await MLBackendService(db_session)._pool_for_registry(backend.id)
+    pool = await _singleton_pool(db_session, backend.id)
     assert pool is not None
     project = await _seed_project(db_session, user.id, ml_backend_pool_id=pool.id)
     ledger = make_ledger_from_settings()
@@ -1398,7 +1409,7 @@ async def test_delete_registry_rechecks_revoked_super_admin_authority(
 ):
     user, token = super_admin
     backend = await _seed_registry(db_session, name="revoked-admin")
-    pool = await MLBackendService(db_session)._pool_for_registry(backend.id)
+    pool = await _singleton_pool(db_session, backend.id)
     assert pool is not None
     project = await _seed_project(db_session, user.id, ml_backend_pool_id=pool.id)
     await _drain_registry_member(db_session, backend.id, monkeypatch)
@@ -1460,7 +1471,7 @@ async def test_delete_registry_commit_failure_rolls_back_registry_and_binding(
             await db.flush()
             backend = await _seed_registry(db, name=f"commit-failure-{suffix}")
             backend_id = backend.id
-            pool = await MLBackendService(db)._pool_for_registry(backend.id)
+            pool = await _singleton_pool(db, backend.id)
             assert pool is not None
             pool_id = pool.id
             project = await _seed_project(db, actor.id, ml_backend_pool_id=pool.id)
@@ -1537,7 +1548,7 @@ async def test_delete_registry_commit_failure_rolls_back_registry_and_binding(
                 project = await db.get(Project, project_id)
                 assert project is not None
                 await db.delete(project)
-                await MLBackendService(db).delete(backend_id)
+                await MLBackendService(db).delete_with_topology(backend_id)
                 await db.execute(
                     delete(MLBackendServicePool).where(
                         MLBackendServicePool.id == pool_id
@@ -1591,7 +1602,7 @@ async def test_available_lists_all_with_enabled_flag(
     proj = await _seed_project(db_session, user.id)
     on = await _seed_registry(db_session, name="on")
     off = await _seed_registry(db_session, name="off")
-    on_pool = await MLBackendService(db_session)._pool_for_registry(on.id)
+    on_pool = await _singleton_pool(db_session, on.id)
     db_session.add(
         ProjectMLBackendPool(
             project_id=proj.id,

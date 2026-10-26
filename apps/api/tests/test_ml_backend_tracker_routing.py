@@ -13,11 +13,14 @@ import pytest
 
 from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.services.ml_backend import MLBackendService
+from tests.conftest import create_registry_with_pool
 from tests.factory import create_project
 
 
 async def _seed(db, *, name: str, trackers: list[str]) -> MLBackendRegistry:
-    b = MLBackendRegistry(
+    # v0.23.3 ADR-0050 · 每 registry 需要 singleton pool 才能 set_enabled / 绑定项目。
+    registry, _pool = await create_registry_with_pool(
+        db,
         id=uuid.uuid4(),
         name=name,
         url=f"http://example-{uuid.uuid4().hex[:8]}/",
@@ -25,11 +28,7 @@ async def _seed(db, *, name: str, trackers: list[str]) -> MLBackendRegistry:
         state="connected",
         health_meta={"capabilities": {"supported_trackers": trackers}},
     )
-    db.add(b)
-    await db.flush()
-    # v0.23.3 ADR-0050 · 每 registry 需要 singleton pool 才能 set_enabled / 绑定项目。
-    await MLBackendService(db)._create_singleton_pool(b)
-    return b
+    return registry
 
 
 @pytest.mark.asyncio
@@ -45,8 +44,7 @@ async def test_get_tracker_backend_routes_by_capability_not_binding(
     await svc.set_enabled(proj.id, sam3.id, True)
     # 项目显式绑定到 sam2 (复现现网「绑定 grounded-sam2」配置)。
     # v0.23.3: 项目主绑定存 pool id (经 sam2 的 singleton pool 解析)。
-    sam2_pool = await svc._pool_for_registry(sam2.id)
-    proj.ml_backend_pool_id = sam2_pool.id if sam2_pool else None
+    proj.ml_backend_pool_id = await svc.pool_id_for_registry(sam2.id)
     await db_session.flush()
 
     # sam3_video 按能力挑 sam3-backend, 不受「项目绑定 sam2」影响 (核心回归)。

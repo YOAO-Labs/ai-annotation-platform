@@ -5,6 +5,7 @@ import uuid
 import pytest
 from sqlalchemy import select
 
+from app.db.models.ml_backend_pool import MLBackendServicePool
 from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBackendPool
 from app.db.models.project import Project
 from app.db.models.user import User
@@ -16,6 +17,7 @@ from app.services.screenshot_seed_backends import (
     select_backend_for_requirement,
 )
 from app.services.screenshot_seed_spec import BACKEND_REQUIREMENTS, PROJECT_SPECS
+from tests.conftest import create_registry_with_pool
 
 
 pytestmark = pytest.mark.asyncio
@@ -48,6 +50,32 @@ def _backend(
             }
         },
     )
+
+
+async def _persist_backend(
+    db, backend: MLBackendRegistry
+) -> tuple[MLBackendRegistry, MLBackendServicePool]:
+    """Persist a fixture backend with the owner-created singleton pool."""
+    kwargs = {
+        "id": backend.id,
+        "name": backend.name,
+        "url": backend.url,
+        "state": backend.state,
+        "is_interactive": backend.is_interactive,
+        "source": backend.source,
+        "health_meta": backend.health_meta,
+    }
+    if backend.extra_params is not None:
+        kwargs["extra_params"] = backend.extra_params
+    return await create_registry_with_pool(db, **kwargs)
+
+
+async def _singleton_pool(db, registry_id: uuid.UUID):
+    service = MLBackendService(db)
+    pool_id = await service.pool_id_for_registry(registry_id)
+    if pool_id is None:
+        return None
+    return await service.get_pool(pool_id)
 
 
 async def test_image_requirement_rejects_backend_without_exemplar() -> None:
@@ -104,7 +132,7 @@ async def test_stub_candidate_creates_singleton_service_pool(
 
     assert len(candidates) == 1
     backend = candidates[0]
-    pool = await MLBackendService(db_session)._pool_for_registry(backend.id)
+    pool = await _singleton_pool(db_session, backend.id)
     assert pool is not None
     assert pool.legacy_instance_id == backend.id
 
@@ -159,14 +187,12 @@ async def test_reconcile_creates_exact_primary_and_enabled_bindings(
     owned_stub.extra_params = {
         "seed": {"managed_by": "screenshot-seed", "profile": "screenshots"}
     }
-    db_session.add_all([image, ocr, stale, owned_stub])
-    await db_session.flush()
     # v0.23.3 ADR-0050 · 每 registry 须有 singleton pool 才能被项目启用 / 主绑定。
+    image, image_pool = await _persist_backend(db_session, image)
+    ocr, ocr_pool = await _persist_backend(db_session, ocr)
+    stale, stale_pool = await _persist_backend(db_session, stale)
+    owned_stub, owned_stub_pool = await _persist_backend(db_session, owned_stub)
     svc = MLBackendService(db_session)
-    image_pool = await svc._create_singleton_pool(image)
-    ocr_pool = await svc._create_singleton_pool(ocr)
-    stale_pool = await svc._create_singleton_pool(stale)
-    owned_stub_pool = await svc._create_singleton_pool(owned_stub)
     db_session.add(
         ProjectMLBackendPool(
             project_id=projects["pointcloud_demo"].id,

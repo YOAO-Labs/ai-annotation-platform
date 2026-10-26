@@ -16,14 +16,13 @@ from aap_assets_images.transport import ImageTileRequest
 
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
-from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBackendPool
+from app.db.models.ml_backend_registry import ProjectMLBackendPool
 from app.db.models.prediction import Prediction, PredictionMeta
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User
-from app.services.ml_backend import MLBackendService
 from app.services.screenshot_seed_spec import (
     PROJECT_SPECS,
     SEED_MANAGED_BY,
@@ -43,6 +42,7 @@ from scripts.seed_screenshot_profile import (
     prepare_screenshot_seed_media,
     reconcile_screenshot_seed,
 )
+from tests.conftest import create_registry_with_pool
 
 
 pytestmark = pytest.mark.asyncio
@@ -300,8 +300,8 @@ async def _ready_profile(db):
         ]
     )
 
-    image_backend = MLBackendRegistry(
-        id=uuid.uuid4(),
+    _, image_pool = await create_registry_with_pool(
+        db,
         name="screenshot-image",
         url=f"http://image-{uuid.uuid4().hex}.test",
         state="connected",
@@ -320,8 +320,8 @@ async def _ready_profile(db):
             }
         },
     )
-    video_backend = MLBackendRegistry(
-        id=uuid.uuid4(),
+    _, video_pool = await create_registry_with_pool(
+        db,
         name="screenshot-video",
         url=f"http://video-{uuid.uuid4().hex}.test",
         state="connected",
@@ -333,8 +333,8 @@ async def _ready_profile(db):
             }
         },
     )
-    ocr_backend = MLBackendRegistry(
-        id=uuid.uuid4(),
+    _, ocr_pool = await create_registry_with_pool(
+        db,
         name="screenshot-ocr",
         url=f"http://ocr-{uuid.uuid4().hex}.test",
         state="connected",
@@ -347,13 +347,6 @@ async def _ready_profile(db):
             }
         },
     )
-    db.add_all([image_backend, video_backend, ocr_backend])
-    await db.flush()
-    # v0.23.3 ADR-0050 · 每 registry 须有 singleton pool 才能被项目主绑定 / 启用。
-    svc = MLBackendService(db)
-    image_pool = await svc._create_singleton_pool(image_backend)
-    video_pool = await svc._create_singleton_pool(video_backend)
-    ocr_pool = await svc._create_singleton_pool(ocr_backend)
     image.ml_backend_pool_id = image_pool.id
     video = projects["video_demo"]
     video.ml_backend_pool_id = video_pool.id

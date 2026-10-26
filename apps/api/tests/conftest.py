@@ -384,6 +384,7 @@ async def create_registry_with_pool(
     state: str = "connected",
     is_interactive: bool = True,
     enabled_pool: bool = False,
+    source: str = "manual",
     **registry_kwargs,
 ):
     """Create a MLBackendRegistry row + its singleton service pool + active member.
@@ -391,6 +392,7 @@ async def create_registry_with_pool(
     Returns (registry, pool). The pool's legacy_instance_id points at the registry.
     Pass enabled_pool=True to mark the pool enabled (rare; off mode leaves it false
     and project enablement is expressed via ProjectMLBackendPool.enabled).
+    Pass source= to keep the registry provenance (env/seed); defaults to manual.
     """
     from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
     from app.db.models.ml_backend_registry import MLBackendRegistry
@@ -401,7 +403,7 @@ async def create_registry_with_pool(
         url=url,
         state=state,
         is_interactive=is_interactive,
-        source="manual",
+        source=source,
         **registry_kwargs,
     )
     db.add(registry)

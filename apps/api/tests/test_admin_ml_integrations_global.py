@@ -7,7 +7,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.services.ml_backend import MLBackendService
 
 
@@ -25,7 +24,10 @@ def _patch_gpu_authority(monkeypatch) -> None:
 async def _make_backend(db, *, name="b", url="http://h:8000"):
     """v0.19.0 ADR-0044 · backend 已上提为全局注册项 (无 project_id)。
     v0.23.3 ADR-0050 · 同时建 singleton pool (项目创建经 ml_backend_source_id 复用需 pool)。"""
-    b = MLBackendRegistry(
+    from tests.conftest import create_registry_with_pool
+
+    registry, _pool = await create_registry_with_pool(
+        db,
         id=uuid.uuid4(),
         name=name,
         url=url,
@@ -35,10 +37,7 @@ async def _make_backend(db, *, name="b", url="http://h:8000"):
         auth_token=None,
         extra_params={},
     )
-    db.add(b)
-    await db.flush()
-    await MLBackendService(db)._create_singleton_pool(b)
-    return b
+    return registry
 
 
 @pytest.mark.asyncio
