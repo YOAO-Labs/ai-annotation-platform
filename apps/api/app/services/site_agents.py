@@ -340,12 +340,15 @@ def agent_out(agent, measured_at=None):
     }
 
 
-async def list_agents(db, *, site_id=None, limit=100, offset=0):
+async def list_agents(db, *, site_id=None, agent_id=None, limit=100, offset=0):
     query = select(AgentRegistration)
     count = select(func.count()).select_from(AgentRegistration)
     if site_id is not None:
         query = query.where(AgentRegistration.site_id == site_id)
         count = count.where(AgentRegistration.site_id == site_id)
+    if agent_id is not None:
+        query = query.where(AgentRegistration.id == agent_id)
+        count = count.where(AgentRegistration.id == agent_id)
     total = await db.scalar(count)
     rows = list(
         await db.scalars(

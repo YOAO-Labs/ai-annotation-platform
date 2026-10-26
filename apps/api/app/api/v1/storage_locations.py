@@ -8,7 +8,7 @@ from typing import Literal
 from celery.exceptions import TimeoutError as CeleryTimeoutError
 from celery.utils.nodenames import worker_direct
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -641,8 +641,15 @@ async def list_locations(
     actor: User = Depends(manager),
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    agent_id: uuid.UUID | None = Query(default=None),
 ):
     clause = svc.visible_clause(actor)
+    if agent_id is not None:
+        clause = and_(
+            clause,
+            StorageLocation.kind == "agent",
+            StorageLocation.config["agent_id"].astext == str(agent_id),
+        )
     total = await db.scalar(
         select(func.count()).select_from(StorageLocation).where(clause)
     )
@@ -1149,7 +1156,9 @@ async def probe(
     )
     await db.commit()
     row = await db.get(
-        StorageLocationProbe, (location_id, node_id), populate_existing=True
+        StorageLocationProbe,
+        (location_id, svc.probe_node_id(location, node_id)),
+        populate_existing=True,
     )
     return svc.probe_out(row, location)
 

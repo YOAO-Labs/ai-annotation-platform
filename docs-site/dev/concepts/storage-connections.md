@@ -331,7 +331,7 @@ Job 外键 SET NULL，数据集删除只清空来源关联，长期观测账本�
 
 目录观测的 stat 不证明内容一致。`content_snapshot.py` 为目录及固定托管 S3 共用有界 TemporaryFile，完整 SHA-256/图片验证后才交付同一快照。`dataset_content.py` 处理真实当前权限、来源/位置修订、绑定与响应前复检，I/O 在数据库锁外。ScanEntry.verified_content 与原始观测独立，旧摘要不改写；首次核验只证明此次捕获字节。API 使用自身 read 探测和 anchor，不把 worker 的 dev/inode 当跨节点内容身份。扫描 claim 固定实际内核主机证据；首次核验必须与 API 同主机，再比对来源目录及文件 identity，未知/跨主机先拒绝；已核验摘要可跨节点验证相同字节。回执在数据库触发器中禁止改写。
 
-现有任务内容身份与严格读取接口要求当前任务可见性，不开放整个来源或数据集。Range 和持久原图缓存的产品读取入口尚未提供；原地样本注册、工作台 Blob 生命周期及标注提交保护见下文。详见[接口合同](/api/guides/verified-content)与 [ADR0094](/dev/adr/archive/0094-verified-request-content-snapshots)。
+现有任务内容身份与严格读取接口要求当前任务可见性，不开放整个来源或数据集。非 Agent 图片 content 拒绝 Range；Agent 图片可从完整核验快照交付单区间，完整缓存命中的范围能力随逻辑来源保留。原地样本注册、工作台 Blob 生命周期及标注提交保护见下文，完整缓存由独立 owner 管理。详见[接口合同](/api/guides/verified-content)与 [ADR0094](/dev/adr/archive/0094-verified-request-content-snapshots)。
 
 ## 可标注的目录引用
 
@@ -789,3 +789,5 @@ training_dataset_storage 及四个薄 adapter 复用五组现有前缀 owner；T
 `kind=agent` 使用站点身份、root handle／修订和位置相对路径，实际根仅保留在独立 Agent。中心仍持有来源、AsyncJob、扫描 generation／租约、登记记录和内容授权。Agent 执行 I/O，传输命令的 received 与业务 applied 分开；扫描 checkpoint 和业务 ACK 同事务，探测结果先复核当前权限再保存和确认。
 
 PostgreSQL 保存命令及关闭证据，有界 Redis 只中继临时分块。读取先在 Agent 完整计算 SHA 并复核来源，中心再次核验完整内容后进入既有 Snapshot 图片检查。位置根、来源目录、文件路径分别验证；远端 observation 不使用中心设备 inode 冒充。离线不删除索引，撤销只允许旧命令回报关闭证据，不允许新任务或新字节。部署和当前边界见[站点 Agent](/ops/deploy/site-agents)。
+
+管理界面沿现有存储页增加超级管理员专属视图，查询按登录会话隔离；配对秘密只归当前弹窗持有，不进入查询缓存。位置与 Agent 列表的 `agent_id` 过滤先保留权限，再计算总数和分页。探测按 `agent:<UUID>` 保存和返回，中心 API／Worker 身份不替代实际执行站点。

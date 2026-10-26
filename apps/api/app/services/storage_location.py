@@ -323,7 +323,7 @@ def location_out(location, actor, connection, maintenance):
             "reference": reference,
             "list": True,
             "read": True,
-            "range": location.kind == "filesystem",
+            "range": location.kind in {"filesystem", "agent"},
             "write": False,
             "delete": False,
             "presign": False,

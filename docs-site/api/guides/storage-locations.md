@@ -32,6 +32,8 @@ last_reviewed: 2026-10-26
 
 列表返回`StorageLocationList`，其`items`为`StorageLocationListItem`：保留位置原字段，并增加`health`和`source_usage`。详情`GET /{id}`继续返回`StorageLocationOut`。列表摘要按当前页可见位置批量查询数据库，不返回来源名称／路径，不启动探测、扫描或对象存储请求。
 
+列表可传 `agent_id=<UUID>`，仅返回该 Agent 的位置，仍按当前位置可见性过滤后计算 total 和分页。站点管理列表 `GET /api/v1/site-agents/agents` 也支持 `agent_id`，与可选 `site_id` 取交集，便于独立详情深链读取。
+
 `health`包含`observed_node_count`、`current_success_count`、`current_failure_count`、`stale_node_count`、nullable `latest`／`fresh_until`及`measured_at`。每个节点只使用其已保存最新记录，统一数据库事务时间判断当前配置和过期；计数与位置启用／维护状态独立。`latest`为最近保存的`StorageProbeOut`，不保证当前有效。`fresh_until`为当前有效记录中最早的到期时间，达到后应刷新摘要再使用有效计数。没有节点记录表示未知，旧配置或过期记录不冒充当前失败。
 
 `source_usage`复用`StorageSourceUsage`，与详情来源摘要按同一SQL语义计算当前可见、已采纳head的规模，按位置独立去重。`total_size_bytes=null`表示总量未知，`known_size_bytes`保留已确认部分；`observed_from/through`为文件观测区间，`measured_at`仅表示聚合时间。列表分页不截断单个位置的可见采纳范围，也不跨位置相加；不提供未经测量的位置物理容量或平台对象总量。
@@ -549,4 +551,4 @@ ZIP 和独立媒体包共同使用 export 绑定。仅新分配采用新目标�
 
 `POST /agent` 复用 filesystem 创建字段，并要求 `agent_id`、`root_revision`；`root_handle` 支持 1–64 位字母、数字、下划线及连字符。根和修订必须匹配当前配对身份的报告。响应 `kind=agent`，附 `agent_id / site_id / root_revision`，不返回宿主机绝对路径；使用范围、人员授权、缓存策略与既有位置一致。
 
-登记后通过既有 `/{id}/probe`、`/{id}/directories` 探测和浏览。Agent 主动连接中心执行远端 I/O，位置探测按远端身份保存；目录来源的 `node_id` 仍指定中心 Worker。原图使用既有授权与完整快照检查，当前客户端 Range 能力仍为 false。身份 API、私有配对与撤销边界见[站点 Agent 运维说明](/ops/deploy/site-agents)。
+登记后通过既有 `/{id}/probe`、`/{id}/directories` 探测和浏览。Agent 主动连接中心执行远端 I/O，位置探测的响应及保存记录均使用 `agent:<UUID>`，与请求从 API 或中心 Worker 发起无关；目录来源的 `node_id` 仍指定中心 Worker。原图使用既有授权与完整快照检查，Agent 位置声明 Range 能力；图片 content 端点的单区间响应始终来自完整核验快照，详见[严格图片读取](./verified-content#图片任务)。身份 API、私有配对与撤销边界见[站点 Agent 运维说明](/ops/deploy/site-agents)。

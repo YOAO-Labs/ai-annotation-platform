@@ -913,4 +913,6 @@ PYTHONPATH=. uv run python scripts/seed.py --profile online-training
 
 ## 只读站点 Agent 组件
 
-独立组件位于 `apps/storage-agent`，标准库共享包位于 `apps/_shared/filesystem_read` 与 `apps/_shared/site_agent_contract`。配置和测试命令见 [Agent README](apps/storage-agent/README.md)，中心配对、传输及扫描／预检登记／原图快照已经接通。API 虚拟环境新增两个锁定本地包；开发环境应用迁移并刷新 API 重载父进程及受影响 Worker，继续使用现有工作树归属服务与端口，无需重建现有后端镜像。管理 UI、Range 及完整隔离网络验收继续实施。
+独立组件位于 `apps/storage-agent`，标准库共享包位于 `apps/_shared/filesystem_read` 与 `apps/_shared/site_agent_contract`。配置和测试命令见 [Agent README](apps/storage-agent/README.md)，中心配对、传输及扫描／预检登记／原图快照已经接通。超级管理员入口为 `/storage?tab=agents`，Agent 图片支持完整核验后的单区间 Range。API 虚拟环境新增两个锁定本地包；开发环境应用迁移并刷新 API 重载父进程及受影响 Worker，继续使用现有工作树归属服务与端口，无需重建现有后端镜像。
+
+`scripts/verify_site_agent.py` 必须通过 `dev:worktree exec --mode test` 运行，传入私有绝对 `--state` 路径和本机已缓存的不可变 `--runtime-image sha256:...`。它复用镜像，创建带独立所有权的中心／站点网络、HTTPS API、Worker 和 Agent；来源只挂载给 Agent，演练结束删除这些容器和网络。异常中止时可用同一 state 执行 `--cleanup`；测试数据库、Redis 和九桶仍由 launcher 管理，结束后按 doctor 的 test 确认值销毁。不得以 dev 模式执行或复用人工验收资源。有限副本路由和完整双站点验收仍在实施。

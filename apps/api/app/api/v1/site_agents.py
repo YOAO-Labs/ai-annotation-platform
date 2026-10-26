@@ -94,12 +94,15 @@ async def create_site(
 @router.get("/agents", response_model=AgentList)
 async def list_agents(
     site_id: uuid.UUID | None = None,
+    agent_id: uuid.UUID | None = None,
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(read_actor),
 ):
-    return await svc.list_agents(db, site_id=site_id, limit=limit, offset=offset)
+    return await svc.list_agents(
+        db, site_id=site_id, agent_id=agent_id, limit=limit, offset=offset
+    )
 
 
 @router.post("/sites/{site_id}/agents", response_model=AgentPairingOut, status_code=201)

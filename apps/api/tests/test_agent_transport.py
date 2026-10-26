@@ -390,7 +390,7 @@ async def test_agent_location_registry_requires_current_advertised_root(
     )
     assert value["relative_path"] == "datasets"
     assert value["declared_capabilities"]["write"] is False
-    assert value["declared_capabilities"]["range"] is False
+    assert value["declared_capabilities"]["range"] is True
     body.update(name="stale-" + uuid.uuid4().hex, root_revision=2)
     response = await client.post(
         "/api/v1/storage-locations/agent", headers=auth_headers, json=body

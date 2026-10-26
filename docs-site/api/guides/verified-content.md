@@ -2,7 +2,7 @@
 audience: [dev, project_admin, super_admin]
 type: reference
 status: stable
-last_reviewed: 2026-10-24
+last_reviewed: 2026-10-26
 ---
 
 # 内容核验与严格图片读取
@@ -23,6 +23,8 @@ last_reviewed: 2026-10-24
 要求 Run 已完整完成、数据集和来源仍存在且启用、来源与位置修订未变。必须先在**实际处理请求的 API 节点**完成当前 read 探测：调用位置 probe，`node_id=api` 并提供相对位置的 `sample_file`。worker 的 list 探测不能替代它。API 未挂载目录、探测过期或根身份变化时拒绝读取；不会自动把文件经 Celery/Redis 转发。多 API 实例应分别探测并暴露同一授权目录。首次核验要求扫描与 API 位于同一内核主机，并核对扫描固定的来源子目录和文件身份；跨主机、未知或重启前的主机证据返回 initial_verification_node_mismatch，需在可比较节点重新扫描。已建立的 SHA-256 可供其他已验证 API 节点读取同内容。
 
 首次核验建立的是本次读取的内容身份，不能证明扫描时或旧标注曾读取的字节。设备号和 inode 属于各节点本地，不跨节点当内容证明。重复核验和后续读取必须符合已经保存的摘要，不能覆盖旧身份。文件与原始大小/时间观测不符时，需重新扫描。
+
+上述挂载及同内核主机要求适用于服务器目录来源。Agent 位置由独立站点执行探测／扫描／读取，使用该 Agent 的根身份和远端观测；中心无需挂载来源目录。中心经受控中继接收完整字节，仍复核当前授权、摘要、大小及图片资格，不使用中心 inode 解释站点文件。
 
 独立 verify 不创建 DatasetItem、Asset 或任务；需另外调用[登记接口](./dataset-sources#逐条登记原地图片)生成引用样本。已核验内容也不意味着原图以后一直在线；预览状态不由此次核验推导。
 
@@ -97,7 +99,9 @@ Dataset原件通过Task的直接DatasetItem关联或唯一 `primary_lidar` 关�
 
 ## 响应、预算与清理
 
-成功返回完整 `image/png`、`image/jpeg` 或 `image/webp`，含精确 Content-Length、`X-Content-SHA256`、基于摘要的 ETag、`Cache-Control: no-store` 和 `X-Content-Type-Options: nosniff`。仅支持单帧图片。请求必须带64位小写 SHA-256；不提供任意 locator 输入，Range 返回416。
+成功返回 `image/png`、`image/jpeg` 或 `image/webp`，含精确 Content-Length、`X-Content-SHA256`、基于完整摘要的强 ETag、`Cache-Control: no-store` 和 `X-Content-Type-Options: nosniff`。仅支持单帧图片，请求必须带64位小写 SHA-256，不提供任意 locator 输入。
+
+Agent 来源的扫描条目、样本和任务 content 支持单区间 `bytes=start-end`、`bytes=start-` 和 `bytes=-suffix`，返回206及准确 Content-Range；须先完整捕获并核验同一张原图，范围请求不减少这一步成本。`If-Range` 精确匹配 `"sha256:<SHA>"` 才使用区间，否则返回完整200。越界或多区间返回416；同内容的已验证完整缓存同样支持。非 Agent 图片端点在读取来源／缓存前拒绝 Range，预览端点仍不支持；不提供 HEAD 或304快捷返回。
 
 图片上限为每张64MiB、3200万像素，响应30秒。托管原件的完整字节读取使用独立暂存层，物理读取预算10秒；图片解码在同一文件上执行，单独检查10秒预算并等待最多15秒。引用和目录快照沿用读取循环10秒、等待15秒的预算。阻塞I/O的实际收尾可能超过等待预算。
 
