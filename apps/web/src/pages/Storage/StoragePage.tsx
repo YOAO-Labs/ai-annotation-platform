@@ -217,6 +217,10 @@ function StoragePageOwner() {
       "storage-bindings",
       "storage-connections",
       "storage-video-asset-failures",
+      "site-agent-sites",
+      "site-agents",
+      "site-agent-detail",
+      "site-agent-locations",
     ]) {
       void qc.invalidateQueries({ queryKey: [key] });
     }

@@ -209,6 +209,14 @@ describe("StoragePage", () => {
     expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ["storage-source-locations"] });
     expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ["storage-bindings"] });
     expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ["storage-buckets"] });
+    for (const key of [
+      "site-agent-sites",
+      "site-agents",
+      "site-agent-detail",
+      "site-agent-locations",
+    ]) {
+      expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: [key] });
+    }
   });
 
   it("重试后打开共享任务详情，关闭时刷新失败列表", () => {

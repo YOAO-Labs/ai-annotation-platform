@@ -10,6 +10,9 @@ const api = vi.hoisted(() => ({ locationPage: vi.fn(), location: vi.fn(), probe:
 const migration = vi.hoisted(() => ({ list: vi.fn() }));
 vi.mock("@/api/storageMigrationInventories", () => ({ storageMigrationInventoriesApi: migration }));
 vi.mock("./MigrationCopyPanel", () => ({ MigrationCopyPanel: () => null }));
+vi.mock("@/components/storage/SiteAgentsPanel", () => ({
+  SiteAgentsPanel: () => <output data-testid="site-agents">站点 Agent 管理</output>,
+}));
 vi.mock("@/components/jobs/AsyncJobDetailModal", () => ({ AsyncJobDetailModal: () => null }));
 
 it("opens migration preparation without requesting other tab data or losing URL context", async () => {
@@ -34,6 +37,21 @@ it("does not request migration history for ordinary managers on a migration deep
   expect(screen.getByText("迁移准备仅超级管理员可查看。")).toBeInTheDocument();
   expect(migration.list).not.toHaveBeenCalled();
   expect(api.locationPage).not.toHaveBeenCalled();
+});
+
+it("opens Agent management without fetching another tab and preserves existing deep links", async () => {
+  mount(
+    "/storage?tab=agents&page=3&page_size=50&location=11111111-1111-1111-1111-111111111111&returnTo=%2Fdatasets%3Fdataset%3Dd",
+  );
+  expect(screen.getByTestId("site-agents")).toBeInTheDocument();
+  expect(api.locationPage).not.toHaveBeenCalled();
+  expect(api.location).not.toHaveBeenCalled();
+  expect(storage.bindings).not.toHaveBeenCalled();
+  expect(migration.list).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "存储位置" }));
+  expect(await screen.findByRole("dialog")).toBeInTheDocument();
+  expect(screen.getByTestId("url")).toHaveTextContent("page=3&page_size=50");
+  expect(screen.getByTestId("url")).toHaveTextContent("returnTo=");
 });
 const storage = vi.hoisted(() => ({
   bindings: vi.fn(),

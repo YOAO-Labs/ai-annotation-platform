@@ -25,6 +25,7 @@ import { StorageBindingChangeButton } from "./StorageBindingChangeButton";
 import { LocationHealthSummary, LocationSourceScale } from "./StorageLocationListSummary";
 import { MigrationInventoryPanel } from "./MigrationInventoryPanel";
 import { safeDatasetReturn } from "@/components/datasets/storageNavigation";
+import { SiteAgentsPanel } from "@/components/storage/SiteAgentsPanel";
 
 const PURPOSES = [
   ["annotations", "标注文件"],
@@ -53,6 +54,7 @@ const KIND: Record<string, string> = {
   filesystem: "服务器目录",
   s3: "S3 兼容对象存储",
   sftp: "SFTP",
+  agent: "站点 Agent",
 };
 const CAPABILITY: Record<string, string> = {
   reference: "原地引用",
@@ -79,11 +81,13 @@ function ConsoleOwner() {
   const [params, setParams] = useSearchParams();
   const allowed = role === "super_admin" || role === "project_admin";
   const tab =
-    params.get("tab") === "migration"
-      ? "migration"
-      : params.get("tab") === "bindings"
-        ? "bindings"
-        : "locations";
+    params.get("tab") === "agents"
+      ? "agents"
+      : params.get("tab") === "migration"
+        ? "migration"
+        : params.get("tab") === "bindings"
+          ? "bindings"
+          : "locations";
   const rawId = params.get("location") ?? "";
   const locationId = UUID.test(rawId) ? rawId : "";
   const pageValue = Number(params.get("page") ?? 1);
@@ -185,8 +189,19 @@ function ConsoleOwner() {
         >
           迁移准备
         </Button>
+        {role === "super_admin" && (
+          <Button
+            aria-pressed={tab === "agents"}
+            variant={tab === "agents" ? "primary" : "default"}
+            onClick={() => patch({ tab: "agents" })}
+          >
+            站点与 Agent
+          </Button>
+        )}
       </nav>
-      {tab === "migration" ? (
+      {tab === "agents" ? (
+        <SiteAgentsPanel />
+      ) : tab === "migration" ? (
         <MigrationInventoryPanel />
       ) : tab === "bindings" ? (
         <Card>
