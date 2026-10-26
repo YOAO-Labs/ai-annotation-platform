@@ -140,47 +140,67 @@ test("dataset filters preserve deep-link state and browser history", async ({
   page,
   filtering,
 }) => {
-  const initial = getResponse(page, "/datasets", {
-    search: keysOf(filtering).keys.projects,
-    data_type: "image",
-  });
+  const projects = keysOf(filtering).keys.projects;
+  const imageId = filtering.operations.dataset_ids[0];
+  const videoId = filtering.operations.dataset_ids[1];
+  const imageName = filtering.operations.display_names.dataset_a;
+  const videoName = filtering.operations.display_names.dataset_b;
+  // A legacy `dataset=` link opens the deep detail page and carries the
+  // filtered list forward in `return`; the list itself must not be queried.
+  const detail = getResponse(page, "/datasets/" + imageId);
   await page.goto(
     "/datasets?" +
       new URLSearchParams({
-        q: keysOf(filtering).keys.projects,
+        q: projects,
         data_type: "image",
-        dataset: filtering.operations.dataset_ids[0],
+        dataset: imageId,
         keep: "filter-test",
       }),
   );
+  const deepLinked = await checked(await detail);
+  expect(deepLinked).toMatchObject({ id: imageId, name: imageName });
+  await expect(page.getByRole("heading", { level: 1, name: imageName })).toBeVisible();
+  const detailUrl = new URL(page.url());
+  expect(detailUrl.pathname).toBe("/datasets/" + imageId);
+  expect(detailUrl.searchParams.has("dataset")).toBe(false);
+  const returnTo = new URL(detailUrl.searchParams.get("return")!, "http://datasets.test");
+  expect(returnTo.pathname).toBe("/datasets");
+  expect(returnTo.searchParams.get("q")).toBe(projects);
+  expect(returnTo.searchParams.get("data_type")).toBe("image");
+  expect(returnTo.searchParams.get("keep")).toBe("filter-test");
+
+  const initial = getResponse(page, "/datasets", {
+    search: projects,
+    data_type: "image",
+  });
+  await page.getByRole("link", { name: "返回数据集列表" }).click();
   const images = await checked(await initial);
-  expect(images.items.map((item: { id: string }) => item.id)).toEqual([
-    filtering.operations.dataset_ids[0],
-  ]);
-  const imageRow = page.locator("#dataset-row-" + filtering.operations.dataset_ids[0]);
-  await expect(imageRow.getByRole("button", { name: "收起" })).toBeVisible();
-  await expect.poll(() => new URL(page.url()).searchParams.has("dataset")).toBe(false);
+  expect(images.items.map((item: { id: string }) => item.id)).toEqual([imageId]);
+  const imageRow = page.getByRole("link", { name: imageName, exact: true });
+  await expect(imageRow).toBeVisible();
+  await expect(imageRow).toHaveAttribute("href", new RegExp(`^/datasets/${imageId}\\?`));
+  await expect(page.getByRole("combobox", { name: "数据类型" })).toHaveValue("image");
+  expect(new URL(page.url()).searchParams.get("keep")).toBe("filter-test");
+
   const next = getResponse(page, "/datasets", {
-    search: keysOf(filtering).keys.projects,
+    search: projects,
     data_type: "video",
   });
-  await page.getByRole("button", { name: "视频", exact: true }).click();
+  await page.getByRole("combobox", { name: "数据类型" }).selectOption("video");
   const videos = await checked(await next);
-  expect(videos.items.map((item: { id: string }) => item.id)).toEqual([
-    filtering.operations.dataset_ids[1],
-  ]);
-  await expect(
-    page
-      .locator("#dataset-row-" + filtering.operations.dataset_ids[1])
-      .getByRole("button", { name: "展开" }),
-  ).toBeVisible();
+  expect(videos.items.map((item: { id: string }) => item.id)).toEqual([videoId]);
+  const videoRow = page.getByRole("link", { name: videoName, exact: true });
+  await expect(videoRow).toBeVisible();
+  await expect(videoRow).toHaveAttribute("href", new RegExp(`^/datasets/${videoId}\\?`));
+  await expect.poll(() => new URL(page.url()).searchParams.get("data_type")).toBe("video");
   await page.goBack();
   await expect.poll(() => new URL(page.url()).searchParams.get("data_type")).toBe("image");
   await expect(imageRow).toBeVisible();
   await page.goForward();
   await expect.poll(() => new URL(page.url()).searchParams.get("data_type")).toBe("video");
+  await expect(videoRow).toBeVisible();
   await page.reload();
-  await expect(page.locator("#dataset-row-" + filtering.operations.dataset_ids[1])).toBeVisible();
+  await expect(page.getByRole("link", { name: videoName, exact: true })).toBeVisible();
   expect(new URL(page.url()).searchParams.get("keep")).toBe("filter-test");
 });
 

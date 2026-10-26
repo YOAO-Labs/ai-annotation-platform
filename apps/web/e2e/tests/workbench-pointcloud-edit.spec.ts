@@ -11,7 +11,7 @@ import { layoutCommand, openLayoutSettings } from "../helpers/workbench-layout";
  * 由 `pointcloud` project 跑(WebGL 软渲染);seed 已含单路标定相机，覆盖相机内中心拖动。
  * 跨帧 scene 仍由对应邻帧 spec 单独覆盖。
  */
-import type { Locator, Page } from "@playwright/test";
+import type { Locator, Page, Request } from "@playwright/test";
 import { test, expect } from "../fixtures/seed";
 
 interface BrowserPointCloudViewState {
@@ -387,10 +387,47 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
     });
     page.on("pageerror", (error) => runtimeErrors.push(error.message));
 
+    // Scene track commands lock every member task row with NOWAIT, while an
+    // owned original read holds a share lock on the same rows until its bytes
+    // settle. Wait for this frame and the prefetched neighbour frame's original
+    // reads to drain so the command never races them into a retryable 409.
+    const sceneTaskIds = new Set(lidar.lidar_task_ids);
+    const pendingOriginalReads = new Map<Request, string>();
+    let lastOriginalActivity = Date.now();
+    const sceneOriginal = (request: Request) => {
+      if (request.method() !== "GET") return null;
+      const url = new URL(request.url());
+      const match = url.pathname.match(
+        /^\/api\/v1\/files\/tasks\/([0-9a-f-]{36})\/(?:links\/[0-9a-f-]{36}\/)?original(?:-identity)?$/,
+      );
+      return match && sceneTaskIds.has(match[1]) ? url.href : null;
+    };
+    page.on("request", (request) => {
+      if (sceneOriginal(request)) {
+        pendingOriginalReads.set(request, request.url());
+        lastOriginalActivity = Date.now();
+      }
+    });
+    const finishOriginalRead = (request: Request) => {
+      if (pendingOriginalReads.delete(request)) lastOriginalActivity = Date.now();
+    };
+    page.on("requestfinished", finishOriginalRead);
+    page.on("requestfailed", finishOriginalRead);
+
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(`/projects/${lidar.lidar_project_id}/annotate?task=${lidar.lidar_task_ids[0]}`);
     const card = page.locator('[data-testid^="box-list-item-"]').first();
     await expect(card).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("pointcloud-stats")).toBeVisible({ timeout: 20_000 });
+    await expect
+      .poll(
+        () => ({
+          pending: pendingOriginalReads.size,
+          quiet: Date.now() - lastOriginalActivity >= 1_500,
+        }),
+        { timeout: 30_000, intervals: [100, 250, 500, 1_000] },
+      )
+      .toEqual({ pending: 0, quiet: true });
     await card.click({ position: { x: 12, y: 16 } });
     await page.getByTestId("scene-cross-frame-job-center").click();
     const dialog = page.getByRole("dialog", { name: "3D 跨帧任务中心" });
