@@ -189,6 +189,8 @@ interface DownloadJob {
   controller: AbortController;
   priority: "active" | "prefetch";
   running: boolean;
+  canceled: boolean;
+  draining: boolean;
   start(): void;
   cancel(): void;
 }
@@ -216,7 +218,10 @@ const unbindOwner = useAuthStore.subscribe(() => {
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     unbindOwner();
-    for (const job of downloads) job.cancel();
+    for (const job of downloads) {
+      job.controller.abort();
+      job.cancel();
+    }
   });
 }
 
@@ -236,19 +241,24 @@ function delay(signal: AbortSignal, milliseconds: number): Promise<void> {
   });
 }
 
-async function fetchBinary(path: string, owner: OriginalOwner, signal: AbortSignal): Promise<Blob> {
+async function fetchBinary(
+  path: string,
+  owner: OriginalOwner,
+  signal: AbortSignal,
+  abandoned: () => boolean,
+): Promise<Blob> {
   for (let attempt = 0; ; attempt++) {
+    if (abandoned()) throw aborted();
     try {
       return await requestForOwner(owner, signal, () =>
         apiClient.silentGetBlob(path, { signal, cache: "no-store" }),
       );
     } catch (error) {
-      const code =
-        error instanceof ApiError && error.detailRaw && typeof error.detailRaw === "object"
-          ? (error.detailRaw as { code?: unknown }).code
-          : null;
+      const detail = error instanceof ApiError ? error.detailRaw : null;
+      const code = detail && typeof detail === "object" && "code" in detail ? detail.code : null;
       if (
         attempt >= 3 ||
+        abandoned() ||
         !(error instanceof ApiError) ||
         error.status !== 429 ||
         code !== "snapshot_capacity_exceeded"
@@ -277,7 +287,24 @@ export async function readOriginalBytes(
       controller,
       priority: options.priority ?? "active",
       running: false,
+      canceled: false,
+      draining: false,
       cancel() {
+        if (job.canceled) {
+          // Owner retirement must never leave a stale credential in flight.
+          if (job.draining && !isOriginalOwnerCurrent(owner)) controller.abort();
+          return;
+        }
+        job.canceled = true;
+        if (job.running && job.priority === "prefetch" && isOriginalOwnerCurrent(owner)) {
+          // The server admits at most two physical original reads. An aborted
+          // prefetch can still hold its admission until the transport settles,
+          // so keep the client slot instead of racing a replacement into it.
+          job.draining = true;
+          options.signal?.removeEventListener("abort", job.cancel);
+          reject(aborted());
+          return;
+        }
         controller.abort();
         if (!job.running) {
           cleanup();
@@ -289,7 +316,7 @@ export async function readOriginalBytes(
         if (!isOriginalOwnerCurrent(owner) || options.signal?.aborted) return job.cancel();
         job.running = true;
         active++;
-        void fetchBinary(path, owner, controller.signal)
+        void fetchBinary(path, owner, controller.signal, () => job.draining)
           .then(resolve, reject)
           .finally(() => {
             active--;

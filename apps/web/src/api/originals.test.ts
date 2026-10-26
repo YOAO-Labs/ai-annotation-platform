@@ -178,6 +178,66 @@ it("cancels waiting downloads without consuming a network slot and can promote a
   expect(fetchMock.mock.calls[2][0]).toContain("sha256=" + "c".repeat(64));
 });
 
+it("keeps a cancelled speculative transport in its slot until the response settles", async () => {
+  const bodies = Array.from({ length: 3 }, () => deferred<Blob>());
+  fetchMock.mockImplementation(() => binary(bodies[fetchMock.mock.calls.length - 1].promise));
+  const speculative = new AbortController();
+  const canceled = readOriginalBytes(path, {
+    priority: "prefetch",
+    signal: speculative.signal,
+  }).catch((error: unknown) => error);
+  const shared = readOriginalBytes(path.replace(digest, "b".repeat(64)), {
+    priority: "prefetch",
+  });
+  const foreground = readOriginalBytes(path.replace(digest, "c".repeat(64)));
+  try {
+    await tick();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    speculative.abort();
+    const transport = fetchMock.mock.calls[0][1].signal;
+    expect(transport.aborted).toBe(false);
+    expect(await canceled).toMatchObject({ name: "AbortError" });
+    await tick();
+    // The abandoned byte stream still owns its server admission slot.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    bodies[0].resolve(new Blob(["late"]));
+    await tick();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls[2][0]).toContain("sha256=" + "c".repeat(64));
+  } finally {
+    for (const body of bodies) body.resolve(new Blob(["settled"]));
+    await Promise.allSettled([canceled, shared, foreground]);
+    await tick();
+  }
+});
+
+it("aborts a draining speculative transport when its owner retires", async () => {
+  const body = deferred<Blob>();
+  fetchMock.mockReturnValue(binary(body.promise));
+  const speculative = new AbortController();
+  const canceled = readOriginalBytes(path, {
+    priority: "prefetch",
+    signal: speculative.signal,
+  }).catch((error: unknown) => error);
+  try {
+    await tick();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const transport = fetchMock.mock.calls[0][1].signal;
+    speculative.abort();
+    expect(transport.aborted).toBe(false);
+    expect(await canceled).toMatchObject({ name: "AbortError" });
+
+    useAuthStore.getState().setAuth("bob-token", { id: "bob" } as MeResponse);
+    expect(transport.aborted).toBe(true);
+  } finally {
+    body.resolve(new Blob(["late"]));
+    await canceled;
+    await tick();
+  }
+});
+
 it.each(["account", "session"])(
   "discards late successful bytes after %s retirement",
   async (change) => {

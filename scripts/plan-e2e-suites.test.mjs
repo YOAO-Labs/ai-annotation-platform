@@ -10,17 +10,14 @@ import { planE2ESuites, selectSuites, shadowPlan, SUITE_CONTRACT } from "./plan-
 const names = (event, paths) => planE2ESuites(event, paths).include.map(({ suite }) => suite);
 const readShadow = (cwd, outputs) =>
   JSON.parse(readFileSync(resolve(cwd, outputs.shadow_path), "utf8"));
-const functional = [
-  "default-one",
-  "default-two",
-  "default-three",
-  "default-four",
-  "mask-readonly",
-  "mask-native",
-  "mask-ai-native",
-];
+const core = ["default-one", "default-two", "default-three", "default-four"];
+const specialties = ["mask-readonly", "mask-native", "mask-ai-native"];
+// Legacy functional contract: the four chromium shards, the Mask matrices and
+// the dedicated point-cloud suite. The shards are chromium-only, so the
+// point-cloud project only runs as its own required entry.
+const functional = [...core, ...specialties, "pointcloud"];
 
-test("every PR retains all four functional shards and three Mask suites", () => {
+test("every PR retains all four functional shards, three Mask suites and the point-cloud contract", () => {
   assert.deepEqual(names("pull_request", []), functional);
   assert.deepEqual(
     names("pull_request", ["docs-site/user-guide/workbench/index.md", "README.md"]),
@@ -28,10 +25,9 @@ test("every PR retains all four functional shards and three Mask suites", () => 
   );
 });
 
-const core = ["default-one", "default-two", "default-three", "default-four"];
-const specialties = ["mask-readonly", "mask-native", "mask-ai-native"];
 // Broadened §6.3 selection: smoke + full shards + every dedicated contract +
-// extended, because the default shards never execute dedicated matrices.
+// extended, because the chromium shards cannot execute the Mask matrices or
+// the point-cloud project.
 const broadened = [
   "smoke",
   ...core,
@@ -140,8 +136,8 @@ test("multi-domain changes broaden to the extended checks with recorded reasons"
     "apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx",
     "apps/api/app/services/project_access.py",
   ]);
-  // Broadening selects every dedicated contract, because the full shards do
-  // not execute the Mask/video/pointcloud matrices at runtime.
+  // Broadening selects every dedicated contract, because the chromium shards
+  // do not execute the Mask matrices or the point-cloud project.
   assert.deepEqual(shadow.planned, broadened);
   assert.equal(shadow.classification.multiDomain, true);
   assert.ok(shadow.reasons.some((reason) => /multi-domain/.test(reason.because)));
@@ -156,23 +152,10 @@ test("single-domain frontend changes select core plus triggered specialties", ()
   assert.deepEqual(shadow.planned, ["smoke", ...specialties]);
   assert.ok(shadow.reasons.some((reason) => /raster Mask/.test(reason.because)));
   // Smoke itself is shadow-only, so the diff against the frozen gate shows it
-  // as an addition together with the dropped default shards and extended.
+  // as an addition together with the dropped default shards, the dedicated
+  // point-cloud suite and the extended checks.
   assert.deepEqual(shadow.added, ["smoke"]);
-  assert.deepEqual(shadow.removed, [...core, "visual", "layout-stress"]);
-});
-
-test("mask runtime numbers from P7 evidence ride with the contract", () => {
-  const contractFor = (suite) => {
-    const entry = SUITE_CONTRACT.find((candidate) => candidate.suite === suite);
-    assert.ok(entry, `missing contract entry for ${suite}`);
-    return entry;
-  };
-  const readonly = contractFor("mask-readonly");
-  assert.equal(readonly.runtime.collects, 13);
-  assert.equal(readonly.runtime.skipped, 11);
-  const native = contractFor("mask-native");
-  assert.equal(native.runtime.collects, 22);
-  assert.equal(native.runtime.skipped, 2);
+  assert.deepEqual(shadow.removed, [...core, "pointcloud", "visual", "layout-stress"]);
 });
 
 test("shared/ML contract entries carry the per-suite CPU audit facts", () => {
@@ -311,6 +294,12 @@ test("CLI stdout carries exactly the outputs the workflow consumers read", () =>
     assert.equal(
       requiredManifest.suites.find((entry) => entry.suite === "smoke").flakyPolicy,
       "forbid",
+    );
+    // Planned full coverage requires the dedicated point-cloud suite because
+    // the four shards are chromium-only.
+    assert.ok(
+      requiredManifest.suites.some(({ suite }) => suite === "pointcloud"),
+      "planned full selection must require the point-cloud contract",
     );
     assert.deepEqual(
       JSON.parse(outputs.matrix).include.map((entry) => entry.suite),
@@ -649,6 +638,22 @@ test("E2E_SELECTION_MODE=legacy restores the frozen selection for rollback", () 
       [...functional, "visual", "layout-stress"],
     );
     assert.equal(outputs.run_suites, "true");
+    // Rollback mode keeps full point-cloud coverage: those specs no longer ride
+    // inside the chromium shards, so the dedicated suite must be required. The
+    // new-only smoke suite stays out of the frozen gate.
+    const legacyRequired = JSON.parse(outputs.required).suites;
+    assert.ok(
+      legacyRequired.some(({ suite }) => suite === "pointcloud"),
+      "legacy rollback must require the point-cloud contract",
+    );
+    assert.equal(
+      legacyRequired.some(({ suite }) => suite === "smoke"),
+      false,
+    );
+    assert.deepEqual(
+      legacyRequired.map(({ suite }) => suite),
+      JSON.parse(outputs.matrix).include.map(({ suite }) => suite),
+    );
 
     const invalid = spawnSync(process.execPath, [script], {
       cwd,

@@ -7,11 +7,10 @@ import { pathToFileURL } from "node:url";
  *
  * Two layers live here:
  *
- * 1. The LEGACY gate selection (`planE2ESuites`) that drives the actual
- *    `Frontend E2E` matrix. Its behavior stays byte-for-byte reproducible for
- *    the documented `E2E_SELECTION_MODE=legacy` rollback, while the default
- *    mode runs the planned §6 selection.
- * 2. The SHADOW selection (`selectSuites`/`shadowPlan`) implementing plan §6:
+ * 1. The LEGACY gate selection (`planE2ESuites`) used by the documented
+ *    `E2E_SELECTION_MODE=legacy` rollback. Full functional coverage includes
+ *    the dedicated pointcloud project outside the chromium-only shards.
+ * 2. The PLANNED selection (`selectSuites`/`shadowPlan`) implementing plan §6:
  *    explicit core/specialty/extended scopes with reasons, docs-only
  *    whitelist, fail-closed diff classification (empty diff, unknown paths,
  *    multiple domains, rename/delete pairs, unsupported events), and a
@@ -134,21 +133,17 @@ const smoke = [
   },
 ];
 
-// Full functional matrix: four shards over every functional spec. Runs on
-// push/nightly (§6.2 全量), in the conservative fallback, and in the legacy
-// rollback mode.
+// Full coverage partitions the chromium project into four shards and runs the
+// pointcloud project once separately. Planned full selection and legacy
+// rollback retain the same complete project union.
 const functional = [
   ...["one", "two", "three", "four"].map((name, index) => ({
     suite: `default-${name}`,
-    command: `test:e2e --shard=${index + 1}/4`,
+    command: `test:e2e --project=chromium --shard=${index + 1}/4`,
     built: true,
     legacyGate: true,
     scope: "full",
-    reason: "whole functional suite shard; nightly/full scope, not part of the bounded smoke",
-    collects: {
-      chromium: 271,
-      note: "default --list, list-only; shared Mask specs skip at runtime without a matrix",
-    },
+    reason: "whole chromium functional shard; pointcloud runs once in its dedicated suite",
   })),
   ...["readonly", "native", "ai-native"].map((name) => ({
     suite: `mask-${name}`,
@@ -211,13 +206,14 @@ const extended = [
   },
 ];
 
-// Shadow-only domain specialties (plan §6.2 受影响专项). Never part of the
-// legacy gate; the shadow diff shows what a P9 switch would add.
+// The focused video suite is planned-only; legacy covers its specs through
+// chromium. Both full matrices require the separate pointcloud project.
 const domainSpecialties = [
   {
     suite: "video-pipeline",
     command: "test:e2e e2e/tests/video-*.spec.ts e2e/tests/workbench-video-*.spec.ts",
     built: true,
+    legacyGate: false,
     scope: "specialty",
     triggers: [
       "apps/web/e2e/tests/video-",
@@ -232,9 +228,10 @@ const domainSpecialties = [
   },
   {
     suite: "pointcloud",
-    command: "test:e2e --project=pointcloud e2e/tests/workbench-pointcloud-*.spec.ts",
+    // The project owns the complete 3D selection; no extra filename filter.
+    command: "test:e2e --project=pointcloud",
     built: true,
-    legacyGate: false,
+    legacyGate: true,
     scope: "specialty",
     triggers: [
       "apps/web/e2e/tests/workbench-pointcloud-",
@@ -626,8 +623,9 @@ export function selectSuites(eventName, paths, options = {}) {
     for (const suite of allSuites.filter(({ scope }) => scope === "smoke"))
       addPlanned(suite.suite, suite.reason);
     if (broaden) {
-      // The default shards never execute the dedicated Mask/video/pointcloud
-      // matrices at runtime, so broadening selects every dedicated contract.
+      // The default shards only run the chromium project, and the Mask
+      // matrices need their own env flags, so broadening selects every
+      // dedicated contract instead of relying on the shards.
       for (const suite of allSuites.filter(({ scope }) => scope === "full"))
         addPlanned(
           suite.suite,
@@ -692,9 +690,8 @@ export function shadowPlan(eventName, paths, options = {}) {
   };
 }
 
-// Frozen legacy selection derived from the authoritative table's legacyGate
-// membership. Byte-for-byte the pre-P8 outputs, used by the documented
-// E2E_SELECTION_MODE=legacy rollback.
+// Conservative rollback selection comes from the contract's legacyGate flags.
+// Full functional coverage includes the dedicated pointcloud project.
 export function planE2ESuites(eventName, paths) {
   const legacy = SUITE_CONTRACT.filter((suite) => suite.legacyGate);
   const extendedOnly = ["visual", "layout-stress"];
@@ -743,8 +740,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     mlCpu = (paths ?? []).some((path) => mlCpuTriggers.some((prefix) => path.startsWith(prefix)));
   else throw new Error(`Unsupported E2E event for ml-cpu wiring: ${eventName}`);
 
-  // P9 gate switch with a documented rollback: `E2E_SELECTION_MODE=legacy`
-  // restores the frozen pre-P8 selection without a code change.
+  // The documented rollback retains pointcloud outside the chromium-only shards.
   // GitHub renders an unset repository variable as an empty string, so
   // absent/empty/whitespace all mean the default planned mode; only a
   // non-empty unknown value is rejected.
@@ -759,10 +755,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     .filter(Boolean);
   const plannedGate = { include: plannedEntries };
   const gate = selectionMode === "legacy" ? legacyGate : plannedGate;
-  // The required manifest always describes the EFFECTIVE gate: in legacy
-  // rollback mode the new-only smoke/video/pointcloud suites are not executed,
-  // so they must not be required either; a docs-only allowed skip only exists
-  // in planned mode (the legacy gate always runs suites).
+  // Require only suites in the effective matrix: legacy includes pointcloud,
+  // not planned-only smoke/video-pipeline; docs-only skips need planned mode.
   const requiredSuites =
     selectionMode === "legacy"
       ? legacyGate.include.map((entry) => ({ suite: entry.suite, planned: true }))
