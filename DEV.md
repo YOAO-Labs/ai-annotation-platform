@@ -277,7 +277,7 @@ apps/api/.venv/bin/python scripts/verify_worktree_recovery.py
 
 托管原件读取映射须应用0263并刷新所属Worker。沿同一命令使用 `publish-reads/status-reads/withdraw-reads`：从sealed全量Copy发布准确目标版本；撤回先阻止新映射读取，再等待该发布的实际许可结束，保留源端claim。原件逻辑定位与当前新分配Binding不变。所属空test模式的实际HTTP／独立Worker验收入口是 `scripts/verify_storage_migration_original_reads.py --manifest <私有绝对路径> --summary <新的私有绝对路径>`，可加 `--pause-for-browser`；脚本只创建和清理自己登记的源／目标及进程，测试模式数据库／Redis／九桶仍须由launcher销毁。详见[原件映射运维](docs-site/ops/deploy/storage-migration-inventory.md#发布托管原件读取映射)。
 
-训练保留产物及导出ZIP的纯读取复用上述发布，无新增迁移或依赖。刷新实际消费这些读取的Worker；训练日志等混合写流程仍用原写合同。所属空test模式验收入口为 `scripts/verify_storage_migration_artifact_reads.py --manifest <私有绝对路径> --summary <新的私有绝对路径>`。旧直接S3链接不会被改写，观察期保留原只读入口至自然失效；撤回也不撤销已发出的目标签名。
+训练保留产物及导出ZIP的纯读取复用上述发布，无新增迁移或依赖。刷新实际消费这些读取的Worker；训练日志等混合写流程仍用原写合同。所属空test模式验收入口为 `scripts/verify_storage_migration_artifact_reads.py --manifest <私有绝对路径> --summary <新的私有绝对路径>`。其余保留文件使用 `scripts/verify_storage_migration_retained_reads.py --manifest <私有绝对路径> --summary <新的私有绝对路径>`，同样只允许所属空test模式；验证头像HTTP、RLE持久owner及其余物理接缝的独立Worker读取，不代替其业务授权回归。旧直接S3链接不会被改写，观察期保留原只读入口至自然失效；撤回也不撤销已发出的目标签名。
 
 对象存储源端迁移清单使用当前API虚拟环境和显式部署配置：`apps/api/.venv/bin/python scripts/inventory_storage_migration.py --output /private/source.jsonl`；`--verify`可离线核对同一清单。超级管理员也可在“存储管理 → 迁移准备”提交同一核心的后台任务并下载报告，须应用0255及刷新所属Worker。应用报告受32MiB上限和现有终态Job30天保留规则约束；CLI输出由操作者管理。对象账号可限制为只读，命令不会建桶或修改业务行。九用途处理选择、预算、退出码及一次性实际演练见[源端迁移清单](docs-site/ops/deploy/storage-migration-inventory.md)。
 

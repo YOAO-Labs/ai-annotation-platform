@@ -25,6 +25,8 @@ from app.schemas.bug_report import BugAttachment
 from app.services import bug_attachment_accounting as accounting
 from app.services import bug_attachment_storage as storage, storage_access
 from app.services import object_removal_accounting as removal
+from app.services import storage_migration_artifact_reads as migrated_reads
+from app.services import storage_migration_read_publications as publications
 from app.services.content_snapshot import ContentError
 
 log = logging.getLogger(__name__)
@@ -448,7 +450,20 @@ async def read(db, actor, request, report_id, key):
     _registered_receipt(report, row, key)
     try:
         receipt = snapshot(row)
-        target = await storage.io_target(db, receipt)
+        owner = storage.resolve(receipt)
+        route = await migrated_reads.resolve(
+            db,
+            owner.ref,
+            owner.object_key,
+            receipt.sha256,
+            receipt.size_bytes,
+            source_version_id=(
+                receipt.object_version_id
+                if receipt.object_version_id is not None
+                else publications.ANY_VERSION
+            ),
+        )
+        target = await storage.io_target(db, receipt) if route is None else None
         await db.commit()
         revision = None
 
@@ -466,15 +481,26 @@ async def read(db, actor, request, report_id, key):
             _ready(current)
             await db.commit()
 
-        data = await storage_access.run(
-            db,
-            uuid.UUID(receipt.storage_ref["location_id"]),
-            read_purpose(receipt.id),
-            storage.read,
-            receipt,
-            on_acquired=acquired,
-            **({"target": target} if target is not None else {}),
-        )
+        if route is not None:
+            data = await migrated_reads.run(
+                db,
+                route,
+                read_purpose(receipt.id),
+                lambda client: storage.read_from_client(
+                    client, receipt, response_version_id=route.target_version_id
+                ),
+                on_acquired=acquired,
+            )
+        else:
+            data = await storage_access.run(
+                db,
+                uuid.UUID(receipt.storage_ref["location_id"]),
+                read_purpose(receipt.id),
+                storage.read,
+                receipt,
+                on_acquired=acquired,
+                **({"target": target} if target is not None else {}),
+            )
         actor = await reauthorize(db, authority)
         report = await _readable_report(db, report_id, actor, key)
         current = await _locked(db, receipt.id)
@@ -482,12 +508,15 @@ async def read(db, actor, request, report_id, key):
             reject()
         _ready(current)
         _registered_receipt(report, current, key)
-        await storage_access.check(
-            db,
-            uuid.UUID(receipt.storage_ref["location_id"]),
-            expected_revision=revision,
-            lock=True,
-        )
+        if route is not None:
+            await publications.recheck(db, route, lock=True)
+        else:
+            await storage_access.check(
+                db,
+                uuid.UUID(receipt.storage_ref["location_id"]),
+                expected_revision=revision,
+                lock=True,
+            )
         await reauthorize(db, authority)
         _ready(current)
         await db.commit()
@@ -524,8 +553,6 @@ async def _has_read(db, receipt):
         await db.scalar(
             select(StorageOperation.id)
             .where(
-                StorageOperation.location_id
-                == uuid.UUID(receipt.storage_ref["location_id"]),
                 StorageOperation.purpose == read_purpose(receipt.id),
             )
             .limit(1)

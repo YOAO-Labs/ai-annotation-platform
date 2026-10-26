@@ -35,6 +35,7 @@ UPLOAD_PREFIX = "upload:"
 # 严格白名单顺带挡掉路径穿越（/ . ? #）与任意字符串进入 <img src>。
 _PRESET_SLUG_RE = re.compile(r"[a-z0-9-]{1,40}")
 _UPLOAD_TOKEN_RE = re.compile(r"[0-9a-f]{32}")
+_SAVED_VERSION = object()
 
 # 头像按 24h 强缓存；token 每次上传都是新的,故不存在 stale 问题。
 AVATAR_CACHE_CONTROL = "public, max-age=86400, stale-while-revalidate=604800"
@@ -178,8 +179,19 @@ def read_avatar_object(record, *, target=None) -> tuple[bytes, str] | None:
         return _read(client, owner, record)
 
 
-def _read(client, owner, record):
+def read_from_client(client, record, *, response_version_id):
+    """Read a saved logical owner with an explicit physical response version."""
+    return _read(
+        client,
+        avatar_storage.resolve(record),
+        record,
+        response_version_id=response_version_id,
+    )
+
+
+def _read(client, owner, record, *, response_version_id=_SAVED_VERSION):
     version = getattr(record, "object_version_id", None)
+    expected = version if response_version_id is _SAVED_VERSION else response_version_id
     try:
         response = client.get_object(
             **object_params(owner.bucket, owner.object_key, version)
@@ -195,7 +207,7 @@ def _read(client, owner, record):
         raise
     with storage_access.closing_registered(response["Body"]) as body:
         if (
-            (version is not None and response.get("VersionId") != version)
+            (expected is not None and response.get("VersionId") != expected)
             or response.get("ContentRange") is not None
             or response.get("DeleteMarker")
         ):

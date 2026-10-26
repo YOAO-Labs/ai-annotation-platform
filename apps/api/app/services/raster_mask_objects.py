@@ -24,6 +24,9 @@ from app.db.models.raster_mask_upload import RasterMaskUpload
 from app.db.models.storage_maintenance import StorageOperation
 from app.services import raster_object_storage as physical, storage_access
 from app.services import conditional_write_accounting as accounting
+from app.services import storage_migration_artifact_reads as migration_reads
+from app.services import storage_migration_read_publications as read_publications
+from app.services.original_read_plan import ReadRoute
 from app.services.storage import storage_service
 
 GRACE = timedelta(hours=24)
@@ -135,6 +138,31 @@ async def _gate(db, receipt, revision=None):
     )
 
 
+async def _read_plan(db, receipt):
+    owner = physical.resolve(receipt)
+    route = await migration_reads.resolve(
+        db,
+        owner.ref,
+        owner.object_key,
+        receipt.stored_sha256,
+        receipt.stored_size_bytes,
+    )
+    if route is None:
+        return await _gate(db, receipt), None
+    # Persist the source Gate fact, never the target Permit revision. The
+    # published route separately admits reads while the source is stopped.
+    revision = (await storage_access.state(db, _location(receipt)))["revision"]
+    await read_publications.recheck(db, route, lock=True)
+    return revision, route
+
+
+async def _read_gate(db, receipt, revision, read_route):
+    if read_route is None:
+        await _gate(db, receipt, revision)
+    else:
+        await read_publications.recheck(db, read_route, lock=True)
+
+
 def _current(row, receipt, state):
     if row is None or row.state != state or not physical.same(row, receipt):
         _reject()
@@ -182,6 +210,7 @@ class _Guard:
     id: uuid.UUID
     receipt: object
     revision: int
+    read_route: ReadRoute | None = None
 
 
 def _remember(db, guard):
@@ -190,10 +219,10 @@ def _remember(db, guard):
         guards.setdefault(guard.receipt.logical_key, {})[guard.id] = guard
 
 
-async def _add_guard(db, receipt, revision, enabled):
+async def _add_guard(db, receipt, revision, enabled, *, read_route=None):
     if not enabled:
         return None
-    guard = _Guard(uuid.uuid4(), receipt, revision)
+    guard = _Guard(uuid.uuid4(), receipt, revision, read_route)
     db.add(
         Publication(
             id=guard.id,
@@ -234,13 +263,18 @@ async def _initial(db, facts, guarded):
         else:
             _matching_facts(row, facts)
         receipt = physical.snapshot(row)
-        revision = await _gate(session, receipt)
+        if candidate:
+            revision, read_route = await _gate(session, receipt), None
+        else:
+            revision, read_route = await _read_plan(session, receipt)
         if candidate:
             session.add(row)
             await session.flush()
-        guard = await _add_guard(session, receipt, revision, guarded)
+        guard = await _add_guard(
+            session, receipt, revision, guarded, read_route=read_route
+        )
         await _commit(session)
-        return receipt, revision, guard, candidate
+        return receipt, revision, guard, candidate, read_route
 
 
 async def _io(
@@ -253,7 +287,26 @@ async def _io(
     state="ready",
     accounting=None,
     permits=None,
+    read_route=None,
 ):
+    if read_route is not None:
+        if operation != "read" or state != "ready":
+            _reject()
+
+        async def read_acquired(permit):
+            async with _session(db) as session:
+                row = (await _owners(session, [receipt.id], read=True)).get(receipt.id)
+                _current(row, receipt, "ready")
+                await _read_gate(session, receipt, revision, read_route)
+                await _commit(session)
+
+        return await migration_reads.run(
+            db,
+            read_route,
+            purpose("read", receipt.id),
+            lambda reader: physical.read_routed(reader, receipt),
+            on_acquired=read_acquired,
+        )
     target = None
 
     async def acquired(permit):
@@ -286,12 +339,12 @@ async def _io(
     )
 
 
-async def _touch(db, receipt, revision, guard=None):
+async def _touch(db, receipt, revision, guard=None, *, read_route=None):
     async with _session(db) as session:
         await _publish_lock(session, receipt.logical_key)
         row = (await _owners(session, [receipt.id])).get(receipt.id)
         _current(row, receipt, "ready")
-        await _gate(session, receipt, revision)
+        await _read_gate(session, receipt, revision, read_route)
         await _require_guard(session, guard)
         row.last_used_at = max(now(), row.last_used_at or row.published_at)
         await _commit(session)
@@ -316,11 +369,13 @@ async def _publish(db, receipt, revision, guard, guarded, storage):
             return receipt, guard
         winner_receipt = physical.snapshot(winner)
         _matching_facts(winner, {name: getattr(receipt, name) for name in _CANONICAL})
-        winner_revision = await _gate(session, winner_receipt)
+        winner_revision, winner_route = await _read_plan(session, winner_receipt)
         await _commit(session)
 
     # Never keep a publication or owner lock while verifying the competing owner.
-    await _io(db, winner_receipt, winner_revision, "read", storage)
+    await _io(
+        db, winner_receipt, winner_revision, "read", storage, read_route=winner_route
+    )
     async with _session(db) as session:
         await _publish_lock(session, receipt.logical_key)
         owners = await _owners(session, [receipt.id, winner_receipt.id])
@@ -328,7 +383,7 @@ async def _publish(db, receipt, revision, guard, guarded, storage):
         _current(row, receipt, "pending")
         _current(winner, winner_receipt, "ready")
         await _gate(session, receipt, revision)
-        await _gate(session, winner_receipt, winner_revision)
+        await _read_gate(session, winner_receipt, winner_revision, winner_route)
         if guard is not None:
             deleted = await session.execute(
                 delete(Publication).where(
@@ -340,7 +395,7 @@ async def _publish(db, receipt, revision, guard, guarded, storage):
             if deleted.rowcount != 1:
                 _reject()
         replacement = await _add_guard(
-            session, winner_receipt, winner_revision, guarded
+            session, winner_receipt, winner_revision, guarded, read_route=winner_route
         )
         row.state = "retired"
         row.retired_at = max(now(), row.created_at)
@@ -353,7 +408,7 @@ async def store(reference, encoded_data, *, db=None, storage=storage_service):
     """Publish exact content without committing or waiting on business locks."""
     facts = physical.content(reference, encoded_data)
     async with _context(db) as context:
-        receipt, revision, guard, candidate = await _initial(
+        receipt, revision, guard, candidate, read_route = await _initial(
             context, facts, db is not None
         )
         if candidate:
@@ -392,8 +447,10 @@ async def store(reference, encoded_data, *, db=None, storage=storage_service):
             if failure is not None:
                 raise failure
         else:
-            await _io(context, receipt, revision, "read", storage)
-            await _touch(context, receipt, revision, guard)
+            await _io(
+                context, receipt, revision, "read", storage, read_route=read_route
+            )
+            await _touch(context, receipt, revision, guard, read_route=read_route)
         _remember(db, guard)
         return physical.reference(receipt)
 
@@ -412,15 +469,17 @@ async def load(reference, *, db=None, storage=storage_service):
                 _reject("raster_object_storage_unpinned")
             receipt = physical.snapshot(row)
             _matching_reference(reference, receipt)
-            revision = await _gate(session, receipt)
+            revision, read_route = await _read_plan(session, receipt)
             await _commit(session)
-        result = await _io(context, receipt, revision, "read", storage)
+        result = await _io(
+            context, receipt, revision, "read", storage, read_route=read_route
+        )
         async with _session(context) as session:
             # A business caller may already hold a SHARE owner lock from a prior
             # binding in the same transaction. Reads never upgrade that lock.
             row = (await _owners(session, [receipt.id], read=True)).get(receipt.id)
             _current(row, receipt, "ready")
-            await _gate(session, receipt, revision)
+            await _read_gate(session, receipt, revision, read_route)
             await _commit(session)
         return result
 
@@ -473,7 +532,7 @@ async def bind_publications(db, value):
             if row.object_id != guard.receipt.id or row.gate_revision != guard.revision:
                 _reject()
             _current(owners.get(row.object_id), guard.receipt, "ready")
-            await _gate(db, guard.receipt, guard.revision)
+            await _read_gate(db, guard.receipt, guard.revision, guard.read_route)
         if present:
             await db.execute(
                 delete(Publication).where(
@@ -510,31 +569,18 @@ async def _is_referenced(db, key):
 async def _guarded(db, receipt, *, exclude_operation=None):
     if await db.scalar(select(exists().where(Publication.object_id == receipt.id))):
         return True
-    statement = select(
-        exists().where(
-            StorageOperation.location_id == _location(receipt),
-            StorageOperation.purpose.in_(
-                [
-                    purpose(operation, receipt.id)
-                    for operation in ("read", "write", "delete")
-                ]
+    conditions = [
+        or_(
+            StorageOperation.purpose == purpose("read", receipt.id),
+            (StorageOperation.location_id == _location(receipt))
+            & StorageOperation.purpose.in_(
+                [purpose(operation, receipt.id) for operation in ("write", "delete")]
             ),
         )
-    )
+    ]
     if exclude_operation is not None:
-        statement = select(
-            exists().where(
-                StorageOperation.location_id == _location(receipt),
-                StorageOperation.purpose.in_(
-                    [
-                        purpose(operation, receipt.id)
-                        for operation in ("read", "write", "delete")
-                    ]
-                ),
-                StorageOperation.id != exclude_operation,
-            )
-        )
-    return bool(await db.scalar(statement))
+        conditions.append(StorageOperation.id != exclude_operation)
+    return bool(await db.scalar(select(exists().where(*conditions))))
 
 
 async def _business_retains(db, receipt, state):

@@ -16,6 +16,8 @@ from app.schemas._jsonb_types import Attachment
 from app.services import conditional_write_accounting as accounting
 from app.services import comment_attachment_authority as authority
 from app.services import comment_attachment_storage as storage, storage_access
+from app.services import storage_migration_artifact_reads as migration_reads
+from app.services import storage_migration_read_publications as read_publications
 from app.services.content_snapshot import ContentError
 from app.services.storage import storage_service
 
@@ -359,6 +361,10 @@ async def read(db, actor, request, annotation_id, key):
         original, row = await _read_binding(db, actor, annotation_id, key)
         receipt = storage.snapshot(row)
         expiries = (receipt.expires_at,)
+        owner = storage.resolve(receipt)
+        read_route = await migration_reads.resolve(
+            db, owner.ref, owner.object_key, receipt.sha256, receipt.size_bytes
+        )
         await reauthorize(db, proof)
         await db.commit()
         check_deadlines(proof, expiries)
@@ -372,7 +378,8 @@ async def read(db, actor, request, annotation_id, key):
                 db, actor, annotation_id, key, expected=original, receipt=receipt
             )
             await reauthorize(db, proof)
-            target = await storage.io_target(db, receipt)
+            if read_route is None:
+                target = await storage.io_target(db, receipt)
             await db.commit()
             check_deadlines(proof, expiries)
             revision = permit.revision
@@ -381,23 +388,40 @@ async def read(db, actor, request, annotation_id, key):
             check_deadlines(proof, expiries)
             return storage.run_io(target, storage_service.client, "read", receipt)
 
-        data = await storage_access.run(
-            db,
-            uuid.UUID(receipt.storage_ref["location_id"]),
-            read_purpose(receipt.id),
-            read_saved,
-            on_acquired=acquired,
-        )
+        if read_route is None:
+            data = await storage_access.run(
+                db,
+                uuid.UUID(receipt.storage_ref["location_id"]),
+                read_purpose(receipt.id),
+                read_saved,
+                on_acquired=acquired,
+            )
+        else:
+
+            def read_mapped(reader):
+                check_deadlines(proof, expiries)
+                return storage.read_routed(reader, receipt)
+
+            data = await migration_reads.run(
+                db,
+                read_route,
+                read_purpose(receipt.id),
+                read_mapped,
+                on_acquired=acquired,
+            )
         actor = await reauthorize(db, proof)
         _, current = await _read_binding(
             db, actor, annotation_id, key, expected=original, receipt=receipt
         )
-        await storage_access.check(
-            db,
-            uuid.UUID(receipt.storage_ref["location_id"]),
-            expected_revision=revision,
-            lock=True,
-        )
+        if read_route is None:
+            await storage_access.check(
+                db,
+                uuid.UUID(receipt.storage_ref["location_id"]),
+                expected_revision=revision,
+                lock=True,
+            )
+        else:
+            await read_publications.recheck(db, read_route, lock=True)
         await reauthorize(db, proof)
         _ready(current)
         await db.commit()
@@ -445,8 +469,6 @@ async def _has_read(db, receipt):
         await db.scalar(
             select(StorageOperation.id)
             .where(
-                StorageOperation.location_id
-                == uuid.UUID(receipt.storage_ref["location_id"]),
                 StorageOperation.purpose == read_purpose(receipt.id),
             )
             .limit(1)

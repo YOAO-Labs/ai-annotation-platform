@@ -59,6 +59,7 @@ _KEY = re.compile(
 _MIME_EXTENSIONS = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
 _IMAGE_FORMATS = {"image/png": "PNG", "image/jpeg": "JPEG", "image/webp": "WEBP"}
 _SHA256 = re.compile(r"[0-9a-f]{64}")
+_SAVED_VERSION = object()
 
 
 _MESSAGES = {
@@ -479,17 +480,27 @@ def read(record, *, missing_ok=False, target=None) -> bytes | None:
         return _read(client, record, missing_ok=missing_ok)
 
 
-def _read(client, record, *, missing_ok=False) -> bytes | None:
+def read_from_client(client, record, *, response_version_id) -> bytes | None:
+    """Keep the saved request version separate from the physical read version."""
+    return _read(client, record, response_version_id=response_version_id)
+
+
+def _read(
+    client, record, *, missing_ok=False, response_version_id=_SAVED_VERSION
+) -> bytes | None:
     """Conditionally read and hash the exact saved object, then close it."""
     owner = resolve(record)
     deadline = time.monotonic() + VERIFY_SECONDS
     from app.services.bug_attachment_storage_target import object_params
 
     version = getattr(record, "object_version_id", None)
+    expected = version if response_version_id is _SAVED_VERSION else response_version_id
     params = object_params(owner.bucket, owner.object_key, version)
     try:
         head = client.head_object(**params)
-        if version is not None and not version_matches(version, head.get("VersionId")):
+        if expected is not None and not version_matches(
+            expected, head.get("VersionId")
+        ):
             _reject("bug_attachment_storage_integrity_mismatch")
         _budget(deadline)
         etag = head.get("ETag")
@@ -504,8 +515,8 @@ def _read(client, record, *, missing_ok=False) -> bytes | None:
         with storage_access.closing_registered(response["Body"]) as body:
             if (
                 (
-                    version is not None
-                    and not version_matches(version, response.get("VersionId"))
+                    expected is not None
+                    and not version_matches(expected, response.get("VersionId"))
                 )
                 or response.get("ETag") != etag
                 or type(response.get("ContentLength")) is not int
@@ -529,8 +540,8 @@ def _read(client, record, *, missing_ok=False) -> bytes | None:
         after = client.head_object(**params)
         if (
             (
-                version is not None
-                and not version_matches(version, after.get("VersionId"))
+                expected is not None
+                and not version_matches(expected, after.get("VersionId"))
             )
             or after.get("ETag") != etag
             or type(after.get("ContentLength")) is not int

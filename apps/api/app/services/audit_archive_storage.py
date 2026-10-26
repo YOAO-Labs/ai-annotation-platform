@@ -802,6 +802,17 @@ def _download(client, row, owner, limit, offset, deadline, *, observation=None):
 
 
 def read(row, *, limit=100, offset=0, target=None):
+    original = _read_snapshot(row, limit, offset)
+    with _client_context(original, target) as client:
+        return _read_page(client, original, limit, offset)
+
+
+def read_from_client(client, row, *, limit=100, offset=0):
+    """Verify the complete saved archive through an admitted read transport."""
+    return _read_page(client, _read_snapshot(row, limit, offset), limit, offset)
+
+
+def _read_snapshot(row, limit, offset):
     if (
         type(limit) is not int
         or not 1 <= limit <= 1000
@@ -809,16 +820,18 @@ def read(row, *, limit=100, offset=0, target=None):
         or offset < 0
     ):
         _reject("audit_archive_storage_invalid_receipt")
-    original = snapshot(row)
-    with _client_context(original, target) as client:
-        return _download(
-            client,
-            original,
-            resolve(original),
-            limit,
-            offset,
-            time.monotonic() + VERIFY_SECONDS,
-        )
+    return snapshot(row)
+
+
+def _read_page(client, original, limit, offset):
+    return _download(
+        client,
+        original,
+        resolve(original),
+        limit,
+        offset,
+        time.monotonic() + VERIFY_SECONDS,
+    )
 
 
 def write(row, fileobject, *, target=None, accounting=None):

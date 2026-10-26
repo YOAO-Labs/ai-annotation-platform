@@ -581,6 +581,33 @@ def _read(
 def verify_object(client, record, relative):
     owner = resolve(record)
     _client(client, owner)
+    return _verify_object(client, record, owner, relative)
+
+
+def _read_owner(client, record, relative):
+    owner = resolve(record)
+    key, expected = _expected(record, owner, relative)
+    route = client.route
+    if (
+        route.source_location_id != uuid.UUID(owner.ref["location_id"])
+        or route.source_endpoint_url != owner.ref["endpoint_url"]
+        or route.source_bucket != owner.bucket
+        or route.source_object_key != key
+        or route.sha256 != expected["sha256"]
+        or route.size_bytes != expected["size_bytes"]
+    ):
+        _reject("identity_changed")
+    return owner
+
+
+def verify_read(client, record, relative):
+    """Hash a saved member through its admitted, exact migration read route."""
+    return _verify_object(
+        client, record, _read_owner(client, record, relative), relative
+    )
+
+
+def _verify_object(client, record, owner, relative):
     key, expected = _expected(record, owner, relative)
     _live(record)
     try:
@@ -753,6 +780,16 @@ def verify_inventory(client, record):
 def signed_url(client, record, relative, *, now=None):
     owner = resolve(record)
     _client(client, owner)
+    return _signed_url(client, record, owner, relative, now=now)
+
+
+def sign_read(client, record, relative, *, now=None):
+    """Sign the admitted target without changing a frozen owner or its deadline."""
+    owner = _read_owner(client, record, relative)
+    return _signed_url(client, record, owner, relative, now=now, migrated=True)
+
+
+def _signed_url(client, record, owner, relative, *, now=None, migrated=False):
     key, _expected_receipt = _expected(record, owner, relative)
     current = _instant(now or datetime.now(timezone.utc))
     seconds = int((_instant(_field(record, "expires_at")) - current).total_seconds())
@@ -765,7 +802,7 @@ def signed_url(client, record, relative, *, now=None):
             params={"Bucket": owner.bucket, "Key": key},
             expires_in=min(RETENTION_SECONDS, seconds),
             audience="browser"
-            if owner.ref["location_id"] == str(LEGACY_LOCATION_ID)
+            if not migrated and owner.ref["location_id"] == str(LEGACY_LOCATION_ID)
             else "internal",
         )
     except Exception as exc:

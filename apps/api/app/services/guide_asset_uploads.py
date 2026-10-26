@@ -18,6 +18,8 @@ from app.services import conditional_write_accounting as accounting
 from app.services import comment_attachment_authority as authority
 from app.services import guide_asset_references as references
 from app.services import guide_asset_storage as storage, storage_access
+from app.services import storage_migration_artifact_reads as migration_reads
+from app.services import storage_migration_read_publications as read_publications
 from app.services.content_snapshot import ContentError
 from app.services.project_access import resolve_project_access
 from app.services.storage import storage_service
@@ -339,6 +341,10 @@ async def read(db, actor, request, project_id, key):
         actor, proof = await lock_authority(db, actor, request)
         row = await _read_binding(db, actor, project_id, key)
         receipt = storage.snapshot(row)
+        owner = storage.resolve(receipt)
+        read_route = await migration_reads.resolve(
+            db, owner.ref, owner.object_key, receipt.sha256, receipt.size_bytes
+        )
         await reauthorize(db, proof)
         await db.commit()
         check_clock(proof)
@@ -350,7 +356,8 @@ async def read(db, actor, request, project_id, key):
             actor = await reauthorize(db, proof)
             await _read_binding(db, actor, project_id, key, receipt=receipt)
             await reauthorize(db, proof)
-            target = await storage.io_target(db, receipt)
+            if read_route is None:
+                target = await storage.io_target(db, receipt)
             await db.commit()
             check_clock(proof)
             revision = permit.revision
@@ -359,21 +366,38 @@ async def read(db, actor, request, project_id, key):
             check_clock(proof)
             return storage.run_io(target, storage_service.client, "read", receipt)
 
-        data = await storage_access.run(
-            db,
-            uuid.UUID(receipt.storage_ref["location_id"]),
-            purpose("read", receipt.id),
-            read_saved,
-            on_acquired=acquired,
-        )
+        if read_route is None:
+            data = await storage_access.run(
+                db,
+                uuid.UUID(receipt.storage_ref["location_id"]),
+                purpose("read", receipt.id),
+                read_saved,
+                on_acquired=acquired,
+            )
+        else:
+
+            def read_mapped(reader):
+                check_clock(proof)
+                return storage.read_routed(reader, receipt)
+
+            data = await migration_reads.run(
+                db,
+                read_route,
+                purpose("read", receipt.id),
+                read_mapped,
+                on_acquired=acquired,
+            )
         actor = await reauthorize(db, proof)
         await _read_binding(db, actor, project_id, key, receipt=receipt)
-        await storage_access.check(
-            db,
-            uuid.UUID(receipt.storage_ref["location_id"]),
-            expected_revision=revision,
-            lock=True,
-        )
+        if read_route is None:
+            await storage_access.check(
+                db,
+                uuid.UUID(receipt.storage_ref["location_id"]),
+                expected_revision=revision,
+                lock=True,
+            )
+        else:
+            await read_publications.recheck(db, read_route, lock=True)
         await reauthorize(db, proof)
         await db.commit()
         check_clock(proof)
@@ -404,12 +428,15 @@ async def unlink(db, actor, request, project_id, key):
 
 async def _has_operation(db, receipt, *, excluding=None):
     statement = select(StorageOperation.id).where(
-        StorageOperation.location_id == uuid.UUID(receipt.storage_ref["location_id"]),
-        StorageOperation.purpose.in_(
-            [
-                purpose(operation, receipt.id)
-                for operation in ("read", "write", "delete")
-            ]
+        or_(
+            StorageOperation.purpose == purpose("read", receipt.id),
+            (
+                StorageOperation.location_id
+                == uuid.UUID(receipt.storage_ref["location_id"])
+            )
+            & StorageOperation.purpose.in_(
+                [purpose(operation, receipt.id) for operation in ("write", "delete")]
+            ),
         ),
     )
     if excluding is not None:

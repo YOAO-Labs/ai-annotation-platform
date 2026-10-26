@@ -17,6 +17,8 @@ from app.db.enums import UserRole
 from app.db.models.audit_archive_output import AuditArchiveOutput
 from app.services import audit_archive_storage as storage, bug_attachment_uploads
 from app.services import storage_access
+from app.services import storage_migration_artifact_reads as migrated_reads
+from app.services import storage_migration_read_publications as publications
 from app.services.content_snapshot import ContentError
 
 
@@ -245,7 +247,11 @@ async def read_archive_rows(db, actor, request, year, month, *, limit=100, offse
         proof = await capture_authority(db, actor, request)
         await reauthorize(db, proof)
         receipt = storage.snapshot(await _ready_month(db, year, month))
-        target = await storage.io_target(db, receipt)
+        owner = storage.resolve(receipt)
+        route = await migrated_reads.resolve(
+            db, owner.ref, owner.object_key, receipt.sha256, receipt.size_bytes
+        )
+        target = await storage.io_target(db, receipt) if route is None else None
         await db.commit()
         _check_clock(proof)
         revision = None
@@ -258,25 +264,39 @@ async def read_archive_rows(db, actor, request, year, month, *, limit=100, offse
             _check_clock(proof)
             revision = permit.revision
 
-        page = await storage_access.run(
-            db,
-            uuid.UUID(receipt.storage_ref["location_id"]),
-            read_purpose(receipt.id),
-            storage.read,
-            receipt,
-            limit=limit,
-            offset=offset,
-            **({"target": target} if target is not None else {}),
-            on_acquired=acquired,
-        )
+        if route is not None:
+            page = await migrated_reads.run(
+                db,
+                route,
+                read_purpose(receipt.id),
+                lambda client: storage.read_from_client(
+                    client, receipt, limit=limit, offset=offset
+                ),
+                on_acquired=acquired,
+            )
+        else:
+            page = await storage_access.run(
+                db,
+                uuid.UUID(receipt.storage_ref["location_id"]),
+                read_purpose(receipt.id),
+                storage.read,
+                receipt,
+                limit=limit,
+                offset=offset,
+                **({"target": target} if target is not None else {}),
+                on_acquired=acquired,
+            )
         await reauthorize(db, proof)
         await _same_ready(db, receipt)
-        await storage_access.check(
-            db,
-            uuid.UUID(receipt.storage_ref["location_id"]),
-            expected_revision=revision,
-            lock=True,
-        )
+        if route is not None:
+            await publications.recheck(db, route, lock=True)
+        else:
+            await storage_access.check(
+                db,
+                uuid.UUID(receipt.storage_ref["location_id"]),
+                expected_revision=revision,
+                lock=True,
+            )
         await reauthorize(db, proof)
         await db.commit()
         _check_clock(proof)

@@ -19,6 +19,8 @@ from botocore.exceptions import ClientError
 
 from app.config import settings
 from app.services import annotations_storage, storage_access
+from app.services import storage_migration_artifact_reads as migration_reads
+from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.managed_original_retirement import managed_storage_identity
 from app.services.storage import storage_service
@@ -478,6 +480,28 @@ def read(client, record, *, missing_ok=False, on_verified=None):
     """Conditionally read the entire saved object and its canonical RLE."""
     owner = resolve(record)
     _client(client, owner)
+    return _read(client, record, owner, missing_ok=missing_ok, on_verified=on_verified)
+
+
+def read_routed(client, record):
+    """Read a published copy without changing the saved physical receipt."""
+    owner = resolve(record)
+    if not isinstance(client, migration_reads.ReadClient):
+        _reject()
+    route = client.route
+    if (
+        str(route.source_location_id) != owner.ref["location_id"]
+        or route.source_endpoint_url != owner.ref["endpoint_url"]
+        or route.source_bucket != owner.bucket
+        or route.source_object_key != owner.object_key
+        or route.sha256 != record.stored_sha256
+        or route.size_bytes != record.stored_size_bytes
+    ):
+        _reject()
+    return _read(client, record, owner)
+
+
+def _read(client, record, owner, *, missing_ok=False, on_verified=None):
     deadline = time.monotonic() + VERIFY_SECONDS
     params = {"Bucket": owner.bucket, "Key": owner.object_key}
     try:
@@ -549,6 +573,8 @@ def read(client, record, *, missing_ok=False, on_verified=None):
     except RasterObjectStorageError as exc:
         if getattr(exc, "storage_operation_unsettled", False):
             raise _unavailable(exc) from None
+        raise
+    except ContentError:
         raise
     except Exception as exc:
         raise _unavailable(exc) from None

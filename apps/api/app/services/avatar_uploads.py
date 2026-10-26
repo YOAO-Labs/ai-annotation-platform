@@ -17,6 +17,8 @@ from app.db.models.user import User
 from app.services import avatar, avatar_storage, storage_access
 from app.services import conditional_write_accounting as accounting
 from app.services import object_removal_accounting as removal
+from app.services import storage_migration_artifact_reads as migrated_reads
+from app.services import storage_migration_read_publications as publications
 from app.services.audit import AuditAction, AuditService
 from app.services.content_snapshot import ContentError
 
@@ -328,6 +330,28 @@ async def read(db, token):
         return None
     try:
         receipt = _snapshot(row)
+        owner = avatar_storage.resolve(receipt)
+        route = await migrated_reads.resolve(
+            db,
+            owner.ref,
+            owner.object_key,
+            receipt.sha256,
+            receipt.size_bytes,
+            source_version_id=(
+                receipt.object_version_id
+                if receipt.object_version_id is not None
+                else publications.ANY_VERSION
+            ),
+        )
+        if route is not None:
+            return await migrated_reads.run(
+                db,
+                route,
+                "avatar_read",
+                lambda client: avatar.read_from_client(
+                    client, receipt, response_version_id=route.target_version_id
+                ),
+            )
         target = await avatar_storage.io_target(db, receipt)
         return await storage_access.run(
             db,

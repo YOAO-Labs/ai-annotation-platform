@@ -23,7 +23,7 @@ from app.core.security import hash_password
 from app.db.models.api_key import ApiKey
 from app.db.models.bug_attachment_upload import BugAttachmentUpload
 from app.db.models.bug_report import BugReport
-from app.db.models.storage_maintenance import StorageOperation
+from app.db.models.storage_maintenance import StorageMaintenanceGate, StorageOperation
 from app.services import bug_attachment_storage as storage
 from app.services import bug_attachment_uploads as uploads, storage_access
 
@@ -635,17 +635,25 @@ async def test_expired_ready_cleanup_and_pending_never_reaped(
     assert await db_session.get(BugReport, current.id) is not None
 
 
+@pytest.mark.parametrize("read_location", ["source", "migrated"])
 async def test_cleanup_skips_exact_read_permit_and_nonexpired_binding(
-    db_session, annotator, objects, httpx_client
+    db_session, annotator, objects, httpx_client, read_location
 ):
     value = await uploaded(httpx_client, annotator)
     await created(httpx_client, annotator, [value])
     bound = await db_session.scalar(select(BugAttachmentUpload))
     bound.state, bound.retired_at = "retired", uploads.now()
     old = await seed_receipt(db_session, objects, annotator[0].id, expired=True)
+    location_id = uuid.UUID(old.storage_ref["location_id"])
+    if read_location == "migrated":
+        location_id = uuid.uuid4()
+        db_session.add(
+            StorageMaintenanceGate(location_id=location_id, state="active", revision=1)
+        )
+        await db_session.flush()
     operation = StorageOperation(
         id=uuid.uuid4(),
-        location_id=uuid.UUID(old.storage_ref["location_id"]),
+        location_id=location_id,
         revision=1,
         purpose=uploads.read_purpose(old.id),
         node_id="test:bug-read",

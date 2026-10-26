@@ -1322,6 +1322,7 @@ def main(argv=None):
     parser.add_argument("--pause-for-browser", action="store_true")
     parser.add_argument("--original-reads", action="store_true")
     parser.add_argument("--artifact-reads", action="store_true")
+    parser.add_argument("--retained-reads", action="store_true")
     parser.add_argument("--browser-wait-seconds", type=int, default=1200)
     args = parser.parse_args(argv)
     owner = None
@@ -1361,9 +1362,18 @@ def main(argv=None):
         if not args.cleanup:
             fixture = None
             require(
-                not (args.original_reads and args.artifact_reads), "fixture_conflict"
+                sum((args.original_reads, args.artifact_reads, args.retained_reads))
+                <= 1,
+                "fixture_conflict",
             )
-            if args.artifact_reads:
+            if args.retained_reads:
+                from verify_storage_migration_retained_reads import RetainedReads
+
+                fixture = RetainedReads()
+                summary["schema"] = (
+                    "aap.storage-migration-retained-reads-verification/v1"
+                )
+            elif args.artifact_reads:
                 from verify_storage_migration_artifact_reads import ArtifactReads
 
                 fixture = ArtifactReads()

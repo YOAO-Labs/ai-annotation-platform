@@ -4,6 +4,7 @@ The LiDAR entry point remains compatible; each attempt selects its own explicit
 protocol, sharing physical, cache and publication fences with image exports.
 """
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import logging
 from pathlib import Path
@@ -21,11 +22,14 @@ from app.services import export_media_bundles as bundles
 from app.services import export_media_storage as media_storage
 from app.services import export_media_transfer as transfer
 from app.services import export_outputs, export_storage, storage_access
+from app.services import storage_migration_artifact_reads as artifact_reads
+from app.services import storage_migration_read_publications as read_publications
 from app.services.content_snapshot import ContentError
 from app.services.exporting import cache, lidar_jobs
 from app.services.exporting.media_protocol import for_snapshot, protocol
 from app.services.exporting.packaging import build_export_zip
 from app.services.exporting.reference_media import ExportCancelled, check_cancelled
+from app.services.original_read_plan import ReadRoute
 
 log = logging.getLogger(__name__)
 
@@ -170,6 +174,108 @@ async def _io(
     return result, permit.revision
 
 
+async def _read_io(db, receipt, route, call, *, guard):
+    """Keep the saved bundle's authority around a closed, routed ready read."""
+
+    async def fresh():
+        async with transfer._session(db) as owned:
+            await guard(owned)
+            await _published(owned, receipt)
+            await read_publications.recheck(owned, route)
+
+    async def acquired(_permit):
+        await transfer._async(fresh())
+
+    await transfer._async(fresh())
+    async with transfer._session(db) as owned:
+        result = await artifact_reads.run(
+            owned, route, transfer.purpose(receipt), call, on_acquired=acquired
+        )
+    await transfer._async(fresh())
+    return result, route.maintenance_revision
+
+
+_READ_CONTEXT = (
+    "publication_id",
+    "publication_revision",
+    "source_location_id",
+    "source_endpoint_url",
+    "source_bucket",
+    "target_location_id",
+    "target_location_revision",
+    "target_connection_id",
+    "target_connection_revision",
+    "target_endpoint_url",
+    "target_bucket",
+    "maintenance_revision",
+)
+
+
+@dataclass(frozen=True)
+class _MediaReads:
+    prefix: str
+    inventory: tuple[tuple[str, str, int], ...]
+    routes: tuple[ReadRoute, ...]
+
+
+@dataclass(frozen=True)
+class _MediaCacheHit(export_outputs.CacheHit):
+    media_reads: _MediaReads | None = None
+
+
+def _inventory_facts(record):
+    return tuple(
+        (key, facts["sha256"], facts["size_bytes"])
+        for key, facts in sorted(media_storage.validate_inventory(record).items())
+    )
+
+
+def _media_reads(record, routes):
+    """Freeze complete logical members, all owned by one immutable publication."""
+    owner = media_storage.resolve(record)
+    inventory = _inventory_facts(record)
+    if not routes or any(not isinstance(route, ReadRoute) for route in routes):
+        reject("read_publication_prefix_incomplete")
+    first = routes[0]
+    context = tuple(getattr(first, name) for name in _READ_CONTEXT)
+    facts = []
+    for route in routes:
+        if (
+            tuple(getattr(route, name) for name in _READ_CONTEXT) != context
+            or route.source_location_id != uuid.UUID(owner.ref["location_id"])
+            or route.source_endpoint_url != owner.ref["endpoint_url"]
+            or route.source_bucket != owner.bucket
+        ):
+            reject("read_publication_prefix_incomplete")
+        owner.contains(route.source_object_key)
+        facts.append((route.source_object_key, route.sha256, route.size_bytes))
+    if tuple(sorted(facts)) != inventory:
+        reject("read_publication_prefix_incomplete")
+    return _MediaReads(owner.prefix, inventory, tuple(routes))
+
+
+async def _check_media_reads(db, record, reads, *, lock=False):
+    """The shared publication lock fences every immutable member in this set."""
+    if (
+        not isinstance(reads, _MediaReads)
+        or _media_reads(record, reads.routes) != reads
+    ):
+        reject("read_publication_prefix_incomplete")
+    route = reads.routes[0]
+    await read_publications.recheck(db, route, lock=lock)
+    inventory = await read_publications.prefix_inventory(
+        db, route, prefix=reads.prefix, lock=lock
+    )
+    if (
+        tuple(
+            (key, facts["sha256"], facts["size_bytes"])
+            for key, facts in sorted(inventory.items())
+        )
+        != reads.inventory
+    ):
+        reject("read_publication_prefix_incomplete")
+
+
 def _naming(data, job_id):
     from app.workers.export import _friendly_zip_name
 
@@ -279,21 +385,50 @@ async def _lookup(db, receipt, key, *, guard):
         for binding in references:
             await adapter.inputs.check_source(owned, binding)
 
-    zip_target = await export_storage.io_target(db, candidate)
-    media_target = await media_storage.io_target(db, record)
+    zip_route = await export_outputs._read_route(db, candidate)
+    zip_target = (
+        None if zip_route is not None else await export_storage.io_target(db, candidate)
+    )
+    media_routes = {
+        full_key: await artifact_reads.resolve(
+            db, owner.ref, full_key, facts["sha256"], facts["size_bytes"]
+        )
+        for full_key, facts in media_storage.validate_inventory(record).items()
+    }
+    reads = (
+        _media_reads(record, tuple(media_routes.values()))
+        if any(route is not None for route in media_routes.values())
+        else None
+    )
+    media_target = (
+        None if reads is not None else await media_storage.io_target(db, record)
+    )
+    if reads is not None:
+        await _check_media_reads(db, record, reads)
     await db.commit()
     try:
-        present, zip_revision = await _io(
-            db,
-            previous,
-            lambda: export_storage.verify(
-                candidate,
-                missing_ok=True,
-                **({"target": zip_target} if zip_target is not None else {}),
-            ),
-            guard=source_guard,
-            published=True,
-        )
+        if zip_route is not None:
+            present, zip_revision = await _read_io(
+                db,
+                previous,
+                zip_route,
+                lambda client: export_storage.verify_read(
+                    client, candidate, missing_ok=True
+                ),
+                guard=source_guard,
+            )
+        else:
+            present, zip_revision = await _io(
+                db,
+                previous,
+                lambda: export_storage.verify(
+                    candidate,
+                    missing_ok=True,
+                    **({"target": zip_target} if zip_target is not None else {}),
+                ),
+                guard=source_guard,
+                published=True,
+            )
         if not present:
             await _invalidate(db, artifact_id, output_id)
             return None
@@ -304,14 +439,27 @@ async def _lookup(db, receipt, key, *, guard):
             async def exact_guard(owned, references=tuple(references)):
                 await source_guard(owned, references)
 
-            def verify():
-                with media_storage.open_storage(
-                    record,
-                    **({"target": media_target} if media_target is not None else {}),
-                ) as client:
-                    return media_storage.verify_object(client, record, relative)
+            route = media_routes[full_key]
+            if route is not None:
+                await _read_io(
+                    db,
+                    previous,
+                    route,
+                    lambda client: media_storage.verify_read(client, record, relative),
+                    guard=exact_guard,
+                )
+            else:
 
-            await _io(db, previous, verify, guard=exact_guard, published=True)
+                def verify():
+                    with media_storage.open_storage(
+                        record,
+                        **(
+                            {"target": media_target} if media_target is not None else {}
+                        ),
+                    ) as client:
+                        return media_storage.verify_object(client, record, relative)
+
+                await _io(db, previous, verify, guard=exact_guard, published=True)
 
         def inventory():
             with media_storage.open_storage(
@@ -324,7 +472,15 @@ async def _lookup(db, receipt, key, *, guard):
                 }:
                     reject(adapter.error("cache_inventory_changed"))
 
-        await _io(db, previous, inventory, guard=source_guard, published=True)
+        if reads is not None:
+            async with transfer._session(db) as owned:
+                await source_guard(owned)
+                await _published(owned, previous)
+                await _check_media_reads(owned, record, reads)
+                await source_guard(owned)
+                await _published(owned, previous)
+        else:
+            await _io(db, previous, inventory, guard=source_guard, published=True)
     except (
         media_storage.ExportMediaStorageError,
         export_storage.ExportStorageError,
@@ -349,8 +505,8 @@ async def _lookup(db, receipt, key, *, guard):
         await db.rollback()
         await _invalidate(db, artifact_id, output_id)
         return None
-    return export_outputs.CacheHit(
-        artifact_id, key, batch_id, candidate, zip_revision
+    return _MediaCacheHit(
+        artifact_id, key, batch_id, candidate, zip_revision, zip_route, reads
     ), previous
 
 
@@ -368,6 +524,8 @@ async def _finish_cache(db, receipt, hit, previous, *, task_id, name):
         db, receipt._input_snapshot, lock=True
     )
     await _published(db, previous, lock=True)
+    if hit.media_reads is not None:
+        await _check_media_reads(db, previous, hit.media_reads, lock=True)
     job = await db.get(AsyncJob, receipt.job_id)
     from app.services.exporting import output_authority
 
