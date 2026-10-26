@@ -20,6 +20,7 @@ from app.schemas.dataset_quality import DatasetQualityConfig
 from app.services import content_snapshot as snapshots, dataset_quality as quality
 from app.services import dataset_references as references, original_cache as cache
 from app.services import storage_access
+from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.reference_bindings import (
     reference_binding,
     task_binding,
@@ -445,6 +446,8 @@ def test_cache_marks_only_unproved_handle_closure(monkeypatch, failure):
             super().close()
 
     class Client:
+        meta = SimpleNamespace(endpoint_url="https://cache.example")
+
         def get_object(self, **kwargs):
             return {"Body": body, "ContentLength": 1}
 
@@ -460,9 +463,14 @@ def test_cache_marks_only_unproved_handle_closure(monkeypatch, failure):
         sha256="a" * 64,
         size_bytes=1,
         bucket="cache",
+        location_id=LEGACY_LOCATION_ID,
+        _target=SimpleNamespace(endpoint_url=Client.meta.endpoint_url),
     )
-    monkeypatch.setattr(cache, "make_storage", lambda: SimpleNamespace(client=Client()))
-    monkeypatch.setattr(cache, "storage_identity", lambda value: "same")
+    monkeypatch.setattr(
+        cache,
+        "make_storage",
+        lambda: SimpleNamespace(client=Client(), media_cache_bucket="cache"),
+    )
     try:
         with pytest.raises(OSError) as error:
             with cache.stored_object(record, settled) as (stream, _):

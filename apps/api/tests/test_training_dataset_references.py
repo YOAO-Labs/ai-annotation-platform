@@ -710,6 +710,7 @@ async def test_real_s3_reference_source_enters_training_freeze(
     from app.schemas.dataset_source import DatasetSourceCreate
     from app.services import connector_guard, dataset_scans, storage_location
     from app.services.dataset_references import register_entry
+    from tests import live_provider_guard
     from tests.test_s3_references import scan
 
     db, actor = db_session, super_admin[0]
@@ -726,6 +727,12 @@ async def test_real_s3_reference_source_enters_training_freeze(
     )
     prefix = f"reference-training-{uuid.uuid4()}/"
     project_prefix = None
+    live_provider_guard.owned_bucket(
+        storage_service.datasets_bucket, purpose="datasets"
+    )
+    live_provider_guard.owned_bucket(
+        storage_service.training_bucket, purpose="training"
+    )
 
     async def allowlist(*args):
         from urllib.parse import urlsplit
@@ -764,12 +771,14 @@ async def test_real_s3_reference_source_enters_training_freeze(
     db.add_all([dataset, connection])
     await db.flush()
     try:
+        originals = {}
         for name, color in [("图片 +%2F.png", "red"), ("blue.png", "blue")]:
-            storage_service.client.put_object(
+            written = storage_service.client.put_object(
                 Bucket=storage_service.datasets_bucket,
                 Key=prefix + "collection/" + name,
                 Body=picture(color),
             )
+            originals[name] = written.get("VersionId")
         location = await storage_location.register_connection(db, connection)
         for node in [storage_location.api_node_id(), "worker:content@test"]:
             probe = await storage_location.perform_probe(
@@ -826,17 +835,28 @@ async def test_real_s3_reference_source_enters_training_freeze(
             db, httpx_client, headers(super_admin), project
         )
         if overwrite:
-            for name in ["图片 +%2F.png", "blue.png"]:
+            # Earlier live-provider cases may already have enabled versioning on
+            # this shared datasets bucket. Overwriting the current key alone then
+            # leaves the exact version pinned by the scan readable, so revoke that
+            # version to exercise a genuinely unreadable frozen source.
+            for name, object_version in originals.items():
+                key = prefix + "collection/" + name
                 storage_service.client.put_object(
                     Bucket=storage_service.datasets_bucket,
-                    Key=prefix + "collection/" + name,
+                    Key=key,
                     Body=picture("green"),
                 )
+                params = {"Bucket": storage_service.datasets_bucket, "Key": key}
+                if object_version not in {None, "null"}:
+                    params["VersionId"] = object_version
+                storage_service.client.delete_object(**params)
         await build(db, version)
         assert version.status == ("failed" if overwrite else "ready"), (
             version.error_message
         )
-        if not overwrite:
+        if overwrite:
+            assert not version.package_key
+        else:
             for sample in version.manifest["samples"]:
                 assert sample["sha256"] == sample["asset_reference"]["sha256"]
     finally:
