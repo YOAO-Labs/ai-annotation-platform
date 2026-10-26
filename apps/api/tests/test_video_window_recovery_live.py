@@ -356,8 +356,6 @@ def _worker_environment(
         "INFERENCE_ROUTING_URL": routing_url,
         "INFERENCE_ROUTING_TOKEN": routing_token,
         "INFERENCE_ROUTING_TOKEN_FILE": "",
-        "INFERENCE_ROUTING_DATABASE_URL": "",
-        "INFERENCE_ROUTING_DATABASE_URL_FILE": "",
         "ML_BACKEND_ROUTER_MODE": "enforce",
         "ML_BACKEND_ROUTER_LEASE_TTL_SECONDS": "30",
         "ML_BACKEND_ROUTER_HEARTBEAT_INTERVAL_SECONDS": "1",
