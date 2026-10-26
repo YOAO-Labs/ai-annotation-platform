@@ -1,68 +1,23 @@
 """Controlled routing never selects another physical model instance."""
 
-import os
-import socket
 import uuid
 
 import pytest
-import pytest_asyncio
 from fastapi import HTTPException
 from sqlalchemy import func, select
 
-from aap_inference.pipeline_server import PipelineHttpServer
-from aap_inference.routing_runtime import RoutingRuntime
 from aap_inference_contract.execution import ModelTaskResult
-from app.config import settings
 from app.db.models.ml_backend_pool import MLBackendPoolMember
 from app.services import trained_models
 from app.services.ml_routing.contracts import RejectionReason, RouterMode
 from app.services.ml_routing.router import MLBackendRouter
 from app.services.trained_model_reference_contract import FreezeModelReferenceError
 from tests.factory import create_project
+# Fixture dependencies resolve per module: routing_admission requires committed_routes.
 from tests.test_ml_routing_router import (  # noqa: F401
-    committed_routes as committed_routes_fixture,
+    committed_routes,
+    routing_admission as routing_owner,
 )
-
-
-@pytest_asyncio.fixture
-async def routing_owner(committed_routes_fixture, monkeypatch):
-    """Expose the real durable routing owner for the committed test world.
-
-    The imported committed-routes fixture seeds a committed pool/project world and
-    cleans it up; the owner runs in-process on the restricted routing login and
-    reads that committed topology over its own connections, so no savepoint state
-    is assumed.
-    """
-    dsn = os.environ.get("AAP_MODULE_DATA_INFERENCE_ROUTING_URL")
-    if not dsn:
-        pytest.skip(
-            "requires AAP_MODULE_DATA_INFERENCE_ROUTING_URL from the verified "
-            "disposable module-data environment"
-        )
-    runtime = RoutingRuntime(dsn)
-    assert await runtime.readiness()
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        port = listener.getsockname()[1]
-    token = uuid.uuid4().hex
-    server = PipelineHttpServer(
-        manager=None,
-        data=None,
-        control_token=None,
-        host="127.0.0.1",
-        port=port,
-        routing_manager=runtime.manager,
-        routing_control_token=token,
-    )
-    await server.start()
-    monkeypatch.setattr(settings, "inference_routing_url", f"http://127.0.0.1:{port}")
-    monkeypatch.setattr(settings, "inference_routing_token", token)
-    monkeypatch.setattr(settings, "inference_routing_token_file", "")
-    try:
-        yield committed_routes_fixture
-    finally:
-        await server.close()
-        await runtime.close()
 
 
 @pytest.mark.parametrize(

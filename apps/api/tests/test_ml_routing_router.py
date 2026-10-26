@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import socket
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -10,6 +12,8 @@ import pytest_asyncio
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from aap_inference.pipeline_server import PipelineHttpServer
+from aap_inference.routing_runtime import RoutingRuntime
 from app.config import settings
 from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
 from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBackendPool
@@ -26,14 +30,8 @@ from tests.test_inference_routing_native import _cleanup, _connect
 
 
 @pytest_asyncio.fixture
-async def committed_routes(test_engine, monkeypatch):
+async def committed_routes(test_engine):
     await assert_owned_test_database(test_engine)
-    for name in (
-        "inference_routing_url",
-        "inference_routing_database_url",
-        "inference_routing_database_url_file",
-    ):
-        monkeypatch.setattr(settings, name, "")
     owner = await _connect(test_engine)
     receipts_before = set(
         await owner.fetchval(
@@ -79,6 +77,49 @@ async def committed_routes(test_engine, monkeypatch):
                 await db.commit()
             finally:
                 await owner.close()
+
+
+@pytest_asyncio.fixture
+async def routing_admission(committed_routes, monkeypatch):
+    """Serve durable admission over the restricted routing login for this world.
+
+    The committed world is seeded before the owner starts, and the owner reads it
+    over its own connections, so admission never depends on savepoint state.
+    """
+    dsn = os.environ.get("AAP_MODULE_DATA_INFERENCE_ROUTING_URL")
+    if not dsn:
+        pytest.skip(
+            "requires AAP_MODULE_DATA_INFERENCE_ROUTING_URL from the verified "
+            "disposable module-data environment"
+        )
+    runtime = RoutingRuntime(
+        dsn,
+        health_max_age_seconds=settings.ml_backend_router_health_max_age_seconds,
+        lease_ttl_ms=settings.ml_backend_router_lease_ttl_seconds * 1000,
+    )
+    assert await runtime.readiness()
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+    token = uuid.uuid4().hex
+    server = PipelineHttpServer(
+        manager=None,
+        data=None,
+        control_token=None,
+        host="127.0.0.1",
+        port=port,
+        routing_manager=runtime.manager,
+        routing_control_token=token,
+    )
+    await server.start()
+    monkeypatch.setattr(settings, "inference_routing_url", f"http://127.0.0.1:{port}")
+    monkeypatch.setattr(settings, "inference_routing_token", token)
+    monkeypatch.setattr(settings, "inference_routing_token_file", "")
+    try:
+        yield committed_routes
+    finally:
+        await server.close()
+        await runtime.close()
 
 
 async def _seed_pool_with_two_members(
@@ -140,9 +181,9 @@ async def _seed_pool_with_two_members(
 
 @pytest.mark.asyncio
 async def test_off_mode_returns_legacy_instance_with_durable_scope(
-    committed_routes,
+    routing_admission,
 ) -> None:
-    db_session, proj, pool, legacy, _ = committed_routes
+    db_session, proj, pool, legacy, _ = routing_admission
 
     router = MLBackendRouter(db_session, ledger=None, mode=RouterMode.OFF)
     sel = await router.acquire(
@@ -155,9 +196,9 @@ async def test_off_mode_returns_legacy_instance_with_durable_scope(
 
 
 @pytest.mark.asyncio
-async def test_off_mode_respects_project_enablement(committed_routes) -> None:
+async def test_off_mode_respects_project_enablement(routing_admission) -> None:
     """D4: a pool not enabled for the project is rejected even in off mode."""
-    db_session, proj, pool, _, _ = committed_routes
+    db_session, proj, pool, _, _ = routing_admission
     # Remove the enablement row.
     await db_session.execute(
         delete(ProjectMLBackendPool).where(ProjectMLBackendPool.pool_id == pool.id)
@@ -173,8 +214,8 @@ async def test_off_mode_respects_project_enablement(committed_routes) -> None:
 
 
 @pytest.mark.asyncio
-async def test_off_mode_rejects_disabled_pool(committed_routes) -> None:
-    db_session, proj, pool, _, _ = committed_routes
+async def test_off_mode_rejects_disabled_pool(routing_admission) -> None:
+    db_session, proj, pool, _, _ = routing_admission
     pool.enabled = False
     await db_session.commit()
 
@@ -187,12 +228,12 @@ async def test_off_mode_rejects_disabled_pool(committed_routes) -> None:
 
 @pytest.mark.asyncio
 async def test_observe_returns_legacy_but_records_would_select(
-    committed_routes,
+    routing_admission,
 ) -> None:
     """observe: actual instance = legacy (unchanged); would_select recorded for diagnostics."""
     ns = f"ml-router-test:{uuid.uuid4().hex[:8]}"
     ledger = RoutingLedger.from_url(settings.redis_url, namespace=ns)
-    db_session, proj, pool, legacy, _ = committed_routes
+    db_session, proj, pool, legacy, _ = routing_admission
 
     try:
         router = MLBackendRouter(db_session, ledger=ledger, mode=RouterMode.OBSERVE)
@@ -212,10 +253,10 @@ async def test_observe_returns_legacy_but_records_would_select(
 
 @pytest.mark.asyncio
 async def test_observe_does_not_break_when_ledger_unavailable(
-    committed_routes,
+    routing_admission,
 ) -> None:
     """observe ledger failure must never break actual dispatch (ADR-0050 §14)."""
-    db_session, proj, pool, legacy, _ = committed_routes
+    db_session, proj, pool, legacy, _ = routing_admission
 
     # ledger=None but mode=OBSERVE → would-select is skipped, legacy dispatch still works.
     router = MLBackendRouter(db_session, ledger=None, mode=RouterMode.OBSERVE)
@@ -228,8 +269,8 @@ async def test_observe_does_not_break_when_ledger_unavailable(
 
 
 @pytest.mark.asyncio
-async def test_enforce_without_redis_reserves_durable_scope(committed_routes) -> None:
-    db_session, proj, pool, _, _ = committed_routes
+async def test_enforce_without_redis_reserves_durable_scope(routing_admission) -> None:
+    db_session, proj, pool, _, _ = routing_admission
 
     router = MLBackendRouter(db_session, ledger=None, mode=RouterMode.ENFORCE)
     sel = await router.acquire(
@@ -275,12 +316,12 @@ async def test_pool_for_registry_resolves_singleton(db_session, super_admin) -> 
 
 @pytest.mark.asyncio
 async def test_unhealthy_member_excluded_from_would_select(
-    committed_routes,
+    routing_admission,
 ) -> None:
     """A member whose health is stale is not eligible (observe would-select reflects this)."""
     ns = f"ml-router-test:{uuid.uuid4().hex[:8]}"
     ledger = RoutingLedger.from_url(settings.redis_url, namespace=ns)
-    db_session, proj, pool, r1, r2 = committed_routes
+    db_session, proj, pool, r1, r2 = routing_admission
     # Make r2's health stale (older than max age).
     stale = datetime.now(UTC) - timedelta(
         seconds=settings.ml_backend_router_health_max_age_seconds + 10
