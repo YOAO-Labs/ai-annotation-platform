@@ -2,7 +2,7 @@
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-23
+last_reviewed: 2026-10-26
 ---
 
 # Workspace 私有运行与事务能力
@@ -33,9 +33,9 @@ API 默认使用本地 caller Session；可选 `WORKSPACE_MEMBERSHIP_DATABASE_UR
 
 ## 当前范围
 
-成员命令切片已通过独立安装包、受限 Native 权限、进程／镜像、真实 API、并发交接、重启重放和备份恢复的本地限定验收；计数与边界见 [ADR-0133](/dev/adr/0133-workspace-membership-lifecycle-owner)。命令 owner 只持有三项 RPC 权限，API 验收仍使用过渡期 `legacy_runtime` 装配。
+成员命令切片已通过独立安装包、受限Native权限、进程／镜像、真实API、并发交接、重启重放和备份恢复的本地验收；该切片原始计数见[ADR-0133](/dev/adr/0133-workspace-membership-lifecycle-owner)。命令owner只持有三项RPC权限；普通消费者与默认内嵌装配的现行凭据组合见后文。
 
-配置、项目查询和成员目录的当前接入见本文后续说明。其余 Workspace consumers 继续迁移。完整 Workspace、其余模块和十模块／七门槛目标仍未完成；Identity 的本地私网资格见[模块台账](/dev/concepts/module-deployment#identity-整模块独立装配)。完整模块的另一语言提供方、生产容量与 primary cutover 也未获资格。Go 月报保持多语言架构实验，不构成该 owner 的语言提供方。
+当前Workspace六组HTTP能力、31项具名操作、同事务Native能力及维护／seed／夹具调用已完成盘点与消费者迁移。源码、非editable安装、受限冷工件、整库恢复、实际worker和并发1／4／8混合读写的本地资格见[模块审计](/dev/concepts/module-deployment#workspace-module-audit)。[本机实际盘点](/dev/concepts/module-deployment#workspace-local-history-applicability)没有历史作业，不能将假定缺少旧部署清单当作当前外部阻塞；通用旧库退役入口仍未实现，未知旧作业继续409并保留输入。这些结论不代表日常独立拓扑采用、生产容量、完整另一语言提供方或其他模块完成；Go仍是实验。
 
 ## 项目负责人转移
 
@@ -47,7 +47,7 @@ Native 先按 UUID 顺序锁当前操作人与接收账号，再取 Project 排�
 
 API 可选 `WORKSPACE_OWNER_TRANSFER_URL`，或二选一的 `WORKSPACE_OWNER_TRANSFER_DATABASE_URL(_FILE)`；未配置时使用 caller Session，显式失败不回退。共享成员命令的 control token 与 timeout。独立 runtime 支持只启用成员、只启用转移或同时启用，`/ready` 检查每个已配置能力和受限权限。可选 `docker-compose.workspace-owner-transfer.yml` 使用宿主端口 8173，通过 `WORKSPACE_RUNTIME_OWNER_TRANSFER_DATABASE_URL_FILE` 与 `WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE` 挂载 secret。
 
-Node conformance provider 以标准 PostgreSQL 协议调用相同的两项函数，不代理 Python/API；其业务规则仍由 Native 执行。该提供方仅服务于本地单命令替换实验。完整 Workspace、独立数据库、生产容量与其他模块的剩余门槛继续推进。
+Node conformance provider以标准PostgreSQL协议调用相同的两项函数，不代理Python／API；业务规则仍由Native执行。该提供方仅用于本地单命令替换实验，不代表完整Workspace的另一语言提供方、独立数据库或生产容量资格。
 
 负责人转移切片的 66 个去重选定案例已完成本地限定验收，包含四条绑定路径与旧响应对照、受限数据库权限、事务错误、丢响应恢复、关联备份恢复和 Python／Node 镜像重启。独立 Node 提供方只覆盖这个命令的传输与事务，完整 Workspace 的语言替换仍待后续工作。验证范围见 [ADR-0134](/dev/adr/0134-workspace-project-owner-transfer)。
 
@@ -507,7 +507,7 @@ membership_busy 与账号 → 项目 → 成员锁序，不解码无关时间列
 公开删除仍要求当前项目管理权，成功为空体 204，后续删除不存在项目返回 404；没有新增
 幂等头。持有原 operation ID 的内部调用方可重放冻结回执，仍受 Native 当前 active-actor
 检查约束。受限 Node、Python 和实际公开 API 定向检查通过；未退役时由上述门禁返回
-409。无证明旧作业的排空／修复及完整资格仍见[唯一模块台账](/dev/concepts/module-deployment#剩余工作台账)。
+409。通用旧库排空／修复尚未实现；本机当前无历史作业的适用性及日常采用状态见[唯一模块台账](/dev/concepts/module-deployment#剩余工作台账)，不能据空库放宽守卫。
 
 ## 普通消费者的 SQL 凭据边界
 
@@ -525,7 +525,7 @@ membership_busy 与账号 → 项目 → 成员锁序，不解码无关时间列
 兼容部署脚本也提供默认同事务配置、模板及目录查询的 policy／step 和成员搜索能力，
 无需为了补权限而改选连接。13项本地定向案例通过，含真实HTTP生命周期与搜索、
 Node、worker计数及回滚，另有8项既有角色回归通过。兼容授权保持清理 worker
-已有的八项函数，避免重新授权 API 时退回两项 outbox 能力。完整模块冷工件／装配／恢复仍待集中验收，见
+已有的八项函数，避免重新授权API时退回两项outbox能力。当前完整模块冷工件／装配／恢复的本地集中资格已通过，见[模块审计](/dev/concepts/module-deployment#workspace-module-audit)；这份凭据切片的原始范围见
 [ADR-0179](/dev/adr/0179-workspace-consumer-credential-closure)。
 
 默认内嵌运行采用不同的权限组合：LAN 和 worktree 共用 Workspace 私有存储 ACL，

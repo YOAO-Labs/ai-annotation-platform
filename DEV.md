@@ -3272,7 +3272,7 @@ User／Project／Member 私表及列权限均被拒绝。九次冷容器调用�
 准备与当前源码匹配的四个镜像及身份变量，再运行：
 
 ```bash
-AAP_WORKSPACE_CAPACITY_LIVE=1 apps/api/.venv/bin/python \
+PYTHONPATH=. AAP_WORKSPACE_CAPACITY_LIVE=1 apps/api/.venv/bin/python \
   scripts/verify_module_data_boundary.py --output .worktree/workspace-capacity.json \
   --test-file tests/test_workspace_capacity_live.py
 ```
@@ -3283,6 +3283,10 @@ AAP_WORKSPACE_CAPACITY_LIVE=1 apps/api/.venv/bin/python \
 流量中检查账号忙 409、撤权和旧预览拒绝。Node.js 通过实际 API 检查流水线规范化及
 错误回滚。正常成功流量与明确的竞争／撤权拒绝分别报告，所有原始失败日志保留。
 相同账号的管理写入仍可能按既有 NOWAIT 规则返回 409；不引入隐藏重试或放宽围栏。
+验证器可能已创建归属自己的预检用户；此场景只要求已核实的独占测试库，按独立UUID隔离
+业务数据，不要求全局users／projects为空，不为满足夹具而清库。API预算768 MiB，其余
+八个服务各256 MiB；九个容器均1 CPU／64 PIDs，记录精确容器ID／启动时间和稀疏资源样本。
+当前工件的实测收据见[混合读写补验](docs-site/dev/concepts/module-deployment.md#workspace-current-mixed-load)。
 有限本机数据与未完成范围见[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
 
 ### Labeling 任务控制绑定

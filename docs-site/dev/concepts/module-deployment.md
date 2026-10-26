@@ -41,22 +41,22 @@ PostgreSQL 副本恢复后验证原数据、对象 owner 和本次迁移，再�
 所有结果限本地；当前重构源码已统一合入主工作树，日常独立 owner 拓扑尚未切换，Go 继续仅作实验。训练／Learning 及 Assets 的数据集、存储暂缓扩大实施，待最新功能合并后一起优化；后续代码修改直接在当前分支进行，互不依赖的盘点和审查可只读并行。
 实施先完成独立模块及其调用迁移，再按模块集中验收。开发中保留必要的基础检查与权限／数据完整性守卫；不因每个小改动重复编写测试或启动冷环境，也不沿验收失败不断扩大前置条件。与本 epic 无关的缺陷独立登记，不能阻塞模块实现主线。已通过证据保持复用，未完成的组合验收继续明确标记。
 
-Audit 与 Labeling 未暂缓范围的实现和已知调用方收口阶段已交付。Audit 独立维护 CLI、当前 API 查询／导出与元数据 worker、既有 Beat／维护队列三项任务的集中冷验收及 PostgreSQL 恢复均已通过。旧视频的 [PostgreSQL](#legacy-video-postgres-fence)、[精确 worker 与作用域 S3](#legacy-video-worker-storage-facts)事实采集已独立于测试图，并通过[当前本地组合验收](#legacy-video-current-combination)：真实 scope 退役、同任务旧凭据重投失败及 Native 删除／输入保留守卫均保持。Workspace 的源码与当前协议本地资格已通过，历史授权退役恢复仍未闭合；真实历史部署缺少完整写入路径清单，不能由本地观察生成 Jobs 退役凭证。完整 Audit 保留暂缓 Learning 读取，默认混合维护 worker 凭据由 Runtime assembly 单列；不扩修业务 request ID 遗留问题，训练／Learning、Assets 和 Go 范围保持。
+Audit 与 Labeling 未暂缓范围的实现和已知调用方收口阶段已交付。Audit 独立维护 CLI、当前 API 查询／导出与元数据 worker、既有 Beat／维护队列三项任务的集中冷验收及 PostgreSQL 恢复均已通过。旧视频的 [PostgreSQL](#legacy-video-postgres-fence)、[精确 worker 与作用域 S3](#legacy-video-worker-storage-facts)事实采集已独立于测试图，并通过[当前本地组合验收](#legacy-video-current-combination)：真实 scope 退役、同任务旧凭据重投失败及 Native 删除／输入保留守卫均保持。Workspace 当前支持协议的实现、消费者迁移与本地模块资格已通过；[实际本机盘点](#workspace-local-history-applicability)没有历史作业，不能再将假定缺少历史清单作为当前外部阻塞。通用旧库退役入口尚未实现，未知旧状态继续 409 并保留输入，不冒充历史迁移已通过。完整 Audit 保留暂缓 Learning 读取，默认混合维护 worker 凭据由 Runtime assembly 单列；不扩修业务 request ID 遗留问题，训练／Learning、Assets 和 Go 范围保持。
 
 <!-- prettier-ignore -->
 | 模块／操作组                             | 实现                                                                                                               | 消费者迁移                                                                                       | 独立运行验收与证据                                                                                                                                       | 剩余阻塞／下一交付                                                                                                                                                                                                                                                                                                                                               |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Identity：完整模块                       | 九组业务能力、账号事实／事务锁、provisioning 及独立工件已实现                                                      | 生产 API／worker、邮件、种子／截图、运维及门控测试的 Identity 操作已迁移                         | [整模块装配](#identity-整模块独立装配)与主工作树采用检查点 d2ea90f3f 保留，本地冷安装／真实消费者／完整恢复通过                                          | 本地模块资格和源码采用完成；日常独立拓扑未切换，另一语言完整提供方、其他网络拓扑及生产容量未验收。宿主机转发仍见 Runtime assembly                                                                                                                                                                                                                                |
-| Workspace：项目、成员、配置及访问 | 六组 HTTP 能力、31项具名操作及既有同事务 Native 能力已盘点；契约环与默认存储围栏已收口 | 普通 Project／成员／模板／回执调用已审计；固定 seed／运维能力保留，不改 caller UOW | [当前模块资格](#workspace-module-audit)：源码与非 editable 安装各547项，626项不同 Native 行为案例分批通过；strict／default 各通过九进程恢复和真实 worker，生成 LOGIN 冷 API 通过22次 TCP 请求；旧视频与默认 ACL 证据保留原范围 | 当前协议本地资格通过；真实历史清单及 Jobs 授权退役契约仍缺，409与输入保留不变；整模块历史恢复及独立拓扑采用未完成 |
-| Workspace／Jobs：取消后重投              | 取消和审计先提交，再复用现有派发器重投同一作业；不确定投递返回可重试 503                                           | 当前 API 入口已迁移；重复取消不重建作业、不重复审计                                              | [取消恢复](#video-cancel-redrive)：真实队列／prefork 丢失恢复、退役与删除门禁通过                                                                        | 操作切片和当前组合工件已完成限定本地验收；完整 Workspace／Jobs、无账本旧作业真实围栏仍待完成；未切独立运行拓扑                                                                                                                                                                                                                                                         |
-| Workspace：项目删除                      | 原子 Native 协调器及 Workspace 可移植命令／连接式客户端已实现                                                      | API 已通过同一请求事务调用 owner；不新增独立提交点                                               | [项目删除](#workspace-项目删除事务切片)的调用边界通过 76 项源码／受限 PG／Node／实际 API 定向检查                                                        | [退役门禁](#video-deletion-retirement)已实现并通过；无证明旧作业继续 409，遗留排空／修复入口仍缺，完整安全／恢复能力未闭合                                                                                                                                                                                                                                       |
-| Workspace：数据集解绑                    | 原协调器、可移植合同／管理器及借用事务 PostgreSQL 绑定已实现                                                       | API 通过相同 Session 调用 Workspace；原响应／缓存／提交保持                                      | [解绑切片](#workspace-数据集解绑事务切片)新增 72 项不同案例，含受限双函数 LOGIN、Node 与实际 HTTP                                                        | 调用边界、退役门禁及组合冷工件／受限凭据／恢复已通过；旧作业无证明的排空／修复入口仍缺                                                                                                                                                                                                                                                                           |
+| Workspace：项目、成员、配置及访问 | 六组 HTTP 能力、31项具名操作及既有同事务 Native 能力已盘点；契约环与默认存储围栏已收口 | 普通 Project／成员／模板／回执、固定 seed／运维调用已审计，不改 caller UOW | [当前模块资格](#workspace-module-audit)：源码与非 editable 安装各547项、626项不同 Native 行为案例；strict／default 九进程恢复与真实 worker、生成 LOGIN 冷 API 22次 TCP 调用及当前并发1／4／8混合负载通过 | 当前支持协议的本地模块门槛完成；[本机历史迁移不适用](#workspace-local-history-applicability)；通用旧库退役入口未实现，未知旧状态仍409；日常独立拓扑尚未采用 |
+| Workspace／Jobs：取消后重投 | 取消和审计先提交，再复用现有派发器重投同一作业；不确定投递返回可重试503 | 当前 API 入口已迁移；重复取消不重建作业、不重复审计 | [取消恢复](#video-cancel-redrive)：真实队列／prefork 丢失恢复、退役与删除门禁通过 | 操作及当前组合的本地资格完成；未知旧库的围栏／退役适用性见[实际盘点](#workspace-local-history-applicability)，不据空库生成凭证；Jobs 整模块另列，日常拓扑未采用 |
+| Workspace：项目删除 | 原子 Native 协调器及 Workspace 可移植命令／连接式客户端已实现 | API 已通过同一请求事务调用 owner；不新增独立提交点 | [项目删除](#workspace-项目删除事务切片)通过76项源码／受限 PG／Node／实际 API 定向检查，当前组合冷恢复通过 | 当前支持协议与[退役门禁](#video-deletion-retirement)已通过；未知旧作业仍409；通用旧库排空／修复是条件性未实现能力，不作为本机缺资料阻塞 |
+| Workspace：数据集解绑 | 原协调器、可移植合同／管理器及借用事务 PostgreSQL 绑定已实现 | API 通过相同 Session 调用 Workspace；原响应／缓存／提交保持 | [解绑切片](#workspace-数据集解绑事务切片)通过72项不同案例，含受限双函数 LOGIN、Node、实际 HTTP 与当前组合冷恢复 | 当前调用、退役门禁、受限凭据与恢复已通过；未知旧作业仍409；通用旧库排空／修复适用性与项目删除相同 |
 | Assets：来源、目录、连接及媒体／输入     | 已有 Source、Catalog、Media、Images、accepted inputs 和视频输入能力                                                | 已迁移选定导入、Workbench 和推理输入消费者                                                       | [数据能力协议](/api/guides/module-data)及既有 ADR 保留受限进程／容器证据；[辅助保留](#来源删除的辅助引用)的实际删除与 HTTP 映射通过 11 项定向检查        | 已确认沿用既有辅助引用 409 guard；部分相机／轨迹引用缺少独立解除入口，任务、标注及学习证据保留；一般 Blob、其余输入、运维写入与完整装配仍待收口                                                                                                                                                                                                                  |
 | Labeling：任务、标注、审核、Mask 与视频写入 | 任务／批次生命周期、人工／批量标注、审核计数、预测／轨迹、Mask／点云质检及最终发布均已有固定 owner 能力 | 选定 API／worker 调用已迁移；原授权、UOW、缓存、锁序与 Audit 时点保持；七处标注响应刷新改用公开关系 | [集中原生验收](#labeling-native-cohort-acceptance)与既有操作证据保留；四项刷新过期状态／缺失行检查通过 | 创建标注的限权冷 API、幂等重放与重启读取已通过；全部运维边界仍待闭合 |
 | Labeling：核心读取、讨论、场景与分区维护 | 十二项核心读取关系、有序锁、讨论／场景能力及预测分区 owner 已实现；0365 将效率 MV 改接已有 TaskEvent 公开事实 | API、导出、视频、工作流、兼容学习读取及选定维护调用已迁移；效率 MV 保留聚合、索引、所有者和有效显式授权 | [核心读取与维护](#labeling-current-candidate-acceptance)的既有受限读锁／分区证据保留；效率 MV 普通角色实际刷新与 0365 完整恢复已通过限定验收 | 本轮只修复撤销私表权限暴露出的 MV 依赖，不扩大 Insights 或暂缓领域 |
 | Labeling：普通凭据与运维兼容 | LAN／worktree 共用固定 ACL，撤销 49 张私表及分区、列、序列和宽默认授权；E2E／截图／规模种子使用固定 owner 能力 | 兼容读取与锁、批次编号及选定种子／截图调用已迁移，原事务和作用域守卫保持 | [普通权限与兼容调用](#labeling-private-runtime-acl)：原有 56 项 Native 通过证据保留；原 Audit 筛选失败已通过本阶段真实 HTTP 复验，另补共享清理和维护凭据／守卫证据；不是当前头全套重跑 | 未暂缓的已知生产／运维调用已收口；Assets reset 手动维护仍暂缓，完整模块资格和独立拓扑采用待完成 |
 | Labeling：完整模块工件与恢复 | 独立包、writer 及 API 消费者工件已有源码证明；视频中间状态和最终发布 owner 已接入 | 当前普通角色冷 API 与真实 worker 使用既有公开能力及限定凭据 | [当前工件与恢复](#labeling-private-runtime-acl)：独立包 120 项、工件离线检查、两个真实 worker 用例、冷 API、完整恢复和普通角色 MV 刷新分批通过 | 限定工件与恢复门槛已有通过证据；Assets reset 手动维护仍暂缓，全部运维边界与整模块审计与独立拓扑采用待完成；主环境运行资格未更新 |
-| Jobs／Labeling：旧视频输入保留           | 0312 的窄 Jobs 事实与 Labeling 保留投影已实现；0313 补齐历史垃圾领取围栏                                           | tracker sweep 和 video garbage claim 使用当前保留事实；pin、审核宽限期及已证明替代的前缀清理保留 | [输入保留](#tracker-input-retention)：0312 的 23 项和 0313 的 10 项定向案例及各自完整迁移往返通过；进程内取消单测单列                                    | 新领取路径的限定本地资格已闭合；已领租约仍须真实停机／凭据围栏，历史 expired 状态／已删除对象修复和无账本退役 operator 未闭合；[当前组合工件](#coherent-module-artifact)已验收，独立运行拓扑尚未采用                                                                                                                                                                   |
+| Jobs／Labeling：旧视频输入保留 | 0312 的窄 Jobs 事实与 Labeling 保留投影已实现；0313 补齐历史垃圾领取围栏 | tracker sweep 和 video garbage claim 使用当前保留事实；pin、审核宽限期及已证明替代的前缀清理保留 | [输入保留](#tracker-input-retention)：0312的23项与0313的10项定向案例及完整迁移往返通过；进程内取消单测单列 | 新领取路径的本地资格完成；已领租约仍须真实停机／凭据围栏；历史 expired／已删对象修复和无账本退役 operator 未实现，适用旧库时单列代码项；[当前组合工件](#coherent-module-artifact)已验收，日常拓扑未采用 |
 | Inference／Jobs：协调视频恢复            | `aap-video-restore/v1`、两类权威屏障／轮换、不可变退休证明已实现                                                   | 实际 runner 已经独立安装 CLI 恢复，同 run 新代次复用窗口并由 Labeling owner 发布                 | [ADR-0160](/dev/adr/0160-coordinated-video-restore)：五个 Native／消费者场景、源码和安装各 420 项、51 项旧路径回归、完整迁移通过                         | 本切片已闭合：独立安装 CLI 实际消费者与匹配 Inference／API 冷镜像均通过，源码提交 `968212e4e`；对象存储备份恢复、GPU／生产容量不在本切片通过范围                                                                                                                                                                                                                 |
 | Inference：控制面与其他预测路径          | Pipeline、backend 配置／探测／健康、registry ingress、routing 和 scope 退休已有选定 owner                          | 对应绑定及部分实际预测消费者已迁移                                                               | [Inference 协议](/api/guides/inference-runtime)保留各切片资格                                                                                            | 其他推理编排、GPU 租约、取消／迟到结果、完整独立装配及提供方替换仍须逐操作收口                                                                                                                                                                                                                                                                                   |
 | Learning：训练、版本、评估及发布         | 训练 executor 独立拉取与交接已实现；其余账本仍由 API 持有                                                          | executor 与部分保留检查已迁移                                                                    | 既有 executor 资格仅证明执行子能力                                                                                                                       | 冻结来源、训练／搜索／评估／主动学习／发布事务及对 Workspace／Inference 的 owner 调用待完整提取                                                                                                                                                                                                                                                                  |
@@ -303,7 +303,11 @@ Audit 源码 `4f762fb91` 将月报原始尾段、DuckDB Audit 同步、项目绩
 
 子工作树的 `.worktree/video-cancel-redrive-qualification-second.json`（SHA-256 `cd36cdfeb9b295a5ac7b7abf8c7341277e0f7180d7ae1c841cec0de11703dde4`）通过两项案例：HTTP 撤权前置与一个完整 worker 组合案例。当前源码 API 通过真实 ASGI 请求派发到独占 broker／队列，取消后杀死 prefork 子进程，再观察原 ID 重投、当前执行退役及空队列确认。复用的 worker 镜像源码未变化；这不证明当前 API 镜像已验收。另两个删除／解绑案例通过，记录为 `.worktree/video-cancel-deletion-guard-qualification.json`（SHA-256 `4d841d50726e87bfcb634251fa7b52097e1b9305a4d3bc640364688f10b7fa2b`）。未退役时保持 409，真实退役后同操作重试成功，自有资源清理通过。无账本旧作业、scope-only 孤儿及整模块资格继续按上表推进。
 
-无账本旧视频的后续只读审计确认：当前 execution 退役会校验精确 run／route 证明，never-started clearance 仅适用于从未启动的作业。已启动但无 execution／journal 的作业，以及 scope-only 孤儿，仍缺覆盖旧 Celery 消费者、重投和在途写入的可核验停机／写凭据隔离事实源；单个推理 scope 的排空不能证明旧 worker 已停止写入。现有全局恢复中的外部 fence 摘要也不验证其实际内容。因此这些对象继续返回 409，不能补造 journal 或复用 never-started clearance。此审计不改变任何运行状态，整模块收口仍等待该真实前提。 后续实施仅为可观测、验收器独占 PostgreSQL／精确 worker 容器／作用域存储凭据建立本地围栏事实源；真实历史部署仍须证明完整凭据范围。新本地夹具使用随机专用队列，旧 tracker 基类则使用 `gpu`，不能将队列名当作独占证明，也不清空共享 broker；旧消息安全性须由失效凭据无法再写入来证明。 夹具保留真实 scope 退役、进程停止、S3／数据库旧凭据拒绝及相同任务重试观察；S3 先用同一账号成功写入并读回专用对象，撤销后重试相同写入，不能用原本未授权的桶操作作为证据。worker 诊断覆盖 tracker 凭据脱敏，部分启动也必须清理网络且不得吞掉清理失败；历史 Job 与 scope-only 状态均由测试 owner 播种，保留当前 tracker INSERT permit 防护；该 scope 没有 attempt、permit 或有效 admission。当前工件对无账本记录返回 RETRY，不能记作旧版二进制迁移或有效旧令牌资格，也不创建 Jobs 退役凭证。
+无账本旧视频的审计确认：当前 execution 退役会校验精确 run／route 证明，never-started clearance 仅适用于从未启动的作业。已启动但无 execution／journal 的作业，以及 scope-only 孤儿，不能仅凭一个推理 scope 排空证明所有旧 writer 已停止；现有全局恢复中的外部 fence 摘要也不验证其实际内容。这些对象继续返回409，不能补造 journal、清除开始时间或复用 never-started clearance。
+
+已有本地事实源覆盖验收器独占 PostgreSQL、精确 worker 容器和作用域存储凭据，不等于通用历史部署退役授权。夹具使用随机专用队列，旧 tracker 基类使用 `gpu`；队列名不是独占证明，也不清空共享 broker。S3 撤权前用同一账号成功写入并读回专用对象，随后重试相同写入；不能用原本未授权的桶操作作为围栏证据。实际 scope 退役、进程停止、S3／数据库旧凭据拒绝及同任务重试观察均保留；诊断脱敏，部分启动也必须清理网络并报告清理失败。
+
+其中历史 Job 与 scope-only 状态由隔离测试 owner 播种，不是日常库发现的历史记录；后者没有 attempt、permit 或有效 admission，当前工件返回 RETRY 不代表旧二进制或有效旧令牌已获资格，也不创建 Jobs 退役凭证。[实际本机盘点](#workspace-local-history-applicability)已确认当前无此类作业。原先未盘点就将“缺历史清单”列为整模块外部阻塞的判断不成立；通用旧库退役入口仍是未实现的条件性兼容能力，而不是缺少本机真实记录。
 
 ## 旧视频 PostgreSQL 围栏事实源 {#legacy-video-postgres-fence}
 
@@ -503,9 +507,58 @@ Workspace 调用前提。冻结 scope 的行、计数、分页结果与 caller a
 
 本轮图检查还记录 API 的 `annotation_cleanup ↔ batch` 环，不属于 Workspace 包；
 该失败保持，不通过收窄或关闭已有 API 图守卫掩盖，也不扩大 Labeling 实施。
-真正的整模块历史恢复仍缺两个前提：完整可信的历史写入／凭据／重启控制清单，
-以及能绑定并消费这些真实围栏事实的 Jobs 历史退役授权契约。现有本地观察器、
-当前 execution 退役和 never-started clearance 均不能替代它；409及输入保留保持。
+
+### 当前混合读写补验 {#workspace-current-mixed-load}
+
+当前工件补验使用现有并发1／4／8场景；只移除“全库 users／projects 必须为空”的过时
+前置断言，保留独占数据库身份、受限消费者、UUID隔离、全部业务与最终持久状态检查。
+验证器已有 Notifications 预检用户，不能把它误判为非独占库。strict32 实际普通账号
+不能读取 Workspace 私有存储；Node 保存／规范化流水线返回200，非法结构返回422且无部分写入。
+
+| 并发 | 十五秒准入窗口完成耗时（秒） | 正常混合请求 | 请求／秒 | 观测 p95（毫秒） |
+| ---- | ---------------------------- | ------------ | -------- | ---------------- |
+| 1    | 15.046                       | 70           | 4.652    | 334.03           |
+| 4    | 16.796                       | 217          | 12.920   | 482.52           |
+| 8    | 16.353                       | 280          | 17.122   | 720.44           |
+
+567次正常混合请求全部成功；并发8仍有活动通道时完成另5次撤权相关检查，分别为账号忙409、
+移除204和撤权／旧预览404。单独账号锁竞争也返回409，成员、回执和操作者审计不变。
+最终名称、负责人、成员清理、不可变成功回执／审计和空临时状态均核对通过。
+16组资源样本中，API CPU最高观测98.33%，内存为768 MiB配额的55.65%，服务数据库连接
+最高观测18；其余八个服务各256 MiB，九个服务均1 CPU／64 PIDs，精确容器ID与启动时间不变。
+这些是稀疏本机正确性样本，不是连续峰值、生产容量或SLO。
+
+四个不可变镜像及既有离线证明复用；Workspace／Inference／AssetsSource完整COPY输入
+名称与哈希保持一致。API的4,265项输入名称集合一致，但主机执行的负载测试文件有上述
+唯一内容差异；其他全部输入不变，不能宣称完整API COPY字节相等或镜像已包含此夹具修改。
+API应用／迁移／CLI、安装包和其他运行字节未变；没有重建镜像或重跑已通过的恢复／worker场景。
+本次既有验证器场景通过，0366→0189→0366、冻结SQL安装／回滚和全部自有资源清理通过。
+
+### 本机历史迁移适用性 {#workspace-local-history-applicability}
+
+实际主部署只读盘点时间为2026-10-26 01:20 UTC：根目录配置对应本机`annotation`库、
+迁移head0366；users／projects／datasets／tasks及各类业务Job、视频execution／journal、
+窗口／捕获／clearance／scope／retirement均为0。两张非空Jobs表分别保存1条权威配置和
+4条恢复函数定义，不是作业历史；没有读取其秘密或函数内容。
+
+Docker仅有主PostgreSQL／Redis／MinIO及另一个带worktree归属的测试Redis，没有停止的
+worker容器。实际宿主机API／Web由已加载的KeepAlive LaunchAgent运行，无Celery
+worker／beat或对应自动重启项，用户crontab为空；有效broker的只读扫描无键或未确认消息。
+数据库和Redis健康接口均200。未改变数据库、凭据、进程、broker、分支或其他Agent资源。
+
+因此，**当前已观察本机没有需要退役的历史作业，历史迁移执行不适用；“缺少真实清单”
+不是当前已证明的外部阻塞**。这不证明远程／过去的部署不存在，不实现通用旧库退役入口，
+也不把空库变成凭据围栏、journal或clearance。将来接入有无账本旧作业的库时，完整写入／
+凭据／重启清单与能消费真实围栏的Jobs授权能力仍须实际实现并验收；未知状态继续409并保留输入。
+日常库仍使用既有高权限账号，当前资格中的受限账号与独立拓扑未在日常部署采用。
+
+只读原始收据`.worktree/workspace-real-history-inventory-1792977605.json` SHA-256为
+`84b37226094b84e5a7b8dab4cf751cad8fadce902f634e6717b715aa19c2c71a`。
+补充规范收据`.worktree/workspace-current-local-closure.json` SHA-256为
+`257fe36414207741f5d266f77a0a21d593e1f90875ced89598f4821c8e8f7619`；
+12份原始记录／配方逐项核对后保存于`.worktree/workspace-current-local-evidence.tar.gz`，
+SHA-256为`f1c3386a76083881c5ab25e17c7e344fc95b05d856529aa9aca0b847c8adfc53`。
+此前139份证据包保持不变，原失败与旧范围不重写、不重计。
 
 ## Identity 内嵌运行权限
 
@@ -776,7 +829,7 @@ LOGIN 的实际筛选 CLI 三阶段。权限检查首次按无权访问的 schem
 137 属于预期结果，其他九次命令成功。0309／冻结 SQL 往返与资源清理通过。
 
 此操作组的限定本地资格已闭合，记录为 `.worktree/workspace-e2e-qualification.json`。
-完整 Workspace 未闭合，日常主环境未切换。
+这份操作组收据不单独证明整模块；当前模块集中资格见[整模块审计](#workspace-module-audit)，日常主环境未切换。
 
 ## Workspace 规模种子与截图支持读取
 
@@ -828,6 +881,10 @@ Project／Identity 私表凭据被拒绝，S3 凭据仅限本次素材桶。一�
 
 ## Workspace 公共结构契约与本地负载
 
+以下包文件数量与581次请求是原结构契约切片的历史记录，不能当作当前工件的负载收据。
+当前工作区未找到当时引用的原始负载收据，因此已用现有场景独立完成
+[当前567次请求补验](#workspace-current-mixed-load)，两轮数字不相加，也不改写旧结果。
+
 保存流水线的阶段模型、结构校验与规范化由共享 Inference 契约包持有，Workspace 核心依赖和镜像构建不再包含 Inference 提供方。旧 Inference 导入为同一对象的兼容别名；公开 JSON Schema、阶段字段、规范化和 422 详情保持，阶段说明更正为当前非零根节点与三层树语义。193 项源码、103 项 API／输入回归和 14 项 SDK 合同检查通过；独立 wheel 环境以七项依赖回放同一组 26 项旧向量，没有提供方、API、HTTP、ORM 或 ML 运行时。
 
 新的非 editable Workspace 安装重新通过同一组 439 项检查，274 个包文件逐字节匹配当前源码与冷镜像。Inference 匹配镜像核对 88 个文件；API 核对 1,273 个文件。真实 Node.js 客户端经公开 API 保存并规范化阶段，非法流水线返回 422，项目名称和已存阶段不产生部分写入。既有组合恢复、worker 和导入证据继续适用；本次结构迁移未改变 SQL、存储格式、事务阶段或校验执行逻辑，不重复累计旧案例。
@@ -842,7 +899,7 @@ Project／Identity 私表凭据被拒绝，S3 凭据仅限本次素材桶。一�
 
 581 次混合请求均成功；账号锁竞争单独返回 409，成员、回执与该操作者审计均保持。最终项目名、负责人、成员清理、已确认写入对应的不可变回执／审计和空临时状态全部核对通过。十六组观测中 API CPU 最高 97.63%，内存最高为其配额的 53.76%，服务数据库连接最高观测数为 12；九个容器 ID／启动时间保持，无 OOM 或重启，停栈后非 owner 服务连接归零。稀疏采样不代表连续峰值；以上是 macOS ARM64 的限定正确性／资源样本，包含宿主调度和 HTTP 成本，不是生产容量或 SLO。
 
-开发用 `seed_pointcloud.py` 的 Project 边界已通过上节验收；主种子自身的账号／成员边界也已迁移，媒体子脚本仍单独跟踪。其他普通生产入口已迁移到 Workspace 能力。cross-frame 已完成下文的普通成员冷 worker 验收；export 已完成下文的限定冷恢复验收；video tracker 的实际冷执行与恢复仍按台账跟踪。这些调用复用既有 Workspace 操作合同。历史视频无证明的排空仍缺机器可验证前置条件。完整 Workspace 与全目标继续按唯一台账推进，日常主环境未切换。
+开发用 `seed_pointcloud.py` 的Project边界、主种子自身账号／成员边界及普通生产入口已迁移到Workspace能力；媒体子脚本的其他owner范围单列。cross-frame、export和video tracker的限定冷执行／恢复见各自章节；完整当前模块资格见[集中审计](#workspace-module-audit)。无证明旧作业继续安全拒绝，其条件性迁移范围见[实际盘点](#workspace-local-history-applicability)。日常主环境未切换。
 
 ## Workspace 冷运维导入验收
 
@@ -1314,8 +1371,8 @@ smoke 状态，实际普通登录证明私表／夹具视图／序列／schema �
 `5a51dd2f6faa28141b326e4c63a8db9e62db731dd847d605c10bd4fb433d6647`；
 12份原始记录／配方的证据包 `.worktree/workspace-default-acl-evidence.tar.gz` SHA-256 为
 `a13d75c0d693124f6079200a58048624a5de36a0f4f0154061a2783ff122717f`，已逐份核对归档内容。
-这只关闭默认 Workspace 私有存储边界；日常库未重授权，独立拓扑、真实历史写入清单、
-Jobs 正式退役授权及完整 Workspace 资格仍未完成。Learning／Assets 暂缓范围不变。
+这份证据只关闭默认Workspace私有存储边界；当前模块集中资格见[整模块审计](#workspace-module-audit)，
+历史迁移适用性见[实际盘点](#workspace-local-history-applicability)。日常库未重授权，独立拓扑未采用；Learning／Assets暂缓范围不变。
 
 ## Workspace 数据集解绑事务切片
 
@@ -1812,7 +1869,7 @@ reconciled。最终五个作业确认、队列及 unacked 均归零。
 本项关闭 tracker 的限定 Workspace 消费者资格，未改变生产执行实现。PostgreSQL／
 Redis 使用私网别名；Media 与确定性 CPU 推理 peer 仍经宿主机转发，依赖 Runtime
 台账中的未修复路径。恢复夹具只令精确旧代次的租约到期，因此不证明默认故障恢复耗时。
-完整 Workspace、GPU、生产容量及另一语言提供方仍未获资格，日常运行环境尚未切换。
+本证据不单独证明整模块；当前Workspace本地资格见[集中审计](#workspace-module-audit)。GPU、生产容量及另一语言完整提供方未获资格，日常运行环境尚未切换。
 
 ## Runtime 宿主机转发诊断 {#runtime-host-forwarding}
 
