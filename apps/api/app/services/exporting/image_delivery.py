@@ -6,7 +6,13 @@ from app.services import export_media_bundles as bundles
 from app.services import export_media_storage as physical
 from app.services import export_media_transfer as transfer
 from app.services.content_snapshot import ContentError
+from app.services.exporting import image_inputs
 from app.services.exporting.image_frozen import FrozenImage
+from app.services.exporting.image_media_paths import (
+    archive_paths,
+    logical_sources,
+    paths,
+)
 from app.services.exporting.lidar_sources import canonical_identity
 
 MAX_IMAGE_BYTES = 256 * 1024 * 1024
@@ -18,8 +24,6 @@ def _reject(code="image_export_delivery_changed", status=409):
 
 class Delivery(FrozenImage):
     def __init__(self, snapshot):
-        from app.services.exporting.image_media_paths import archive_paths, paths
-
         super().__init__(snapshot.input_snapshot)
         self.expires_at = snapshot.expires_at
         self.paths = paths(snapshot.input_snapshot)
@@ -52,9 +56,6 @@ class Delivery(FrozenImage):
 
 
 async def prepare(db, receipt, *, guard) -> Delivery:
-    from app.services.exporting import image_inputs
-    from app.services.exporting.image_media_paths import logical_sources
-
     if not callable(guard):
         _reject("export_media_callbacks_required", 422)
     data = receipt.input_snapshot

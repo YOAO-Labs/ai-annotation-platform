@@ -12,6 +12,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.db.models.async_job import AsyncJob
 from app.db.models.export_media_bundle import ExportMediaBundle as Bundle
 from app.db.models.export_output import ExportOutput
 from app.db.models.storage_maintenance import StorageOperation
@@ -361,13 +362,15 @@ async def test_pending_zip_has_its_own_retirement_and_preserves_legacy_pending(
 async def gc_db(owned_db):
     db = owned_db
     for ddl in (
-        "CREATE TABLE async_jobs (id uuid PRIMARY KEY, kind text, project_id uuid, user_id uuid, execution_snapshot_id uuid, status text, progress_pct integer DEFAULT 0, payload jsonb DEFAULT '{}', result jsonb DEFAULT '{}', error_message text, celery_task_id text, started_at timestamptz, completed_at timestamptz, created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now())",
         "CREATE TABLE storage_maintenance_gates (location_id uuid PRIMARY KEY, state text DEFAULT 'active', revision integer DEFAULT 1, changed_at timestamptz, changed_by uuid)",
         "CREATE TABLE storage_operations (id uuid PRIMARY KEY, location_id uuid, revision integer, purpose text, node_id text, started_at timestamptz DEFAULT now())",
         "ALTER TABLE export_artifacts ADD COLUMN expires_at timestamptz",
     ):
         await db.execute(text(ddl))
     connection = await db.connection()
+    # Retirement reads full AsyncJob rows; mirror the production entity rather
+    # than a hand-narrowed copy that silently misses later model columns.
+    await connection.run_sync(AsyncJob.__table__.create)
     await connection.run_sync(StorageUsageMutation.__table__.create)
     await db.commit()
     return db

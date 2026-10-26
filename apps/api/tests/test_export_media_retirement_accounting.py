@@ -248,11 +248,11 @@ async def test_zip_delete_does_not_allocate_media_recorder(monkeypatch):
     retirement.export_storage.delete.assert_called_once_with(output, accounting=None)
 
 
-async def mutations(db, row):
+async def mutations(db, owner_id):
     return list(
         await db.scalars(
             select(Mutation)
-            .where(Mutation.owner_id == row.id)
+            .where(Mutation.owner_id == owner_id)
             .order_by(Mutation.started_at, Mutation.id)
             .execution_options(populate_existing=True)
         )
@@ -315,6 +315,7 @@ async def test_database_partial_delete_preserves_earlier_confirmed_fact(
     gc_db, monkeypatch
 ):
     row, client = await database_case(gc_db, monkeypatch, count=2)
+    owner_id = row.id
     original = client.delete_object
 
     def lost_second_ack(**params):
@@ -323,7 +324,7 @@ async def test_database_partial_delete_preserves_earlier_confirmed_fact(
 
     client.delete_object = lost_second_ack
     assert await retirement.cleanup(gc_db) == {"deleted": 0, "retained": 0, "failed": 1}
-    facts = await mutations(gc_db, row)
+    facts = await mutations(gc_db, owner_id)
     assert len(facts) == 2
     assert [
         (fact.state, fact.physical_outcome, fact.current_delta_bytes) for fact in facts
@@ -335,6 +336,7 @@ async def test_database_partial_delete_preserves_earlier_confirmed_fact(
 
 async def test_database_postguard_failure_keeps_physical_fact(gc_db, monkeypatch):
     row, client = await database_case(gc_db, monkeypatch)
+    owner_id = row.id
     original = retirement._guard
     guards = 0
 
@@ -348,7 +350,7 @@ async def test_database_postguard_failure_keeps_physical_fact(gc_db, monkeypatch
 
     monkeypatch.setattr(retirement, "_guard", changed)
     assert (await retirement.cleanup(gc_db))["failed"] == 1
-    (fact,) = await mutations(gc_db, row)
+    (fact,) = await mutations(gc_db, owner_id)
     assert (fact.state, fact.physical_outcome, fact.current_delta_bytes) == (
         "confirmed",
         "deleted",
@@ -364,6 +366,7 @@ async def test_database_unknown_close_keeps_physical_fact_without_delta(
     gc_db, monkeypatch, resource
 ):
     row, client = await database_case(gc_db, monkeypatch)
+    owner_id = row.id
     if resource == "client":
         client.close_failure = OSError("client_close_failed")
     else:
@@ -374,7 +377,7 @@ async def test_database_unknown_close_keeps_physical_fact_without_delta(
 
         monkeypatch.setattr(storage_access.Permit, "_settle", fail)
     assert (await retirement.cleanup(gc_db))["failed"] == 1
-    (fact,) = await mutations(gc_db, row)
+    (fact,) = await mutations(gc_db, owner_id)
     assert (fact.state, fact.physical_outcome, fact.current_delta_bytes) == (
         "unknown",
         "deleted",
@@ -391,6 +394,7 @@ async def test_database_ordinary_publication_failure_keeps_business_success(
     gc_db, monkeypatch
 ):
     row, client = await database_case(gc_db, monkeypatch)
+    owner_id = row.id
 
     async def unavailable(*args, **kwargs):
         assert client.close_count == 1
@@ -403,7 +407,7 @@ async def test_database_ordinary_publication_failure_keeps_business_success(
 
     monkeypatch.setattr(usage, "publish", unavailable)
     assert (await retirement.cleanup(gc_db))["deleted"] == 1
-    (fact,) = await mutations(gc_db, row)
+    (fact,) = await mutations(gc_db, owner_id)
     assert fact.state == "pending" and fact.current_delta_bytes is None
     await gc_db.refresh(row)
     assert row.state == "deleted"
@@ -413,6 +417,7 @@ async def test_database_publication_cancellation_drains_real_recorder(
     gc_db, monkeypatch
 ):
     row, client = await database_case(gc_db, monkeypatch)
+    owner_id = row.id
     entered, release = asyncio.Event(), asyncio.Event()
     original = usage.publish
 
@@ -438,7 +443,7 @@ async def test_database_publication_cancellation_drains_real_recorder(
         release.set()
         with pytest.raises(asyncio.CancelledError):
             await pending
-    (fact,) = await mutations(gc_db, row)
+    (fact,) = await mutations(gc_db, owner_id)
     assert (fact.state, fact.physical_outcome, fact.current_delta_bytes) == (
         "confirmed",
         "deleted",
@@ -458,6 +463,7 @@ async def test_real_minio_bundle_retires_versions_through_production_owner(
     row = Bundle(**values)
     gc_db.add(row)
     await gc_db.commit()
+    owner_id = row.id
     (key,) = row.inventory["objects"]
     seed = physical.create_client()
     factory = async_sessionmaker(gc_db.bind, expire_on_commit=False)
@@ -522,7 +528,7 @@ async def test_real_minio_bundle_retires_versions_through_production_owner(
             "retained": 0,
             "failed": 0,
         }
-        facts = await mutations(gc_db, row)
+        facts = await mutations(gc_db, owner_id)
         assert len(facts) == 2 and {fact.expected_version for fact in facts} == versions
         assert all(
             fact.state == "confirmed" and fact.physical_outcome == "deleted"

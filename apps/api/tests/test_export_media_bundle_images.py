@@ -19,6 +19,12 @@ from app.services.reference_keys import reference_key
 from tests import test_export_media_bundle_models as models
 from tests import test_export_media_retirement as retirement_tests
 from tests.test_export_media_bundles import FakeDB, digest
+from tests.test_export_media_bundles import (
+    fake_allocation_boundary as fake_allocation_boundary,
+)
+
+# Pure fakes model only the bundle contract; allocation belongs to real sessions.
+pytestmark = pytest.mark.usefixtures("fake_allocation_boundary")
 
 owned_db = models.owned_db
 gc_db = retirement_tests.gc_db

@@ -101,6 +101,7 @@ async def registered_dataset_image(
         reference_state="present",
         etag=written.etag,
         verified_at=datetime.now(timezone.utc),
+        storage_ref=creation.original_ref(allocation),
     )
     db.add(replica)
     await db.flush()
