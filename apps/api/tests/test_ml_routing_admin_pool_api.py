@@ -6,6 +6,7 @@ import os
 import socket
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime
 
 import pytest
 from sqlalchemy import select
@@ -13,7 +14,6 @@ from aap_inference.health import reconcile_pool_capability
 from aap_inference.pipeline_server import PipelineHttpServer
 from aap_inference.pool_capability import capability_fingerprint
 from aap_inference.routing_runtime import RoutingRuntime
-from aap_inference_contract.topology import to_record
 
 from app.config import settings
 from app.db.models.audit_log import AuditLog
@@ -72,7 +72,7 @@ async def _routing_owner_http(test_engine, monkeypatch):
         control_token=None,
         host="127.0.0.1",
         port=port,
-        routing_manager=runtime.manager,
+        routing_manager=runtime,
         routing_control_token=token,
     )
     await server.start()
@@ -159,8 +159,11 @@ async def test_member_mutation_projects_cached_pool_after_commit(
     fresh_pool = await MLBackendService(db_session).get_pool(pool_id)
     assert fresh_pool is not None
     assert fresh_pool.updated_at >= previous_updated_at
-    assert body["updated_at"] == to_record(fresh_pool)["updated_at"]
-    assert body["updated_at"] is not None
+    # The wire contract uses "Z"; compare instants, not timestamp formatting.
+    assert (
+        datetime.fromisoformat(body["updated_at"].replace("Z", "+00:00"))
+        == fresh_pool.updated_at
+    )
     if operation == "remove":
         assert body["members"] == []
         assert body["legacy_instance_id"] is None
