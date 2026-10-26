@@ -150,6 +150,8 @@ async def test_publish_preflight_cas_idempotency_and_exact_locator(db_session, s
         route.source_version_id == "source-1" and route.target_version_id == "target-1"
     )
     assert route.target_etag == '"target-1"'
+    assert await lookup(db_session, sealed, source_etag=route.source_etag) == route
+    assert await lookup(db_session, sealed, source_etag="different-source") is None
     assert route.purpose == service.purpose(value.publication_id)
     assert route.source_location_id != route.target_location_id
     assert route.maintenance_revision == 1

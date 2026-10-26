@@ -6,7 +6,8 @@ the existing owner-specific cleanup purpose visible until physical I/O closes.
 Direct S3 URLs retain their original expiry contract after signing.
 """
 
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
+from dataclasses import dataclass
 import re
 import uuid
 
@@ -26,11 +27,16 @@ async def resolve(
     size_bytes=None,
     *,
     source_version_id=publications.ANY_VERSION,
+    source_etag=None,
 ):
     """Look up saved content only; missing evidence grants no migration route."""
     if not isinstance(sha256, str) or re.fullmatch(r"[a-f0-9]{64}", sha256) is None:
         return None
     if size_bytes is not None and (type(size_bytes) is not int or size_bytes < 0):
+        return None
+    if source_etag is not None and (
+        not isinstance(source_etag, str) or not 0 < len(source_etag) <= 1024
+    ):
         return None
     return await publications.lookup(
         db,
@@ -41,11 +47,74 @@ async def resolve(
         sha256=sha256,
         size_bytes=size_bytes,
         source_version_id=source_version_id,
+        **({"source_etag": source_etag} if source_etag is not None else {}),
     )
 
 
 def reject():
     raise ContentError("read_publication_changed", 409)
+
+
+def validate_response(
+    route, response, *, status_code=200, size_bytes=None, content_range=None
+):
+    """Check exact copied headers; the caller owns the response body's close.
+
+    Ranged transports supply their selected length and Content-Range. The saved
+    full content identity remains established by sealed copy verification and
+    a full HEAD, rather than treating a partial GET as a full SHA calculation.
+    """
+    metadata = response.get("Metadata", {})
+    if (
+        response.get("ResponseMetadata", {}).get("HTTPStatusCode") != status_code
+        or response.get("VersionId") != route.target_version_id
+        or response.get("ETag") != route.target_etag
+        or type(response.get("ContentLength")) is not int
+        or response.get("ContentLength")
+        != (route.size_bytes if size_bytes is None else size_bytes)
+        or response.get("ContentRange") != content_range
+        or response.get("DeleteMarker")
+        or metadata.get("aap-copy-plan") != route.creation_plan_uuid
+        or metadata.get("aap-copy-object") != route.source_object_id
+        or metadata.get("aap-copy-nonce") != route.creation_nonce
+        or copy.digest(copy.content_target(response)) != route.target_content_sha256
+    ):
+        reject()
+
+
+@dataclass(frozen=True)
+class Admission:
+    route: object
+    target: object
+    permit: object
+
+
+@asynccontextmanager
+async def admit(db, route, purpose, *, on_acquired=None):
+    """Keep both actual-target permits around caller-owned closed read work.
+
+    This opens no SDK and commits no caller transaction. The caller finishes
+    metadata transactions before I/O and drains its existing physical boundary
+    before leaving, including body/client close failures and cancellation.
+    """
+    target = await publications.target_for_route(db, route)
+    async with await storage_access.acquire(
+        db,
+        route.target_location_id,
+        route.purpose,
+        expected_revision=route.maintenance_revision,
+    ):
+        async with await storage_access.acquire(
+            db,
+            route.target_location_id,
+            purpose,
+            expected_revision=route.maintenance_revision,
+        ) as permit:
+            if on_acquired is not None:
+                await on_acquired(permit)
+            await publications.recheck(db, route)
+            yield Admission(route, target, permit)
+            await publications.recheck(db, route)
 
 
 class _ReadBody:
@@ -88,32 +157,23 @@ class ReadClient:
             or "PartNumber" in values
         ):
             reject()
+        if "IfMatch" in values and values["IfMatch"] not in (
+            route.source_etag,
+            route.target_etag,
+        ):
+            reject()
         return {
             **values,
             "Bucket": route.target_bucket,
             "Key": route.target_object_key,
             "VersionId": route.target_version_id,
+            **({"IfMatch": route.target_etag} if "IfMatch" in values else {}),
         }
 
     def _response(self, response):
-        route = self.route
         try:
             metadata = response.get("Metadata", {})
-            if (
-                response.get("ResponseMetadata", {}).get("HTTPStatusCode") != 200
-                or response.get("VersionId") != route.target_version_id
-                or response.get("ETag") != route.target_etag
-                or type(response.get("ContentLength")) is not int
-                or response.get("ContentLength") != route.size_bytes
-                or response.get("ContentRange") is not None
-                or response.get("DeleteMarker")
-                or metadata.get("aap-copy-plan") != route.creation_plan_uuid
-                or metadata.get("aap-copy-object") != route.source_object_id
-                or metadata.get("aap-copy-nonce") != route.creation_nonce
-                or copy.digest(copy.content_target(response))
-                != route.target_content_sha256
-            ):
-                reject()
+            validate_response(self.route, response)
             # Keep strict business metadata comparisons intact. Only these
             # independently verified migration creation fields are transport facts.
             result = {
@@ -172,6 +232,86 @@ def client(route, target):
             yield reader
         finally:
             reader.close()
+
+
+class ReadClientSet:
+    """An explicit consumed-member set on one published physical transport."""
+
+    def __init__(self, physical, routes):
+        self._client = physical
+        self._readers = {}
+        context = None
+        for route in routes:
+            current = (
+                route.publication_id,
+                route.publication_revision,
+                route.source_location_id,
+                route.source_endpoint_url,
+                route.source_bucket,
+                route.target_location_id,
+                route.target_location_revision,
+                route.target_connection_id,
+                route.target_connection_revision,
+                route.target_endpoint_url,
+                route.target_bucket,
+                route.maintenance_revision,
+            )
+            key = (route.source_bucket, route.source_object_key)
+            if (context is not None and current != context) or key in self._readers:
+                reject()
+            context = current
+            self._readers[key] = ReadClient(physical, route)
+        if not self._readers:
+            reject()
+
+    @property
+    def meta(self):
+        return self._client.meta
+
+    def reader_for(self, bucket, key):
+        reader = self._readers.get((bucket, key))
+        if reader is None:
+            reject()
+        return reader
+
+    def head_object(self, **kwargs):
+        return self.reader_for(kwargs.get("Bucket"), kwargs.get("Key")).head_object(
+            **kwargs
+        )
+
+    def get_object(self, **kwargs):
+        return self.reader_for(kwargs.get("Bucket"), kwargs.get("Key")).get_object(
+            **kwargs
+        )
+
+    def generate_presigned_url(self, operation, *, Params, ExpiresIn, **kwargs):
+        return self.reader_for(
+            Params.get("Bucket"), Params.get("Key")
+        ).generate_presigned_url(
+            operation, Params=Params, ExpiresIn=ExpiresIn, **kwargs
+        )
+
+    def close(self):
+        failure = None
+        for reader in self._readers.values():
+            try:
+                reader.close()
+            except BaseException as exc:
+                if failure is None:
+                    failure = exc
+        if failure is not None:
+            raise failure
+
+
+@contextmanager
+def clients(routes, target):
+    """Open the explicit set inside caller-owned admission and drain boundary."""
+    with target.client() as physical:
+        readers = ReadClientSet(physical, routes)
+        try:
+            yield readers
+        finally:
+            readers.close()
 
 
 async def run(

@@ -496,6 +496,7 @@ async def lookup(
     sha256,
     size_bytes,
     source_version_id=ANY_VERSION,
+    source_etag=None,
     lock=False,
 ):
     query = select(Publication).where(
@@ -521,6 +522,8 @@ async def lookup(
         conditions.append(Route.size_bytes == size_bytes)
     if source_version_id is not ANY_VERSION:
         conditions.append(Route.source_version_id == source_version_id)
+    if source_etag is not None:
+        conditions.append(Route.source_etag == source_etag)
     query = (
         select(Route)
         .where(*conditions)

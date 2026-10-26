@@ -186,6 +186,105 @@ async def test_missing_content_evidence_performs_no_database_lookup(
     lookup.assert_not_awaited()
 
 
+async def test_saved_etag_qualifies_legacy_unpinned_source_lookup(monkeypatch):
+    selected = route()
+    lookup = AsyncMock(return_value=selected)
+    monkeypatch.setattr(publications, "lookup", lookup)
+    ref = {
+        "location_id": str(selected.source_location_id),
+        "endpoint_url": selected.source_endpoint_url,
+        "bucket": selected.source_bucket,
+    }
+    assert (
+        await service.resolve(
+            object(),
+            ref,
+            selected.source_object_key,
+            selected.sha256,
+            source_etag=selected.source_etag,
+        )
+        == selected
+    )
+    assert lookup.await_args.kwargs["source_etag"] == selected.source_etag
+    lookup.reset_mock()
+    assert (
+        await service.resolve(object(), ref, "key", selected.sha256, source_etag="")
+        is None
+    )
+    lookup.assert_not_awaited()
+
+
+@pytest.mark.parametrize("method", ["head_object", "get_object"])
+def test_saved_source_condition_is_translated_to_exact_target_condition(method):
+    selected = route()
+    sdk = SDK(selected)
+    with service.client(selected, Target(sdk)) as reader:
+        getattr(reader, method)(**logical(selected, IfMatch=selected.source_etag))
+    assert sdk.calls[0][1]["IfMatch"] == selected.target_etag
+
+
+def test_range_response_validates_exact_partial_headers_and_full_content_attributes():
+    selected = route()
+    partial = response(
+        selected,
+        ResponseMetadata={"HTTPStatusCode": 206},
+        ContentLength=2,
+        ContentRange="bytes 1-2/4",
+    )
+    service.validate_response(
+        selected, partial, status_code=206, size_bytes=2, content_range="bytes 1-2/4"
+    )
+    for changes in (
+        {"ContentLength": 4},
+        {"ContentRange": "bytes 0-1/4"},
+        {"VersionId": "new-latest"},
+        {"ContentType": "other"},
+    ):
+        with pytest.raises(ContentError):
+            service.validate_response(
+                selected,
+                partial | changes,
+                status_code=206,
+                size_bytes=2,
+                content_range="bytes 1-2/4",
+            )
+
+
+def test_consumed_member_set_rejects_ambiguous_addresses_and_other_publications():
+    selected = route()
+    sdk = SDK(selected)
+    other = replace(
+        selected,
+        source_object_key="saved/other.bin",
+        target_object_key="copied/other.bin",
+    )
+    readers = service.ReadClientSet(sdk, (selected, other))
+    assert (
+        readers.reader_for(other.source_bucket, other.source_object_key).route == other
+    )
+    with pytest.raises(ContentError):
+        readers.get_object(Bucket=selected.source_bucket, Key="unselected.bin")
+    for routes in (
+        (),
+        (selected, selected),
+        (selected, replace(other, publication_revision=99)),
+    ):
+        with pytest.raises(ContentError):
+            service.ReadClientSet(sdk, routes)
+    assert sdk.calls == []
+
+
+def test_consumed_member_set_closes_each_body_and_uses_selected_exact_version():
+    selected = route()
+    sdk = SDK(selected)
+    with service.clients((selected,), Target(sdk)) as readers:
+        result = readers.get_object(**logical(selected))
+        assert result["Body"].read() == b"data"
+        assert readers.meta.endpoint_url == selected.target_endpoint_url
+    assert sdk.calls[0][1]["VersionId"] == selected.target_version_id
+    assert sdk.bodies[0].closes == sdk.closes == 1
+
+
 def test_exact_target_transport_preserves_actual_version_and_business_metadata():
     selected = route()
     sdk = SDK(selected)
@@ -428,6 +527,37 @@ async def test_actual_run_keeps_both_purposes_through_body_and_client_close(runt
     assert world.sdk.bodies[0].closes == world.sdk.closes == 1
     assert world.active == [] and all(permit.settled for permit in world.permits)
     assert publications.recheck.await_count == 2
+
+
+@pytest.mark.parametrize("unsettled", [False, True])
+async def test_admit_keeps_both_permits_for_caller_owned_async_boundary(
+    runtime, unsettled
+):
+    world = runtime
+    acquired = []
+
+    async def ready(permit):
+        assert len(world.active) == 2
+        acquired.append(permit)
+
+    async def run():
+        async with service.admit(
+            object(), world.route, "saved_owner_read", on_acquired=ready
+        ) as admission:
+            assert admission.route == world.route
+            assert admission.target is world.target
+            assert admission.permit is acquired[0]
+            assert world.target.opens == 0
+            if unsettled:
+                raise storage_access.mark_unsettled(RuntimeError("close unknown"))
+
+    if unsettled:
+        with pytest.raises(RuntimeError):
+            await run()
+    else:
+        await run()
+    assert len(world.active) == (2 if unsettled else 0)
+    assert publications.recheck.await_count == (1 if unsettled else 2)
 
 
 @pytest.mark.parametrize(
