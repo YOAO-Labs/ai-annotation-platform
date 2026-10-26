@@ -331,25 +331,15 @@ class ProjectedDB(ReadDB):
 
 
 @pytest.mark.parametrize("lock", [False, True])
-async def test_bounded_replica_query_masks_large_etag_and_reads_at_most_two(lock):
+async def test_bounded_replica_query_masks_large_metadata_and_reads_at_most_two(lock):
     db = ProjectedDB({"dataset_asset_locations": [object(), object(), object()]})
     assert len(await sources._replicas(db, uuid.uuid4(), lock, bounded=True)) == 2
     query = db.statements[0]
     assert query._limit_clause.value == 2
-    assert {column.name for column in query.selected_columns} == {
-        "asset_id",
-        "location_id",
-        "bucket",
-        "object_key",
-        "role",
-        "reference_state",
-        "creation_id",
-        "verified_at",
-        "etag",
-        "etag_oversized",
-    }
+    # Raw locator/ETag columns must never cross the bounded read boundary.
     assert all(
         column is not DatasetAssetLocation.__table__.c.etag
+        and column is not DatasetAssetLocation.__table__.c.storage_ref
         for column in query.selected_columns
     )
     compiled = query.compile(dialect=postgresql.dialect())
@@ -357,7 +347,10 @@ async def test_bounded_replica_query_masks_large_etag_and_reads_at_most_two(lock
     assert "CASE WHEN (octet_length(dataset_asset_locations.etag) <=" in sql
     assert "THEN dataset_asset_locations.etag END AS etag" in sql
     assert "octet_length(dataset_asset_locations.etag) >" in sql
+    # The saved JSON locator is masked by the same bounded CASE treatment.
+    assert "THEN dataset_asset_locations.storage_ref END AS storage_ref" in sql
     assert 1024 in compiled.params.values()
+    assert 8192 in compiled.params.values()
     assert "substring" not in sql and "substr(" not in sql
     if lock:
         assert query._for_update_arg.read and query._for_update_arg.nowait

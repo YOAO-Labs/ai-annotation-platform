@@ -95,7 +95,6 @@ from app.services.project import (
     derive_attribute_schema,
     derive_classes_list,
 )
-from app.services.sensor_calibration import resolve_calibration_states
 from app.services.storage import storage_service
 from app.services.mask_formats import registry as mask_format_registry
 from app.services.mask_formats.image_export import (
@@ -1124,7 +1123,7 @@ async def _build_lidar_export_zip(
     for target in targets:
         if target not in LIDAR_EXPORT_TARGETS:
             raise UnsupportedExportError(f"unsupported lidar export target: {target}")
-    if "nuscenes" in targets and lidar_media is None:
+    if {"nuscenes", "coco-multicamera"} & set(targets) and lidar_media is None:
         raise UnsupportedExportError("lidar_export_contract_missing")
     lidar_options = format_options.get("lidar") or {}
     selected_camera_role = lidar_options.get("kitti_camera_role")
@@ -1154,7 +1153,6 @@ async def _build_lidar_export_zip(
     nuscenes_media: dict[str, dict[str, Any]] = {}
     multicamera_coco_images: list[MulticameraCocoImageCtx] = []
     multicamera_coco_media: dict[str, dict[str, Any]] = {}
-    multicamera_media_fingerprints: dict[uuid.UUID, tuple[int, str]] = {}
     expires_iso = (
         lidar_media.expires_at.isoformat()
         if lidar_media is not None
@@ -1218,34 +1216,6 @@ async def _build_lidar_export_zip(
                     for role, (_link, item) in linked.items()
                     if role.startswith("camera_")
                 }
-                new_media_items = [
-                    item
-                    for item_id, item in camera_items_by_id.items()
-                    if lidar_media is None
-                    and item_id not in multicamera_media_fingerprints
-                ]
-
-                async def hash_camera_item(
-                    item: DatasetItem,
-                ) -> tuple[DatasetItem, tuple[int, str]]:
-                    return item, await asyncio.to_thread(
-                        _hash_dataset_object, item.file_path
-                    )
-
-                for start in range(0, len(new_media_items), 4):
-                    hashed = await asyncio.gather(
-                        *[
-                            hash_camera_item(item)
-                            for item in new_media_items[start : start + 4]
-                        ]
-                    )
-                    for item, fingerprint in hashed:
-                        if fingerprint[0] != int(item.file_size or -1):
-                            raise UnsupportedExportError(
-                                f"multicamera_coco_media_drift:{item.id}"
-                            )
-                        multicamera_media_fingerprints[item.id] = fingerprint
-
                 member_item_ids = {
                     member.sensor_dataset_item_id
                     for members in camera_members_by_task.values()
@@ -1255,21 +1225,11 @@ async def _build_lidar_export_zip(
                     and member.sensor_dataset_item_id in camera_items_by_id
                 }
                 if member_item_ids:
-                    multicamera_calibration_states = (
-                        {
-                            item_id: lidar_media.calibration_states[item_id]
-                            for item_id in member_item_ids
-                            if item_id in lidar_media.calibration_states
-                        }
-                        if lidar_media is not None
-                        else await resolve_calibration_states(
-                            svc.db,
-                            [
-                                camera_items_by_id[item_id]
-                                for item_id in member_item_ids
-                            ],
-                        )
-                    )
+                    multicamera_calibration_states = {
+                        item_id: lidar_media.calibration_states[item_id]
+                        for item_id in member_item_ids
+                        if item_id in lidar_media.calibration_states
+                    }
             axis_by_task = (
                 (
                     {task.id: lidar_media.axis_convention(task.id) for task in tasks}
@@ -1454,27 +1414,16 @@ async def _build_lidar_export_zip(
                         ]
                         source_basename = os.path.basename(item.file_path)
                         rel_path = f"images/{role}/{task.id}/{source_basename}"
-                        if lidar_media is not None:
-                            saved = lidar_media.entry(task.id, role)
-                            size, sha256 = saved["size_bytes"], saved["sha256"]
-                            entry = {
-                                "rel_path": rel_path,
-                                "kind": "image",
-                                "source_file_size": size,
-                                "source_sha256": sha256,
-                                "presigned_url": saved["presigned_url"],
-                                "expires_at": expires_iso,
-                            }
-                        else:
-                            size, sha256 = multicamera_media_fingerprints[item.id]
-                            entry = _trusted_media_entry(
-                                rel_path=rel_path,
-                                storage_key=item.file_path,
-                                kind="image",
-                                source_file_size=size,
-                                source_sha256=sha256,
-                                expires_iso=expires_iso,
-                            )
+                        saved = lidar_media.entry(task.id, role)
+                        size, sha256 = saved["size_bytes"], saved["sha256"]
+                        entry = {
+                            "rel_path": rel_path,
+                            "kind": "image",
+                            "source_file_size": size,
+                            "source_sha256": sha256,
+                            "presigned_url": saved["presigned_url"],
+                            "expires_at": expires_iso,
+                        }
                         entry.update(
                             {
                                 "task_id": str(task.id),

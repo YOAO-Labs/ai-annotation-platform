@@ -6,6 +6,9 @@ import base64
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+from urllib.parse import quote
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -597,43 +600,42 @@ async def test_assigned_away_task_is_hidden_from_new_and_legacy_comment_routes(
 
 
 @pytest.mark.parametrize("as_json", [False, True])
-async def test_attachment_download_json_retains_visibility_and_legacy_redirect(
+async def test_attachment_download_returns_verified_saved_bytes_with_visibility(
     httpx_client,
     db_session: AsyncSession,
     super_admin,
     monkeypatch,
     as_json: bool,
 ):
-    from app.api.v1.annotation_comments import storage_service
+    from app.services import comment_attachment_uploads
 
     user, token = super_admin
     _, _, annotation, other_annotation = await _seed_task(db_session, user.id)
     await db_session.commit()
     key = f"comment-attachments/{annotation.id}/file.png"
-    url = "https://storage.example.test/short-lived-attachment"
-    issued = []
-
-    def generate_download_url(storage_key, **options):
-        issued.append((storage_key, options))
-        return url
-
-    monkeypatch.setattr(storage_service, "generate_download_url", generate_download_url)
+    receipt = SimpleNamespace(mime_type="image/png", file_name='r\u00e9sum\u00e9 "f".png')
+    read = AsyncMock(return_value=(receipt, b"saved-attachment-bytes"))
+    monkeypatch.setattr(comment_attachment_uploads, "read", read)
     path = f"/api/v1/annotations/{annotation.id}/comment-attachments/download"
     params = {"as_json": str(as_json).lower(), "key": key}
     anonymous = await httpx_client.get(path, params=params, follow_redirects=False)
     assert anonymous.status_code in {401, 403}
-    assert issued == []
+    read.assert_not_awaited()
 
     response = await httpx_client.get(
         path, params=params, headers=_bearer(token), follow_redirects=False
     )
-    if as_json:
-        assert response.status_code == 200, response.text
-        assert response.json() == {"download_url": url}
-    else:
-        assert response.status_code == 302, response.text
-        assert response.headers["location"] == url
-    assert issued == [(key, {"expires_in": 300, "align": False})]
+    assert response.status_code == 200, response.text
+    assert response.content == b"saved-attachment-bytes"
+    assert response.headers["content-type"] == "image/png"
+    assert response.headers["content-disposition"] == (
+        "attachment; filename*=UTF-8''" + quote(receipt.file_name, safe="")
+    )
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.headers["x-content-type-options"] == "nosniff"
+    call = read.await_args
+    assert call.args[1].id == user.id
+    assert call.args[3] == annotation.id and call.args[4] == key
 
     other_path = (
         f"/api/v1/annotations/{other_annotation.id}/comment-attachments/download"
@@ -642,7 +644,7 @@ async def test_attachment_download_json_retains_visibility_and_legacy_redirect(
         other_path, params=params, headers=_bearer(token), follow_redirects=False
     )
     assert mismatch.status_code == 400
-    assert len(issued) == 1
+    assert read.await_count == 1
 
 
 async def test_cross_project_reviewer_and_annotator_are_hidden_from_comment_surfaces(

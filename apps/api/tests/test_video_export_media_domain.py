@@ -23,8 +23,16 @@ from app.services import export_outputs, export_storage
 from app.services.exporting.lidar_sources import canonical_identity
 from tests import test_export_media_bundle_models as models
 from tests import test_export_media_retirement as retirement_tests
-from tests.test_export_media_bundles import FakeDB, digest
+from tests.test_export_media_bundles import (
+    FakeDB,
+    digest,
+    fake_allocation_boundary as fake_allocation_boundary,
+)
 from tests.test_export_media_storage import Client, ok, record
+
+# Pure fakes model only the video bundle contract; allocation belongs to real
+# sessions, so only FakeDB sessions take the shared fake boundary.
+pytestmark = pytest.mark.usefixtures("fake_allocation_boundary")
 
 REVISION = "0237_export_video_media"
 legacy_db = models.owned_db
