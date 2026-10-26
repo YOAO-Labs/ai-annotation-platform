@@ -101,7 +101,8 @@ async def test_get_does_not_adopt_explicit_pin_is_idempotent_and_download_uses_s
     from contextlib import contextmanager
 
     @contextmanager
-    def admitted(target):
+    def admitted(target, *, accounting=None):
+        assert accounting is None
         yield storage_service
 
     async def capture_fixture(db, owner, **kwargs):

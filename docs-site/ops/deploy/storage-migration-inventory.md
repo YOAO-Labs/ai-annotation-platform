@@ -176,6 +176,10 @@ apps/api/.venv/bin/python scripts/finalize_storage_migration.py status-reads \
 
 发布ID就是Finalization ID。`status-reads`只查询同一责任的耐久数据库记录，不表示当前原生栅栏有效；源离线时也可查询修订以续做撤回。原Task／样本／Asset、保存定位与创建回执不改写；托管原件读取根据完整原定位和保存SHA／大小，使用目标准确VersionId和ETag，取得目标位置的实际许可。源仍可保持停止，B的同名新版本或删除标记不会替换保存副本。业务权限、当前目标连接、物理身份及访问维护仍逐次核对。retain、rebuild和marker不生成可读副本；其他冻结包／派生物、新分配用途绑定及全量切换／回滚另行实施。
 
+同一发布也用于训练保留包、冻结媒体／mask及已有产物的纯读取和导出ZIP的缓存核验／新签名。完整保存地址和SHA限定对象；有独立大小或保存源版本时同时核对。目标实际读取同时登记发布责任和原产物读取purpose，回收与撤回都等待真实句柄关闭。训练日志等读取后继续写派生件的混合流程保持其原写入合同；独立导出媒体和其他用途产物没有因此自动接通。
+
+新签名固定B的准确VersionId并使用B的实际可达端点。之前发出的A签名，以及冻结ZIP中已经嵌入的媒体URL，继续遵循原有效期；ZIP最长七天的期限须计入已有观察／退役安排，旧入口保留只读直至这些链接自然失效。不能改写冻结包或把发布撤回宣称为撤销已发出的S3签名。最终用途切换与新写入回滚仍须另行执行。
+
 发布活动或撤回中时，普通`invalidate`拒绝解除最终核验。需要停止此映射时先执行：
 
 ```sh
@@ -200,6 +204,8 @@ pnpm dev:worktree -- exec --mode test -- env PYTHONDONTWRITEBYTECODE=1 \
 需要浏览器核验时加 `--pause-for-browser`；私有 owner 目录中的 `ready.json` 保存独立页面、临时认证状态及继续标记，不能公开。脚本按精确进程与资源归属清理；异常退出后的 `--cleanup` 使用原 manifest 和新的 summary。最后销毁本次一次性 `test` 模式，保留脱敏有界结果。此演练不表示生产后端已选定、业务位置已切换或旧存储可退役。
 
 原件读取的扩展验收使用相同的空test约束，将上面脚本换成 `scripts/verify_storage_migration_original_reads.py`。它在自有源中建立真实原件，复制封存并发布后停止源容器，在目标制造同键新版本及删除标记，实际核对认证HTTP图片／下载与独立Worker原件读取、逻辑事实不变、撤回拒读和原生claim保留。它不代替所有业务消费者或九用途最终切换资格。
+
+训练及ZIP读取的扩展验收使用 `scripts/verify_storage_migration_artifact_reads.py`，同样要求所属空test模式。它核对源离线和目标同键新版本／marker下的认证训练包下载、独立Worker冻结媒体／mask和ZIP完整核验、新签名GET及真实打开GET的撤回排空；已发出的目标S3签名继续按原期限可用。所属资源及launcher测试模式分别按owner清理，不使用人工环境作为测试库。
 
 ## 执行与核对
 
