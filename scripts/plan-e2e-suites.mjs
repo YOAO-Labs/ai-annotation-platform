@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 /**
@@ -797,7 +798,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   );
   console.log(`run_suites=${gate.include.length > 0}`);
   console.log(`selection_mode=${selectionMode}`);
-  // Shadow report for P9: recorded by the planning job.
-  console.log(`shadow=${JSON.stringify(shadow)}`);
+  // Changed-path classifications and warnings grow with the diff. Keep the
+  // complete report on disk, never in a GitHub output or process environment.
+  const shadowPath = process.env.E2E_SHADOW_PATH || "e2e-shadow.json";
+  writeFileSync(shadowPath, `${JSON.stringify(shadow)}\n`);
+  console.log(`shadow_path=${shadowPath}`);
   console.log(`ml_cpu=${mlCpu}`);
 }
