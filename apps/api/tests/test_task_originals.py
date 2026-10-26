@@ -49,6 +49,8 @@ async def original_db(test_engine):
         "storage_bindings",
         "storage_maintenance_gates",
         "storage_operations",
+        "storage_migration_read_publications",
+        "storage_migration_read_routes",
         "dataset_items",
         "dataset_assets",
         "dataset_asset_locations",
