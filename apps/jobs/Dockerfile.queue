@@ -4,7 +4,7 @@ RUN python -m pip install --no-cache-dir uv==0.11.29
 WORKDIR /build
 COPY apps/jobs/pyproject.toml apps/jobs/uv.lock ./
 COPY apps/jobs/src ./src
-RUN uv sync --locked --no-dev --extra queue-runtime --no-editable
+RUN uv sync --locked --no-dev --extra queue-runtime --extra dispatch-relay --no-editable
 
 FROM python:3.12-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254
 ENV VIRTUAL_ENV=/opt/venv PATH="/opt/venv/bin:$PATH" \

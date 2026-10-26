@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+from typing import Any
 from urllib.parse import urlsplit
 
 from .queue_contract import (
     JOBS_QUEUE_PATH,
     JobsQueueContractError,
     JobsQueueUnavailable,
+    QueueRevoke,
     decode_queue_reply,
+    decode_queue_request,
+    encode_canvas_request,
     encode_dispatch_request,
+    encode_queue_request,
     encode_revoke_request,
 )
 
@@ -92,27 +97,21 @@ def _post_sync(origin: str, token: str, body: bytes, execution_id: str) -> None:
         raise JobsQueueUnavailable() from None
 
 
+def _envelope_body(envelope: dict[str, Any]) -> tuple[bytes, str]:
+    body = encode_queue_request(envelope)
+    operation = decode_queue_request(body)
+    if isinstance(operation, QueueRevoke):
+        raise JobsQueueContractError()
+    return body, operation.execution_id
+
+
 class JobsQueueClient:
-    """Dispatch to the owner; an accepted reply means broker publish returned."""
+    """Dispatch to the owner; acceptance means broker publication returned."""
 
     def __init__(self, origin: str, token: str):
         self.origin, self.token = _origin_and_token(origin, token)
 
-    async def dispatch_job(
-        self,
-        task_name: str,
-        execution_id: str,
-        args: list,
-        kwargs: dict | None = None,
-        options: dict | None = None,
-    ) -> str:
-        body = encode_dispatch_request(
-            task_name,
-            execution_id,
-            args,
-            kwargs=kwargs,
-            options=options,
-        )
+    async def _post_async(self, body: bytes, execution_id: str) -> str:
         try:
             import httpx
 
@@ -147,6 +146,23 @@ class JobsQueueClient:
         except Exception:
             raise JobsQueueUnavailable() from None
 
+    async def dispatch_job(
+        self,
+        task_name: str,
+        execution_id: str,
+        args: list,
+        kwargs: dict | None = None,
+        options: dict | None = None,
+    ) -> str:
+        body = encode_dispatch_request(
+            task_name,
+            execution_id,
+            args,
+            kwargs=kwargs,
+            options=options,
+        )
+        return await self._post_async(body, execution_id)
+
     def dispatch_job_sync(
         self,
         task_name: str,
@@ -162,6 +178,36 @@ class JobsQueueClient:
             kwargs=kwargs,
             options=options,
         )
+        _post_sync(self.origin, self.token, body, execution_id)
+        return execution_id
+
+    async def dispatch_canvas(
+        self,
+        execution_id: str,
+        group_id: str,
+        tasks: list[dict[str, Any]],
+        callback: dict[str, Any],
+    ) -> str:
+        body = encode_canvas_request(execution_id, group_id, tasks, callback)
+        return await self._post_async(body, execution_id)
+
+    def dispatch_canvas_sync(
+        self,
+        execution_id: str,
+        group_id: str,
+        tasks: list[dict[str, Any]],
+        callback: dict[str, Any],
+    ) -> str:
+        body = encode_canvas_request(execution_id, group_id, tasks, callback)
+        _post_sync(self.origin, self.token, body, execution_id)
+        return execution_id
+
+    async def publish_envelope(self, envelope: dict[str, Any]) -> str:
+        body, execution_id = _envelope_body(envelope)
+        return await self._post_async(body, execution_id)
+
+    def publish_envelope_sync(self, envelope: dict[str, Any]) -> str:
+        body, execution_id = _envelope_body(envelope)
         _post_sync(self.origin, self.token, body, execution_id)
         return execution_id
 

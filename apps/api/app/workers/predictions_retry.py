@@ -182,10 +182,9 @@ async def _relay_pending_retries():
     from app.application.prediction_retry_delivery import (
         publish_prediction_retry_deliveries,
     )
-    from app.workers.prediction_retry_dispatch import CeleryPredictionRetryDispatcher
+    from app.services.jobs_queue import build_prediction_retry_dispatcher
 
+    dispatcher = build_prediction_retry_dispatcher()
     async with task_session_factory() as factory:
         async with retry_executor_sessions(factory) as executor:
-            return await publish_prediction_retry_deliveries(
-                executor, CeleryPredictionRetryDispatcher()
-            )
+            return await publish_prediction_retry_deliveries(executor, dispatcher)

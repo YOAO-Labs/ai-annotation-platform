@@ -127,9 +127,9 @@ def batch_predict(
 ):
     frame_dispatcher = None
     if execution_unit == "frame":
-        from app.workers.frame_preannotate import dispatch_frame_preannotate
+        from app.workers.frame_preannotate import JobsFramePreannotationDispatcher
 
-        frame_dispatcher = dispatch_frame_preannotate
+        frame_dispatcher = JobsFramePreannotationDispatcher()
 
     request = BatchPredictionRequest(
         project_id=project_id,

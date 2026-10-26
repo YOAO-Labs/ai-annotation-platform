@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -29,7 +30,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
     全自动写请求审计：
       - 仅匹配 /api/v1 + 写方法（POST/PATCH/PUT/DELETE）
       - 在 call_next 之后写入，绝不阻塞主响应
-      - v0.7.6：默认走 Celery 异步（settings.audit_async=True），broker 不可用时回退同步
+      - v0.7.6：默认走所选异步任务队列，投递失败时回退同步
       - 任何异常被吞掉，仅 logger.warning，永不影响响应
       - actor 仅取认证依赖写入的 Identity principal，不自行解析凭据
     """
@@ -53,7 +54,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
         try:
             payload = _build_payload(request, response.status_code)
             if settings.audit_async:
-                # 走 Celery 异步队列；broker 不可用时回退同步路径
+                # selected queue delivery; broker failure falls back to sync
                 if not _enqueue_audit(payload):
                     await _persist_audit_sync(payload)
             else:
@@ -86,11 +87,21 @@ def _build_payload(request: Request, status_code: int) -> dict:
 
 
 def _enqueue_audit(payload: dict) -> bool:
-    """v0.7.6 · 投递到 Celery audit 队列。broker 不可用时返回 False 让上层 fallback。"""
+    """Send HTTP metadata to the selected queue; return False for sync fallback."""
     try:
-        from app.workers.audit import persist_audit_entry
+        if settings.jobs_queue_url:
+            from app.services.jobs_queue import dispatch_job_sync
 
-        persist_audit_entry.delay(payload)
+            dispatch_job_sync(
+                task_name="app.workers.audit.persist_audit_entry",
+                execution_id=str(uuid.uuid4()),
+                args=[payload],
+                options={"queue": "audit"},
+            )
+        else:
+            from app.workers.audit import persist_audit_entry
+
+            persist_audit_entry.delay(payload)
         return True
     except Exception as exc:
         logger.warning("audit task enqueue failed, falling back to sync: %s", exc)

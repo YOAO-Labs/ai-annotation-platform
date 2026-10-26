@@ -39,6 +39,7 @@ from app.schemas.video_tracker_job import (
     VideoTrackerJobOut,
 )
 from app.services.audit import AuditAction, AuditService
+from app.services.jobs_dispatch import publish_prepared_dispatch
 from aap_workspace_contract.access import ProjectAccess
 from app.services.raster_mask_storage import load_coco_rle
 from app.services.video_tracking.jobs import (
@@ -47,6 +48,7 @@ from app.services.video_tracking.jobs import (
     decide_tracker_job,
     discard_tracker_job,
     get_tracker_job,
+    prepare_tracker_dispatch,
     tracker_job_out,
     tracker_job_preview,
     list_tracker_timeline,
@@ -481,6 +483,7 @@ async def cancel_video_tracker_job(
                 "staged_discarded": job_kind == "correction",
             },
         )
+    dispatch_lease = await prepare_tracker_dispatch(db, job_id, retirement=True)
     try:
         await db.commit()
     except Exception:
@@ -514,7 +517,13 @@ async def cancel_video_tracker_job(
             outcome="success",
         )
     try:
-        dispatcher.dispatch_tracker_job(job_id)
+        await publish_prepared_dispatch(
+            db,
+            dispatch_lease,
+            publish=lambda: dispatcher.dispatch_tracker_job(
+                job_id, execution_id=dispatch_lease.execution_id
+            ),
+        )
     except Exception:
         raise HTTPException(
             status_code=503,

@@ -16,6 +16,7 @@ from app.config import settings
 from app.application.preannotation_contract import (
     FramePreannotationDispatchReceipt,
     FramePreannotationDispatchRequest,
+    PreparedFramePreannotationDispatch,
     VideoFrameTaskPlan,
 )
 from app.services.labeling_prediction_contract import (
@@ -96,11 +97,42 @@ def _segment_results_key(job_id: str) -> str:
     return f"frame_preannotate:{job_id}:segments"
 
 
+_INIT_PROGRESS_LUA = """
+local expected = tonumber(ARGV[1])
+local previous = redis.call('GET', KEYS[1])
+if previous and tonumber(previous) ~= expected then
+  return 0
+end
+redis.call('SET', KEYS[1], expected, 'EX', 86400, 'NX')
+if redis.call('EXISTS', KEYS[2]) == 0 then
+  local completed = 0
+  for _, value in ipairs(redis.call('HVALS', KEYS[3])) do
+    local stats = cjson.decode(value).stats
+    completed = completed + (tonumber(stats.frames_done) or 0)
+      + (tonumber(stats.skipped) or 0) + (tonumber(stats.failed) or 0)
+  end
+  redis.call('SET', KEYS[2], completed, 'EX', 86400, 'NX')
+end
+redis.call('EXPIRE', KEYS[1], 86400)
+redis.call('EXPIRE', KEYS[2], 86400)
+redis.call('EXPIRE', KEYS[3], 86400)
+return 1
+"""
+
+
 def _init_progress(job_id: str, total: int) -> None:
     r = redis.from_url(settings.redis_url)
     try:
-        r.set(_progress_total_key(job_id), total, ex=86400)
-        r.set(_progress_key(job_id), 0, ex=86400)
+        initialized = r.eval(
+            _INIT_PROGRESS_LUA,
+            3,
+            _progress_total_key(job_id),
+            _progress_key(job_id),
+            _segment_results_key(job_id),
+            total,
+        )
+        if initialized != 1:
+            raise RuntimeError("frame progress differs from its frozen dispatch")
     finally:
         r.close()
 
@@ -235,55 +267,99 @@ def _bump_segment_progress(
 # ── 编排入口: 建段 + 派 chord (由应用层 batch command 注入调用) ────────────────
 
 
-async def dispatch_frame_preannotate(
-    request: FramePreannotationDispatchRequest,
-) -> FramePreannotationDispatchReceipt:
-    """Publish inference segments from a sealed retained-video manifest."""
-    from celery import chord, group
+class JobsFramePreannotationDispatcher:
+    async def prepare(
+        self, request: FramePreannotationDispatchRequest, *, db
+    ) -> PreparedFramePreannotationDispatch:
+        """Freeze the canvas with the parent's running/preparation transaction."""
+        from aap_jobs.queue_contract import encode_canvas_request
 
-    if (
-        not request.actor_id
-        or not request.accepted_video_manifest_id
-        or not request.accepted_video_selection_digest
-        or not request.accepted_video_sealed_digest
-    ):
-        raise ValueError("frame dispatch requires a sealed retained-video scope")
-    uuid.UUID(request.actor_id)
-    uuid.UUID(request.job_id)
-    uuid.UUID(request.accepted_video_manifest_id)
-    segments, total_frames = plan_video_task_segments(
-        request.video_task_plans, settings.frame_preannotate_chunk_size
-    )
-    if total_frames <= 0 or not segments:
+        from app.services.jobs_dispatch import jobs_dispatch_data
+
+        if (
+            not request.actor_id
+            or not request.accepted_video_manifest_id
+            or not request.accepted_video_selection_digest
+            or not request.accepted_video_sealed_digest
+        ):
+            raise ValueError("frame dispatch requires a sealed retained-video scope")
+        uuid.UUID(request.actor_id)
+        job_id = uuid.UUID(request.job_id)
+        uuid.UUID(request.accepted_video_manifest_id)
+        segments, total_frames = plan_video_task_segments(
+            request.video_task_plans, settings.frame_preannotate_chunk_size
+        )
+        if not segments:
+            return PreparedFramePreannotationDispatch(
+                lease=None, segment_ids=(), total_frames=0
+            )
+        callback_id = str(uuid.uuid4())
+        tasks = [
+            {
+                "task_name": "app.workers.frame_preannotate.predict_video_segment",
+                "execution_id": str(uuid.uuid4()),
+                "args": [segment],
+                "kwargs": {
+                    "project_id": request.project_id,
+                    "ml_backend_id": request.ml_backend_id,
+                    "stage0": request.stage0,
+                    "actor_id": request.actor_id,
+                    "job_id": request.job_id,
+                    "accepted_video_manifest_id": request.accepted_video_manifest_id,
+                    "accepted_video_selection_digest": (
+                        request.accepted_video_selection_digest
+                    ),
+                    "accepted_video_sealed_digest": request.accepted_video_sealed_digest,
+                    "celery_root_task_id": request.root_execution_id,
+                },
+                "options": {
+                    "soft_time_limit": (
+                        settings.frame_preannotate_segment_soft_time_limit_seconds
+                    )
+                },
+            }
+            for segment in segments
+        ]
+        callback = {
+            "task_name": "app.workers.frame_preannotate.finalize_frame_job",
+            "execution_id": callback_id,
+            "args": [],
+            "kwargs": {"project_id": request.project_id, "job_id": request.job_id},
+            "options": {},
+        }
+        envelope = json.loads(
+            encode_canvas_request(callback_id, str(uuid.uuid4()), tasks, callback)
+        )
+        await db.flush()
+        lease = await jobs_dispatch_data(db).prepare(
+            job_id, envelope, purpose="frame_canvas"
+        )
+        return PreparedFramePreannotationDispatch(
+            lease=lease,
+            segment_ids=tuple(_segment_id(segment) for segment in segments),
+            total_frames=total_frames,
+        )
+
+    async def __call__(
+        self, prepared: PreparedFramePreannotationDispatch, *, db
+    ) -> FramePreannotationDispatchReceipt:
+        from app.services.jobs_dispatch import publish_prepared_dispatch
+        from app.services.jobs_queue import publish_queue_envelope
+
+        lease = prepared.lease
+        if lease is None:
+            return FramePreannotationDispatchReceipt(
+                dispatched=False, segments=0, total_frames=0
+            )
+        _init_progress(str(lease.job_id), prepared.total_frames)
+        await publish_prepared_dispatch(
+            db, lease, publish=lambda: publish_queue_envelope(lease.envelope)
+        )
         return FramePreannotationDispatchReceipt(
-            dispatched=False, segments=0, total_frames=0
+            dispatched=True,
+            segments=len(prepared.segment_ids),
+            total_frames=prepared.total_frames,
         )
-
-    job_id = request.job_id
-    _init_progress(job_id, total_frames)
-    signatures = [
-        predict_video_segment.s(
-            segment,
-            project_id=request.project_id,
-            ml_backend_id=request.ml_backend_id,
-            stage0=request.stage0,
-            actor_id=request.actor_id,
-            job_id=request.job_id,
-            accepted_video_manifest_id=request.accepted_video_manifest_id,
-            accepted_video_selection_digest=request.accepted_video_selection_digest,
-            accepted_video_sealed_digest=request.accepted_video_sealed_digest,
-            celery_root_task_id=request.root_execution_id,
-        )
-        for segment in segments
-    ]
-    chord(group(signatures))(
-        finalize_frame_job.s(project_id=request.project_id, job_id=request.job_id)
-    )
-    return FramePreannotationDispatchReceipt(
-        dispatched=True,
-        segments=len(segments),
-        total_frames=total_frames,
-    )
 
 
 # ── 阶段 A: 每视频抽全帧一次 (走 media 队列, 跨视频并行) ──────────────────────────
@@ -1441,6 +1517,8 @@ async def _write_job_progress(
                 )
             )
             active = job is not None and job.status in {"pending", "running"}
+            if active:
+                _init_progress(job_id, int((job.result or {}).get("frame_total", 0)))
             done, total, canonical = _bump_segment_progress(
                 job_id,
                 segment_id,
@@ -1455,6 +1533,8 @@ async def _write_job_progress(
                 await db.flush()
             _publish_frame_progress(project_id, done, total, status="running")
             await db.commit()
+            if total > 0 and done >= total:
+                await _finalize([], project_id=project_id, job_id=job_id)
             return canonical
     finally:
         await engine.dispose()
@@ -1541,6 +1621,29 @@ def finalize_frame_job(
     asyncio.run(_finalize(segment_stats or [], project_id=project_id, job_id=job_id))
 
 
+def _canonical_frame_segment_stats(job) -> list[dict] | None:
+    dispatch = (job.result or {}).get("frame_dispatch")
+    segment_ids = dispatch.get("segment_ids") if isinstance(dispatch, dict) else None
+    if (
+        not isinstance(segment_ids, list)
+        or not segment_ids
+        or any(not isinstance(value, str) for value in segment_ids)
+        or len(set(segment_ids)) != len(segment_ids)
+    ):
+        raise RuntimeError("frame job has no frozen segment publication")
+    with redis.from_url(settings.redis_url) as progress:
+        encoded = progress.hmget(_segment_results_key(str(job.id)), segment_ids)
+    if any(value is None for value in encoded):
+        return None
+    stats = [_deserialize_segment_stats(value) for value in encoded]
+    processed = sum(
+        item["frames_done"] + item["skipped"] + item["failed"] for item in stats
+    )
+    if processed != dispatch["total_frames"]:
+        raise RuntimeError("frame segment receipts differ from the frozen publication")
+    return stats
+
+
 async def _finalize(segment_stats: list[dict], *, project_id: str, job_id: str) -> None:
     from sqlalchemy.ext.asyncio import (
         AsyncSession,
@@ -1550,23 +1653,6 @@ async def _finalize(segment_stats: list[dict], *, project_id: str, job_id: str) 
 
     from app.services import async_job as async_job_svc
     from app.services.gpu_arbitration.contracts import summarize_gpu_arbiter_failures
-
-    frames_done = sum(int(s.get("frames_done", 0)) for s in segment_stats if s)
-    boxes = sum(int(s.get("boxes", 0)) for s in segment_stats if s)
-    failed = sum(int(s.get("failed", 0)) for s in segment_stats if s)
-    skipped = sum(int(s.get("skipped", 0)) for s in segment_stats if s)
-    failed_prediction_ids = [
-        failure_id
-        for stats in segment_stats
-        if stats
-        for failure_id in stats.get("failed_prediction_ids", [])
-    ]
-    gpu_arbiter_failures = summarize_gpu_arbiter_failures(
-        failure
-        for stats in segment_stats
-        if stats
-        for failure in stats.get("gpu_arbiter_failures", [])
-    )
 
     engine = create_async_engine(settings.database_url, echo=False)
     SessionLocal = async_sessionmaker(
@@ -1581,6 +1667,25 @@ async def _finalize(segment_stats: list[dict], *, project_id: str, job_id: str) 
             )
             if job is None or job.status not in {"pending", "running"}:
                 return
+            # A recovered canvas may deliver duplicate header results. Only the
+            # complete frozen logical-segment receipts can authorize completion.
+            canonical = _canonical_frame_segment_stats(job)
+            if canonical is None:
+                return
+            frames_done = sum(item["frames_done"] for item in canonical)
+            boxes = sum(item["boxes"] for item in canonical)
+            failed = sum(item["failed"] for item in canonical)
+            skipped = sum(item["skipped"] for item in canonical)
+            failed_prediction_ids = [
+                failure_id
+                for item in canonical
+                for failure_id in item.get("failed_prediction_ids", [])
+            ]
+            gpu_arbiter_failures = summarize_gpu_arbiter_failures(
+                failure
+                for item in canonical
+                for failure in item.get("gpu_arbiter_failures", [])
+            )
             merged = dict(job.result or {})
             merged.update(
                 {

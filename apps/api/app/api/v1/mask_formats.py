@@ -6,6 +6,8 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aap_jobs.dispatch_contract import DispatchLease
+
 from app.db.models.project import Project
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.deps import (
@@ -29,6 +31,7 @@ from app.schemas.mask_format import (
     MaskFormatUploadInitResponse,
 )
 from app.services.audit import AuditAction, AuditService
+from app.services.jobs_dispatch import publish_prepared_dispatch
 from app.services.mask_formats.catalog import registry
 from app.services.mask_formats.contracts import canonical_digest
 from app.services.mask_formats.service import (
@@ -37,6 +40,7 @@ from app.services.mask_formats.service import (
     dispatch_import,
     execute_import,
     fail_import_dispatch,
+    prepare_import_dispatch,
     preflight_import,
     read_import,
     record_import_dispatch_task,
@@ -233,12 +237,21 @@ async def _dispatch_or_fail(
     *,
     batch,
     dispatcher: QualityJobDispatcher,
+    dispatch_lease: DispatchLease,
 ) -> None:
     batch_id = batch.id
     async_job_id = batch.async_job_id
     assert async_job_id is not None
     try:
-        celery_task_id = await dispatch_import(batch_id, dispatcher=dispatcher)
+        celery_task_id = await publish_prepared_dispatch(
+            db,
+            dispatch_lease,
+            publish=lambda: dispatch_import(
+                batch_id,
+                dispatcher=dispatcher,
+                execution_id=dispatch_lease.execution_id,
+            ),
+        )
     except MaskFormatError as exc:
         await db.rollback()
         await fail_import_dispatch(
@@ -294,9 +307,18 @@ async def execute_mask_format_import(
         status_code=202,
         detail={"format_id": batch.format_id, "plan_digest": batch.plan_digest},
     )
+    dispatch_lease = (
+        await prepare_import_dispatch(db, batch) if should_dispatch else None
+    )
     await db.commit()
     if should_dispatch:
-        await _dispatch_or_fail(db, batch=batch, dispatcher=quality_dispatcher)
+        assert dispatch_lease is not None
+        await _dispatch_or_fail(
+            db,
+            batch=batch,
+            dispatcher=quality_dispatcher,
+            dispatch_lease=dispatch_lease,
+        )
     return batch_out(batch)
 
 
@@ -349,6 +371,12 @@ async def resume_mask_format_import(
         status_code=202,
         detail={"format_id": batch.format_id, "plan_digest": batch.plan_digest},
     )
+    dispatch_lease = await prepare_import_dispatch(db, batch)
     await db.commit()
-    await _dispatch_or_fail(db, batch=batch, dispatcher=quality_dispatcher)
+    await _dispatch_or_fail(
+        db,
+        batch=batch,
+        dispatcher=quality_dispatcher,
+        dispatch_lease=dispatch_lease,
+    )
     return batch_out(batch)

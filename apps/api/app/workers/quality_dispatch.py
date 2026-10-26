@@ -23,15 +23,21 @@ class CeleryQualityJobDispatcher:
             raise ValueError(f"Unsupported quality run kind: {kind}")
         task.apply_async(args=[str(run_id)], task_id=execution_id)
 
-    def dispatch_mask_repair(self, batch_id: uuid.UUID, *, rollback: bool) -> str:
+    def dispatch_mask_repair(
+        self, batch_id: uuid.UUID, *, rollback: bool, execution_id: str
+    ) -> str:
         from app.workers.mask_repair import rollback_mask_repair, run_mask_repair
 
         task = rollback_mask_repair if rollback else run_mask_repair
-        result = task.apply_async(args=[str(batch_id)], queue="media")
+        result = task.apply_async(
+            args=[str(batch_id)], queue="media", task_id=execution_id
+        )
         return str(result.id)
 
-    def dispatch_mask_import(self, batch_id: uuid.UUID) -> str:
+    def dispatch_mask_import(self, batch_id: uuid.UUID, *, execution_id: str) -> str:
         from app.workers.mask_format_import import run_mask_format_import
 
-        result = run_mask_format_import.delay(str(batch_id))
+        result = run_mask_format_import.apply_async(
+            args=[str(batch_id)], task_id=execution_id
+        )
         return str(result.id)

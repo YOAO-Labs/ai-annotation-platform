@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from aap_assets_media.contract import MediaFailure, TimetableRequest
+from aap_jobs.dispatch_contract import DispatchLease
 
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.deps import (
@@ -87,6 +88,7 @@ from app.services.video_segment_service import (
 from app.services.video_track_quality import (
     VideoTrackQualityError,
     accept_quality_run,
+    prepare_quality_run_dispatch,
     create_quality_run,
     dispatch_quality_run,
     mark_boundary_runs_stale,
@@ -101,6 +103,7 @@ from app.services.video_tracking.jobs import (
     create_video_mask_correction_job,
     create_tracker_job,
     enqueue_tracker_job,
+    prepare_tracker_dispatch,
     list_active_tracker_jobs,
     list_reviewable_tracker_jobs,
     operate_video_mask_keyframe,
@@ -535,7 +538,7 @@ async def submit_video_segment(
         .scalars()
         .all()
     )
-    dispatches: list[tuple[uuid.UUID, uuid.UUID]] = []
+    dispatches: list[tuple[uuid.UUID, uuid.UUID, DispatchLease]] = []
     for neighbor in neighbors:
         left_id, right_id = (
             (neighbor.id, segment_id)
@@ -551,11 +554,11 @@ async def submit_video_segment(
                 actor_id=current_user.id,
                 video_metadata=ctx.metadata,
             )
+            if created and job is not None:
+                lease = await prepare_quality_run_dispatch(db, run=run, job=job)
+                dispatches.append((run.id, job.id, lease))
         except VideoTrackQualityError as exc:
             _raise_quality_error(exc)
-        if created and job is not None:
-            dispatches.append((run.id, job.id))
-    if task.status == "review":
         if not was_in_review:
             contributor_ids = await task_contributor_snapshot(
                 # Segments belong to dataset items shared by projects.
@@ -600,10 +603,14 @@ async def submit_video_segment(
         if task.batch_id:
             await batch_service.recalculate_counters(task.batch_id)
     await db.commit()
-    for run_id, job_id in dispatches:
+    for run_id, job_id, lease in dispatches:
         try:
             await dispatch_quality_run(
-                db, run_id=run_id, async_job_id=job_id, dispatcher=quality_dispatcher
+                db,
+                run_id=run_id,
+                async_job_id=job_id,
+                lease=lease,
+                dispatcher=quality_dispatcher,
             )
         except VideoTrackQualityError as exc:
             _raise_quality_error(exc)
@@ -708,6 +715,7 @@ async def run_video_track_quality_now(
     await task_access.assert_task_visible(db, task, current_user.id)
     if not await _segment_privileged(db, task, current_user):
         raise HTTPException(status_code=403, detail="reviewer privilege required")
+    lease = None
     try:
         run, job, created = await create_quality_run(
             db,
@@ -716,13 +724,19 @@ async def run_video_track_quality_now(
             right_segment_id=body.right_segment_id,
             actor_id=current_user.id,
         )
+        if created and job is not None:
+            lease = await prepare_quality_run_dispatch(db, run=run, job=job)
     except VideoTrackQualityError as exc:
         _raise_quality_error(exc)
     await db.commit()
-    if created and job is not None:
+    if created and job is not None and lease is not None:
         try:
             await dispatch_quality_run(
-                db, run_id=run.id, async_job_id=job.id, dispatcher=quality_dispatcher
+                db,
+                run_id=run.id,
+                async_job_id=job.id,
+                lease=lease,
+                dispatcher=quality_dispatcher,
             )
         except VideoTrackQualityError as exc:
             _raise_quality_error(exc)
@@ -1161,11 +1175,13 @@ async def create_video_mask_correction(
         },
     )
     try:
+        dispatch_lease = await prepare_tracker_dispatch(db, body.id)
         await db.commit()
         enqueued = await enqueue_tracker_job(
             db,
             body.id,
             dispatcher=tracker_dispatcher,
+            dispatch_lease=dispatch_lease,
             fail_closed=True,
         )
     except HTTPException as exc:

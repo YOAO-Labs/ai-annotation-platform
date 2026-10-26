@@ -12,8 +12,10 @@ from typing import Any, Iterator
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aap_jobs.dispatch_contract import DispatchLease
+
 from app.config import settings
-from app.db.models.async_job import AsyncJob, AsyncJobKind
+from app.db.models.async_job import AsyncJobKind
 from app.db.models.project import Project
 from app.schemas.mask_format import (
     MaskFormatImportBatchOut,
@@ -438,11 +440,26 @@ async def resume_import(
     return linked.mask_import
 
 
+async def prepare_import_dispatch(
+    db: AsyncSession, batch: MaskFormatImportSnapshot
+) -> DispatchLease:
+    from app.services.jobs_dispatch import prepare_job_dispatch
+
+    assert batch.async_job_id is not None
+    await db.flush()
+    return await prepare_job_dispatch(
+        db,
+        job_id=batch.async_job_id,
+        task_name="app.workers.mask_format_import.run_mask_format_import",
+        args=[str(batch.id)],
+    )
+
+
 async def dispatch_import(
-    batch_id: uuid.UUID, *, dispatcher: QualityJobDispatcher
+    batch_id: uuid.UUID, *, dispatcher: QualityJobDispatcher, execution_id: str
 ) -> str:
     try:
-        return dispatcher.dispatch_mask_import(batch_id)
+        return dispatcher.dispatch_mask_import(batch_id, execution_id=execution_id)
     except Exception as exc:
         raise MaskFormatError(
             "format_import_dispatch_failed",
@@ -654,7 +671,7 @@ async def record_import_dispatch_task(
     )
     if data.mask_import is None:
         return
-    job = await db.get(AsyncJob, async_job_id)
+    job = await async_job_svc.get_job(db, async_job_id)
     if job is not None:
         async_job_svc.bind_execution_id(job, celery_task_id)
 

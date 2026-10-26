@@ -174,53 +174,43 @@ Jobs read/write surface.
 ## Private Celery queue owner
 
 The optional `aap-jobs-queue` runtime accepts the existing JSON Celery dispatch
-and cooperative revoke requests over `aap-jobs-queue/v1`. It holds only the
+and cooperative revoke requests over `aap-jobs-queue/v2`. It holds only the
 Celery broker URL and a private service bearer; it has no API, database, or
 Identity dependency. The API keeps its embedded Celery transport when
 `JOBS_QUEUE_URL` is blank. An explicit remote URL never falls back to the local
 broker.
 
-Consumers include cross-frame propagation, the project, batch, and Data
-Manager annotation-export endpoints, and the existing quality and video-tracker
-dispatch ports.
-Cross-frame sends one positional job ID;
-exports send the existing keyword payload. Both use the shared `task_routes`
-resource, which routes exports to the existing `export` queue. Each publication
-has a preselected execution ID. Cross-frame stores it before dispatch; project and batch workers
-bind it when they claim the job; Data Manager binds it after successful broker
-acceptance and marks the durable job failed if dispatch raises. A pending Data
-Manager idempotency retry keeps the job and assigns a new publication ID, as
-before. The reply confirms broker acceptance only. Revoke uses `terminate=False` and does not
-prove a task stopped. Custom task options, Celery canvases, other task payloads,
-and non-JSON serializers remain unqualified. Bounded local API/owner/worker and
-full-database-restore evidence is recorded separately for [cross-frame
-composition](../../docs-site/dev/concepts/module-deployment.md#jobs-lifecycle-queue)
-and [annotation exports](../../docs-site/dev/concepts/module-deployment.md#jobs-export-dispatch).
-This does not qualify the remaining producers or complete Jobs credential
-closure.
+Consumers include ordinary batch prediction with its original dynamic CPU/GPU
+queue and soft time limit, existing failed-prediction retry dispatch, frame
+fan-out, cross-frame propagation, all three annotation-export endpoints, and
+the existing quality and video-tracker ports. Audit metadata and task events
+use the selected transport but retain their existing synchronous fallback;
+they are domain delivery, not durable user Jobs.
+
+The queue accepts only native JSON, the explicit `queue` and `soft_time_limit`
+options, cooperative revoke, and a single flat canvas with frozen child,
+group and mutable callback IDs. Nested canvases and arbitrary Celery options
+are not supported. Static routes and Celery's publisher retry policy remain
+unchanged. The reply confirms broker acceptance only. Revoke uses
+`terminate=False` and does not prove execution stopped.
+Qualification and applicable deployment status are recorded in the
+[module ledger](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账).
 
 The quality port sends one positional UUID to each existing `media` task: mask
 QC, point-cloud quality, video-track quality, mask repair, repair rollback, and
 mask-format import. Its synchronous adapter uses the same bounded HTTP contract
-without entering another event loop. Run IDs keep their persisted execution
-IDs; repair and import generate an ID before publication and bind it afterward,
-as with the embedded transport. Client credentials are loaded only at dispatch,
-so configuration failure reaches the existing durable failure handling.
-Broker acceptance alone does not close the commit-to-publish crash window or
-the repair/import publication-to-ID-binding window. These business workflows
-and their recovery policies remain unchanged. The current independent-runtime
-qualification status is tracked in the
-[module ledger](../../docs-site/dev/concepts/module-deployment.md#jobs-quality-dispatch).
+without entering another event loop. All execution IDs are selected and
+persisted before publication; the original domain binding and failure policies
+remain after publication. Credentials are loaded only at dispatch, so explicit
+remote configuration failures never fall back to the embedded broker.
 
 Video tracking uses the same synchronous client and its existing `gpu` route.
 The API and mask-repair worker select the same dispatcher factory. Creation
-and correction still bind the returned execution ID after accepted publication;
-cancellation still commits the cancelled state and audit before redriving the
-same job. Unconfirmed redrive returns the existing retryable 503, and repeat
-cancellation keeps the single audit. This does not close the publication-to-ID
-binding window or promise exactly-once task delivery. Independent-runtime
-qualification is tracked in the
-[tracker ledger](../../docs-site/dev/concepts/module-deployment.md#jobs-video-tracker-dispatch).
+and correction persist the complete summary and dispatch intent in their
+acceptance transaction, then bind the accepted ID as before. Cancellation
+commits its state, one audit, and the scoped retirement intent before redriving
+the same canonical tracker. Unconfirmed redrive keeps the existing retryable 503. Tracking and correction both require a matching cancelled canonical
+tracker before terminal redrive is allowed.
 
 The standalone `apps/jobs/Dockerfile.queue` image runs as UID 10005, exposes no
 host port, and reads `JOBS_QUEUE_BROKER_URL_FILE` and `JOBS_QUEUE_TOKEN_FILE`.
@@ -229,3 +219,42 @@ on the same private Compose network to use `http://jobs-queue:8190`. Host-run
 development APIs keep the embedded transport unless a separately reachable
 private endpoint is provided. This runtime does not change the default worker
 or deployment path.
+
+## Durable dispatch handoff
+
+`aap-jobs-dispatch-ledger/v1` freezes complete queue envelopes in the Jobs-owned
+private `aap_jobs_v1.dispatch_intents` table. Migration 0368, the packaged SQL,
+and `dispatch.schema.json` define the Native ABI:
+
+- API: `prepare_dispatch(jsonb)`, `finish_dispatch(jsonb)`, `dispatch_status(uuid)`.
+- Relay: `claim_dispatches(jsonb)`, `finish_dispatch(jsonb)`, `dispatch_status(uuid)`.
+
+Preparation borrows the caller transaction and never commits it. Publication
+happens only after acceptance commits; a separate short transaction records
+the fenced acknowledgement. Unknown publication or a lost acknowledgement
+keeps the same envelope and IDs recoverable. The separate relay claims one
+item immediately before publishing, so queued items do not lose their lease
+while waiting behind network calls. Expired generations cannot acknowledge
+new claims. Confirmed submissions are not automatically replayed.
+
+The API's input admission and domain failure policies remain authoritative:
+unfinished HTTP input admission is not reconstructed from summary metadata;
+existing retry delivery keeps its own ledger. Terminal ordinary Jobs retire
+unsubmitted intents, while tracker retirement has the narrow canonical proof
+above. A lease timeout never proves physical execution stopped.
+
+The relay uses the same immutable image with the `aap-jobs-dispatch-relay`
+entrypoint. Install `infra/docker/jobs-dispatch-grants.sql` for an explicit
+database and distinct function-only relay LOGIN, then combine
+`docker-compose.jobs-dispatch-relay.yml` with the queue assembly. Queue secrets
+are broker plus bearer; relay secrets are the narrow DSN plus bearer, never
+broker or API/migration credentials. Neither role has direct ledger access.
+
+Outside Compose, set `JOBS_DISPATCH_RELAY_ENABLED=true`,
+`JOBS_DISPATCH_RELAY_DATABASE_URL[_FILE]`, `JOBS_QUEUE_URL` and
+`JOBS_QUEUE_TOKEN[_FILE]`. Direct and file selectors conflict. Optional bounded
+settings are `JOBS_DISPATCH_RELAY_BATCH_SIZE`, `JOBS_DISPATCH_RELAY_LEASE_SECONDS`
+and `JOBS_DISPATCH_RELAY_POLL_SECONDS`. Frame recovery reuses the frozen logical
+segment IDs and completes only from the full canonical receipt set, not from
+duplicate chord header results. This is at-least-once publication, not
+exactly-once execution or a general historical-writer retirement system.

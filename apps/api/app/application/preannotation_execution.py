@@ -2336,6 +2336,28 @@ async def _execute_preannotation(
                     "candidate_count": accepted_video_manifest.header.candidate_count,
                 },
             }
+
+        def execution_stages():
+            if pipeline_stages:
+                return sorted(pipeline_stages, key=lambda stage: stage["stage"])
+            return [
+                {
+                    "stage": 0,
+                    "ml_backend_id": ml_backend_id,
+                    "model_id": model_id,
+                    "task": visual_task,
+                    "prompt_type": prompt_type,
+                    "model_variants": model_variants,
+                    "params": params,
+                    "class_filter": class_filter,
+                    "parent_stage": None,
+                    "roi": None,
+                    "write": None,
+                }
+            ]
+
+        if execution_unit == "frame":
+            stages = execution_stages()
         if video_manifest_backed:
             if precreated_job is None:
                 raise ValueError("retained video execution requires a durable Job")
@@ -2432,6 +2454,41 @@ async def _execute_preannotation(
         else:
             aj = precreated_job
             await async_job_svc.update_payload(db, aj.id, job_payload)
+        prepared_frame_dispatch = None
+        if execution_unit == "frame" and video_task_plans:
+            if frame_dispatcher is None:
+                raise RuntimeError("frame execution requires a frame dispatcher")
+            if accepted_video_manifest is None:
+                raise ValueError("frame execution has no sealed video manifest")
+            prepared_frame_dispatch = await frame_dispatcher.prepare(
+                FramePreannotationDispatchRequest(
+                    project_id=project_id,
+                    ml_backend_id=ml_backend_id,
+                    stage0=stages[0],
+                    job_id=str(aj.id),
+                    root_execution_id=celery_task_id,
+                    actor_id=str(actor.id),
+                    video_task_plans=tuple(video_task_plans),
+                    accepted_video_manifest_id=request.accepted_video_manifest_id,
+                    accepted_video_selection_digest=(
+                        request.accepted_video_selection_digest
+                    ),
+                    accepted_video_sealed_digest=(
+                        accepted_video_manifest.header.sealed_digest
+                    ),
+                ),
+                db=db,
+            )
+            if prepared_frame_dispatch.lease is None:
+                raise RuntimeError("frame preparation did not retain its publication")
+            aj.result = {
+                **(aj.result or {}),
+                "frame_dispatch": {
+                    "intent_id": str(prepared_frame_dispatch.lease.intent_id),
+                    "segment_ids": list(prepared_frame_dispatch.segment_ids),
+                    "total_frames": prepared_frame_dispatch.total_frames,
+                },
+            }
         await db.commit()
         async_job_id = aj.id
 
@@ -2562,27 +2619,8 @@ async def _execute_preannotation(
 
         from app.services.storage import resolve_task_url as _resolve_task_url
 
-        # v0.18.1 · 阶段化: 归一化 stages (缺省=单阶段, 由平铺参数合成, 与现状逐字等价)。
-        # 为每个阶段构造 client + context: 源阶段 (parent_stage=None) 复用上面的 context;
-        # 下游阶段不带 prompt (吃 crop 跑分类), 各用本阶段的 model/variant/params。
-        if pipeline_stages:
-            stages = sorted(pipeline_stages, key=lambda s: s["stage"])
-        else:
-            stages = [
-                {
-                    "stage": 0,
-                    "ml_backend_id": ml_backend_id,
-                    "model_id": model_id,
-                    "task": visual_task,
-                    "prompt_type": prompt_type,
-                    "model_variants": model_variants,
-                    "params": params,
-                    "class_filter": class_filter,
-                    "parent_stage": None,
-                    "roi": None,
-                    "write": None,
-                }
-            ]
+        if execution_unit != "frame":
+            stages = execution_stages()
 
         # v0.21.7 · 逐帧执行单位: 视频 task 逐帧跑图像 backend (二级 Celery fan-out chord)。
         # 首刀 = 源**单阶段**检测; 多阶段逐帧不在范围 (frame × depth 组合爆炸, 见 plan)。
@@ -2649,24 +2687,9 @@ async def _execute_preannotation(
                 )
                 return
 
-            disp = await frame_dispatcher(
-                FramePreannotationDispatchRequest(
-                    project_id=project_id,
-                    ml_backend_id=ml_backend_id,
-                    stage0=stages[0],
-                    job_id=str(async_job_id),
-                    root_execution_id=celery_task_id,
-                    actor_id=str(actor.id),
-                    video_task_plans=tuple(video_task_plans),
-                    accepted_video_manifest_id=(request.accepted_video_manifest_id),
-                    accepted_video_selection_digest=(
-                        request.accepted_video_selection_digest
-                    ),
-                    accepted_video_sealed_digest=(
-                        accepted_video_manifest.header.sealed_digest
-                    ),
-                )
-            )
+            if prepared_frame_dispatch is None:
+                raise RuntimeError("frame publication has no committed preparation")
+            disp = await frame_dispatcher(prepared_frame_dispatch, db=db)
             if disp.dispatched:
                 prediction_progress.publish_progress(
                     project_id,

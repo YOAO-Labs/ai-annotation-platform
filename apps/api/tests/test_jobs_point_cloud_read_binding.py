@@ -25,6 +25,10 @@ from tests.test_jobs_single_read_native import (
 )
 
 
+async def _publish_prepared_dispatch(_db, _lease, *, publish):
+    return publish()
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("status", "payload", "expected"),
@@ -63,15 +67,23 @@ async def test_cancel_probe_without_job_id_does_not_query():
 @pytest.mark.asyncio
 async def test_dispatch_uses_facade_and_preserves_errors(monkeypatch):
     run_id, job_id = uuid.uuid4(), uuid.uuid4()
-    run = SimpleNamespace(id=run_id)
+    run = SimpleNamespace(id=run_id, async_job_id=job_id)
     job = SimpleNamespace(celery_task_id="quality-task")
+    lease = SimpleNamespace(job_id=job_id, execution_id="quality-task")
     db = Mock(get=AsyncMock(return_value=run))
     get_job = AsyncMock(return_value=job)
     dispatcher = Mock()
     monkeypatch.setattr(quality_service, "get_job", get_job)
+    monkeypatch.setattr(
+        quality_service, "publish_prepared_dispatch", _publish_prepared_dispatch
+    )
 
     await quality_service.dispatch_quality_run(
-        db, run_id=run_id, async_job_id=job_id, dispatcher=dispatcher
+        db,
+        run_id=run_id,
+        async_job_id=job_id,
+        lease=lease,
+        dispatcher=dispatcher,
     )
 
     assert get_job.await_args.args == (db, job_id)
@@ -84,7 +96,11 @@ async def test_dispatch_uses_facade_and_preserves_errors(monkeypatch):
     get_job.return_value = None
     with pytest.raises(PointCloudQualityError) as invalid:
         await quality_service.dispatch_quality_run(
-            db, run_id=run_id, async_job_id=job_id, dispatcher=dispatcher
+            db,
+            run_id=run_id,
+            async_job_id=job_id,
+            lease=lease,
+            dispatcher=dispatcher,
         )
     assert invalid.value.status_code == 500
     assert invalid.value.detail["reason"] == "point_cloud_quality_dispatch_invalid"
@@ -93,7 +109,11 @@ async def test_dispatch_uses_facade_and_preserves_errors(monkeypatch):
     dispatcher.dispatch_run.side_effect = RuntimeError("broker unavailable")
     with pytest.raises(PointCloudQualityError) as failed:
         await quality_service.dispatch_quality_run(
-            db, run_id=run_id, async_job_id=job_id, dispatcher=dispatcher
+            db,
+            run_id=run_id,
+            async_job_id=job_id,
+            lease=lease,
+            dispatcher=dispatcher,
         )
     assert failed.value.status_code == 503
     assert failed.value.detail["reason"] == "point_cloud_quality_dispatch_failed"
@@ -106,7 +126,7 @@ async def test_dispatch_uses_facade_and_preserves_errors(monkeypatch):
     reason="requires verifier-owned strict Jobs role and disposable database",
 )
 async def test_quality_reads_keep_jobs_owner_and_session_behavior(
-    db_session, project_admin
+    db_session, project_admin, monkeypatch
 ):
     actor, _token = project_admin
     project = await create_project(db_session, owner_id=actor.id)
@@ -133,9 +153,16 @@ async def test_quality_reads_keep_jobs_owner_and_session_behavior(
     db_session.add(run)
     await db_session.flush()
     run_id, job_id = run.id, job.id
+    lease = SimpleNamespace(job_id=job_id, execution_id="quality-task")
     db_session.expunge(job)
     db_session.expunge(run)
 
+    async def publish_prepared_dispatch(_db, _lease, *, publish):
+        return publish()
+
+    monkeypatch.setattr(
+        quality_service, "publish_prepared_dispatch", publish_prepared_dispatch
+    )
     async with _without_private_job_select(db_session):
         dispatcher = Mock()
         with _sql_capture(db_session) as statements:
@@ -143,6 +170,7 @@ async def test_quality_reads_keep_jobs_owner_and_session_behavior(
                 db_session,
                 run_id=run_id,
                 async_job_id=job_id,
+                lease=lease,
                 dispatcher=dispatcher,
             )
         dispatcher.dispatch_run.assert_called_once_with(

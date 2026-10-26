@@ -46,9 +46,9 @@ async def _restricted_http_world(test_engine, app_module, monkeypatch):
         def __init__(self):
             self.jobs = []
 
-        def dispatch_tracker_job(self, job_id):
+        def dispatch_tracker_job(self, job_id, *, execution_id):
             self.jobs.append(job_id)
-            return str(uuid.uuid4())
+            return execution_id
 
     dispatcher = Dispatcher()
     monkeypatch.setitem(

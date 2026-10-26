@@ -452,10 +452,10 @@ class _UnavailableDispatcher:
     def dispatch_run(self, kind, run_id, *, execution_id):
         raise RuntimeError("dispatch intentionally unavailable")
 
-    def dispatch_mask_repair(self, batch_id, *, rollback):
+    def dispatch_mask_repair(self, batch_id, *, rollback, execution_id):
         raise RuntimeError("dispatch intentionally unavailable")
 
-    def dispatch_mask_import(self, batch_id):
+    def dispatch_mask_import(self, batch_id, *, execution_id):
         raise RuntimeError("dispatch intentionally unavailable")
 
 

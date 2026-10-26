@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
+
+if TYPE_CHECKING:
+    from aap_jobs.dispatch_contract import DispatchLease
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,9 +85,20 @@ class FramePreannotationDispatchReceipt:
     total_frames: int
 
 
+@dataclass(frozen=True, slots=True)
+class PreparedFramePreannotationDispatch:
+    lease: DispatchLease | None
+    segment_ids: tuple[str, ...]
+    total_frames: int
+
+
 class FramePreannotationDispatcher(Protocol):
+    async def prepare(
+        self, request: FramePreannotationDispatchRequest, *, db: Any
+    ) -> PreparedFramePreannotationDispatch: ...
+
     async def __call__(
-        self, request: FramePreannotationDispatchRequest
+        self, prepared: PreparedFramePreannotationDispatch, *, db: Any
     ) -> FramePreannotationDispatchReceipt: ...
 
 

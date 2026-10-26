@@ -52,6 +52,7 @@ from app.services.video_frame_service import AssetsVideoContextReader
 from app.services.video_tracking.jobs import (
     create_video_mask_correction_job,
     enqueue_tracker_job,
+    prepare_tracker_dispatch,
 )
 from app.services.video_tracking.dispatch import VideoTrackerJobDispatcher
 
@@ -248,8 +249,15 @@ async def _run_tracker_candidate(
         payload=request,
         user=actor,
     )
+    dispatch_lease = await prepare_tracker_dispatch(db, job.id)
     await db.commit()
-    job = await enqueue_tracker_job(db, job.id, dispatcher=dispatcher, fail_closed=True)
+    job = await enqueue_tracker_job(
+        db,
+        job.id,
+        dispatcher=dispatcher,
+        dispatch_lease=dispatch_lease,
+        fail_closed=True,
+    )
     return {
         "status": "completed",
         "kind": "rerun_tracker",

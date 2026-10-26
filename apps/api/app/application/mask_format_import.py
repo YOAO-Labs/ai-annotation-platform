@@ -55,7 +55,7 @@ async def run_mask_format_import(
             batch = await lock_import(db, import_id=import_id)
             if batch is None or batch.async_job_id is None:
                 raise RuntimeError("mask format import batch not found")
-            job = await db.get(AsyncJob, batch.async_job_id)
+            job = await async_job_svc.get_job(db, batch.async_job_id)
             if job is None:
                 raise RuntimeError("mask format import async job not found")
             if (
@@ -135,7 +135,7 @@ async def run_mask_format_import(
                         raise RuntimeError("mask format import batch disappeared")
                     if batch.async_job_id != job_id:
                         return
-                    job = await db.get(AsyncJob, job_id)
+                    job = await async_job_svc.get_job(db, job_id)
                     if job is None:
                         raise RuntimeError("mask format import async job disappeared")
                     if await cancel_if_requested(db, batch=batch, job=job):

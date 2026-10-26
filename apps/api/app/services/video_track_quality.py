@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 from sqlalchemy.ext.asyncio import AsyncSession
+from aap_jobs.dispatch_contract import DispatchLease
 
 from app.db.models.annotation import Annotation
 from app.services.project_access import get_workspace_project
@@ -25,6 +26,10 @@ from app.services.mask_formats.image_codecs import rasterize_normalized_polygon
 from app.services.mask_qc.service import canonical_digest
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.services.quality_job_lifecycle import QualityJobLifecycle
+from app.services.jobs_dispatch import (
+    prepare_job_dispatch,
+    publish_prepared_dispatch,
+)
 from app.services.mask_qc.topology import compare_rles
 from app.services.raster_mask_storage import load_coco_rle
 from app.services.video_collaboration import (
@@ -286,21 +291,55 @@ async def _update_video_run(
     return run
 
 
+async def prepare_quality_run_dispatch(
+    db: AsyncSession,
+    *,
+    run: VideoTrackQualityRun,
+    job: AsyncJob,
+) -> DispatchLease:
+    if run.async_job_id != job.id or not job.celery_task_id:
+        raise VideoTrackQualityError(500, "video_track_quality_dispatch_invalid")
+    try:
+        return await prepare_job_dispatch(
+            db,
+            job_id=job.id,
+            task_name="app.workers.video_track_quality.run",
+            execution_id=job.celery_task_id,
+            args=[str(run.id)],
+        )
+    except Exception as exc:
+        raise VideoTrackQualityError(
+            503, "video_track_quality_dispatch_failed"
+        ) from exc
+
+
 async def dispatch_quality_run(
     db: AsyncSession,
     *,
     run_id: uuid.UUID,
     async_job_id: uuid.UUID,
+    lease: DispatchLease,
     dispatcher: QualityJobDispatcher,
 ) -> None:
     result = await spatial_quality_data(db, "get_video_run", run_id=run_id)
     run = quality_row(VideoTrackQualityRun, result["row"]) if result["row"] else None
     job = await async_job_svc.get_job(db, async_job_id)
-    if run is None or job is None or not job.celery_task_id:
+    if (
+        run is None
+        or run.async_job_id != async_job_id
+        or job is None
+        or not job.celery_task_id
+        or lease.job_id != async_job_id
+        or lease.execution_id != job.celery_task_id
+    ):
         raise VideoTrackQualityError(500, "video_track_quality_dispatch_invalid")
     try:
-        dispatcher.dispatch_run(
-            "video_track_quality", run.id, execution_id=job.celery_task_id
+        await publish_prepared_dispatch(
+            db,
+            lease,
+            publish=lambda: dispatcher.dispatch_run(
+                "video_track_quality", run.id, execution_id=lease.execution_id
+            ),
         )
     except Exception as exc:
         await db.rollback()

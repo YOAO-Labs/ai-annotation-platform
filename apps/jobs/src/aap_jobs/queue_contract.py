@@ -7,7 +7,7 @@ import json
 import math
 from typing import Any
 
-JOBS_QUEUE_PROTOCOL = "aap-jobs-queue/v1"
+JOBS_QUEUE_PROTOCOL = "aap-jobs-queue/v2"
 JOBS_QUEUE_PATH = "/v1/jobs/queue"
 MAX_EXECUTION_ID_LENGTH = 64
 
@@ -21,12 +21,29 @@ class JobsQueueUnavailable(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
+class QueueTaskSpec:
+    task_name: str
+    execution_id: str
+    args: list[Any]
+    kwargs: dict[str, Any]
+    options: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
 class QueueDispatch:
     task_name: str
     execution_id: str
     args: list[Any]
     kwargs: dict[str, Any]
     options: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class QueueCanvas:
+    execution_id: str
+    group_id: str
+    tasks: list[QueueTaskSpec]
+    callback: QueueTaskSpec
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,16 +114,11 @@ def _native_json(value: Any) -> None:
         raise JobsQueueContractError()
 
 
-def _dispatch(value: dict[str, Any]) -> QueueDispatch:
-    if set(value) != {
-        "schema",
-        "operation",
-        "task_name",
-        "execution_id",
-        "args",
-        "kwargs",
-        "options",
-    }:
+_TASK_SPEC_KEYS = {"task_name", "execution_id", "args", "kwargs", "options"}
+
+
+def _task_spec(value: Any) -> QueueTaskSpec:
+    if type(value) is not dict or set(value) != _TASK_SPEC_KEYS:
         raise JobsQueueContractError()
     task_name = value["task_name"]
     args = value["args"]
@@ -118,12 +130,28 @@ def _dispatch(value: dict[str, Any]) -> QueueDispatch:
         or type(args) is not list
         or type(kwargs) is not dict
         or type(options) is not dict
-        or options
     ):
         raise JobsQueueContractError()
     _native_json(args)
     _native_json(kwargs)
-    return QueueDispatch(
+    if any(type(key) is not str for key in options):
+        raise JobsQueueContractError()
+    if set(options) - {"queue", "soft_time_limit"}:
+        raise JobsQueueContractError()
+    if "queue" in options and (
+        type(options["queue"]) is not str or not options["queue"]
+    ):
+        raise JobsQueueContractError()
+    if "soft_time_limit" in options:
+        limit = options["soft_time_limit"]
+        if (
+            type(limit) not in (int, float)
+            or limit <= 0
+            or (type(limit) is float and not math.isfinite(limit))
+        ):
+            raise JobsQueueContractError()
+    _native_json(options)
+    return QueueTaskSpec(
         task_name=task_name,
         execution_id=_execution_id(value["execution_id"]),
         args=args,
@@ -132,7 +160,84 @@ def _dispatch(value: dict[str, Any]) -> QueueDispatch:
     )
 
 
-def decode_queue_request(body: bytes) -> QueueDispatch | QueueRevoke:
+def _dispatch(value: dict[str, Any]) -> QueueDispatch:
+    if set(value) != {"schema", "operation", *_TASK_SPEC_KEYS}:
+        raise JobsQueueContractError()
+    spec = _task_spec(
+        {
+            "task_name": value["task_name"],
+            "execution_id": value["execution_id"],
+            "args": value["args"],
+            "kwargs": value["kwargs"],
+            "options": value["options"],
+        }
+    )
+    return QueueDispatch(
+        task_name=spec.task_name,
+        execution_id=spec.execution_id,
+        args=spec.args,
+        kwargs=spec.kwargs,
+        options=spec.options,
+    )
+
+
+def _canvas(value: dict[str, Any]) -> QueueCanvas:
+    if set(value) != {
+        "schema",
+        "operation",
+        "execution_id",
+        "group_id",
+        "tasks",
+        "callback",
+    }:
+        raise JobsQueueContractError()
+    execution_id = _execution_id(value["execution_id"])
+    group_id = _execution_id(value["group_id"])
+    raw_tasks = value["tasks"]
+    if type(raw_tasks) is not list or not raw_tasks:
+        raise JobsQueueContractError()
+    callback = _task_spec(value["callback"])
+    if callback.execution_id != execution_id:
+        raise JobsQueueContractError()
+    seen_ids = {group_id, execution_id}
+    if len(seen_ids) != 2:
+        raise JobsQueueContractError()
+    tasks = []
+    for raw_task in raw_tasks:
+        task = _task_spec(raw_task)
+        if task.execution_id in seen_ids:
+            raise JobsQueueContractError()
+        seen_ids.add(task.execution_id)
+        tasks.append(task)
+    return QueueCanvas(
+        execution_id=execution_id,
+        group_id=group_id,
+        tasks=tasks,
+        callback=callback,
+    )
+
+
+def _queue_request(value: Any) -> QueueDispatch | QueueCanvas | QueueRevoke:
+    if (
+        type(value) is not dict
+        or value.get("schema") != JOBS_QUEUE_PROTOCOL
+        or type(value.get("operation")) is not str
+    ):
+        raise JobsQueueContractError()
+    if value["operation"] == "dispatch":
+        return _dispatch(value)
+    if value["operation"] == "canvas":
+        return _canvas(value)
+    if value["operation"] == "revoke":
+        if set(value) != {"schema", "operation", "execution_id"}:
+            raise JobsQueueContractError()
+        return QueueRevoke(_execution_id(value["execution_id"]))
+    raise JobsQueueContractError()
+
+
+def decode_queue_request(
+    body: bytes,
+) -> QueueDispatch | QueueCanvas | QueueRevoke:
     try:
         value = json.loads(
             body,
@@ -142,38 +247,10 @@ def decode_queue_request(body: bytes) -> QueueDispatch | QueueRevoke:
         )
     except (UnicodeDecodeError, ValueError, RecursionError) as exc:
         raise JobsQueueContractError() from exc
-    if (
-        type(value) is not dict
-        or value.get("schema") != JOBS_QUEUE_PROTOCOL
-        or type(value.get("operation")) is not str
-    ):
-        raise JobsQueueContractError()
-    if value["operation"] == "dispatch":
-        return _dispatch(value)
-    if value["operation"] == "revoke":
-        if set(value) != {"schema", "operation", "execution_id"}:
-            raise JobsQueueContractError()
-        return QueueRevoke(_execution_id(value["execution_id"]))
-    raise JobsQueueContractError()
+    return _queue_request(value)
 
 
-def encode_dispatch_request(
-    task_name: str,
-    execution_id: str,
-    args: list[Any],
-    kwargs: dict[str, Any] | None = None,
-    options: dict[str, Any] | None = None,
-) -> bytes:
-    value = {
-        "schema": JOBS_QUEUE_PROTOCOL,
-        "operation": "dispatch",
-        "task_name": task_name,
-        "execution_id": execution_id,
-        "args": args,
-        "kwargs": {} if kwargs is None else kwargs,
-        "options": {} if options is None else options,
-    }
-    _dispatch(value)
+def _encode_json(value: dict[str, Any]) -> bytes:
     try:
         return json.dumps(
             value,
@@ -185,13 +262,57 @@ def encode_dispatch_request(
         raise JobsQueueContractError() from exc
 
 
+def encode_queue_request(value: dict[str, Any]) -> bytes:
+    _queue_request(value)
+    return _encode_json(value)
+
+
+def encode_dispatch_request(
+    task_name: str,
+    execution_id: str,
+    args: list[Any],
+    kwargs: dict[str, Any] | None = None,
+    options: dict[str, Any] | None = None,
+) -> bytes:
+    return encode_queue_request(
+        {
+            "schema": JOBS_QUEUE_PROTOCOL,
+            "operation": "dispatch",
+            "task_name": task_name,
+            "execution_id": execution_id,
+            "args": args,
+            "kwargs": {} if kwargs is None else kwargs,
+            "options": {} if options is None else options,
+        }
+    )
+
+
+def encode_canvas_request(
+    execution_id: str,
+    group_id: str,
+    tasks: list[dict[str, Any]],
+    callback: dict[str, Any],
+) -> bytes:
+    return encode_queue_request(
+        {
+            "schema": JOBS_QUEUE_PROTOCOL,
+            "operation": "canvas",
+            "execution_id": execution_id,
+            "group_id": group_id,
+            "tasks": tasks,
+            "callback": callback,
+        }
+    )
+
+
 def encode_revoke_request(execution_id: str) -> bytes:
-    value = {
-        "schema": JOBS_QUEUE_PROTOCOL,
-        "operation": "revoke",
-        "execution_id": _execution_id(execution_id),
-    }
-    return json.dumps(value, separators=(",", ":")).encode("utf-8")
+    return encode_queue_request(
+        {
+            "schema": JOBS_QUEUE_PROTOCOL,
+            "operation": "revoke",
+            "execution_id": execution_id,
+        }
+    )
 
 
 def encode_queue_reply(*, accepted: bool, execution_id: str) -> bytes:
@@ -202,7 +323,7 @@ def encode_queue_reply(*, accepted: bool, execution_id: str) -> bytes:
         "accepted": accepted,
         "execution_id": _execution_id(execution_id),
     }
-    return json.dumps(value, separators=(",", ":")).encode("utf-8")
+    return _encode_json(value)
 
 
 def decode_queue_reply(body: bytes) -> QueueReply:

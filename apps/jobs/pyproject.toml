@@ -11,6 +11,7 @@ dependencies = ["pydantic>=2.10.0"]
 
 [project.optional-dependencies]
 queue-client = ["httpx>=0.28.1"]
+dispatch-relay = ["asyncpg>=0.30.0", "httpx>=0.28.1"]
 queue-runtime = [
     "celery>=5.4.0",
     "redis>=5.2.0",
@@ -26,6 +27,7 @@ test = [
 
 [project.scripts]
 aap-jobs-queue = "aap_jobs.queue_runtime:main"
+aap-jobs-dispatch-relay = "aap_jobs.dispatch_relay:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/aap_jobs"]
@@ -51,6 +53,8 @@ packages = ["src/aap_jobs"]
 
 "src/aap_jobs/action_idempotency.schema.json" = "aap_jobs/action_idempotency.schema.json"
 "src/aap_jobs/sql/0332_jobs_action_idempotency.sql" = "aap_jobs/sql/0332_jobs_action_idempotency.sql"
+"src/aap_jobs/dispatch.schema.json" = "aap_jobs/dispatch.schema.json"
+"src/aap_jobs/sql/0368_jobs_dispatch_ledger.sql" = "aap_jobs/sql/0368_jobs_dispatch_ledger.sql"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

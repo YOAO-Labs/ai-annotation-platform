@@ -1,19 +1,46 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "aap-jobs-queue/v1",
+  "$id": "aap-jobs-queue/v2",
   "title": "AAP Jobs private Celery queue protocol",
-  "$comment": "Broker acceptance does not prove task completion. Revoke requests use terminate=false. This first consumer supports no custom Celery options or canvases.",
+  "$comment": "Broker acceptance does not prove task completion. Revoke requests use terminate=false. Canvas is one flat chord of name-only tasks; callback results are prepended by Celery.",
+  "$defs": {
+    "executionId": {
+      "maxLength": 64,
+      "minLength": 1,
+      "type": "string"
+    },
+    "options": {
+      "additionalProperties": false,
+      "properties": {
+        "queue": { "minLength": 1, "type": "string" },
+        "soft_time_limit": { "exclusiveMinimum": 0, "type": "number" }
+      },
+      "type": "object"
+    },
+    "taskSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "task_name": { "minLength": 1, "type": "string" },
+        "execution_id": { "$ref": "#/$defs/executionId" },
+        "args": { "items": {}, "type": "array" },
+        "kwargs": { "additionalProperties": {}, "type": "object" },
+        "options": { "$ref": "#/$defs/options" }
+      },
+      "required": ["task_name", "execution_id", "args", "kwargs", "options"],
+      "type": "object"
+    }
+  },
   "oneOf": [
     {
       "additionalProperties": false,
       "properties": {
-        "schema": { "const": "aap-jobs-queue/v1" },
+        "schema": { "const": "aap-jobs-queue/v2" },
         "operation": { "const": "dispatch" },
         "task_name": { "minLength": 1, "type": "string" },
-        "execution_id": { "maxLength": 64, "minLength": 1, "type": "string" },
+        "execution_id": { "$ref": "#/$defs/executionId" },
         "args": { "items": {}, "type": "array" },
         "kwargs": { "additionalProperties": {}, "type": "object" },
-        "options": { "maxProperties": 0, "type": "object" }
+        "options": { "$ref": "#/$defs/options" }
       },
       "required": ["schema", "operation", "task_name", "execution_id", "args", "kwargs", "options"],
       "type": "object"
@@ -21,9 +48,26 @@
     {
       "additionalProperties": false,
       "properties": {
-        "schema": { "const": "aap-jobs-queue/v1" },
+        "schema": { "const": "aap-jobs-queue/v2" },
+        "operation": { "const": "canvas" },
+        "execution_id": { "$ref": "#/$defs/executionId" },
+        "group_id": { "$ref": "#/$defs/executionId" },
+        "tasks": {
+          "items": { "$ref": "#/$defs/taskSpec" },
+          "minItems": 1,
+          "type": "array"
+        },
+        "callback": { "$ref": "#/$defs/taskSpec" }
+      },
+      "required": ["schema", "operation", "execution_id", "group_id", "tasks", "callback"],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "schema": { "const": "aap-jobs-queue/v2" },
         "operation": { "const": "revoke" },
-        "execution_id": { "maxLength": 64, "minLength": 1, "type": "string" }
+        "execution_id": { "$ref": "#/$defs/executionId" }
       },
       "required": ["schema", "operation", "execution_id"],
       "type": "object"
@@ -32,9 +76,9 @@
   "x-response": {
     "additionalProperties": false,
     "properties": {
-      "schema": { "const": "aap-jobs-queue/v1" },
+      "schema": { "const": "aap-jobs-queue/v2" },
       "accepted": { "type": "boolean" },
-      "execution_id": { "maxLength": 64, "minLength": 1, "type": "string" }
+      "execution_id": { "$ref": "#/$defs/executionId" }
     },
     "required": ["schema", "accepted", "execution_id"],
     "type": "object"
@@ -44,7 +88,9 @@
     "resource": "aap_jobs/queue_routes.json",
     "retry": "retain the Celery task_publish_retry policy; no HTTP retry",
     "default_options": [],
-    "unsupported": ["custom task options", "canvas/group/chord", "non-JSON serializers"]
+    "supported_options": ["queue", "soft_time_limit"],
+    "supported_canvas": ["flat chord(group(tasks), callback)"],
+    "unsupported": ["nested canvas", "chains", "serialized Celery objects", "non-JSON serializers"]
   },
   "x-security": {
     "service_authentication": "constant-time bearer token checked before request body read",

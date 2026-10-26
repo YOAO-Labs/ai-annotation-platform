@@ -71,6 +71,7 @@ Labeling 未暂缓范围的运维、当前工件与本地模块门槛现已闭�
 | Insights：查询及保存视图                 | 已有本地只读组合和投影                                                                                             | 尚未完成全量 owner 读取合同迁移                                                                  | 完整独立运行未验收                                                                                                                                       | 跨 owner 批量快照／投影、授权／新鲜度／删除语义及保存视图写入待收口                                                                                                                                                                                                                                                                                              |
 | Jobs：通知范围事实                       | 三列公开关系、原生类型及版本化合同已集成                                                                           | 通知筛选和批量范围读取已迁移，保留授权及 autoflush                                               | [日聚合与 Jobs 事实](#support-daily-and-jobs-facts)：父线 27 项组合案例及真实 LOGIN／Node、40 个 Unicode 字符的 kind、完整 0323 往返通过                 | 本组操作的限定本地资格闭合；当前 API 离线工件通过，普通 API 其他作业仍需私表；不关闭完整 Jobs／冷进程恢复                                                                                                                                                                                                                                                        |
 | Jobs：列表查询                           | 两项固定 page／total 与原生行合同已集成；成员资格保留当前 Identity 事实                                            | GET 列表迁移，保留独立语句、缓存／autoflush、caller 事务与 Workspace 补充                        | [列表 owner](#jobs-list-query-owner)：十四项不同 Native／旧 API 案例、实际受限 HTTP／Node 及完整迁移往返通过                                             | 本查询 Native 操作与 API／Node 调用边界闭合；冷 API 业务、完整 Jobs 和恢复仍待验收，详情／取消／重试另按下行跟踪                                                                                                                                                                                                                                                 |
+| Jobs：非暂缓整模块收口 | 队列 V2 的动态选项／单层帧 canvas、0368 完整消息与 ID 交接及独立 relay 已实现 | 剩余三处格式导入读取、普通预标／既有重试／帧派发与已有导出、质量、修复、追踪入口已接入；原领域失败／取消及 caller UOW 保持 | [当前收口](#jobs-nonheld-module)：固定能力、真实受限 LOGIN、租约／身份／终态边界及真实帧 worker 已定向执行；原始失败收据保留 | 当前不可变工件、独立 relay 的崩溃／部分发布恢复、ready-controller 整库恢复组合与本机适用采用正在集中验收；四处 Learning 读取及暂缓 Assets 扩展不纳入本批次 |
 | Jobs：通用生命周期与队列交接             | 通用策略、固定创建／八项 Native 能力及可选私网队列 owner 已集成                                                    | 通用 helper 保留 Session／flush／缓存；首个队列调用方为跨帧传播                                  | [生命周期与队列](#jobs-lifecycle-queue)：二十二项 Native 与一个冷 API／队列／worker／完整恢复场景通过                                                    | API 兼容私表权限、其余 producer、取消完成确认、其他领域恢复及完整 Jobs 工件／凭据仍待闭合；训练／资产扩展继续暂缓                                                                                                                                                                                                                                                |
 | Jobs：详情、取消、重试与终态通知读取     | 复用已有按 ID owner 能力，无新协议或迁移                                                                           | 五个单行读取已迁移，保留强制刷新、二次授权和 caller 事务                                         | [单行读取](#jobs-api-single-reads)：三十二项纯检查、三十一项 PostgreSQL／API 用例及完整迁移往返通过                                                      | 其余领域查询及未支持的 ORM 加载仍依赖私表，不能全局收回 SELECT；训练／资产保持暂缓                                                                                                                                                                                                                                                                               |
 | Jobs：领域单行读取、按主键行锁及字段刷新 | 两项固定行锁能力与无锁字段刷新绑定已实现                                                                           | 21 处普通读取、9 处按主键行锁已迁移；原 get／refresh 两阶段保持                                  | [行访问](#jobs-row-access)：114 项不同数据库／调用方用例、117 项纯检查及 24 项子检查；当前冷工件、实际行访问与完整恢复通过                               | 其余过滤／聚合、领域读取、锁定刷新和未支持 ORM 形状仍待收口；不能全局收回私表权限                                                                                                                                                                                                                                                                                |
@@ -81,7 +82,7 @@ Labeling 未暂缓范围的运维、当前工件与本地模块门槛现已闭�
 | Jobs：普通运行创建权限                   | LAN／worktree 撤销表与列 INSERT，拒绝继承旁路，保留既有创建 view／视频摘要                                         | 两处终态筛选种子改为 pending 创建后同事务投影，原字段／审计保持                                  | [创建权限](#jobs-creation-credentials)：7 项数据库／普通账号／CLI 用例、27 项纯检查及 24 子检查通过；当前安装 API 创建／回滚和完整恢复通过               | 私表 SELECT 和其他 Jobs 操作仍待收口；UPDATE／DELETE 按下行单独验收，不新增 owner 凭据或改动暂缓领域                                                                                                                                                                                                                                                             |
 | Jobs：普通运行删除权限                   | 测试库限定的固定项目清理能力保留 Workspace 退役守卫；LAN／worktree 在宽授权后撤销 DELETE                           | 原 E2E 删除位置迁移，命名空间、保存点、提交与 409 保持；不可用返回 503 停止清理                  | [删除权限](#jobs-delete-credentials)：20 项不同原生案例、62 项纯检查及 24 子检查通过；当前冷工件／完整恢复通过                                           | 私表 SELECT、其余 producer 与恢复仍未闭合；UPDATE 见下行，截图多领域夹具继续使用自有测试库 owner，不扩大暂缓领域                                                                                                                                                                                                                                                 |
 | Jobs：普通运行更新权限                   | LAN／worktree 清除表／列 UPDATE 并拒绝继承旁路，保留既有生命周期与 invoker 校验                                    | 两条筛选夹具通过固定测试能力迁移，原字段、空时间戳、缓存及事务保持                               | [更新权限](#jobs-update-credentials)：20 项原生案例、62 项纯检查及 24 子检查通过；当前冷工件／完整恢复通过                                               | 私表 SELECT、其余 producer／消息形状和领域恢复仍开放；不改暂缓的训练／资产实现                                                                                                                                                                                                                                                                                   |
-| Jobs：动作幂等锁读与点云作业读取         | 两项固定原生锁／查询及语言无关合同已实现；点云投影复用 read_job                                                    | 项目预标／导出共享 helper 与点云质量读取迁移，保留全部匹配行锁、autoflush 和缓存                 | [动作幂等](#jobs-action-idempotency)：11 项不同原生案例、66 项纯检查及 24 子检查通过；当前冷工件／带键请求／完整恢复通过                                 | 剩余七处训练／主动学习或格式导入关联读取继续暂缓；全局 SELECT、其他 producer／消息形状与领域恢复未闭合                                                                                                                                                                                                                                                           |
+| Jobs：动作幂等锁读与点云作业读取 | 两项固定原生锁／查询及语言无关合同已实现；点云投影复用 read_job | 项目预标／导出共享 helper 与点云质量读取迁移，保留全部匹配行锁、autoflush 和缓存 | [动作幂等](#jobs-action-idempotency)保留原操作级证据；本批次三处格式导入读取已接入 getter | 仅四处训练／主动学习读取暂缓，仍需兼容 SELECT；当前全模块资格以上方整模块行及当前收口节为准 |
 | Audit：同事务业务事件追加 | 既有 typed owner 保留；通用追加独立包、版本化合同与固定 SQL 已实现 | AuditService 与普通追加构造器已迁移；保留 caller 提交／回滚、快照和 ORM 缓存，无追加后私表回读 | [追加 owner](#audit-append-owner)：既有 PG／纯检查、受限 LOGIN／Node 证据保留；本轮受限追加前置检查通过 | 默认 LAN／worktree 的私表写入、序列和树所有权已在源码收口；[当前 API／元数据 worker 冷组合](#audit-cold-consumers)通过，其他业务消费者与完整模块继续跟踪，Learning 父表 SELECT 保留 |
 | Audit：测试夹具清理 | 0366 在既有维护命令内提供固定共享／namespace 清理，保留测试库、精确路径及不可变性标记守卫 | 原 seed 清理通过同一事务／savepoint 的 typed owner 适配器调用，并经公开事件关系核对残留 | 0366 的真实受限角色、共享／namespace／回滚、非测试库拒绝及两条原 HTTP 清理路径均已定向通过 | 本操作实现与调用边界已收口；[维护冷验收](#audit-maintenance-cold-qualification)通过，不扩大 Labeling／Assets 范围 |
 | Audit：HTTP 请求元数据 | 响应后 Celery 与同步回退使用同一追加 owner；请求 ID 长度边界及原尽力投递语义保持 | 原 middleware／worker 绑定保持；孤儿 actor 回滚后匿名重试，不新增去重或可靠投递承诺 | [元数据边界](#audit-http-metadata)：真实 broker 拒绝、结果不明注入、受限追加 LOGIN、prefork 子进程 SIGKILL、重启重放及整库恢复通过 | 现有绑定及[当前冷 API／worker 组合](#audit-cold-consumers)的故障与恢复通过；业务审计 request ID 的独立遗留边界未扩修，日常独立拓扑未切换 |
@@ -2199,11 +2200,11 @@ helper、其他模块能力或角色成员资格。已有私表 INSERT 调用方
 直接字段修改与显式时间戳按真实 PostgreSQL invoker 原有的主键 SELECT 和列 UPDATE
 权限检查。普通 API 其他读写和暂缓模块仍需兼容权限，本切片不提前撤销。
 
-可选 `aap-jobs-queue/v1` 私网服务只持 broker URL 与专用 bearer，复用原 Celery
-JSON 路由及发布重试设置。首个调用方为跨帧作业：执行 ID 在第一次提交前固定，
+可选 `aap-jobs-queue/v2` 私网服务只持 broker URL 与专用 bearer，复用原 Celery
+JSON 路由及发布重试设置。跨帧执行 ID 在第一次提交前固定，
 派发异常只能修改数据库中仍 pending 的行，worker 在业务写入前拒绝终态作业。
 HTTP 不自动重试或回退；`accepted` 只证明 broker 接收，`terminate=False` 只请求撤销。
-提交与派发之间仍有原有故障窗口，不新增 outbox、幂等投递或完成确认保证。
+当前持久交接已在原接受事务中保存完整消息；边界与当前集中验收见[整模块收口](#jobs-nonheld-module)，不把首轮仅传输证据扩称为整模块资格。
 
 创建探针在独占 PostgreSQL 中验证默认值、RETURNING、重复插入、原生 JSON 和失败
 Session 回滚要求。首次 Native 十三项旧服务回归中十一项通过，两项结果／payload
@@ -2288,11 +2289,11 @@ publisher 复用镜像的 218／74 项输入均未变。实际冷组合案例首
 ## Jobs 标注导出派发 {#jobs-export-dispatch}
 
 项目、批次和 Data Manager 所选任务的标注导出通过既有
-`aap-jobs-queue/v1` 发布相同关键词参数，复用原 `export` 静态路由。
+`aap-jobs-queue/v2` 发布相同关键词参数，复用原 `export` 静态路由。
 项目／批次保留先提交作业与审计、派发后由 worker 领取时绑定执行 ID；
 所选任务导出保留先持久化 pending、再记录审计、派发成功后绑定并提交的顺序，
 失败仍标记失败并提交后重抛。pending 幂等重派继续为每次发布分配新执行 ID，
-没有套用跨帧作业的预先持久化 ID 行为。原任务范围、参数、授权与 worker 执行保持。
+但完整消息和该 ID 先随接受事务保存为 intent，发布后保留原绑定顺序；原任务范围、参数、授权与 worker 执行保持。
 
 实现和测试分别在隔离 worktree 完成，父线集成后修正新纯夹具：使用真实 `AsyncJob`
 保留现有生命周期观察，而非不可被 SQLAlchemy inspect 的替身；同时保存夹具作业引用。
@@ -2554,7 +2555,7 @@ SHA-256 为 `2e897bcd9bc34343468a1859e0550bb838120449f61e54e0aee207210ac84caf`�
 
 ## Jobs 质量检查与修复／导入派发 {#jobs-quality-dispatch}
 
-既有 `QualityJobDispatcher` 保持同步端口，三类质量 run、Mask 修复／回滚及格式导入复用 `aap-jobs-queue/v1` 和原 `media` 路由。`JOBS_QUEUE_URL` 为空继续选择原 Celery 适配器；显式远程配置在实际派发时读取专用凭据，失败交给原 caller，不回退本地 broker。同步 HTTP 客户端沿用有界响应、超时、禁止重定向和环境代理、无 HTTP 自动重试的合同。run 保留原执行 ID；修复／导入仍在发布接受后由原 caller 回绑。
+既有 `QualityJobDispatcher` 保持同步端口，三类质量 run、Mask 修复／回滚及格式导入复用 `aap-jobs-queue/v2` 和原 `media` 路由。`JOBS_QUEUE_URL` 为空继续选择原 Celery 适配器；显式远程配置在实际派发时读取专用凭据，失败交给原 caller，不回退本地 broker。同步 HTTP 客户端沿用有界响应、超时、禁止重定向和环境代理、无 HTTP 自动重试的合同。run 保留原执行 ID；修复／导入的执行 ID 和完整 intent 先保存，再于发布接受后由原 caller 回绑。
 
 10 项数据库／API 回归和 78 项队列／绑定／夹具纯检查通过，涵盖原事务、取消、单飞和失败落库；夹具修复后的 29 项是其中子集，不叠加计数。OpenAPI 导出不变。源码 `77bbdcec9` 的冷组合在完整数据库恢复前后分别由真实 API 容器发布六种消息，核对原参数、执行 ID、路由及无 worker 导入后只移除这六条探针；两次真实点云 HTTP 请求通过私网队列和 media worker 完成，实际读取限于三个 PCD 对象，产生缺帧、时序跳变和点数不足问题。单飞没有额外消息，owner 停机返回 503 并保留失败 run／job。旧质量 run 在恢复后仍可读；六个真实导出包及此前行／领域／私表写入守卫也已执行通过。其余五种质量变体只取得真实传输和注册签名证据，未宣称完整领域执行／恢复。
 
@@ -2564,7 +2565,7 @@ SHA-256 为 `2e897bcd9bc34343468a1859e0550bb838120449f61e54e0aee207210ac84caf`�
 
 规范收据 `.worktree/jobs-quality-qualification.json` 的 SHA-256 为 `024ca7d2aaa20312384d4abe984a67e1402bfa5bb4ea828c5be829efc3fe5d9a`，绑定九十项原始／派生记录。三棵子工作树在十七项原始检查文件、补丁等价及增量 bundle 核对后清理；主工作树和四个共享目标保持不变。本组关闭六项派发传输和代表性点云操作的限定本地边界，日常环境未切换。
 
-接受响应只证明 broker 发布返回。提交与发布之间的进程崩溃仍可能留下 pending run；修复／导入发布后回绑前的窗口也未闭合。动态队列、soft time limit、canvas、其他领域恢复、全局 SELECT 与完整 Jobs 继续跟踪；训练／主动学习及 Assets 数据集／存储实现等待最新功能合并，不扩大 Go 实验或宣称生产资格。
+首轮证据只覆盖派发传输；当前同事务交接、动态队列、soft time limit、canvas 与消费者迁移见[整模块收口](#jobs-nonheld-module)。全局 SELECT 仍受四处 Learning 暂缓读取约束；训练／主动学习及 Assets 数据集／存储不扩大实施，Go 仍为实验，不宣称生产资格。
 
 ## Jobs 视频追踪与取消后重投派发 {#jobs-video-tracker-dispatch}
 
@@ -2578,7 +2579,43 @@ SHA-256 为 `2e897bcd9bc34343468a1859e0550bb838120449f61e54e0aee207210ac84caf`�
 
 规范检查点 `.worktree/jobs-tracker-implementation-checkpoint.json` 的 SHA-256 为 `46a3ef5f7bcdf7b116046fc68c120cb1a3859057181911ebd776528f4b78a598`，绑定 333 份原始／派生记录。最后冷工件核对 API／worker 各 3,925 项 COPY 输入、2,121 个运行文件及 5 个安装夹具，队列 36 项输入／32 个包文件；当前相对该工件仅修改三份宿主机 QA 文件。三个子工作树及分支在 73 份原始记录、补丁等价与两份源码 bundle 验证后移除，主工作树和四个共享链接保持不变。
 
-本组实现与已通过源库／读回阶段不代表完整 Jobs、纠正／修复全领域执行或生产容量资格。发布后执行 ID 回绑窗口、其他 producer／消息形态及七处暂缓领域读取仍开放；不新增推送、发布、日常拓扑切换或 Go 扩展。OpenAPI 保持不变。
+本组源库证据不代表完整 Jobs、纠正／修复全领域执行或生产容量资格。当前持久交接已覆盖创建、纠正及取消重投，剩余四处读取属于暂缓 Learning；当前组合恢复与采用见[整模块收口](#jobs-nonheld-module)。不推送、不发布、不扩大暂缓领域，OpenAPI 保持不变。
+
+## Jobs 非暂缓整模块收口 {#jobs-nonheld-module}
+
+当前队列使用 `aap-jobs-queue/v2`，新增范围只包括原运行所需的 `queue`、
+`soft_time_limit` 和单层帧 group／callback；删除旧协议入口，不保留兼容转发。
+普通预标、已有失败项投递、帧分段、跨帧、三个导出、质量 run、修复／回滚、
+格式导入、tracker 创建／纠正／取消重投已接入选择式传输。Audit 元数据与
+task events 继续保留原同步回退，不误纳入用户 Job 的可靠投递账本。
+
+`aap-jobs-dispatch-ledger/v1` 的四项固定 Native 能力把完整消息、执行 ID 和
+交接 intent 与原业务接受事务一起提交，发布后通过独立短事务确认。
+relay 只在即将发布时领取一个租约，发布未确认时保存原消息并保留退避，
+过期代次不能确认新领取。已确认提交不自动重发；领域已判定失败或取消的
+作业不擅自恢复。取消后的 tracker 退役重投必须匹配原 canonical tracking
+或 correction 记录，且只允许原 tracker task 和同一个 job 参数。
+租约过期不是物理执行已停止的证明。
+
+帧准备、running 状态与完整 canvas 同事务提交。恢复复用原 child／group／body
+ID；Redis 进度缺失时从逻辑段回执恢复，完整冻结段集合才允许最终聚合，
+不能凭重复 chord header 提前完成。Root 重投继续受原 pending claim 围栏，
+不会为已开始的作业重建第二份 canvas。HTTP 输入受理仍保留原 Assets 边界：
+尚未完成输入准入的请求不靠 Jobs summary 拼装替代消息。
+
+原“七处暂缓读取”中有三处实际属于非暂缓格式导入，现已迁移。
+保留的四处在 training datasets 派发／取消、active learning 与 sample evaluations，
+因此普通混合 API 不能全局撤销 Jobs SELECT。独立 relay 无任何私表读写权，
+只持有 claim／finish／status；API 只持 prepare／finish／status，不得领取 relay 工作。
+截图脚本的 schema-owner 仅用于自有一次性测试库，不是普通运行权限。
+
+当前集中验收保留真实失败，不将失败整轮改记为通过：首轮严格安装发现默认
+PUBLIC schema USAGE 被误判为数据权限，已改为拒绝有效关系／列／序列和
+CREATE 权限；首轮 Native 调用发现 JSONB callback 减键表达式的运算符优先级
+错误，修正后消息边界及受限 API／relay 交接通过。真实 Redis／Celery 的
+逐帧写入等待、重试、进度和终态保护已执行通过。其他旧测试中的 Mask 候选
+读取值校验和普通推理 rollback 后过期对象读取仍单列，不冒称全后端测试通过。
+当前工件、独立 relay、整库恢复和日常采用的最终证据尚未闭合。
 
 ## Notifications 实现范围冻结 {#notifications-implementation-freeze}
 

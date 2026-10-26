@@ -4,7 +4,7 @@ audience: [dev, ops]
 type: reference
 since: v0.9.0
 status: stable
-last_reviewed: 2026-10-25
+last_reviewed: 2026-10-26
 ---
 
 # 环境变量参考
@@ -56,6 +56,12 @@ last_reviewed: 2026-10-25
 | `JOBS_QUEUE_BROKER_URL_FILE` | `—` | — |
 | `JOBS_QUEUE_HOST` | `127.0.0.1` | — |
 | `JOBS_QUEUE_PORT` | `8190` | — |
+| `JOBS_DISPATCH_RELAY_ENABLED` | `false` | 独立持久派发 relay 必须显式开启；仅持有 claim/finish/status 三项函数权限及队列 bearer。 不注入 broker、API 迁移凭据或私表读写权限；与 jobs-queue 分进程运行。 |
+| `JOBS_DISPATCH_RELAY_DATABASE_URL` | `—` | — |
+| `JOBS_DISPATCH_RELAY_DATABASE_URL_FILE` | `—` | — |
+| `JOBS_DISPATCH_RELAY_BATCH_SIZE` | `100` | — |
+| `JOBS_DISPATCH_RELAY_LEASE_SECONDS` | `30` | — |
+| `JOBS_DISPATCH_RELAY_POLL_SECONDS` | `1` | — |
 
 ## 对象存储 (MinIO / S3 兼容)
 

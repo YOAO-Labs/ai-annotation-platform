@@ -11,6 +11,8 @@ from typing import Any
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aap_jobs.dispatch_contract import DispatchLease
+
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJobKind
 from app.db.models.dataset import VideoSegment
@@ -1000,14 +1002,37 @@ async def resume_repair_batch(
     return model_from_quality_row(MaskRepairBatch, updated)
 
 
+async def prepare_repair_batch_dispatch(
+    db: AsyncSession, batch: MaskRepairBatch, *, rollback: bool
+) -> DispatchLease:
+    from app.services.jobs_dispatch import prepare_job_dispatch
+
+    job_id = batch.rollback_async_job_id if rollback else batch.async_job_id
+    assert job_id is not None
+    await db.flush()
+    return await prepare_job_dispatch(
+        db,
+        job_id=job_id,
+        task_name=(
+            "app.workers.mask_repair.rollback_mask_repair"
+            if rollback
+            else "app.workers.mask_repair.run_mask_repair"
+        ),
+        args=[str(batch.id)],
+    )
+
+
 async def dispatch_repair_batch(
     batch_id: uuid.UUID,
     *,
     dispatcher: QualityJobDispatcher,
+    execution_id: str,
     rollback: bool = False,
 ) -> str:
     try:
-        return dispatcher.dispatch_mask_repair(batch_id, rollback=rollback)
+        return dispatcher.dispatch_mask_repair(
+            batch_id, rollback=rollback, execution_id=execution_id
+        )
     except Exception as exc:
         raise MaskRepairError(
             status_code=503,

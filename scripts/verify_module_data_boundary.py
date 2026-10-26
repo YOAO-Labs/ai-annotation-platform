@@ -45,6 +45,7 @@ NOTIFICATION_INBOX_ROLE = "notification_inbox_query_client"
 NOTIFICATION_DELIVERY_READ_ROLE = "notification_delivery_read_client"
 JOBS_LIST_QUERY_ROLE = "jobs_list_query_client"
 JOBS_LIFECYCLE_ROLE = "jobs_lifecycle_client"
+JOBS_DISPATCH_RELAY_ROLE = "jobs_dispatch_relay_client"
 JOBS_DOMAIN_QUERY_FUNCTIONS = (
     "aap_jobs_v1.lock_cross_frame_singleflight(uuid,text)",
     "aap_jobs_v1.active_cross_frame_job(uuid,text)",
@@ -90,6 +91,10 @@ NOTIFICATION_INBOX_PRIVATE_HELPER = (
 FUNCTION_BODY_ARTIFACTS = {
     "aap_labeling_v1.e2e_fixture_command(jsonb)": "0362_labeling_e2e_fixture_writes.sql",
     "aap_labeling_v1.prepare_filtering_rendering(jsonb)": "0367_labeling_filtering_rendering.sql",
+    "aap_jobs_v1.prepare_dispatch(jsonb)": "0368_jobs_dispatch_ledger.sql",
+    "aap_jobs_v1.claim_dispatches(jsonb)": "0368_jobs_dispatch_ledger.sql",
+    "aap_jobs_v1.finish_dispatch(jsonb)": "0368_jobs_dispatch_ledger.sql",
+    "aap_jobs_v1.dispatch_status(uuid)": "0368_jobs_dispatch_ledger.sql",
     "aap_labeling_v1.screenshot_operations_command(jsonb)": "0363_labeling_screenshot_operations.sql",
     "aap_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[])": "0364_labeling_scale_seed_operations.sql",
     "aap_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid)": "0364_labeling_scale_seed_operations.sql",
@@ -759,6 +764,7 @@ MODULE_ROLES = (
     JOBS_NOTIFICATION_SCOPE_ROLE,
     JOBS_LIST_QUERY_ROLE,
     JOBS_LIFECYCLE_ROLE,
+    JOBS_DISPATCH_RELAY_ROLE,
     *IDENTITY_CLIENT_ROLES.values(),
 )
 SQL_ARTIFACTS = (
@@ -983,10 +989,12 @@ SQL_ARTIFACTS = (
     "0364_labeling_scale_seed_operations.sql",
     "0366_audit_fixture_cleanup.sql",
     "0367_labeling_filtering_rendering.sql",
+    "0368_jobs_dispatch_ledger.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0362_labeling_e2e_fixture_writes.schema.json",
     "0367_labeling_filtering_rendering.schema.json",
+    "0368_jobs_dispatch_ledger.schema.json",
     "0363_labeling_screenshot_operations.schema.json",
     "0364_labeling_scale_seed_operations.schema.json",
     "0360_labeling_video_segment_lifecycle.schema.json",
@@ -2756,8 +2764,15 @@ def _psql(
         check=False,
     )
     if result.returncode:
+        # Expose only guard literals from this checked-in SQL, never raw stderr
+        # (which may contain connection material or echoed statements).
+        guards = re.findall(r"RAISE EXCEPTION '([^']+)';", sql)
+        diagnostic = next(
+            (message for message in guards if f"ERROR:  {message}" in result.stderr),
+            "unclassified SQL failure",
+        )
         raise RuntimeError(
-            f"psql acceptance phase failed with exit {result.returncode}"
+            f"psql acceptance phase failed with exit {result.returncode}: {diagnostic}"
         )
     return result.stdout
 
@@ -3507,6 +3522,7 @@ def _create_module_roles(
     jobs_notification_scope_password: str,
     jobs_list_query_password: str,
     jobs_lifecycle_password: str,
+    jobs_dispatch_relay_password: str,
 ) -> None:
     _psql(
         container_id,
@@ -3614,6 +3630,9 @@ def _create_module_roles(
             f"CREATE ROLE {JOBS_LIFECYCLE_ROLE} LOGIN "
             f"PASSWORD '{jobs_lifecycle_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            f"CREATE ROLE {JOBS_DISPATCH_RELAY_ROLE} LOGIN "
+            f"PASSWORD '{jobs_dispatch_relay_password}' NOSUPERUSER NOCREATEDB "
+            "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
             'REVOKE TEMPORARY ON DATABASE :"expected_database" FROM PUBLIC;\n'
             'GRANT CONNECT ON DATABASE :"expected_database" TO '
             f'"{NOTIFICATION_READ_ROLE}", "{AUDIT_READ_ROLE}", '
@@ -3647,6 +3666,7 @@ def _create_module_roles(
                         JOBS_NOTIFICATION_SCOPE_ROLE,
                         JOBS_LIST_QUERY_ROLE,
                         JOBS_LIFECYCLE_ROLE,
+                        JOBS_DISPATCH_RELAY_ROLE,
                         VIDEO_EXECUTION_ROLE,
                         INFERENCE_REGISTRY_INGRESS_ROLE,
                         INFERENCE_ROUTING_ROLE,
@@ -4842,6 +4862,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         jobs_list_query_grants_path = ROOT / "infra/docker/jobs-list-query-grants.sql"
         jobs_lifecycle_grants_path = ROOT / "infra/docker/jobs-lifecycle-grants.sql"
+        jobs_dispatch_grants_path = ROOT / "infra/docker/jobs-dispatch-grants.sql"
         identity_recovery_grants_path = (
             ROOT / "infra/docker/identity-recovery-grants.sql"
         )
@@ -4882,6 +4903,7 @@ def main(argv: list[str] | None = None) -> int:
             or not jobs_scope_grants_path.is_file()
             or not jobs_list_query_grants_path.is_file()
             or not jobs_lifecycle_grants_path.is_file()
+            or not jobs_dispatch_grants_path.is_file()
             or not identity_group_grants_path.is_file()
             or not identity_invitation_grants_path.is_file()
             or not identity_directory_grants_path.is_file()
@@ -5184,6 +5206,7 @@ def main(argv: list[str] | None = None) -> int:
         jobs_notification_scope_password = f"jobs-scope-{secrets.token_hex(16)}"
         jobs_list_query_password = f"jobs-list-{secrets.token_hex(16)}"
         jobs_lifecycle_password = f"jobs-lifecycle-{secrets.token_hex(16)}"
+        jobs_dispatch_relay_password = secrets.token_hex(24)
         inference_registry_ingress_password = secrets.token_hex(24)
         inference_routing_password = secrets.token_hex(24)
         video_execution_password = secrets.token_hex(24)
@@ -5267,8 +5290,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0367"]:
-            raise RuntimeError("module-data acceptance requires migration head 0367")
+        if heads != ["0368"]:
+            raise RuntimeError("module-data acceptance requires migration head 0368")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         relation_sql_hashes = _read_relation_sql_input_sha256()
         evidence["migrations"]["read_relation_sql_input_sha256"] = relation_sql_hashes
@@ -5491,6 +5514,14 @@ def main(argv: list[str] | None = None) -> int:
             port=port,
             database=database,
         ).render_as_string(hide_password=False)
+        jobs_dispatch_relay_url = URL.create(
+            "postgresql",
+            username=JOBS_DISPATCH_RELAY_ROLE,
+            password=jobs_dispatch_relay_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
         audit_append_url = URL.create(
             "postgresql",
             username=AUDIT_APPEND_ROLE,
@@ -5579,6 +5610,7 @@ def main(argv: list[str] | None = None) -> int:
             jobs_notification_scope_password,
             jobs_list_query_password,
             jobs_lifecycle_password,
+            jobs_dispatch_relay_password,
         )
         phase = "create-video-execution-client-role"
         _psql(
@@ -5799,6 +5831,24 @@ def main(argv: list[str] | None = None) -> int:
                 },
             )
 
+        def apply_jobs_dispatch_grants() -> None:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=jobs_dispatch_grants_path.read_text(encoding="utf-8"),
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "jobs_owner": "jobs_code",
+                    "api_role": "legacy_runtime",
+                    "dispatch_relay_role": JOBS_DISPATCH_RELAY_ROLE,
+                },
+            )
+
         def apply_identity_actor_status_grants() -> None:
             _psql(
                 container_id,
@@ -5943,6 +5993,8 @@ def main(argv: list[str] | None = None) -> int:
         phase = "install-jobs-list-query-grants"
         apply_jobs_list_query_grants()
         apply_jobs_lifecycle_grants()
+        phase = "install-jobs-dispatch-grants"
+        apply_jobs_dispatch_grants()
         evidence["jobs_list_query"]["function_only_grants"] = True
         phase = "install-notification-delivery-read-grants"
         apply_notification_delivery_read_grants()
@@ -8911,6 +8963,7 @@ SELECT pg_catalog.jsonb_build_object(
                 "AAP_MODULE_DATA_NOTIFICATION_DELIVERY_READ_URL": notification_delivery_read_url,
                 "AAP_MODULE_DATA_JOBS_LIST_QUERY_URL": jobs_list_query_url,
                 "AAP_MODULE_DATA_JOBS_LIFECYCLE_URL": jobs_lifecycle_url,
+                "AAP_MODULE_DATA_JOBS_DISPATCH_RELAY_URL": jobs_dispatch_relay_url,
                 "AAP_MODULE_DATA_ASSET_CLEANUP_URL": cleanup_url,
                 "AAP_MODULE_DATA_ASSET_CATALOG_URL": catalog_url,
                 "AAP_MODULE_DATA_ASSET_SOURCE_URL": source_url,
@@ -9092,6 +9145,7 @@ SELECT pg_catalog.jsonb_build_object(
                 apply_notification_inbox_grants()
                 apply_jobs_list_query_grants()
                 apply_jobs_lifecycle_grants()
+                apply_jobs_dispatch_grants()
                 apply_identity_actor_status_grants()
                 apply_audit_append_grants()
                 apply_notification_read_grants(NOTIFICATION_READ_ROLE)
@@ -9166,6 +9220,10 @@ SELECT pg_catalog.jsonb_build_object(
     except Exception as error:
         evidence["status"] = "failed"
         evidence["failure"] = {"phase": phase, "error_type": type(error).__name__}
+        if isinstance(error, RuntimeError) and str(error).startswith(
+            "psql acceptance phase failed with exit "
+        ):
+            evidence["failure"]["diagnostic"] = str(error)
         if node_diagnostic is not None:
             evidence["failure"]["node_diagnostic"] = node_diagnostic
         exit_code = 1

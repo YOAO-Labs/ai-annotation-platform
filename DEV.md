@@ -609,7 +609,20 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 docker compose -f docker-compose.yml -f docker-compose.jobs-queue.yml up -d --build jobs-queue
 ```
 
-先在 Compose 环境中设置 `JOBS_QUEUE_BROKER_URL_FILE` 和 `JOBS_QUEUE_TOKEN_FILE`，分别指向只含 broker URL 与共享 bearer 的文件；本地 Redis broker URL 可用 `redis://redis:6379/0`。API 的 secret file 也必须读到相同 bearer。容器不发布宿主机端口。只有同一 Compose 网络中的 API 可通过 `http://jobs-queue:8190` 调用；宿主机热重载 API 保持内嵌模式。目前唯一接入的消费者是跨帧作业，发送一条 positional job ID、`default` 队列和预先持久化的执行 ID；独立 API／owner／worker、完整数据库恢复及恢复后新请求已通过限定本地验收，见[唯一台账](docs-site/dev/concepts/module-deployment.md#jobs-lifecycle-queue)。`accepted` 代表 broker 已接收请求，不代表任务完成；撤销使用 `terminate=False`，不代表任务已停止。其他任务载荷、自定义 Celery options、canvas 和非 JSON serializer 尚未验收，训练与资产作业也未切换。
+先在 Compose 环境中设置 `JOBS_QUEUE_BROKER_URL_FILE` 和 `JOBS_QUEUE_TOKEN_FILE`，分别指向只含 broker URL 与共享 bearer 的文件；本地 Redis broker URL 可用 `redis://redis:6379/0`。API 的 secret file 也必须读到相同 bearer。容器不发布宿主机端口，同一 Compose 网络中的 API 通过 `http://jobs-queue:8190` 调用；宿主机 API 需要单独配置可达的私网端点。当前 `aap-jobs-queue/v2` 支持原 JSON 派发、`queue`／`soft_time_limit` 两项选项、单层帧任务 group＋callback 和协作撤销，不接收任意 Celery canvas 或非 JSON serializer。普通预标保留动态 CPU／GPU 队列，失败项重试保留原投递账本。`accepted` 只代表 broker 接收，不代表任务完成；`terminate=False` 不代表执行停止。训练与暂缓资产入口未切换。
+
+### Jobs 持久派发交接
+
+迁移 `0368` 安装 `aap-jobs-dispatch-ledger/v1` 的四项固定能力。业务调用方在原接受事务内保存完整消息、执行 ID 和 intent，提交后才发布。API 只持有 prepare／finish／status；独立 relay 只持有 claim／finish／status，二者均不能直接访问私有派发表。先安装匹配的 owner 授权，再按 `infra/docker/jobs-dispatch-grants.sql` 文件头给明确数据库和角色授权；不可把 schema owner DSN 交给 relay。Learning 的四处暂缓读取仍需 Jobs 兼容读权，不能因此全局撤销 `async_jobs` SELECT。
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.jobs-queue.yml \
+  -f docker-compose.jobs-dispatch-relay.yml up -d --build jobs-queue jobs-dispatch-relay
+```
+
+额外设置 `JOBS_DISPATCH_RELAY_DATABASE_URL_FILE`，文件只含专用 LOGIN 的 PostgreSQL DSN。relay 与 queue 使用同一不可变镜像但分进程、分秘密：queue 只有 broker 和 bearer；relay 只有函数 DSN 与 bearer，不持有 broker。脱离 Compose 运行须设置 `JOBS_DISPATCH_RELAY_ENABLED=true`、`JOBS_QUEUE_URL` 及对应 DSN／bearer selector，再运行 `aap-jobs-dispatch-relay`；直接值和 `_FILE` 不可同时设置。可按 `JOBS_DISPATCH_RELAY_BATCH_SIZE`、`JOBS_DISPATCH_RELAY_LEASE_SECONDS`、`JOBS_DISPATCH_RELAY_POLL_SECONDS` 调整每轮上限、租约与空闲间隔。
+
+发布结果不明或发布后回执丢失时，relay 在退避／租约到期后复用原消息和全部执行 ID，不重建业务参数；旧代次回执不能确认新租约。已确认发布不会自动重投；业务终态不再派发，取消 tracker 仅允许对已取消 canonical tracker 的原任务做退役重投。帧任务以冻结的逻辑段回执聚合，重复 header 不能提前完成。租约过期不是 worker 已停止的证明，不授予项目删除或历史执行退役权限。当前工件、真实消费者和恢复的验收状态见[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
 
 ### Notifications 偏好事务内能力
 

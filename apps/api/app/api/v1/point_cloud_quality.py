@@ -55,6 +55,7 @@ from app.services.audit import AuditAction, AuditService
 from app.services.point_cloud_quality.service import (
     PointCloudQualityError,
     create_quality_run,
+    prepare_quality_run_dispatch,
     decide_issue,
     dispatch_quality_run,
     record_dispatch_failure,
@@ -220,18 +221,25 @@ async def create_run(
     await _assert_request_visible(
         db, project=project, user=current_user, access=access, body=body
     )
+    lease = None
     try:
         run, job, created = await create_quality_run(
             db, project=project, actor_id=current_user.id, request=body
         )
+        if created and job is not None:
+            lease = await prepare_quality_run_dispatch(db, run=run, job=job)
     except PointCloudQualityError as exc:
         _raise_quality_error(exc)
     await db.commit()
-    if created and job is not None:
+    if created and job is not None and lease is not None:
         run_id, job_id = run.id, job.id
         try:
             await dispatch_quality_run(
-                db, run_id=run_id, async_job_id=job_id, dispatcher=quality_dispatcher
+                db,
+                run_id=run_id,
+                async_job_id=job_id,
+                lease=lease,
+                dispatcher=quality_dispatcher,
             )
         except PointCloudQualityError as exc:
             await record_dispatch_failure(db, run_id=run_id, error=str(exc.detail))

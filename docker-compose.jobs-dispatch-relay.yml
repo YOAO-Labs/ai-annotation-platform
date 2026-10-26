@@ -1,0 +1,29 @@
+services:
+  jobs-dispatch-relay:
+    image: aap-jobs-queue:local
+    build:
+      context: .
+      dockerfile: apps/jobs/Dockerfile.queue
+    command: [aap-jobs-dispatch-relay]
+    environment:
+      JOBS_DISPATCH_RELAY_ENABLED: "true"
+      JOBS_DISPATCH_RELAY_DATABASE_URL_FILE: /run/secrets/jobs_dispatch_relay_database_url
+      JOBS_QUEUE_URL: http://jobs-queue:8190
+      JOBS_QUEUE_TOKEN_FILE: /run/secrets/jobs_queue_token
+    secrets:
+      - jobs_dispatch_relay_database_url
+      - jobs_queue_token
+    user: "10005:10005"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 1
+    depends_on:
+      jobs-queue:
+        condition: service_healthy
+
+secrets:
+  jobs_dispatch_relay_database_url:
+    file: ${JOBS_DISPATCH_RELAY_DATABASE_URL_FILE:?Set the private function-only Jobs relay DSN file}

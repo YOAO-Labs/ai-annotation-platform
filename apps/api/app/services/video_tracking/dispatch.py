@@ -7,6 +7,6 @@ from uuid import UUID
 
 
 class VideoTrackerJobDispatcher(Protocol):
-    def dispatch_tracker_job(self, job_id: UUID) -> str:
-        """Queue a tracker job and return its execution identity."""
+    def dispatch_tracker_job(self, job_id: UUID, *, execution_id: str) -> str:
+        """Queue a tracker job with its persisted execution identity."""
         ...

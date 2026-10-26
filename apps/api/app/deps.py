@@ -117,9 +117,9 @@ def get_job_execution_control() -> JobExecutionControl:
 
 def get_prediction_retry_dispatcher() -> PredictionRetryDispatcher:
     """Bind retry execution without importing worker tasks into use cases."""
-    from app.workers.prediction_retry_dispatch import CeleryPredictionRetryDispatcher
+    from app.services.jobs_queue import build_prediction_retry_dispatcher
 
-    return CeleryPredictionRetryDispatcher()
+    return build_prediction_retry_dispatcher()
 
 
 def get_async_job_read_port(
@@ -153,11 +153,9 @@ def get_prediction_retry_port(
 
 def get_batch_prediction_dispatcher() -> BatchPredictionDispatcher:
     """Bind batch prediction dispatch at the HTTP composition boundary."""
-    from app.workers.batch_prediction_dispatch import (
-        CeleryBatchPredictionDispatcher,
-    )
+    from app.services.jobs_queue import build_batch_prediction_dispatcher
 
-    return CeleryBatchPredictionDispatcher()
+    return build_batch_prediction_dispatcher()
 
 
 def get_video_tracker_job_dispatcher() -> VideoTrackerJobDispatcher:

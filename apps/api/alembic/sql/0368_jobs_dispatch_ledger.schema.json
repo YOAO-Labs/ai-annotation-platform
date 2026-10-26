@@ -1,0 +1,262 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-jobs-dispatch-ledger/v1",
+  "$defs": {
+    "DispatchPrepareRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "intent_id": {
+          "anyOf": [{ "format": "uuid", "type": "string" }, { "type": "null" }],
+          "default": null,
+          "title": "Intent Id"
+        },
+        "job_id": { "format": "uuid", "title": "Job Id", "type": "string" },
+        "purpose": {
+          "default": "execution",
+          "enum": ["execution", "frame_canvas", "tracker_retirement"],
+          "title": "Purpose",
+          "type": "string"
+        },
+        "envelope": { "additionalProperties": true, "title": "Envelope", "type": "object" }
+      },
+      "required": ["job_id", "envelope"],
+      "title": "DispatchPrepareRequest",
+      "type": "object"
+    },
+    "DispatchClaimRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "default": 100,
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "lease_seconds": {
+          "default": 30,
+          "maximum": 300,
+          "minimum": 1,
+          "title": "Lease Seconds",
+          "type": "integer"
+        }
+      },
+      "title": "DispatchClaimRequest",
+      "type": "object"
+    },
+    "DispatchFinishRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "intent_id": { "format": "uuid", "title": "Intent Id", "type": "string" },
+        "lease_token": { "format": "uuid", "title": "Lease Token", "type": "string" },
+        "generation": { "minimum": 1, "title": "Generation", "type": "integer" },
+        "accepted": { "title": "Accepted", "type": "boolean" }
+      },
+      "required": ["intent_id", "lease_token", "generation", "accepted"],
+      "title": "DispatchFinishRequest",
+      "type": "object"
+    },
+    "DispatchLease": {
+      "additionalProperties": false,
+      "properties": {
+        "intent_id": { "format": "uuid", "title": "Intent Id", "type": "string" },
+        "job_id": { "format": "uuid", "title": "Job Id", "type": "string" },
+        "purpose": {
+          "enum": ["execution", "frame_canvas", "tracker_retirement"],
+          "title": "Purpose",
+          "type": "string"
+        },
+        "execution_id": { "title": "Execution Id", "type": "string" },
+        "envelope": { "additionalProperties": true, "title": "Envelope", "type": "object" },
+        "lease_token": {
+          "anyOf": [{ "format": "uuid", "type": "string" }, { "type": "null" }],
+          "title": "Lease Token"
+        },
+        "generation": { "minimum": 1, "title": "Generation", "type": "integer" },
+        "state": {
+          "enum": ["leased", "pending", "submitted", "retired"],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "intent_id",
+        "job_id",
+        "purpose",
+        "execution_id",
+        "envelope",
+        "lease_token",
+        "generation",
+        "state"
+      ],
+      "title": "DispatchLease",
+      "type": "object"
+    },
+    "DispatchStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "intent_id": { "format": "uuid", "title": "Intent Id", "type": "string" },
+        "job_id": { "format": "uuid", "title": "Job Id", "type": "string" },
+        "purpose": {
+          "enum": ["execution", "frame_canvas", "tracker_retirement"],
+          "title": "Purpose",
+          "type": "string"
+        },
+        "execution_id": { "title": "Execution Id", "type": "string" },
+        "state": {
+          "enum": ["leased", "pending", "submitted", "retired"],
+          "title": "State",
+          "type": "string"
+        },
+        "generation": { "minimum": 1, "title": "Generation", "type": "integer" },
+        "attempts": { "minimum": 1, "title": "Attempts", "type": "integer" }
+      },
+      "required": [
+        "intent_id",
+        "job_id",
+        "purpose",
+        "execution_id",
+        "state",
+        "generation",
+        "attempts"
+      ],
+      "title": "DispatchStatus",
+      "type": "object"
+    },
+    "_DispatchErrorRecord": {
+      "additionalProperties": false,
+      "properties": { "code": { "title": "Code", "type": "string" } },
+      "required": ["code"],
+      "title": "_DispatchErrorRecord",
+      "type": "object"
+    },
+    "_DispatchLeaseReply": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": { "const": "aap-jobs-dispatch-ledger/v1", "title": "Schema", "type": "string" },
+        "ok": { "title": "Ok", "type": "boolean" },
+        "data": {
+          "anyOf": [{ "$ref": "#/$defs/DispatchLease" }, { "type": "null" }]
+        },
+        "error": {
+          "anyOf": [{ "$ref": "#/$defs/_DispatchErrorRecord" }, { "type": "null" }]
+        }
+      },
+      "required": ["schema", "ok", "data", "error"],
+      "title": "_DispatchLeaseReply",
+      "type": "object"
+    },
+    "_DispatchClaimsReply": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": { "const": "aap-jobs-dispatch-ledger/v1", "title": "Schema", "type": "string" },
+        "ok": { "title": "Ok", "type": "boolean" },
+        "data": {
+          "anyOf": [
+            { "items": { "$ref": "#/$defs/DispatchLease" }, "type": "array" },
+            { "type": "null" }
+          ]
+        },
+        "error": {
+          "anyOf": [{ "$ref": "#/$defs/_DispatchErrorRecord" }, { "type": "null" }]
+        }
+      },
+      "required": ["schema", "ok", "data", "error"],
+      "title": "_DispatchClaimsReply",
+      "type": "object"
+    },
+    "_DispatchStatusReply": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": { "const": "aap-jobs-dispatch-ledger/v1", "title": "Schema", "type": "string" },
+        "ok": { "title": "Ok", "type": "boolean" },
+        "data": {
+          "anyOf": [{ "$ref": "#/$defs/DispatchStatus" }, { "type": "null" }]
+        },
+        "error": {
+          "anyOf": [{ "$ref": "#/$defs/_DispatchErrorRecord" }, { "type": "null" }]
+        }
+      },
+      "required": ["schema", "ok", "data", "error"],
+      "title": "_DispatchStatusReply",
+      "type": "object"
+    }
+  },
+  "x-postgresql-functions": {
+    "aap_jobs_v1.prepare_dispatch": {
+      "arguments": "p_request jsonb",
+      "returns": "jsonb",
+      "volatility": "volatile",
+      "parallel": "unsafe",
+      "security": "definer",
+      "search_path": "pg_catalog, pg_temp"
+    },
+    "aap_jobs_v1.claim_dispatches": {
+      "arguments": "p_request jsonb",
+      "returns": "jsonb",
+      "volatility": "volatile",
+      "parallel": "unsafe",
+      "security": "definer",
+      "search_path": "pg_catalog, pg_temp"
+    },
+    "aap_jobs_v1.finish_dispatch": {
+      "arguments": "p_request jsonb",
+      "returns": "jsonb",
+      "volatility": "volatile",
+      "parallel": "unsafe",
+      "security": "definer",
+      "search_path": "pg_catalog, pg_temp"
+    },
+    "aap_jobs_v1.dispatch_status": {
+      "arguments": "p_intent_id uuid",
+      "returns": "jsonb",
+      "volatility": "stable",
+      "parallel": "unsafe",
+      "security": "definer",
+      "search_path": "pg_catalog, pg_temp"
+    }
+  },
+  "x-executor-arguments": {
+    "aap_jobs_v1.prepare_dispatch": ["p_request"],
+    "aap_jobs_v1.claim_dispatches": ["p_request"],
+    "aap_jobs_v1.finish_dispatch": ["p_request"],
+    "aap_jobs_v1.dispatch_status": ["intent_id"]
+  },
+  "x-private-table": {
+    "name": "aap_jobs_v1.dispatch_intents",
+    "columns": [
+      "intent_id",
+      "job_id",
+      "purpose",
+      "execution_id",
+      "envelope",
+      "natural_identity",
+      "state",
+      "lease_token",
+      "generation",
+      "attempts",
+      "lease_expires_at",
+      "next_attempt_at",
+      "accepted_at",
+      "created_at",
+      "updated_at"
+    ],
+    "constraints": [
+      "ck_jobs_dispatch_lease_state",
+      "ck_jobs_dispatch_submitted_state",
+      "ck_jobs_dispatch_retry_state"
+    ],
+    "direct_grants": []
+  },
+  "x-semantics": {
+    "immutable_payload": "Store the exact validated aap-jobs-queue/v2 dispatch or canvas envelope; never rebuild it from Job metadata.",
+    "prepare": "Borrow the caller transaction; reserve a 30-second inline lease. Reuse exact identities and payloads; reject mismatches and do not bypass a persisted retry backoff.",
+    "claim": "Lock eligible Job rows with SKIP LOCKED, recheck current Job and tracker ownership state, then reserve claims before network publication.",
+    "finish": "Fence acknowledgements by intent ID, lease token, and generation; accepted becomes submitted and is never automatically reclaimed; rejected becomes pending with bounded exponential delay.",
+    "retry_identity": "Republish only the saved envelope and its existing task/group/child/body IDs.",
+    "terminal_policy": "Ordinary execution accepts pending/running Jobs; frame_canvas requires RUNNING. Terminal publication is refused except exact tracker-task redrives of cancelled video_tracker/tracking or video_correction/correction pairs proved by Labeling's public job rows.",
+    "leases": "An expired lease permits takeover but does not prove the previous publisher stopped; stale acknowledgements are rejected.",
+    "transactions": "Native prepare/finish/status execute in the caller UOW; each AsyncPG provider operation has its own transaction. Claim returns only after the caller commits its operation before publication.",
+    "responses": "Every capability returns a closed {schema,ok,data,error} JSON object; refusals reveal only a stable code."
+  }
+}

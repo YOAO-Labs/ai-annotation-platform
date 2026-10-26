@@ -11,6 +11,7 @@ from app.db.models.async_job import AsyncJob
 from app.schemas.data_manager_actions import DataManagerTaskExportRequest
 from app.services import async_job as async_job_service
 from app.services import jobs_queue
+from app.services import jobs_dispatch
 from app.services.audit import AuditService
 
 _JOB_ID = uuid.UUID("f5a6e97a-173f-4c46-8c15-296b5b3ec5aa")
@@ -74,6 +75,29 @@ def _route_boundary(monkeypatch, *, task_ids=(), failure=None):
             raise failure
         return call["execution_id"]
 
+    async def prepare_dispatch(
+        _db,
+        *,
+        job_id,
+        task_name,
+        execution_id,
+        args,
+        kwargs=None,
+        **_options,
+    ):
+        assert job is not None and job.id == job_id
+        envelope = {
+            "task_name": task_name,
+            "execution_id": execution_id,
+            "args": args,
+            "kwargs": kwargs,
+        }
+        events.append(("prepare", job.status, job.celery_task_id, envelope))
+        return SimpleNamespace(execution_id=execution_id)
+
+    async def publish_dispatch(_db, lease, *, publish):
+        return await publish()
+
     async def mark_failed(_db, job_id, *, error):
         assert job.id == job_id
         events.append(("failed", error))
@@ -85,6 +109,10 @@ def _route_boundary(monkeypatch, *, task_ids=(), failure=None):
     monkeypatch.setattr(AuditService, "log", staticmethod(audit))
     monkeypatch.setattr(jobs_queue, "dispatch_job", dispatch)
     monkeypatch.setattr(data_manager, "dispatch_job", dispatch)
+    monkeypatch.setattr(jobs_dispatch, "prepare_job_dispatch", prepare_dispatch)
+    monkeypatch.setattr(jobs_dispatch, "publish_prepared_dispatch", publish_dispatch)
+    monkeypatch.setattr(data_manager, "prepare_job_dispatch", prepare_dispatch)
+    monkeypatch.setattr(data_manager, "publish_prepared_dispatch", publish_dispatch)
     return db, events
 
 
@@ -184,12 +212,22 @@ async def test_project_and_batch_export_wire_and_commit_order(route, monkeypatch
         **({"indexed_overlap_policy": "z_order"} if route == "project" else {}),
     )
 
-    assert [event[0] for event in events] == ["create", "audit", "commit", "dispatch"]
-    assert events[2] == ("commit", "pending", None)
-    assert events[3][1:3] == ("pending", None)
+    assert [event[0] for event in events] == [
+        "create",
+        "audit",
+        "prepare",
+        "commit",
+        "dispatch",
+    ]
+    assert events[2][1:3] == ("pending", None)
+    assert events[3] == ("commit", "pending", None)
+    assert events[4][1:3] == ("pending", None)
+    assert events[2][3] == events[4][3]
+    assert events[2][3]["args"] is events[4][3]["args"]
+    assert events[2][3]["kwargs"] is events[4][3]["kwargs"]
     assert db.job.celery_task_id is None
     _assert_wire(
-        events[3][3],
+        events[4][3],
         {
             "project_id": str(project.id),
             "batch_id": None if route == "project" else str(_BATCH_ID),
@@ -216,9 +254,15 @@ async def test_project_and_batch_dispatch_failure_preserves_committed_pending_jo
         await _export_project_or_batch(route, monkeypatch, db, actor, project)
 
     assert raised.value is failure
-    assert [event[0] for event in events] == ["create", "audit", "commit", "dispatch"]
-    assert events[2] == ("commit", "pending", None)
-    assert db.job.status == "pending"
+    assert [event[0] for event in events] == [
+        "create",
+        "audit",
+        "prepare",
+        "commit",
+        "dispatch",
+    ]
+    assert events[2][1:3] == ("pending", None)
+    assert events[3] == ("commit", "pending", None)
     assert db.job.celery_task_id is None
 
 
@@ -275,15 +319,19 @@ async def test_data_manager_scope_wire_and_bind_happen_after_durable_publish(
     assert [event[0] for event in events] == [
         "select",
         "create",
+        "prepare",
         "commit",
         "audit",
         "dispatch",
         "commit",
     ]
-    assert events[2] == ("commit", "pending", None)
-    assert events[4][1:3] == ("pending", None)
+    assert events[3] == ("commit", "pending", None)
+    assert events[5][1:3] == ("pending", None)
+    assert events[2][3] == events[5][3]
+    assert events[2][3]["args"] is events[5][3]["args"]
+    assert events[2][3]["kwargs"] is events[5][3]["kwargs"]
     _assert_wire(
-        events[4][3],
+        events[5][3],
         {
             "project_id": str(project.id),
             "batch_id": None,
@@ -300,8 +348,8 @@ async def test_data_manager_scope_wire_and_bind_happen_after_durable_publish(
             "async_job_id": str(_JOB_ID),
         },
     )
-    assert events[5] == ("commit", "pending", db.job.celery_task_id)
-    assert db.job.celery_task_id == events[4][3]["execution_id"]
+    assert events[6] == ("commit", "pending", db.job.celery_task_id)
+    assert db.job.celery_task_id == events[5][3]["execution_id"]
 
 
 @pytest.mark.asyncio
@@ -319,15 +367,16 @@ async def test_data_manager_dispatch_failure_marks_failed_and_propagates(monkeyp
     assert [event[0] for event in events] == [
         "select",
         "create",
+        "prepare",
         "commit",
         "audit",
         "dispatch",
         "failed",
         "commit",
     ]
-    assert events[2] == ("commit", "pending", None)
-    assert events[4][1:3] == ("pending", None)
-    assert events[5][1] == "dispatch failed: RuntimeError: queue unavailable"
+    assert events[3] == ("commit", "pending", None)
+    assert events[5][1:3] == ("pending", None)
+    assert events[6][1] == "dispatch failed: RuntimeError: queue unavailable"
     assert db.job.status == "failed"
     assert db.job.celery_task_id is None
-    assert events[6] == ("commit", "failed", None)
+    assert events[7] == ("commit", "failed", None)

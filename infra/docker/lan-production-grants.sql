@@ -248,9 +248,36 @@ GRANT EXECUTE ON FUNCTION aap_audit_v1.append_events(jsonb),
     aap_jobs_v1.mark_dispatch_failed(uuid,timestamptz,text),
     aap_jobs_v1.cancel_batch_predict_jobs(uuid,timestamptz),
     aap_jobs_v1.delete_batch_predict_jobs(uuid),
-    aap_jobs_v1.delete_terminal_jobs_before(timestamptz,text[])
+    aap_jobs_v1.delete_terminal_jobs_before(timestamptz,text[]),
+    aap_jobs_v1.prepare_dispatch(jsonb),
+    aap_jobs_v1.finish_dispatch(jsonb),
+    aap_jobs_v1.dispatch_status(uuid)
     TO :"application_role";
 GRANT SELECT, INSERT ON aap_jobs_v1.async_job_creation TO :"application_role";
+REVOKE EXECUTE ON FUNCTION aap_jobs_v1.claim_dispatches(jsonb)
+    FROM :"application_role", PUBLIC;
+REVOKE ALL ON TABLE aap_jobs_v1.dispatch_intents FROM :"application_role", PUBLIC;
+REVOKE ALL (
+    intent_id, job_id, purpose, execution_id, envelope, natural_identity,
+    state, lease_token, generation, attempts, lease_expires_at,
+    next_attempt_at, accepted_at, created_at, updated_at
+) ON TABLE aap_jobs_v1.dispatch_intents FROM :"application_role", PUBLIC;
+DO $jobs_dispatch_acl$
+DECLARE
+    v_runtime name := current_setting('aap.application_role');
+BEGIN
+    IF pg_catalog.has_table_privilege(
+        v_runtime, 'aap_jobs_v1.dispatch_intents',
+        'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
+    ) OR pg_catalog.has_any_column_privilege(
+        v_runtime, 'aap_jobs_v1.dispatch_intents', 'SELECT,INSERT,UPDATE,REFERENCES'
+    ) OR pg_catalog.has_function_privilege(
+        v_runtime, 'aap_jobs_v1.claim_dispatches(jsonb)', 'EXECUTE'
+    ) THEN
+        RAISE EXCEPTION 'Runtime retains private Jobs dispatch or relay authority';
+    END IF;
+END
+$jobs_dispatch_acl$;
 DO $jobs_creation_acl$
 DECLARE
     v_runtime name := current_setting('aap.application_role');

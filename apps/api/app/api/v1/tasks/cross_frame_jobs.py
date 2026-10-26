@@ -45,15 +45,32 @@ router = APIRouter()
 
 async def _dispatch_job(db: AsyncSession, job: AsyncJob) -> AsyncJob:
     execution_id = job.celery_task_id or str(uuid.uuid4())
+    dispatch_args = [str(job.id)]
     async_job_svc.bind_execution_id(job, execution_id)
+    await db.flush()
+    from app.services.jobs_queue import dispatch_job
+    from app.services.jobs_dispatch import (
+        prepare_job_dispatch,
+        publish_prepared_dispatch,
+    )
+
+    lease = await prepare_job_dispatch(
+        db,
+        job_id=job.id,
+        task_name="app.workers.cross_frame_job.run_cross_frame_job",
+        execution_id=execution_id,
+        args=dispatch_args,
+    )
     await db.commit()
     try:
-        from app.services.jobs_queue import dispatch_job
-
-        await dispatch_job(
-            task_name="app.workers.cross_frame_job.run_cross_frame_job",
-            execution_id=execution_id,
-            args=[str(job.id)],
+        await publish_prepared_dispatch(
+            db,
+            lease,
+            publish=lambda: dispatch_job(
+                task_name="app.workers.cross_frame_job.run_cross_frame_job",
+                execution_id=execution_id,
+                args=dispatch_args,
+            ),
         )
     except Exception as exc:
         changed = await async_job_svc.mark_dispatch_failed(

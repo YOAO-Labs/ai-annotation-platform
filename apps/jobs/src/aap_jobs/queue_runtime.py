@@ -10,8 +10,10 @@ from .queue_config import JobsQueueSettings
 from .queue_contract import (
     JOBS_QUEUE_PATH,
     JobsQueueContractError,
+    QueueCanvas,
     QueueDispatch,
     QueueRevoke,
+    QueueTaskSpec,
     decode_queue_request,
     encode_queue_reply,
     load_queue_configuration,
@@ -20,15 +22,38 @@ from .queue_contract import (
 log = logging.getLogger("aap_jobs.queue.runtime")
 
 
+def publish_canvas(celery_app, request: QueueCanvas) -> None:
+    """Publish one frozen flat canvas through an already selected Celery app."""
+    from celery import chord, group
+
+    def signature(task: QueueTaskSpec):
+        return celery_app.signature(
+            task.task_name,
+            args=task.args,
+            kwargs=task.kwargs,
+            immutable=False,
+            options={"task_id": task.execution_id, **task.options},
+        )
+
+    header = group([signature(task) for task in request.tasks], app=celery_app)
+    header.set(task_id=request.group_id)
+    chord(header, signature(request.callback), app=celery_app).apply_async()
+
+
 class CeleryQueueTransport:
     """Use Celery's existing JSON routes and publisher retry policy."""
 
     def __init__(self, settings: JobsQueueSettings, *, celery_app=None):
         from celery import Celery
 
-        self.app = celery_app or Celery("aap_jobs_queue", broker=settings.broker_url)
+        self.app = celery_app or Celery(
+            "aap_jobs_queue",
+            broker=settings.broker_url,
+            backend=settings.broker_url,
+        )
         config = load_queue_configuration()
         self.app.conf.update(
+            result_backend=settings.broker_url,
             task_serializer=config["task_serializer"],
             result_serializer=config["result_serializer"],
             accept_content=config["accept_content"],
@@ -42,7 +67,11 @@ class CeleryQueueTransport:
             args=request.args,
             kwargs=request.kwargs,
             task_id=request.execution_id,
+            **request.options,
         )
+
+    def dispatch_canvas(self, request: QueueCanvas) -> None:
+        publish_canvas(self.app, request)
 
     def revoke(self, request: QueueRevoke) -> None:
         self.app.control.revoke(request.execution_id, terminate=False)
@@ -133,6 +162,11 @@ def create_app(settings: JobsQueueSettings, transport=None):
             if isinstance(operation, QueueDispatch):
                 await asyncio.to_thread(
                     request.app.state.queue_transport.dispatch,
+                    operation,
+                )
+            elif isinstance(operation, QueueCanvas):
+                await asyncio.to_thread(
+                    request.app.state.queue_transport.dispatch_canvas,
                     operation,
                 )
             else:

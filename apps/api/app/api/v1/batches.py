@@ -1295,6 +1295,10 @@ async def export_batch(
     from app.services import async_job as async_job_svc
     from app.db.models.async_job import AsyncJobKind
     from app.services.jobs_queue import dispatch_job
+    from app.services.jobs_dispatch import (
+        prepare_job_dispatch,
+        publish_prepared_dispatch,
+    )
 
     job = await async_job_svc.create_job(
         db,
@@ -1350,30 +1354,45 @@ async def export_batch(
             },
         ),
     )
+    execution_id = str(uuid.uuid4())
+    dispatch_args = []
+    dispatch_kwargs = {
+        "project_id": str(project_id),
+        "batch_id": str(batch_id),
+        "targets": targets,
+        "opts": {
+            "include_attributes": include_attributes,
+            "video_frame_mode": video_frame_mode,
+            "axis_frame": axis_frame,
+            "video_overlap_policy": video_overlap_policy,
+            "mots_frame_base": mots_frame_base,
+            **(
+                {"video_export_scope": video_scope_payload}
+                if video_scope_payload
+                else {}
+            ),
+            **({"lidar": lidar_options_payload} if lidar_options_payload else {}),
+        },
+        "async_job_id": str(job.id),
+    }
+    lease = await prepare_job_dispatch(
+        db,
+        job_id=job.id,
+        task_name="app.workers.export.run_export",
+        execution_id=execution_id,
+        args=dispatch_args,
+        kwargs=dispatch_kwargs,
+    )
     await db.commit()
 
-    await dispatch_job(
-        task_name="app.workers.export.run_export",
-        execution_id=str(uuid.uuid4()),
-        args=[],
-        kwargs={
-            "project_id": str(project_id),
-            "batch_id": str(batch_id),
-            "targets": targets,
-            "opts": {
-                "include_attributes": include_attributes,
-                "video_frame_mode": video_frame_mode,
-                "axis_frame": axis_frame,
-                "video_overlap_policy": video_overlap_policy,
-                "mots_frame_base": mots_frame_base,
-                **(
-                    {"video_export_scope": video_scope_payload}
-                    if video_scope_payload
-                    else {}
-                ),
-                **({"lidar": lidar_options_payload} if lidar_options_payload else {}),
-            },
-            "async_job_id": str(job.id),
-        },
+    await publish_prepared_dispatch(
+        db,
+        lease,
+        publish=lambda: dispatch_job(
+            task_name="app.workers.export.run_export",
+            execution_id=execution_id,
+            args=dispatch_args,
+            kwargs=dispatch_kwargs,
+        ),
     )
     return {"job_id": str(job.id)}

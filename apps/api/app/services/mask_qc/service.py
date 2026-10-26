@@ -10,6 +10,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aap_jobs.dispatch_contract import DispatchLease
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob, AsyncJobKind
 from app.db.models.mask_qc import MaskQCIssue, MaskQCRun
@@ -20,6 +21,10 @@ from aap_workspace.mask_configuration_values import MaskQCConfig
 from app.schemas.mask_qc import MaskQCRunRequest
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.services.async_job import create_job
+from app.services.jobs_dispatch import (
+    prepare_job_dispatch,
+    publish_prepared_dispatch,
+)
 from app.services import async_job as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
 from app.services.async_job_terminal import JobTerminal
@@ -1027,14 +1032,40 @@ async def fail_mask_qc_run(
         await notify_job_terminal(db, job_id=run.async_job_id)
 
 
+async def prepare_mask_qc_run_dispatch(
+    db: AsyncSession, *, run: MaskQCRun, job: AsyncJob
+) -> DispatchLease:
+    if run.async_job_id != job.id or not job.celery_task_id:
+        raise MaskQCError(
+            status_code=500,
+            reason="mask_qc_dispatch_contract_invalid",
+            message="Mask QC dispatch contract is incomplete",
+        )
+    try:
+        return await prepare_job_dispatch(
+            db,
+            job_id=job.id,
+            task_name="app.workers.mask_qc.run_mask_qc",
+            execution_id=job.celery_task_id,
+            args=[str(run.id)],
+        )
+    except Exception as exc:
+        raise MaskQCError(
+            status_code=503,
+            reason="mask_qc_dispatch_failed",
+            message="Mask QC could not be queued",
+        ) from exc
+
+
 async def dispatch_mask_qc_run(
     db: AsyncSession,
     *,
     run_id: uuid.UUID,
     async_job_id: uuid.UUID,
+    lease: DispatchLease,
     dispatcher: QualityJobDispatcher,
 ) -> None:
-    """Dispatch only after the caller committed the paired run/job rows."""
+    """Publish the exact prepared task after the caller committed its rows."""
 
     run_data = await quality_data_command(
         db,
@@ -1051,14 +1082,27 @@ async def dispatch_mask_qc_run(
         else None
     )
     job = await async_job_svc.get_job(db, async_job_id)
-    if run is None or job is None or not job.celery_task_id:
+    if (
+        run is None
+        or run.async_job_id != async_job_id
+        or job is None
+        or not job.celery_task_id
+        or lease.job_id != async_job_id
+        or lease.execution_id != job.celery_task_id
+    ):
         raise MaskQCError(
             status_code=500,
             reason="mask_qc_dispatch_contract_invalid",
             message="Mask QC dispatch contract is incomplete",
         )
     try:
-        dispatcher.dispatch_run("mask_qc", run.id, execution_id=job.celery_task_id)
+        await publish_prepared_dispatch(
+            db,
+            lease,
+            publish=lambda: dispatcher.dispatch_run(
+                "mask_qc", run.id, execution_id=lease.execution_id
+            ),
+        )
     except Exception as exc:
         await db.rollback()
         run_data = await quality_data_command(

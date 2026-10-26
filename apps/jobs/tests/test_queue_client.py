@@ -7,7 +7,11 @@ import httpx
 import pytest
 
 from aap_jobs.queue_client import JobsQueueClient, JobsQueueExecutionControl
-from aap_jobs.queue_contract import JobsQueueContractError, JobsQueueUnavailable
+from aap_jobs.queue_contract import (
+    JOBS_QUEUE_PROTOCOL,
+    JobsQueueContractError,
+    JobsQueueUnavailable,
+)
 
 _REAL_ASYNC_CLIENT = httpx.AsyncClient
 _REAL_SYNC_CLIENT = httpx.Client
@@ -48,7 +52,7 @@ def test_async_client_dispatches_once_without_environment_proxy_or_redirect(
         return httpx.Response(
             200,
             json={
-                "schema": "aap-jobs-queue/v1",
+                "schema": JOBS_QUEUE_PROTOCOL,
                 "accepted": True,
                 "execution_id": payload["execution_id"],
             },
@@ -61,15 +65,74 @@ def test_async_client_dispatches_once_without_environment_proxy_or_redirect(
             "app.workers.cross_frame_job.run_cross_frame_job",
             execution_id,
             ["8ccbf8e4-cce2-4eec-a15d-9f58222987a1"],
+            options={"queue": "ml.cpu", "soft_time_limit": 30},
         )
     )
     assert result == execution_id
     assert len(requests) == 1
     assert requests[0].url.path == "/v1/jobs/queue"
     assert requests[0].headers["authorization"] == "Bearer service-token"
-    assert json.loads(requests[0].content)["options"] == {}
+    assert json.loads(requests[0].content)["options"] == {
+        "queue": "ml.cpu",
+        "soft_time_limit": 30,
+    }
     assert options[0]["trust_env"] is False
     assert options[0]["follow_redirects"] is False
+
+
+def test_async_canvas_and_envelope_publication_use_the_v2_contract(monkeypatch):
+    requests = []
+
+    async def handler(request):
+        payload = json.loads(request.content)
+        requests.append(payload)
+        return httpx.Response(
+            200,
+            json={
+                "schema": JOBS_QUEUE_PROTOCOL,
+                "accepted": True,
+                "execution_id": payload["execution_id"],
+            },
+        )
+
+    _install_async_transport(monkeypatch, handler)
+    client = JobsQueueClient("http://jobs-queue:8190", "service-token")
+    task = {
+        "task_name": "app.workers.frame_preannotate.predict_video_segment",
+        "execution_id": "child-id",
+        "args": ["job-id", 0, 10],
+        "kwargs": {},
+        "options": {"soft_time_limit": 900},
+    }
+    callback = {
+        "task_name": "app.workers.frame_preannotate.launch_predict_phase",
+        "execution_id": "callback-id",
+        "args": ["job-id"],
+        "kwargs": {},
+        "options": {},
+    }
+
+    async def publish():
+        canvas_id = await client.dispatch_canvas(
+            "callback-id", "group-id", [task], callback
+        )
+        dispatch_id = await client.publish_envelope(
+            {
+                "schema": JOBS_QUEUE_PROTOCOL,
+                "operation": "dispatch",
+                "task_name": "some.task",
+                "execution_id": "relay-id",
+                "args": [],
+                "kwargs": {},
+                "options": {"queue": "ml"},
+            }
+        )
+        return canvas_id, dispatch_id
+
+    assert asyncio.run(publish()) == ("callback-id", "relay-id")
+    assert [item["operation"] for item in requests] == ["canvas", "dispatch"]
+    assert requests[0]["tasks"][0]["options"] == {"soft_time_limit": 900}
+    assert requests[1]["options"] == {"queue": "ml"}
 
 
 def test_async_client_bounds_reply_and_does_not_retry_failed_status(monkeypatch):
@@ -94,7 +157,9 @@ def test_async_client_propagates_cancellation_and_rejects_custom_options(monkeyp
     client = JobsQueueClient("http://jobs-queue:8190", "service-token")
     with pytest.raises(JobsQueueContractError):
         asyncio.run(
-            client.dispatch_job("some.task", "task-id", [], options={"queue": "ml"})
+            client.dispatch_job(
+                "some.task", "task-id", [], options={"unsupported": "ml"}
+            )
         )
     assert not calls
 
@@ -135,7 +200,7 @@ def test_sync_client_dispatches_once_from_an_active_async_loop(monkeypatch):
         return httpx.Response(
             200,
             json={
-                "schema": "aap-jobs-queue/v1",
+                "schema": JOBS_QUEUE_PROTOCOL,
                 "accepted": True,
                 "execution_id": payload["execution_id"],
             },
@@ -151,6 +216,7 @@ def test_sync_client_dispatches_once_from_an_active_async_loop(monkeypatch):
             execution_id,
             ["job-id"],
             kwargs={"source": "sync"},
+            options={"queue": "ml.cpu", "soft_time_limit": 12},
         )
 
     assert asyncio.run(dispatch_in_active_loop()) == execution_id
@@ -159,17 +225,68 @@ def test_sync_client_dispatches_once_from_an_active_async_loop(monkeypatch):
     assert requests[0].headers["authorization"] == "Bearer service-token"
     assert requests[0].headers["content-type"] == "application/json"
     assert json.loads(requests[0].content) == {
-        "schema": "aap-jobs-queue/v1",
+        "schema": JOBS_QUEUE_PROTOCOL,
         "operation": "dispatch",
         "task_name": "app.workers.cross_frame_job.run_cross_frame_job",
         "execution_id": execution_id,
         "args": ["job-id"],
         "kwargs": {"source": "sync"},
-        "options": {},
+        "options": {"queue": "ml.cpu", "soft_time_limit": 12},
     }
     assert options[0]["timeout"] == 10.0
     assert options[0]["trust_env"] is False
     assert options[0]["follow_redirects"] is False
+
+
+def test_sync_canvas_and_envelope_publication_use_the_v2_contract(monkeypatch):
+    requests = []
+
+    def handler(request):
+        payload = json.loads(request.content)
+        requests.append(payload)
+        return httpx.Response(
+            200,
+            json={
+                "schema": JOBS_QUEUE_PROTOCOL,
+                "accepted": True,
+                "execution_id": payload["execution_id"],
+            },
+        )
+
+    _install_sync_transport(monkeypatch, handler)
+    client = JobsQueueClient("http://jobs-queue:8190", "service-token")
+    task = {
+        "task_name": "some.task",
+        "execution_id": "child-id",
+        "args": [],
+        "kwargs": {},
+        "options": {},
+    }
+    callback = {
+        "task_name": "some.callback",
+        "execution_id": "callback-id",
+        "args": [],
+        "kwargs": {},
+        "options": {},
+    }
+    assert (
+        client.dispatch_canvas_sync("callback-id", "group-id", [task], callback)
+        == "callback-id"
+    )
+    assert (
+        client.publish_envelope_sync(
+            {
+                "schema": JOBS_QUEUE_PROTOCOL,
+                "operation": "canvas",
+                "execution_id": "callback-id-2",
+                "group_id": "group-id-2",
+                "tasks": [{**task, "execution_id": "child-id-2"}],
+                "callback": {**callback, "execution_id": "callback-id-2"},
+            }
+        )
+        == "callback-id-2"
+    )
+    assert [item["operation"] for item in requests] == ["canvas", "canvas"]
 
 
 @pytest.mark.parametrize(
@@ -179,7 +296,7 @@ def test_sync_client_dispatches_once_from_an_active_async_loop(monkeypatch):
         ("some.task", "", [], None, None),
         ("some.task", "task-id", {}, None, None),
         ("some.task", "task-id", [], {1: "invalid"}, None),
-        ("some.task", "task-id", [], None, {"queue": "custom"}),
+        ("some.task", "task-id", [], None, {"unsupported": "custom"}),
     ],
 )
 def test_sync_client_rejects_invalid_contract_without_http(
@@ -222,7 +339,7 @@ def test_sync_client_fails_closed_without_retry_or_async_fallback(monkeypatch, f
         return httpx.Response(
             status,
             json={
-                "schema": "aap-jobs-queue/v1",
+                "schema": JOBS_QUEUE_PROTOCOL,
                 "accepted": accepted,
                 "execution_id": reply_id,
             },
@@ -258,7 +375,7 @@ def _revoke_response(request, requests):
     return httpx.Response(
         200,
         json={
-            "schema": "aap-jobs-queue/v1",
+            "schema": JOBS_QUEUE_PROTOCOL,
             "accepted": True,
             "execution_id": payload["execution_id"],
         },

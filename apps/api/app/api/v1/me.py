@@ -259,11 +259,24 @@ from app.services.task_event_ingestion import (  # noqa: E402
 
 
 def _enqueue_task_events(payload_list: list[dict]) -> bool:
-    """投递到 Celery；broker 不可用时返回 False 让上层 fallback。"""
-    try:
-        from app.workers.task_events import persist_task_events_batch
+    """Send task events to the selected queue.
 
-        persist_task_events_batch.delay(payload_list)
+    Returning False triggers synchronous insertion.
+    """
+    try:
+        if settings.jobs_queue_url:
+            from app.services.jobs_queue import dispatch_job_sync
+
+            dispatch_job_sync(
+                task_name="app.workers.task_events.persist_task_events_batch",
+                execution_id=str(uuid.uuid4()),
+                args=[payload_list],
+                options={"queue": "audit"},
+            )
+        else:
+            from app.workers.task_events import persist_task_events_batch
+
+            persist_task_events_batch.delay(payload_list)
         return True
     except Exception:  # pragma: no cover - defensive
         return False

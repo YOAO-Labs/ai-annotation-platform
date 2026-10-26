@@ -10,6 +10,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aap_jobs.dispatch_contract import DispatchLease
+
 from app.services import task_access
 from app.db.models.annotation import Annotation
 from app.db.models.mask_qc import MaskQCIssue, MaskQCRun
@@ -72,6 +74,7 @@ from app.services.mask_qc.service import (
     MaskQCError,
     create_mask_qc_run,
     decide_issue,
+    prepare_mask_qc_run_dispatch,
     dispatch_mask_qc_run,
     effective_issue_status,
     effective_issue_statuses,
@@ -81,6 +84,7 @@ from app.services.mask_qc.service import (
     task_qc_summary,
 )
 from app.services.audit import AuditAction, AuditService
+from app.services.jobs_dispatch import publish_prepared_dispatch
 from app.services.mask_repair import (
     MaskRepairError,
     batch_out,
@@ -88,6 +92,7 @@ from app.services.mask_repair import (
     dispatch_repair_batch,
     execute_repair_plan,
     fail_repair_dispatch,
+    prepare_repair_batch_dispatch,
     record_repair_dispatch_task,
     request_repair_rollback,
     resume_repair_batch,
@@ -275,6 +280,7 @@ async def create_run(
     await _assert_run_scope_visible(
         db, project=project, user=current_user, access=access, request=body
     )
+    lease = None
     try:
         run, job, created = await create_mask_qc_run(
             db,
@@ -282,13 +288,19 @@ async def create_run(
             actor_id=current_user.id,
             request=body,
         )
+        if created and job is not None:
+            lease = await prepare_mask_qc_run_dispatch(db, run=run, job=job)
     except MaskQCError as exc:
         _raise_mask_qc_error(exc)
     await db.commit()
-    if created and job is not None:
+    if created and job is not None and lease is not None:
         try:
             await dispatch_mask_qc_run(
-                db, run_id=run.id, async_job_id=job.id, dispatcher=quality_dispatcher
+                db,
+                run_id=run.id,
+                async_job_id=job.id,
+                lease=lease,
+                dispatcher=quality_dispatcher,
             )
         except MaskQCError as exc:
             _raise_mask_qc_error(exc)
@@ -656,13 +668,21 @@ async def _dispatch_repair_or_fail(
     batch: MaskRepairBatch,
     rollback: bool,
     dispatcher: QualityJobDispatcher,
+    dispatch_lease: DispatchLease,
 ) -> None:
     batch_id = batch.id
     job_id = batch.rollback_async_job_id if rollback else batch.async_job_id
     assert job_id is not None
     try:
-        celery_task_id = await dispatch_repair_batch(
-            batch_id, rollback=rollback, dispatcher=dispatcher
+        celery_task_id = await publish_prepared_dispatch(
+            db,
+            dispatch_lease,
+            publish=lambda: dispatch_repair_batch(
+                batch_id,
+                rollback=rollback,
+                dispatcher=dispatcher,
+                execution_id=dispatch_lease.execution_id,
+            ),
         )
     except MaskRepairError as exc:
         await db.rollback()
@@ -779,10 +799,20 @@ async def execute_mask_repairs(
         status_code=202,
         detail={"plan_digest": batch.plan_digest},
     )
+    dispatch_lease = (
+        await prepare_repair_batch_dispatch(db, batch, rollback=False)
+        if should_dispatch
+        else None
+    )
     await db.commit()
     if should_dispatch:
+        assert dispatch_lease is not None
         await _dispatch_repair_or_fail(
-            db, batch=batch, rollback=False, dispatcher=quality_dispatcher
+            db,
+            batch=batch,
+            rollback=False,
+            dispatcher=quality_dispatcher,
+            dispatch_lease=dispatch_lease,
         )
     return batch_out(batch)
 
@@ -830,9 +860,14 @@ async def resume_mask_repairs(
         request=request,
         status_code=202,
     )
+    dispatch_lease = await prepare_repair_batch_dispatch(db, batch, rollback=False)
     await db.commit()
     await _dispatch_repair_or_fail(
-        db, batch=batch, rollback=False, dispatcher=quality_dispatcher
+        db,
+        batch=batch,
+        rollback=False,
+        dispatcher=quality_dispatcher,
+        dispatch_lease=dispatch_lease,
     )
     return batch_out(batch)
 
@@ -873,8 +908,13 @@ async def rollback_mask_repairs(
         request=request,
         status_code=202,
     )
+    dispatch_lease = await prepare_repair_batch_dispatch(db, batch, rollback=True)
     await db.commit()
     await _dispatch_repair_or_fail(
-        db, batch=batch, rollback=True, dispatcher=quality_dispatcher
+        db,
+        batch=batch,
+        rollback=True,
+        dispatcher=quality_dispatcher,
+        dispatch_lease=dispatch_lease,
     )
     return batch_out(batch)

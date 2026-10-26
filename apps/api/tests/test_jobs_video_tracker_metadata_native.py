@@ -80,11 +80,11 @@ async def test_tracker_api_fixture_requires_materialized_media_metadata(
         class Dispatcher:
             unavailable = False
 
-            def dispatch_tracker_job(self, job_id):
+            def dispatch_tracker_job(self, job_id, *, execution_id):
                 dispatched.append(job_id)
                 if self.unavailable:
                     raise RuntimeError("test jobs owner unavailable")
-                return str(uuid.uuid4())
+                return execution_id
 
         dispatcher = Dispatcher()
         headers = {

@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aap_jobs.dispatch_contract import DispatchLease
 from app.application.task_workflow_errors import TaskWorkflowError
 from app.services.project_access import get_workspace_project
 from app.application.task_workflow_locks import (
@@ -81,8 +82,13 @@ async def _prepare_submission(
     mask_qc_run: MaskQCRun | None = None
     mask_qc_job: AsyncJob | None = None
     mask_qc_created = False
+    mask_qc_lease: DispatchLease | None = None
     mask_qc_status: str | None = None
-    from app.services.mask_qc.service import MaskQCError, create_mask_qc_run
+    from app.services.mask_qc.service import (
+        MaskQCError,
+        create_mask_qc_run,
+        prepare_mask_qc_run_dispatch,
+    )
 
     project = await get_workspace_project(db, project_id=task.project_id)
     config = load_mask_qc_config(project.mask_qc_config if project else None)
@@ -108,13 +114,22 @@ async def _prepare_submission(
         and config.auto_run == "on_review_submit"
     ):
         try:
-            mask_qc_run, mask_qc_job, mask_qc_created = await create_mask_qc_run(
-                db,
-                project=project,
-                actor_id=actor.id,
-                request=MaskQCRunRequest(scope="task_ids", task_ids=[task.id]),
-            )
+            async with db.begin_nested():
+                mask_qc_run, mask_qc_job, mask_qc_created = await create_mask_qc_run(
+                    db,
+                    project=project,
+                    actor_id=actor.id,
+                    request=MaskQCRunRequest(scope="task_ids", task_ids=[task.id]),
+                )
+                if mask_qc_created and mask_qc_job is not None:
+                    mask_qc_lease = await prepare_mask_qc_run_dispatch(
+                        db, run=mask_qc_run, job=mask_qc_job
+                    )
         except MaskQCError as exc:
+            mask_qc_run = None
+            mask_qc_job = None
+            mask_qc_created = False
+            mask_qc_lease = None
             mask_qc_status = str(exc.detail.get("reason") or "enqueue_failed")
         else:
             mask_qc_status = mask_qc_run.status
@@ -136,6 +151,7 @@ async def _prepare_submission(
         "mask_qc_run": mask_qc_run,
         "mask_qc_job": mask_qc_job,
         "mask_qc_created": mask_qc_created,
+        "mask_qc_lease": mask_qc_lease,
         "mask_qc_status": mask_qc_status,
         "has_mask": has_mask,
     }
@@ -217,6 +233,7 @@ class TaskSubmissionWorkflow:
             result["mask_qc_created"]
             and mask_qc_run is not None
             and result["mask_qc_job"] is not None
+            and result["mask_qc_lease"] is not None
         ):
             from app.services.mask_qc.service import MaskQCError, dispatch_mask_qc_run
 
@@ -225,6 +242,7 @@ class TaskSubmissionWorkflow:
                     self.db,
                     run_id=mask_qc_run.id,
                     async_job_id=result["mask_qc_job"].id,
+                    lease=result["mask_qc_lease"],
                     dispatcher=quality_dispatcher,
                 )
             except MaskQCError:
@@ -301,7 +319,7 @@ class TaskSubmissionWorkflow:
                 reason="task_busy",
             )
             tasks.sort(key=lambda task: (task.created_at, task.id))
-            quality_dispatches: list[tuple[uuid.UUID, uuid.UUID]] = []
+            quality_dispatches: list[tuple[uuid.UUID, uuid.UUID, DispatchLease]] = []
             for task in tasks:
                 if task.status not in ("pending", "in_progress"):
                     continue
@@ -347,9 +365,14 @@ class TaskSubmissionWorkflow:
                     result["mask_qc_created"]
                     and mask_qc_run is not None
                     and result["mask_qc_job"] is not None
+                    and result["mask_qc_lease"] is not None
                 ):
                     quality_dispatches.append(
-                        (mask_qc_run.id, result["mask_qc_job"].id)
+                        (
+                            mask_qc_run.id,
+                            result["mask_qc_job"].id,
+                            result["mask_qc_lease"],
+                        )
                     )
 
             await self.db.commit()
@@ -359,12 +382,13 @@ class TaskSubmissionWorkflow:
                     dispatch_mask_qc_run,
                 )
 
-                for run_id, job_id in quality_dispatches:
+                for run_id, job_id, lease in quality_dispatches:
                     try:
                         await dispatch_mask_qc_run(
                             self.db,
                             run_id=run_id,
                             async_job_id=job_id,
+                            lease=lease,
                             dispatcher=quality_dispatcher,
                         )
                     except MaskQCError:

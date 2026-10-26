@@ -170,6 +170,48 @@ JOBS_ACTION_IDEMPOTENCY_RUNTIME_CAPABILITIES = (
     "aap_jobs_v1.lock_action_idempotency(text,uuid,uuid,text)",
     "aap_jobs_v1.find_action_idempotent_jobs(text,uuid,uuid,text)",
 )
+JOBS_DISPATCH_RUNTIME_CAPABILITIES = (
+    "aap_jobs_v1.prepare_dispatch(jsonb)",
+    "aap_jobs_v1.finish_dispatch(jsonb)",
+    "aap_jobs_v1.dispatch_status(uuid)",
+)
+_JOBS_DISPATCH_RUNTIME_ACL = """
+DO $jobs_dispatch_acl$
+DECLARE
+    v_runtime name := current_setting('aap.application_role');
+    v_columns text;
+BEGIN
+    EXECUTE format(
+        'REVOKE EXECUTE ON FUNCTION aap_jobs_v1.claim_dispatches(jsonb) FROM %I, PUBLIC',
+        v_runtime
+    );
+    EXECUTE format(
+        'REVOKE ALL ON TABLE aap_jobs_v1.dispatch_intents FROM %I, PUBLIC',
+        v_runtime
+    );
+    SELECT string_agg(format('%I', attname), ', ' ORDER BY attnum)
+    INTO v_columns FROM pg_catalog.pg_attribute
+    WHERE attrelid = 'aap_jobs_v1.dispatch_intents'::regclass
+      AND attnum > 0 AND NOT attisdropped;
+    IF v_columns IS NOT NULL THEN
+        EXECUTE format(
+            'REVOKE ALL (%s) ON TABLE aap_jobs_v1.dispatch_intents FROM %I, PUBLIC',
+            v_columns, v_runtime
+        );
+    END IF;
+    IF pg_catalog.has_table_privilege(
+        v_runtime, 'aap_jobs_v1.dispatch_intents',
+        'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
+    ) OR pg_catalog.has_any_column_privilege(
+        v_runtime, 'aap_jobs_v1.dispatch_intents', 'SELECT,INSERT,UPDATE,REFERENCES'
+    ) OR pg_catalog.has_function_privilege(
+        v_runtime, 'aap_jobs_v1.claim_dispatches(jsonb)', 'EXECUTE'
+    ) THEN
+        RAISE EXCEPTION 'Runtime retains private Jobs dispatch or relay authority';
+    END IF;
+END
+$jobs_dispatch_acl$;
+"""
 _JOBS_CREATION_RUNTIME_ACL = """
 DO $jobs_creation_acl$
 DECLARE
@@ -1175,6 +1217,7 @@ class LocalResources:
                     *JOBS_ROW_LOCK_RUNTIME_CAPABILITIES,
                     *JOBS_DOMAIN_QUERY_RUNTIME_CAPABILITIES,
                     *JOBS_ACTION_IDEMPOTENCY_RUNTIME_CAPABILITIES,
+                    *JOBS_DISPATCH_RUNTIME_CAPABILITIES,
                 )
             )
             notification_delivery_read_check = " AND ".join(
@@ -1564,6 +1607,7 @@ class LocalResources:
                 await connection.exec_driver_sql(_JOBS_CREATION_RUNTIME_ACL)
                 await connection.exec_driver_sql(_JOBS_DELETE_RUNTIME_ACL)
                 await connection.exec_driver_sql(_JOBS_UPDATE_RUNTIME_ACL)
+                await connection.exec_driver_sql(_JOBS_DISPATCH_RUNTIME_ACL)
                 await connection.exec_driver_sql(_IDENTITY_PRIVATE_RUNTIME_ACL)
                 await connection.exec_driver_sql(_AUDIT_PRIVATE_RUNTIME_ACL)
                 await connection.exec_driver_sql(self.private_runtime_acl("labeling"))

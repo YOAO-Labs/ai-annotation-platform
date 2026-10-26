@@ -299,9 +299,9 @@ class _VideoTrackerJobDispatcherStub:
     def __init__(self) -> None:
         self.jobs: list[UUID] = []
 
-    def dispatch_tracker_job(self, job_id: UUID) -> str:
+    def dispatch_tracker_job(self, job_id: UUID, *, execution_id: str) -> str:
         self.jobs.append(job_id)
-        return str(uuid4())
+        return execution_id
 
 
 @pytest.fixture

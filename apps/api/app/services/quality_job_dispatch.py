@@ -19,10 +19,12 @@ class QualityJobDispatcher(Protocol):
         """Queue a quality run with its already-persisted execution identity."""
         ...
 
-    def dispatch_mask_repair(self, batch_id: uuid.UUID, *, rollback: bool) -> str:
-        """Queue repair or rollback and return the transport execution identity."""
+    def dispatch_mask_repair(
+        self, batch_id: uuid.UUID, *, rollback: bool, execution_id: str
+    ) -> str:
+        """Queue repair or rollback with its persisted execution identity."""
         ...
 
-    def dispatch_mask_import(self, batch_id: uuid.UUID) -> str:
-        """Queue a staged format import and return its execution identity."""
+    def dispatch_mask_import(self, batch_id: uuid.UUID, *, execution_id: str) -> str:
+        """Queue a staged format import with its persisted execution identity."""
         ...

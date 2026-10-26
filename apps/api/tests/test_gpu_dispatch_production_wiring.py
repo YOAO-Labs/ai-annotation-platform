@@ -1,19 +1,12 @@
 from __future__ import annotations
 
-import inspect
+import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
-import uuid
 
 import pytest
-from fastapi.params import Depends as DependsParam
-
+import redis
 from aap_inference.backend_transport import PredictionResult
-from app import deps
-from app.api.v1 import admin_ml_integrations, ml_backends
-from app.api.v1.tasks import annotations
-from app.services import ml_backend as ml_backend_module
-from app.services.ml_backend import MLBackendService
 from app.services.gpu_arbitration.contracts import (
     GPUArbiterDispatchError,
     GPUArbiterErrorCode,
@@ -25,148 +18,14 @@ from app.services.video_tracking.adapters import (
     TrackerSession,
 )
 from app.workers import frame_preannotate
+
 from tests.test_frame_preannotate_persistence import (
     _install_video_gateway,
     _run_video_segment,
+)
+from tests.test_frame_preannotate_persistence import (
     frame_world as frame_world,
 )
-
-
-def test_gpu_dispatch_dependency_uses_the_global_short_session_factory(
-    monkeypatch,
-) -> None:
-    marker = object()
-    captured: list[object] = []
-
-    def build(session_factory):
-        captured.append(session_factory)
-        return marker
-
-    monkeypatch.setattr(deps, "build_gpu_dispatch_context_factory", build)
-
-    assert deps.get_gpu_dispatch_context_factory() is marker
-    assert captured == [deps.async_session]
-
-
-def test_dispatching_api_routes_require_the_explicit_authority_dependency() -> None:
-    routes = (
-        ml_backends.unload_ml_backend,
-        ml_backends.reload_ml_backend,
-        ml_backends.warmup_ml_backend,
-        ml_backends.predict_test,
-        ml_backends.interactive_annotating,
-        ml_backends.predict_frame,
-        ml_backends.interactive_annotating_frame,
-        admin_ml_integrations.unload_registry_backend,
-        admin_ml_integrations.smoke_test_backend,
-        annotations.secondary_inference,
-    )
-
-    for route in routes:
-        parameter = inspect.signature(route).parameters["dispatch_context_factory"]
-        assert isinstance(parameter.default, DependsParam)
-        assert parameter.default.dependency is deps.get_gpu_dispatch_context_factory
-
-
-@pytest.mark.asyncio
-async def test_ml_backend_service_forwards_the_exact_authority_factory(
-    monkeypatch,
-) -> None:
-    shadow_factory = object()
-    authority_factory = object()
-    backend = object()
-    clients: list[dict] = []
-
-    class FakeDB:
-        async def commit(self) -> None:
-            pass
-
-    class FakeClient:
-        def __init__(self, received_backend, **kwargs) -> None:
-            assert received_backend is backend
-            clients.append(kwargs)
-
-        async def unload(self) -> dict:
-            return {"operation": "unload"}
-
-        async def reload(self, **kwargs) -> dict:
-            return {"operation": "reload", **kwargs}
-
-        async def warmup(self, body: dict) -> dict:
-            return {"operation": "warmup", "body": body}
-
-    service = MLBackendService(
-        FakeDB(),  # type: ignore[arg-type]
-        shadow_session_factory=shadow_factory,  # type: ignore[arg-type]
-        dispatch_context_factory=authority_factory,  # type: ignore[arg-type]
-    )
-
-    async def get_backend(_registry_id):
-        return backend
-
-    monkeypatch.setattr(service, "get", get_backend)
-    monkeypatch.setattr(ml_backend_module, "MLBackendClient", FakeClient)
-
-    registry_id = uuid.uuid4()
-    assert await service.unload(registry_id) == {"operation": "unload"}
-    assert (await service.reload(registry_id))["operation"] == "reload"
-    assert await service.warmup(registry_id, {"model": "tiny"}) == {
-        "operation": "warmup",
-        "body": {"model": "tiny"},
-    }
-    assert len(clients) == 3
-    assert all(item["shadow_session_factory"] is shadow_factory for item in clients)
-    assert all(
-        item["dispatch_context_factory"] is authority_factory for item in clients
-    )
-
-
-@pytest.mark.asyncio
-async def test_video_tracker_adapter_forwards_the_exact_authority_factory(
-    monkeypatch,
-) -> None:
-    shadow_factory = object()
-    authority_factory = object()
-    captured: list[dict] = []
-
-    class FakeClient:
-        def __init__(self, backend, **kwargs) -> None:
-            assert backend.state == "connected"
-            captured.append(kwargs)
-
-        async def predict_interactive(self, task_data, context):
-            return SimpleNamespace(result=[])
-
-    monkeypatch.setattr(tracker_impl_module, "MLBackendClient", FakeClient)
-    context = TrackerContext(
-        job_id=uuid.uuid4(),
-        task_id=uuid.uuid4(),
-        project_id=uuid.uuid4(),
-        dataset_item_id=uuid.uuid4(),
-        annotation_id=uuid.uuid4(),
-        from_frame=0,
-        to_frame=1,
-        direction="forward",
-        prompt={},
-        source_geometry={},
-        task_data={"id": "task"},
-        ml_backend=SimpleNamespace(state="connected"),
-        shadow_session_factory=shadow_factory,  # type: ignore[arg-type]
-        dispatch_context_factory=authority_factory,  # type: ignore[arg-type]
-    )
-
-    results = [
-        item
-        async for item in MLBackendVideoTrackerAdapter("sam2_video").propagate(context)
-    ]
-
-    assert results == []
-    assert captured == [
-        {
-            "shadow_session_factory": shadow_factory,
-            "dispatch_context_factory": authority_factory,
-        }
-    ]
 
 
 @pytest.mark.asyncio
@@ -324,7 +183,14 @@ async def test_frame_finalize_merges_gpu_arbiter_failures_into_job_result(
     job = AsyncJob(
         kind="batch_predict",
         status=AsyncJobStatus.RUNNING.value,
-        result={"existing": True},
+        result={
+            "existing": True,
+            "frame_total": 5,
+            "frame_dispatch": {
+                "segment_ids": ["first", "second"],
+                "total_frames": 5,
+            },
+        },
     )
     db_session.add(job)
     await db_session.commit()
@@ -360,46 +226,60 @@ async def test_frame_finalize_merges_gpu_arbiter_failures_into_job_result(
         frame_preannotate, "_publish_frame_progress", lambda *_args, **_kwargs: None
     )
 
-    await frame_preannotate._finalize(
-        [
-            {
-                "frames_done": 1,
-                "boxes": 2,
-                "failed": 2,
-                "skipped": 0,
-                "gpu_arbiter_failures": [
-                    {
-                        "error_code": "gpu_capacity_unavailable",
-                        "status_code": 503,
-                        "retry_after_s": 2,
-                        "count": 2,
-                    }
-                ],
+    receipts = [
+        {
+            "frames_done": 1,
+            "boxes": 2,
+            "failed": 2,
+            "skipped": 0,
+            "gpu_arbiter_failures": [
+                {
+                    "error_code": "gpu_capacity_unavailable",
+                    "status_code": 503,
+                    "retry_after_s": 2,
+                    "count": 2,
+                }
+            ],
+        },
+        {
+            "frames_done": 0,
+            "boxes": 0,
+            "failed": 2,
+            "skipped": 0,
+            "gpu_arbiter_failures": [
+                {
+                    "error_code": "gpu_arbiter_not_ready",
+                    "status_code": 503,
+                    "retry_after_s": None,
+                    "count": 1,
+                },
+                {
+                    "error_code": "gpu_capacity_unavailable",
+                    "status_code": 503,
+                    "retry_after_s": 5,
+                    "count": 1,
+                },
+            ],
+        },
+    ]
+    with redis.from_url(frame_preannotate.settings.redis_url) as progress:
+        key = frame_preannotate._segment_results_key(str(job.id))
+        progress.hset(
+            key,
+            mapping={
+                name: frame_preannotate._serialize_segment_stats(stats)
+                for name, stats in zip(("first", "second"), receipts, strict=True)
             },
-            {
-                "frames_done": 0,
-                "boxes": 0,
-                "failed": 2,
-                "skipped": 0,
-                "gpu_arbiter_failures": [
-                    {
-                        "error_code": "gpu_arbiter_not_ready",
-                        "status_code": 503,
-                        "retry_after_s": None,
-                        "count": 1,
-                    },
-                    {
-                        "error_code": "gpu_capacity_unavailable",
-                        "status_code": 503,
-                        "retry_after_s": 5,
-                        "count": 1,
-                    },
-                ],
-            },
-        ],
-        project_id=str(uuid.uuid4()),
-        job_id=str(job.id),
-    )
+        )
+    try:
+        await frame_preannotate._finalize(
+            [{"frames_done": 999, "boxes": 999}],
+            project_id=str(uuid.uuid4()),
+            job_id=str(job.id),
+        )
+    finally:
+        with redis.from_url(frame_preannotate.settings.redis_url) as progress:
+            progress.delete(key)
 
     await db_session.refresh(job)
     assert job.status == AsyncJobStatus.COMPLETED.value

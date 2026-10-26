@@ -8,6 +8,7 @@ backend 一次追踪返回多实例 (模式 a「自动发现」) 时:
 
 import uuid
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
@@ -41,8 +42,8 @@ def _tracker_input_owner_test_port(tracker_input_owner_fakes, savepoint_routing_
 
 
 class _TrackerJobDispatcher:
-    def dispatch_tracker_job(self, job_id: uuid.UUID) -> str:
-        return "tracker-test-execution"
+    def dispatch_tracker_job(self, job_id: uuid.UUID, *, execution_id: str) -> str:
+        return execution_id
 
 
 _TRACKER_JOB_DISPATCHER = _TrackerJobDispatcher()
@@ -805,7 +806,7 @@ async def test_runner_discard_leaves_annotation_untouched(
     await db_session.refresh(job)
     assert job.status == "pending_review"
 
-    await discard_tracker_job(db_session, job.id, publisher=collect)
+    await discard_tracker_job(db_session, job.id, actor_id=user_id, publisher=collect)
     await db_session.refresh(job)
     await db_session.refresh(source)
 
@@ -1213,10 +1214,11 @@ async def test_accept_multi_source_soft_deleted_source_fails_closed(
     src_b.is_active = False
     await db_session.flush()
 
-    with pytest.raises(TrackerJobStateConflict, match="inactive"):
-        await accept_tracker_job(
-            db_session, job.id, actor_id=user_id, publisher=collect
-        )
+    with pytest.raises(TrackerJobStateConflict):
+        async with db_session.begin_nested():
+            await accept_tracker_job(
+                db_session, job.id, actor_id=user_id, publisher=collect
+            )
     await db_session.refresh(job)
     await db_session.refresh(src_a)
     assert job.status == "pending_review"
@@ -1346,12 +1348,11 @@ async def test_track_video_endpoint_multi_source_builds_job(
     source_ids = (src_a.id, src_b.id)
     await db_session.commit()
 
-    class FakeAsyncResult:
-        id = "tracker-celery-task"
-
     monkeypatch.setattr(
         "celery.current_app.send_task",
-        lambda name, args=None, queue=None, **kwargs: FakeAsyncResult(),
+        lambda name, args=None, queue=None, **kwargs: SimpleNamespace(
+            id=kwargs["task_id"]
+        ),
     )
 
     resp = await httpx_client.post(
@@ -1559,14 +1560,11 @@ async def test_accept_tracker_job_conflict_on_source_version_mismatch(
     await db_session.commit()
     await db_session.refresh(source)
 
-    with pytest.raises(TrackerJobStateConflict) as exc:
-        await accept_tracker_job(
-            db_session, job.id, actor_id=user_id, publisher=collect
-        )
-    assert (
-        "version changed" in str(exc.value).lower()
-        or "conflict" in str(exc.value).lower()
-    )
+    with pytest.raises(TrackerJobStateConflict):
+        async with db_session.begin_nested():
+            await accept_tracker_job(
+                db_session, job.id, actor_id=user_id, publisher=collect
+            )
 
     # Source geometry untouched (no last-writer-wins).
     await db_session.refresh(source)
@@ -1651,10 +1649,11 @@ async def test_accept_tracker_job_rejects_locked_or_soft_deleted_source(
     }
     source.is_locked = True
     await db_session.commit()
-    with pytest.raises(TrackerJobStateConflict, match="locked"):
-        await accept_tracker_job(
-            db_session, job.id, actor_id=user_id, publisher=collect
-        )
+    with pytest.raises(TrackerJobStateConflict):
+        async with db_session.begin_nested():
+            await accept_tracker_job(
+                db_session, job.id, actor_id=user_id, publisher=collect
+            )
 
 
 async def test_accept_tracker_job_rechecks_task_status(

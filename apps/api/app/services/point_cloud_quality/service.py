@@ -11,6 +11,7 @@ from sqlalchemy.orm import aliased
 from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.orm.util import identity_key
 
+from aap_jobs.dispatch_contract import DispatchLease
 from app.db.models.async_job import AsyncJob, AsyncJobKind
 from app.db.models.point_cloud_quality import (
     PointCloudQualityIssue,
@@ -23,6 +24,10 @@ from app.schemas.point_cloud_quality import (
 )
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.services.async_job import create_job, get_job
+from app.services.jobs_dispatch import (
+    prepare_job_dispatch,
+    publish_prepared_dispatch,
+)
 from app.services.async_job_terminal import JobTerminal
 from app.services.mask_qc.service import canonical_digest
 from app.services.point_cloud_quality.config import (
@@ -509,21 +514,55 @@ async def create_quality_run(
     return run, job, True
 
 
+async def prepare_quality_run_dispatch(
+    db: AsyncSession,
+    *,
+    run: PointCloudQualityRun,
+    job: AsyncJob,
+) -> DispatchLease:
+    if run.async_job_id != job.id or not job.celery_task_id:
+        raise PointCloudQualityError(500, "point_cloud_quality_dispatch_invalid")
+    try:
+        return await prepare_job_dispatch(
+            db,
+            job_id=job.id,
+            task_name="app.workers.point_cloud_quality.run",
+            execution_id=job.celery_task_id,
+            args=[str(run.id)],
+        )
+    except Exception as exc:
+        raise PointCloudQualityError(
+            503, "point_cloud_quality_dispatch_failed", message=str(exc)
+        ) from exc
+
+
 async def dispatch_quality_run(
     db: AsyncSession,
     *,
     run_id: uuid.UUID,
     async_job_id: uuid.UUID,
+    lease: DispatchLease,
     dispatcher: QualityJobDispatcher,
 ) -> None:
     result = await spatial_quality_data(db, "get_point_run", run_id=run_id)
     run = quality_row(PointCloudQualityRun, result["row"]) if result["row"] else None
     job = await get_job(db, async_job_id)
-    if run is None or job is None or not job.celery_task_id:
+    if (
+        run is None
+        or run.async_job_id != async_job_id
+        or job is None
+        or not job.celery_task_id
+        or lease.job_id != async_job_id
+        or lease.execution_id != job.celery_task_id
+    ):
         raise PointCloudQualityError(500, "point_cloud_quality_dispatch_invalid")
     try:
-        dispatcher.dispatch_run(
-            "point_cloud_quality", run.id, execution_id=job.celery_task_id
+        await publish_prepared_dispatch(
+            db,
+            lease,
+            publish=lambda: dispatcher.dispatch_run(
+                "point_cloud_quality", run.id, execution_id=lease.execution_id
+            ),
         )
     except Exception as exc:
         raise PointCloudQualityError(

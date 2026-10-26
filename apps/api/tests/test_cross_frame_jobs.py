@@ -25,9 +25,18 @@ from tests.factory import create_project, create_user
 
 
 def _install_jobs_queue(monkeypatch, callback=None):
-    from app.services import jobs_queue
+    from app.services import jobs_dispatch, jobs_queue
 
     requests = []
+
+    async def prepare_dispatch(_db, *, execution_id, **_request):
+        return execution_id
+
+    async def publish_prepared_dispatch(_db, _lease, *, publish):
+        result = publish()
+        if inspect.isawaitable(result):
+            return await result
+        return result
 
     async def dispatch_job(**request):
         requests.append(request)
@@ -38,6 +47,10 @@ def _install_jobs_queue(monkeypatch, callback=None):
             result = await result
         return result
 
+    monkeypatch.setattr(jobs_dispatch, "prepare_job_dispatch", prepare_dispatch)
+    monkeypatch.setattr(
+        jobs_dispatch, "publish_prepared_dispatch", publish_prepared_dispatch
+    )
     monkeypatch.setattr(jobs_queue, "dispatch_job", dispatch_job)
     return requests
 

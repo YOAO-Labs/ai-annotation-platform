@@ -3862,5 +3862,13 @@ ALTER FUNCTION aap_jobs_v1._jobs_lifecycle_has_keys(jsonb,text[]) OWNER TO :"job
 ALTER FUNCTION aap_jobs_v1._jobs_lifecycle_is_truthy(jsonb) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1._jobs_lifecycle_integer(jsonb) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.apply_lifecycle(uuid,jsonb) OWNER TO :"jobs_owner";
+ALTER TABLE aap_jobs_v1.dispatch_intents OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.prepare_dispatch(jsonb) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.claim_dispatches(jsonb) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.finish_dispatch(jsonb) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.dispatch_status(uuid) OWNER TO :"jobs_owner";
+GRANT USAGE ON SCHEMA aap_labeling_v1 TO :"jobs_owner";
+GRANT SELECT (id, status, job_kind)
+    ON aap_labeling_v1.video_tracker_job_rows TO :"jobs_owner";
 REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
 COMMIT;

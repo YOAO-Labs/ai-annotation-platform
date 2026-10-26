@@ -14,23 +14,25 @@ from unittest.mock import AsyncMock
 
 import pytest
 import redis
-from celery import signals
-from celery.contrib.testing.worker import start_worker
-from sqlalchemy import select
-from sqlalchemy.engine import make_url
-
+from app.application.preannotation_contract import (
+    FramePreannotationDispatchRequest,
+    VideoFrameTaskPlan,
+)
 from app.config import settings
 from app.db.models.async_job import AsyncJob
 from app.db.models.prediction import Prediction, PredictionMeta
 from app.db.models.task import Task
 from app.workers import frame_preannotate
 from app.workers.celery_app import celery_app
-from app.application.preannotation_contract import (
-    FramePreannotationDispatchRequest,
-    VideoFrameTaskPlan,
-)
+from celery import signals
+from celery.contrib.testing.worker import start_worker
+from sqlalchemy import select
+from sqlalchemy.engine import make_url
+
 from tests.test_frame_preannotate_persistence import (
     _install_video_gateway,
+)
+from tests.test_frame_preannotate_persistence import (
     frame_world as frame_world,
 )
 
@@ -143,28 +145,43 @@ async def test_frame_chord_retains_results_across_real_retries(
             perform_ping_check=False,
             shutdown_timeout=20,
         ):
-            receipt = await frame_preannotate.dispatch_frame_preannotate(
-                FramePreannotationDispatchRequest(
-                    project_id=str(world.project_id),
-                    ml_backend_id=str(world.backend_id),
-                    stage0={},
-                    job_id=str(world.job_id),
-                    root_execution_id="root-frame-test",
-                    actor_id=str(world.actor_id),
-                    video_task_plans=(
-                        VideoFrameTaskPlan(
-                            task_id=str(world.task_id),
-                            input_id=str(world.input_id),
-                            input_job_id=str(world.job_id),
-                            plan_digest=world.plan.plan_digest,
-                            selected_count=world.plan.selected_count,
+            dispatcher = frame_preannotate.JobsFramePreannotationDispatcher()
+            async with world.maker() as acceptance:
+                prepared = await dispatcher.prepare(
+                    FramePreannotationDispatchRequest(
+                        project_id=str(world.project_id),
+                        ml_backend_id=str(world.backend_id),
+                        stage0={},
+                        job_id=str(world.job_id),
+                        root_execution_id="root-frame-test",
+                        actor_id=str(world.actor_id),
+                        video_task_plans=(
+                            VideoFrameTaskPlan(
+                                task_id=str(world.task_id),
+                                input_id=str(world.input_id),
+                                input_job_id=str(world.job_id),
+                                plan_digest=world.plan.plan_digest,
+                                selected_count=world.plan.selected_count,
+                            ),
                         ),
+                        accepted_video_manifest_id=str(world.job_id),
+                        accepted_video_selection_digest=world.selection_digest,
+                        accepted_video_sealed_digest=world.sealed_digest,
                     ),
-                    accepted_video_manifest_id=str(world.job_id),
-                    accepted_video_selection_digest=world.selection_digest,
-                    accepted_video_sealed_digest=world.sealed_digest,
+                    db=acceptance,
                 )
-            )
+                job = await acceptance.get(AsyncJob, world.job_id)
+                job.result = {
+                    **(job.result or {}),
+                    "frame_total": prepared.total_frames,
+                    "frame_dispatch": {
+                        "intent_id": str(prepared.lease.intent_id),
+                        "segment_ids": list(prepared.segment_ids),
+                        "total_frames": prepared.total_frames,
+                    },
+                }
+                await acceptance.commit()
+                receipt = await dispatcher(prepared, db=acceptance)
             assert receipt.dispatched and receipt.segments == 3
             assert await asyncio.to_thread(inference_ready.wait, 20)
             async with world.maker() as locker:

@@ -11,7 +11,11 @@ from typing import Any
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aap_jobs.dispatch_contract import DispatchLease
+
 from app.config import settings
+from app.services import async_job as async_job_svc
+from app.services.jobs_dispatch import prepare_job_dispatch, publish_prepared_dispatch
 from app.services.project_access import get_workspace_project
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import VideoSegment
@@ -50,6 +54,7 @@ from app.services.video_tracking.dispatch import VideoTrackerJobDispatcher
 from app.services.video_tracking.control import (
     VideoControlRejected,
     video_control_command,
+    video_control_job,
 )
 from app.services.labeling_core_read_relations import (
     get_core_row,
@@ -67,6 +72,7 @@ from aap_labeling.video_control_contract import (
     ReadAnnotations,
     ReadActiveCorrection,
     ReadJob,
+    ReadWorkerJob,
     ReadSegments,
     ReadTaskJobs,
     SaveKeyframe,
@@ -788,16 +794,79 @@ def _bbox_correction_supported(model: dict) -> bool:
     return "video" in inputs and "bbox_prompt" in inputs and "mask" in outputs
 
 
+async def prepare_tracker_dispatch(
+    db: AsyncSession,
+    job_id: uuid.UUID,
+    *,
+    retirement: bool = False,
+) -> DispatchLease:
+    """Accept the summary and exact publication in the canonical caller UOW."""
+    row = await video_control_job(
+        db,
+        ReadWorkerJob(
+            schema="aap-labeling-video-control/v1",
+            operation="read_worker_job",
+            job_id=job_id,
+        ),
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Video tracker job not found")
+    task = await get_core_row(db, task_row, row.task_id)
+    project_id = task.project_id if task is not None else None
+    project = (
+        await get_workspace_project(db, project_id=project_id)
+        if project_id is not None
+        else None
+    )
+    summary = await async_job_svc.ensure_video_tracker_summary(
+        db,
+        tracker_job_id=row.id,
+        kind="video_correction" if row.job_kind == "correction" else "video_tracker",
+        user_id=row.created_by,
+        project_id=project_id,
+        payload={
+            "video_tracker_job_id": str(row.id),
+            "task_id": str(row.task_id),
+            "task_display_id": task.display_id if task is not None else None,
+            "project_display_id": project.display_id if project is not None else None,
+            "from_frame": row.from_frame,
+            "to_frame": row.to_frame,
+            "model_key": row.model_key,
+            "direction": row.direction,
+            "job_kind": row.job_kind,
+            "correction_frame": row.correction_frame,
+        },
+        celery_task_id=None,
+    )
+    if retirement and row.status == "cancelled":
+        await async_job_svc.mark_cancelled(db, summary.id)
+    await db.flush()
+    return await prepare_job_dispatch(
+        db,
+        job_id=summary.id,
+        task_name="app.workers.video_tracker.run_video_tracker_job",
+        args=[str(row.id)],
+        purpose="tracker_retirement" if retirement else "execution",
+    )
+
+
 async def enqueue_tracker_job(
     db: AsyncSession,
     row_or_id: VideoTrackerJob | VideoTrackerJobOut | uuid.UUID,
     *,
     dispatcher: VideoTrackerJobDispatcher,
+    dispatch_lease: DispatchLease,
     fail_closed: bool = False,
 ) -> VideoTrackerJobOut:
     row_id = row_or_id.id if hasattr(row_or_id, "id") else row_or_id
     try:
-        execution_id = dispatcher.dispatch_tracker_job(row_id)
+        execution_id = await publish_prepared_dispatch(
+            db,
+            dispatch_lease,
+            publish=lambda: dispatcher.dispatch_tracker_job(
+                row_id, execution_id=dispatch_lease.execution_id
+            ),
+        )
         raw = await video_control_command(
             db,
             MarkEnqueued(
@@ -1351,9 +1420,12 @@ async def create_tracker_job(
         tracker_job_id=row.id,
         grid_step=grid_step,
     )
+    dispatch_lease = await prepare_tracker_dispatch(db, row.id)
     await db.commit()
 
-    return await enqueue_tracker_job(db, row.id, dispatcher=dispatcher)
+    return await enqueue_tracker_job(
+        db, row.id, dispatcher=dispatcher, dispatch_lease=dispatch_lease
+    )
 
 
 async def get_tracker_job(db: AsyncSession, job_id: uuid.UUID, actor_id: uuid.UUID):

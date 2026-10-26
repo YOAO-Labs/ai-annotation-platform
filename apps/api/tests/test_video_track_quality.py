@@ -109,12 +109,22 @@ async def test_dispatch_failure_finishes_both_quality_run_and_async_job(
     await db_session.commit()
     dispatcher = Mock(spec=QualityJobDispatcher)
     dispatcher.dispatch_run.side_effect = OSError("broker unavailable")
+    lease = SimpleNamespace(job_id=job_id, execution_id=job.celery_task_id)
 
+    from app.services import video_track_quality
+
+    async def publish_prepared_dispatch(_db, _lease, *, publish):
+        return publish()
+
+    monkeypatch.setattr(
+        video_track_quality, "publish_prepared_dispatch", publish_prepared_dispatch
+    )
     with pytest.raises(VideoTrackQualityError) as error:
         await dispatch_quality_run(
             db_session,
             run_id=run_id,
             async_job_id=job_id,
+            lease=lease,
             dispatcher=dispatcher,
         )
 

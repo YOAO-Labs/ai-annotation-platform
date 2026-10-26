@@ -93,11 +93,13 @@ for item in spec:
             raise RuntimeError("preselected run execution ID is not a UUID")
         dispatcher.dispatch_run(item["kind"], resource_id, execution_id=execution_id)
     elif item["operation"] == "repair":
-        execution_id = dispatcher.dispatch_mask_repair(
-            resource_id, rollback=item["rollback"]
+        execution_id = str(uuid.uuid4())
+        dispatcher.dispatch_mask_repair(
+            resource_id, rollback=item["rollback"], execution_id=execution_id
         )
     elif item["operation"] == "import":
-        execution_id = dispatcher.dispatch_mask_import(resource_id)
+        execution_id = str(uuid.uuid4())
+        dispatcher.dispatch_mask_import(resource_id, execution_id=execution_id)
     else:
         raise RuntimeError("unknown quality dispatch variant")
     if str(uuid.UUID(execution_id)) != execution_id:

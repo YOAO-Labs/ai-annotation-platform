@@ -61,6 +61,10 @@ from app.services.audit import AuditService
 from app.services.exporting.packaging import clean_export_targets
 from app.services.data_management.task_filters import visible_tasks_stmt
 from app.services.jobs_queue import dispatch_job
+from app.services.jobs_dispatch import (
+    prepare_job_dispatch,
+    publish_prepared_dispatch,
+)
 from app.services.identity_contracts import IdentityActorFacts
 
 
@@ -222,13 +226,14 @@ async def export_data_manager_tasks(
             # export worker keeps the same job/cache scope.
             job = existing
 
+    task_ids_in_order = [str(task_id) for task_id in payload.task_ids]
     job_payload = {
         "targets": targets,
         "format": ",".join(targets),
         "project_id": str(project_id),
         "project_display_id": project.display_id,
-        "scope": {"task_ids": [str(task_id) for task_id in payload.task_ids]},
-        "task_ids": [str(task_id) for task_id in payload.task_ids],
+        "scope": {"task_ids": task_ids_in_order},
+        "task_ids": task_ids_in_order,
         **options,
     }
     if idempotency_key is not None:
@@ -246,6 +251,24 @@ async def export_data_manager_tasks(
             project_id=project_id,
             payload=job_payload,
         )
+    execution_id = str(uuid.uuid4())
+    dispatch_args = []
+    dispatch_kwargs = {
+        "project_id": str(project_id),
+        "batch_id": None,
+        "task_ids": task_ids_in_order,
+        "targets": targets,
+        "opts": options,
+        "async_job_id": str(job.id),
+    }
+    lease = await prepare_job_dispatch(
+        db,
+        job_id=job.id,
+        task_name="app.workers.export.run_export",
+        execution_id=execution_id,
+        args=dispatch_args,
+        kwargs=dispatch_kwargs,
+    )
     # The worker must see the durable row before Celery can start. This also
     # makes a concurrent retry return the same job instead of dispatching twice
     # when an Idempotency-Key is supplied.
@@ -259,23 +282,20 @@ async def export_data_manager_tasks(
         request=request,
         status_code=202,
         detail={
-            "task_ids": [str(task_id) for task_id in payload.task_ids],
+            "task_ids": task_ids_in_order,
             "targets": targets,
         },
     )
     try:
-        execution_id = await dispatch_job(
-            task_name="app.workers.export.run_export",
-            execution_id=str(uuid.uuid4()),
-            args=[],
-            kwargs={
-                "project_id": str(project_id),
-                "batch_id": None,
-                "task_ids": [str(task_id) for task_id in payload.task_ids],
-                "targets": targets,
-                "opts": options,
-                "async_job_id": str(job.id),
-            },
+        published_execution_id = await publish_prepared_dispatch(
+            db,
+            lease,
+            publish=lambda: dispatch_job(
+                task_name="app.workers.export.run_export",
+                execution_id=execution_id,
+                args=dispatch_args,
+                kwargs=dispatch_kwargs,
+            ),
         )
     except Exception as exc:
         await async_job_service.mark_failed(
@@ -283,7 +303,7 @@ async def export_data_manager_tasks(
         )
         await db.commit()
         raise
-    async_job_service.bind_execution_id(job, execution_id)
+    async_job_service.bind_execution_id(job, published_execution_id)
     await db.commit()
     return {"job_id": str(job.id), "status": "queued"}
 
