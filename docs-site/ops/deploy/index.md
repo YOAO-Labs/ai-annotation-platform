@@ -33,3 +33,7 @@ last_reviewed: 2026-10-19
 ## 严谨性递进
 
 开发态图省事、生产态收紧——核心红线就一条：**生产对公网只暴露反代（HTTPS），后端端口一律内网**。这条容易踩坑（Docker 会绕过 ufw），单独成篇见[端口暴露与网络安全](/ops/deploy/network-security)。
+
+## 只读站点 Agent
+
+[独立 Agent 组件与当前接入范围](./site-agents.md)说明出站 HTTPS、受控根和本地恢复边界；中心配对与数据集接入尚未开放。

@@ -10,6 +10,7 @@ export const opsSidebar: DefaultTheme.SidebarItem[] = [
       { text: "生产部署（Docker Compose）", link: "/ops/deploy/docker-compose" },
       { text: "局域网生产部署", link: "/ops/deploy/lan-production" },
       { text: "端口暴露与网络安全", link: "/ops/deploy/network-security" },
+      { text: "只读站点 Agent（实施中）", link: "/ops/deploy/site-agents" },
     ],
   },
   {

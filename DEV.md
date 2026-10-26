@@ -910,3 +910,7 @@ PYTHONPATH=. uv run python scripts/seed.py --profile online-training
 迁移0218新增原件核验历史。先对核实归属的目标应用迁移，再刷新所属API和执行default队列的Worker，确认`app.workers.managed_original_verification.verify_managed_original`实际注册；不需要重建镜像。核验使用独立持久访问记录，回调在SDK线程开始前提交Permit ID，取消或失败不等于实际I/O已关闭。running无TTL重跑，pending可显式重派；关闭不确定或进程丢失时保留责任，不能删除记录强行解除。
 
 核验仅对当前可证明的平台定位和可信历史SHA/大小读取，固定5GiB、256KiB块、60秒协作预算，客户端短超时且单次尝试；超预算返回明确未完成。纯流完整摘要适用于多种文件，不引入图像解码或完整暂存。任意核验事实阻止0218破坏性降级；恢复历史不做物理映射，旧context失效后显式核验目标。见[核验合同](docs-site/dev/concepts/storage-connections.md#已登记原件的完整内容观测)。
+
+## 只读站点 Agent 组件
+
+独立组件位于 `apps/storage-agent`，标准库共享包位于 `apps/_shared/filesystem_read` 与 `apps/_shared/site_agent_contract`。配置和测试命令见 [Agent README](apps/storage-agent/README.md)，当前只提供组件及本地配置检查，中心配对与数据集接入继续实施；无需刷新现有 API／Worker 或重建后端镜像。
