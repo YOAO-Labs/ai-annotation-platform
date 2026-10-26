@@ -7,6 +7,7 @@ import pytest
 from app.db.models.async_job import AsyncJob
 from app.db.models.user import User
 from app.services import storage_migration_copies as copies
+from tests.storage_migration_isolation import migration_engine as migration_engine
 from tests.test_storage_migration_copy_worker import (
     add_objects,
     attempt,

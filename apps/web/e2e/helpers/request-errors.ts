@@ -6,14 +6,12 @@
  * reason, organized into product-domain rule groups so each suite composes
  * exactly the cancellations observed on its own flows; membership in another
  * suite's group never widens a whitelist. The engine only classifies
- * `net::ERR_ABORTED` *request* failures, and only two write-shaped shapes are
- * allowed: keep-alive session telemetry POSTs (heartbeat, task-event batches)
- * whose body the API may already have accepted, and the best-effort keepalive
- * DELETE that revokes a native playback lease while the document leaves. Both
- * happen after unload already cancelled the socket. Console/page errors, HTTP
- * responses and every other failure stay errors; suites keep intended business
- * HTTP failures explicit through their own expected-error registries instead of
- * this engine.
+ * `net::ERR_ABORTED` request failures. Write-shaped allowances are restricted to
+ * unload telemetry, best-effort playback lease revocation, and the read-only
+ * frame-prefetch batch whose frame list requires a POST body. Derivative cache
+ * work retains its server-side owner after cancellation; annotation and other
+ * business writes never qualify. Console/page errors, HTTP responses and every
+ * other failure stay errors.
  */
 
 /** A normalized failure signal recorded from page / console / request events. */
@@ -205,9 +203,19 @@ export const videoMediaAborts: readonly AbortAllowRule[] = [
     reason: "leaving the frame preview retires its in-flight frame fetch",
   },
   {
+    method: "POST",
+    path: new RegExp(`^/api/v1/tasks/${UUID}/video/frames:prefetch$`),
+    reason: "retiring the video owner cancels its read-only batch frame prefetch",
+  },
+  {
     method: "GET",
     path: new RegExp(`^/api/v1/videos/${UUID}/chunks/\\d+(?:/samples)?$`),
     reason: "retiring a video owner may cancel chunk metadata and sample fetches",
+  },
+  {
+    method: "GET",
+    path: new RegExp(`^/api/v1/media-cache/video-derivative/${UUID}/chunk\\.mp4$`),
+    reason: "retiring native playback cancels its owned saved-derivative media stream",
   },
   {
     method: "GET",

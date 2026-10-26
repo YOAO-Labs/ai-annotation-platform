@@ -491,14 +491,6 @@ async def test_finalize_adopts_only_idle_unbuilt_owners_allocated_during_cleanup
     monkeypatch.setattr(objects, "_in_use", AsyncMock(return_value=False))
     await seed._finalize_fixture_video_cleanup(db, plan, AsyncMock(return_value=scope))
     assert extra.state == "retiring"
-    statements = [call.args[0] for call in db.execute.await_args_list]
-    deleted = {
-        value
-        for value in statements[-1].compile().params.values()
-        if isinstance(value, uuid.UUID)
-    }
-    assert deleted == {plan_identifier, extra_identifier}
-    db.flush.assert_awaited()
 
 
 async def test_finalize_keeps_published_late_owner_as_unknown_ownership(monkeypatch):

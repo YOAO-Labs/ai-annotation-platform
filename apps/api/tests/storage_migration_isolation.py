@@ -86,11 +86,39 @@ async def _clone(source, schema):
                 )
             )
         )
+        foreign_keys = list(
+            await connection.execute(
+                text(
+                    "SELECT child.relname, parent.relname, con.conname, "
+                    "pg_get_constraintdef(con.oid) "
+                    "FROM pg_constraint AS con "
+                    "JOIN pg_class AS child ON child.oid = con.conrelid "
+                    "JOIN pg_class AS parent ON parent.oid = con.confrelid "
+                    "JOIN pg_namespace AS ns ON ns.oid = child.relnamespace "
+                    "WHERE con.contype = 'f' AND ns.nspname = 'public' "
+                    "AND con.conparentid = 0"
+                )
+            )
+        )
     async with source.begin() as connection:
         # Table names and guard functions must resolve inside the owned namespace
         # (migration downgrades drop them by unqualified name); the engine's
         # session search_path does the same for the fixtures' own connections.
         await connection.execute(text(f'SET LOCAL search_path = "{schema}", public'))
+        # LIKE omits foreign keys and their SET NULL/CASCADE behavior.
+        for child, parent, name, definition in foreign_keys:
+            if child not in tables:
+                continue
+            if parent not in tables:
+                raise AssertionError(
+                    f"Isolated foreign key escapes schema: {child}.{name}"
+                )
+            definition = definition.replace(
+                "REFERENCES public.", f'REFERENCES "{schema}".'
+            )
+            await connection.exec_driver_sql(
+                f'ALTER TABLE "{schema}"."{child}" ADD CONSTRAINT "{name}" {definition}'
+            )
         functions = []
         for relation, _, definition in triggers:
             if relation in tables and definition not in functions:
@@ -120,17 +148,19 @@ async def _clone(source, schema):
 async def migration_engine(test_engine):
     """A disposable schema with the migration control-plane structure."""
     schema = "storage_migration_test_" + uuid.uuid4().hex
-    await _clone(test_engine, schema)
-    engine = create_async_engine(
-        test_engine.url,
-        connect_args={"server_settings": {"search_path": schema + ",public"}},
-    )
+    engine = None
     try:
+        await _clone(test_engine, schema)
+        engine = create_async_engine(
+            test_engine.url,
+            connect_args={"server_settings": {"search_path": schema + ",public"}},
+        )
         yield engine
     finally:
-        await engine.dispose()
+        if engine is not None:
+            await engine.dispose()
         async with test_engine.begin() as connection:
-            await connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+            await connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
 
 
 @pytest.fixture

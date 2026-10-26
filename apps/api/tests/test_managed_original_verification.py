@@ -28,6 +28,7 @@ from app.workers import managed_original_verification as worker
 from tests.storage_migration_isolation import (
     db_session as db_session,
     httpx_client as httpx_client,
+    migration_engine as migration_engine,
     project_admin as project_admin,
     super_admin as super_admin,
 )

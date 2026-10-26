@@ -2,6 +2,7 @@
 // 播放浮层 show/2s 自动隐藏(v0.16.x 回归修复)、loopRegion 规范化/清除、书签开合、派生 maxFrame。
 // Source/draw admission uses explicit child-hook receipts; actual pixels remain a browser gate.
 import { act, renderHook } from "@testing-library/react";
+import { useState } from "react";
 import type { TaskVideoManifestResponse, TaskVideoFrameTimetableResponse } from "@/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -210,6 +211,36 @@ describe("useVideoPlaybackController", () => {
   afterEach(() => {
     vi.useRealTimers();
     localStorage.clear();
+  });
+
+  it("preserves a selection made before the first manifest, but clears it on a real task change", () => {
+    const videoRef = { current: null };
+    const { result, rerender } = renderHook(
+      ({ manifest }: { manifest: TaskVideoManifestResponse | undefined }) => {
+        const [selection, select] = useState<string | null>(null);
+        useVideoPlaybackController({
+          manifest,
+          videoRef,
+          annotations: [],
+          selectedId: selection,
+          selectedTrack: null,
+          hiddenTrackIds: new Set<string>(),
+          lockedTrackIds: new Set<string>(),
+          readOnly: false,
+          drag: null,
+          currentFrameEntries: [],
+          onUpdate: vi.fn(),
+          onSelect: select,
+        });
+        return { selection, select };
+      },
+      { initialProps: { manifest: undefined as TaskVideoManifestResponse | undefined } },
+    );
+    act(() => result.current.select("pred-T1"));
+    rerender({ manifest: MANIFEST });
+    expect(result.current.selection).toBe("pred-T1");
+    rerender({ manifest: { ...MANIFEST, task_id: "T2" } });
+    expect(result.current.selection).toBeNull();
   });
 
   it("派生 maxFrame = frame_count - 1", () => {

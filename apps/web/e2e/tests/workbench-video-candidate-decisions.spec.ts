@@ -255,6 +255,7 @@ test("延迟响应期间重复按键只有一项写入，切题后旧响应不�
   expect(calls).toBe(1);
   // The old task's late receipt may only land in its own task: the current selection and the
   // current task's persisted annotations stay untouched.
+  await expect(page.getByTestId("video-konva-stage")).toBeVisible();
   await expect(targetCard).toContainText("person");
   const targetAnnotations = await request.get(`${API_BASE}/api/v1/tasks/${targetId}/annotations`, {
     headers: data.headers,

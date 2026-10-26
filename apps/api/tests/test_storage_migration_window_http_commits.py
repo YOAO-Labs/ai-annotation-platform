@@ -13,6 +13,7 @@ from app.main import app
 from app.schemas.storage_migration_window import StorageMigrationWindowTransition
 from app.services import storage_migration_windows as windows
 from app.services.dataset_assets import LEGACY_LOCATION_ID
+from tests.storage_migration_isolation import migration_engine as migration_engine
 from tests.test_storage_migration_windows import (
     acquire,
     bound_reader,

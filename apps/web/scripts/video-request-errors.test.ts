@@ -185,6 +185,31 @@ test("manifest cancellation permits only exact aborted GET manifest reads", () =
   }
 });
 
+test("saved derivative unload cancels only its exact media GET, not failures or writes", () => {
+  const path =
+    "/api/v1/media-cache/video-derivative/00000000-0000-0000-0000-000000000000/chunk.mp4";
+  const signal = { ...abort, method: "GET", path };
+  expectAllowed(signal, videoWorkbenchAborts);
+  for (const method of ["POST", "PUT", "PATCH", "DELETE"] as const)
+    expectDenied({ ...signal, method }, videoWorkbenchAborts);
+  expectDenied({ ...signal, kind: "http", status: 409 }, videoWorkbenchAborts);
+  expectDenied({ ...signal, message: "net::ERR_CONNECTION_RESET" }, videoWorkbenchAborts);
+  for (const suffix of ["/extra", ".bak", "s"])
+    expectDenied({ ...signal, path: path + suffix }, videoWorkbenchAborts);
+});
+
+test("frame-prefetch retirement permits only the exact aborted POST read batch", () => {
+  const signal = { ...abort, method: "POST", path: `${task}/video/frames:prefetch` };
+  expectAllowed(signal, videoWorkbenchAborts);
+  for (const method of ["GET", "PUT", "PATCH", "DELETE"] as const)
+    expectDenied({ ...signal, method }, videoWorkbenchAborts);
+  for (const kind of ["http", "console", "page"] as const)
+    expectDenied({ ...signal, kind, status: 409 }, videoWorkbenchAborts);
+  expectDenied({ ...signal, message: "net::ERR_CONNECTION_RESET" }, videoWorkbenchAborts);
+  for (const suffix of ["/extra", "s"])
+    expectDenied({ ...signal, path: signal.path + suffix }, videoWorkbenchAborts);
+});
+
 test("HTTP failures, other network failures and unrelated endpoints remain errors", () => {
   const known = { ...abort, method: "GET", path: `${video}/chunks/0/samples` };
   expectAllowed(known, videoWorkbenchAborts);
