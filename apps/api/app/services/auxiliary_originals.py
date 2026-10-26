@@ -478,8 +478,7 @@ async def _resolve_task(db, task_id, kind, lock):
             db, locator.location_id, row.get("storage_ref"), lock=lock, bounded=True
         )
         resolve(row, endpoint_url=endpoint)
-        revision = await sources._gate(db, locator.location_id, lock, bounded=True)
-        return sources.OriginalSource(
+        source = sources.OriginalSource(
             "dataset_auxiliary",
             row["id"],
             row["sha256"],
@@ -492,7 +491,7 @@ async def _resolve_task(db, task_id, kind, lock):
             endpoint,
             locator.location_id,
             location_facts.config_revision,
-            revision,
+            None,
             snapshot(row, endpoint_url=endpoint),
             sources.ItemFacts(
                 item.id,
@@ -515,6 +514,7 @@ async def _resolve_task(db, task_id, kind, lock):
             ),
             location_facts,
         )
+        return await sources._read_route(db, source, lock, bounded=True)
 
 
 async def resolve_task_raw(db, task_id, *, lock=False):

@@ -173,9 +173,56 @@ async def test_full_saved_bucket_read_uses_current_target_and_closes_in_order(
         "object_key",
         "sha256",
         "size_bytes",
+        "expected_version_id",
+        "expected_etag",
     }
     with pytest.raises(FrozenInstanceError):
         spec().bucket = "current-bucket"
+
+
+async def test_published_target_pins_both_heads_probe_and_get(provider):
+    provider.version = "copied-version"
+    stage = await capture(
+        spec(expected_version_id=provider.version, expected_etag=provider.etag)
+    )
+    try:
+        assert stage.file.read() == RAW
+        for action, params in provider.calls:
+            if action in {"head", "get"}:
+                assert params["VersionId"] == "copied-version"
+    finally:
+        stage.close()
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [{"VersionId": "foreign-version"}, {"ETag": '"foreign-etag"'}],
+)
+async def test_published_target_rejects_provider_ignoring_pinned_identity(
+    provider, changes
+):
+    provider.version = "copied-version"
+    provider.head_changes = changes
+    with pytest.raises(ContentError, match="source_changed"):
+        await capture(
+            spec(expected_version_id=provider.version, expected_etag=provider.etag)
+        )
+    assert not any(action == "get" for action, _ in provider.calls)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"expected_version_id": "null"},
+        {"expected_version_id": ""},
+        {"expected_version_id": "unsafe\nversion"},
+        {"expected_etag": ""},
+        {"expected_etag": "unsafe\netag"},
+    ],
+)
+def test_invalid_published_target_conditions_are_rejected_before_io(changes):
+    with pytest.raises(ContentError, match="managed_original_read_invalid"):
+        spec(**changes)
 
 
 async def test_empty_binary_still_reads_eof_and_never_decodes(provider):

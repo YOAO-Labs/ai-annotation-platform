@@ -1,8 +1,8 @@
 """Verify a saved original into an owned binary file, without business I/O.
 
 The caller owns authorization, maintenance admission and the immutable source
-snapshot. Only observations of the current target select transport conditions;
-historical creation ETag/version receipts are deliberately absent from ObjectSpec.
+snapshot. Ordinary originals observe their current target. Published migration
+routes instead pin the independently verified physical target version and ETag.
 """
 
 import asyncio
@@ -78,6 +78,8 @@ class ObjectSpec:
     object_key: str
     sha256: str
     size_bytes: int
+    expected_version_id: str | None = None
+    expected_etag: str | None = None
 
     def __post_init__(self):
         _endpoint(self.endpoint_url)
@@ -100,6 +102,14 @@ class ObjectSpec:
             or _SHA.fullmatch(self.sha256) is None
             or type(self.size_bytes) is not int
             or not 0 <= self.size_bytes <= 2**63 - 1
+            or (
+                self.expected_version_id is not None
+                and (
+                    not _header(self.expected_version_id)
+                    or self.expected_version_id == "null"
+                )
+            )
+            or (self.expected_etag is not None and not _header(self.expected_etag))
         ):
             _reject("managed_original_read_invalid")
 
@@ -164,6 +174,14 @@ def _observation(response, spec):
         or not isinstance(modified, datetime)
         or modified.utcoffset() is None
         or not _header(response.get("ContentType", "application/octet-stream"), 255)
+        or (
+            spec.expected_version_id is not None
+            and _version(response) != spec.expected_version_id
+        )
+        or (
+            spec.expected_etag is not None
+            and response.get("ETag") != spec.expected_etag
+        )
     ):
         _reject()
     return {
@@ -275,6 +293,8 @@ def _capture(
                 _reject("managed_original_endpoint_changed")
             check()
             params = {"Bucket": spec.bucket, "Key": spec.object_key}
+            if spec.expected_version_id is not None:
+                params["VersionId"] = spec.expected_version_id
             before = _observation(client.head_object(**params), spec)
             check()
             conditional = dict(params)

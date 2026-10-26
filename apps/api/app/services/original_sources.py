@@ -31,6 +31,7 @@ from app.services import storage_access, task_originals
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.reference_keys import is_reference, reference_key
+from app.services.original_read_plan import PhysicalReadPlan, ReadRoute
 
 _SHA = re.compile(r"[0-9a-f]{64}")
 _MAX_ETAG_BYTES = 1024
@@ -123,6 +124,7 @@ class OriginalSource:
     item_facts: ItemFacts | None
     replica_facts: ReplicaFacts | None
     location_facts: LocationFacts | None
+    read_route: ReadRoute | None = None
 
 
 @asynccontextmanager
@@ -428,13 +430,61 @@ async def read_options(db, source, *, read_timeout=30):
         bind=storage_access.engine(db), expire_on_commit=False, autoflush=False
     ) as owned:
         await protect_source(owned, source)
+        route = getattr(source, "read_route", None)
+        if route is not None:
+            from app.services import storage_migration_read_publications as publications
+
+            target = await publications.target_for_route(owned, route)
+            return {"client_context": partial(target.client, read_timeout=read_timeout)}
     if source.location_id == LEGACY_LOCATION_ID:
         return {}
     target = await read_target(db, source)
     return {"client_context": partial(target.client, read_timeout=read_timeout)}
 
 
-async def _gate(db, location_id, lock, *, bounded=False):
+def read_plan(source):
+    """Choose physical admission and exact transport without changing logical facts."""
+    from app.services.managed_original_reader import ObjectSpec
+
+    route = getattr(source, "read_route", None)
+    if route is None:
+        return PhysicalReadPlan(
+            source.location_id,
+            source.maintenance_revision,
+            ObjectSpec(
+                source.endpoint_url,
+                source.bucket,
+                source.object_key,
+                source.sha256,
+                source.size_bytes,
+            ),
+        )
+    return PhysicalReadPlan(
+        route.target_location_id,
+        route.maintenance_revision,
+        ObjectSpec(
+            route.target_endpoint_url,
+            route.target_bucket,
+            route.target_object_key,
+            route.sha256,
+            route.size_bytes,
+            expected_version_id=route.target_version_id,
+            expected_etag=route.target_etag,
+        ),
+        route,
+    )
+
+
+async def recheck_read_route(db, source):
+    """Reject revoked or changed physical routes; direct reads add no lookup."""
+    route = getattr(source, "read_route", None)
+    if route is not None:
+        from app.services import storage_migration_read_publications as publications
+
+        await publications.recheck(db, route)
+
+
+async def _gate_state(db, location_id, lock, *, bounded=False):
     statement = (
         select(StorageMaintenanceGate.state, StorageMaintenanceGate.revision)
         if bounded
@@ -447,12 +497,38 @@ async def _gate(db, location_id, lock, *, bounded=False):
     )
     # Admission creates a durable Gate before any physical operation. Metadata
     # lookup may see no row and follows storage_access.state's initial revision.
-    return storage_access.validate(
+    return (
         {"state": gate.state, "revision": gate.revision}
         if gate is not None
-        else {"state": "active", "revision": 1},
-        None,
+        else {"state": "active", "revision": 1}
     )
+
+
+async def _gate(db, location_id, lock, *, bounded=False):
+    return storage_access.validate(
+        await _gate_state(db, location_id, lock, bounded=bounded), None
+    )
+
+
+async def _read_route(db, source, lock, *, bounded=False):
+    from app.services import storage_migration_read_publications as publications
+
+    # Capture logical A's Gate before route lookup. A stopped Gate cannot reject
+    # admission to an independently active published target B.
+    gate = await _gate_state(db, source.location_id, lock, bounded=bounded)
+    route = await publications.lookup(
+        db,
+        source_location_id=source.location_id,
+        endpoint_url=source.endpoint_url,
+        bucket=source.bucket,
+        object_key=source.object_key,
+        sha256=source.sha256,
+        size_bytes=source.size_bytes,
+        lock=lock,
+    )
+    if route is None:
+        storage_access.validate(gate, None)
+    return replace(source, maintenance_revision=gate["revision"], read_route=route)
 
 
 async def _locations(db, location_ids, lock, *, bounded=False):
@@ -647,7 +723,6 @@ async def _item(db, item_id, lock, *, bounded=False):
     if replica.object_key != item.file_path:
         raise ContentError("content_binding_changed")
     _safe_locator(replica.bucket, replica.object_key)
-    revision = await _gate(db, replica.location_id, lock, bounded=bounded)
     replica_facts = ReplicaFacts(
         replica.asset_id,
         replica.location_id,
@@ -659,7 +734,7 @@ async def _item(db, item_id, lock, *, bounded=False):
         replica.etag,
         replica.verified_at,
     )
-    return OriginalSource(
+    source = OriginalSource(
         "dataset_asset",
         asset.id,
         asset.checksum_value,
@@ -672,12 +747,13 @@ async def _item(db, item_id, lock, *, bounded=False):
         endpoint,
         replica.location_id,
         location_facts.config_revision,
-        revision,
+        None,
         asset_facts,
         item_facts,
         replica_facts,
         location_facts,
     )
+    return await _read_route(db, source, lock, bounded=bounded)
 
 
 async def resolve_item(db, item_id, *, lock=False):
@@ -737,8 +813,7 @@ async def _task_source(db, relation, lock, *, source=None, bounded=False):
     locator = task_originals.resolve(
         receipt, endpoint_url=endpoint, storage_ref=owner.storage_ref
     )
-    revision = await _gate(db, receipt.location_id, lock, bounded=bounded)
-    return OriginalSource(
+    source = OriginalSource(
         "task_original",
         receipt.id,
         receipt.sha256,
@@ -751,12 +826,13 @@ async def _task_source(db, relation, lock, *, source=None, bounded=False):
         locator.endpoint_url,
         locator.location_id,
         location_facts.config_revision,
-        revision,
+        None,
         receipt,
         None,
         None,
         location_facts,
     )
+    return await _read_route(db, source, lock, bounded=bounded)
 
 
 async def resolve_task(db, task_id, *, lock=False, compact_relation=False):
