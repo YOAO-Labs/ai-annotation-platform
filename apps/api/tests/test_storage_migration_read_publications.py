@@ -13,6 +13,7 @@ import pytest
 from sqlalchemy import select, update
 
 from app.db.models.dataset_asset import StorageLocation
+from app.db.models.dataset import DatasetItem
 from app.db.models.storage_connection import StorageConnection
 from app.db.models.storage_maintenance import StorageMaintenanceGate, StorageOperation
 from app.db.models.storage_migration_copy import StorageMigrationCopyDelta
@@ -174,6 +175,20 @@ async def test_same_content_versions_use_stable_source_id_when_no_latest(
     await publish(db_session, sealed)
     route = await lookup(db_session, sealed, lock=True)
     assert route.source_object_id == sealed.entries[0]["source_object_id"]
+
+
+async def test_locked_route_snapshot_preserves_unflushed_caller_work(
+    db_session, sealed
+):
+    await publish(db_session, sealed)
+    pending = DatasetItem(
+        id=uuid.uuid4(), dataset_id=uuid.uuid4(), file_name="not-flushed"
+    )
+    db_session.add(pending)
+    with db_session.no_autoflush:
+        assert await lookup(db_session, sealed, lock=True)
+        assert pending in db_session.new
+    db_session.expunge(pending)
 
 
 @pytest.mark.parametrize(

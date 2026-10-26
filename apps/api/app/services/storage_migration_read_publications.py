@@ -16,7 +16,7 @@ from sqlalchemy import func, insert, select, update
 from sqlalchemy.exc import DBAPIError
 
 from app.db.models.dataset_asset import StorageLocation
-from app.db.models.storage_maintenance import StorageOperation
+from app.db.models.storage_maintenance import StorageMaintenanceGate, StorageOperation
 from app.db.models.storage_migration_read_publication import (
     StorageMigrationReadPublication as Publication,
     StorageMigrationReadRoute as Route,
@@ -431,8 +431,18 @@ async def _physical(db, row, *, lock=False, expected_revision=None):
     )
     if identity != row.target:
         reject("read_publication_target_changed")
-    gate_revision = await storage_access.check(
-        db, row.target_location_id, lock=lock, expected_revision=expected_revision
+    # This is a read snapshot inside the caller's business transaction. Avoid
+    # admission's Session.begin_nested/ensure: a savepoint would flush unrelated
+    # pending work, and durable Gate initialization belongs to the actual Permit.
+    query = select(StorageMaintenanceGate.state, StorageMaintenanceGate.revision).where(
+        StorageMaintenanceGate.location_id == row.target_location_id
+    )
+    if lock:
+        query = query.with_for_update(read=True, nowait=True)
+    gate = (await db.execute(query)).mappings().one_or_none()
+    gate_revision = storage_access.validate(
+        gate if gate is not None else {"state": "active", "revision": 1},
+        expected_revision,
     )
     return identity, revisions, gate_revision, access
 
