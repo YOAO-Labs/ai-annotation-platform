@@ -2,7 +2,7 @@
 
 from contextlib import asynccontextmanager
 from copy import deepcopy
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import Mock
 import uuid

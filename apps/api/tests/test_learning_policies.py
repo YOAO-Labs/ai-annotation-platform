@@ -505,7 +505,7 @@ def test_semantic_identity_ignores_ids_paths_duplicates_and_validation_only_grow
 
 
 async def test_policy_is_explicit_revisioned_and_guards_referenced_storage(
-    db_session, super_admin, httpx_client, frozen_source, monkeypatch
+    db_session, super_admin, httpx_client, frozen_source
 ):
     owner, token = super_admin
     p, parent, policy, path, body = await setup_policy(
@@ -516,16 +516,11 @@ async def test_policy_is_explicit_revisioned_and_guards_referenced_storage(
         path, json=body, headers={"Authorization": "Bearer " + token}
     )
     assert stale.status_code == 409
-    delete_objects = AsyncMock()
-    monkeypatch.setattr(
-        "app.api.v1.training_datasets.storage_service.delete_prefix", delete_objects
-    )
     deleted = await httpx_client.delete(
         f"/api/v1/projects/{p.id}/training-datasets/{parent.id}",
         headers={"Authorization": "Bearer " + token},
     )
     assert deleted.status_code == 409
-    delete_objects.assert_not_called()
     invalid = await httpx_client.put(
         path,
         json={**body, "expected_revision": 1, "min_changed_samples": 0},

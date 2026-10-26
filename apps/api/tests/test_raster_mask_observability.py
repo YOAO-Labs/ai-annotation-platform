@@ -21,7 +21,7 @@ from app.services.raster_mask_storage import (
     store_coco_rle,
 )
 from app.services.raster_object_storage import RasterObjectStorageError
-from tests.test_raster_mask_storage import owned_mask_storage
+from tests.test_raster_mask_storage import owned_mask_storage as owned_mask_storage
 
 RLE = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 5]}
 EXPECTED_ERROR_REASONS = {
@@ -68,7 +68,9 @@ def test_raster_mask_content_error_classification_is_fixed(exc, reason):
 
 
 @pytest.mark.asyncio
-async def test_content_operation_success_and_error_counter_deltas(db_session, owned_mask_storage):
+async def test_content_operation_success_and_error_counter_deltas(
+    db_session, owned_mask_storage
+):
     store_before = _counter_value(
         RASTER_MASK_CONTENT_OPERATIONS_TOTAL,
         operation="store",

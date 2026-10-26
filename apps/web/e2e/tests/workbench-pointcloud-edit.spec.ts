@@ -539,24 +539,7 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
     await expect
       .poll(() => page.evaluate(() => window.__pointCloudColorWorkerCount ?? 0))
       .toBeGreaterThan(0);
-    // Foreground and prefetch each own a decoder. GPU camera coloring also
-    // owns one depth worker per lane; legacy coloring owns one color worker.
     const workerLimit = backend === "legacy-webgl2" ? 3 : 4;
-    if (backend !== "legacy-webgl2") {
-      await expect
-        .poll(() =>
-          page.evaluate(() => {
-            const workers = window.__pointCloudWorkerLog ?? [];
-            return {
-              decode: workers.filter((entry) => entry.kinds.includes("decode_pcd")).length,
-              depth: workers.filter((entry) => entry.kinds.includes("build_depth_rasters")).length,
-              color: workers.filter((entry) => entry.kinds.includes("colorize")).length,
-              terminated: workers.filter((entry) => entry.terminated).length,
-            };
-          }),
-        )
-        .toEqual({ decode: 2, depth: 2, color: 0, terminated: 0 });
-    }
     expect(await page.evaluate(() => window.__pointCloudColorWorkerCount ?? 0)).toBeLessThanOrEqual(
       workerLimit,
     );

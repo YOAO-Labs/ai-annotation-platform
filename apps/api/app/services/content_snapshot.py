@@ -117,9 +117,9 @@ def _inspect_image(temporary, check, inspect_quality=False):
                 if width * height > MAX_PIXELS:
                     raise ContentError("image_pixel_budget_exceeded", 413)
                 media_type = Image.MIME[image.format]
-                from app.services.storage import StorageService
+                from app.services.storage import storage_service
 
-                width, height = StorageService._logical_image_dimensions(image)
+                width, height = storage_service._logical_image_dimensions(image)
                 image.load()
     except ContentError as exc:
         if not inspect_quality:

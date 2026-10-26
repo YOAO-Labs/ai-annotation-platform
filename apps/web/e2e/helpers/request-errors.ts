@@ -141,12 +141,26 @@ export const objectCommentsAborts: readonly AbortAllowRule[] = [
   },
 ];
 
-/** Mask editor content read retired when the mask edit session closes. */
+/** Mask content reads retire with their canvas or editor owner. */
 export const maskEditorAborts: readonly AbortAllowRule[] = [
   {
     method: "GET",
     path: new RegExp(`^/api/v1/annotations/${UUID}/mask-content$`),
-    reason: "closing the mask editor retires its in-flight mask content fetch",
+    reason: "retiring the mask canvas or editor cancels its in-flight content fetch",
+  },
+];
+
+/** Verified original reads retire with their task, camera or dataset preview owner. */
+const originalMediaAborts: readonly AbortAllowRule[] = [
+  {
+    method: "GET",
+    path: new RegExp(`^/api/v1/files/tasks/${UUID}(?:/links/${UUID})?/original(?:-identity)?$`),
+    reason: "task or camera retirement/reload cancels its owned original read",
+  },
+  {
+    method: "GET",
+    path: new RegExp(`^/api/v1/datasets/${UUID}/items/${UUID}/original(?:-identity)?$`),
+    reason: "closing or reloading the dataset preview cancels its owned original read",
   },
 ];
 
@@ -193,6 +207,8 @@ export const imageWorkbenchAborts: readonly AbortAllowRule[] = [
   ...coreBootstrapAborts,
   ...dashboardViewAborts,
   ...taskContextAborts,
+  ...originalMediaAborts,
+  ...maskEditorAborts,
 ];
 
 /**
@@ -205,6 +221,7 @@ export const videoWorkbenchAborts: readonly AbortAllowRule[] = [
   ...taskContextAborts,
   ...videoTaskContextAborts,
   ...videoMediaAborts,
+  ...originalMediaAborts,
 ];
 
 /** Whether `signal`'s method + pathname satisfy one allow rule exactly. */

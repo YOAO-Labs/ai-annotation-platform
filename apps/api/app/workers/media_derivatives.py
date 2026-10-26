@@ -57,8 +57,8 @@ def _decoder_config(path):
 
 def _samples(path, start_frame):
     """The derived-file probe owns a descriptor and the strict native runner."""
-    from app.workers.media_probe import probe_chunk_samples
-    from app.workers.media_process import decoder_input
+    from app.services.media_probe import probe_chunk_samples
+    from app.services.media_process import decoder_input
 
     with storage_access.closing_registered(path.open("rb")) as stream:
         stage = type(
@@ -197,7 +197,7 @@ def _chunk(output, metadata, input_path, fds, directory):
 
 def build(storage, output, stage, metadata=None, *, accounting=None):
     """No ORM or remote-original I/O; the caller retains both durable permits."""
-    from app.workers.media_process import decoder_input
+    from app.services.media_process import decoder_input
     from app.workers.media_frames import extract_video_frame_image
 
     input_path, fds = decoder_input(stage)

@@ -44,6 +44,7 @@ HTTP → 路由 (api/v1) → 服务 (services) → 模型 (db/models)
 
 - **数据集与受控存储服务群**（`storage_location*.py`、`storage_access.py`、`storage_maintenance*.py`、`dataset_sources.py`、`dataset_scans.py`、`dataset_registration.py`、`dataset_source_sync.py`、`dataset_workbench.py`、`dataset_quality*.py`、`original_sources.py`、`managed_original_*.py`、`original_cache.py`、`site_agents.py`、`agent_transport.py`、`storage_migration_*.py`、`storage_usage*.py`）围绕共享只读原语包 `apps/_shared/filesystem_read` 与站点协议包 `apps/_shared/site_agent_contract` 构建，并与独立守护进程 `apps/storage-agent` 协作（详见[存储位置、连接器与用途绑定](./storage-connections)）。
 - **在线学习与训练相关服务**（`training_datasets.py`、`training_runs.py`、`training_studies.py`、`training_observability.py`、`trained_models.py`、`sample_evaluations.py`、`active_learning.py`、`learning_policies.py`、`model_lineage.py`）围绕共享契约包 `apps/_shared/task_contract` 与 `apps/_shared/training_contract` 构建，并与独立拉取式执行器 `apps/training-executor` 协作。
+- **共享原生媒体原语**：`services/media_process.py` 负责已核验文件描述符与有界子进程收尾，`services/media_probe.py` 负责 ffprobe 探测及解析；导出与媒体 worker 都依赖服务层叶模块，不经 worker 反向调用。
 
 ### 领域子包架构守卫
 

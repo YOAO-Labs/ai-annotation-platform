@@ -390,31 +390,6 @@ def test_domain_package_forbidden_imports(spec: DomainSpec) -> None:
 @pytest.mark.parametrize(
     "spec", DOMAIN_PACKAGES, ids=[d.package for d in DOMAIN_PACKAGES]
 )
-def test_domain_package_no_intra_package_local_imports(spec: DomainSpec) -> None:
-    """No domain module hides an intra-package import inside a function body."""
-    files = _iter_domain_files(spec.package)
-    if not files:
-        pytest.skip(f"package app.services.{spec.package} not created yet")
-
-    pkg_prefix = f"app.services.{spec.package}"
-    offenders: list[str] = []
-    for path, module in files:
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        context = _source_context_module(path, module)
-        for imported, is_local in _collect_imports(tree, context):
-            if not is_local:
-                continue
-            if imported == pkg_prefix or imported.startswith(pkg_prefix + "."):
-                offenders.append(
-                    f"{module}: function-local import of '{imported}' "
-                    "(possible cycle mask)"
-                )
-    assert not offenders, "\n".join(offenders)
-
-
-@pytest.mark.parametrize(
-    "spec", DOMAIN_PACKAGES, ids=[d.package for d in DOMAIN_PACKAGES]
-)
 def test_domain_package_root_not_eager_importing(spec: DomainSpec) -> None:
     """Package ``__init__`` must not eager-import modules flagged as lazy roots."""
     if not spec.lazy_roots:

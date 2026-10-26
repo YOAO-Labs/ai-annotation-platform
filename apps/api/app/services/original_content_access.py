@@ -68,6 +68,11 @@ def check_clock(proof, key):
 async def _row(db, model, identifier, *, lock):
     if identifier is None:
         return None
+    if lock and model is User:
+        try:
+            return await credentials.locked(db, model, identifier, wait=True)
+        except HTTPException as exc:
+            raise credential_error(exc) from None
     statement = select(model).where(model.id == identifier)
     if lock:
         statement = statement.with_for_update(read=True, nowait=True)
@@ -77,8 +82,8 @@ async def _row(db, model, identifier, *, lock):
 async def visible_task(db, task_id, actor, *, lock=False):
     """Refresh Project, membership and Batch before the existing visibility rule.
 
-    The caller owns User/Key locks first. All metadata locks are short SHARE
-    NOWAIT locks and must be released before entering the physical reader.
+    Account saves get a bounded wait; all other metadata locks remain short
+    SHARE NOWAIT locks, released before entering the physical reader.
     """
     from app.api.v1.tasks._shared import _assert_task_visible
     from app.services.project_access import resolve_project_access

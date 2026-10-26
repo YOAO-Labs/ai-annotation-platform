@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 from app.services.content_snapshot import ContentError
 from app.services import storage_access
-from app.workers import media_process, media_probe
+from app.services import media_process, media_probe
 
 PROBE_CONTRACT = 1
 MAX_SOURCE_BYTES = 5 * 1024**3

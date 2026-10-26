@@ -10,7 +10,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from app.workers.media_process import run_process
+from app.services.media_process import run_process
 from app.workers.media_timestamps import rounded_frame_seek_seconds
 
 FFMPEG_CHUNK_TIMEOUT_SECONDS = 180

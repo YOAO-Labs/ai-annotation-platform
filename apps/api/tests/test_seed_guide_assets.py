@@ -25,6 +25,7 @@ from app.services import guide_asset_references as references
 from app.services import guide_asset_storage as storage, guide_asset_uploads as uploads
 from app.services import storage as storage_module, storage_access
 from app.services.project_delete import delete_project_records
+from tests._owned_s3 import patch_owned_client
 from tests.test_seed_comment_attachments import Objects, build as build_comments
 from tests.test_seed_comment_attachments import upload as upload_comment
 
@@ -34,6 +35,7 @@ async def context(test_engine, app_module, monkeypatch):
     """Commit real SQL, fake only provider bytes, and clean every owned UUID."""
     db = async_sessionmaker(test_engine, expire_on_commit=False)()
     objects = Objects(storage_module.storage_service)
+    patch_owned_client(monkeypatch, objects.client)
     for module in (
         storage_module,
         storage,

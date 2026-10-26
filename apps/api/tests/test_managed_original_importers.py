@@ -56,6 +56,7 @@ async def ingest(db_session, super_admin, monkeypatch):
     dataset_id = uuid.uuid4()
     db_session.add(
         Dataset(
+            id=dataset_id,
             display_id="D-IMP-" + dataset_id.hex[:8],
             name="importer-caller-" + dataset_id.hex[:8],
             created_by=super_admin[0].id,
@@ -230,8 +231,7 @@ async def test_directory_copy_rechecks_sealed_creation_without_preview_ownership
         assert fields.args[2] == allocation["object_key"]
         assert fields.kwargs["content_hash"] == receipt.md5
         assert (
-            fields.kwargs["storage_binding"]
-            is originals.original_locator.return_value
+            fields.kwargs["storage_binding"] is originals.original_locator.return_value
         )
         assert fields.kwargs["storage_ref"] is originals.original_ref.return_value
         originals.original_locator.assert_called_once_with(allocation)

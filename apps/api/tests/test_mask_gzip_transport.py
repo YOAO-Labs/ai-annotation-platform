@@ -36,7 +36,7 @@ from app.utils.raster_mask_gzip import (
     compress_mask_gzip,
     decompress_mask_gzip,
 )
-from tests.test_raster_mask_storage import owned_mask_storage
+from tests.test_raster_mask_storage import owned_mask_storage as owned_mask_storage
 from tests.test_raster_mask_storage import mask_owner_for, ready_mask_owner
 
 RLE = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 2, 2, 1]}
@@ -196,7 +196,9 @@ async def test_load_coco_rle_backward_compat_json(db_session, owned_mask_storage
     assert payload["counts"] == [1, 2, 2, 1]
 
 
-async def test_gzip_writer_falls_back_when_reader_ratio_would_reject(db_session, owned_mask_storage):
+async def test_gzip_writer_falls_back_when_reader_ratio_would_reject(
+    db_session, owned_mask_storage
+):
     highly_compressible = {
         "encoding": "coco_rle",
         "size": [1, 4000],
@@ -211,7 +213,9 @@ async def test_gzip_writer_falls_back_when_reader_ratio_would_reject(db_session,
     assert "storage_encoding" not in reference
 
 
-async def test_load_coco_rle_gzip_rejects_digest_mismatch(db_session, owned_mask_storage):
+async def test_load_coco_rle_gzip_rejects_digest_mismatch(
+    db_session, owned_mask_storage
+):
     """gzip path still enforces the digest check over decompressed canonical."""
     storage = owned_mask_storage()
     reference = await store_coco_rle_gzip(RLE, storage=storage, db=db_session)
@@ -229,7 +233,9 @@ async def test_load_coco_rle_gzip_rejects_digest_mismatch(db_session, owned_mask
     assert rejected.value.code == "raster_object_storage_integrity_mismatch"
 
 
-async def test_load_coco_rle_gzip_rejects_over_uncompressed(db_session, owned_mask_storage):
+async def test_load_coco_rle_gzip_rejects_over_uncompressed(
+    db_session, owned_mask_storage
+):
     """An oversized replacement fails the independent stored receipt first."""
     storage = owned_mask_storage()
     reference, key = await ready_mask_owner(db_session, storage, RLE, compressed=True)

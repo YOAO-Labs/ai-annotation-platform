@@ -24,6 +24,7 @@ from app.deps import get_db
 from app.services import comment_attachment_storage as storage
 from app.services import comment_attachment_uploads as uploads, storage_access
 from app.services import storage as storage_module
+from tests._owned_s3 import patch_owned_client
 
 
 class Objects:
@@ -111,6 +112,7 @@ async def context(test_engine, app_module, monkeypatch):
     """Independent commits are required to observe genuine lock release."""
     db = async_sessionmaker(test_engine, expire_on_commit=False)()
     objects = Objects(storage_module.storage_service)
+    patch_owned_client(monkeypatch, objects.client)
     monkeypatch.setattr(storage_module, "storage_service", objects)
     monkeypatch.setattr(storage, "storage_service", objects)
     monkeypatch.setattr(uploads, "storage_service", objects)
@@ -405,39 +407,31 @@ async def test_durable_operation_blocks_fixture_destroy_then_exact_settlement_al
 
 
 async def test_saved_bucket_trap_and_unknown_canonical_are_never_prefix_deleted(
-    context,
+    context, monkeypatch
 ):
     ctx = context
     world = await build(ctx)
     row, value, _ = await upload(ctx, world)
     saved = dict(row.storage_ref)
-    target = {
-        **saved,
-        "bucket": ctx.objects.export_bucket,
-        "storage_identity": storage.managed_storage_identity(
-            saved["endpoint_url"], ctx.objects.export_bucket
-        ),
-    }
-    from sqlalchemy import text
+    from app.services import annotations_storage
 
-    await ctx.db.execute(text("SET LOCAL aap.restore_training_storage='on'"))
-    row.storage_ref = target
-    await ctx.db.commit()
-    ctx.objects.data[target["bucket"], target["object_key"]] = b"generic\x00bytes"
-    ctx.objects.data[saved["bucket"], saved["object_key"]] = b"current bucket trap"
+    current_bucket = ctx.objects.export_bucket
+    monkeypatch.setattr(annotations_storage.storage_service, "bucket", current_bucket)
+    monkeypatch.setattr(ctx.objects, "bucket", current_bucket)
+    ctx.objects.data[current_bucket, saved["object_key"]] = b"current bucket trap"
     response = await clean(ctx, world)
     assert response.status_code == 409
     assert (
-        ctx.objects.data[saved["bucket"], saved["object_key"]] == b"current bucket trap"
+        ctx.objects.data[current_bucket, saved["object_key"]] == b"current bucket trap"
     )
-    assert (target["bucket"], target["object_key"]) not in ctx.objects.data
+    assert (saved["bucket"], saved["object_key"]) not in ctx.objects.data
     assert (await present(ctx, row)).state == "retired"
     unknown = f"comment-attachments/{world['annotation_id']}/{uuid.uuid4()}"
-    ctx.objects.data[saved["bucket"], unknown] = b"unknown canonical"
-    del ctx.objects.data[saved["bucket"], saved["object_key"]]
+    ctx.objects.data[current_bucket, unknown] = b"unknown canonical"
+    del ctx.objects.data[current_bucket, saved["object_key"]]
     assert (await clean(ctx, world)).status_code == 409
-    assert ctx.objects.data[saved["bucket"], unknown] == b"unknown canonical"
-    del ctx.objects.data[saved["bucket"], unknown]
+    assert ctx.objects.data[current_bucket, unknown] == b"unknown canonical"
+    del ctx.objects.data[current_bucket, unknown]
     assert (await clean(ctx, world)).status_code == 200
 
 
@@ -608,7 +602,7 @@ async def test_network_and_rebuild_never_hold_cleanup_business_locks(
     assert probes
 
 
-async def wait_for_blocked_fence(ctx, timeout=20):
+async def wait_for_blocked_fence(ctx, holder_pid, timeout=20):
     """Wait until a cleanup fence is queued behind another session's row lock."""
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
@@ -617,8 +611,10 @@ async def wait_for_blocked_fence(ctx, timeout=20):
             blocked = await connection.scalar(
                 text(
                     "SELECT count(*) FROM pg_locks "
-                    "WHERE NOT granted AND relation = 'users'::regclass"
-                )
+                    "WHERE NOT granted "
+                    "AND :holder=ANY(pg_blocking_pids(pid))"
+                ),
+                {"holder": holder_pid},
             )
             if blocked:
                 return
@@ -633,7 +629,7 @@ async def hold_account_share_lock(ctx, user_id, ready, release):
         await connection.execute(
             text("SELECT id FROM users WHERE id = :id FOR SHARE"), {"id": user_id}
         )
-        ready.set()
+        ready.set_result(await connection.scalar(text("SELECT pg_backend_pid()")))
         try:
             await asyncio.wait_for(release.wait(), 20)
         finally:
@@ -657,14 +653,14 @@ async def test_live_fixture_request_is_awaited_by_the_scope_fence(context):
     )
     await ctx.db.commit()
 
-    ready, release = asyncio.Event(), asyncio.Event()
+    ready, release = asyncio.get_running_loop().create_future(), asyncio.Event()
     holder = asyncio.create_task(
         hold_account_share_lock(ctx, scope.user_ids[0], ready, release)
     )
     try:
-        await asyncio.wait_for(ready.wait(), 20)
+        holder_pid = await asyncio.wait_for(ready, 20)
         cleanup = asyncio.create_task(clean(ctx, world))
-        await wait_for_blocked_fence(ctx)
+        await wait_for_blocked_fence(ctx, holder_pid)
         assert not cleanup.done()
         release.set()
         response = await asyncio.wait_for(cleanup, 30)
@@ -695,12 +691,12 @@ async def test_stuck_scope_fence_still_fails_closed_after_bounded_wait(
     await ctx.db.commit()
     monkeypatch.setattr(cleanup, "FENCE_LOCK_TIMEOUT", "200ms")
 
-    ready, release = asyncio.Event(), asyncio.Event()
+    ready, release = asyncio.get_running_loop().create_future(), asyncio.Event()
     holder = asyncio.create_task(
         hold_account_share_lock(ctx, scope.user_ids[0], ready, release)
     )
     try:
-        await asyncio.wait_for(ready.wait(), 20)
+        await asyncio.wait_for(ready, 20)
         response = await asyncio.wait_for(clean(ctx, world), 30)
     finally:
         release.set()

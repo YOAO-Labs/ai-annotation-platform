@@ -241,8 +241,6 @@ async def test_all_async_image_formats_embed_verified_bytes_and_share_paths(
     receipt = await export_media_bundles.claim(db_session, receipt.id)
     job.status = "running"
     await db_session.commit()
-    signed = Mock(return_value="http://managed.test/image")
-    monkeypatch.setattr(image_transport.copy, "generate_presigned_url", signed)
     monkeypatch.setattr(
         storage_service,
         "generate_download_url",
@@ -296,10 +294,6 @@ async def test_all_async_image_formats_embed_verified_bytes_and_share_paths(
                         "images"
                     ]
                 )
-            assert (
-                entries[str(managed.id)]["presigned_url"] == "http://managed.test/image"
-            )
-            assert signed.call_count == 1
             assert entries[str(managed.id)]["sha256"] == registered.sha256
             assert entries[str(managed.id)]["size_bytes"] == len(content[1])
             assert (

@@ -1100,7 +1100,7 @@ class PredictionInputs:
             # The caller retains the source permit during this borrowed FD check.
             # Hashing and transport also drain before this method releases it.
             def inspect_stage():
-                from app.workers.media_process import _demuxer, decoder_input
+                from app.services.media_process import _demuxer, decoder_input
 
                 try:
                     _, descriptors = decoder_input(stage)

@@ -1,8 +1,4 @@
-"""ffprobe 调用与输出解析的纯函数集合(从 media.py 拆出,行为零变化)。
-
-只负责"探测 + 解析",不触碰 DB / 模型 / Celery —— 因此可独立测试、被 media.py 整体 re-export
-以保持 ``from app.workers.media import ...`` 的旧入口不变。
-"""
+"""Bounded ffprobe calls and video metadata, frame and packet parsing."""
 
 import json
 import math
@@ -10,7 +6,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from app.workers.media_process import run_process
+from app.services.media_process import run_process
 
 FFPROBE_TIMEOUT_SECONDS = 30
 

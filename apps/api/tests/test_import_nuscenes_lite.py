@@ -276,6 +276,19 @@ async def db_session(test_engine):
                 await connection.run_sync(
                     lambda sync, name=name: migration(sync, name).upgrade()
                 )
+            await connection.execute(
+                text(
+                    "ALTER TABLE managed_original_creations ADD COLUMN staging_ref jsonb"
+                )
+            )
+            await connection.execute(
+                text("ALTER TABLE dataset_asset_locations DROP COLUMN storage_ref")
+            )
+            await connection.run_sync(
+                lambda sync: migration(
+                    sync, "0251_dataset_original_targets.py"
+                ).upgrade()
+            )
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
             await ensure_legacy_bindings(db)
             await db.commit()

@@ -1088,13 +1088,13 @@ export function useWorkbenchShellModel({
           ? "讨论所在任务已删除、不可访问或暂时无法读取"
           : null;
   useEffect(() => {
-    if (
-      discussionRequest.status !== "valid" ||
-      !discussionTaskAvailable ||
-      currentTaskId === discussionRequest.taskId ||
-      !meUserId
-    )
-      return;
+    if (discussionRequest.status !== "valid" || !discussionTaskAvailable || !meUserId) return;
+    const localUrlSync = resolveLocalTaskUrlSync(
+      discussionRequest.taskId,
+      pendingLocalTaskIdRef.current,
+    );
+    if (localUrlSync.clearPendingTarget) pendingLocalTaskIdRef.current = null;
+    if (localUrlSync.holdRequestedTask || currentTaskId === discussionRequest.taskId) return;
     const controller = new AbortController();
     const previousTaskId = currentTaskId;
     const previousBatchId = selectedBatchId;

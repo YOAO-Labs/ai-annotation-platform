@@ -10,13 +10,14 @@ from sqlalchemy import select
 from app.db.models.prediction_input import PredictionInputLease
 from app.db.models.storage_maintenance import StorageOperation
 from app.services import prediction_inputs
+from tests.live_provider_guard import owned_bucket
 
 
 async def ensure_versioned_import_bucket():
     """Require immutable input versions on the disposable import bucket."""
     from app.services.storage import storage_service
 
-    bucket = storage_service.import_bucket
+    bucket = owned_bucket(storage_service.import_bucket, purpose="import")
     current = await asyncio.to_thread(
         storage_service.client.get_bucket_versioning, Bucket=bucket
     )

@@ -1,5 +1,6 @@
 """Real ownership/authority rows wrap the strict provider and download capture."""
 
+import asyncio
 from dataclasses import FrozenInstanceError
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -10,6 +11,7 @@ import uuid
 from fastapi import HTTPException
 import pytest
 from sqlalchemy import delete, func, select, text
+from sqlalchemy.ext.asyncio import async_sessionmaker
 from starlette.requests import Request
 
 from app.config import settings
@@ -250,6 +252,77 @@ async def read(world, resource, actor=None, *, presented=None, **kwargs):
 
 async def operations(world):
     return await world.db.scalar(select(func.count()).select_from(StorageOperation))
+
+
+@pytest.mark.parametrize("change", ["preferences", "disabled", "timeout"])
+async def test_original_recheck_waits_for_account_save_and_keeps_current_authority(
+    world, monkeypatch, change
+):
+    task, _, _ = await managed(world)
+    context = await service.authorize_original(
+        world.db,
+        service.Resource(kind="task", task_id=task.id),
+        world.actor,
+        request=request(world.actor),
+    )
+    actor_id = context.proof.actor_id
+    if change == "timeout":
+        monkeypatch.setattr(credentials, "AUTHORITY_LOCK_TIMEOUT", "500ms")
+    async with async_sessionmaker(world.db.bind, expire_on_commit=False)() as holder:
+        account = await holder.scalar(
+            select(User).where(User.id == actor_id).with_for_update()
+        )
+        if change == "disabled":
+            account.is_active = False
+        else:
+            account.preferences = {"workbench": {"save_in_progress": True}}
+        await holder.flush()
+        holder_pid = await holder.scalar(text("SELECT pg_backend_pid()"))
+        pending = asyncio.create_task(service.recheck_original(world.db, context))
+        try:
+            async with asyncio.timeout(2):
+                async with world.db.bind.connect() as observer:
+                    while not await observer.scalar(
+                        text(
+                            "SELECT count(*) FROM pg_stat_activity "
+                            "WHERE datname=current_database() "
+                            "AND :holder=ANY(pg_blocking_pids(pid))"
+                        ),
+                        {"holder": holder_pid},
+                    ):
+                        if pending.done():
+                            await pending
+                        await asyncio.sleep(0.01)
+            assert world.provider.calls == []
+            if change != "timeout":
+                await holder.commit()
+            if change in {"disabled", "timeout"}:
+                with pytest.raises(HTTPException) as error:
+                    await pending
+                assert error.value.status_code == (403 if change == "disabled" else 409)
+                assert error.value.detail["code"] == (
+                    "content_authority_revoked"
+                    if change == "disabled"
+                    else "content_busy"
+                )
+                assert world.provider.calls == []
+            else:
+                await pending
+                image = await read(
+                    world,
+                    context.resource,
+                    content_id=context.source.content_id,
+                    sha256=context.source.sha256,
+                )
+                try:
+                    assert image.file.read() == RAW
+                finally:
+                    image.close()
+        finally:
+            await holder.rollback()
+            if not pending.done():
+                pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
 
 
 @pytest.mark.parametrize("owner", ["task", "dataset"])

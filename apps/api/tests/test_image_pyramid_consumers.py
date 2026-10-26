@@ -8,7 +8,7 @@ import uuid
 import pytest
 
 from app.api.v1.tasks import _shared as shared
-from app.services.dataset import DatasetDeleteCleanup, DatasetService
+from app.services.dataset import DatasetService
 from app.services.storage import storage_service
 from app.workers import media
 
@@ -205,24 +205,6 @@ async def test_dataset_list_uses_async_saved_thumbnail_without_a_fallback(
     result, count = await DatasetService(db).list_items(uuid.uuid4())
     assert count == 1 and result[0]["thumbnail_url"] == verified_url
     checked.assert_awaited_once_with(db, "dataset_item", item.id, item.thumbnail_path)
-
-
-def test_dataset_delete_cleanup_does_not_guess_any_pyramid_bucket(monkeypatch):
-    delete_prefix = MagicMock(
-        side_effect=AssertionError("pyramid cleanup belongs to durable GC")
-    )
-    delete_object = MagicMock()
-    monkeypatch.setattr(storage_service, "delete_prefix", delete_prefix)
-    monkeypatch.setattr(storage_service, "delete_object", delete_object)
-
-    DatasetService.cleanup_deleted_storage(
-        DatasetDeleteCleanup(
-            directory_objects=(("saved-preview-bucket", "preview.webp"),)
-        )
-    )
-
-    delete_prefix.assert_not_called()
-    delete_object.assert_called_once_with("preview.webp", bucket="saved-preview-bucket")
 
 
 def test_http_backfill_dispatch_cannot_enable_system_pyramids(monkeypatch):

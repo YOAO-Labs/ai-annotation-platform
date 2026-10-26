@@ -8,7 +8,7 @@ import uuid
 
 from fastapi import HTTPException
 from jose import JWTError
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 
 from app.core import token_blacklist
@@ -31,6 +31,7 @@ ALLOWED_ROLES = frozenset(
         PlatformRole.EMPLOYEE,
     }
 )
+AUTHORITY_LOCK_TIMEOUT = "1s"
 
 
 def now():
@@ -41,17 +42,30 @@ def reject(code="comment_attachment_changed", status=409):
     raise HTTPException(status, {"code": code})
 
 
-async def locked(db, model, identifier, *, read=True, skip_locked=False):
+async def locked(db, model, identifier, *, read=True, skip_locked=False, wait=False):
     try:
         with db.no_autoflush:
-            return await db.scalar(
+            previous_timeout = None
+            if wait:
+                previous_timeout = await db.scalar(text("SHOW lock_timeout"))
+                await db.execute(
+                    text("SELECT set_config('lock_timeout', :timeout, true)"),
+                    {"timeout": AUTHORITY_LOCK_TIMEOUT},
+                )
+            row = await db.scalar(
                 select(model)
                 .where(model.id == identifier)
                 .with_for_update(
-                    read=read, nowait=not skip_locked, skip_locked=skip_locked
+                    read=read, nowait=not (wait or skip_locked), skip_locked=skip_locked
                 )
                 .execution_options(populate_existing=True)
             )
+            if previous_timeout is not None:
+                await db.execute(
+                    text("SELECT set_config('lock_timeout', :timeout, true)"),
+                    {"timeout": previous_timeout},
+                )
+            return row
     except DBAPIError as exc:
         if storage_access.unavailable(exc):
             reject("comment_attachment_busy")
@@ -148,7 +162,7 @@ async def _jwt_current(proof):
 
 
 async def _actor(db, actor_id, allowed_roles=ALLOWED_ROLES):
-    actor = await locked(db, User, actor_id)
+    actor = await locked(db, User, actor_id, wait=True)
     if actor is None or not actor.is_active or actor.role not in allowed_roles:
         reject("comment_attachment_authority_revoked", 403)
     return actor

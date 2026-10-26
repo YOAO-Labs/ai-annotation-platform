@@ -25,7 +25,7 @@ from PIL import Image
 
 from app.workers.media_codec import _extract_decoder_config
 from app.workers.media_chunks import extract_video_chunk, extract_video_chunk_smart_copy
-from app.workers.media_probe import probe_chunk_samples, probe_video_frame_timetable
+from app.services.media_probe import probe_chunk_samples, probe_video_frame_timetable
 
 FRAME_W = 160
 FRAME_H = 120

@@ -71,13 +71,14 @@ async def test_actual_minio_copy_read_and_worker_recovery(
         while asyncio.get_running_loop().time() < deadline:
             registered = await asyncio.to_thread(
                 lambda: (
-                    celery_app.control.inspect(destination=[node], timeout=1).registered()
+                    celery_app.control.inspect(
+                        destination=[node], timeout=1
+                    ).registered()
                     or {}
                 )
             )
-            if (
-                "app.workers.original_cache.maintain_original_cache"
-                in registered.get(node, [])
+            if "app.workers.original_cache.maintain_original_cache" in registered.get(
+                node, []
             ):
                 break
             assert worker.poll() is None, "Owned cache worker exited at startup"

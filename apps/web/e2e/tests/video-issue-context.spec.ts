@@ -1039,6 +1039,10 @@ test.describe("video Issue persisted context", () => {
           issue.id,
         );
         await expect(stage(page)).toHaveAttribute("data-video-draft-point-count", "0");
+        await expect(stage(page)).toHaveAttribute("data-video-precise-state", "ready", {
+          timeout: 25_000,
+        });
+        await expectPaintSettled(page);
         expect(await annotations(request, fixture)).toEqual([]);
         return;
       }

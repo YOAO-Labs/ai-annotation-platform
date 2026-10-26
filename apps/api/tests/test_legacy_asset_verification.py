@@ -148,6 +148,7 @@ async def legacy(test_engine, monkeypatch):
         provider=provider,
         raw=raw,
         sha=hashlib.sha256(raw).hexdigest(),
+        initial_operations=operations,
     )
     try:
         yield world
@@ -304,7 +305,10 @@ async def test_formal_backfill_preview_apply_preserves_all_business_rows(legacy)
             "purpose": "legacy_current_baseline",
             **observed.public(),
         }
-        assert await db.scalar(select(func.count()).select_from(StorageOperation)) == 0
+        assert (
+            set(await db.scalars(select(StorageOperation.id)))
+            == legacy.initial_operations
+        )
     text_result = json.dumps(observed.public())
     assert (
         legacy.item.file_path not in text_result
@@ -517,7 +521,15 @@ async def test_cancellation_waits_for_actual_stream_close_without_publishing(leg
         assert not task.done()
         async with legacy.factory() as db:
             assert (
-                await db.scalar(select(func.count()).select_from(StorageOperation)) == 1
+                await db.scalar(
+                    select(func.count())
+                    .select_from(StorageOperation)
+                    .where(
+                        StorageOperation.purpose == "legacy_asset_verification",
+                        StorageOperation.id.notin_(legacy.initial_operations),
+                    )
+                )
+                == 1
             )
     finally:
         release.set()

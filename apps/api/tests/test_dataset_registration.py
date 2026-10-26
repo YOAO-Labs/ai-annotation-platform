@@ -3,7 +3,7 @@ from datetime import timedelta
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, inspect, select
 
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import DatasetItem
@@ -33,7 +33,7 @@ async def start(db, world):
 
 
 async def drain(db, run, task_id, fence):
-    run_id = run.id
+    run_id = inspect(run).identity[0]
     for _ in range(20):
         work = await svc.next_entry(db, run_id, task_id, fence)
         await db.commit()
@@ -57,7 +57,7 @@ async def drain(db, run, task_id, fence):
 
 
 async def begin_confirmed(db, run, world):
-    run, created = await svc.confirm(db, run.id, world[2])
+    run, created = await svc.confirm(db, inspect(run).identity[0], world[2])
     assert created
     await db.commit()
     job = await db.get(AsyncJob, run.async_job_id)

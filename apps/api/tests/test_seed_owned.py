@@ -21,14 +21,40 @@ from contextlib import contextmanager
 import hashlib
 import uuid
 
+import httpx
 import pytest
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 pytestmark = pytest.mark.asyncio
 
 A = "regaa"
 B = "regbb"
+
+
+@pytest.fixture
+async def committed_client(app_module, test_engine):
+    """Independent original readers must see the fixture's committed rows."""
+    from app.deps import get_db
+
+    factory = async_sessionmaker(test_engine, expire_on_commit=False)
+
+    async def session():
+        async with factory() as db:
+            yield db
+
+    previous = app_module.dependency_overrides.get(get_db)
+    app_module.dependency_overrides[get_db] = session
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app_module), base_url="http://test"
+        ) as client:
+            yield client
+    finally:
+        if previous is None:
+            app_module.dependency_overrides.pop(get_db, None)
+        else:
+            app_module.dependency_overrides[get_db] = previous
 
 
 async def _build_owned(client, namespace: str) -> dict:
@@ -128,8 +154,9 @@ async def _assert_verified_video_bytes(db_session, task_id):
     [("video-task", None), ("video-webcodecs", "malformed-samples")],
 )
 async def test_video_seeds_register_actual_original_bytes(
-    httpx_client, db_session, route, fixture
+    committed_client, db_session, route, fixture
 ):
+    httpx_client = committed_client
     body = await _build_owned(httpx_client, A)
     try:
         # Register after the owned image seed so this fixture owns only video writes.
@@ -165,8 +192,9 @@ async def fixture_playback_registry(app_module, monkeypatch):
 
 @pytest.mark.parametrize("kind", ["task", "item"])
 async def test_owned_cleanup_reclaims_video_lease_capacity_without_touching_neighbor(
-    httpx_client, db_session, fixture_playback_registry, kind
+    committed_client, db_session, fixture_playback_registry, kind
 ):
+    httpx_client = committed_client
     from app.db.models.task import Task
 
     async def seed_and_prepare(fixture, resource_kind):

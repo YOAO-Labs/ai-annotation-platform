@@ -724,7 +724,6 @@ async def _cleanup_e2e_fixtures(
         scope = await resolve(db)
         await guides.preflight(db, scope)
         plan = await attachments.prepare(db, scope)
-        video_plan = await _prepare_fixture_video_cleanup(db, scope)
         if registry is not None:
 
             def fixture_context(context):
@@ -741,6 +740,9 @@ async def _cleanup_e2e_fixtures(
                     resource.kind == "item" and resource.dataset_id in scope.dataset_ids
                 )
 
+            await registry.revoke_contexts(fixture_context)
+        video_plan = await _prepare_fixture_video_cleanup(db, scope)
+        if registry is not None:
             await registry.revoke_contexts(fixture_context)
         await attachments.delete_objects(db, plan, resolve)
         await _delete_fixture_video_objects(db, video_plan, resolve)
@@ -1109,12 +1111,7 @@ async def _register_fixture_original(db, item, payload: bytes):
 
 
 def _raster_image_bytes(index: int, *, width: int = 64, height: int = 48) -> bytes:
-    """Deterministic 64x48 raster image for image-workbench fixtures.
-
-    The qualified original reader admits only decoded raster media; a vector
-    document has no native pixels for Mask/SAM receipts. Keep the previous
-    fixture palette and label so the rendered task looks the same.
-    """
+    """Supported raster originals with portable, bundled-font fixture pixels."""
     import colorsys
     from io import BytesIO
 
@@ -1126,18 +1123,7 @@ def _raster_image_bytes(index: int, *, width: int = 64, height: int = 48) -> byt
     draw = ImageDraw.Draw(image)
     draw.rectangle((4, 4, width - 5, height - 5), outline="#64748b", width=1)
     label = f"E2E {index + 1}"
-    font = None
-    for name in ("LiberationSerif-Regular.ttf", "DejaVuSerif.ttf"):
-        try:
-            font = ImageFont.truetype(name, 9)
-            break
-        except OSError:
-            continue
-    if font is None:
-        try:
-            font = ImageFont.load_default(size=9)
-        except TypeError:  # Pillow < 10.1 has no scalable default font.
-            font = ImageFont.load_default()
+    font = ImageFont.load_default(size=9)
     left, top, right, bottom = draw.textbbox((0, 0), label, font=font)
     draw.text(
         ((width - (right - left)) / 2 - left, (height - (bottom - top)) / 2 - top),
@@ -3306,6 +3292,54 @@ async def seed_native_mask_candidate(
     if pool is None or pool.legacy_instance_id is None:
         raise HTTPException(status_code=404, detail="backend fixture not found")
 
+    original_input = None
+    if item.file_type == "image":
+        from app.services import prediction_originals as originals
+        from app.services.managed_image_inference import normalize_identity
+        from app.services.storage_location import api_node_id
+
+        original = originals.source_receipt(
+            await originals.resolve(db, task.id, lock=True)
+        )
+        task_id = task.id
+        await db.commit()
+
+        async def guard(owned):
+            await _require_e2e_seed_database(owned)
+
+        opened = await originals.open_snapshot(
+            db,
+            task_id,
+            original,
+            guard=guard,
+            purpose="e2e_native_mask_" + task_id.hex,
+            node_id=api_node_id(),
+        )
+        try:
+            original_input = normalize_identity(
+                {
+                    "schema": 1,
+                    "task_id": str(task_id),
+                    **{
+                        name: original[name]
+                        for name in (
+                            "owner_kind",
+                            "content_id",
+                            "sha256",
+                            "size_bytes",
+                            "location_id",
+                            "location_revision",
+                            "maintenance_revision",
+                            "facts_digest",
+                        )
+                    },
+                    "width": opened.snapshot.width,
+                    "height": opened.snapshot.height,
+                }
+            )
+        finally:
+            await originals.settled(opened.close())
+
     total = int(item.width) * int(item.height)
     foreground_start = total // 4
     foreground_length = max(
@@ -3457,6 +3491,11 @@ async def seed_native_mask_candidate(
                 "prompt_summary": prompt_summary,
                 "prompt_source": prompt_source,
                 "accept_target": accept_target,
+                **(
+                    {"original_input": original_input}
+                    if original_input is not None
+                    else {}
+                ),
             }
         )
     response = {

@@ -16,7 +16,7 @@ from app.observability.metrics import (
 )
 from app.schemas.task import VideoMetadata
 from app.workers.celery_app import celery_app
-from app.workers.media_probe import (
+from app.services.media_probe import (
     FFPROBE_TIMEOUT_SECONDS as FFPROBE_TIMEOUT_SECONDS,
     _parse_frame_time_ms as _parse_frame_time_ms,
     _parse_int as _parse_int,
@@ -144,7 +144,7 @@ def _thumbnail_from_path(source_path: Path) -> tuple[bytes, str]:
 def extract_video_poster(
     input_path: str | Path, output_path: str | Path, *, pass_fds=()
 ) -> None:
-    from app.workers.media_process import run_process
+    from app.services.media_process import run_process
 
     proc = run_process(
         [
@@ -171,7 +171,7 @@ def extract_video_poster(
 def transcode_video_for_browser(
     input_path: str | Path, output_path: str | Path, *, pass_fds=()
 ) -> None:
-    from app.workers.media_process import run_process
+    from app.services.media_process import run_process
 
     proc = run_process(
         [

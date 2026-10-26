@@ -14,13 +14,13 @@ from billiard.exceptions import SoftTimeLimitExceeded
 import pytest
 from PIL import Image
 
-from app.workers import media_process as process
+from app.services import media_process as process
 from app.workers.media_chunks import (
     extract_video_chunk,
     extract_video_chunk_smart_copy,
 )
 from app.workers.media_frames import extract_video_frame_image
-from app.workers.media_probe import (
+from app.services.media_probe import (
     probe_chunk_samples,
     probe_video_file,
     probe_video_frame_timetable,

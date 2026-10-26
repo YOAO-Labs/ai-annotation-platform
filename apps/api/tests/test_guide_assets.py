@@ -5,13 +5,12 @@ import hashlib
 import uuid
 
 import pytest
-from sqlalchemy import inspect, select, text
+from sqlalchemy import inspect, select
 
 from app.db.models.guide_asset_upload import GuideAssetUpload as Upload
 from app.db.models.project_guide_asset import ProjectGuideAsset as Reference
 from app.services import guide_asset_references as references
 from app.services import guide_asset_storage as storage, guide_asset_uploads as uploads
-from app.services.managed_original_retirement import managed_storage_identity
 from tests._owned_s3 import patch_owned_client
 from tests.factory import create_membership, create_project
 from tests.test_comment_attachment_uploads import Objects, bearer
@@ -306,36 +305,30 @@ async def test_same_json_without_reference_does_not_authorize_known_owner(
 
 
 async def test_saved_bucket_exact_read_corruption_and_missing_are_not_current_bucket_fallbacks(
-    httpx_client, project_admin, project, objects, db_session
+    httpx_client, project_admin, project, objects, db_session, monkeypatch
 ):
     value = await upload(httpx_client, project_admin, project)
     project_id = project.id
     identifier = uuid.UUID(value["key"].split("/")[-1])
     row = await db_session.get(Upload, identifier)
     saved = deepcopy(row.storage_ref)
-    mapped = {
-        **saved,
-        "bucket": "guide-saved-test-bucket",
-        "storage_identity": managed_storage_identity(
-            saved["endpoint_url"], "guide-saved-test-bucket"
-        ),
-    }
-    await db_session.execute(text("SET LOCAL aap.restore_training_storage='on'"))
-    row.storage_ref = mapped
-    await db_session.commit()
-    objects.objects[mapped["bucket"], value["key"]] = b"image\x00bytes"
-    objects.objects[saved["bucket"], value["key"]] = b"current trap"
+    from app.services import annotations_storage
+
+    current_bucket = "guide-current-test-bucket"
+    monkeypatch.setattr(annotations_storage.storage_service, "bucket", current_bucket)
+    monkeypatch.setattr(objects, "bucket", current_bucket)
+    objects.objects[current_bucket, value["key"]] = b"current trap"
     result = await content(httpx_client, project_admin, project_id, value["key"])
     assert result.status_code == 200 and result.content == b"image\x00bytes"
-    objects.objects[mapped["bucket"], value["key"]] = b"other\x00bytes"
+    objects.objects[saved["bucket"], value["key"]] = b"other\x00bytes"
     assert (
         await content(httpx_client, project_admin, project_id, value["key"])
     ).status_code == 409
-    del objects.objects[mapped["bucket"], value["key"]]
+    del objects.objects[saved["bucket"], value["key"]]
     assert (
         await content(httpx_client, project_admin, project_id, value["key"])
     ).status_code == 404
-    assert objects.objects[saved["bucket"], value["key"]] == b"current trap"
+    assert objects.objects[current_bucket, value["key"]] == b"current trap"
 
 
 async def test_write_failure_keeps_pending_and_does_not_publish_or_compensate(

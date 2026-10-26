@@ -361,15 +361,20 @@ async def caller(db_session, annotator, monkeypatch):
         storage_access.engine(db_session), expire_on_commit=False
     )
     previous = {r.id for r in await facts(factory)}
+
+    async def owned_facts():
+        return [row for row in await facts(factory) if row.id not in previous]
+
     state = SimpleNamespace(
         db=db_session,
         authority=uploads.Authority(annotator[0].id, None, None),
         factory=factory,
+        facts=owned_facts,
     )
     try:
         yield state
     finally:
-        owned = [r for r in await facts(factory) if r.id not in previous]
+        owned = await owned_facts()
         for row in owned:
             # Synthetic close/settle failures own no live SDK handles after return.
             await clear_closed_test_operations(
@@ -465,7 +470,7 @@ async def test_actual_upload_owner_preserves_facts_and_original_drain(
     else:
         await task
     assert provider.closed and all(body.closed for body in provider.bodies)
-    (row,) = await facts(caller.factory)
+    (row,) = await caller.facts()
     if failure in {"settle", "body_and_settle", "soft_limit"}:
         assert row.state == "unknown" and row.current_delta_bytes is None
     else:
@@ -512,7 +517,7 @@ async def test_real_minio_production_upload_and_single_duplicate_condition(
             caller.db, caller.authority, RAW, "image/png", "actual.png"
         )
         key = result.storage_key
-        (first,) = await facts(caller.factory)
+        (first,) = await caller.facts()
         row = await caller.db.get(BugAttachmentUpload, first.owner_id)
         assert row.state == "ready" and first.current_delta_bytes == len(RAW)
         head = service.client.head_object(Bucket=bucket, Key=key)
@@ -527,7 +532,7 @@ async def test_real_minio_production_upload_and_single_duplicate_condition(
                 physical.write, uploads.snapshot(row), RAW, accounting=rec
             )
         await accounting.finish(rec, None)
-        first, second = await facts(caller.factory)
+        first, second = await caller.facts()
         assert second.state == "confirmed" and second.current_delta_bytes == 0
         assert (
             first.evidence["final_send_count"]

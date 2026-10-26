@@ -21,9 +21,7 @@ from urllib.parse import urlsplit
 from app.config import settings
 
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
-_WORKTREE_BUCKET = re.compile(
-    r"aap-wt-[0-9a-f]{16}-test-(?P<purpose>[a-z][a-z0-9-]*)"
-)
+_WORKTREE_BUCKET = re.compile(r"aap-wt-[0-9a-f]{16}-test-(?P<purpose>[a-z][a-z0-9-]*)")
 
 
 def _host_of(endpoint: str) -> str:
@@ -107,8 +105,7 @@ def owned_redis() -> str:
     owner = _disposable_owner()
     parsed = urlsplit(settings.redis_url)
     assert (
-        parsed.scheme in {"redis", "rediss"}
-        and parsed.hostname in _LOOPBACK_HOSTS
+        parsed.scheme in {"redis", "rediss"} and parsed.hostname in _LOOPBACK_HOSTS
     ), (
         "Actual-provider acceptance uses only the loopback Redis of the "
         f"disposable {owner} environment"
