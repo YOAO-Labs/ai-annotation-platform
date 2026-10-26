@@ -1,11 +1,13 @@
 """Controlled routing never selects another physical model instance."""
 
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
+from aap_inference.pool_capability import capability_fingerprint
 from aap_inference_contract.execution import ModelTaskResult
 from app.db.models.ml_backend_pool import MLBackendPoolMember
 from app.services import trained_models
@@ -20,6 +22,42 @@ from tests.test_ml_routing_router import (  # noqa: F401
 )
 
 
+async def _pin_exact_target(db_session, pool, legacy, target):
+    """Restore the interchangeable-member contract for the exact target.
+
+    The routing seed promises two connected, active, fingerprint-matched members.
+    Make that prerequisite explicit for this test — including capability parity and
+    a fresh health observation — and declare one backend concurrency slot.
+    """
+    capabilities = (legacy.health_meta or {}).get("capabilities")
+    if capabilities is None:
+        capabilities = (target.health_meta or {}).get("capabilities")
+    assert capabilities is not None, "routing fixture must expose capabilities"
+    target.health_meta = {"capabilities": capabilities}
+    pool.capability_fingerprint = capability_fingerprint(capabilities)
+    target.state = "connected"
+    target.last_checked_at = datetime.now(UTC)
+    target.extra_params = {"max_concurrency": 1}
+    await db_session.execute(
+        update(MLBackendPoolMember)
+        .where(
+            MLBackendPoolMember.pool_id == pool.id,
+            MLBackendPoolMember.registry_id == target.id,
+        )
+        .values(traffic_state="active")
+    )
+    await db_session.commit()
+    assert (
+        await db_session.scalar(
+            select(MLBackendPoolMember.traffic_state).where(
+                MLBackendPoolMember.pool_id == pool.id,
+                MLBackendPoolMember.registry_id == target.id,
+            )
+        )
+        == "active"
+    )
+
+
 @pytest.mark.parametrize(
     "mode", [RouterMode.OFF, RouterMode.OBSERVE, RouterMode.ENFORCE]
 )
@@ -30,8 +68,7 @@ async def test_exact_target_is_never_replaced_by_another_pool_member(
     assert legacy.id != target.id
     # A real in-flight durable scope on the exact target fills its declared
     # backend concurrency; the sibling member stays entirely unused.
-    target.extra_params = {"max_concurrency": 1}
-    await db_session.commit()
+    await _pin_exact_target(db_session, pool, legacy, target)
 
     enforcing = MLBackendRouter(db_session, ledger=None, mode=RouterMode.ENFORCE)
     in_flight = await enforcing.acquire(
