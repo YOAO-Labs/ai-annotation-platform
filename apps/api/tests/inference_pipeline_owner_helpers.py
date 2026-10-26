@@ -18,7 +18,7 @@ from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_identity_admission_live import _port, _start
 from tests.test_module_data_roles import _role_url
 
-_BINDINGS = ("borrowed", "database", "http")
+_BINDINGS = ("borrowed", "http")
 _RESTORE_PREFIX = "aap_inference_pipelines_restore_"
 
 
@@ -145,11 +145,10 @@ async def api_pipeline_owner_binding(
     *,
     database: str | None = None,
 ):
-    """Select borrowed, direct function-only DSN, or isolated HTTP ownership."""
+    """Select borrowed API ownership or an isolated HTTP owner."""
     if mode not in _BINDINGS:
         raise ValueError("Unknown Inference pipeline binding")
 
-    dsn = pipeline_dsn(test_engine, database) if mode != "borrowed" else ""
     token = secrets.token_urlsafe(32) if mode == "http" else ""
     url = ""
 
@@ -163,8 +162,6 @@ async def api_pipeline_owner_binding(
             "inference_pipelines_url": url,
             "inference_pipelines_token": token,
             "inference_pipelines_token_file": "",
-            "inference_pipelines_database_url": dsn if mode == "database" else "",
-            "inference_pipelines_database_url_file": "",
             "inference_pipelines_timeout_seconds": 30,
         }
         with monkeypatch.context() as scoped:

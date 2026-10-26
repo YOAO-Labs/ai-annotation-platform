@@ -18,7 +18,6 @@ from aap_inference.pipeline_contract import (
     PipelineRow,
     PipelineResult,
     PipelineRejected,
-    PipelineStatusSuccess,
     PipelineSuccess,
     PipelineUnavailable,
     pipeline_command_request,
@@ -64,12 +63,12 @@ def _command(actor, *, operation="create_pipeline", target_id=None, payload=None
     )
 
 
-def test_owner_selection_defaults_to_borrowed_and_rejects_conflicts(monkeypatch):
+def test_owner_selection_defaults_to_borrowed_and_requires_http_credentials(
+    monkeypatch,
+):
     def configured(**values):
         defaults = {
             "inference_pipelines_url": "",
-            "inference_pipelines_database_url": "",
-            "inference_pipelines_database_url_file": "",
             "inference_pipelines_token": "",
             "inference_pipelines_token_file": "",
             "inference_pipelines_timeout_seconds": 30,
@@ -82,10 +81,7 @@ def test_owner_selection_defaults_to_borrowed_and_rejects_conflicts(monkeypatch)
     monkeypatch.setattr(
         gateway,
         "settings",
-        configured(
-            inference_pipelines_url="http://inference",
-            inference_pipelines_database_url="postgresql://owner",
-        ),
+        configured(inference_pipelines_url="http://inference"),
     )
     with pytest.raises(PipelineUnavailable):
         gateway._select_owner()
@@ -262,7 +258,7 @@ def test_borrowed_command_commits_once_and_uses_receipt_bound_projection(monkeyp
 def test_committed_owner_does_not_commit_api_session(monkeypatch):
     async def check():
         actor = _actor()
-        owner = gateway._Owner("database", dsn="postgresql://owner")
+        owner = gateway._Owner("http", url="http://inference", token="private")
         monkeypatch.setattr(gateway, "_select_owner", lambda: owner)
         resource_id = uuid.uuid4()
 
@@ -338,76 +334,6 @@ def test_apply_projection_keeps_legacy_null_creator_name(monkeypatch):
         monkeypatch.setattr(gateway, "_resolve_pipeline_briefs", briefs)
         result = await gateway.get_pipeline_projection(None, mutation, actor=actor)
         assert result["created_by_name"] is None
-
-    import asyncio
-
-    asyncio.run(check())
-
-
-def test_direct_database_ambiguous_commit_probes_status_once(monkeypatch):
-    async def check():
-        actor = _actor()
-        request = _command(actor)
-        result_id = uuid.uuid4()
-        observed = {"execute": 0, "status": 0, "close": 0}
-
-        class _Data:
-            def __init__(self, _dsn, *, command_timeout):
-                assert command_timeout > 0
-
-            async def close(self):
-                observed["close"] += 1
-
-        class _Manager:
-            def __init__(self, _data):
-                pass
-
-            async def execute(self, command):
-                observed["execute"] += 1
-                return PipelineFailure(
-                    schema=PIPELINE_PROTOCOL,
-                    ok=False,
-                    operation_id=command.operation_id,
-                    operation=command.operation,
-                    actor_id=command.admitted_actor.id,
-                    target_id=command.target_id,
-                    error=PipelineErrorDetails(
-                        status_code=503,
-                        detail="结果暂不可确认",
-                        headers=None,
-                        rollback=False,
-                    ),
-                    commit_state="unknown",
-                )
-
-            async def status(self, status_request):
-                observed["status"] += 1
-                assert status_request.command == request
-                return PipelineStatusSuccess(
-                    schema=PIPELINE_PROTOCOL,
-                    ok=True,
-                    request_id=status_request.request_id,
-                    operation=status_request.operation,
-                    operation_id=request.operation_id,
-                    command_operation=request.operation,
-                    actor_id=actor.id,
-                    target_id=None,
-                    state="committed",
-                    resource_id=result_id,
-                )
-
-        monkeypatch.setattr(gateway, "PipelinePostgresData", _Data)
-        monkeypatch.setattr(gateway, "PipelineManager", _Manager)
-        reply = await gateway._invoke(
-            gateway._Owner("database", dsn="postgresql://owner"),
-            None,
-            "execute",
-            request,
-        )
-
-        assert reply.ok is True
-        assert reply.result.resource_id == result_id
-        assert observed == {"execute": 1, "status": 1, "close": 1}
 
     import asyncio
 

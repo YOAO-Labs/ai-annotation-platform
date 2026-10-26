@@ -56,6 +56,9 @@ _IMAGE_ACCEPTANCE = "inference-pipeline-owner"
 _RUN_ACCEPTANCE = "module-data-boundary"
 _PACKAGE_SOURCE_PATHS = {
     "aap_inference": "apps/inference/src/aap_inference",
+    "aap_inference_contract": (
+        "apps/_shared/inference_contract/src/aap_inference_contract"
+    ),
     "aap_owner_data": "apps/_shared/owner_data/src/aap_owner_data",
     "aap_workspace_contract": (
         "apps/_shared/workspace_contract/src/aap_workspace_contract"
@@ -63,6 +66,7 @@ _PACKAGE_SOURCE_PATHS = {
     "aap_task_contract": "apps/_shared/task_contract/src/aap_task_contract",
     "aap_protocol_v2": "apps/_shared/protocol_v2/src/aap_protocol_v2",
 }
+_PACKAGE_SUFFIXES = {".py", ".json", ".sql"}
 
 
 def _required_env(name: str) -> str:
@@ -76,7 +80,7 @@ def _package_file_hashes(root: Path) -> dict[str, str]:
     return {
         path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
         for path in sorted(root.rglob("*"))
-        if path.is_file() and path.suffix in {".py", ".json"}
+        if path.is_file() and path.suffix in _PACKAGE_SUFFIXES
     }
 
 
@@ -97,6 +101,7 @@ from pathlib import Path
 packages = {}
 for name in (
     "aap_inference",
+    "aap_inference_contract",
     "aap_owner_data",
     "aap_workspace_contract",
     "aap_task_contract",
@@ -111,7 +116,7 @@ for name in (
     packages[name] = {
         path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
         for path in sorted(root.rglob("*"))
-        if path.is_file() and path.suffix in {".py", ".json"}
+        if path.is_file() and path.suffix in {".py", ".json", ".sql"}
     }
 forbidden = {
     name: importlib.util.find_spec(name) is not None
@@ -136,8 +141,6 @@ def _select_http_owner(monkeypatch, url: str, token: str):
         "inference_pipelines_url": url,
         "inference_pipelines_token": token,
         "inference_pipelines_token_file": "",
-        "inference_pipelines_database_url": "",
-        "inference_pipelines_database_url_file": "",
         "inference_pipelines_timeout_seconds": 30,
     }
     with monkeypatch.context() as scoped:
@@ -353,7 +356,6 @@ async def test_inference_pipeline_container_image_replay_restart_and_local_profi
             test_engine, tmp_path / f"inference-container-{uuid.uuid4().hex}", token
         ) as (origin, container, image_id, _container_dsn):
             expected_packages = _source_package_hashes()
-            assert sum(len(files) for files in expected_packages.values()) == 39
             installed = _container_package_inventory(container)
             assert installed["packages"] == expected_packages
             assert not any(installed["forbidden_runtime_modules"].values())

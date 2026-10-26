@@ -1,4 +1,4 @@
-"""Replay the frozen named-pipeline oracle through all three owner bindings."""
+"""Replay the frozen named-pipeline oracle through both owner bindings."""
 
 from __future__ import annotations
 

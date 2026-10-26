@@ -700,12 +700,12 @@ async def test_inference_pipeline_nonempty_state_and_receipts_survive_owned_rest
         async with api_pipeline_owner_binding(
             test_engine,
             monkeypatch,
-            "database",
+            "http",
             tmp_path,
             database=clone,
         ):
             clone_owner = gateway._select_owner()
-            assert clone_owner.mode == "database"
+            assert clone_owner.mode == "http"
             reply = await gateway._invoke(
                 clone_owner, None, "execute", clone_only_update
             )
