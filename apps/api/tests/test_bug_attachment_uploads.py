@@ -319,9 +319,21 @@ async def test_failed_or_unknown_put_keeps_pending(
     )
     assert response.status_code == 503 and "private" not in response.text
     row = await db_session.scalar(select(BugAttachmentUpload))
-    assert row.state == "pending" and not objects.deleted
-    assert bool(objects.objects) is after_put
-    assert (await uploads.cleanup(db_session))["deleted"] == 0
+    try:
+        assert row.state == "pending" and not objects.deleted
+        assert bool(objects.objects) is after_put
+        assert (await uploads.cleanup(db_session))["deleted"] == 0
+    finally:
+        # The unknown PUT outcome is retained as an unsettled ledger row while
+        # this test owns the only handle. The fake provider raised in-process,
+        # so its closure can be attested and the synthetic row retired instead
+        # of silently blocking unrelated physical admissions in later tests.
+        assert all(body.closed for body in objects.bodies)
+        await clear_closed_test_operations(
+            db_session,
+            uuid.UUID(row.storage_ref["location_id"]),
+            "bug_attachment_write_" + row.id.hex,
+        )
 
 
 async def test_pending_commit_failure_never_starts_put(

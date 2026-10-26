@@ -1,4 +1,4 @@
-"""Caller contracts for sealed originals, without storage or database I/O."""
+"""Caller contracts for sealed originals: real transaction boundary, fake storage."""
 
 import hashlib
 import io
@@ -10,6 +10,7 @@ import uuid
 from fastapi import HTTPException
 import pytest
 
+from app.db.models.dataset import Dataset
 from app.services import dataset as datasets
 from app.services import dataset_assets
 from app.services import dataset_references
@@ -24,6 +25,7 @@ def creation(monkeypatch):
     module = ModuleType("app.services.managed_original_creation")
     allocation = {
         "id": uuid.uuid4(),
+        "logical_path": "folder/image.png",
         "bucket": "datasets-test",
         "object_key": "allocated/final.txt",
     }
@@ -40,6 +42,8 @@ def creation(monkeypatch):
     module.allocate = AsyncMock(return_value=allocation)
     module.create_stream = AsyncMock(return_value=receipt)
     module.attach = AsyncMock()
+    module.original_locator = Mock(return_value="saved-binding")
+    module.original_ref = Mock(return_value={"schema": 2})
     monkeypatch.setitem(sys.modules, module.__name__, module)
     monkeypatch.setattr(
         app.services, "managed_original_creation", module, raising=False
@@ -48,10 +52,17 @@ def creation(monkeypatch):
 
 
 @pytest.fixture
-def ingest(monkeypatch):
+async def ingest(db_session, super_admin, monkeypatch):
     dataset_id = uuid.uuid4()
-    db = SimpleNamespace(get=AsyncMock(return_value=SimpleNamespace(name="Example")))
-    service = datasets.DatasetService(db)
+    db_session.add(
+        Dataset(
+            display_id="D-IMP-" + dataset_id.hex[:8],
+            name="importer-caller-" + dataset_id.hex[:8],
+            created_by=super_admin[0].id,
+        )
+    )
+    await db_session.flush()
+    service = datasets.DatasetService(db_session)
     item = SimpleNamespace(id=uuid.uuid4(), metadata_={})
     service._unique_file_name = AsyncMock(return_value="folder/file.txt")
     service._find_by_file_path = AsyncMock(return_value=None)
@@ -156,7 +167,7 @@ async def test_scan_of_existing_object_never_invents_creation(creation, ingest):
 
 
 @pytest.mark.parametrize("mismatch", [None, "sha256", "size_bytes"])
-async def test_directory_copy_seals_and_checks_snapshot_without_preview_cleanup_ownership(
+async def test_directory_copy_rechecks_sealed_creation_without_preview_ownership(
     creation, monkeypatch, mismatch
 ):
     originals, allocation, receipt = creation
@@ -164,7 +175,7 @@ async def test_directory_copy_seals_and_checks_snapshot_without_preview_cleanup_
     dataset = SimpleNamespace(id=uuid.uuid4())
     item = SimpleNamespace(id=uuid.uuid4(), metadata_={})
     service = SimpleNamespace(
-        _unique_file_name=AsyncMock(return_value="folder/image.png"),
+        _existing_file_names=AsyncMock(return_value=set()),
         add_item=AsyncMock(return_value=item),
         create_tasks_for_items=AsyncMock(),
     )
@@ -194,7 +205,7 @@ async def test_directory_copy_seals_and_checks_snapshot_without_preview_cleanup_
         entry,
         dataset,
         snapshot,
-        SimpleNamespace(bucket="datasets-test"),
+        {"allocation": allocation, "created": receipt},
         uploaded_previews,
         force_new=True,
         requested_by=source.id,
@@ -215,10 +226,17 @@ async def test_directory_copy_seals_and_checks_snapshot_without_preview_cleanup_
             "sha256": snapshot.sha256,
         }
         originals.attach.assert_awaited_once_with(db, item, receipt.creation_id)
-        assert service.add_item.await_args.args[2] == allocation["object_key"]
-        assert service.add_item.await_args.kwargs["content_hash"] == receipt.md5
-        assert originals.allocate.await_args.kwargs["max_bytes"] == snapshot.size
-        assert originals.allocate.await_args.kwargs["origin"] == "directory_copy"
+        fields = service.add_item.await_args
+        assert fields.args[2] == allocation["object_key"]
+        assert fields.kwargs["content_hash"] == receipt.md5
+        assert (
+            fields.kwargs["storage_binding"]
+            is originals.original_locator.return_value
+        )
+        assert fields.kwargs["storage_ref"] is originals.original_ref.return_value
+        originals.original_locator.assert_called_once_with(allocation)
+        originals.original_ref.assert_called_once_with(allocation)
+    originals.allocate.assert_not_awaited()
     assert uploaded_previews == []
     datasets.storage_service.delete_object.assert_not_called()
 

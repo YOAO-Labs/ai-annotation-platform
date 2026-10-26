@@ -5,7 +5,6 @@ import hashlib
 import json
 import re
 import time
-from types import SimpleNamespace
 import uuid
 
 from sqlalchemy import select, text
@@ -94,6 +93,22 @@ class Preview:
                 },
             }
         )
+
+
+@dataclass(frozen=True)
+class _ObservedObject:
+    """Reader-facing facts of a key whose digest this pass still has to prove.
+
+    `expected_version_id`/`expected_etag` stay unset because the reviewed
+    baseline does not exist yet; the conditional GET and the two HEADs pin the
+    object this read actually observed.
+    """
+
+    bucket: str
+    object_key: str
+    size_bytes: int
+    expected_version_id: str | None = None
+    expected_etag: str | None = None
 
 
 @dataclass(frozen=True)
@@ -275,7 +290,7 @@ def observe(source, expected=None):
                 reject("source_changed")
             if size > MAX_DIRECT_UPLOAD_BYTES:
                 raise ContentError("content_too_large", 413)
-            metadata = SimpleNamespace(
+            metadata = _ObservedObject(
                 bucket=source.bucket, object_key=source.key, size_bytes=size
             )
             before = reader._observation(response, metadata)

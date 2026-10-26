@@ -14,6 +14,7 @@ import pytest
 from app import services
 from app.services import managed_original_creation as creation
 from app.services.content_snapshot import ContentError
+from app.services.dataset_assets import LEGACY_LOCATION_ID
 from tests.test_managed_original_creation import Client
 
 
@@ -118,26 +119,19 @@ def test_comparison_excludes_import_but_digest_remains_complete(allocated):
     )
 
 
-async def test_validation_keeps_complete_saved_digest_before_comparing_dependencies(
-    allocated, monkeypatch
+async def test_validation_rejects_tampered_unconsumed_bucket_from_saved_digest(
+    allocated,
 ):
     row = allocated | {
         "origin": "zip",
         "location_id": uuid.uuid4(),
         "maintenance_revision": 1,
     }
-    current = deepcopy(allocated["configuration"])
-    current["buckets"]["import"] = "new-stage"
-    current["bindings"][0]["generation"] = 2
-    metadata = AsyncMock(return_value=current)
-    monkeypatch.setattr(creation, "_configuration", metadata)
-    monkeypatch.setattr(creation.storage_access, "check", AsyncMock(return_value=1))
-    await creation._validate(None, row)
-    metadata.reset_mock()
+    # The stored snapshot digest covers the complete saved configuration,
+    # including purposes this writer no longer resolves as dependencies.
     row["configuration"]["buckets"]["import"] = "forged-old-bucket"
     with pytest.raises(ContentError, match="managed_original_configuration_changed"):
         await creation._validate(None, row)
-    metadata.assert_not_awaited()
 
 
 async def test_retry_upload_url_keeps_first_creation_deadline(
@@ -209,6 +203,7 @@ async def test_source_client_close_never_skips_destination_close(
     row = allocated | {
         "bucket": "final",
         "object_key": "original",
+        "location_id": LEGACY_LOCATION_ID,
         "max_bytes": 8,
         "timeout_seconds": 60,
         "owner_kind": "dataset",
