@@ -871,6 +871,7 @@ def _logical_context(state):
         dict(
             source_id=source.id,
             location_id=location.id,
+            location_kind=location.kind,
             item_id=item.id,
             asset_id=asset.id,
             sha256=asset.checksum_value,
@@ -962,6 +963,7 @@ async def reference_snapshot(
     node_id=None,
     task_authorizer=None,
     on_acquired=None,
+    require_range_support=False,
 ):
     from app.services.dataset_content import key_authority
     from app.services import original_cache
@@ -975,6 +977,8 @@ async def reference_snapshot(
         task_authorizer=task_authorizer,
     )
     proof = await key_authority(db, actor, api_key_id, scope)
+    if require_range_support and context["location_kind"] != "agent":
+        raise HTTPException(416, "Range is not supported for verified snapshots")
     if expected_sha256 is not None and expected_sha256 != context["sha256"]:
         raise snapshots.ContentError("content_mismatch")
     cache_factory = (
@@ -1165,6 +1169,7 @@ async def reference_snapshot(
         if getattr(snapshot, "_agent_receipt", None) is not None:
             await agent_storage.accept(db, snapshot)
             await db.commit()
+        snapshot._range_supported = context["location_kind"] == "agent"
         return snapshot
     except BaseException:
         from app.services import agent_storage

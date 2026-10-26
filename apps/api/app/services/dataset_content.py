@@ -109,10 +109,13 @@ async def scan_snapshot(
     refresh_unverified=False,
     event_job_id=None,
     event_registration_id=None,
+    require_range_support=False,
 ):
     location, source, run, entry, node, anchor = await scan_context(
         db, run_id, path_digest, actor, node_id=node_id
     )
+    if require_range_support and location.kind != "agent":
+        raise HTTPException(416, "Range is not supported for verified snapshots")
     receipt = entry.verified_content
     scope = "datasets:write" if verify else "datasets:read"
     key_proof = await key_authority(db, actor, api_key_id, scope)
@@ -457,7 +460,14 @@ async def _managed_snapshot(
 
 
 async def task_snapshot(
-    db, task_id, actor, expected_sha256, *, api_key_id=None, request=None
+    db,
+    task_id,
+    actor,
+    expected_sha256,
+    *,
+    api_key_id=None,
+    request=None,
+    require_range_support=False,
 ):
     from app.services import original_content_access as access
 
@@ -478,6 +488,11 @@ async def task_snapshot(
             task_id=task_id,
             task_authorizer=_reference_task_authorizer,
         )
+    if require_range_support and (
+        reference is None or reference["location_kind"] != "agent"
+    ):
+        raise HTTPException(416, "Range is not supported for verified snapshots")
+    if reference is not None:
         await storage_access.check(
             db,
             reference["location_id"],
@@ -536,6 +551,7 @@ async def task_snapshot(
                 api_key_id=api_key_id,
                 task_authorizer=_reference_task_authorizer,
                 on_acquired=admitted,
+                require_range_support=require_range_support,
             )
         else:
             snapshot = await _managed_snapshot(

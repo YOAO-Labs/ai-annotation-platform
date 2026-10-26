@@ -53,7 +53,11 @@ from app.services import dataset_scans as svc
 from app.services import dataset_source_access as access
 from app.services.audit import AuditAction, AuditService
 from app.services.filesystem_storage import FilesystemStorageError
-from app.services.content_snapshot import IMAGE_RESPONSES, ContentError
+from app.services.content_snapshot import (
+    IMAGE_RESPONSES,
+    VERIFIED_IMAGE_RESPONSES,
+    ContentError,
+)
 
 manager = require_roles(UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
 
@@ -536,7 +540,7 @@ async def verify_scan_content(
 @router.get(
     "/dataset-scans/{run_id}/entries/{path_digest}/content",
     response_class=Response,
-    responses=IMAGE_RESPONSES,
+    responses=VERIFIED_IMAGE_RESPONSES,
     dependencies=[Depends(require_scopes("datasets:read"))],
 )
 async def read_scan_content(
@@ -550,8 +554,6 @@ async def read_scan_content(
     from app.services.dataset_content import scan_snapshot, content_http_error
     from app.services.content_snapshot import SnapshotResponse
 
-    if request.headers.get("range") is not None:
-        raise HTTPException(416, "Range is not supported for verified snapshots")
     try:
         snapshot = await scan_snapshot(
             db,
@@ -560,10 +562,15 @@ async def read_scan_content(
             actor,
             expected_sha256=sha256,
             api_key_id=getattr(request.state, "api_key_id", None),
+            require_range_support=request.headers.get("range") is not None,
         )
     except Exception as exc:
         raise content_http_error(exc) from None
-    return SnapshotResponse(snapshot)
+    return SnapshotResponse(
+        snapshot,
+        range_header=request.headers.get("range"),
+        if_range=request.headers.get("if-range"),
+    )
 
 
 @router.post(
@@ -596,7 +603,7 @@ async def register_reference(
 @router.get(
     "/dataset-items/{item_id}/content",
     response_class=Response,
-    responses=IMAGE_RESPONSES,
+    responses=VERIFIED_IMAGE_RESPONSES,
     dependencies=[Depends(require_scopes("datasets:read"))],
 )
 async def reference_item_content(
@@ -610,8 +617,6 @@ async def reference_item_content(
     from app.services.dataset_content import content_http_error
     from app.services.content_snapshot import SnapshotResponse
 
-    if request.headers.get("range") is not None:
-        raise HTTPException(416, "Range is not supported for verified snapshots")
     try:
         snapshot = await reference_snapshot(
             db,
@@ -620,10 +625,15 @@ async def reference_item_content(
             expected_sha256=sha256,
             api_key_id=getattr(request.state, "api_key_id", None),
             scope="datasets:read",
+            require_range_support=request.headers.get("range") is not None,
         )
     except Exception as exc:
         raise content_http_error(exc) from None
-    return SnapshotResponse(snapshot)
+    return SnapshotResponse(
+        snapshot,
+        range_header=request.headers.get("range"),
+        if_range=request.headers.get("if-range"),
+    )
 
 
 @router.get(

@@ -12,7 +12,7 @@ from app.schemas.task import (
     TaskFileUrlResponse,
     TaskContentIdentity,
 )
-from app.services.content_snapshot import IMAGE_RESPONSES
+from app.services.content_snapshot import VERIFIED_IMAGE_RESPONSES
 
 router = APIRouter()
 
@@ -105,7 +105,7 @@ async def get_file_url(
     "/tasks/{task_id}/content",
     dependencies=[Depends(require_scopes("tasks:read"))],
     response_class=Response,
-    responses=IMAGE_RESPONSES,
+    responses=VERIFIED_IMAGE_RESPONSES,
 )
 async def get_verified_task_content(
     task_id: uuid.UUID,
@@ -117,8 +117,6 @@ async def get_verified_task_content(
     from app.services.dataset_content import task_snapshot, content_http_error
     from app.services.content_snapshot import SnapshotResponse
 
-    if request.headers.get("range") is not None:
-        raise HTTPException(416, "Range is not supported for verified snapshots")
     try:
         snapshot = await task_snapshot(
             db,
@@ -127,10 +125,15 @@ async def get_verified_task_content(
             sha256,
             api_key_id=getattr(request.state, "api_key_id", None),
             request=request,
+            require_range_support=request.headers.get("range") is not None,
         )
     except Exception as exc:
         raise content_http_error(exc) from None
-    return SnapshotResponse(snapshot)
+    return SnapshotResponse(
+        snapshot,
+        range_header=request.headers.get("range"),
+        if_range=request.headers.get("if-range"),
+    )
 
 
 @router.get(

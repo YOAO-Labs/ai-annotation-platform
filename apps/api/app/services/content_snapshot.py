@@ -12,7 +12,7 @@ import time
 import warnings
 
 from PIL import Image
-from starlette.concurrency import run_in_threadpool
+from fastapi import HTTPException
 from starlette.responses import StreamingResponse
 
 MAX_BYTES = 64 * 1024 * 1024
@@ -20,6 +20,7 @@ MAX_PIXELS = 32_000_000
 COPY_SECONDS = 10
 WAIT_SECONDS = 15
 CHUNK_BYTES = 256 * 1024
+RESPONSE_SECONDS = 30
 _slots = threading.BoundedSemaphore(4)
 IMAGE_RESPONSES = {
     200: {
@@ -29,6 +30,18 @@ IMAGE_RESPONSES = {
             for media in ("image/png", "image/jpeg", "image/webp")
         },
     }
+}
+VERIFIED_IMAGE_RESPONSES = {
+    **IMAGE_RESPONSES,
+    206: {
+        "description": "Single byte range from a fully verified Agent image snapshot",
+        "content": IMAGE_RESPONSES[200]["content"],
+        "headers": {
+            "Content-Range": {"schema": {"type": "string"}},
+            "Accept-Ranges": {"schema": {"type": "string", "const": "bytes"}},
+        },
+    },
+    416: {"description": "Unsupported or unsatisfiable image range"},
 }
 
 
@@ -51,6 +64,13 @@ class Snapshot:
     _closed: bool = False
     _lock: object = field(default_factory=threading.Lock)
     _cleanup: object = field(default=None, repr=False)
+    _range_supported: bool = field(default=False, repr=False)
+
+    @property
+    def supports_ranges(self):
+        return (
+            self._range_supported or getattr(self, "_agent_receipt", None) is not None
+        )
 
     def close(self):
         with self._lock:
@@ -359,29 +379,94 @@ async def adopt_stage(stage, *, inspect_quality=False):
 
 
 class SnapshotResponse(StreamingResponse):
-    def __init__(self, snapshot):
+    def __init__(self, snapshot, *, range_header=None, if_range=None):
         self.snapshot = snapshot
+        etag = f'"sha256:{snapshot.sha256}"'
+        try:
+            if range_header is not None and not snapshot.supports_ranges:
+                raise HTTPException(
+                    416, "Range is not supported for verified snapshots"
+                )
+            from app.services.original_playback_response import select_range
+
+            try:
+                selected = select_range(
+                    snapshot.size, etag, range_header=range_header, if_range=if_range
+                )
+            except HTTPException as exc:
+                raise HTTPException(
+                    exc.status_code,
+                    detail={
+                        "code": "content_range_unsatisfiable"
+                        if exc.status_code == 416
+                        else "content_range_invalid"
+                    },
+                    headers=exc.headers,
+                ) from None
+            # Playback may ignore a valid multipart request. Image snapshots
+            # deliberately expose only a single interval, including on retries.
+            if (
+                range_header is not None
+                and (if_range is None or if_range == etag)
+                and range_header.partition("=")[0].strip().lower() == "bytes"
+                and "," in range_header.partition("=")[2]
+            ):
+                raise HTTPException(
+                    416,
+                    detail={"code": "content_range_multiple_unsupported"},
+                    headers={"Content-Range": f"bytes */{snapshot.size}"},
+                )
+        except BaseException:
+            snapshot.close()
+            raise
 
         async def chunks():
-            while chunk := await run_in_threadpool(snapshot.file.read, CHUNK_BYTES):
+            await self._io(snapshot.file.seek, selected.start)
+            remaining = selected.length
+            while remaining:
+                chunk = await self._io(snapshot.file.read, min(CHUNK_BYTES, remaining))
+                if not chunk:
+                    raise ContentError("content_snapshot_truncated")
+                remaining -= len(chunk)
                 yield chunk
 
-        super().__init__(
-            chunks(),
-            media_type=snapshot.media_type,
-            headers={
-                "Cache-Control": "no-store",
-                "X-Content-Type-Options": "nosniff",
-                "Content-Length": str(snapshot.size),
-                "ETag": f'"sha256:{snapshot.sha256}"',
-                "X-Content-SHA256": snapshot.sha256,
-                "Accept-Ranges": "none",
-            },
+        headers = {
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Length": str(selected.length),
+            "ETag": etag,
+            "X-Content-SHA256": snapshot.sha256,
+            "Accept-Ranges": "bytes" if snapshot.supports_ranges else "none",
+        }
+        if selected.content_range is not None:
+            headers["Content-Range"] = selected.content_range
+        try:
+            super().__init__(
+                chunks(),
+                status_code=selected.status_code,
+                media_type=snapshot.media_type,
+                headers=headers,
+            )
+        except BaseException:
+            snapshot.close()
+            raise
+
+    async def _io(self, call, *args):
+        context = contextvars.copy_context()
+        pending = asyncio.get_running_loop().run_in_executor(
+            None, context.run, partial(call, *args)
         )
+        try:
+            return await asyncio.shield(pending)
+        except asyncio.CancelledError:
+            from app.services.original_binary_response import _drain
+
+            await _drain(pending)
+            raise
 
     async def __call__(self, scope, receive, send):
         try:
-            async with asyncio.timeout(30):
+            async with asyncio.timeout(RESPONSE_SECONDS):
                 await super().__call__(scope, receive, send)
         finally:
             self.snapshot.close()
