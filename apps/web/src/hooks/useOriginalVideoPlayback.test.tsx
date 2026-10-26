@@ -51,6 +51,9 @@ function lease(expiresAt = Date.now() + 300_000): OriginalVideoLease {
     release: vi.fn(async () => {
       events.push(`release:${id}`);
     }),
+    retireOnUnload: vi.fn(() => {
+      events.push(`retire:${id}`);
+    }),
   };
 }
 function deferred<T>() {
@@ -572,6 +575,33 @@ it("resets the automatic recovery budget only after the current native source is
     expect(result.current.status).toBe("ready");
   }
   expect(prepareOriginalVideo).toHaveBeenCalledTimes(5);
+});
+it("retires the held lease through the unload path only when the document really leaves", async () => {
+  const current = lease();
+  vi.mocked(prepareOriginalVideo).mockResolvedValueOnce(current);
+  const { result } = mounted(null);
+  await flush();
+  expect(result.current.mediaPath).toBe(current.mediaPath);
+  act(() =>
+    window.dispatchEvent(
+      Object.assign(new Event("pagehide"), { persisted: true } as PageTransitionEvent),
+    ),
+  );
+  expect(current.retireOnUnload).not.toHaveBeenCalled();
+  act(() =>
+    window.dispatchEvent(
+      Object.assign(new Event("pagehide"), { persisted: false } as PageTransitionEvent),
+    ),
+  );
+  expect(current.retireOnUnload).toHaveBeenCalledTimes(1);
+  expect(current.release).not.toHaveBeenCalled();
+  // The lease is no longer owned here; a repeated teardown must not retire it twice.
+  act(() =>
+    window.dispatchEvent(
+      Object.assign(new Event("pagehide"), { persisted: false } as PageTransitionEvent),
+    ),
+  );
+  expect(current.retireOnUnload).toHaveBeenCalledTimes(1);
 });
 it("does not detach a node that a later owner has already rebound before cleanup", async () => {
   const native = nativeVideo();

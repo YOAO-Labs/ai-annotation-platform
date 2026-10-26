@@ -78,6 +78,7 @@ it("keeps a confirmed stage through same-session token/cache refresh and retires
       identity,
       owner: captureOriginalOwner()!,
       release,
+      retireOnUnload: vi.fn(),
     }));
   let finishRefresh!: (value: TaskVideoManifestResponse) => void;
   const refreshed = new Promise<TaskVideoManifestResponse>((resolve) => {

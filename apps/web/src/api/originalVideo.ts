@@ -18,7 +18,10 @@ export interface OriginalVideoLease {
   expiresAt: number;
   identity: OriginalIdentity;
   owner: OriginalOwner;
+  /** Idempotent in-page retirement; failures leave lease expiry as the final owner. */
   release(): Promise<void>;
+  /** Best-effort retirement when the document leaves, where nothing can be awaited. */
+  retireOnUnload(): void;
 }
 interface PrepareOptions {
   owner?: OriginalOwner;
@@ -95,41 +98,74 @@ function delay(signal: AbortSignal | undefined, milliseconds: number): Promise<v
   });
 }
 
+/**
+ * In-page retirement. Chromium reports a completed `fetch()` whose response has
+ * no body as `net::ERR_ABORTED` (crbug.com/371021302), so the API's 204 lease
+ * release would look like a cancelled request to fail-closed observers. XHR
+ * sends the same DELETE, credentials and cookie clearing without that false
+ * abort; the browser bounds it with `timeout`.
+ */
+function retireLease(url: string, token: string, body: string): Promise<void> {
+  return new Promise<void>((resolve) => {
+    try {
+      const request = new XMLHttpRequest();
+      request.open("DELETE", url);
+      request.setRequestHeader("Content-Type", "application/json");
+      request.setRequestHeader("Authorization", `Bearer ${token}`);
+      request.timeout = 5_000;
+      request.onloadend = () => resolve();
+      request.send(body);
+    } catch {
+      // A revoked JWT, restart or offline browser leaves expiry as the final cleanup owner.
+      resolve();
+    }
+  });
+}
+
+/**
+ * The document is leaving: only a keepalive request outlives it, and nothing can
+ * await the answer. A revoked JWT, restart or offline browser still leaves lease
+ * expiry as the final cleanup owner.
+ */
+function retireLeaseOnUnload(url: string, token: string, body: string): void {
+  try {
+    void fetch(url, {
+      method: "DELETE",
+      keepalive: true,
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body,
+      credentials: "same-origin",
+      redirect: "error",
+      cache: "no-store",
+    }).catch(() => undefined);
+  } catch {
+    // Nothing can be delivered from a document that is already gone.
+  }
+}
+
+interface Releaser {
+  release(): Promise<void>;
+  retireOnUnload(): void;
+}
+
 /** Cleanup uses the credentials that created this lease, without global auth side effects. */
-function releaser(path: string, id: string, token: string, sessionId: string): () => Promise<void> {
+function releaser(path: string, id: string, token: string, sessionId: string): Releaser {
+  const url = `/api/v1${path}-playback/${id}`;
+  const body = JSON.stringify({ session_id: sessionId });
   let pending: Promise<void> | undefined;
-  return () => {
-    pending ??= (async () => {
-      const controller = new AbortController();
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      try {
-        await Promise.race([
-          fetch(`/api/v1${path}-playback/${id}`, {
-            method: "DELETE",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ session_id: sessionId }),
-            credentials: "same-origin",
-            redirect: "error",
-            cache: "no-store",
-            signal: controller.signal,
-          }).then(
-            () => undefined,
-            () => undefined,
-          ),
-          new Promise<void>((resolve) => {
-            timer = setTimeout(() => {
-              controller.abort();
-              resolve();
-            }, 5000);
-          }),
-        ]);
-      } catch {
-        // A revoked JWT, restart or offline browser leaves expiry as the final cleanup owner.
-      } finally {
-        clearTimeout(timer);
-      }
-    })();
-    return pending;
+  let settled = false;
+  return {
+    release: () => {
+      pending ??= retireLease(url, token, body).finally(() => {
+        settled = true;
+      });
+      return pending;
+    },
+    retireOnUnload: () => {
+      // A settled release already revoked this lease; an in-flight or unstarted
+      // one is re-sent because its document can no longer deliver it.
+      if (!settled) retireLeaseOnUnload(url, token, body);
+    },
   };
 }
 
@@ -174,11 +210,11 @@ export async function prepareOriginalVideo(
       latest = current(owner, options.signal);
     } catch (error) {
       // Never publish a late cookie/path into the next task, account or session.
-      if (release) void release();
+      if (release) void release.release();
       throw error;
     }
     if (latest !== token) {
-      if (release) void release();
+      if (release) void release.release();
       if (tokenRetries++ === 0) continue;
       throw aborted();
     }
@@ -206,7 +242,7 @@ export async function prepareOriginalVideo(
       !Number.isFinite(expiresAt) ||
       expiresAt <= Date.now()
     ) {
-      if (release) void release();
+      if (release) void release.release();
       invalid();
     }
     const state = { released: false, token };
@@ -218,7 +254,11 @@ export async function prepareOriginalVideo(
       owner,
       release: () => {
         state.released = true;
-        return release!();
+        return release!.release();
+      },
+      retireOnUnload: () => {
+        state.released = true;
+        release!.retireOnUnload();
       },
     });
     leases.set(lease, state);

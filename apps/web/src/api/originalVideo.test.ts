@@ -69,9 +69,47 @@ function deferred<T>() {
 const tick = async () => {
   for (let i = 0; i < 20; i++) await Promise.resolve();
 };
+/**
+ * Lease retirement is XHR, not fetch: Chromium reports a completed fetch whose
+ * response has no body as `net::ERR_ABORTED`. The fake keeps every release
+ * observable and completes it like the browser's bodyless 204 would.
+ */
+class FakeXHR {
+  static requests: FakeXHR[] = [];
+  static hold = false;
+  method = "";
+  url = "";
+  headers: Record<string, string> = {};
+  body: string | null = null;
+  timeout = 0;
+  status = 0;
+  onloadend: (() => void) | null = null;
+  private finished = false;
+  open(method: string, url: string) {
+    this.method = method;
+    this.url = url;
+  }
+  setRequestHeader(name: string, value: string) {
+    this.headers[name] = value;
+  }
+  send(body?: string | null) {
+    this.body = body ?? null;
+    FakeXHR.requests.push(this);
+    if (!FakeXHR.hold) queueMicrotask(() => this.finish(204));
+  }
+  finish(status: number) {
+    if (this.finished) return;
+    this.finished = true;
+    this.status = status;
+    this.onloadend?.();
+  }
+}
 beforeEach(() => {
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
+  FakeXHR.requests = [];
+  FakeXHR.hold = false;
+  vi.stubGlobal("XMLHttpRequest", FakeXHR);
   useAuthStore.getState().setAuth("private-token", { id: "alice" } as MeResponse);
 });
 afterEach(() => {
@@ -125,9 +163,7 @@ it("describes then prepares with current credentials; native HEAD has only the p
 
 it("supports the exact dataset item route with a supplied, equivalently verified identity", async () => {
   const itemPath = `/api/v1/datasets/${datasetId}/items/${itemId}/original`;
-  fetchMock
-    .mockResolvedValueOnce(prepared())
-    .mockResolvedValueOnce(new Response(null, { status: 204 }));
+  fetchMock.mockResolvedValueOnce(prepared());
   const lease = await prepareOriginalVideo(
     { kind: "item", datasetId, itemId },
     {
@@ -135,10 +171,13 @@ it("supports the exact dataset item route with a supplied, equivalently verified
     },
   );
   await Promise.all([lease.release(), lease.release()]);
-  expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
-    `${itemPath}-playback`,
-    `${itemPath}-playback/${leaseId}`,
-  ]);
+  expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([`${itemPath}-playback`]);
+  expect(FakeXHR.requests).toHaveLength(1);
+  expect(FakeXHR.requests[0]).toMatchObject({
+    method: "DELETE",
+    url: `${itemPath}-playback/${leaseId}`,
+    headers: { "Content-Type": "application/json", Authorization: "Bearer private-token" },
+  });
 });
 
 it.each([
@@ -198,38 +237,33 @@ it.each([
   mediaPath.replace(leaseId, contentId),
   mediaPath.replace("/media/", "/%6dedia/"),
 ])("never publishes or probes an arbitrary native path: %s", async (value) => {
-  fetchMock
-    .mockResolvedValueOnce(prepared({ media_path: value }))
-    .mockResolvedValueOnce(new Response(null, { status: 204 }));
+  fetchMock.mockResolvedValueOnce(prepared({ media_path: value }));
   await expect(prepareOriginalVideo(resource, { identity: identity() })).rejects.toMatchObject({
     status: 409,
   });
   await tick();
-  expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
-    `${path}-playback`,
-    `${path}-playback/${leaseId}`,
-  ]);
+  expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([`${path}-playback`]);
+  expect(FakeXHR.requests.map((request) => request.url)).toEqual([`${path}-playback/${leaseId}`]);
 });
 it.each(["invalid", new Date(0).toISOString()])(
   "rejects and retires invalid/expired response deadlines: %s",
   async (expires_at) => {
-    fetchMock
-      .mockResolvedValueOnce(prepared({ expires_at }))
-      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    fetchMock.mockResolvedValueOnce(prepared({ expires_at }));
     await expect(prepareOriginalVideo(resource, { identity: identity() })).rejects.toMatchObject({
       status: 409,
     });
     await tick();
-    expect(fetchMock.mock.calls[1][1].method).toBe("DELETE");
+    expect(FakeXHR.requests[0]).toMatchObject({
+      method: "DELETE",
+      url: `${path}-playback/${leaseId}`,
+    });
   },
 );
 it.each(["account", "session", "abort"])(
   "retires a late prepared lease after %s instead of publishing it",
   async (change) => {
     const pendingResponse = deferred<Response>();
-    fetchMock
-      .mockReturnValueOnce(pendingResponse.promise)
-      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    fetchMock.mockReturnValueOnce(pendingResponse.promise);
     const controller = new AbortController();
     const pending = prepareOriginalVideo(resource, {
       identity: identity(),
@@ -242,20 +276,19 @@ it.each(["account", "session", "abort"])(
     pendingResponse.resolve(prepared());
     expect(await pending).toMatchObject({ name: "AbortError" });
     await tick();
-    expect(fetchMock.mock.calls[1]).toEqual([
-      `${path}-playback/${leaseId}`,
-      expect.objectContaining({
-        method: "DELETE",
-        headers: expect.objectContaining({ Authorization: "Bearer private-token" }),
-      }),
-    ]);
+    expect(FakeXHR.requests).toHaveLength(1);
+    expect(FakeXHR.requests[0]).toMatchObject({
+      method: "DELETE",
+      url: `${path}-playback/${leaseId}`,
+      body: expect.stringContaining("session_id"),
+      headers: expect.objectContaining({ Authorization: "Bearer private-token" }),
+    });
   },
 );
 it("retires an old-token success and retries once with refreshed credentials", async () => {
   const pendingResponse = deferred<Response>();
   fetchMock
     .mockReturnValueOnce(pendingResponse.promise)
-    .mockResolvedValueOnce(new Response(null, { status: 204 }))
     .mockResolvedValueOnce(
       prepared({ lease_id: contentId, media_path: mediaPath.replace(leaseId, contentId) }),
     );
@@ -266,8 +299,10 @@ it("retires an old-token success and retries once with refreshed credentials", a
   expect(lease.leaseId).toBe(contentId);
   expect(fetchMock.mock.calls.map((call) => call[1].headers.Authorization)).toEqual([
     "Bearer private-token",
-    "Bearer private-token",
     "Bearer new-token",
+  ]);
+  expect(FakeXHR.requests.map((request) => request.headers.Authorization)).toEqual([
+    "Bearer private-token",
   ]);
 });
 it("retries an old-token rejection without logging out the renewed session", async () => {
@@ -282,11 +317,7 @@ it("retries an old-token rejection without logging out the renewed session", asy
 it("caps repeated credential rotation and retires both successful old leases", async () => {
   const first = deferred<Response>();
   const second = deferred<Response>();
-  fetchMock
-    .mockReturnValueOnce(first.promise)
-    .mockResolvedValueOnce(head(204))
-    .mockReturnValueOnce(second.promise)
-    .mockResolvedValueOnce(head(204));
+  fetchMock.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
   const pending = prepareOriginalVideo(resource, { identity: identity() }).catch(
     (error: unknown) => error,
   );
@@ -297,23 +328,40 @@ it("caps repeated credential rotation and retires both successful old leases", a
   second.resolve(prepared());
   expect(await pending).toMatchObject({ name: "AbortError" });
   expect(fetchMock.mock.calls.filter((call) => call[1].method === "POST")).toHaveLength(2);
-  expect(fetchMock.mock.calls.filter((call) => call[1].method === "DELETE")).toHaveLength(2);
+  expect(FakeXHR.requests).toHaveLength(2);
 });
-it("release is idempotent, bounded and an old 401 cannot log out a new account", async () => {
-  vi.useFakeTimers();
+it("release is idempotent, bounded and leaves renewed account credentials alone", async () => {
+  fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
   fetchMock.mockResolvedValueOnce(prepared());
   const lease = await prepareOriginalVideo(resource, { identity: identity() });
   useAuthStore.getState().setAuth("bob-token", { id: "bob" } as MeResponse);
-  const response = deferred<Response>();
-  fetchMock.mockReturnValueOnce(response.promise);
+  FakeXHR.hold = true;
   const release = lease.release();
   expect(lease.release()).toBe(release);
-  await vi.advanceTimersByTimeAsync(5000);
+  expect(FakeXHR.requests).toHaveLength(1);
+  expect(FakeXHR.requests[0]).toMatchObject({
+    method: "DELETE",
+    url: `${path}-playback/${leaseId}`,
+    timeout: 5_000,
+    body: JSON.stringify({ session_id: lease.owner.sessionId }),
+    headers: { "Content-Type": "application/json", Authorization: "Bearer private-token" },
+  });
+  // Document teardown before the in-page request settles re-delivers it keepalive.
+  lease.retireOnUnload();
+  expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+    `${path}-playback`,
+    `${path}-playback/${leaseId}`,
+  ]);
+  expect(fetchMock.mock.calls[1][1]).toMatchObject({
+    method: "DELETE",
+    keepalive: true,
+    headers: expect.objectContaining({ Authorization: "Bearer private-token" }),
+  });
+  FakeXHR.requests[0].finish(401);
   await release;
-  expect(fetchMock.mock.calls[1][1].signal.aborted).toBe(true);
-  response.resolve(json({ detail: "expired" }, 401));
-  await tick();
   expect(useAuthStore.getState().token).toBe("bob-token");
+  // A settled release already revoked this lease; teardown must not repeat it.
+  lease.retireOnUnload();
   expect(fetchMock).toHaveBeenCalledTimes(2);
 });
 it.each([

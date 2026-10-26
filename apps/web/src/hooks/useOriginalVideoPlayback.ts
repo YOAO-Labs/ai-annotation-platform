@@ -55,6 +55,10 @@ class VideoSession {
   snapshot: Snapshot = idle;
   video: HTMLVideoElement | null = null;
   private lease: OriginalVideoLease | null = null;
+  /** Leases handed to retirement whose in-page request has not settled yet. */
+  private retiring = new Set<OriginalVideoLease>();
+  /** The document is leaving; only keepalive retirement can still be delivered. */
+  private closing = false;
   private disposed = false;
   private operation: Promise<void> | null = null;
   private probe: Promise<void> | null = null;
@@ -82,6 +86,7 @@ class VideoSession {
     this.unsubscribe = useAuthStore.subscribe(this.checkOwner);
     window.addEventListener("storage", this.onStorage);
     window.addEventListener("focus", this.foreground);
+    window.addEventListener("pagehide", this.onPageHide);
     document.addEventListener("visibilitychange", this.foreground);
   }
   private alive(): boolean {
@@ -122,8 +127,29 @@ class VideoSession {
     detach(this.video, lease.mediaPath);
     this.lease = null;
     this.clearTimers();
-    void lease.release();
+    if (this.closing) {
+      lease.retireOnUnload();
+      return;
+    }
+    this.retiring.add(lease);
+    void lease.release().finally(() => this.retiring.delete(lease));
   }
+  /**
+   * A document that is really leaving never unmounts React, so this is the only
+   * owner that can hand the lease back before the server stage is exhausted.
+   * Back/forward-cache entries keep their lease because the page can resume.
+   */
+  private onPageHide = (event: PageTransitionEvent): void => {
+    if (event.persisted) return;
+    this.closing = true;
+    this.request?.abort();
+    this.probeRequest?.abort();
+    const leases = this.lease ? [...this.retiring, this.lease] : [...this.retiring];
+    this.lease = null;
+    this.retiring.clear();
+    this.clearTimers();
+    for (const lease of leases) lease.retireOnUnload();
+  };
   private fail(error: unknown): void {
     this.releaseCurrent();
     this.update({ mediaPath: undefined, status: "error", error: message(error) });
@@ -187,7 +213,10 @@ class VideoSession {
         this.update({ mediaPath: this.lease.mediaPath, status: "ready", error: null });
         this.schedule(this.lease, previousExpiry);
       } catch (error) {
-        if (candidate) void candidate.release();
+        if (candidate) {
+          if (this.closing) candidate.retireOnUnload();
+          else void candidate.release();
+        }
         if (!controller.signal.aborted && this.alive()) this.fail(error);
       } finally {
         if (this.request === controller) {
@@ -316,6 +345,7 @@ class VideoSession {
     this.unsubscribe();
     window.removeEventListener("storage", this.onStorage);
     window.removeEventListener("focus", this.foreground);
+    window.removeEventListener("pagehide", this.onPageHide);
     document.removeEventListener("visibilitychange", this.foreground);
     liveSessions.delete(this);
   }
