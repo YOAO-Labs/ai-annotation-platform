@@ -1,69 +1,166 @@
 """Controlled routing never selects another physical model instance."""
 
+import os
+import socket
 import uuid
 
 import pytest
+import pytest_asyncio
 from fastapi import HTTPException
+from sqlalchemy import func, select
 
+from aap_inference.pipeline_server import PipelineHttpServer
+from aap_inference.routing_runtime import RoutingRuntime
 from aap_inference_contract.execution import ModelTaskResult
+from app.config import settings
+from app.db.models.ml_backend_pool import MLBackendPoolMember
 from app.services import trained_models
 from app.services.ml_routing.contracts import RejectionReason, RouterMode
 from app.services.ml_routing.router import MLBackendRouter
 from app.services.trained_model_reference_contract import FreezeModelReferenceError
 from tests.factory import create_project
-from tests.test_ml_routing_router import _seed_pool_with_two_members
+from tests.test_ml_routing_router import (  # noqa: F401
+    committed_routes as committed_routes_fixture,
+)
+
+
+@pytest_asyncio.fixture
+async def routing_owner(committed_routes_fixture, monkeypatch):
+    """Expose the real durable routing owner for the committed test world.
+
+    The imported committed-routes fixture seeds a committed pool/project world and
+    cleans it up; the owner runs in-process on the restricted routing login and
+    reads that committed topology over its own connections, so no savepoint state
+    is assumed.
+    """
+    dsn = os.environ.get("AAP_MODULE_DATA_INFERENCE_ROUTING_URL")
+    if not dsn:
+        pytest.skip(
+            "requires AAP_MODULE_DATA_INFERENCE_ROUTING_URL from the verified "
+            "disposable module-data environment"
+        )
+    runtime = RoutingRuntime(dsn)
+    assert await runtime.readiness()
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+    token = uuid.uuid4().hex
+    server = PipelineHttpServer(
+        manager=None,
+        data=None,
+        control_token=None,
+        host="127.0.0.1",
+        port=port,
+        routing_manager=runtime.manager,
+        routing_control_token=token,
+    )
+    await server.start()
+    monkeypatch.setattr(settings, "inference_routing_url", f"http://127.0.0.1:{port}")
+    monkeypatch.setattr(settings, "inference_routing_token", token)
+    monkeypatch.setattr(settings, "inference_routing_token_file", "")
+    try:
+        yield committed_routes_fixture
+    finally:
+        await server.close()
+        await runtime.close()
 
 
 @pytest.mark.parametrize(
     "mode", [RouterMode.OFF, RouterMode.OBSERVE, RouterMode.ENFORCE]
 )
 async def test_exact_target_is_never_replaced_by_another_pool_member(
-    db_session, super_admin, mode
+    routing_owner, mode
 ):
-    user, _ = super_admin
-    project = await create_project(db_session, owner_id=user.id)
-    pool, legacy, target = await _seed_pool_with_two_members(db_session, project.id)
+    db_session, project, pool, legacy, target = routing_owner
+    assert legacy.id != target.id
+    # A real in-flight durable scope on the exact target fills its declared
+    # backend concurrency; the sibling member stays entirely unused.
+    target.extra_params = {"max_concurrency": 1}
+    await db_session.commit()
 
-    class SaturatedLedger:
-        seen = []
-
-        async def circuit_open_instances(self, _pool):
-            return set()
-
-        async def acquire(self, _pool, _generation, candidates, **_kwargs):
-            self.seen = [candidate.instance_id for candidate in candidates]
-            return None, RejectionReason.POOL_SATURATED
-
-    ledger = SaturatedLedger()
-    router = MLBackendRouter(db_session, ledger=ledger, mode=mode)
-    selection = await router.acquire(
+    enforcing = MLBackendRouter(db_session, ledger=None, mode=RouterMode.ENFORCE)
+    in_flight = await enforcing.acquire(
         pool.id,
-        owner="test",
+        owner="test:in-flight",
         operation="predict",
         project_id=project.id,
         required_instance_id=target.id,
     )
-    assert selection.instance_id is None
-    if mode == RouterMode.ENFORCE:
-        assert ledger.seen == [target.id]
-        assert selection.rejection == RejectionReason.POOL_SATURATED
-    else:
-        assert selection.rejection == RejectionReason.POOL_UNAVAILABLE
-    assert legacy.id != target.id
+    assert in_flight.rejection is None
+    assert in_flight.instance_id == target.id
+    assert in_flight.lease.scope.pool_id == pool.id
+    assert in_flight.lease.scope.registry_id == target.id
+    assert in_flight.lease.scope.mode == RouterMode.ENFORCE.value
+    assert in_flight.lease.scope.state == "reserved"
+    try:
+        router = MLBackendRouter(db_session, ledger=None, mode=mode)
+        selection = await router.acquire(
+            pool.id,
+            owner="test",
+            operation="predict",
+            project_id=project.id,
+            required_instance_id=target.id,
+        )
+        assert selection.lease is None
+        assert selection.instance_id is None
+        if mode == RouterMode.ENFORCE:
+            # Saturation is physical: the exact target is rejected, never swapped
+            # for the free sibling.
+            assert selection.rejection == RejectionReason.POOL_SATURATED
+        else:
+            # off/observe admission only ever names the legacy member; an exact
+            # target elsewhere must reject rather than dispatch to that legacy.
+            assert selection.rejection == RejectionReason.POOL_UNAVAILABLE
+        # The other physical member is independently free: rejection above is
+        # exact-instance admission, not whole-pool exhaustion.
+        sibling = await enforcing.acquire(
+            pool.id,
+            owner="test:sibling",
+            operation="predict",
+            project_id=project.id,
+            required_instance_id=legacy.id,
+        )
+        assert sibling.rejection is None
+        assert sibling.instance_id == legacy.id
+        assert await enforcing.cancel(sibling.lease)
+    finally:
+        assert await enforcing.cancel(in_flight.lease)
 
 
 @pytest.mark.parametrize("mode", [RouterMode.OFF, RouterMode.OBSERVE])
 async def test_target_filter_does_not_create_a_fake_singleton_fingerprint_exemption(
-    db_session, super_admin, mode
+    routing_owner, mode
 ):
-    user, _ = super_admin
-    project = await create_project(db_session, owner_id=user.id)
-    pool, legacy, _ = await _seed_pool_with_two_members(db_session, project.id)
-    pool.capability_fingerprint = None
-    await db_session.flush()
+    db_session, project, pool, legacy, sibling = routing_owner
+    assert legacy.id != sibling.id
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(MLBackendPoolMember)
+            .where(
+                MLBackendPoolMember.pool_id == pool.id,
+                MLBackendPoolMember.traffic_state == "active",
+            )
+        )
+        == 2
+    )
     router = MLBackendRouter(db_session, ledger=None, mode=mode)
-    candidates = await router._build_candidates(pool, required_instance_id=legacy.id)
-    assert len(candidates) == 1 and candidates[0].fingerprint_ok is False
+    matched = await router.acquire(
+        pool.id,
+        owner="test",
+        operation="predict",
+        project_id=project.id,
+        required_instance_id=legacy.id,
+    )
+    assert matched.rejection is None
+    assert matched.instance_id == legacy.id
+    assert matched.lease.scope.registry_id == legacy.id
+    assert await router.cancel(matched.lease)
+
+    # Two active members with no pool fingerprint must stay closed even when the
+    # target filter narrows the candidate view to one (no fabricated singleton).
+    pool.capability_fingerprint = None
+    await db_session.commit()
     selection = await router.acquire(
         pool.id,
         owner="test",
@@ -71,10 +168,9 @@ async def test_target_filter_does_not_create_a_fake_singleton_fingerprint_exempt
         project_id=project.id,
         required_instance_id=legacy.id,
     )
-    assert (
-        selection.instance_id is None
-        and selection.rejection == RejectionReason.POOL_UNAVAILABLE
-    )
+    assert selection.lease is None
+    assert selection.instance_id is None
+    assert selection.rejection == RejectionReason.POOL_UNAVAILABLE
 
 
 async def test_controlled_route_rejects_unpooled_registry(db_session, super_admin):
