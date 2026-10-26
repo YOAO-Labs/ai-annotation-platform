@@ -328,7 +328,8 @@ class HTTP:
         with response:
             body = response.read(MAX_RESPONSE + 1)
             require(len(body) <= MAX_RESPONSE, "http_output_budget")
-            if response.status != expected:
+            allowed = {expected} if type(expected) is int else set(expected)
+            if response.status not in allowed:
                 code = "unexpected_http_status:" + str(response.status)
                 try:
                     detail = json.loads(body).get("detail")
@@ -339,7 +340,9 @@ class HTTP:
                 except (ValueError, AttributeError):
                     pass
                 raise ValueError(code)
-            return (body, response.headers) if binary else json.loads(body)
+            if binary:
+                return body, response.headers
+            return json.loads(body) if body else None
 
 
 async def seed(database, output):
@@ -398,7 +401,7 @@ def wait_until(call, predicate, *, seconds=90):
     raise ValueError("observation_timeout")
 
 
-def verify(owner, image, *, scenario="basic"):
+def verify(owner, image, *, scenario="basic", ui_hold_seconds=0):
     from PIL import Image
     from worktree_env import load_identity, topology
 
@@ -424,9 +427,18 @@ def verify(owner, image, *, scenario="basic"):
         json.loads(run(["docker", "image", "inspect", image]).stdout)[0]["Id"] == image,
         "cached_image_required",
     )
-    require(scenario in {"basic", "recovery"}, "unknown_site_agent_scenario")
+    require(
+        scenario in {"basic", "recovery", "replicas"}, "unknown_site_agent_scenario"
+    )
+    require(
+        type(ui_hold_seconds) is int and 0 <= ui_hold_seconds <= 300,
+        "ui_hold_out_of_bounds",
+    )
+    require(not ui_hold_seconds or scenario == "replicas", "ui_hold_requires_replicas")
     summary = {
-        "scope": "one isolated Linux site",
+        "scope": "two isolated Linux sites"
+        if scenario == "replicas"
+        else "one isolated Linux site",
         "scenario": scenario,
         "steps": [],
         "e06_complete": False,
@@ -439,8 +451,16 @@ def verify(owner, image, *, scenario="basic"):
 
     center_net = owner.create("network", "center-net")
     site_net = owner.create("network", "site-net")
+    replica_net = (
+        owner.create("network", "replica-net") if scenario == "replicas" else None
+    )
     center_gateway = owner.inspect(center_net)["IPAM"]["Config"][0]["Gateway"]
     site_gateway = owner.inspect(site_net)["IPAM"]["Config"][0]["Gateway"]
+    replica_gateway = (
+        owner.inspect(replica_net)["IPAM"]["Config"][0]["Gateway"]
+        if replica_net
+        else None
+    )
     center_dir, site_dir, source = [
         owner.state / name for name in ("center", "site", "source")
     ]
@@ -457,7 +477,10 @@ def verify(owner, image, *, scenario="basic"):
         picture.save(output, format="PNG")
         files[name] = output.getvalue()
         (source / "mounted/dataset" / name).write_bytes(files[name])
-    certificate(center_dir, ["127.0.0.1", site_gateway])
+    certificate(
+        center_dir,
+        ["127.0.0.1", site_gateway, *([replica_gateway] if replica_gateway else [])],
+    )
     shutil.copyfile(center_dir / "ca.pem", site_dir / "ca.pem")
     redis_url = parse.urlsplit(os.environ["REDIS_URL"])
     relay = redis_relay(center_gateway, (redis_url.hostname, redis_url.port))
@@ -531,6 +554,11 @@ def verify(owner, image, *, scenario="basic"):
                 f"127.0.0.1:{port}:8443",
                 "--publish",
                 f"{site_gateway}:{port}:8443",
+                *(
+                    ["--publish", f"{replica_gateway}:{port}:8443"]
+                    if replica_gateway
+                    else []
+                ),
             ],
             command=[
                 "-m",
@@ -805,6 +833,32 @@ def verify(owner, image, *, scenario="basic"):
             "remote_registration_failed",
         )
         record("explicit_registration_without_original_copy", registration["counts"])
+        if scenario == "replicas":
+            from site_agent_replicas import Replicas
+
+            Replicas(
+                owner=owner,
+                http=http,
+                image=image,
+                center=center,
+                worker=worker,
+                agent=agent,
+                network=site_net,
+                replica_network=replica_net,
+                replica_gateway=replica_gateway,
+                port=port,
+                site_dir=site_dir,
+                source_root=source,
+                dataset=dataset,
+                source=source_row,
+                location=location,
+                files=files,
+                node=node,
+                record=record,
+            ).run(ui_hold_seconds=ui_hold_seconds)
+            summary["passed"] = True
+            private_json(owner.state / "summary.json", summary)
+            return summary
         if scenario == "recovery":
             from site_agent_recovery import Recovery
 
@@ -921,7 +975,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state", type=Path)
     parser.add_argument("--runtime-image")
-    parser.add_argument("--scenario", choices=("basic", "recovery"), default="basic")
+    parser.add_argument(
+        "--scenario", choices=("basic", "recovery", "replicas"), default="basic"
+    )
+    parser.add_argument("--ui-hold-seconds", type=int, default=0)
     parser.add_argument("--cleanup", action="store_true")
     parser.add_argument("--seed")
     parser.add_argument("--seed-output", type=Path)
@@ -937,7 +994,12 @@ def main():
         owner.cleanup()
         return 0
     try:
-        verify(owner, args.runtime_image, scenario=args.scenario)
+        verify(
+            owner,
+            args.runtime_image,
+            scenario=args.scenario,
+            ui_hold_seconds=args.ui_hold_seconds,
+        )
     except BaseException as exc:
         for item in owner.value["resources"]:
             if (
