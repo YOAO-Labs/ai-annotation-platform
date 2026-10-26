@@ -705,6 +705,13 @@ async def _freeze_selection(
         issues.append(
             {"code": "dataset_size_limit", "message": "训练数据总量超过 20 GiB"}
         )
+    reference_members = {sample["task_id"]: sample for sample in references}
+    for issue in issues:
+        if member := reference_members.get(issue.get("task_id")):
+            issue.update(
+                dataset_id=member["dataset_id"],
+                dataset_item_id=member["dataset_item_id"],
+            )
     snapshot = {
         **contract,
         "managed_original_contract": 1,

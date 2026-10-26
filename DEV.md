@@ -915,8 +915,8 @@ PYTHONPATH=. uv run python scripts/seed.py --profile online-training
 
 独立组件位于 `apps/storage-agent`，标准库共享包位于 `apps/_shared/filesystem_read` 与 `apps/_shared/site_agent_contract`。配置和测试命令见 [Agent README](apps/storage-agent/README.md)，中心配对、传输及扫描／预检登记／原图快照已经接通。超级管理员入口为 `/storage?tab=agents`，Agent 图片支持完整核验后的单区间 Range。API 虚拟环境新增两个锁定本地包；开发环境应用迁移并刷新 API 重载父进程及受影响 Worker，继续使用现有工作树归属服务与端口，无需重建现有后端镜像。
 
-`scripts/verify_site_agent.py` 必须通过 `dev:worktree exec --mode test` 运行，传入私有绝对 `--state` 路径和本机已缓存的不可变 `--runtime-image sha256:...`。它复用镜像，创建带独立所有权的中心／站点网络、HTTPS API、Worker 和 Agent；来源只挂载给 Agent，演练结束删除这些容器和网络。异常中止时可用同一 state 执行 `--cleanup`；测试数据库、Redis 和九桶仍由 launcher 管理，结束后按 doctor 的 test 确认值销毁。不得以 dev 模式执行或复用人工验收资源。有限副本路由和完整双站点验收仍在实施。
+`scripts/verify_site_agent.py` 必须通过 `dev:worktree exec --mode test` 运行，传入私有绝对 `--state` 路径和本机已缓存的不可变 `--runtime-image sha256:...`。它复用镜像，创建带独立所有权的中心／站点网络、HTTPS API、Worker 和 Agent；来源只挂载给 Agent，演练结束删除这些容器和网络。异常中止时可用同一 state 执行 `--cleanup`；测试数据库、Redis 和九桶仍由 launcher 管理，结束后按 doctor 的 test 确认值销毁。不得以 dev 模式执行或复用人工验收资源。显式副本由`--scenario replicas`验证两个独立站点、A实际离线后的B读取、权限及坏副本拒收。可选`--ui-hold-seconds`仅用于有界的所有权绑定UI交接，范围0–300秒。
 
-E06 的 `verify_site_agent.py --scenario recovery` 在同一自有拓扑中以中心较低带宽限制执行原图上传中断／重启、丢领取响应至原期限失效、扫描断网恢复和撤销检查；只观察数据库，不写造租约或回执。`basic` 保持单站点扫描登记和完整／Range 合同。两种场景都只用 launcher 的一次性 test 资源。
+E06 的 `verify_site_agent.py --scenario recovery` 在同一自有拓扑中以中心较低带宽限制执行原图上传中断／重启、丢领取响应至原期限失效、扫描断网恢复和撤销检查；只观察数据库，不写造租约或回执。`basic` 保持单站点扫描登记和完整／Range 合同。三个场景都只用 launcher 的一次性 test 资源。
 
 引用图片备用来源管理使用迁移0267和`dataset-items/{item_id}/reference-replicas`端点；对应管理UI位于样本检查器的默认折叠区。`test_dataset_reference_replicas.py`覆盖定向授权、同内容候选、完整读取、撤销、缓存策略和冻结身份；真实双Agent验证沿`verify_site_agent.py`的自有隔离拓扑执行，不重建后端镜像。

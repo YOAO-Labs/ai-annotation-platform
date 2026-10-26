@@ -10,6 +10,8 @@ last_reviewed: 2026-10-24
 
 原地引用图片使用相同项目版本 API。含引用的预检 `summary` 增加 `reference_samples` 与 `original_copy_bytes`（所选原图预计新增持久字节）；读取异常写入逐任务 `issues` 并令 `ready=false`。新 snapshot/manifest 以 `asset_source_contract.schema=1` 和样本 `asset_reference.schema=1` 固定业务 Asset/SHA；不改变几何合同、历史字节或现有 ZIP 消费。Worker 必须具备自身节点的读取 anchor，源变化返回明确构建错误，未就绪版本无法下载。
 
+已选中且当前获授权的引用成员，其预检问题还包含可选的`dataset_id`和`dataset_item_id`，供管理界面进入对应样本检查器准备原图。字段只定位本次成员，不含物理路径或备用来源枚举；进入后仍按当前权限核验、关联副本或查看存储位置。旧问题或无法定位的成员可以没有这两个字段；处理后必须重新预检，不能直接使用原失败报告创建版本。
+
 基路径为 `/api/v1/projects/{project_id}/training-datasets`。所有操作要求项目负责人或超级管理员；API Key 还需 `annotations:read` 与 `datasets:read`，删除和历史存储归属核验另需 `datasets:write`。
 
 | 方法   | 路径后缀                    | 行为                                                 |

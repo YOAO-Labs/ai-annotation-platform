@@ -122,7 +122,7 @@ U01–U09 保留来源材料的需求编号；本轮仅将整套规划转为项�
 | E03  | [已有目录原地注册](../archive/1792661016_dataset-in-place-directory-registration.md) | 图片不先复制即可登记并进入标注流程           | M1 主链路                                |
 | E04  | [增量同步与任务编排](../archive/1792661016_dataset-incremental-sync-jobs.md)         | 可恢复扫描、差异处理、按文件重试             | M1 手动与幂等；M2 自动化                 |
 | E05  | [统一文件访问与缓存](../archive/1792661016_dataset-asset-access-cache.md)            | 原图/预览状态分离，统一鉴权和内容校验        | M1 读取；M2 缓存优化                     |
-| E06  | [多端与站点 Agent](../1792661016_dataset-multi-site-agent.md)                        | 不可直连网络中的就地扫描与受控读流           | M3，按真实部署需要启动                   |
+| E06  | [多端与站点 Agent](../archive/1792661016_dataset-multi-site-agent.md)                | 不可直连网络中的就地扫描与受控读流           | 完整验收归档；双隔离站点实际读取已验证   |
 | E07  | [S3 选型与 MinIO 迁移](../1792661016_dataset-s3-selection-migration.md)              | 兼容性证据、可校验迁移与可执行回滚           | M0 试验；M2 切换                         |
 | E08  | [数据集工作台与质量](../archive/1792661016_dataset-workbench-quality.md)             | 独立详情、筛选、保存视图、样本质量与业务关系 | 完整 E08 已归档；条件后续按原计划触发    |
 | E09  | [存储控制台与界面去重](../archive/1792661016_dataset-storage-console-boundaries.md)  | 存储唯一入口、正确指标、跨页上下文衔接       | M1 去重；M2 运维视图                     |

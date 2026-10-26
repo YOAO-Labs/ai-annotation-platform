@@ -1,8 +1,8 @@
 # EPIC-06：多端部署、站点 Agent 与就近读取
 
-> 状态：approved / implementing；依据用户持续推进整套 Epic 及先推进当前环境可实施部分的授权；不分配发布版本。
+> 状态：completed / archived；原始六故事、九项AC、具名故障项及六项工程任务已完成验收；不分配发布版本。
 > 晋升日期：2026-10-26；重审基线：`93902bb7b22ff15d6822d74f4a78659207ed6946`，工作树干净。
-> 实施前须通过 [promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
+> 实施前须通过 [promotion gate](../backlog/README.md#promotion-gate)。[草案总览](../backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](../backlog/1792661016_dataset-storage-architecture.md)和[交付验收](../backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
 > 优先级：P2，M3；M1 允许通过只读共享挂载先覆盖可直连服务器。
 > 负责人角色：后端、运维；训练服务、前端协作。
@@ -10,7 +10,7 @@
 
 ## 本项目基线与改造落点
 
-本轮重新核对扫描、登记、权限、内容快照与原图缓存。SFTP 拉取不是站点 Agent；当前没有配对和出站任务，不能宣称 E06 已实现。原 AC01 要求的是隔离测试拓扑，不要求先提供生产站点。已授权本地实施，删除把生产目标解释为工程前置的限制。
+以下保留晋升时的基线记录：当时尚无独立配对和出站任务；SFTP拉取不能替代站点Agent。扫描、登记、权限、内容快照与原图缓存按原owner扩展，实际完成证据见末尾Outcome。原 AC01 要求的是隔离测试拓扑，不要求先提供生产站点。已授权本地实施，删除把生产目标解释为工程前置的限制。
 
 | 当前 owner                                         | 复用边界                                                                              |
 | -------------------------------------------------- | ------------------------------------------------------------------------------------- |
@@ -24,7 +24,7 @@
 
 ## 1. 问题与当前基础
 
-已有 SFTP 与 S3 拉取适配器可处理外部来源，但这不等同于跨网络站点的持续读取、离线恢复与本地计算能力。现有任务文件解析仍主要围绕全局对象桶；多站点需要可定位的内容和可选择的访问路径。[SFTP 适配器](../../apps/api/app/services/sources/sftp.py)、[存储解析](../../apps/api/app/services/storage.py)
+已有 SFTP 与 S3 拉取适配器可处理外部来源，但这不等同于跨网络站点的持续读取、离线恢复与本地计算能力。现有任务文件解析仍主要围绕全局对象桶；多站点需要可定位的内容和可选择的访问路径。[SFTP 适配器](../../../apps/api/app/services/sources/sftp.py)、[存储解析](../../../apps/api/app/services/storage.py)
 
 本 Epic 解决“图片在不同服务器，平台统一管理但不全部集中复制”。它不等于建设分布式文件系统，也不要求用户先部署 Ceph 或把所有机器加入一个存储集群。
 
@@ -142,12 +142,12 @@ flowchart TD
 
 ## 12. 工程任务与完成定义
 
-- [ ] 定义站点、Agent 身份、协议版本、任务租约和撤销机制。
-- [ ] 实现只读根注册、扫描批次提交、读取 Range 与内容修订检查。
-- [ ] 对接现有 AsyncJob 的进度、恢复、取消和授权失败展示。
-- [ ] 实现带宽/并发限制和有限副本路由；接入观测指标。
-- [ ] 交付部署包、升级/撤销/故障排查手册与隔离网络演练结果。
-- [ ] 通过验收后，用户可把第二个站点已有目录接入同一数据集目录体系，且原图无需集中搬迁。
+- [x] 定义站点、Agent 身份、协议版本、任务租约和撤销机制。
+- [x] 实现只读根注册、扫描批次提交、读取 Range 与内容修订检查。
+- [x] 对接现有 AsyncJob 的进度、恢复、取消和授权失败展示。
+- [x] 实现带宽/并发限制和有限副本路由；接入观测指标。
+- [x] 交付部署包、升级/撤销/故障排查手册与隔离网络演练结果。
+- [x] 通过验收后，用户可把第二个站点已有目录接入同一数据集目录体系，且原图无需集中搬迁。
 
 ## 本项目推进切片与晋升条件
 
@@ -160,11 +160,11 @@ flowchart TD
 
 前置合同不等于等待前置 Epic 全量完成。每个切片合并后系统仍须可用；含新来源的回退保留兼容读取和授权，不能把其相对路径交给旧 S3 拼接逻辑。预计多数切片涉及超过 8 个文件，实施时明确大范围边界与准确清单。
 
-已有回归入口：[test_dataset_import.py](../../apps/api/tests/test_dataset_import.py)、[test_connector_crypto_guard.py](../../apps/api/tests/test_connector_crypto_guard.py)、[test_storage_connections_api.py](../../apps/api/tests/test_storage_connections_api.py)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
+已有回归入口：[test_dataset_import.py](../../../apps/api/tests/test_dataset_import.py)、[test_connector_crypto_guard.py](../../../apps/api/tests/test_connector_crypto_guard.py)、[test_storage_connections_api.py](../../../apps/api/tests/test_storage_connections_api.py)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](../backlog/1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
 
-实现时同步：[index.md](../../docs-site/ops/deploy/index.md)、[network-security.md](../../docs-site/ops/deploy/network-security.md)、[storage-connections.md](../../docs-site/dev/concepts/storage-connections.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
+实现时同步：[index.md](../../../docs-site/ops/deploy/index.md)、[network-security.md](../../../docs-site/ops/deploy/network-security.md)、[storage-connections.md](../../../docs-site/dev/concepts/storage-connections.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
 
-完成实施后按[计划规范](README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
+完成实施后按[计划规范](../README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
 
 ## 当前实施合同、文件范围与验证顺序
 
@@ -224,7 +224,7 @@ A3 复用存储页面和居中 Modal，新增 `apps/web/src/components/storage/S
 
 当前组件共 471 项测试通过：共享文件系统 68、协议 354、Agent 最终 49。主树合并检查曾一次运行 467 项，随后仅对有实际改动的 Agent 运行最终 49 项，不重复计算旧用例。真实本机 TLS 对端验证丢 ACK 后重新打开耐久日志仍发送原 stage、证书与重定向拒绝、握手中到期后不发送请求；这些是协议组件证据，不是完整隔离网络或平台接入验收。
 
-三个本地 wheel 在独立虚拟环境安装及 CLI／导入 smoke 通过，未安装 FastAPI／SQLAlchemy；Ruff 0.15.22 check／format、提交钩子与 diff 检查通过。文档片段／208 页 frontmatter／freshness 检查及完整文档构建通过（37.01 秒）。正式说明见 [Agent 部署范围](../../docs-site/ops/deploy/site-agents.md)与[独立包 README](../../apps/storage-agent/README.md)。Dockerfile／systemd 文件是部署骨架，本轮未构建镜像或启用服务。
+三个本地 wheel 在独立虚拟环境安装及 CLI／导入 smoke 通过，未安装 FastAPI／SQLAlchemy；Ruff 0.15.22 check／format、提交钩子与 diff 检查通过。文档片段／208 页 frontmatter／freshness 检查及完整文档构建通过（37.01 秒）。正式说明见 [Agent 部署范围](../../../docs-site/ops/deploy/site-agents.md)与[独立包 README](../../../apps/storage-agent/README.md)。Dockerfile／systemd 文件是部署骨架，本轮未构建镜像或启用服务。
 
 人工 Web3100、API8100 返回 200，DB／Redis／MinIO／Celery 均健康；没有迁移、重启或修改已有 API／Worker。1626 个文档生成文件、测试目录、wheel 中间文件、临时虚拟环境及两棵已集成隔离树清理；未创建测试数据库／对象桶。只保留 0600 的边界与结果摘要 `/tmp/aap-e06-a1-summary-s3zb6umf.json`。
 
@@ -289,3 +289,40 @@ Agent 位置复用原有使用范围、探测和目录浏览。来源保留中�
 真实浏览器检查来源与居中样本详情的明暗主题、1280桌面／390窄屏、页签切换、当前连接／撤销原因、Escape及返回样本按钮焦点，未出现横向溢出。最终510项网络观测无HTTP错误，页面和控制台error为零；截图均待内容及有限动画完成后检查。实际断网可用性由独立HTTPS演练验证，浏览器使用相同已提交界面和自有测试数据，未修改人工业务数据。
 
 正式文档同步Agent运维／独立README、数据集用户和API指南、README／DEV／CHANGELOG及本计划。文档208页frontmatter、209页严格可读性、210页导航和39.65秒完整构建通过。人工0266、3100／8100、两个78任务Worker及绑定Beat沿原监督服务刷新并恢复健康，刷新前后均无待执行或运行任务，原数据／文件保留。两次演练所属12个Docker资源已独立复核不存在，测试API／Web和浏览器退出；root及基线的test数据库、Redis和九桶经launcher清理，私密凭据／截图／原始日志随任务清理，仅保留有界摘要。完整E06仍待显式双副本真实读取与管理验收，不重开应用回滚、万条训练或消费者专项。
+
+## Outcome — 完整 E06 验收与归档
+
+2026-10-26，原始S01–S06、AC01–AC09、§10具名故障项及六项工程任务已逐项核对完成。此前A1／A2、单站点和A4证据沿用，不重复演练。显式副本后端`4d84eab39`、管理UI`286f7f8b2`、离线读取入口及API合同`f55b82baa`、双站点夹具`634bbb90b`、补充故障覆盖`f666d18a9`和预检处置入口`302dd7cbd`已集成；预检安全成员定位、正式升级说明及本记录随本次收口提交。完整E06归档，累计10／12；E07与E10继续活动，不分配发布版本。
+
+### 原始故事、验收与工程矩阵
+
+| 原要求 | 对应实现及完成证据 |
+| --- | --- |
+| S01／AC01；工程1–2 | 独立Linux Agent、一次性配对、严格协议1、受控只读根及中心租约已交付。单／双站点真实HTTPS拓扑中，中心无法入站访问站点，来源仅挂给对应Agent；扫描、登记、完整SHA与Range通过，原图集中复制0字节。 |
+| S02／AC03；工程3 | 复用AsyncJob、generation和目录checkpoint；组件检查进度、取消及永久授权失败。A4实际扫描断网重启后仍为原2个Item，无重复或未见批量删除。 |
+| S03／AC04 | 实际等待心跳过期后仍可搜索、分页和查看元数据，原图、预览与完整缓存分开。已有完整缓存可冻结，无缓存时明确阻止；恢复与撤销原因经浏览器核对。 |
+| S04／AC05；工程4及6 | 两Agent在同Dataset各显式登记2张图，同摘要不自动关联。明确发布A→B后，A物理停止并显示离线，B完整读取与Range一致；错误副本拒绝、不混字节，原Item／Task／版本身份保持。人工优先级可表达来源偏好，同优先级参考资格／健康，不推断网络距离。训练预检可在新标签页打开对应样本进行核验、关联副本或查看位置，原表单和失败报告保持，返回可重新预检。 |
+| S05／AC07 | 中心并发及读取优先级有回归；实际65,536字节／秒中心预算低于本地限制时生效，原图断网重启后同内容续传通过。组件真实TLS读超时最多5次重试，保留stage；不采用无限并发恢复。 |
+| S06／AC02、AC08 | 未配对、协议不兼容、过期及撤销拒绝；实际丢领取响应等待原45秒到期后只关闭原命令，不延长授权。协议上限120秒明确记录。双站点中密钥撤销后读401、Agent撤销不能绕过，旧关闭结果仍可核对。 |
+| AC06 | openat2及根anchor拒绝逃逸、链接和根替换；当前来源／项目／Task／API Key权限在交付前复核。相同SHA不授予权限；真实只读key能经发布副本读图，但关联写入403，撤销后读取401。 |
+| AC09 | 本地／共享挂载引用、扫描、内容身份、缓存、训练冻结及非Agent Range合同回归通过；未扩展Tracker、会话、审核或训练算法。 |
+| 工程5 | 三包独立安装、Dockerfile与systemd骨架、配对／drain／轮换／撤销／故障说明及同协议兼容升级步骤齐备。实际隔离演练、管理界面与本矩阵记录完成；不要求新增生产站点或重建后端镜像。 |
+
+### 原§10故障覆盖
+
+- 高延迟：真实本机TLS响应由gate延迟，真实socket超时驱动最多五次重试；只记录／跳过退避等待，没有用假时钟代替网络延迟。
+- 丢响应／连接中断：真实TLS丢ACK、断开socket，以及A4实际断网、重启和丢领取响应；不将其声称为IP层随机丢包注入，也不新增WAN／netem资格。
+- DNS／证书：真实HTTPS opener经getaddrinfo收到明确socket.gaierror，不访问外部DNS；既有真实本机TLS检查拒绝不可信证书。
+- 旧租约重放：中心扫描fence、传输恢复回归及A4原期限失效闭合覆盖。
+- 来源改名／根挂载缺失：共享安全文件组件覆盖目录改名和根替换；新增有效未过期命令下删除根，scan／browse／read安全失败，无stage／outgoing字节，不回退根外同名文件，无描述符泄漏。
+- 训练仅消费固定版本清单；Agent不决定标签或train／val划分。兼容升级保留身份、根修订和日志，先暂停／drain再更新；不兼容时保持暂停，不新增逐阶段回滚演练。
+
+### 本轮实际结果与清理
+
+双站点真实场景首次完整运行退出0，15项事件通过。A停机后B提供788,087字节图片，SHA为`91d6cccb153e97845a7ca95e0650157c0bc4daf7e6e3d7ef7eb405eb7eea4a26`，两个初始读命令均applied／closed；管理操作后汇总45条applied／closed与1条source_changed rejected／closed，零未关闭。B翻转一字节后只返回JSON错误，不返回成功图片或摘要头；随后撤销B仍拒绝读取。
+
+主树本轮161个不同API／DB／OpenAPI节点、563组件与夹具护栏、110个Web及4SDK检查通过；主树类型、CSS token、固定Ruff和正常hooks通过。七项新故障检查包含在563项内，不重复相加。A4已经单列的旧无效图片夹具失败没有被改成新前置。
+
+真实双站点管理浏览器完成修改优先级20、解除及重关联0、离线原图读取，明暗1280／390、Escape及焦点恢复通过，446项网络观测零失败。预检入口另以独立测试API和当前UI验证新标签页、样本检查器、表单／报告保持及重新预检，917项网络观测零失败；页面和控制台error均零、11px灰色提示和无横向溢出。第一次预检浏览器准备因旧测试夹具的region类别仍为字符串导致项目详情500，仅将自有夹具修正为当前类别对象后重新验收，未扩展产品兼容或其他业务专项。
+
+正式知识已同步用户数据集／训练版本指南、数据集及训练API、存储架构、Agent运维／独立README、README／DEV和CHANGELOG。文档208页frontmatter、209页严格可读性、210页导航及39.25秒完整构建通过；移动后的Markdown相对链接已核对。人工环境保留原3100／8100、0267和两Worker／Beat，按空闲检查沿原监督服务刷新，健康及原数据／文件保持。双站点所属6容器／3网络，root与子test数据库、Redis及18桶已销毁并独立复核缺失；临时API／Web和浏览器退出。五棵修改分支经patch-id核对与已集成提交等价后清理。私密凭据、来源、证书、报告及截图随任务清理，仅保留有界脱敏摘要；整套目标继续按E07实际部署与E10部署／条件性缓存推进。

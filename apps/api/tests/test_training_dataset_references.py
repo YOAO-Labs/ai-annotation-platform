@@ -415,7 +415,7 @@ async def test_reference_partial_freeze_retries_same_snapshot_without_rereading_
 async def test_reference_preflight_cannot_report_ready_after_source_changes(
     reference_training, httpx_client, super_admin
 ):
-    world, project, _ = reference_training
+    world, project, tasks = reference_training
     for path in world[0].iterdir():
         path.write_bytes(picture("green"))
     report = await httpx_client.post(
@@ -424,7 +424,17 @@ async def test_reference_preflight_cannot_report_ready_after_source_changes(
         json={},
     )
     assert report.status_code == 200 and not report.json()["ready"]
-    assert len(report.json()["issues"]) == 2
+    issues = report.json()["issues"]
+    assert len(issues) == 2
+    assert {issue["task_id"] for issue in issues} == {str(task.id) for task in tasks}
+    for issue in issues:
+        item = await httpx_client.get(
+            f"/api/v1/datasets/{issue['dataset_id']}/items/{issue['dataset_item_id']}",
+            headers=headers(super_admin),
+        )
+        assert item.status_code == 200, item.text
+        assert item.json()["id"] == issue["dataset_item_id"]
+        assert not any(key in issue for key in ("source_key", "file_path", "token"))
 
 
 @pytest.mark.parametrize("historical", [False, True])
