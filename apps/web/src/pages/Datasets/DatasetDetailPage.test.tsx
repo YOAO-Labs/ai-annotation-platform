@@ -65,6 +65,13 @@ vi.mock("@/components/datasets/DirectoryReferencePanel", () => ({
     </p>
   ),
 }));
+vi.mock("@/components/datasets/ReferenceReplicas", () => ({
+  ReferenceReplicas: ({ itemId, archived }: { itemId: string; archived: boolean }) => (
+    <p data-testid="reference-replicas" data-item={itemId} data-archived={String(archived)}>
+      备用来源管理
+    </p>
+  ),
+}));
 vi.mock("@/components/datasets/ImportDatasetWizard", () => ({
   ImportDatasetWizard: ({ open, onClose }: { open: boolean; onClose: () => void }) =>
     open ? (
@@ -240,6 +247,34 @@ afterEach(() => {
     vi.mocked(HTMLAnchorElement.prototype.click).mockRestore();
 });
 describe("Dataset detail workbench", () => {
+  it.each([
+    { reference: true, manage: true, archived: false, visible: true },
+    { reference: true, manage: true, archived: true, visible: true },
+    { reference: true, manage: false, archived: false, visible: false },
+    { reference: false, manage: true, archived: false, visible: false },
+  ])(
+    "limits replica management to manageable reference items: %j",
+    async ({ reference, manage, archived, visible }) => {
+      vi.mocked(datasetsApi.get).mockResolvedValue({
+        ...dataset,
+        archived_at: archived ? dataset.created_at : null,
+      } as never);
+      vi.mocked(datasetsApi.item).mockResolvedValue({
+        ...item,
+        id: "outside",
+        file_path: reference ? item.file_path : "managed/image.png",
+        availability: { ...item.availability, allowed_actions: manage ? ["manage_source"] : [] },
+      } as never);
+      mount("/datasets/dataset-one?item=outside");
+      const dialog = await screen.findByRole("dialog", { name: "样本检查器" });
+      await within(dialog).findByText(item.file_name);
+      if (visible) {
+        const section = within(dialog).getByTestId("reference-replicas");
+        expect(section).toHaveAttribute("data-item", "outside");
+        expect(section).toHaveAttribute("data-archived", String(archived));
+      } else expect(within(dialog).queryByTestId("reference-replicas")).not.toBeInTheDocument();
+    },
+  );
   it("keeps cached-original and preview actions visible while the source Agent is offline", async () => {
     vi.mocked(datasetsApi.item).mockResolvedValue({
       ...item,

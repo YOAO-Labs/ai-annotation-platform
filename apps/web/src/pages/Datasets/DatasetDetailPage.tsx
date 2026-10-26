@@ -31,6 +31,7 @@ import {
   datasetTrainingPath,
 } from "./datasetTrainingSelection";
 import { DatasetLifecycleAction } from "@/components/datasets/DatasetLifecycleAction";
+import { ReferenceReplicas } from "@/components/datasets/ReferenceReplicas";
 import {
   AgentSourceStatus,
   agentAvailabilityReason,
@@ -949,6 +950,7 @@ function DatasetDetailContent({ ds }: { ds: DatasetResponse }) {
           onClose={() => patch({ item: undefined }, true)}
           returnFocusRef={selectedTrigger}
           detailReturn={`${location.pathname}${location.search}`}
+          archived={archived}
         />
       )}
       {!archived && unlinkProject && (
@@ -1032,12 +1034,14 @@ function ItemInspector({
   onClose,
   returnFocusRef,
   detailReturn,
+  archived,
 }: {
   datasetId: string;
   itemId: string;
   onClose: () => void;
   returnFocusRef: React.RefObject<HTMLElement | null>;
   detailReturn: string;
+  archived: boolean;
 }) {
   const result = useDatasetItem(datasetId, itemId);
   const [readOriginal, setReadOriginal] = useState(false);
@@ -1272,6 +1276,13 @@ function ItemInspector({
             <Button size="sm" onClick={image.retry}>
               重试图片读取
             </Button>
+          )}
+          {identity && actions.includes("manage_source") && (
+            <ReferenceReplicas
+              itemId={item.id}
+              archived={archived}
+              onChanged={() => result.refetch()}
+            />
           )}
         </>
       )}
