@@ -2,7 +2,7 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-26
+last_reviewed: 2026-10-27
 ---
 
 # 所有业务模块的独立部署与语言替换
@@ -19,16 +19,16 @@ last_reviewed: 2026-10-26
 
 这是本计划唯一的剩余工作台账；下文和 ADR 保存已完成证据，不另行维护待办列表。
 本次后端重构的当前实现已统一合入主工作树的 `feat/backend-opt`，后续开发直接使用该分支。
-集成源码以 `e0095835f` 为基准；当前分支的 Identity 注册策略修正已在其中，Notifications
-候选仅补入实际缺少的依赖断言修正，另保留历史捕获夹具的两份未提交修正。旧兼容层已由
-当前 Workspace／Inference／Notifications owner 承接，不把旧分支整体覆盖到新实现。
+最初源码整合以 `e0095835f` 为基准；Identity 注册策略修正与 Notifications 候选的
+依赖断言随后统一到当前分支。旧兼容层由当前 Workspace／Inference／Notifications
+owner 承接，不把旧分支整体覆盖到新实现。
 既有资格证据按原合格源码范围保留，关键收据与证据包已另存主工作树；这次源码合并不提升
-各模块的验收结论。用户确认后，日常库已从 `0306` 升到 `0366`，原 LaunchAgent 管理的内嵌 API
-已恢复；独立运行拓扑未切换。升级前保留了 0700 目录中的 0600 数据库与角色备份，在自有
+各模块的验收结论。首次源码合回时，日常库从 `0306` 升到 `0366`，原 LaunchAgent 管理的内嵌 API
+已恢复，但当时尚未切换独立拓扑。升级前保留了 0700 目录中的 0600 数据库与角色备份，在自有
 PostgreSQL 副本恢复后验证原数据、对象 owner 和本次迁移，再升级原库。233 张既有关系中的
 14 条非迁移记录（包含内部协议元数据）及其原字段值保持；DB／Redis／MinIO、注册策略、
-未认证拒绝、OpenAPI 和真实源码热重载通过，前端类型检查通过。开发库原本没有用户，未在
-日常库创建测试账号，登录后读取仍未覆盖；Celery 也保持原有未启用状态。
+未认证拒绝、OpenAPI 和真实源码热重载通过，前端类型检查通过。当时开发库没有用户，未在
+日常库创建测试账号，登录后读取未覆盖；Celery 当时也保持未启用状态。
 
 本次合并提交为 `72435c87d`、`bc7cb634e`。运行收据
 `.worktree/backend-opt-consolidation/runtime-qualification.json` 的 SHA-256 为
@@ -38,7 +38,7 @@ PostgreSQL 副本恢复后验证原数据、对象 owner 和本次迁移，再�
 已闭合操作按模块合并展示，明细与原始证据继续保留在下文；当前 Labeling 未闭合操作组依据实际源码固定，不把测试夹具和暂缓领域混入生产范围。
 协调视频恢复切片已完成限定本地验收；Identity 九组操作的公开能力、实际消费者、运维入口、普通运行凭据及独立私网装配已完成本地模块门槛审计。宿主机转发 TCP 故障由 Runtime assembly 行继续跟踪。
 “操作已实现”“消费者已迁移”“独立运行已验收”分别记录，均不代替整模块完成判断。
-所有结果限本地；当前重构源码已统一合入主工作树，日常独立 owner 拓扑尚未切换，Go 继续仅作实验。训练／Learning 及 Assets 的数据集、存储暂缓扩大实施，待最新功能合并后一起优化；后续代码修改直接在当前分支进行，互不依赖的盘点和审查可只读并行。
+所有结果限本地；重构源码已统一合入主工作树，Workspace、Labeling、Jobs 与 Inference 的日常采用分别按对应节核实，Go 继续仅作实验。训练／Learning 及 Assets 的数据集、存储暂缓扩大实施，待最新功能合并后一起优化；后续代码修改直接在当前分支进行，互不依赖的盘点和审查可只读并行。
 实施先完成独立模块及其调用迁移，再按模块集中验收。开发中保留必要的基础检查与权限／数据完整性守卫；不因每个小改动重复编写测试或启动冷环境，也不沿验收失败不断扩大前置条件。与本 epic 无关的缺陷独立登记，不能阻塞模块实现主线。已通过证据保持复用，未完成的组合验收继续明确标记。
 
 Audit 与 Labeling 未暂缓范围的实现和已知调用方收口阶段已交付。Audit 独立维护 CLI、当前 API 查询／导出与元数据 worker、既有 Beat／维护队列三项任务的集中冷验收及 PostgreSQL 恢复均已通过。旧视频的 [PostgreSQL](#legacy-video-postgres-fence)、[精确 worker 与作用域 S3](#legacy-video-worker-storage-facts)事实采集已独立于测试图，并通过[当前本地组合验收](#legacy-video-current-combination)：真实 scope 退役、同任务旧凭据重投失败及 Native 删除／输入保留守卫均保持。Workspace 当前支持协议的实现、消费者迁移与本地模块资格已通过；[实际本机盘点](#workspace-local-history-applicability)没有历史作业，不能再将假定缺少历史清单作为当前外部阻塞。通用旧库退役入口尚未实现，未知旧状态继续 409 并保留输入，不冒充历史迁移已通过。完整 Audit 保留暂缓 Learning 读取，默认混合维护 worker 凭据由 Runtime assembly 单列；不扩修业务 request ID 遗留问题，训练／Learning、Assets 和 Go 范围保持。
@@ -55,6 +55,10 @@ Jobs 非暂缓模块的当前工件、真实消费者与恢复已通过，本机
 及一个四队列业务 worker；[采用界限](#jobs-nonheld-module)单列日常空库、凭据和实际控制消息。
 旧操作切片保留原始证据，已闭合状态合并为下表一行；四处 Learning 兼容读取仍暂缓。
 
+Inference 当前非暂缓协议的模型／GPU／控制面已独立运行，本机普通 API、业务 worker 与
+Workspace probe 已切到同一独立 owner；[完整证据与采用范围](#inference-whole-module)
+分别记录不可变工件、真实消费者、整库恢复及 CPU／硬件边界。
+
 <!-- prettier-ignore -->
 | 模块／操作组                             | 实现                                                                                                               | 消费者迁移                                                                                       | 独立运行验收与证据                                                                                                                                       | 剩余阻塞／下一交付                                                                                                                                                                                                                                                                                                                                               |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -70,7 +74,7 @@ Jobs 非暂缓模块的当前工件、真实消费者与恢复已通过，本机
 | Labeling：完整模块工件与恢复 | 当前便携包、class-query／writer／Mask GC／字节端及API工件已独立构建 | 当前普通账号冷 API、真实审计 CLI 与日常 HTTP 提供方使用限定凭据；未变 worker 核心复用原证据 | [当前工件与采用](#labeling-operational-boundary)：136项wheel／sdist资源、107项非editable便携测试、当前冷API／CLI／完整PG恢复及真实S3权限／预览通过 | 非暂缓当前协议的本地资格与五进程采用完成；原worker两案不重复计数，Assets reset、一般Blob／历史部署与生产仍不在闭合范围 |
 | Jobs／Labeling：旧视频输入保留 | 0312 的窄 Jobs 事实与 Labeling 保留投影已实现；0313 补齐历史垃圾领取围栏 | tracker sweep 和 video garbage claim 使用当前保留事实；pin、审核宽限期及已证明替代的前缀清理保留 | [输入保留](#tracker-input-retention)：0312的23项与0313的10项定向案例及完整迁移往返通过；进程内取消单测单列 | 新领取路径的本地资格完成；已领租约仍须真实停机／凭据围栏；历史 expired／已删对象修复和无账本退役 operator 未实现，适用旧库时单列代码项；[当前组合工件](#coherent-module-artifact)已验收，日常拓扑未采用 |
 | Inference／Jobs：协调视频恢复            | `aap-video-restore/v1`、两类权威屏障／轮换、不可变退休证明已实现                                                   | 实际 runner 已经独立安装 CLI 恢复，同 run 新代次复用窗口并由 Labeling owner 发布                 | [ADR-0160](/dev/adr/0160-coordinated-video-restore)：五个 Native／消费者场景、源码和安装各 420 项、51 项旧路径回归、完整迁移通过                         | 本切片已闭合：独立安装 CLI 实际消费者与匹配 Inference／API 冷镜像均通过，源码提交 `968212e4e`；对象存储备份恢复、GPU／生产容量不在本切片通过范围                                                                                                                                                                                                                 |
-| Inference：控制面与其他预测路径          | Pipeline、backend 配置／探测／健康、registry ingress、routing 和 scope 退休已有选定 owner                          | 对应绑定及部分实际预测消费者已迁移                                                               | [Inference 协议](/api/guides/inference-runtime)保留各切片资格                                                                                            | 其他推理编排、GPU 租约、取消／迟到结果、完整独立装配及提供方替换仍须逐操作收口                                                                                                                                                                                                                                                                                   |
+| Inference：非暂缓完整模块 | 流水线、探测／健康、Registry、路由、模型执行、Backend control 与 GPU 权威均有独立合同／工件及受限数据能力 | 普通 API／worker、批量／当前任务／二次推理、质量、训练模型调用与视频窗口已迁移；原 UOW、实例绑定及迟到结果围栏保持 | [完整资格与采用](#inference-whole-module)：466项非editable便携测试、当前三镜像、真实模型 HTTP／冷 worker、帧 CLI SIGKILL恢复、完整 PostgreSQL恢复及本机采用通过 | 当前非暂缓 Python 模块的本地门槛与本机适用采用完成；GPU策略off，不据此通过NVIDIA／生产容量、对象存储灾难恢复、通用历史退役、另一种语言提供方或暂缓Learning／Assets扩展 |
 | Learning：训练、版本、评估及发布         | 训练 executor 独立拉取与交接已实现；其余账本仍由 API 持有                                                          | executor 与部分保留检查已迁移                                                                    | 既有 executor 资格仅证明执行子能力                                                                                                                       | 冻结来源、训练／搜索／评估／主动学习／发布事务及对 Workspace／Inference 的 owner 调用待完整提取                                                                                                                                                                                                                                                                  |
 | Insights：查询及保存视图                 | 已有本地只读组合和投影                                                                                             | 尚未完成全量 owner 读取合同迁移                                                                  | 完整独立运行未验收                                                                                                                                       | 跨 owner 批量快照／投影、授权／新鲜度／删除语义及保存视图写入待收口                                                                                                                                                                                                                                                                                              |
 | Jobs：非暂缓完整模块 | 队列 V2、固定读取／生命周期与动作锁、完整消息／稳定 ID 的同事务交接及独立 relay 已实现 | 非暂缓读取及普通预标、重试、帧 canvas、导出、质量、修复／导入、tracker 与取消重投均迁移；原 UOW 与领域终态保持 | [完整资格与采用](#jobs-nonheld-module)：当前三镜像、71项非editable安装测试、真实受限消费者／整库恢复、强杀后的部分 canvas 恢复及本机三进程通过 | 本地非暂缓模块门槛和本机适用采用完成；四处 Learning 读取保留 SELECT，暂缓 Assets 扩展、其他部署／替代语言提供方及生产／GPU容量不据此通过 |
@@ -2637,6 +2641,70 @@ relay 只有函数 DSN／bearer。实际 worker 61 项任务已注册，消费 d
 
 本机采用与当前收口记录保存在 `.worktree/jobs-daily-adoption.json` 和
 `.worktree/jobs-nonheld-qualification.json`；证据包不收录私有环境、凭据或数据库备份。
+
+## Inference 当前协议整模块与本机采用 {#inference-whole-module}
+
+### 实现与调用边界
+
+命名流水线、Backend probe、健康观察、Registry 环境同步、持久路由、模型执行、
+Backend control 和 GPU 权威共用独立 Inference 工件。普通 API／worker 只持有各项
+HTTP selector 与独立 bearer；十八个专用函数 LOGIN、GPU Redis 与签名文件留在 owner。
+拓扑 Native 能力仍借用原调用方事务；它不是把业务提交搬到独立 HTTP 服务。
+
+预标、重试、当前任务、二次推理、质量检查、训练模型调用与视频追踪使用不可变执行请求和结果。
+Registry 事实不含 auth token；密封端点在原 UOW 捕获，由 owner 打开。只传 pool 或 direct
+registry 中的一种路由 selector；冻结的 `required_instance_id` 不会被其他成员替代。
+视频窗口复用已有 scope、原始输入与执行身份；旧 getter 已从 tracker／帧消费者移除，
+不可变能力中的 models、默认值和 dispatch 参数仍参与同一兼容性摘要。
+
+### 当前工件与恢复证据
+
+独立 wheel／sdist 的95项运行资源逐字节相同；非editable安装的466项便携测试通过。
+当前 ARM64 owner 与两种目的标签的 API／worker 镜像通过无网络、只读、普通 UID、
+无挂载源码的安装校验；API 工件包含851项包资源和2804项 API 工件文件，
+580条 OpenAPI 路由与既有快照一致。API／worker 随实际调用修复重建，未变 owner
+只在完整 COPY 输入名称与哈希相等时复用。
+
+GPU／transport 的133项行为通过。GPU Native 的125项最终不同案例由122项保留通过与
+3项失败后修复通过组成，不将原失败收据重写为整批一次通过。首次 rollout 在同一 UOW
+先建立 settled off 再 promoting；取消围栏保留原错误原因、合法代次间隙和精确 token horizon。
+URL、认证方式或凭据轮换使旧取消意图失效，未知指纹不能被恢复为 resident。
+
+Registry／路由与关联恢复的混合回归覆盖122项，pipeline／probe／health与边界回归覆盖82项；
+队列内分别按不同案例去重，跨队列不累加。帧持久化和GPU调用围栏的17项检查通过；tracker的35项最终不同
+案例由34项整批保留通过和1项实例身份比较修复通过组成，旧失败收据保留原状态。
+
+最终冷 worker 使用当前 API／worker 镜像及独立 routing／execution／control／health owner，
+真实模型 HTTP 连续完成两个窗口、检查点和 pending review；取消、成员撤销、账号禁用、
+子进程丢失后的重启与旧消息重投通过，原执行身份、迟到结果围栏及真实退休证明保持。
+独立安装的 Jobs publisher／relay 也在当前0370库上通过实际 SIGKILL后的部分帧 canvas 恢复，
+复用原 child IDs并只完成一次，不以模拟模型端点证明硬件容量。
+
+完整组合 owner 的八种 bearer 隔离、缺少必需 GPU 能力时503、重复 bearer 启动拒绝、
+非editable进程／容器重启和真实模型网关均已通过。整库 PostgreSQL 恢复保持六个 Native
+schema 的函数定义／owner／ACL 与关系指纹；源端点在源库可打开，在恢复库拒绝，
+恢复后的路由保持隔离。恢复副本、dump 和组合验收容器均已清理。
+
+规范收据为 `.worktree/inference-whole-qualification.json`，原始公开验收证据包为
+`.worktree/inference-whole-evidence.tar.gz`；其中绑定具体案例、工件输入和证据文件哈希。
+私有 env、DSN／bearer／签名文件及数据库备份不收入证据包，原 Jobs 收据保持不变。
+
+### 本机运行与范围
+
+日常原库先备份，再升级到当前迁移；0370以前向替换保留已部署的0369，不修改历史迁移。
+原库 OID16384 与227项非迁移关系的行数／指纹保持，users／projects／tasks／jobs 均为0。
+一次误用普通运行账号的迁移请求被 schema 权限原子拒绝；随后使用已核对的迁移账号，
+未给长期运行账号添加迁移权限。
+
+独立 `aap-inference-development` 使用已验收的不可变 owner 镜像、UID10008、只读根文件系统、
+28项只读 secret 与 `unless-stopped`。Workspace probe 指向同一基础设施私网中的该 owner，
+旧 probe 已停止。原 API 和四队列业务 worker 保留既有 Workspace／Labeling／Jobs 设置，
+通过专用私有 `api.env` 使用 HTTP selector。实际 API 的数据库／Redis／MinIO健康和 owner
+八项必需能力均返回200；日常无账号与业务数据，不制造认证 CRUD 或模型任务作为采用证据。
+
+本机 GPU 策略为 off，资源列表为空。CPU 协议路径、签名与租约正确性不构成 NVIDIA／硬件
+容量、生产 SLO、对象存储灾难恢复或另一种实现语言提供方的资格。暂缓 Learning／Assets、
+通用旧部署退役和既有五项 API分层失败继续保留，不因本模块收口而消除。
 
 ## Notifications 实现范围冻结 {#notifications-implementation-freeze}
 
