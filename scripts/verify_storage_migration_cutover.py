@@ -118,6 +118,22 @@ def signed_put_live(url, *, now=None):
     )
 
 
+def put_target_staging(url, data):
+    parsed = urlsplit(url)
+    require(
+        parsed.scheme == "http" and parsed.port == 80 and parsed.hostname is not None,
+        "cutover_upload_endpoint_changed",
+    )
+    # SigV4 and browsers omit the default port in Host. urllib's automatic Host
+    # keeps an explicit :80, so preserve the SDK's signed authority explicitly.
+    return request(
+        url,
+        method="PUT",
+        body=data,
+        headers={"Content-Type": "image/png", "Host": parsed.hostname},
+    )
+
+
 def cutover_operator(owner, environment, action, actor, identifier, **flags):
     arguments = [
         sys.executable,
@@ -449,9 +465,19 @@ class Cutover(OriginalReads):
             "purpose_buckets": dict.fromkeys(PURPOSES, self.target_bucket),
         }
         private_write(self.target_config, json.dumps(config).encode())
-        self.target_endpoint = DockerAdapter(
-            config, credential_prefix="AAP_TARGET_FENCE"
-        ).application_endpoint()
+        from storage_source_fence_state import FenceError
+
+        try:
+            self.target_endpoint = DockerAdapter(
+                config, credential_prefix="AAP_TARGET_FENCE"
+            ).application_endpoint()
+        except FenceError as exc:
+            owner.data["retained_failure"] = {
+                "stage": "target_topology",
+                "code": exc.code,
+            }
+            owner.save()
+            raise
         return self.target_endpoint, urlsplit(self.target_endpoint).hostname
 
     def prepare(self, owner, environment, seed, source, buckets):
@@ -596,12 +622,10 @@ class Cutover(OriginalReads):
             == urlsplit(self.target_endpoint).netloc,
             "cutover_upload_did_not_use_b",
         )
-        status, _, _ = request(
-            upload["upload_url"],
-            method="PUT",
-            body=self.new_raw,
-            headers={"Content-Type": "image/png"},
-        )
+        status, _, _ = put_target_staging(upload["upload_url"], self.new_raw)
+        if status != 200:
+            owner.data["retained_failure"] = {"stage": "new_b_put", "status": status}
+            owner.save()
         require(status == 200, "cutover_upload_put_failed")
         http.call("POST", "/api/v1/files/upload-complete/" + upload["task_id"])
         self.value["new_task_id"] = upload["task_id"]
@@ -790,12 +814,7 @@ class Cutover(OriginalReads):
             "cutover_b_reservation_not_durable",
         )
         signed_put_live(upload["upload_url"])
-        status, _, _ = request(
-            upload["upload_url"],
-            method="PUT",
-            body=b"must not be accepted",
-            headers={"Content-Type": "image/png"},
-        )
+        status, _, _ = put_target_staging(upload["upload_url"], b"must not be accepted")
         require(status == 405, "cutover_old_b_put_not_fenced")
         read_saved()
         require(

@@ -67,6 +67,7 @@ def replace_config(path, body):
     try:
         fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
         with os.fdopen(fd, "wb") as stream:
+            os.fchmod(stream.fileno(), 0o644)
             stream.write(body)
             stream.flush()
             os.fsync(stream.fileno())

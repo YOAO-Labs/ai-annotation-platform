@@ -79,6 +79,19 @@ class VectorsTests(unittest.TestCase):
 
 
 class TransportTests(unittest.TestCase):
+    def test_staging_put_preserves_url_with_the_sdk_default_port_host(self):
+        from botocore.auth import _host_from_url
+
+        url = put_url()
+        with patch.object(live, "request", return_value=(200, {}, b"")) as request:
+            live.put_target_staging(url, b"payload")
+        request.assert_called_once_with(
+            url,
+            method="PUT",
+            body=b"payload",
+            headers={"Content-Type": "image/png", "Host": _host_from_url(url)},
+        )
+
     def test_only_owned_api_capabilities_are_opened(self):
         http = SimpleNamespace(endpoint="http://127.0.0.1:8109")
         for path in (
@@ -171,6 +184,21 @@ class FakeOwner:
 
 
 class ProvisionTests(unittest.TestCase):
+    def test_gateway_config_keeps_required_mode_under_private_process_umask(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            previous = os.umask(0o077)
+            try:
+                base.replace_config(directory / "nginx.conf", b"owned config")
+            finally:
+                os.umask(previous)
+            self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
+            self.assertEqual((directory / "nginx.conf").stat().st_mode & 0o777, 0o644)
+            self.assertEqual((directory / "nginx.conf").read_bytes(), b"owned config")
+            self.assertEqual(
+                [path.name for path in directory.iterdir()], ["nginx.conf"]
+            )
+
     def test_b_native_config_has_independent_networks_and_no_minio_ingress(self):
         with tempfile.TemporaryDirectory() as temporary:
             owner, fixture = FakeOwner(temporary), live.Cutover()
