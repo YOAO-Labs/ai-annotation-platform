@@ -75,7 +75,9 @@ class FakeModelExecutionPort:
                 member_id=operation.selected_member_id,
             ),
             observation=ModelExecutionObservation(
-                backend_id=actual_registry_id,
+                # The public observation carries the selected registry identity as
+                # text; provenance keeps the UUID form.
+                backend_id=str(actual_registry_id),
                 operation="predict",
                 outcome="success",
                 elapsed_seconds=0.001,

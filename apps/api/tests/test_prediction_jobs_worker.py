@@ -338,6 +338,7 @@ async def test_manifest_page_failure_after_success_marks_job_failed_with_progres
     )
     from app.db.models.prediction import Prediction
     from app.db.models.task import Task
+    from app.services.labeling_prediction_contract import ApplyPredictionResultReceipt
     from app.services.prediction import PredictionService
     from aap_inference_contract.execution import ModelTaskResult
     from tests.inference_execution_test_ports import patch_batch_execution
@@ -494,7 +495,11 @@ async def test_manifest_page_failure_after_success_marks_job_failed_with_progres
         task = await db_session.get(Task, write_request.task_id)
         task.total_predictions = (task.total_predictions or 0) + 1
         await db_session.flush()
-        return SimpleNamespace(id=prediction.id)
+        return ApplyPredictionResultReceipt(
+            id=prediction.id,
+            created_at=datetime.now(timezone.utc),
+            tool_unit_id="bbox",
+        )
 
     monkeypatch.setattr(PredictionService, "apply_prediction_result", persist_success)
 
@@ -990,10 +995,14 @@ async def test_cancelled_batch_keeps_prior_gpu_arbiter_failure_summary(
 
 @pytest.mark.asyncio
 async def test_delete_backend_blocked_by_running_batch_predict(
-    db_session: AsyncSession, super_admin
+    db_session: AsyncSession, monkeypatch, super_admin
 ):
-    """v0.10.49 · MLBackendService.delete 改读 async_jobs(payload.ml_backend_id)
-    判断是否有 running batch_predict，有则拒删。"""
+    """v0.10.49 · 拓扑删除服务读 async_jobs(payload.ml_backend_id) 判断是否有
+    running batch_predict，有则拒删；job 落终态后同一条链路真正删除 Registry。"""
+    from types import SimpleNamespace
+
+    from app.application.ml_registry_deletion import delete_registry
+    from app.services.inference_topology_data import InferenceTopologyData
     from app.services.ml_backend import MLBackendDeleteBlocked, MLBackendService
 
     user, _ = super_admin
@@ -1009,13 +1018,49 @@ async def test_delete_backend_blocked_by_running_batch_predict(
     db_session.add(job)
     await db_session.flush()
 
+    class QuiescentRoutingOwner:
+        """Routing-owner port reporting the topology this Registry actually has."""
+
+        async def quiescence(self, registry_id):
+            topology = InferenceTopologyData(db_session)
+            pool = await topology.pool_for_registry(registry_id)
+            member = None
+            if pool is not None:
+                for row in await topology.pool_members(pool.id):
+                    if row.registry_id == registry_id:
+                        member = row
+                        break
+            return SimpleNamespace(
+                status="ok",
+                topology=SimpleNamespace(
+                    member_id=member.id if member is not None else None,
+                    pool_id=pool.id if pool is not None else None,
+                    routing_generation=(
+                        pool.routing_generation if pool is not None else None
+                    ),
+                    traffic_state=(
+                        member.traffic_state if member is not None else None
+                    ),
+                ),
+            )
+
+    monkeypatch.setattr(
+        "app.services.ml_routing.safety.RoutingAuthority",
+        lambda: QuiescentRoutingOwner(),
+    )
+
+    # The Native guard raises inside the caller transaction, so scope it to a
+    # SAVEPOINT to keep the rest of this test's seeded world usable.
     with pytest.raises(MLBackendDeleteBlocked):
-        await MLBackendService(db_session).delete(backend.id)
+        async with db_session.begin_nested():
+            await delete_registry(db_session, backend.id)
+    assert await MLBackendService(db_session).get_registry(backend.id) is not None
 
     # 把 job 翻成终态后可删
     job.status = AsyncJobStatus.COMPLETED.value
     await db_session.flush()
-    assert await MLBackendService(db_session).delete(backend.id) is True
+    assert await delete_registry(db_session, backend.id) is True
+    assert await MLBackendService(db_session).get_registry(backend.id) is None
 
 
 @pytest.mark.asyncio
