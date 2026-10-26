@@ -11,7 +11,7 @@ import uuid
 from botocore.exceptions import ClientError
 import httpx
 import pytest
-from sqlalchemy import delete, inspect, select
+from sqlalchemy import delete, inspect, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.api.v1 import _test_seed as seed, _test_seed_attachments as cleanup
@@ -606,6 +606,112 @@ async def test_network_and_rebuild_never_hold_cleanup_business_locks(
     )
     assert result.status_code == 200, result.text
     assert probes
+
+
+async def wait_for_blocked_fence(ctx, timeout=20):
+    """Wait until a cleanup fence is queued behind another session's row lock."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    async with ctx.engine.connect() as connection:
+        while loop.time() < deadline:
+            blocked = await connection.scalar(
+                text(
+                    "SELECT count(*) FROM pg_locks "
+                    "WHERE NOT granted AND relation = 'users'::regclass"
+                )
+            )
+            if blocked:
+                return
+            await asyncio.sleep(0.02)
+    raise AssertionError("the cleanup scope fence never blocked")
+
+
+async def hold_account_share_lock(ctx, user_id, ready, release):
+    """Act like a live fixture request: FOR SHARE held for the whole request."""
+    async with ctx.engine.connect() as connection:
+        transaction = await connection.begin()
+        await connection.execute(
+            text("SELECT id FROM users WHERE id = :id FOR SHARE"), {"id": user_id}
+        )
+        ready.set()
+        try:
+            await asyncio.wait_for(release.wait(), 20)
+        finally:
+            await transaction.commit()
+
+
+async def test_live_fixture_request_is_awaited_by_the_scope_fence(context):
+    """The seed fixture tears down before Playwright closes the test page.
+
+    The page's authenticated requests hold ``FOR SHARE`` on the fixture account
+    row for their whole request (``require_active_task_actor``), so the
+    exclusive account fence must serialize with that *known* request instead of
+    reporting unknown ownership as busy.
+    """
+    ctx = context
+    world = await build(ctx)
+    row, _, _ = await upload(ctx, world)
+    receipt = storage.snapshot(row)
+    scope = await seed._resolve_fixture_scope(
+        ctx.db, seed._parse_owned_namespace(world["namespace"])
+    )
+    await ctx.db.commit()
+
+    ready, release = asyncio.Event(), asyncio.Event()
+    holder = asyncio.create_task(
+        hold_account_share_lock(ctx, scope.user_ids[0], ready, release)
+    )
+    try:
+        await asyncio.wait_for(ready.wait(), 20)
+        cleanup = asyncio.create_task(clean(ctx, world))
+        await wait_for_blocked_fence(ctx)
+        assert not cleanup.done()
+        release.set()
+        response = await asyncio.wait_for(cleanup, 30)
+    finally:
+        release.set()
+        await holder
+
+    assert response.status_code == 200, response.text
+    assert await present(ctx, row) is None
+    assert (
+        receipt.storage_ref["bucket"],
+        receipt.storage_ref["object_key"],
+    ) not in ctx.objects.data
+    assert await ctx.db.get(Project, uuid.UUID(world["project_id"])) is None
+
+
+async def test_stuck_scope_fence_still_fails_closed_after_bounded_wait(
+    context, monkeypatch
+):
+    """A holder that outlives the bound keeps the fail-closed busy rejection."""
+    ctx = context
+    world = await build(ctx)
+    row, _, _ = await upload(ctx, world)
+    receipt = storage.snapshot(row)
+    scope = await seed._resolve_fixture_scope(
+        ctx.db, seed._parse_owned_namespace(world["namespace"])
+    )
+    await ctx.db.commit()
+    monkeypatch.setattr(cleanup, "FENCE_LOCK_TIMEOUT", "200ms")
+
+    ready, release = asyncio.Event(), asyncio.Event()
+    holder = asyncio.create_task(
+        hold_account_share_lock(ctx, scope.user_ids[0], ready, release)
+    )
+    try:
+        await asyncio.wait_for(ready.wait(), 20)
+        response = await asyncio.wait_for(clean(ctx, world), 30)
+    finally:
+        release.set()
+        await holder
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "e2e_seed_attachment_cleanup_busy"
+    retained = await present(ctx, row)
+    assert retained.state == "retired" and storage.same(retained, receipt)
+    assert await ctx.db.get(Project, uuid.UUID(world["project_id"])) is not None
+    assert (await clean(ctx, world)).status_code == 200
 
 
 async def test_repeated_cancellation_drains_legacy_delete_before_retry_reuses_keys(

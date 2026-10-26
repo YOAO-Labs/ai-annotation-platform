@@ -10,7 +10,7 @@ import uuid
 
 from botocore.exceptions import ClientError
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 
 from app.db.models.annotation import Annotation
@@ -48,6 +48,25 @@ class CleanupPlan:
                 | {receipt.annotation_id for receipt in self.receipts}
             )
         )
+
+
+# Account and project rows are scope fences, not destruction owners: a live
+# authenticated request of the fixture's own user holds ``FOR SHARE`` on its
+# account row for the entire request (``require_active_task_actor`` and
+# ``lock_actor_project_authority`` take account -> project share locks), and
+# the Playwright seed fixture tears down before the page closes. Failing these
+# rows closed with ``NOWAIT`` therefore reports a *known* in-flight fixture
+# request as unknown ownership.
+#
+# ``SET LOCAL lock_timeout`` is the established bounded-authority convention
+# (storage_access, guides, task_originals all use ``1s`` for user-facing
+# fast-fail). Teardown keeps the same mechanism but a larger bound: the fixture
+# client allows 60s, and the wait must outlast an in-flight object read whose
+# share lock is held across MinIO I/O. A holder that outlives it still ends in
+# ``e2e_seed_attachment_cleanup_busy``. Every ownership anchor (upload rows,
+# receipt operations, storage permits, video outputs) keeps its fail-closed
+# ``NOWAIT`` checks.
+FENCE_LOCK_TIMEOUT = "5s"
 
 
 def reject(code="e2e_seed_attachment_cleanup_changed", status=409):
@@ -217,20 +236,43 @@ async def delete_objects(db, plan, resolve_scope):
         translate(exc)
 
 
+async def fence(db, plan):
+    """Hold the exclusive account -> project scope fence.
+
+    Waits (bounded) for in-flight fixture requests, whose account ``FOR SHARE``
+    locks are the only legitimate contention on these rows; ``lock_timeout``
+    expiry stays a fail-closed busy rejection. A successful fence restores the
+    caller's previous local timeout so later ownership ``NOWAIT`` checks and the
+    final cascade keep their semantics; a failed one leaves the transaction
+    aborted for the caller's rollback, which also discards the setting.
+    """
+
+    previous = await db.scalar(text("SELECT current_setting('lock_timeout')"))
+    await db.execute(
+        text("SELECT set_config('lock_timeout', :timeout, true)"),
+        {"timeout": FENCE_LOCK_TIMEOUT},
+    )
+    for model, identifiers in (
+        (User, plan.scope.user_ids),
+        (Project, plan.scope.project_ids),
+    ):
+        await db.execute(
+            select(model.id)
+            .where(model.id.in_(identifiers))
+            .order_by(model.id)
+            .with_for_update()
+        )
+    await db.execute(
+        text("SELECT set_config('lock_timeout', :timeout, true)"),
+        {"timeout": previous},
+    )
+
+
 async def finalize(db, plan, resolve_scope, *, before_gate=None):
     """Fence the complete scope before the caller's final database-only deletes."""
     try:
         with db.no_autoflush:
-            for model, identifiers in (
-                (User, plan.scope.user_ids),
-                (Project, plan.scope.project_ids),
-            ):
-                await db.execute(
-                    select(model.id)
-                    .where(model.id.in_(identifiers))
-                    .order_by(model.id)
-                    .with_for_update(nowait=True)
-                )
+            await fence(db, plan)
             if await resolve_scope(db) != plan.scope:
                 reject()
             rows = await owners(db, plan.scope, lock=True)
