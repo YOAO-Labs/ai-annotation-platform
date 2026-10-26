@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal
@@ -198,6 +199,25 @@ def _rollout_preparation(value: object) -> GPURolloutControlPreparation:
         raise GPUAuthorityUnavailable() from None
 
 
+@asynccontextmanager
+async def _preparation_transaction(data: GPUCallerData) -> AsyncIterator[GPUCallerData]:
+    """Hold one unit of work across the preparing step and the readiness demotion.
+
+    A provider port owns and commits its own short transaction, so the durable
+    authority change stays uncommitted - with its resource advisory lock and row
+    locks retained - until the demoter confirms the fail-closed barrier; a blocked
+    reply or a failed demotion rolls the Native writes back. A port already borrowed
+    from a caller keeps the caller's transaction and never opens a nested one.
+    """
+
+    opener = getattr(data, "transaction", None)
+    if not callable(opener):
+        yield data
+        return
+    async with opener() as borrowed:
+        yield borrowed
+
+
 async def prepare_gpu_backend_legacy_ack(
     data: GPUCallerData,
     backend_registry_id: uuid.UUID,
@@ -225,34 +245,35 @@ async def prepare_gpu_backend_legacy_ack(
         raise ValueError(
             "evidence_ttl must be positive and no greater than five minutes"
         )
-    result = await data.step(
-        "prepare_legacy_ack",
-        {
-            "backend_registry_id": str(backend_registry_id),
-            "gpu_resource_id": gpu_resource_id,
-            "membership_epoch": membership_epoch,
-            "token_ttl_seconds": token_ttl_seconds,
-            "evidence_ttl_seconds": evidence_ttl.total_seconds(),
-        },
-    )
-    try:
-        preparation = _legacy_ack_preparation(_preparation(result))
-    except ValueError as exc:
-        if readiness_demoter is not None:
+    async with _preparation_transaction(data) as borrowed:
+        result = await borrowed.step(
+            "prepare_legacy_ack",
+            {
+                "backend_registry_id": str(backend_registry_id),
+                "gpu_resource_id": gpu_resource_id,
+                "membership_epoch": membership_epoch,
+                "token_ttl_seconds": token_ttl_seconds,
+                "evidence_ttl_seconds": evidence_ttl.total_seconds(),
+            },
+        )
+        try:
+            preparation = _legacy_ack_preparation(_preparation(result))
+        except ValueError as exc:
+            if readiness_demoter is not None:
+                await readiness_demoter(gpu_resource_id)
+            raise GPULegacyAckBlockedError(str(exc)) from None
+        if (
+            preparation.backend_id != backend_registry_id
+            or preparation.resource_id != gpu_resource_id
+        ):
+            raise GPUAuthorityUnavailable()
+        if not preparation.proof_ready:
+            # Activating a member or advancing its control epoch/token horizon must
+            # never become durable while cached readiness still advertises this card.
+            if readiness_demoter is None:
+                raise GPULegacyAckBlockedError("readiness_demotion_unavailable")
             await readiness_demoter(gpu_resource_id)
-        raise GPULegacyAckBlockedError(str(exc)) from None
-    if (
-        preparation.backend_id != backend_registry_id
-        or preparation.resource_id != gpu_resource_id
-    ):
-        raise GPUAuthorityUnavailable()
-    if not preparation.proof_ready:
-        # Activating a member or advancing its control epoch/token horizon must
-        # never complete while cached readiness still advertises this card.
-        if readiness_demoter is None:
-            raise GPULegacyAckBlockedError("readiness_demotion_unavailable")
-        await readiness_demoter(gpu_resource_id)
-    return preparation
+        return preparation
 
 
 async def prepare_gpu_backend_rollout_control(
@@ -288,38 +309,42 @@ async def prepare_gpu_backend_rollout_control(
         raise ValueError(
             "evidence_ttl must be positive and no greater than five minutes"
         )
-    result = await data.step(
-        "prepare_rollout_control",
-        {
-            "backend_registry_id": str(backend_registry_id),
-            "gpu_resource_id": gpu_resource_id,
-            "membership_epoch": membership_epoch,
-            "transition_id": str(transition_id),
-            "target_gate": target_gate,
-            "token_ttl_seconds": token_ttl_seconds,
-            "evidence_ttl_seconds": evidence_ttl.total_seconds(),
-        },
-    )
-    try:
-        preparation = _rollout_preparation(_preparation(result))
-    except ValueError as exc:
-        if readiness_demoter is not None:
+    async with _preparation_transaction(data) as borrowed:
+        result = await borrowed.step(
+            "prepare_rollout_control",
+            {
+                "backend_registry_id": str(backend_registry_id),
+                "gpu_resource_id": gpu_resource_id,
+                "membership_epoch": membership_epoch,
+                "transition_id": str(transition_id),
+                "target_gate": target_gate,
+                "token_ttl_seconds": token_ttl_seconds,
+                "evidence_ttl_seconds": evidence_ttl.total_seconds(),
+            },
+        )
+        try:
+            preparation = _rollout_preparation(_preparation(result))
+        except ValueError as exc:
+            if readiness_demoter is not None:
+                await readiness_demoter(gpu_resource_id)
+            raise GPURolloutControlBlockedError(str(exc)) from None
+        if (
+            preparation.backend_id != backend_registry_id
+            or preparation.resource_id != gpu_resource_id
+            or preparation.transition_id != transition_id
+            or preparation.target_gate != target_gate
+        ):
+            raise GPUAuthorityUnavailable()
+        if (
+            preparation.action == "issue"
+            and preparation.reason != "control_intent_replay"
+        ):
+            # A fresh reset/mode intent advances the control epoch and token horizon;
+            # cached readiness must be revoked before that change becomes durable.
+            if readiness_demoter is None:
+                raise GPURolloutControlBlockedError("readiness_demotion_unavailable")
             await readiness_demoter(gpu_resource_id)
-        raise GPURolloutControlBlockedError(str(exc)) from None
-    if (
-        preparation.backend_id != backend_registry_id
-        or preparation.resource_id != gpu_resource_id
-        or preparation.transition_id != transition_id
-        or preparation.target_gate != target_gate
-    ):
-        raise GPUAuthorityUnavailable()
-    if preparation.action == "issue" and preparation.reason != "control_intent_replay":
-        # A fresh reset/mode intent advances the control epoch and token horizon;
-        # cached readiness must be revoked before the caller issues backend HTTP.
-        if readiness_demoter is None:
-            raise GPURolloutControlBlockedError("readiness_demotion_unavailable")
-        await readiness_demoter(gpu_resource_id)
-    return preparation
+        return preparation
 
 
 __all__ = [

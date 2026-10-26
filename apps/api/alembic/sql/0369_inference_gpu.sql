@@ -1113,7 +1113,6 @@ BEGIN
                         ELSIF v_fence.control_epoch_high_water=9223372036854775807 OR (v_membership.state='pending' AND v_fence.runtime_epoch_high_water=9223372036854775807) THEN PERFORM aap_inference_gpu_v1._fail();
                         ELSE
                             IF v_membership.state='pending' THEN
-                                PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('aap:gpu-membership-promotion',0));
                                 UPDATE public.gpu_backend_fences f SET runtime_epoch_high_water=f.runtime_epoch_high_water+1 WHERE f.backend_registry_id=v_id RETURNING f.runtime_epoch_high_water INTO v_runtime;
                                 UPDATE public.gpu_backend_memberships m SET state='active',updated_at=v_now WHERE m.backend_registry_id=v_id AND m.gpu_resource_id=v_resource;
                             ELSE v_runtime:=v_fence.runtime_epoch_high_water; END IF;
