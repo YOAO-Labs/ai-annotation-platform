@@ -1665,11 +1665,31 @@ AS $function$
 DECLARE
     v_registry uuid;
     v_pool uuid;
+    v_locked uuid[];
+    v_unlocked boolean;
 BEGIN
     SELECT registry.id INTO v_registry
     FROM public.ml_backend_registry AS registry
     WHERE registry.id = p_registry_id
     FOR SHARE;
+    -- Advancing the Pool routing generation makes the routing trigger advance
+    -- the eligibility of every member Registry. Those Registry rows must be
+    -- locked before the Pool, never behind it, or a peer health probe that
+    -- already wrote its Registry state while waiting for the Pool deadlocks.
+    SELECT pg_catalog.array_agg(member.registry_id ORDER BY member.registry_id)
+    INTO v_locked
+    FROM (
+        SELECT DISTINCT member.registry_id
+        FROM public.ml_backend_pool_members AS member
+        WHERE member.pool_id = p_pool_id
+    ) AS member;
+    IF v_locked IS NOT NULL THEN
+        PERFORM registry.id
+        FROM public.ml_backend_registry AS registry
+        WHERE registry.id = ANY (v_locked)
+        ORDER BY registry.id
+        FOR KEY SHARE OF registry;
+    END IF;
     SELECT pool.id INTO v_pool
     FROM public.ml_backend_service_pools AS pool
     WHERE pool.id = p_pool_id
@@ -1680,6 +1700,19 @@ BEGIN
         WHERE member.pool_id = p_pool_id
         ORDER BY member.id
         FOR UPDATE OF member;
+        SELECT EXISTS (
+            SELECT 1
+            FROM public.ml_backend_pool_members AS member
+            WHERE member.pool_id = p_pool_id
+              AND NOT (
+                  member.registry_id = ANY (COALESCE(v_locked, ARRAY[]::uuid[]))
+              )
+        ) INTO v_unlocked;
+        IF v_unlocked THEN
+            RAISE EXCEPTION USING
+                ERRCODE = 'P0001',
+                MESSAGE = 'aap_inference_topology:topology_changed:service-pool membership changed while locking drift acceptance; retry:';
+        END IF;
     END IF;
     RETURN aap_inference_topology_v1.drift_review_rows(p_pool_id, p_registry_id);
 END;
@@ -1712,6 +1745,7 @@ DECLARE
     v_pool public.ml_backend_service_pools%ROWTYPE;
     v_member public.ml_backend_pool_members%ROWTYPE;
     v_member_facts jsonb;
+    v_locked uuid[];
 BEGIN
     IF p_expected IS NULL OR p_candidate_fingerprint IS NULL THEN
         RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'invalid capability acceptance';
@@ -1722,6 +1756,22 @@ BEGIN
     WHERE registry.id = p_registry_id
     FOR SHARE;
     IF NOT FOUND THEN RETURN NULL; END IF;
+    -- Same peer-before-Pool order as lock_drift_acceptance_rows: the Pool
+    -- generation advance touches every member Registry's routing eligibility.
+    SELECT pg_catalog.array_agg(member.registry_id ORDER BY member.registry_id)
+    INTO v_locked
+    FROM (
+        SELECT DISTINCT member.registry_id
+        FROM public.ml_backend_pool_members AS member
+        WHERE member.pool_id = p_pool_id
+    ) AS member;
+    IF v_locked IS NOT NULL THEN
+        PERFORM registry.id
+        FROM public.ml_backend_registry AS registry
+        WHERE registry.id = ANY (v_locked)
+        ORDER BY registry.id
+        FOR KEY SHARE OF registry;
+    END IF;
     SELECT pool.* INTO v_pool
     FROM public.ml_backend_service_pools AS pool
     WHERE pool.id = p_pool_id

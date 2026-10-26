@@ -155,19 +155,42 @@ def _array(value: Any) -> list[Any]:
     return value
 
 
-def _sqlstate(error: DBAPIError) -> str | None:
+def _driver_error(error: DBAPIError):
+    """Yield the DBAPI error itself then the driver exception SQLAlchemy chained.
+
+    The asyncpg dialect re-raises every server error as an adapted DBAPI error
+    whose text is ``"<class 'asyncpg.exceptions.X'>: <server message>"`` and
+    chains the original driver exception. Native messages must be read from the
+    driver, never parsed out of the adapted wrapper text.
+    """
+
     original = error.orig
-    return getattr(original, "sqlstate", None) or getattr(original, "pgcode", None)
+    if original is None:
+        return
+    yield original
+    cause = getattr(original, "__cause__", None)
+    if cause is not None:
+        yield cause
+
+
+def _sqlstate(error: DBAPIError) -> str | None:
+    for original in _driver_error(error):
+        state = getattr(original, "sqlstate", None) or getattr(original, "pgcode", None)
+        if state:
+            return state
+    return None
 
 
 def _primary_message(error: DBAPIError) -> str:
-    original = error.orig
-    diagnostic = getattr(original, "diag", None)
-    return (
-        getattr(diagnostic, "message_primary", None)
-        or str(original)
-        or "Inference topology operation failed"
-    )
+    for original in _driver_error(error):
+        diagnostic = getattr(original, "diag", None)
+        primary = getattr(diagnostic, "message_primary", None)
+        if isinstance(primary, str) and primary:
+            return primary
+        message = getattr(original, "message", None)
+        if isinstance(message, str) and message:
+            return message
+    return str(getattr(error, "orig", "")) or "Inference topology operation failed"
 
 
 class InferenceTopologyData:

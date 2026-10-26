@@ -337,7 +337,7 @@
         { "name": "p_registry_id", "type": "uuid", "nullable": false }
       ],
       "returns": { "kind": "scalar", "type": "jsonb" },
-      "semantics": "Registry SHARE, Pool UPDATE, only joined Members UPDATE; never locks peer Registries."
+      "semantics": "Registry SHARE, member Registry KEY SHARE in ID order before the Pool, Pool UPDATE, Members UPDATE; a member Registry gained behind the Pool fails closed as topology_changed."
     },
     {
       "signature": "aap_inference_topology_v1.accept_drift(uuid,uuid,text,boolean,text)",
@@ -351,7 +351,7 @@
         { "name": "p_expected", "type": "text", "nullable": false }
       ],
       "returns": { "kind": "scalar", "type": "jsonb" },
-      "semantics": "Compare fresh locked reviewed facts, restore disabled target, optionally replace reviewed baseline and enable Pool."
+      "semantics": "Compare fresh locked reviewed facts under the same peer-before-Pool lock order, restore disabled target, optionally replace reviewed baseline and enable Pool."
     },
     {
       "signature": "aap_inference_topology_v1.set_project_registry_enablement(uuid,uuid,boolean,text)",
