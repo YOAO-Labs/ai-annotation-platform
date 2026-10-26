@@ -1,0 +1,10 @@
+# Layer onto the complete Inference owner; never the primary infrastructure stack.
+services:
+  inference:
+    image: ${AAP_INFERENCE_IMAGE:?Set the accepted Inference image}
+    restart: unless-stopped
+
+networks:
+  default:
+    external: true
+    name: ${AAP_INFERENCE_DEVELOPMENT_NETWORK:?Set the verified infrastructure network}

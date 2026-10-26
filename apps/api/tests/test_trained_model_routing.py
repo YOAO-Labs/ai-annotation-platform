@@ -1,6 +1,7 @@
 """Controlled routing never selects another physical model instance."""
 
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from fastapi import HTTPException
@@ -13,10 +14,11 @@ from app.services.ml_routing.contracts import RejectionReason, RouterMode
 from app.services.ml_routing.router import MLBackendRouter
 from app.services.trained_model_reference_contract import FreezeModelReferenceError
 from tests.factory import create_project
+
 # Fixture dependencies resolve per module: routing_admission requires committed_routes.
 from tests.test_ml_routing_router import (  # noqa: F401
     committed_routes,
-    routing_admission as routing_owner,
+    routing_admission as routing_admission,
 )
 
 
@@ -24,13 +26,20 @@ from tests.test_ml_routing_router import (  # noqa: F401
     "mode", [RouterMode.OFF, RouterMode.OBSERVE, RouterMode.ENFORCE]
 )
 async def test_exact_target_is_never_replaced_by_another_pool_member(
-    routing_owner, mode
+    routing_admission, mode
 ):
-    db_session, project, pool, legacy, target = routing_owner
+    db_session, project, pool, legacy, target = routing_admission
     assert legacy.id != target.id
     # A real in-flight durable scope on the exact target fills its declared
     # backend concurrency; the sibling member stays entirely unused.
     target.extra_params = {"max_concurrency": 1}
+    await db_session.commit()
+    # Configuration changes invalidate observed health. Seed a fresh observation
+    # only after that configuration transaction has committed.
+    await db_session.refresh(target)
+    target.state = "connected"
+    target.health_meta = legacy.health_meta
+    target.last_checked_at = datetime.now(UTC)
     await db_session.commit()
 
     enforcing = MLBackendRouter(db_session, ledger=None, mode=RouterMode.ENFORCE)
@@ -84,9 +93,9 @@ async def test_exact_target_is_never_replaced_by_another_pool_member(
 
 @pytest.mark.parametrize("mode", [RouterMode.OFF, RouterMode.OBSERVE])
 async def test_target_filter_does_not_create_a_fake_singleton_fingerprint_exemption(
-    routing_owner, mode
+    routing_admission, mode
 ):
-    db_session, project, pool, legacy, sibling = routing_owner
+    db_session, project, pool, legacy, sibling = routing_admission
     assert legacy.id != sibling.id
     assert (
         await db_session.scalar(

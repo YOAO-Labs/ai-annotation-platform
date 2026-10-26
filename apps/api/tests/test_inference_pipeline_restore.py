@@ -559,7 +559,7 @@ async def test_inference_pipeline_nonempty_state_and_receipts_survive_owned_rest
     )
 
     try:
-        assert await _database_head(test_engine) == "0276"
+        source_head = await _database_head(test_engine)
         async with maker.begin() as db:
             actor = await create_user(
                 db,
@@ -663,7 +663,7 @@ async def test_inference_pipeline_nonempty_state_and_receipts_survive_owned_rest
             )
         assert clone_marker == ownership
 
-        assert await _database_head(restored_engine) == "0276"
+        assert await _database_head(restored_engine) == source_head
         clone_policy = await _pipeline_policy(test_engine, clone)
         assert clone_policy == source_policy == expected_policy
         clone_functions = await _function_metadata(restored_engine)

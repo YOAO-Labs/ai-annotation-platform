@@ -133,7 +133,7 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_inference_topology_v1.registry_facts(uuid)": "0369_inference_topology.sql",
     "aap_inference_backend_endpoint_v1.capture_backend_endpoint_subject(uuid,uuid,text,text)": "0369_inference_backend_endpoint.sql",
     "aap_inference_backend_endpoint_v1.open_execution_endpoint(text,uuid,uuid,text)": "0369_inference_backend_endpoint.sql",
-    "aap_inference_gpu_v1.gpu_authority_step(text,text)": "0369_inference_gpu.sql",
+    "aap_inference_gpu_v1.gpu_authority_step(text,text)": "0370_inference_gpu.sql",
     "aap_inference_gpu_caller_v1.gpu_caller_step(text,text)": "0369_inference_gpu.sql",
     "aap_inference_gpu_collector_v1.gpu_collector_step(text,text)": "0369_inference_gpu.sql",
     "aap_labeling_v1.screenshot_operations_command(jsonb)": "0363_labeling_screenshot_operations.sql",
@@ -1037,6 +1037,7 @@ SQL_ARTIFACTS = (
     "0369_inference_backend_endpoint.sql",
     "0369_inference_health.sql",
     "0369_inference_gpu.sql",
+    "0370_inference_gpu.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0362_labeling_e2e_fixture_writes.schema.json",
@@ -5343,8 +5344,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0369"]:
-            raise RuntimeError("module-data acceptance requires migration head 0369")
+        if heads != ["0370"]:
+            raise RuntimeError("module-data acceptance requires migration head 0370")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         relation_sql_hashes = _read_relation_sql_input_sha256()
         evidence["migrations"]["read_relation_sql_input_sha256"] = relation_sql_hashes

@@ -105,7 +105,7 @@ async def _subject(db, registry_id):
 
 
 async def _probe(db, registry_id, subject):
-    return await backend_probe(db)(
+    return await backend_probe()(
         registry_id, subject, timeout=2, limits=CapabilityLimits()
     )
 

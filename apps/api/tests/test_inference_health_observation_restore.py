@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from contextlib import AsyncExitStack
-import json
 import os
 import stat
 import uuid
@@ -31,7 +30,13 @@ from tests.test_inference_backend_dependency_reads_restore import (
     _drop_owned_clone,
 )
 from tests.test_inference_health_observation_bindings import backend_server
-from tests.test_inference_health_observation_native import _capture, _connect
+from tests.test_inference_health_observation_native import (
+    _capture,
+    _connect,
+    _endpoint_capture,
+    _endpoint_envelope,
+    _observation_backend,
+)
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -66,7 +71,7 @@ async def test_restored_key_and_role_contract_keep_database_binding_and_caller_c
     test_engine, monkeypatch, tmp_path
 ):
     await assert_owned_test_database(test_engine)
-    assert await _database_head(test_engine) == "0278"
+    source_head = await _database_head(test_engine)
     registry_id, request_id = uuid.uuid4(), uuid.uuid4()
     clone = f"aap_health_observation_restore_{uuid.uuid4().hex[:10]}_test"
     ownership = "health-observation-restore:" + str(uuid.uuid4())
@@ -96,23 +101,20 @@ async def test_restored_key_and_role_contract_keep_database_binding_and_caller_c
                     )
                 )
             native_before = await _native_state(test_engine)
-            origin = await _connect(test_engine, role="inference_health_origin_client")
+            origin = await _connect(test_engine, role="legacy_runtime")
             transaction = origin.transaction()
             await transaction.start()
             subject = await _capture(
                 origin,
                 registry_id,
                 request_id,
-                json.dumps(
-                    {
-                        "id": str(registry_id),
-                        "url": url,
-                        "auth_method": "token",
-                        "auth_token": "restored-health-token",
-                        "gpu_resource_id": None,
-                        "vram_budget_mb": None,
-                        "extra_params": {},
-                    }
+                _observation_backend(
+                    registry_id,
+                    _endpoint_envelope(
+                        registry_id,
+                        request_id,
+                        await _endpoint_capture(origin, registry_id, request_id),
+                    ),
                 ),
             )
             source_xid = await origin.fetchval(
@@ -144,7 +146,7 @@ async def test_restored_key_and_role_contract_keep_database_binding_and_caller_c
                 test_engine.url.set(database=clone), hide_parameters=True
             )
             await _assert_clone_identity(restored, clone, ownership)
-            assert await _database_head(restored) == "0278"
+            assert await _database_head(restored) == source_head
             assert await _native_state(restored) == native_before
             async with restored.connect() as connection:
                 assert (

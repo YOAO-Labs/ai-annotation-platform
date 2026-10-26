@@ -368,8 +368,8 @@ API的LaunchAgent通过`EnvironmentVariables.UV_ENV_FILE`读取`api.env`；
 服务归属，确认旧job已移除后再bootstrap，不用sudo绕过错误或按端口杀未知进程。
 
 `compose.env`保存完整`COMPOSE_FILE`链、专用项目名、已核对私网和不可变镜像选择。
-它组合原六份能力Compose、class-rename／Guide／Inference依赖overlay、真实Inference
-probe及`docker-compose.workspace-development.yml`；不要叠加主基础设施Compose。
+它组合原六份能力Compose、class-rename／Guide／Inference依赖overlay及
+`docker-compose.workspace-development.yml`；Inference probe 由下述完整 owner 提供，不再另起旧 probe 容器。不要叠加主基础设施Compose。
 
 ```bash
 docker compose --env-file "$HOME/.local/state/ai-annotation-platform/workspace-development/compose.env" up -d --no-build --wait
@@ -1714,6 +1714,25 @@ DSN selector。`INFERENCE_PIPELINES_TIMEOUT_SECONDS` 默认30秒，显式提供�
 映射各专用 LOGIN、独立 bearer、Redis 与 GPU 签名文件；私有凭据只挂载给 Inference。
 容器使用 UID10008 与只读文件系统；运行预算不代替容量资格，配置变更也不等于已切换日常或生产。
 合同、事务及故障恢复见 [Inference 运行指南](docs-site/api/guides/inference-runtime.md)。
+
+本机完整 Inference 使用独立项目 `aap-inference-development`，组合
+`docker-compose.inference.yml` 与 `docker-compose.inference-development.yml`。
+私有 `~/.local/state/ai-annotation-platform/inference-development/compose.env` 固定已验收镜像、
+外部基础设施私网和28项只读 secret；十八个专用 LOGIN、八种 bearer 与普通 API 账号分离。
+API 的 LaunchAgent `UV_ENV_FILE` 和普通 worker 的 `--env-file` 指向同目录的 `api.env`；
+该文件保留原 Workspace、Labeling 和 Jobs 配置，只新增所需 HTTP selector，不携带 owner DSN 或 GPU 私钥。
+
+```bash
+docker compose --env-file "$HOME/.local/state/ai-annotation-platform/inference-development/compose.env" up -d --no-build --wait
+docker compose --env-file "$HOME/.local/state/ai-annotation-platform/inference-development/compose.env" ps
+```
+
+Workspace configuration 使用同一私网中的 `aap-inference-development-inference-1:8768` 及专用
+probe bearer；其私有 `COMPOSE_FILE` 不再包含 `docker-compose.inference-probe.yml`。
+切换时须先识别并停止占用8768的旧 probe，再创建完整 owner；新服务就绪前保留原配置供回退。
+LaunchAgent 环境变更须先 bootout，确认旧 label 已不存在，再 bootstrap 已验证的 plist，
+不能把尚未卸载的 job 直接重载，或用 sudo 绕过失败。
+本机 GPU 策略保持 `off`、资源列表为空；健康检查和 CPU 路径不构成 NVIDIA 或硬件容量资格。
 
 ### Inference 服务池策略与项目主绑定清理
 

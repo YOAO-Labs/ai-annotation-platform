@@ -66,6 +66,8 @@ Inference 在 owner 内打开密封 endpoint；对写操作，在真实 HTTP 前
 
 只读 health、setup、catalog、statistics、receipt／versions 不创建预测 attempt。模型写入与 unload／reload／warmup 则保持各自 scope/control 生命周期、begin／settle 和 GPU one-shot grant 的真实响应／未发送／不确定结果。过期租约不等于 backend 已停止；未确认 scope 必须保留。
 
+GPU rollout 首次启用先建立 settled `off` 状态，再在同一事务进入 `promoting`；不能绕过原状态迁移围栏。取消意图的恢复与提交保持精确的 membership、generation、control／runtime epoch 和 token horizon 检查；端点 URL、认证方式或凭据轮换都会使旧意图失效。旧协议留下的无法验证指纹必须失败关闭，不能据此重新打开 resident 状态。
+
 不可变 `FrozenModelOperation`／`ModelOperationResult` 携带确切 task IDs、阶段图、输入、实际实例 provenance、原模型 metadata 和 transport observation。Metrics 在调用方按真实 transport observation 记录一次，不用 RPC wall time 替代模型耗时。结构化错误保持 status、detail、Retry-After、GPU error code 和实际路由来源。
 
 Assets 提供输入与 crop 发布；Jobs 持有领取／派发／代次；Labeling 持有原始／准备结果、最终候选和业务终态。Inference 不替这些 owner 提交。最终写回仍复核原账号、项目、任务／批次、源版本、取消和结果围栏。帧级多阶段仍不支持，不因换用远程执行而扩大能力。

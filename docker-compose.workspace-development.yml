@@ -16,9 +16,6 @@ services:
     <<: *workspace-runtime
   workspace-directory-query:
     <<: *workspace-runtime
-  inference-probe:
-    image: ${AAP_INFERENCE_IMAGE:?Set the accepted Inference image}
-    restart: unless-stopped
   assets-source:
     image: ${AAP_ASSETS_SOURCE_IMAGE:?Set the accepted Assets Source image}
     restart: unless-stopped

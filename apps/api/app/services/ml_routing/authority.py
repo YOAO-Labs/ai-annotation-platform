@@ -30,7 +30,6 @@ from aap_inference_contract.scope_retirement import (
 from aap_inference_contract.video_execution import (
     VideoScopeRejected,
     decode_video_execution_status_request,
-    decode_video_execution_status_result,
 )
 from aap_workspace.config import secret_source
 
@@ -155,8 +154,7 @@ class RoutingAuthority:
         """Read a proof-bound video execution status from the configured owner."""
         try:
             typed_proof = decode_video_execution_status_request(proof)
-            result = await self._http_client().video_execution_status(typed_proof)
-            return decode_video_execution_status_result(typed_proof, result)
+            return await self._http_client().video_execution_status(typed_proof)
         except RoutingUnavailable:
             raise
         except (ValueError, OSError, VideoScopeRejected):

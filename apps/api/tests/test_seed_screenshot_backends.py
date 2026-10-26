@@ -120,7 +120,7 @@ async def test_tracker_requirement_uses_declared_priority() -> None:
 async def test_stub_candidate_creates_singleton_service_pool(
     db_session, monkeypatch
 ) -> None:
-    async def fake_refresh(backends):
+    async def fake_refresh(db, backends):
         return backends
 
     monkeypatch.setattr(
