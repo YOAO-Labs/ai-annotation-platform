@@ -55,6 +55,17 @@ class DatasetSourceUpdate(BaseModel):
     cache_policy: CachePolicy | None = None
 
 
+class AgentSourceStatus(BaseModel):
+    state: Literal[
+        "online", "offline", "revoked", "pending", "expired", "degraded", "unavailable"
+    ]
+    reason_code: str
+    site_name: str | None = None
+    agent_name: str | None = None
+    last_seen: datetime | None = None
+    measured_at: datetime
+
+
 class DatasetSourceOut(BaseModel):
     id: uuid.UUID
     dataset_id: uuid.UUID | None
@@ -75,6 +86,7 @@ class DatasetSourceOut(BaseModel):
     policy_revision: int
     unregistered_at: datetime | None
     external_protection: SourceExternalProtectionOut | None = None
+    agent_status: AgentSourceStatus | None = None
 
 
 class DatasetSourceList(BaseModel):

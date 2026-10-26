@@ -84,6 +84,23 @@ export function verifiedContentError(error: unknown): string {
   if (code === "dataset_busy") return "数据集正在处理其他操作，请稍后重新核对";
   if (
     [
+      "agent_offline",
+      "agent_command_expired",
+      "agent_relay_unavailable",
+      "agent_relay_incomplete",
+      "agent_content_incomplete",
+    ].includes(code)
+  )
+    return "来源 Agent 离线或传输中断，原图暂不可读；连接恢复后请重试";
+  if (code === "agent_revoked") return "来源 Agent 授权已撤销，请联系管理员重新授权后重试";
+  if (code === "credential_expired") return "来源 Agent 凭据已过期，请联系管理员更新凭据后重试";
+  if (["agent_unauthorized", "credential_revision_changed", "agent_unpaired"].includes(code))
+    return "来源 Agent 授权已变化或尚未配对，请联系管理员核对连接后重试";
+  if (code === "agent_draining") return "来源 Agent 已暂停接收新操作，恢复服务后请重试";
+  if (["agent_unavailable", "agent_operation_failed", "agent_root_revision_changed"].includes(code))
+    return "来源 Agent 暂不可用，请联系管理员检查连接和目录后重试";
+  if (
+    [
       "content_unverified",
       "no_readable_original",
       "original_location_ambiguous",

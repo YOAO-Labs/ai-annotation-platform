@@ -6,6 +6,7 @@ import type {
   DatasetSavedViewOut,
   DatasetSavedViewWrite,
   DatasetSceneOptions,
+  AgentSourceStatus,
 } from "./generated/types.gen";
 import type { LidarAxisConvention } from "@/types";
 
@@ -25,6 +26,7 @@ export type DatasetAvailabilityState =
   | "unavailable"
   | "unverified";
 export interface DatasetItemAvailability {
+  agent_status?: AgentSourceStatus | null;
   state: DatasetAvailabilityState;
   reason_code: string;
   observed_at: string | null;

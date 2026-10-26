@@ -31,6 +31,10 @@ import {
   datasetTrainingPath,
 } from "./datasetTrainingSelection";
 import { DatasetLifecycleAction } from "@/components/datasets/DatasetLifecycleAction";
+import {
+  AgentSourceStatus,
+  agentAvailabilityReason,
+} from "@/components/datasets/AgentSourceStatus";
 import { DatasetSavedViews } from "./DatasetSavedViews";
 import { projectsApi } from "@/api/projects";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -126,6 +130,11 @@ function Availability({ item }: { item: DatasetItemResponse }) {
       }
     >
       {availabilityLabels[item.availability?.state ?? "unverified"]}
+      {item.availability?.agent_status && item.availability.agent_status.state !== "online" && (
+        <span className="ml-2">
+          <AgentSourceStatus status={item.availability.agent_status} compact />
+        </span>
+      )}
       {item.availability?.original_cache_recorded && (
         <span className="ml-2 text-xs text-muted-foreground">有完整缓存记录</span>
       )}
@@ -1174,6 +1183,11 @@ function ItemInspector({
             <div>
               <dt className="text-muted-foreground">来源</dt>
               <dd className="mt-1">{item.availability?.source_name ?? "托管上传或未提供"}</dd>
+              {item.availability?.agent_status && (
+                <dd className="mt-1">
+                  <AgentSourceStatus status={item.availability.agent_status} />
+                </dd>
+              )}
             </div>
             <div>
               <dt className="text-muted-foreground">状态观测时间</dt>
@@ -1186,7 +1200,9 @@ function ItemInspector({
           </dl>
           {item.availability?.reason_code && (
             <p className="mt-3 break-all text-xs text-muted-foreground">
-              状态原因：{item.availability.reason_code}
+              状态原因：
+              {agentAvailabilityReason(item.availability.reason_code) ??
+                item.availability.reason_code}
             </p>
           )}
           <p className="mt-3 text-xs text-muted-foreground">

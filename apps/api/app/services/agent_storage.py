@@ -9,6 +9,7 @@ from app.db.models.site_agent import AgentCredential, AgentRegistration
 from app.services import agent_transport as transport, content_snapshot as snapshots
 from app.services.filesystem_storage import FilesystemStorageError
 from app.services.site_agents import SiteAgentError, validate_current
+from app.services import agent_availability
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,13 @@ async def configuration(db, location):
         validate_current(agent, credential)
     except SiteAgentError as exc:
         raise FilesystemStorageError(exc.code) from None
+    status = (await agent_availability.for_locations(db, [location.id])).get(
+        location.id
+    )
+    if status is None or status["reason_code"] != "agent_online":
+        raise FilesystemStorageError(
+            status["reason_code"] if status else "agent_unavailable"
+        )
     return AgentAccess(location.id, location.config.get("agent_anchor"))
 
 

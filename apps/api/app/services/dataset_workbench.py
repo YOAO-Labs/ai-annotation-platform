@@ -29,6 +29,7 @@ from app.services.data_management.task_filters import (
     compile_filter,
 )
 from app.services.dataset_source_access import source_scope_clause
+from app.services import agent_availability
 from app.services.directory_policy import preview_policy_clause
 from app.services.project_access import is_privileged_for_project
 from app.services.project_aggregates import (
@@ -245,6 +246,10 @@ def observations(
         DatasetSource.unregistered_at.is_not(None),
         StorageLocation.enabled.is_(False),
     )
+    agent_reason = agent_availability.reason()
+    agent_blocked = and_(
+        StorageLocation.kind == "agent", agent_reason != "agent_online"
+    )
     replaced = (
         select(1)
         .select_from(DatasetSourceItem)
@@ -265,6 +270,10 @@ def observations(
             and_(ref, changes.c.kind == "unreadable"),
             case((preview, "preview_only"), else_="unavailable"),
         ),
+        (
+            and_(ref, agent_blocked),
+            case((preview, "preview_only"), else_="unavailable"),
+        ),
         (and_(ref, verified, DatasetSource.id.is_not(None)), "verified"),
         (and_(~ref, verified, replica.is_not(None)), "verified"),
         else_="unverified",
@@ -279,13 +288,21 @@ def observations(
             return query
 
         reference_states = scoped(
-            select(DatasetItem.id.label("item_id"), state.label("state"))
-            .select_from(DatasetItem)
-            .join(DatasetReference, DatasetReference.dataset_item_id == DatasetItem.id)
-            .outerjoin(DatasetAsset, DatasetAsset.dataset_item_id == DatasetItem.id)
-            .outerjoin(DatasetSource, DatasetSource.id == DatasetReference.source_id)
-            .outerjoin(StorageLocation, StorageLocation.id == DatasetSource.location_id)
-            .outerjoin(changes, literal(True))
+            agent_availability.join_status(
+                select(DatasetItem.id.label("item_id"), state.label("state"))
+                .select_from(DatasetItem)
+                .join(
+                    DatasetReference, DatasetReference.dataset_item_id == DatasetItem.id
+                )
+                .outerjoin(DatasetAsset, DatasetAsset.dataset_item_id == DatasetItem.id)
+                .outerjoin(
+                    DatasetSource, DatasetSource.id == DatasetReference.source_id
+                )
+                .outerjoin(
+                    StorageLocation, StorageLocation.id == DatasetSource.location_id
+                )
+                .outerjoin(changes, literal(True))
+            )
         )
         if reference_source_ids is not None:
             return reference_states.where(
@@ -392,9 +409,29 @@ def observations(
                 ),
                 ref.label("is_reference"),
                 func.coalesce(manageable, False).label("can_manage"),
+                case(
+                    (
+                        and_(
+                            manageable,
+                            ref,
+                            ~disabled,
+                            ~replaced,
+                            or_(
+                                changes.c.kind.is_(None),
+                                ~changes.c.kind.in_(
+                                    ["changed", "not_seen", "unreadable"]
+                                ),
+                            ),
+                            agent_blocked,
+                        ),
+                        agent_reason,
+                    ),
+                    else_=None,
+                ).label("agent_unavailable_reason"),
+                *agent_availability.projection(manageable),
             ]
         )
-    base = (
+    base = agent_availability.join_status(
         select(*columns)
         .select_from(DatasetItem)
         .outerjoin(DatasetAsset, DatasetAsset.dataset_item_id == DatasetItem.id)
@@ -465,7 +502,8 @@ def availability(row):
         actions.append("read_preview")
     return {
         "state": state,
-        "reason_code": {
+        "reason_code": row["agent_unavailable_reason"]
+        or {
             "verified": "verified_observation",
             "missing": "not_seen_in_complete_scan",
             "changed": "content_change_requires_review",
@@ -481,6 +519,7 @@ def availability(row):
         "source_id": row["source_id"],
         "source_name": row["source_name"],
         "location_id": row["location_id"],
+        "agent_status": agent_availability.from_row(row),
         "allowed_actions": actions,
     }
 

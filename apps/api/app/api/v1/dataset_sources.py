@@ -51,6 +51,7 @@ from app.schemas.dataset_source import (
 )
 from app.services import dataset_scans as svc
 from app.services import dataset_source_access as access
+from app.services import agent_availability
 from app.services.audit import AuditAction, AuditService
 from app.services.filesystem_storage import FilesystemStorageError
 from app.services.content_snapshot import (
@@ -132,9 +133,17 @@ async def list_sources(
             )
         )
     }
+    agent_statuses = await agent_availability.for_locations(
+        db, [key for key, location in location_map.items() if location.kind == "agent"]
+    )
     return {
         "items": [
-            await svc.source_out(db, row, location=location_map.get(row.location_id))
+            await svc.source_out(
+                db,
+                row,
+                location=location_map.get(row.location_id),
+                agent_status=agent_statuses.get(row.location_id),
+            )
             for row in rows
         ],
         "total": total,

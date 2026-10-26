@@ -240,6 +240,33 @@ afterEach(() => {
     vi.mocked(HTMLAnchorElement.prototype.click).mockRestore();
 });
 describe("Dataset detail workbench", () => {
+  it("keeps cached-original and preview actions visible while the source Agent is offline", async () => {
+    vi.mocked(datasetsApi.item).mockResolvedValue({
+      ...item,
+      id: "outside",
+      availability: {
+        ...item.availability,
+        reason_code: "agent_offline",
+        original_cache_recorded: true,
+        allowed_actions: ["read_preview", "read_original"],
+        agent_status: {
+          state: "offline",
+          reason_code: "agent_offline",
+          site_name: "上海站点",
+          agent_name: "图片 Agent",
+          last_seen: null,
+          measured_at: dataset.created_at,
+        },
+      },
+    } as never);
+    mount("/datasets/dataset-one?item=outside");
+    const dialog = await screen.findByRole("dialog", { name: "样本检查器" });
+    expect((await within(dialog).findAllByText(/上海站点.*图片 Agent.*离线/))[0]).toBeVisible();
+    expect(within(dialog).getByText("已有登记，读取时复核")).toBeVisible();
+    expect(within(dialog).getByRole("button", { name: "核验读取原图" })).toBeEnabled();
+    expect(within(dialog).getByRole("button", { name: "读取只读预览" })).toBeEnabled();
+    expect(within(dialog).getByText(/状态原因：Agent 已离线/)).toBeVisible();
+  });
   it("waits for a saved-view-only link and restores its source before querying samples", async () => {
     let resolve!: (value: never) => void;
     vi.mocked(datasetsApi.savedViews).mockImplementation(

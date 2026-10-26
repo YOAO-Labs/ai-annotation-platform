@@ -40,13 +40,20 @@ def path_digest(path):
     return hashlib.sha256(path.encode()).hexdigest()
 
 
-async def source_out(db, source, *, location=None):
+async def source_out(db, source, *, location=None, agent_status=...):
+    from app.services import agent_availability
     from app.services.directory_policy import effective_cache_policy
     from app.services.dataset_source_protection import declaration
 
     location = location or await db.get(
         StorageLocation, source.location_id, populate_existing=True
     )
+    if agent_status is ...:
+        agent_status = (
+            (await agent_availability.for_locations(db, [location.id])).get(location.id)
+            if location and location.kind == "agent"
+            else None
+        )
     return (
         {
             key: getattr(source, key)
@@ -67,6 +74,7 @@ async def source_out(db, source, *, location=None):
         | {
             "mode": "inventory",
             "external_protection": declaration(source),
+            "agent_status": agent_status,
             "effective_cache_policy": effective_cache_policy(source, location)
             if location
             else "none",

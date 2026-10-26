@@ -2,7 +2,7 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { apiClient, ApiError } from "@/api/client";
 import { useAuthStore } from "@/stores/authStore";
-import { useVerifiedImage } from "./useVerifiedImage";
+import { useVerifiedImage, verifiedContentError } from "./useVerifiedImage";
 import { useSessionGuard } from "./useSessionGuard";
 
 vi.mock("@/api/client", async (importOriginal) => {
@@ -12,6 +12,19 @@ vi.mock("@/api/client", async (importOriginal) => {
 const decodes: Array<() => void> = [];
 const revoke = vi.fn();
 const user = { id: "reader" } as Parameters<ReturnType<typeof useAuthStore.getState>["setAuth"]>[1];
+
+it.each([
+  ["agent_offline", "连接恢复后请重试"],
+  ["agent_command_expired", "连接恢复后请重试"],
+  ["agent_relay_incomplete", "连接恢复后请重试"],
+  ["agent_revoked", "授权已撤销"],
+  ["credential_expired", "凭据已过期"],
+  ["agent_unauthorized", "授权已变化"],
+  ["agent_draining", "暂停接收新操作"],
+  ["agent_root_revision_changed", "检查连接和目录"],
+])("explains Agent content failure %s", (code, expected) => {
+  expect(verifiedContentError(new ApiError(409, "failure", { code }))).toContain(expected);
+});
 
 beforeEach(() => {
   vi.mocked(apiClient.silentGetBlob)

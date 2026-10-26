@@ -43,6 +43,42 @@ const source = {
   exclude_globs: [],
   unregistered_at: null,
 };
+it("shows the selected source heartbeat outside its select and keeps metadata visible", async () => {
+  vi.clearAllMocks();
+  api.sources.mockResolvedValue({
+    items: [
+      {
+        ...source,
+        agent_status: {
+          state: "offline",
+          reason_code: "agent_offline",
+          site_name: "上海站点",
+          agent_name: "图片 Agent",
+          last_seen: null,
+          measured_at: "2026-10-26T01:00:00Z",
+        },
+      },
+    ],
+    total: 1,
+  });
+  api.locations.mockResolvedValue({ items: [], total: 0 });
+  api.scans.mockResolvedValue({ items: [], total: 0 });
+  api.syncSchedule.mockResolvedValue(null);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const view = render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
+        <DirectoryReferencePanel datasetId="dataset" />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  expect(await screen.findByText("上海站点 / 图片 Agent · 离线")).toBeVisible();
+  expect(screen.getByText(/连接恢复后可重试/).closest("select")).toBeNull();
+  expect(screen.getByRole("option", { name: "source" })).toBeInTheDocument();
+  expect(screen.getByText("扫描历史", { exact: false })).toBeVisible();
+  view.unmount();
+  client.clear();
+});
 it("refreshes a paused schedule revision after saving source rules before re-enabling", async () => {
   let changed = false;
 

@@ -15,6 +15,7 @@ import { DirectorySourceProtection } from "./DirectorySourceProtection";
 import { DirectoryCachedPreview, DirectorySourceControls } from "./DirectorySourceControls";
 import { AsyncJobDetailModal } from "@/components/jobs/AsyncJobDetailModal";
 import { parseReference } from "@/utils/referenceContent";
+import { AgentSourceStatus } from "./AgentSourceStatus";
 
 const disclosure =
   "cursor-pointer text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -299,6 +300,11 @@ function DirectoryReferencePanelOwner({
             </Link>
           )}
         </div>
+        {source?.agent_status && (
+          <div className="mb-3" role="status">
+            <AgentSourceStatus status={source.agent_status} />
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-2">
           <select
             aria-label="已有目录来源"

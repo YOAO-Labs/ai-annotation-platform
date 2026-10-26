@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Literal
 
 from app.schemas._jsonb_types import DatasetItemMetadata, LidarAxisConvention
+from app.schemas.dataset_source import AgentSourceStatus
 
 
 class DatasetCreate(BaseModel):
@@ -64,6 +65,7 @@ class DatasetSceneOptions(BaseModel):
 
 
 class DatasetItemAvailability(BaseModel):
+    agent_status: AgentSourceStatus | None = None
     state: DatasetAvailabilityState = "unverified"
     reason_code: str = "not_verified"
     observed_at: datetime | None = None
