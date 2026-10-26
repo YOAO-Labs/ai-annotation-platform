@@ -145,6 +145,27 @@ def test_symlinks_and_root_replacement_fail_closed(controlled_root, tmp_path):
         fs.scan_directory(spec, "", expected_anchor=anchor)
 
 
+@pytest.mark.parametrize("operation", ["scan", "browse", "read"])
+def test_missing_root_never_uses_parent_or_leaks_descriptors(
+    controlled_root, operation
+):
+    root, spec = controlled_root
+    anchor = fs.capture_anchor(spec)
+    root.rmdir()
+    (root.parent / "secret.bin").write_bytes(b"outside the controlled root")
+    before = descriptors_for(root)
+    with pytest.raises(FilesystemStorageError, match="^path_unavailable$") as failure:
+        if operation == "scan":
+            fs.scan_directory(spec, "", expected_anchor=anchor)
+        elif operation == "browse":
+            fs.browse_directory(spec, "", expected_anchor=anchor, limit=1)
+        else:
+            with fs.content_file(spec, "", "secret.bin", expected_anchor=anchor):
+                pytest.fail("A missing root must never yield its parent's file")
+    assert failure.value.storage_fault_category == "root_unavailable"
+    assert descriptors_for(root) == before
+
+
 def test_relative_base_replacement_and_special_file(controlled_root):
     root, spec = controlled_root
     (root / "data").mkdir()

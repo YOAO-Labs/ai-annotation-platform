@@ -7,6 +7,7 @@ import socket
 import ssl
 import subprocess
 import threading
+import time
 from urllib import error
 from uuid import uuid4
 
@@ -90,6 +91,8 @@ def tls_center(tmp_path):
         "poll_command": None,
         "ack_state": "applied",
         "chunk_posts": [],
+        "response_gate": None,
+        "response_waiting": threading.Event(),
     }
 
     class Handler(BaseHTTPRequestHandler):
@@ -97,11 +100,21 @@ def tls_center(tmp_path):
             pass
 
         def do_POST(self):
+            try:
+                self.post()
+            except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError):
+                if state["response_gate"] is None:
+                    raise
+
+        def post(self):
             size = int(self.headers["Content-Length"])
             body = self.rfile.read(size)
             state["paths"].append(self.path)
             state["authorization"].append(self.headers["Authorization"])
             state["sessions"].append(self.headers["X-Agent-Session"])
+            if state["response_gate"] is not None:
+                state["response_waiting"].set()
+                state["response_gate"].wait(timeout=5)
             if state["redirect"]:
                 self.send_response(302)
                 self.send_header("Location", "/credential-sink")
@@ -182,9 +195,104 @@ def tls_center(tmp_path):
     try:
         yield f"https://127.0.0.1:{server.server_port}", str(cert), state
     finally:
+        if state["response_gate"] is not None:
+            state["response_gate"].set()
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+def test_actual_tls_delayed_response_completes_before_socket_timeout(agent, tls_center):
+    config, credentials, _, _, _ = agent
+    origin, ca, peer = tls_center
+    gate = peer["response_gate"] = threading.Event()
+
+    def release_delayed_response():
+        if peer["response_waiting"].wait(timeout=5):
+            time.sleep(0.1)
+        gate.set()
+
+    release = threading.Thread(target=release_delayed_response)
+    release.start()
+    started = time.monotonic()
+    try:
+        assert (
+            Client(replace(config, center_url=origin, ca_file=ca), credentials).poll()
+            is None
+        )
+    finally:
+        gate.set()
+        release.join(timeout=5)
+    assert not release.is_alive()
+    assert peer["response_waiting"].is_set()
+    assert time.monotonic() - started >= 0.1
+    assert peer["paths"] == ["/api/v1/site-agents/commands/poll"]
+
+
+def test_actual_tls_delayed_response_times_out_with_bounded_retries(
+    agent, command, tls_center
+):
+    config, credentials, journal, runner, source = agent
+    origin, ca, peer = tls_center
+    gate = peer["response_gate"] = threading.Event()
+    result = runner.execute(command)
+    (source / "image.bin").write_bytes(b"changed while the response is delayed")
+    client = Client(replace(config, center_url=origin, ca_file=ca), credentials)
+    real_opener = client.opener
+    timeouts = []
+
+    class ShortSocketTimeout:
+        def open(self, req, timeout):
+            timeouts.append(timeout)
+            return real_opener.open(req, timeout=min(timeout, 0.2))
+
+    client.opener = ShortSocketTimeout()
+    sleeps = []
+    client.sleep = sleeps.append
+    started = time.monotonic()
+    try:
+        with pytest.raises(RetryableError, match="^center_unreachable$"):
+            client.run(runner)
+        assert peer["response_waiting"].is_set()
+        assert len(timeouts) == 5 and all(timeout == 25 for timeout in timeouts)
+        assert time.monotonic() - started >= 0.9
+        assert sleeps == [2, 4, 8, 16]
+        assert (
+            peer["paths"]
+            == [f"/api/v1/site-agents/commands/{command['command_id']}/result"] * 5
+        )
+        assert peer["chunk_posts"] == []
+        assert journal.get(command["command_id"])["state"] == "completed"
+        assert journal.get(command["command_id"])["result"] == result
+        with runner.outgoing(result) as body:
+            assert body.read() == b"source pixels"
+    finally:
+        gate.set()
+
+
+def test_dns_resolution_failure_has_bounded_retries_and_preserves_stage(
+    agent, command, monkeypatch
+):
+    config, credentials, journal, runner, _ = agent
+    result = runner.execute(command)
+    lookups = []
+
+    def unavailable_name(host, port, *args, **kwargs):
+        assert (host, port) == ("center.example", 443)
+        lookups.append((host, port))
+        raise socket.gaierror(socket.EAI_NONAME, "controlled DNS resolution failure")
+
+    monkeypatch.setattr(socket, "getaddrinfo", unavailable_name)
+    sleeps = []
+    client = Client(config, credentials, sleep=sleeps.append)
+    with pytest.raises(RetryableError, match="^center_unreachable$"):
+        client.run(runner)
+    assert lookups == [("center.example", 443)] * 5
+    assert sleeps == [2, 4, 8, 16]
+    assert journal.get(command["command_id"])["state"] == "completed"
+    assert journal.get(command["command_id"])["result"] == result
+    with runner.outgoing(result) as body:
+        assert body.read() == b"source pixels"
 
 
 def test_actual_tls_lost_ack_then_restart_replays_same_stage(

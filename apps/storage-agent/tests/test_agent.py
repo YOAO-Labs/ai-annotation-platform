@@ -8,6 +8,7 @@ import pytest
 
 from aap_site_agent_contract import digest, validate_command
 from aap_filesystem_read import capture_anchor
+from aap_filesystem_read import roots as fs
 
 from storage_agent.config import AgentError, Config, Credentials
 from storage_agent.journal import Journal
@@ -148,6 +149,36 @@ def test_stale_root_and_expired_grant_do_not_read(agent, command, change, code):
     result = runner.execute(command)
     assert result["status"] == "failed" and result["error_code"] == code
     assert not list(journal.stages.iterdir())
+
+
+def test_live_authorized_read_with_missing_root_fails_without_outside_bytes(
+    agent, command, monkeypatch
+):
+    _, credentials, journal, runner, source = agent
+    assert command["issued_at"] <= time.time() < command["expires_at"]
+    assert command["expires_at"] < credentials.expires_at
+    (source / "image.bin").unlink()
+    source.rmdir()
+    outside = source.parent / "image.bin"
+    outside.write_bytes(b"outside the configured root")
+    opens = []
+    original_open = fs._open_beneath
+
+    def record_open(parent, path, **kwargs):
+        opens.append(path)
+        return original_open(parent, path, **kwargs)
+
+    monkeypatch.setattr(fs, "_open_beneath", record_open)
+    result = runner.execute(command)
+    assert result["status"] == "failed"
+    assert result["error_code"] == "path_unavailable"
+    assert result["result"] == {} and result["closed"] is True
+    assert time.time() < command["expires_at"]
+    assert opens == [str(source).lstrip("/")]
+    assert journal.get(command["command_id"])["state"] == "completed"
+    assert runner.outgoing(result) is None
+    assert not list(journal.stages.iterdir())
+    assert outside.read_bytes() == b"outside the configured root"
 
 
 def test_other_identity_has_no_local_checkpoint(agent, command):
