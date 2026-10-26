@@ -314,6 +314,7 @@ async def _async_job(engine, job_id: str) -> dict:
             "id": str(row.id),
             "status": row.status,
             "celery_task_id": row.celery_task_id,
+            "error_message": row.error_message,
         }
 
 
@@ -527,6 +528,9 @@ async def _exercise_api_tracker_phase(
             failed_row = await _video_tracker_job(test_engine, str(failed["id"]))
             assert failed_row["status"] == VideoTrackerJobStatus.FAILED.value
             assert failed_row["celery_task_id"] is None
+            failed_summary = await _async_job(test_engine, str(failed["id"]))
+            assert failed_summary["status"] == AsyncJobStatus.FAILED.value
+            assert failed_summary["error_message"] == "tracker_enqueue_failed"
             assert _broker_state(sender, "gpu") == {
                 "queue_size": 0,
                 "unacknowledged": 0,

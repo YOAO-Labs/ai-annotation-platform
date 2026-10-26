@@ -13,7 +13,7 @@ from app.deps import (
     require_project_owner,
     require_project_visible,
 )
-from app.db.models.task import Task
+from app.services.labeling_core_read_relations import task_row
 from aap_workspace_contract.access import (
     ProjectAccess,
     ProjectCapability,
@@ -153,7 +153,7 @@ async def export_data_manager_tasks(
                     user=actor,
                     project=project,
                     project_role=access.project_role,
-                ).where(Task.id.in_(task_ids))
+                ).where(task_row.id.in_(task_ids))
             )
         )
         .scalars()

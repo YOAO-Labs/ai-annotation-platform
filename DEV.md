@@ -622,6 +622,21 @@ docker compose -f docker-compose.yml -f docker-compose.jobs-queue.yml \
 
 额外设置 `JOBS_DISPATCH_RELAY_DATABASE_URL_FILE`，文件只含专用 LOGIN 的 PostgreSQL DSN。relay 与 queue 使用同一不可变镜像但分进程、分秘密：queue 只有 broker 和 bearer；relay 只有函数 DSN 与 bearer，不持有 broker。脱离 Compose 运行须设置 `JOBS_DISPATCH_RELAY_ENABLED=true`、`JOBS_QUEUE_URL` 及对应 DSN／bearer selector，再运行 `aap-jobs-dispatch-relay`；直接值和 `_FILE` 不可同时设置。可按 `JOBS_DISPATCH_RELAY_BATCH_SIZE`、`JOBS_DISPATCH_RELAY_LEASE_SECONDS`、`JOBS_DISPATCH_RELAY_POLL_SECONDS` 调整每轮上限、租约与空闲间隔。
 
+本机已有基础设施时，可用独立 Compose project 复用已核实的网络，不再要求把 Redis
+服务定义合入队列配置。私有 Compose 环境文件还需设置
+`AAP_JOBS_QUEUE_RUNTIME_IMAGE`（已验收不可变镜像）和
+`AAP_JOBS_DEVELOPMENT_NETWORK`（实际基础设施网络名）：
+
+```bash
+docker compose --project-name aap-jobs-development --env-file /private/path/compose.env \
+  -f docker-compose.jobs-queue.yml -f docker-compose.jobs-dispatch-relay.yml \
+  -f docker-compose.jobs-development.yml up -d --no-build
+```
+
+该组合只发布 `127.0.0.1:8190`；宿主 API 使用此地址和同一 bearer，容器内 relay
+仍使用私网 queue 地址。它不会启动 Beat 或业务 worker；应用迁移／窄授权后，
+还须刷新实际消费者、核对其任务签名与队列，并验证 API、queue、relay 的独立秘密。
+
 发布结果不明或发布后回执丢失时，relay 在退避／租约到期后复用原消息和全部执行 ID，不重建业务参数；旧代次回执不能确认新租约。已确认发布不会自动重投；业务终态不再派发，取消 tracker 仅允许对已取消 canonical tracker 的原任务做退役重投。帧任务以冻结的逻辑段回执聚合，重复 header 不能提前完成。租约过期不是 worker 已停止的证明，不授予项目删除或历史执行退役权限。当前工件、真实消费者和恢复的验收状态见[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
 
 ### Notifications 偏好事务内能力

@@ -23,6 +23,7 @@ from app.db.models.task import Task
 from app.db.models.user import User
 from app.db.models.video_tracker_job import (
     VideoTrackerJob,
+    VideoTrackerJobStatus,
 )
 from app.schemas.video_tracker_job import (
     VideoMaskCorrectionRequest,
@@ -841,13 +842,19 @@ async def prepare_tracker_dispatch(
     if retirement and row.status == "cancelled":
         await async_job_svc.mark_cancelled(db, summary.id)
     await db.flush()
-    return await prepare_job_dispatch(
+    dispatch_lease = await prepare_job_dispatch(
         db,
         job_id=summary.id,
         task_name="app.workers.video_tracker.run_video_tracker_job",
         args=[str(row.id)],
         purpose="tracker_retirement" if retirement else "execution",
     )
+    if not retirement and summary.celery_task_id is None:
+        # Record the first accepted execution identity with its immutable intent.
+        # Retirement redrives use a new transport ID but retain this original ID.
+        async_job_svc.bind_execution_id(summary, dispatch_lease.execution_id)
+        await db.flush()
+    return dispatch_lease
 
 
 async def enqueue_tracker_job(
@@ -898,6 +905,16 @@ async def enqueue_tracker_job(
             raise HTTPException(
                 status_code=404, detail="Video tracker job not found"
             ) from exc
+        if (
+            raw.get("status") == VideoTrackerJobStatus.FAILED.value
+            and raw.get("error_message") == "tracker_enqueue_failed"
+        ):
+            # The control transition may return a running or terminal race winner;
+            # mirror only the proven enqueue failure, and only while the summary
+            # remains pending.
+            await async_job_svc.mark_dispatch_failed(
+                db, row_id, error="tracker_enqueue_failed"
+            )
         await db.commit()
         if fail_closed:
             raise HTTPException(

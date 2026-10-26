@@ -2615,7 +2615,11 @@ CREATE 权限；首轮 Native 调用发现 JSONB callback 减键表达式的运�
 错误，修正后消息边界及受限 API／relay 交接通过。真实 Redis／Celery 的
 逐帧写入等待、重试、进度和终态保护已执行通过。其他旧测试中的 Mask 候选
 读取值校验和普通推理 rollback 后过期对象读取仍单列，不冒称全后端测试通过。
-当前工件、独立 relay、整库恢复和日常采用的最终证据尚未闭合。
+锁定依赖的 Jobs 包 71 项测试通过。独立安装 CLI 的真实部分 canvas 强杀恢复已通过：
+publisher 与首个队列进程均以 SIGKILL 终止，relay 按原 child ID 重发，四次消费只保存
+三个规范帧并正常完成；测试代理关闭顺序导致的原始挂起失败收据继续保留。
+受限冷消费者发现的所选导出私表 FROM 及 tracker 汇总执行 ID／失败状态问题已修正；
+修正后的当前工件、整库恢复和日常采用的最终证据尚未闭合。
 
 ## Notifications 实现范围冻结 {#notifications-implementation-freeze}
 

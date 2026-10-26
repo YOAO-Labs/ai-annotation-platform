@@ -1,0 +1,15 @@
+# Combine the queue and relay files; Redis and PostgreSQL remain external.
+services:
+  jobs-queue:
+    image: ${AAP_JOBS_QUEUE_RUNTIME_IMAGE:?Set the accepted Jobs queue and relay image}
+    ports:
+      - "127.0.0.1:8190:8190"
+    restart: unless-stopped
+  jobs-dispatch-relay:
+    image: ${AAP_JOBS_QUEUE_RUNTIME_IMAGE:?Set the accepted Jobs queue and relay image}
+    restart: unless-stopped
+
+networks:
+  default:
+    external: true
+    name: ${AAP_JOBS_DEVELOPMENT_NETWORK:?Set the verified primary infrastructure network}

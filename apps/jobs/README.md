@@ -258,3 +258,18 @@ and `JOBS_DISPATCH_RELAY_POLL_SECONDS`. Frame recovery reuses the frozen logical
 segment IDs and completes only from the full canonical receipt set, not from
 duplicate chord header results. This is at-least-once publication, not
 exactly-once execution or a general historical-writer retirement system.
+
+## Package verification
+
+From the repository root, the locked test extra includes the asynchronous runner:
+
+```bash
+uv run --project apps/jobs --locked --extra test --extra queue-runtime \
+  --extra dispatch-relay python -m pytest apps/jobs/tests
+```
+
+Database-backed API cases must use the verifier-owned disposable database, not
+an everyday development database. The opt-in partial-canvas runtime case also
+requires independently installed `aap-jobs-queue` and
+`aap-jobs-dispatch-relay` entrypoints; it kills the publisher and first queue
+process, replays the saved IDs, and checks actual frame writes.
