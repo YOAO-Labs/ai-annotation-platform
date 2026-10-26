@@ -274,11 +274,12 @@ async def test_target_admission_failure_before_io_releases_temporary_read_lease(
 ):
     world, _, _, observed = cache_target
     assert await fill(world) == "stored"
+    entry = await record(world)
     before = len(observed)
     acquire = cache.storage_access.acquire
 
     async def reject(db, location_id, purpose, **kwargs):
-        if purpose == "original_cache_target_read":
+        if purpose == cache.read_purpose(entry.id):
             raise ContentError("storage_maintenance_changed", 409)
         return await acquire(db, location_id, purpose, **kwargs)
 

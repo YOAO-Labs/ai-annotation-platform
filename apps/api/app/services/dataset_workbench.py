@@ -434,31 +434,12 @@ async def available_cache_ids(
             candidates.c.original_cache_entry_id == OriginalCacheEntry.id,
         )
     )
-    destinations, sources, available = {}, {}, []
+    sources, available = {}, []
     for record in records:
         try:
-            # Validate every UUID prefix; current transport is shared by equal
-            # saved address facts, independent of the active allocation binding.
-            original_cache.object_key(record)
-            target = (
-                record.location_id,
-                record.bucket,
-                record.binding_generation,
-                record.storage_identity,
-                tuple(
-                    sorted(
-                        (key, value)
-                        for key, value in (record.storage_ref or {}).items()
-                        if key != "prefix"
-                    )
-                ),
-            )
-            if target not in destinations:
-                destinations[target] = False
-                await original_cache.prepare_target(db, record)
-                destinations[target] = True
-            if not destinations[target]:
-                continue
+            # A published cache is qualified by its complete saved member,
+            # not by another object's root or the current allocation binding.
+            await original_cache.prepare_read(db, record)
             if record.scope_location_id not in sources:
                 sources[record.scope_location_id] = False
                 await storage_access.check(db, record.scope_location_id)

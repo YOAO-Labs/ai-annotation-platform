@@ -29,11 +29,14 @@ from app.db.models.original_cache import (
     OriginalCacheEntry as Entry,
     OriginalCacheReadLease as ReadLease,
 )
+from app.db.models.storage_maintenance import StorageOperation
 from app.services import content_snapshot as snapshots
 from app.services import media_cache_storage as saved_storage
 from app.services import media_cache_accounting
 from app.services import key_removal_accounting as removal
 from app.services import storage_access
+from app.services import storage_migration_artifact_reads as migrated_reads
+from app.services import storage_migration_read_publications as read_publications
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.prediction_inputs import settled_io
 from app.services.storage import StorageService
@@ -260,52 +263,77 @@ async def charged_bytes(db, location_id):
     )
 
 
+def _saved_owner(record):
+    owner = saved_storage.resolve_ref(
+        record.storage_ref, expected_prefix=logical_prefix(record)
+    )
+    if (
+        owner.location_id,
+        owner.bucket,
+        owner.ref["binding_generation"],
+        owner.ref["storage_identity"],
+    ) != (
+        record.location_id,
+        record.bucket,
+        record.binding_generation,
+        record.storage_identity,
+    ):
+        raise saved_storage.MediaCacheStorageError()
+    return owner
+
+
+async def _legacy_target(db, record, *, require_enabled=True):
+    # NULL is the historical A address, independent of today's binding.
+    if record.location_id != LEGACY_LOCATION_ID or record.binding_generation != 1:
+        raise saved_storage.MediaCacheStorageError()
+    location = await db.get(StorageLocation, LEGACY_LOCATION_ID, populate_existing=True)
+    target = replace(
+        await saved_storage.target_for(db, location, require_enabled=require_enabled),
+        bucket=record.bucket,
+    )
+    from app.services.managed_original_retirement import managed_storage_identity
+
+    if (
+        managed_storage_identity(target.endpoint_url, target.bucket)
+        != record.storage_identity
+    ):
+        raise saved_storage.MediaCacheStorageError()
+    return target
+
+
 async def prepare_target(db, record, *, require_enabled=True):
     """Capture current credentials without changing saved source/quota facts."""
     if record.storage_ref is not None:
-        owner = saved_storage.resolve_ref(
-            record.storage_ref, expected_prefix=logical_prefix(record)
-        )
-        if (
-            owner.location_id,
-            owner.bucket,
-            owner.ref["binding_generation"],
-            owner.ref["storage_identity"],
-        ) != (
-            record.location_id,
-            record.bucket,
-            record.binding_generation,
-            record.storage_identity,
-        ):
-            raise saved_storage.MediaCacheStorageError()
+        _saved_owner(record)
         target = await saved_storage.target_for_ref(
             db, record.storage_ref, require_enabled=require_enabled
         )
     else:
-        # NULL is the historical A address, independent of today's binding.
-        if record.location_id != LEGACY_LOCATION_ID or record.binding_generation != 1:
-            raise saved_storage.MediaCacheStorageError()
-        location = await db.get(
-            StorageLocation, LEGACY_LOCATION_ID, populate_existing=True
-        )
-        target = replace(
-            await saved_storage.target_for(
-                db, location, require_enabled=require_enabled
-            ),
-            bucket=record.bucket,
-        )
-        from app.services.managed_original_retirement import managed_storage_identity
-
-        if (
-            managed_storage_identity(target.endpoint_url, target.bucket)
-            != record.storage_identity
-        ):
-            raise saved_storage.MediaCacheStorageError()
+        target = await _legacy_target(db, record, require_enabled=require_enabled)
     record._target = target
     record._target_maintenance_revision = await storage_access.check(
         db, record.location_id
     )
     return target
+
+
+async def prepare_read(db, record):
+    """Resolve only the saved cache owner, separately from its canonical scope."""
+    if record.storage_ref is not None:
+        ref = _saved_owner(record).ref
+    else:
+        target = await _legacy_target(db, record)
+        ref = {
+            "location_id": str(record.location_id),
+            "endpoint_url": target.endpoint_url,
+            "bucket": record.bucket,
+        }
+    route = await migrated_reads.resolve(
+        db, ref, object_key(record), record.sha256, record.size_bytes
+    )
+    if route is None:
+        await prepare_target(db, record)
+    return route
 
 
 @contextmanager
@@ -445,9 +473,48 @@ async def reserve(factory, source_id, asset_id, storage, *, expected_revision=No
 
 @contextmanager
 def stored_object(record, settled=None, *, observed=None):
+    with _stored_object(
+        record, physical_storage(record), settled, observed=observed
+    ) as data:
+        yield data
+
+
+@contextmanager
+def _routed_storage(record, admission):
+    from types import SimpleNamespace
+
+    context = migrated_reads.client(admission.route, admission.target)
+    try:
+        reader = context.__enter__()
+    except BaseException as exc:
+        raise storage_access.mark_unsettled(exc)
+    failure = None
+    try:
+        yield SimpleNamespace(client=reader, media_cache_bucket=record.bucket)
+    except BaseException as exc:
+        failure = exc
+        raise
+    finally:
+        try:
+            context.__exit__(None, None, None)
+        except BaseException as exc:
+            if failure is None:
+                raise storage_access.mark_unsettled(exc)
+            storage_access.mark_unsettled(failure)
+
+
+@contextmanager
+def routed_object(record, admission, settled):
+    """Keep real target closure inside the existing complete-image capture."""
+    with _stored_object(record, _routed_storage(record, admission), settled) as data:
+        yield data
+
+
+@contextmanager
+def _stored_object(record, context, settled=None, *, observed=None):
     body, failure = None, None
     try:
-        with physical_storage(record) as storage:
+        with context as storage:
             try:
                 response = storage.client.get_object(
                     Bucket=record.bucket, Key=object_key(record)
@@ -524,11 +591,20 @@ async def detach(db, record):
 async def readers(db, identity):
     return bool(
         await db.scalar(
-            select(ReadLease.id)
-            .where(ReadLease.entry_id == identity, ReadLease.expires_at > now())
-            .limit(1)
+            select(
+                select(ReadLease.id)
+                .where(ReadLease.entry_id == identity, ReadLease.expires_at > now())
+                .exists()
+                | select(StorageOperation.id)
+                .where(StorageOperation.purpose == read_purpose(identity))
+                .exists()
+            )
         )
     )
+
+
+def read_purpose(identity):
+    return "original_cache_read_" + uuid.UUID(str(identity)).hex
 
 
 async def retire(factory, identity, *, uncertain=None):
@@ -713,6 +789,61 @@ async def store(factory, source_id, asset_id, snapshot, *, expected_revision=Non
             snapshot.file.seek(0)
 
 
+def _read_facts(record):
+    return (
+        *(
+            getattr(record, name)
+            for name in (
+                "id",
+                "scope_location_id",
+                "source_id",
+                "asset_id",
+                "sha256",
+                "size_bytes",
+                "source_revision",
+                "policy_revision",
+                "location_revision",
+                "location_id",
+                "bucket",
+                "binding_generation",
+                "storage_identity",
+                "expires_at",
+            )
+        ),
+        json.dumps(record.storage_ref, sort_keys=True),
+    )
+
+
+async def _current_read(db, record, facts, lease_id, configured, route):
+    current = await db.get(Entry, record.id)
+    lease = await db.get(ReadLease, lease_id)
+    if (
+        not current
+        or current.state != "ready"
+        or current.expires_at <= now()
+        or _read_facts(current) != facts
+        or not lease
+        or lease.expires_at <= now()
+        or await scope(db, record.source_id, record.asset_id) != configured
+    ):
+        return False
+    locator = await db.get(
+        DatasetAssetLocation, (record.asset_id, record.location_id, record.bucket)
+    )
+    if (
+        not locator
+        or locator.role != "original_cache"
+        or locator.object_key != object_key(record)
+        or locator.reference_state != "present"
+    ):
+        return False
+    if route is not None:
+        await read_publications.recheck(db, route, lock=True)
+    elif not await bound_destination(db, current):
+        return False
+    return True
+
+
 async def read(factory, source_id, asset_id, *, on_acquired=None):
     """Return only a newly verified complete snapshot; callers still authorize it."""
     lease_id, identity, snapshot = uuid.uuid4(), None, None
@@ -720,11 +851,30 @@ async def read(factory, source_id, asset_id, *, on_acquired=None):
     damaged = False
     admission_failed = False
     physical_started = False
+    route, admission = None, None
 
     def open_stored():
         nonlocal physical_started
         physical_started = True
-        return stored_object(record, settled)
+        return (
+            stored_object(record, settled)
+            if route is None
+            else routed_object(record, admission, settled)
+        )
+
+    async def target_admitted(_permit):
+        nonlocal admission_failed
+        try:
+            async with factory() as db:
+                if not await _current_read(
+                    db, record, facts, lease_id, configured, route
+                ):
+                    raise snapshots.ContentError("cache_read_changed")
+                await db.commit()
+        except BaseException:
+            admission_failed = True
+            settled.set()
+            raise
 
     async def admitted():
         nonlocal admission_failed
@@ -768,8 +918,11 @@ async def read(factory, source_id, asset_id, *, on_acquired=None):
                 or locator.reference_state != "present"
             ):
                 return None
-            if not await bound_destination(db, record):
+            try:
+                route = await prepare_read(db, record)
+            except saved_storage.MediaCacheStorageError:
                 return None
+            facts = _read_facts(record)
             identity = record.id
             checked = now()
             db.add(
@@ -783,13 +936,11 @@ async def read(factory, source_id, asset_id, *, on_acquired=None):
             await db.commit()
         try:
             async with factory() as permit_db:
-                async with await storage_access.acquire(
-                    permit_db,
-                    record.location_id,
-                    "original_cache_target_read",
-                    expected_revision=record._target_maintenance_revision,
-                ):
-                    snapshot = await snapshots.capture_from_location(
+
+                async def capture():
+                    # C remains the canonical authority/quota scope. Only the
+                    # saved cache transport is redirected from A to actual B.
+                    return await snapshots.capture_from_location(
                         permit_db,
                         configured.location_id,
                         open_stored,
@@ -798,6 +949,26 @@ async def read(factory, source_id, asset_id, *, on_acquired=None):
                         purpose="original_cache_read",
                         on_acquired=admitted,
                     )
+
+                if route is not None:
+                    async with migrated_reads.admit(
+                        permit_db,
+                        route,
+                        read_purpose(identity),
+                        on_acquired=target_admitted,
+                    ) as admission:
+                        # Admission rechecks open a metadata transaction; no
+                        # SQL owner or publication locks survive into SDK I/O.
+                        await permit_db.commit()
+                        snapshot = await capture()
+                else:
+                    async with await storage_access.acquire(
+                        permit_db,
+                        record.location_id,
+                        read_purpose(identity),
+                        expected_revision=record._target_maintenance_revision,
+                    ):
+                        snapshot = await capture()
         except snapshots.ContentError as exc:
             if not physical_started:
                 settled.set()
@@ -805,6 +976,7 @@ async def read(factory, source_id, asset_id, *, on_acquired=None):
                 admission_failed
                 or exc.status in {429, 504}
                 or exc.code.startswith("storage_")
+                or exc.code.startswith("read_publication_")
             ):
                 # Admission/deadline pressure does not prove a corrupt object.
                 raise
@@ -818,17 +990,7 @@ async def read(factory, source_id, asset_id, *, on_acquired=None):
             damaged = True
             return None
         async with factory() as db:
-            current = await db.get(Entry, identity)
-            lease = await db.get(ReadLease, lease_id)
-            if (
-                not current
-                or current.state != "ready"
-                or current.expires_at <= now()
-                or not lease
-                or lease.expires_at <= now()
-                or await scope(db, source_id, asset_id) != configured
-                or not await bound_destination(db, current)
-            ):
+            if not await _current_read(db, record, facts, lease_id, configured, route):
                 snapshot.close()
                 snapshot = None
         return snapshot
