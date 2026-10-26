@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import UTC, datetime
 
@@ -20,6 +21,25 @@ from app.services.ml_backend import (
 
 _RESOURCE_A = "node-membership/GPU-a"
 _RESOURCE_B = "node-membership/GPU-b"
+
+
+def _install_gpu_resources(monkeypatch, *resource_ids: str) -> None:
+    """Declare the physical resources these tests claim so validation stays real."""
+    resources = {}
+    for resource_id in resource_ids:
+        node_id, device = resource_id.split("/", 1)
+        resources[resource_id] = {
+            "node_id": node_id,
+            "physical_device_token": device,
+            "allocatable_mb": 8192,
+            "mode": "off",
+        }
+    monkeypatch.setattr(
+        settings,
+        "gpu_arbiter_resources_json",
+        json.dumps(resources),
+        raising=True,
+    )
 
 
 async def _create_gpu_backend(
@@ -195,14 +215,7 @@ async def test_resource_change_immediately_invalidates_cached_health(
     db_session: AsyncSession,
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr(
-        settings,
-        "gpu_arbiter_resources_json",
-        '{"node-membership/GPU-a":{"node_id":"node-membership",'
-        '"physical_device_token":"GPU-a","allocatable_mb":8192,"mode":"off"},'
-        '"node-membership/GPU-b":{"node_id":"node-membership",'
-        '"physical_device_token":"GPU-b","allocatable_mb":8192,"mode":"off"}}',
-    )
+    _install_gpu_resources(monkeypatch, _RESOURCE_A, _RESOURCE_B)
     backend = await _create_gpu_backend(db_session)
     backend.state = "connected"
     backend.health_meta = {"residency": {"gpu_loaded": True}}
@@ -443,7 +456,9 @@ async def test_current_membership_cannot_be_deleted_directly(
 
 async def test_managed_runtime_blocks_service_and_raw_mutation(
     db_session: AsyncSession,
+    monkeypatch,
 ) -> None:
+    _install_gpu_resources(monkeypatch, _RESOURCE_A)
     backend = await _create_gpu_backend(db_session)
     fence = await db_session.get(GPUBackendFence, backend.id)
     assert fence is not None
@@ -451,10 +466,11 @@ async def test_managed_runtime_blocks_service_and_raw_mutation(
     await db_session.flush()
 
     with pytest.raises(GPUBackendManagedMutationBlocked):
-        await MLBackendService(db_session).update(
-            backend.id,
-            vram_budget_mb=4096,
-        )
+        async with db_session.begin_nested():
+            await MLBackendService(db_session).update(
+                backend.id,
+                vram_budget_mb=4096,
+            )
 
     with pytest.raises(IntegrityError) as exc_info:
         async with db_session.begin_nested():
@@ -477,7 +493,8 @@ async def test_managed_runtime_blocks_registry_delete(
     await db_session.flush()
 
     with pytest.raises(GPUBackendManagedMutationBlocked):
-        await MLBackendService(db_session).delete(backend.id)
+        async with db_session.begin_nested():
+            await MLBackendService(db_session).delete_with_topology(backend.id)
 
     with pytest.raises(IntegrityError):
         async with db_session.begin_nested():
