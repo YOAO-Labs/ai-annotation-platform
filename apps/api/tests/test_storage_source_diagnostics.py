@@ -70,7 +70,15 @@ async def evidence_world(db_session, content_world):
     world = await rescan(db, world)
     await accept_all_files(db, world)
     await ensure_legacy_bindings(db)
-    mappings = list(await db.scalars(select(DatasetSourceItem)))
+    # Seeded previews must belong to this world's source; the shared test
+    # database may retain heads of unrelated sources.
+    mappings = list(
+        await db.scalars(
+            select(DatasetSourceItem)
+            .where(DatasetSourceItem.source_id == world[5].id)
+            .order_by(DatasetSourceItem.path_digest)
+        )
+    )
     previews = [
         await seed_preview(db, mappings[0]),
         await seed_preview(db, mappings[1], "failed"),

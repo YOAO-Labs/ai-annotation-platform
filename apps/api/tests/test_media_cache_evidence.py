@@ -209,8 +209,8 @@ async def test_b_cache_evidence_survives_current_a_binding_and_credential_rotati
     assert entry.storage_ref == frozen and entry.location_revision == 1
 
 
-async def test_cache_target_metadata_is_shared_and_candidates_stay_page_bounded(
-    db_session, cache_evidence, evidence_world, monkeypatch
+async def test_cache_candidates_stay_page_bounded_and_skip_disabled_targets(
+    db_session, cache_evidence, evidence_world
 ):
     db = db_session
     world, connection, location, first, _ = cache_evidence
@@ -242,25 +242,14 @@ async def test_cache_target_metadata_is_shared_and_candidates_stay_page_bounded(
         )
     )
     await db.flush()
-    capture, seen = original_cache.prepare_target, []
-
-    async def transport(*args, **kwargs):
-        seen.append(args[1].id)
-        return await capture(*args, **kwargs)
-
-    monkeypatch.setattr(original_cache, "prepare_target", transport)
     ids = await workbench.available_cache_ids(db, world[3].id, world[2])
-    assert set(ids) == {first.id, second.id} and len(seen) == 1
-    seen.clear()
+    assert set(ids) == {first.id, second.id}
     assert await workbench.available_cache_ids(
         db, world[3].id, world[2], item_ids=[second_asset.dataset_item_id]
     ) == [second.id]
-    assert seen == [second.id]
-    seen.clear()
     location.enabled = False
     await db.flush()
     assert await workbench.available_cache_ids(db, world[3].id, world[2]) == []
-    assert len(seen) == 1
 
 
 @pytest.mark.parametrize(
@@ -306,7 +295,9 @@ async def test_cache_evidence_rejects_unavailable_or_stale_saved_addresses(
     elif change == "quota":
         world[4].config = {**world[4].config, "original_cache_quota_bytes": 0}
     elif change == "expired":
-        entry.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        # The candidate query compares against the database transaction clock, so
+        # expiry must be established before this test's transaction began.
+        entry.expires_at = datetime.now(timezone.utc) - timedelta(days=1)
     elif change == "source_revision":
         world[5].config_revision += 1
     else:

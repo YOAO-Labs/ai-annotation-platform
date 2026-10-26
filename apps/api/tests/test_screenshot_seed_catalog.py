@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import hashlib
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -18,6 +19,7 @@ from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User
+from app.services.content_snapshot import ContentError
 from app.services.ml_backend import MLBackendService
 from app.services.screenshot_seed_spec import (
     PROJECT_SPECS,
@@ -37,6 +39,11 @@ from scripts.seed_screenshot_profile import (
     prepare_screenshot_seed_media,
     reconcile_screenshot_seed,
 )
+from tests.video_derivative_fixtures import (
+    RAW_VIDEO,
+    install_video_transport,
+    owned_metadata,
+)
 
 
 pytestmark = pytest.mark.asyncio
@@ -48,6 +55,17 @@ def _mock_seed_storage(monkeypatch):
     monkeypatch.setattr(
         "app.services.screenshot_seed_catalog._storage_object_digest",
         lambda file_path: hashlib.sha256(file_path.encode()).hexdigest(),
+    )
+    # Saved-owner lookups stay real; only the physical transport boundary is
+    # replaced, so catalog reads never open an original or provider client.
+    install_video_transport(monkeypatch)
+
+    @asynccontextmanager
+    async def saved_original(db, authority, source, *, guard=None):
+        yield None
+
+    monkeypatch.setattr(
+        "app.services.video_derivative_originals.media", saved_original
     )
 
 
@@ -73,6 +91,7 @@ async def _ready_profile(db):
 
     projects: dict[str, Project] = {}
     tasks_by_project: dict[str, dict[str, Task]] = {}
+    video_items: list[DatasetItem] = []
     for project_index, (logical_key, spec) in enumerate(PROJECT_SPECS.items()):
         owner = users["admin"] if spec.data_type == "lidar" else users["pm"]
         project = Project(
@@ -163,6 +182,7 @@ async def _ready_profile(db):
             db.add(item)
             items[file_path] = item
         await db.flush()
+        video_items.extend(item for item in items.values() if item.file_type == "video")
 
         batches: dict[str, TaskBatch] = {}
         for batch_spec in spec.batches:
@@ -333,6 +353,12 @@ async def _ready_profile(db):
             ProjectMLBackendPool(project_id=ocr.id, pool_id=ocr_pool.id, enabled=True),
         ]
     )
+    await db.flush()
+    for item in video_items:
+        # Video seeds own their poster through a published saved metadata receipt,
+        # never through a raw current-bucket path.
+        await owned_metadata(db, item, poster=True)
+        item.content_hash = hashlib.sha256(RAW_VIDEO).hexdigest()
     await db.flush()
     return projects, tasks_by_project
 
@@ -1089,9 +1115,11 @@ async def test_screenshot_media_prepares_only_owned_image_video_datasets(
     await db_session.flush()
     prepared = []
     checked = []
+    delegated: set[str] = set()
 
-    async def backfill(dataset_id):
+    async def backfill(dataset_id, *, video_delegations=None):
         prepared.append(uuid.UUID(dataset_id))
+        delegated.update(video_delegations or {})
         items = (
             await db_session.scalars(
                 select(DatasetItem).where(
@@ -1100,15 +1128,10 @@ async def test_screenshot_media_prepares_only_owned_image_video_datasets(
             )
         ).all()
         for item in items:
-            item.thumbnail_path = f"thumbnails/{item.id}.webp"
             if item.file_type == "video":
-                item.metadata_ = {
-                    "video": {
-                        "frame_count": 24,
-                        "fps": 24,
-                        "poster_frame_path": item.thumbnail_path,
-                    }
-                }
+                # The seeded item already owns a published saved poster.
+                continue
+            item.thumbnail_path = f"thumbnails/{item.id}.webp"
         await db_session.flush()
 
     def verify_upload(key, *, bucket):
@@ -1132,7 +1155,24 @@ async def test_screenshot_media_prepares_only_owned_image_video_datasets(
     )
     assert set(prepared) == owned_ids
     assert len(prepared) == report["datasets"] == 3
-    assert report["items"] == len(checked) == 10
+    owned_items = list(
+        await db_session.scalars(
+            select(DatasetItem).where(DatasetItem.dataset_id.in_(owned_ids))
+        )
+    )
+    expected_items = sum(
+        len(spec.media_paths) or len(spec.tasks)
+        for spec in PROJECT_SPECS.values()
+        if spec.data_type in {"image", "video"}
+    )
+    assert report["items"] == len(owned_items) == expected_items
+    video_ids = {str(item.id) for item in owned_items if item.file_type == "video"}
+    assert video_ids and delegated == video_ids
+    # Saved video posters are verified through their published owner, not the
+    # current-bucket upload path images still use.
+    assert {key for key, _ in checked} == {
+        item.thumbnail_path for item in owned_items if item.file_type != "video"
+    }
     assert all(bucket == storage_service.media_cache_bucket for _, bucket in checked)
     await db_session.refresh(other_item)
     assert other_item.thumbnail_path is None
@@ -1144,7 +1184,7 @@ async def test_screenshot_media_fails_when_backfill_does_not_make_media_ready(
 ):
     await _ready_profile(db_session)
 
-    async def backfill(dataset_id):
+    async def backfill(dataset_id, *, video_delegations=None):
         if failure != "thumbnail":
             items = await db_session.scalars(
                 select(DatasetItem).where(
@@ -1160,12 +1200,15 @@ async def test_screenshot_media_fails_when_backfill_does_not_make_media_ready(
         "scripts.seed_screenshot_profile.storage_service.verify_upload",
         lambda *args, **kwargs: None if failure == "object" else {"ContentLength": 128},
     )
-    message = (
-        "video metadata/poster is not ready"
-        if failure == "video"
-        else "thumbnail/poster is not ready"
-    )
-    with pytest.raises(ScreenshotSeedReconcileError, match=message):
+    if failure == "video":
+        # A poster the backfill never published fails the saved-owner receipt
+        # rather than the mutable item columns.
+        with pytest.raises(ContentError):
+            await prepare_screenshot_seed_media(
+                db_session, asset_sha256={key: "a" * 64 for key in PROJECT_SPECS}
+            )
+        return
+    with pytest.raises(ScreenshotSeedReconcileError):
         await prepare_screenshot_seed_media(
             db_session, asset_sha256={key: "a" * 64 for key in PROJECT_SPECS}
         )

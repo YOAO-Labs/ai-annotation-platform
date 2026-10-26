@@ -101,7 +101,10 @@ async def test_preview_is_read_only_offline_and_apply_records_reviewed_changes(
         .order_by(AuditLog.id.desc())
     )
     assert audit.detail_json["changes"] == review["changes"]
-    assert audit.detail_json["counts"] == review["impact"]["counts"]
+    # The audit keeps the full reviewed snapshot; the preview response exposes
+    # only its bounded public projection.
+    assert review["impact"]["counts"].items() <= audit.detail_json["counts"].items()
+    assert audit.detail_json["counts"]["sources"] == 1
     assert audit.detail_json["previous_revision"] == 1
     assert datetime.fromisoformat(
         audit.detail_json["reviewed_at"]
