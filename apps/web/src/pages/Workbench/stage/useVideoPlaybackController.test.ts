@@ -316,13 +316,14 @@ describe("useVideoPlaybackController", () => {
     const { result } = setup(undefined, { isSourceReady: ready });
     expect(result.current.controls.isSourceReady?.()).toBe(false);
     await expect(result.current.controls.captureCurrentFrameJpeg()).resolves.toBeNull();
-    await act(async () => {
-      expect(await result.current.controls.seekToFrameReady(5)).toMatchObject({
-        status: "unavailable",
-        frameIndex: 5,
-      });
+    let pending!: Promise<VideoFrameSeekResult>;
+    act(() => {
+      pending = result.current.controls.seekToFrameReady(5);
     });
-    expect(videoHookMocks.imageBitmapToJpeg).not.toHaveBeenCalled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(VIDEO_FRAME_READY_TIMEOUT_MS);
+    });
+    expect(await pending).toMatchObject({ status: "timeout", frameIndex: 5 });
   });
 
   it("原生错误交由租约HEAD恢复处理，不预先判为编码错误", () => {
@@ -717,6 +718,32 @@ describe("useVideoPlaybackController", () => {
       await second;
     });
     expect(await second).toEqual({ status: "ready", frameIndex: 17, source: "webcodecs" });
+  });
+
+  it("keeps an unprimed current source pending until an authorized media draw arrives", async () => {
+    videoHookMocks.preciseBitmap = bitmapFrame(17);
+    let ready = false;
+    const { result, rerender } = setup(undefined, { isSourceReady: () => ready });
+    let pending!: Promise<VideoFrameSeekResult>;
+    let settled = false;
+    act(() => {
+      pending = result.current.controls.seekToFrameReady(17).then((value) => {
+        settled = true;
+        return value;
+      });
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(100));
+    if (result.current.framePresentation) {
+      act(() => result.current.markFramePresented(result.current.framePresentation!));
+    }
+    expect(settled).toBe(false);
+    ready = true;
+    rerender();
+    await act(async () => {
+      result.current.markFramePresented(result.current.framePresentation!);
+      await pending;
+    });
+    expect(await pending).toEqual({ status: "ready", frameIndex: 17, source: "webcodecs" });
   });
 
   it("accepts a verified native bitmap after its own media draw", async () => {

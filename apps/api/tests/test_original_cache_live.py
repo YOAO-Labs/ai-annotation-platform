@@ -57,6 +57,7 @@ def _owned_app():
         "annotation_worker",
         broker=settings.effective_celery_broker,
         backend=settings.effective_celery_broker,
+        set_as_current=False,
     )
 
 
@@ -92,7 +93,7 @@ def _diagnostics(node, app, worker, task_id, log_path, queue):
     """Bounded, credential-safe facts that name the timed-out phase."""
     facts = [f"task={task_id}"]
     try:
-        target = urlsplit(settings.redis_url)
+        target = urlsplit(settings.effective_celery_broker)
         facts.append(f"redis_target={target.hostname}:{target.port}{target.path}")
     except Exception as exc:
         facts.append(f"redis_target={type(exc).__name__}")
@@ -108,7 +109,11 @@ def _diagnostics(node, app, worker, task_id, log_path, queue):
     except Exception as exc:
         facts.append(f"meta={type(exc).__name__}")
     try:
-        with Redis.from_url(settings.redis_url) as client:
+        with Redis.from_url(
+            settings.effective_celery_broker,
+            socket_connect_timeout=1,
+            socket_timeout=1,
+        ) as client:
             facts.append(f"queued={client.llen(queue)}")
             facts.append(
                 f"stored={client.exists(app.backend.get_key_for_task(task_id))}"

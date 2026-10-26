@@ -23,6 +23,7 @@ const defaultProps = {
   containerSize: { w: 800, h: 600 },
   mediaSize: { w: 1600, h: 900 },
   hasRealMediaSize: true,
+  sourceReady: true,
   autoFitOnResize: true,
 };
 
@@ -88,6 +89,24 @@ describe("useVideoIssueView", () => {
       timeline_window: { from: 0, to: 179 },
     });
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("does not certify metadata and fit while the current original source is still preparing", async () => {
+    const { result, rerender, props } = setup({ sourceReady: false });
+    expect(result.current.captureIssueView()).toBeNull();
+    let ready!: Promise<boolean>;
+    let settled = false;
+    act(() => {
+      ready = result.current.waitForIssueViewReady(new AbortController().signal).then((value) => {
+        settled = true;
+        return value;
+      });
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(100));
+    expect(settled).toBe(false);
+    rerender({ ...props, sourceReady: true });
+    expect(await ready).toBe(true);
+    expect(result.current.captureIssueView()).toMatchObject({ taskId: "A", frameIndex: 120 });
   });
 
   it("waits for selected props, suppresses their focus, and commits the Issue viewport once", async () => {

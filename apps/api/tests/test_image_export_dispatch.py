@@ -75,6 +75,8 @@ async def test_worker_claim_lock_fences_both_late_success_and_late_failure(owned
     db = owned_db
     identifier = await seed(db)
     factory = async_sessionmaker(db.bind, expire_on_commit=False)
+    # The deadline measures SKIP LOCKED, not a cold connection/BEGIN round trip.
+    await db.execute(text("SELECT 1"))
     async with factory() as worker:
         await worker.execute(
             text("""UPDATE async_jobs SET status='running',celery_task_id='winner'

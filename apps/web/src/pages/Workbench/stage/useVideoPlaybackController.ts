@@ -1049,10 +1049,11 @@ export function useVideoPlaybackController({
       cancelPresentation();
       showPlaybackOverlay();
       pausePlayback({ snapToGrid: false });
+      // Priming may finish inside the existing presentation deadline. The draw
+      // receipt still rechecks the current source before it can resolve ready.
       if (
         !mountedRef.current ||
         !manifest?.task_id ||
-        (isSourceReady && !isSourceReady()) ||
         !stageModeGuard.canSetupFrame ||
         !Number.isInteger(nextFrame) ||
         nextFrame < 0 ||
@@ -1081,7 +1082,6 @@ export function useVideoPlaybackController({
     },
     [
       cancelPresentation,
-      isSourceReady,
       manifest?.task_id,
       maxFrame,
       pausePlayback,

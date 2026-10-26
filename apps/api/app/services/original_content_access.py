@@ -68,7 +68,12 @@ def check_clock(proof, key):
 async def _row(db, model, identifier, *, lock):
     if identifier is None:
         return None
-    if lock and model is User:
+    if lock and model in {User, Project, Task}:
+        # Visibility rows are rewritten by their own ordinary writers while a
+        # read is in flight: task status/assignee/counters and project progress
+        # or ownership. Waiting out those short writers under the existing
+        # AUTHORITY_LOCK_TIMEOUT bound keeps the SHARE fence but lets the read
+        # decide on the value they committed, instead of aborting as busy.
         try:
             return await credentials.locked(db, model, identifier, wait=True)
         except HTTPException as exc:
@@ -82,8 +87,12 @@ async def _row(db, model, identifier, *, lock):
 async def visible_task(db, task_id, actor, *, lock=False):
     """Refresh Project, membership and Batch before the existing visibility rule.
 
-    Account saves get a bounded wait; all other metadata locks remain short
-    SHARE NOWAIT locks, released before entering the physical reader.
+    The actor, project and task rows take the existing SHARE lock through a
+    bounded wait, so their own short counter/status writers (annotation
+    bookkeeping, project progress, ownership transfer) finish and the decision
+    uses the value they committed. That bound is a writer-collision budget, not
+    an identity lock: membership and Batch keep the short SHARE NOWAIT fence,
+    and every lock is released before entering the physical reader.
     """
     from app.api.v1.tasks._shared import _assert_task_visible
     from app.services.project_access import resolve_project_access

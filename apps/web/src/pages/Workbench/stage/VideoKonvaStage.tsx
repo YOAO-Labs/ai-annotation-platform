@@ -1903,6 +1903,7 @@ export const VideoKonvaStage = forwardRef<VideoStageControls, VideoKonvaStagePro
       containerSize: viewportSize,
       mediaSize: size,
       hasRealMediaSize,
+      sourceReady: isSourceReady?.() ?? true,
       autoFitOnResize,
       focusSelectionEnabled,
       focusObject,

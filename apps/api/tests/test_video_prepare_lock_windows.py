@@ -6,11 +6,13 @@ and competing row locks use the real database and production contract helpers.
 """
 
 from types import SimpleNamespace
+import asyncio
+import time
 import uuid
 
 from fastapi import HTTPException, Request
 import pytest
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.core.security import create_access_token
@@ -280,6 +282,122 @@ async def test_overlapping_reads_reuse_a_committed_slot_instead_of_reporting_bus
         )
         assert (overlapping[0].id, overlapping[1]) == (ready_id, False)
         await first.rollback()
+
+
+async def _await_lock_wait(state, pid, reader):
+    """Prove the real reader is blocked on a row lock, not merely slow."""
+    async with state.factory() as observer:
+        for _ in range(400):
+            row = (
+                await observer.execute(
+                    text(
+                        "SELECT wait_event_type, wait_event FROM pg_stat_activity "
+                        "WHERE pid = :pid"
+                    ),
+                    {"pid": pid},
+                )
+            ).one_or_none()
+            await observer.rollback()
+            if row is not None and row[0] == "Lock":
+                return row
+            if reader.done():
+                raise AssertionError("reader finished before the writer committed")
+            await asyncio.sleep(0.01)
+    raise AssertionError("reader never waited on the blocked visibility row")
+
+
+async def test_counter_writer_is_waited_out_but_a_held_identity_fence_fails_closed(
+    committed_video,
+):
+    """Counters get a bounded wait; an identity fence still fails closed.
+
+    Deleting an annotation commits `projects.in_progress_tasks` and
+    `tasks.total_annotations` under short ordinary transactions. An authorized
+    read must wait that writer out inside the existing authority bound and then
+    decide on the committed values. A held `FOR UPDATE` on the Task row (a
+    removal or key change) must still reject with content_busy in the same bound.
+    """
+    state = committed_video
+    # The fixture pins video_chunk_size_frames=60, so chunk 0 owns frames 0..59
+    # and its samples must address every one of them inside the chunk bytes.
+    samples = [
+        {
+            "frame_index": frame,
+            "pts_ms": frame * 33,
+            "duration_ms": 33,
+            "is_keyframe": frame == 0,
+            "size_bytes": 4,
+            "offset_in_chunk": frame * 4,
+        }
+        for frame in range(60)
+    ]
+    diagnostics = {
+        "codec_string": "avc1.4d001e",
+        "width": 640,
+        "height": 360,
+        "samples": samples,
+    }
+    async with state.factory() as setup:
+        item = await setup.get(DatasetItem, state.item_id)
+        ready = await owned_output(
+            setup,
+            item,
+            "chunk",
+            diagnostics=diagnostics,
+            data=b"\x00" * 4096,
+        )
+        ready_id = ready.id
+    assert ready.state == "ready"
+    async with state.factory() as writer, state.factory() as db:
+        await writer.execute(
+            update(Project)
+            .where(Project.id == state.project_id)
+            .values(in_progress_tasks=11)
+        )
+        await writer.execute(
+            update(Task)
+            .where(Task.id == state.task_id)
+            .values(status="in_progress", total_annotations=3, is_labeled=True)
+        )
+        pid = await db.scalar(text("SELECT pg_backend_pid()"))
+        ctx = await _context(db, state)
+        reader = asyncio.create_task(
+            service.chunk_samples(db, ctx, 0, expected_output_id=ready_id)
+        )
+        try:
+            waited = await _await_lock_wait(state, pid, reader)
+            assert waited[0] == "Lock"
+        finally:
+            if writer.in_transaction():
+                await writer.commit()
+            await asyncio.gather(reader, return_exceptions=True)
+        body = reader.result()
+        assert [entry.model_dump() for entry in body.samples] == samples
+        assert body.output_id == ready_id
+        current = (
+            await db.execute(
+                select(Project.in_progress_tasks, Task.total_annotations)
+                .select_from(Project)
+                .join(Task, Task.project_id == Project.id)
+                .where(Project.id == state.project_id)
+                .execution_options(populate_existing=True)
+            )
+        ).one()
+        assert tuple(current) == (11, 3)
+        await db.rollback()
+    async with state.factory() as blocker, state.factory() as db:
+        await blocker.execute(
+            select(Task.id).where(Task.id == state.task_id).with_for_update()
+        )
+        ctx = await _context(db, state)
+        started = time.monotonic()
+        with pytest.raises(HTTPException) as raised:
+            await service.chunk_samples(db, ctx, 0, expected_output_id=ready_id)
+        assert time.monotonic() - started < 5
+        assert raised.value.status_code == 409
+        assert raised.value.detail == {"code": "content_busy"}
+        await db.rollback()
+        await blocker.rollback()
 
 
 async def _change_batch_fence(state, change):
