@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
@@ -31,6 +32,7 @@ from aap_inference.gpu.contracts import (
     GPUArbiterErrorCode,
 )
 from aap_inference_contract.topology import PoolFacts
+from app.services.inference_topology_data import InferenceTopologyData
 from app.services.ml_backend import MLBackendDeleteBlocked, MLBackendService
 from app.services.ml_routing.contracts import RoutingCandidate, TrafficState
 from app.services.ml_routing.router import make_ledger_from_settings
@@ -86,6 +88,75 @@ async def _drain_registry_member(
     await db.commit()
     monkeypatch.setattr(settings, "ml_backend_router_mode", "enforce")
     return pool.id
+
+
+async def _topology_snapshot(db: AsyncSession, registry_id: uuid.UUID):
+    """Observe the current caller-transaction topology for the owner stand-in."""
+    data = InferenceTopologyData(db)
+    pool = await data.pool_for_registry(registry_id)
+    if pool is None:
+        return SimpleNamespace(
+            member_id=None,
+            pool_id=None,
+            routing_generation=None,
+            traffic_state=None,
+        )
+    member = next(
+        (
+            row
+            for row in await data.pool_members(pool.id)
+            if row.registry_id == registry_id
+        ),
+        None,
+    )
+    return SimpleNamespace(
+        member_id=member.id if member is not None else None,
+        pool_id=pool.id,
+        routing_generation=pool.routing_generation,
+        traffic_state=member.traffic_state if member is not None else None,
+    )
+
+
+def _install_quiescence_authority(monkeypatch, read, *, ledger=None) -> None:
+    """Stand in for the durable routing owner with the caller's observed topology."""
+
+    class Authority:
+        async def quiescence(self, registry_id):
+            snapshot = await read(registry_id)
+            if snapshot.member_id is None:
+                return SimpleNamespace(
+                    status="rejected", reason="pool_unavailable", topology=None
+                )
+            if snapshot.traffic_state != "draining":
+                return SimpleNamespace(
+                    status="rejected", reason="member_not_draining", topology=None
+                )
+            if ledger is not None and await ledger.member_inflight(
+                str(snapshot.pool_id), str(registry_id)
+            ):
+                return SimpleNamespace(
+                    status="rejected", reason="member_not_quiescent", topology=None
+                )
+            return SimpleNamespace(status="ok", reason=None, topology=snapshot)
+
+    monkeypatch.setattr("app.services.ml_routing.safety.RoutingAuthority", Authority)
+
+
+@asynccontextmanager
+async def _native_rejection_savepoint(db: AsyncSession):
+    """Give a rejected Native command its own savepoint.
+
+    The owner rejects via SQL exceptions; the API maps the error to a response but
+    the caller transaction is already aborted, so the fixture world must return to
+    its pre-request savepoint before the next statement.
+    """
+    name = f"test_native_rejection_{uuid.uuid4().hex}"
+    await db.execute(text(f"SAVEPOINT {name}"))
+    try:
+        yield
+    finally:
+        await db.execute(text(f"ROLLBACK TO SAVEPOINT {name}"))
+        await db.execute(text(f"RELEASE SAVEPOINT {name}"))
 
 
 def _configure_gpu(
@@ -534,15 +605,17 @@ async def test_managed_gpu_registry_mutation_requires_retirement(
     fence.runtime_epoch_high_water = 1
     await db_session.commit()
 
-    update_response = await httpx_client.put(
-        f"/api/v1/admin/ml-integrations/registry/{backend.id}",
-        json={"url": "http://managed-replacement:8000"},
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    delete_response = await httpx_client.delete(
-        f"/api/v1/admin/ml-integrations/registry/{backend.id}",
-        headers={"Authorization": f"Bearer {token}"},
-    )
+    async with _native_rejection_savepoint(db_session):
+        update_response = await httpx_client.put(
+            f"/api/v1/admin/ml-integrations/registry/{backend.id}",
+            json={"url": "http://managed-replacement:8000"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    async with _native_rejection_savepoint(db_session):
+        delete_response = await httpx_client.delete(
+            f"/api/v1/admin/ml-integrations/registry/{backend.id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
 
     assert update_response.status_code == 409, update_response.text
     assert (
@@ -683,6 +756,7 @@ async def test_enforce_desired_mode_reports_disabled_rollout_latch(
     backend.gpu_resource_id = resource_id
     backend.vram_budget_mb = 10000
     await db_session.commit()
+    backend_id = str(backend.id)
 
     diagnostic = _gpu_diagnostic(
         "gpu_rollout_disabled", "blocker", resource_id=resource_id
@@ -766,7 +840,7 @@ async def test_enforce_desired_mode_reports_disabled_rollout_latch(
         item["code"] == "gpu_rollout_disabled" for item in resource["diagnostics"]
     )
 
-    item = next(row for row in backends.json()["items"] if row["id"] == str(backend.id))
+    item = next(row for row in backends.json()["items"] if row["id"] == backend_id)
     assert item["gpu_config"]["desired_mode"] == "enforce"
     assert item["gpu_config"]["effective_mode"] == "off"
     assert item["gpu_config"]["rollout_enabled"] is False
@@ -810,6 +884,7 @@ async def test_gpu_resources_projects_rollout_and_runtime_facts(
     backend.gpu_resource_id = resource_id
     backend.vram_budget_mb = 10000
     await db_session.commit()
+    backend_id = str(backend.id)
 
     diagnostics = (
         [
@@ -912,7 +987,7 @@ async def test_gpu_resources_projects_rollout_and_runtime_facts(
             diagnostic["code"] for diagnostic in resource["diagnostics"]
         }
 
-    item = next(row for row in backends.json()["items"] if row["id"] == str(backend.id))
+    item = next(row for row in backends.json()["items"] if row["id"] == backend_id)
     gpu_config = item["gpu_config"]
     assert gpu_config["effective_mode"] == expected_effective
     assert gpu_config["rollout_enabled"] is rollout_enabled
@@ -1041,6 +1116,7 @@ async def test_global_list_does_not_trust_stale_cpu_health_snapshot(
     backend.health_meta = {"compute": {"configured_device": "cpu"}}
     backend.last_checked_at = datetime.now(UTC) - timedelta(minutes=4)
     await db_session.commit()
+    backend_id = str(backend.id)
 
     _gpu_admin_authority(
         monkeypatch,
@@ -1064,7 +1140,7 @@ async def test_global_list_does_not_trust_stale_cpu_health_snapshot(
     )
 
     assert res.status_code == 200, res.text
-    item = next(row for row in res.json()["items"] if row["id"] == str(backend.id))
+    item = next(row for row in res.json()["items"] if row["id"] == backend_id)
     assert item["gpu_config"]["status"] == "blocker"
     assert item["gpu_config"]["diagnostics"][0]["code"] == "gpu_claim_unknown"
 
@@ -1102,6 +1178,7 @@ async def test_global_list_keeps_malformed_legacy_residency_observable(
         "residency": {},
     }
     await db_session.commit()
+    backend_id = str(backend.id)
 
     _gpu_admin_authority(
         monkeypatch,
@@ -1125,7 +1202,7 @@ async def test_global_list_keeps_malformed_legacy_residency_observable(
     )
 
     assert res.status_code == 200, res.text
-    item = next(row for row in res.json()["items"] if row["id"] == str(backend.id))
+    item = next(row for row in res.json()["items"] if row["id"] == backend_id)
     assert item["health_meta"]["residency"] == {}
     assert item["gpu_config"]["status"] == "blocker"
     assert item["gpu_config"]["diagnostics"][0]["code"] == "gpu_claim_unknown"
@@ -1162,6 +1239,9 @@ async def test_delete_registry_clears_all_matching_primary_bindings_only(
     )
 
     await _drain_registry_member(db_session, backend.id, monkeypatch)
+    _install_quiescence_authority(
+        monkeypatch, lambda registry_id: _topology_snapshot(db_session, registry_id)
+    )
     response = await httpx_client.delete(
         f"/api/v1/admin/ml-integrations/registry/{backend.id}",
         headers={"Authorization": f"Bearer {token}"},
@@ -1232,10 +1312,11 @@ async def test_delete_gpu_fenced_registry_preserves_primary_binding(
     )
     await db_session.commit()
 
-    response = await httpx_client.delete(
-        f"/api/v1/admin/ml-integrations/registry/{backend.id}",
-        headers={"Authorization": f"Bearer {token}"},
-    )
+    async with _native_rejection_savepoint(db_session):
+        response = await httpx_client.delete(
+            f"/api/v1/admin/ml-integrations/registry/{backend.id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
 
     assert response.status_code == 409
     assert response.json()["detail"]["error_code"] == (
@@ -1269,10 +1350,11 @@ async def test_delete_registry_with_running_prediction_preserves_binding(
     )
     await db_session.commit()
 
-    response = await httpx_client.delete(
-        f"/api/v1/admin/ml-integrations/registry/{backend.id}",
-        headers={"Authorization": f"Bearer {token}"},
-    )
+    async with _native_rejection_savepoint(db_session):
+        response = await httpx_client.delete(
+            f"/api/v1/admin/ml-integrations/registry/{backend.id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
 
     assert response.status_code == 409
     assert await MLBackendService(db_session).get_registry(backend.id) is not None
@@ -1320,6 +1402,9 @@ async def test_delete_registry_requires_member_draining(
     project = await _seed_project(db_session, user.id, ml_backend_pool_id=pool.id)
     await db_session.commit()
     monkeypatch.setattr(settings, "ml_backend_router_mode", "enforce")
+    _install_quiescence_authority(
+        monkeypatch, lambda registry_id: _topology_snapshot(db_session, registry_id)
+    )
 
     response = await httpx_client.delete(
         f"/api/v1/admin/ml-integrations/registry/{backend.id}",
@@ -1369,6 +1454,11 @@ async def test_delete_registry_rejects_live_redis_route_lease(
         assert rejection is None
 
         await _drain_registry_member(db_session, backend.id, monkeypatch)
+        _install_quiescence_authority(
+            monkeypatch,
+            lambda registry_id: _topology_snapshot(db_session, registry_id),
+            ledger=ledger,
+        )
         response = await httpx_client.delete(
             f"/api/v1/admin/ml-integrations/registry/{backend.id}",
             headers={"Authorization": f"Bearer {token}"},
@@ -1509,6 +1599,12 @@ async def test_delete_registry_commit_failure_rolls_back_registry_and_binding(
             )
 
     monkeypatch.setattr(settings, "ml_backend_router_mode", "enforce")
+
+    async def _committed_snapshot(registry_id):
+        async with sessions() as db:
+            return await _topology_snapshot(db, registry_id)
+
+    _install_quiescence_authority(monkeypatch, _committed_snapshot)
     previous_db_dependency = app_module.dependency_overrides.get(get_db)
 
     async def request_db():
@@ -1565,6 +1661,9 @@ async def test_registry_unload_preserves_gpu_arbiter_error_contract(
     _, token = super_admin
     backend = await _seed_registry(db_session, name="arbiter-reject")
     await _drain_registry_member(db_session, backend.id, monkeypatch)
+    _install_quiescence_authority(
+        monkeypatch, lambda registry_id: _topology_snapshot(db_session, registry_id)
+    )
 
     async def _reject(_registry_id: uuid.UUID, *, expected_topology=None):
         raise GPUArbiterDispatchError(

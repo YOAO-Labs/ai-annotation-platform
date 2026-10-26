@@ -1458,7 +1458,9 @@ async def reconcile_screenshot_seed(
             reset_tasks.append(
                 SeedTaskReset(
                     id=task.id,
-                    file_path=task_spec.file_path,
+                    # The owner fences a reset on the resolved task scope; UUID
+                    # storage adoption rewrites file_path away from the spec.
+                    file_path=task.file_path,
                     display_id=_task_display_id(logical_key, index),
                     sequence_order=index,
                     status=task_spec.status,

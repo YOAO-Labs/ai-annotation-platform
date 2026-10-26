@@ -792,7 +792,7 @@ async def create_registry(
                 "error_code": "gpu_config_invalid",
                 "message": str(exc),
                 "diagnostics": [
-                    diagnostic.model_dump(mode="json") for diagnostic in exc.diagnostics
+                    to_record(diagnostic) for diagnostic in exc.diagnostics
                 ],
             },
         ) from exc
@@ -840,7 +840,7 @@ async def update_registry(
                 "error_code": "gpu_config_invalid",
                 "message": str(exc),
                 "diagnostics": [
-                    diagnostic.model_dump(mode="json") for diagnostic in exc.diagnostics
+                    to_record(diagnostic) for diagnostic in exc.diagnostics
                 ],
             },
         ) from exc

@@ -46,7 +46,7 @@ def to_record(value: Any) -> Any:
         return {key: to_record(item) for key, item in value.items()}
     if isinstance(value, (tuple, list)):
         return [to_record(item) for item in value]
-    if type(value) is UUID:
+    if isinstance(value, UUID):
         return str(value)
     if isinstance(value, datetime):
         if value.tzinfo is None or value.utcoffset() is None:
@@ -76,7 +76,7 @@ def _mapping(value: Any, fields: frozenset[str]) -> Mapping[str, Any]:
 def _uuid(value: Any, *, nullable: bool = False) -> UUID | None:
     if value is None and nullable:
         return None
-    if type(value) is UUID:
+    if isinstance(value, UUID):
         return value
     if type(value) is str:
         try:
