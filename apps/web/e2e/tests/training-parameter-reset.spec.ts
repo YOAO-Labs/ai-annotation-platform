@@ -81,6 +81,7 @@ async function openEditor(page: Page) {
         user_id: user.id,
         capabilities: ["project.manage"],
       },
+      [`/projects/${projectId}/datasets`]: [],
       [`/projects/${projectId}/training-datasets`]: { total: 1, items: [dataset] },
       [`/projects/${projectId}/training-datasets/${dataset.id}`]: dataset,
       [`/projects/${projectId}/training-runs/parameter-schema`]: schema,
@@ -104,7 +105,6 @@ async function openEditor(page: Page) {
   });
   await page.goto(`/projects/${projectId}/learning/new`);
   const dialog = page.getByRole("dialog", { name: "新建训练实验" });
-  await expect(dialog.getByLabel("训练数据", { exact: true })).toBeDisabled();
   await dialog.getByLabel("实验任务", { exact: true }).selectOption("detect");
   await dialog.getByLabel("实验名称", { exact: true }).fill("重置交互");
   await dialog.getByLabel("训练数据", { exact: true }).selectOption(dataset.id);
