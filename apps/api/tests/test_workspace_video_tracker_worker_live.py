@@ -72,6 +72,7 @@ pytestmark = [
 _TASK_NAME = "app.workers.video_tracker.run_video_tracker_job"
 _JOBS_SCHEMA = "aap_jobs_v1"
 _ROUTING_SCHEMA = "aap_inference_routing_v1"
+_ROUTING_OWNER_PORT = 8768
 
 
 def _host_forward_url(value: str) -> str:
@@ -93,9 +94,14 @@ class _VideoTrackerCeleryWorker(WorkspaceCeleryWorker):
         super().__init__(*args, **kwargs)
         # The production dispatcher targets the isolated verifier's gpu queue.
         self.queue = "gpu"
-        routing_dsn = self._role_dsn(
+        # The consumer keeps only the HTTP routing subject. The restricted routing
+        # LOGIN stays on the independent owner process that serves this worker.
+        self._routing_dsn = self._role_dsn(
             "AAP_MODULE_DATA_INFERENCE_ROUTING_URL", "inference_routing_client"
         )
+        self._routing_token = secrets.token_urlsafe(32)
+        self._routing_owner_url = f"http://127.0.0.1:{_ROUTING_OWNER_PORT}"
+        self._routing_owner_served = False
         writer_dsn = self._role_dsn(
             "AAP_MODULE_DATA_LABELING_VIDEO_WRITER_URL",
             "labeling_video_writer_client",
@@ -104,13 +110,9 @@ class _VideoTrackerCeleryWorker(WorkspaceCeleryWorker):
             "ASSETS_MEDIA_URL": _host_forward_url(media_url),
             "ASSETS_MEDIA_TOKEN": media_token,
             "ASSETS_MEDIA_TOKEN_FILE": "",
-            "INFERENCE_ROUTING_URL": "",
-            "INFERENCE_ROUTING_TOKEN": "",
+            "INFERENCE_ROUTING_URL": self._routing_owner_url,
+            "INFERENCE_ROUTING_TOKEN": self._routing_token,
             "INFERENCE_ROUTING_TOKEN_FILE": "",
-            "INFERENCE_ROUTING_DATABASE_URL": routing_dsn.render_as_string(
-                hide_password=False
-            ),
-            "INFERENCE_ROUTING_DATABASE_URL_FILE": "",
             "INFERENCE_ROUTING_TIMEOUT_SECONDS": "20",
             "ML_BACKEND_ROUTER_MODE": "enforce",
             "ML_BACKEND_ROUTER_LEASE_TTL_SECONDS": "30",
@@ -126,8 +128,85 @@ class _VideoTrackerCeleryWorker(WorkspaceCeleryWorker):
             "LABELING_VIDEO_WRITER_DATABASE_URL_FILE": "",
         }
 
+    def restart(self) -> None:
+        super().restart()
+        # A restart reaps exec children, so the owner is served again on demand.
+        self._routing_owner_served = False
+
+    def _serve_routing_owner(self) -> None:
+        """Run the installed Inference routing owner beside the worker consumer.
+
+        The owner owns the durable authority and the restricted routing LOGIN; the
+        worker reaches it only through the authenticated HTTP routing subject.
+        """
+        if self._routing_owner_served:
+            return
+        environment_file = self.secret_directory / "routing-owner.env"
+        super()._write_env_file(
+            environment_file,
+            {
+                "INFERENCE_ROUTING_DATABASE_URL": self._routing_dsn.render_as_string(
+                    hide_password=False
+                ),
+                "INFERENCE_ROUTING_TOKEN": self._routing_token,
+                "INFERENCE_ROUTING_LEASE_TTL_SECONDS": "30",
+                "INFERENCE_HOST": "127.0.0.1",
+                "INFERENCE_PORT": str(_ROUTING_OWNER_PORT),
+            },
+        )
+        self._docker(
+            "exec",
+            "--detach",
+            "--env-file",
+            str(environment_file),
+            self.container_id,
+            "/opt/venv/bin/python",
+            "-m",
+            "aap_inference",
+        )
+        self._routing_owner_served = True
+
+    def _await_routing_owner(self) -> None:
+        self._serve_routing_owner()
+        code = """import json, sys, time
+
+import httpx
+
+observed = None
+deadline = time.monotonic() + 60
+with httpx.Client(trust_env=False, timeout=2) as probe:
+    while time.monotonic() < deadline:
+        try:
+            reply = probe.get(sys.argv[1] + '/health')
+        except httpx.HTTPError:
+            observed = {'unavailable': True}
+        else:
+            try:
+                observed = reply.json()
+            except ValueError:
+                observed = {'http_status': reply.status_code}
+        if observed == {'status': 'ready'}:
+            break
+        time.sleep(0.1)
+print(json.dumps(observed, sort_keys=True, separators=(',', ':')))
+"""
+        observed = json.loads(
+            self._docker(
+                "exec",
+                self.container_id,
+                "/opt/venv/bin/python",
+                "-c",
+                code,
+                self._routing_owner_url,
+                timeout=120,
+            )
+        )
+        if observed != {"status": "ready"}:
+            raise RuntimeError(f"Owned routing owner is not ready: {observed!r}")
+
     def bootstrap_tracker_routes(self, worlds: dict[str, dict]) -> list[dict]:
         self.assert_runtime()
+        self._await_routing_owner()
         payload = json.dumps(
             [
                 {
@@ -140,20 +219,17 @@ class _VideoTrackerCeleryWorker(WorkspaceCeleryWorker):
         )
         code = """import asyncio, json, sys, uuid
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from aap_inference.routing_runtime import RoutingRuntime
-from aap_inference_contract.routing import make_routing_command
 from app.config import settings
 from app.services.ml_backend import MLBackendService
+from app.services.ml_routing.authority import RoutingAuthority
 
 async def main():
     records = json.loads(sys.argv[1])
     engine = create_async_engine(settings.database_url, hide_parameters=True)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
-    runtime = RoutingRuntime(settings.inference_routing_database_url)
+    authority = RoutingAuthority()
     results = []
     try:
-        if not await runtime.readiness():
-            raise RuntimeError('routing owner is not ready')
         for record in records:
             registry_id = uuid.UUID(record['registry_id'])
             project_id = uuid.UUID(record['project_id'])
@@ -166,18 +242,17 @@ async def main():
                 )
                 if selected is None or selected.id != registry_id:
                     raise RuntimeError('tracker backend selection mismatch')
-            result = await runtime.execute(make_routing_command('reconcile', {
+            result = await authority.execute('reconcile', {
                 'registry_id': str(registry_id),
                 'control_id': str(uuid.uuid4()),
-            }))
-            if result.state != 'committed' or result.result.phase != 'completed':
+            })
+            if result.phase != 'completed':
                 raise RuntimeError('backend route reconciliation did not complete')
             results.append({
                 'registry_id': str(registry_id),
-                'phase': result.result.phase,
+                'phase': result.phase,
             })
     finally:
-        await runtime.close()
         await engine.dispose()
     print(json.dumps(results, separators=(',', ':')))
 

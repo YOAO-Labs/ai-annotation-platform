@@ -581,8 +581,6 @@ async def test_video_job_finalizes_through_real_labeling_writer_owner(
                 monkeypatch.setattr(settings, "inference_routing_url", "")
                 monkeypatch.setattr(settings, "inference_routing_token", "")
                 monkeypatch.setattr(settings, "inference_routing_token_file", "")
-                monkeypatch.setattr(settings, "inference_routing_database_url", "")
-                monkeypatch.setattr(settings, "inference_routing_database_url_file", "")
                 monkeypatch.setattr(settings, "ml_backend_router_mode", "enforce")
                 monkeypatch.setattr(
                     settings, "ml_backend_router_heartbeat_interval_seconds", 1

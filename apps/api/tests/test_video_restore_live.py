@@ -837,8 +837,6 @@ async def test_restored_video_execution_resumes_after_real_global_route_drain(
         monkeypatch.setattr(settings, "inference_routing_url", "")
         monkeypatch.setattr(settings, "inference_routing_token", "")
         monkeypatch.setattr(settings, "inference_routing_token_file", "")
-        monkeypatch.setattr(settings, "inference_routing_database_url", "")
-        monkeypatch.setattr(settings, "inference_routing_database_url_file", "")
         restored_sessions = async_sessionmaker(restored_engine, expire_on_commit=False)
         writer = VideoWriterManager(VideoWriterPostgresProvider(writer_dsn))
         receipt = None
