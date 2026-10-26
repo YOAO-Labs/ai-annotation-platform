@@ -8,7 +8,7 @@ import json
 import math
 import re
 import uuid
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
 from aap_preannotation_results.video_execution_plan import BackendCompatibilityIdentity
@@ -18,6 +18,7 @@ from aap_inference.tracker import (
     bbox_from_geometry as _bbox_from_geometry,
     bbox_from_points as _bbox_from_points,
 )
+from aap_inference_contract.topology import to_record
 from app.services.video_tracking.adapters import MockBboxTrackerAdapter, TrackerContext
 
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -68,7 +69,7 @@ def _positive_limit(value: object) -> int | None:
     return value if type(value) is int and value > 0 else None
 
 
-def _model_entries(backend: object) -> list[Mapping[str, Any]]:
+def _model_entries(backend: object) -> Sequence[Mapping[str, Any]]:
     health_meta = _value(backend, "health_meta")
     capabilities = _value(health_meta, "capabilities")
     models = _value(capabilities, "models")
@@ -86,7 +87,7 @@ def _model_entries(backend: object) -> list[Mapping[str, Any]]:
                     "max_context_frames": 0,
                 }
             ]
-    if not isinstance(models, list) or any(
+    if not isinstance(models, (list, tuple)) or any(
         not isinstance(item, Mapping) for item in models
     ):
         raise VideoBackendIdentityError("tracker_backend_capabilities_missing")
@@ -184,7 +185,7 @@ def _capability_digest(
                 )
             }
         encoded = json.dumps(
-            payload,
+            to_record(payload),
             ensure_ascii=False,
             allow_nan=False,
             sort_keys=True,

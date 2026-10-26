@@ -5,6 +5,7 @@ import uuid
 from types import SimpleNamespace
 
 import pytest
+from aap_inference_contract.topology import freeze_json
 
 from app.services.video_tracking import backend_identity
 from app.services.video_tracking.backend_identity import (
@@ -71,8 +72,14 @@ def _runtime_facts(backend_id: str, *, epoch: str | None = None) -> tuple[dict, 
     )
 
 
-def test_registry_identity_uses_selected_backend_model_and_matching_epoch() -> None:
-    backend = _backend(_model())
+@pytest.mark.parametrize("frozen", [False, True])
+def test_registry_identity_uses_selected_backend_model_and_matching_epoch(
+    frozen,
+) -> None:
+    backend = _backend({**_model(), "default_variants": {"model": "sam2"}})
+    backend["extra_params"] = {"runtime": {"precision": "float32"}}
+    if frozen:
+        backend = freeze_json(backend)
     runtime, scope = _runtime_facts(backend["id"])
 
     identity = build_video_backend_compatibility(
