@@ -23,7 +23,7 @@ from app.config import settings
 from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
 from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.user import User
-from app.services.ml_backend import MLBackendService
+from tests.conftest import create_registry_with_pool
 from tests.factory import create_user
 from tests.inference_health_observation_helpers import observation_dsn
 from tests.labeling_class_query_helpers import assert_owned_test_database
@@ -206,12 +206,7 @@ async def test_public_health_uses_observer_image_survives_restart_and_fails_with
                 await db.rollback()
 
     monkeypatch.setitem(app_module.dependency_overrides, get_db, request_db)
-    for name in (
-        "inference_health_observation_database_url",
-        "inference_health_observation_database_url_file",
-        "inference_health_observation_token_file",
-    ):
-        monkeypatch.setattr(settings, name, "")
+    monkeypatch.setattr(settings, "inference_health_observation_token_file", "")
     actor_id = registry_id = pool_id = None
     try:
         async with _observer_container(
@@ -237,17 +232,17 @@ async def test_public_health_uses_observer_image_survives_restart_and_fails_with
                         "Health image operator",
                     )
                     actor_id = actor.id
-                    backend = MLBackendRegistry(
+                    backend, pool = await create_registry_with_pool(
+                        seed,
                         name="Image health",
                         url=backend_url,
+                        state="disconnected",
+                        is_interactive=False,
                         auth_method="token",
                         auth_token="image-health-token",
                         extra_params={},
                     )
-                    seed.add(backend)
-                    await seed.flush()
                     registry_id = backend.id
-                    pool = await MLBackendService(seed)._create_singleton_pool(backend)
                     pool_id = pool.id
                     authorization = _auth(actor)
                 route = f"/api/v1/admin/ml-integrations/registry/{registry_id}/health"

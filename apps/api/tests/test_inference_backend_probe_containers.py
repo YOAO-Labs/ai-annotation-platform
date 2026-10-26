@@ -19,8 +19,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.db.models.ml_backend_registry import MLBackendRegistry
-from app.services.ml_backend import MLBackendService
+from tests.conftest import create_registry_with_pool
 from tests.inference_backend_probe_helpers import probe_dsn
 from tests.labeling_class_query_helpers import assert_owned_test_database
 from tests.test_asset_storage_cleanup_runtime import (
@@ -28,7 +27,7 @@ from tests.test_asset_storage_cleanup_runtime import (
     _inspect_docker,
     _stop_remove_container,
 )
-from tests.test_inference_backend_probe_bindings import _insert, setup_backend
+from tests.test_inference_backend_probe_bindings import setup_backend
 from tests.test_workspace_configuration_live import (
     _auth,
     _cleanup_world,
@@ -239,14 +238,18 @@ async def test_public_api_uses_restricted_workspace_and_inference_containers_wit
                             "Probe container actor",
                         )
                         actor_id = actor.id
-                        registry_id = uuid.uuid4()
-                        await _insert(
+                        registry, _pool = await create_registry_with_pool(
                             seed,
-                            registry_id,
-                            parsed.render_as_string(hide_password=False) + "/container",
+                            name="Container probe",
+                            url=parsed.render_as_string(hide_password=False)
+                            + "/container",
+                            state="disconnected",
+                            is_interactive=False,
+                            auth_method="token",
+                            auth_token="snapshot-secret",
+                            extra_params={},
                         )
-                        registry = await seed.get(MLBackendRegistry, registry_id)
-                        await MLBackendService(seed)._create_singleton_pool(registry)
+                        registry_id = registry.id
                     async with api_configuration_binding(
                         url=origin, token="workspace-control-token"
                     ):

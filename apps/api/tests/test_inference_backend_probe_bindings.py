@@ -1,4 +1,4 @@
-"""Real snapshot setup I/O across borrowed, direct-DSN and HTTP probe bindings."""
+"""Real snapshot setup I/O through the independent HTTP probe owner."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from aap_inference_contract.probe import (
 )
 from app.config import settings
 from app.services.inference_backend_probe import backend_probe
-from tests.inference_backend_probe_helpers import probe_dsn, probe_provider
+from tests.inference_backend_probe_helpers import probe_provider
 from tests.labeling_class_query_helpers import assert_owned_test_database
 
 pytestmark = [
@@ -66,23 +66,17 @@ def setup_backend():
         thread.join(timeout=3)
 
 
-async def _binding(stack, monkeypatch, test_engine, binding):
+async def _binding(stack, monkeypatch, test_engine):
+    """Select the only remaining probe owner: the independent HTTP process."""
     for name in (
         "inference_backend_probe_url",
-        "inference_backend_probe_database_url",
-        "inference_backend_probe_database_url_file",
         "inference_backend_probe_token",
         "inference_backend_probe_token_file",
     ):
         monkeypatch.setattr(settings, name, "")
-    if binding == "dsn":
-        monkeypatch.setattr(
-            settings, "inference_backend_probe_database_url", probe_dsn(test_engine.url)
-        )
-    elif binding == "http":
-        origin, token = await stack.enter_async_context(probe_provider(test_engine.url))
-        monkeypatch.setattr(settings, "inference_backend_probe_url", origin)
-        monkeypatch.setattr(settings, "inference_backend_probe_token", token)
+    origin, token = await stack.enter_async_context(probe_provider(test_engine.url))
+    monkeypatch.setattr(settings, "inference_backend_probe_url", origin)
+    monkeypatch.setattr(settings, "inference_backend_probe_token", token)
 
 
 async def _insert(db, registry_id, url, *, extra="{}"):
@@ -116,15 +110,14 @@ async def _probe(db, registry_id, subject):
     )
 
 
-@pytest.mark.parametrize("binding", ["borrowed", "dsn", "http"])
 async def test_uncommitted_snapshot_probes_without_committing_caller_and_expires(
-    test_engine, monkeypatch, binding
+    test_engine, monkeypatch
 ):
     await assert_owned_test_database(test_engine)
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     registry_id = uuid.uuid4()
     async with AsyncExitStack() as stack:
-        await _binding(stack, monkeypatch, test_engine, binding)
+        await _binding(stack, monkeypatch, test_engine)
         with setup_backend() as (url, calls):
             async with maker() as caller:
                 await _insert(caller, registry_id, url + "/original")
@@ -160,15 +153,14 @@ async def test_uncommitted_snapshot_probes_without_committing_caller_and_expires
                 assert len(calls) == 1
 
 
-@pytest.mark.parametrize("binding", ["borrowed", "dsn", "http"])
 async def test_rotation_after_snapshot_does_not_lock_or_probe_current_endpoint(
-    test_engine, monkeypatch, binding
+    test_engine, monkeypatch
 ):
     await assert_owned_test_database(test_engine)
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     registry_id = uuid.uuid4()
     async with AsyncExitStack() as stack:
-        await _binding(stack, monkeypatch, test_engine, binding)
+        await _binding(stack, monkeypatch, test_engine)
         with setup_backend() as (url, calls):
             async with maker.begin() as seed:
                 await _insert(seed, registry_id, url + "/old")
@@ -208,15 +200,14 @@ async def test_rotation_after_snapshot_does_not_lock_or_probe_current_endpoint(
                     )
 
 
-@pytest.mark.parametrize("binding", ["borrowed", "dsn", "http"])
 async def test_legacy_json_materialization_failure_is_not_fail_open(
-    test_engine, monkeypatch, binding
+    test_engine, monkeypatch
 ):
     await assert_owned_test_database(test_engine)
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     registry_id = uuid.uuid4()
     async with AsyncExitStack() as stack:
-        await _binding(stack, monkeypatch, test_engine, binding)
+        await _binding(stack, monkeypatch, test_engine)
         with setup_backend() as (url, calls):
             async with maker() as caller:
                 await _insert(
@@ -230,14 +221,11 @@ async def test_legacy_json_materialization_failure_is_not_fail_open(
                 await caller.rollback()
 
 
-@pytest.mark.parametrize("binding", ["borrowed", "dsn", "http"])
-async def test_actual_backend_failure_stays_fail_open(
-    test_engine, monkeypatch, binding
-):
+async def test_actual_backend_failure_stays_fail_open(test_engine, monkeypatch):
     await assert_owned_test_database(test_engine)
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     async with AsyncExitStack() as stack:
-        await _binding(stack, monkeypatch, test_engine, binding)
+        await _binding(stack, monkeypatch, test_engine)
         with setup_backend() as (url, calls):
             async with maker() as caller:
                 registry_id = uuid.uuid4()
@@ -248,13 +236,13 @@ async def test_actual_backend_failure_stays_fail_open(
                 await caller.rollback()
 
 
-async def test_explicit_http_failure_never_falls_back_to_borrowed_probe(
+async def test_explicit_http_credential_failure_is_unavailable_without_backend_calls(
     test_engine, monkeypatch
 ):
     await assert_owned_test_database(test_engine)
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     async with AsyncExitStack() as stack:
-        await _binding(stack, monkeypatch, test_engine, "http")
+        await _binding(stack, monkeypatch, test_engine)
         monkeypatch.setattr(
             settings, "inference_backend_probe_token", "wrong-dedicated-token"
         )
@@ -269,9 +257,9 @@ async def test_explicit_http_failure_never_falls_back_to_borrowed_probe(
                 await caller.rollback()
 
 
-@pytest.mark.parametrize("binding", ["borrowed", "dsn", "http"])
-async def test_missing_native_probe_key_is_503_before_public_configuration_writes(
-    test_engine, httpx_client, monkeypatch, binding
+@pytest.mark.parametrize("configuration_binding", ["borrowed", "dsn", "http"])
+async def test_missing_probe_secret_is_503_before_public_configuration_writes(
+    test_engine, httpx_client, monkeypatch, configuration_binding
 ):
     from app.core.security import create_access_token
     from tests.factory import create_user
@@ -288,20 +276,20 @@ async def test_missing_native_probe_key_is_503_before_public_configuration_write
     actor_id = registry_id = None
     retained_key = None
     async with AsyncExitStack() as stack:
-        await _binding(stack, monkeypatch, test_engine, "borrowed")
+        await _binding(stack, monkeypatch, test_engine)
         for name in (
             "workspace_configuration_url",
             "workspace_configuration_database_url",
             "workspace_configuration_database_url_file",
         ):
             monkeypatch.setattr(settings, name, "")
-        if binding == "dsn":
+        if configuration_binding == "dsn":
             await stack.enter_async_context(
                 api_configuration_binding(
                     dsn=configuration_dsn(test_engine), token="workspace-test-control"
                 )
             )
-        elif binding == "http":
+        elif configuration_binding == "http":
             origin = await stack.enter_async_context(
                 provider_url(configuration_dsn(test_engine), "workspace-test-control")
             )
