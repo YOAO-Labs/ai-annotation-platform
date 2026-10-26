@@ -110,6 +110,9 @@ async def visible_task(db, task_id, actor, *, lock=False):
             # Without an HTTP proof this is still a fresh current actor; do not
             # grant visibility from an identity-map role retained across I/O.
             fresh_actor = await _row(db, User, actor.id, lock=lock)
+            # Annotation writers update Task before Project counters. Keep that
+            # order so a read does not hold Project while waiting on their Task.
+            task = await _row(db, Task, task_id, lock=lock)
             project = await _row(db, Project, project_id, lock=lock)
             if fresh_actor is None or not fresh_actor.is_active:
                 raise HTTPException(401, {"code": "content_authority_revoked"})
@@ -123,7 +126,6 @@ async def visible_task(db, task_id, actor, *, lock=False):
                 membership = membership.with_for_update(read=True, nowait=True)
             await db.scalar(membership.execution_options(populate_existing=True))
             batch = await _row(db, TaskBatch, batch_id, lock=lock)
-            task = await _row(db, Task, task_id, lock=lock)
             if task is None:
                 raise HTTPException(404, "Task not found")
             if (

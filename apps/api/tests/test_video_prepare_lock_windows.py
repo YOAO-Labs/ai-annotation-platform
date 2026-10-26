@@ -349,11 +349,8 @@ async def test_counter_writer_is_waited_out_but_a_held_identity_fence_fails_clos
         ready_id = ready.id
     assert ready.state == "ready"
     async with state.factory() as writer, state.factory() as db:
-        await writer.execute(
-            update(Project)
-            .where(Project.id == state.project_id)
-            .values(in_progress_tasks=11)
-        )
+        # Annotation writers hold Task before updating Project counters. Let the
+        # sample reader reach its fence between those writes to expose inversions.
         await writer.execute(
             update(Task)
             .where(Task.id == state.task_id)
@@ -367,6 +364,11 @@ async def test_counter_writer_is_waited_out_but_a_held_identity_fence_fails_clos
         try:
             waited = await _await_lock_wait(state, pid, reader)
             assert waited[0] == "Lock"
+            await writer.execute(
+                update(Project)
+                .where(Project.id == state.project_id)
+                .values(in_progress_tasks=11)
+            )
         finally:
             if writer.in_transaction():
                 await writer.commit()
