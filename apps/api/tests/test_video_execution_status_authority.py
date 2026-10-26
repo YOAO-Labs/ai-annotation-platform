@@ -26,10 +26,6 @@ async def test_video_execution_status_uses_configured_http_owner(monkeypatch):
     monkeypatch.setattr(settings, "inference_routing_url", "http://routing-owner")
     monkeypatch.setattr(settings, "inference_routing_token", "private-token")
     monkeypatch.setattr(settings, "inference_routing_token_file", "")
-    secret_values = iter(("", "private-token"))
-    monkeypatch.setattr(
-        authority_module, "secret_source", lambda _source, _file: next(secret_values)
-    )
     clients = []
 
     class HttpClient:
