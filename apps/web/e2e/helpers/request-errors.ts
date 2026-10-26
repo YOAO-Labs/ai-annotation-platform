@@ -6,12 +6,14 @@
  * reason, organized into product-domain rule groups so each suite composes
  * exactly the cancellations observed on its own flows; membership in another
  * suite's group never widens a whitelist. The engine only classifies
- * `net::ERR_ABORTED` *request* failures: keep-alive session telemetry POSTs
- * (heartbeat, task-event batches) are the only write-shaped requests allowed,
- * because the API may have accepted them while unload already cancelled the
- * socket. Console/page errors, HTTP responses and every other failure stay
- * errors; suites keep intended business HTTP failures explicit through their
- * own expected-error registries instead of this engine.
+ * `net::ERR_ABORTED` *request* failures, and only two write-shaped shapes are
+ * allowed: keep-alive session telemetry POSTs (heartbeat, task-event batches)
+ * whose body the API may already have accepted, and the best-effort keepalive
+ * DELETE that revokes a native playback lease while the document leaves. Both
+ * happen after unload already cancelled the socket. Console/page errors, HTTP
+ * responses and every other failure stay errors; suites keep intended business
+ * HTTP failures explicit through their own expected-error registries instead of
+ * this engine.
  */
 
 /** A normalized failure signal recorded from page / console / request events. */
@@ -150,7 +152,9 @@ export const maskEditorAborts: readonly AbortAllowRule[] = [
   },
 ];
 
-/** Verified original reads retire with their task, camera or dataset preview owner. */
+/**
+ * Verified original reads retire with their task, camera or dataset preview owner.
+ */
 const originalMediaAborts: readonly AbortAllowRule[] = [
   {
     method: "GET",
@@ -161,6 +165,26 @@ const originalMediaAborts: readonly AbortAllowRule[] = [
     method: "GET",
     path: new RegExp(`^/api/v1/datasets/${UUID}/items/${UUID}/original(?:-identity)?$`),
     reason: "closing or reloading the dataset preview cancels its owned original read",
+  },
+];
+
+/**
+ * A leaving document can only revoke its native playback lease with a keepalive
+ * DELETE, and the browser reports that request as aborted once the document is
+ * discarded. Lease expiry and the registry reaper stay the final owner, so the
+ * cancelled revoke is a documented lifecycle cancellation rather than a lost
+ * write; HTTP failures and every other method stay errors.
+ */
+export const originalPlaybackReleaseAborts: readonly AbortAllowRule[] = [
+  {
+    method: "DELETE",
+    path: new RegExp(`^/api/v1/files/tasks/${UUID}/original-playback/${UUID}$`),
+    reason: "reload/leave aborts the best-effort keepalive lease revoke; expiry owns cleanup",
+  },
+  {
+    method: "DELETE",
+    path: new RegExp(`^/api/v1/datasets/${UUID}/items/${UUID}/original-playback/${UUID}$`),
+    reason: "closing the dataset preview aborts its best-effort lease revoke",
   },
 ];
 
@@ -222,6 +246,7 @@ export const videoWorkbenchAborts: readonly AbortAllowRule[] = [
   ...videoTaskContextAborts,
   ...videoMediaAborts,
   ...originalMediaAborts,
+  ...originalPlaybackReleaseAborts,
 ];
 
 /** Whether `signal`'s method + pathname satisfy one allow rule exactly. */

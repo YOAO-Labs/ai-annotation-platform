@@ -1,9 +1,10 @@
 """E2E video fixtures retain production publication and cleanup ownership."""
 
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from copy import deepcopy
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
+import asyncio
 import uuid
 
 from fastapi import HTTPException
@@ -205,12 +206,22 @@ def test_bad_samples_are_response_faults_without_mutating_the_valid_baseline(fix
 async def test_cleanup_retains_claim_and_rows_when_an_operation_is_unsettled(
     monkeypatch,
 ):
-    output = SimpleNamespace(id=uuid.uuid4(), state="building")
+    output = SimpleNamespace(
+        id=uuid.uuid4(),
+        state="building",
+        original_ref={"location_id": str(uuid.uuid4())},
+        storage_ref={"location_id": str(uuid.uuid4())},
+    )
     db = SimpleNamespace(commit=AsyncMock(), flush=AsyncMock())
     monkeypatch.setattr(
         seed,
         "_fixture_video_outputs",
         AsyncMock(return_value=((uuid.uuid4(),), [output])),
+    )
+    # The bounded drain is a separate seam: proven unsettled work must still fail
+    # closed immediately instead of being retried until it looks settled.
+    monkeypatch.setattr(
+        seed, "_drain_fixture_video_operations", AsyncMock(return_value=False)
     )
     monkeypatch.setattr(seed, "_fixture_video_source_operations", AsyncMock())
     monkeypatch.setattr(seed, "_fixture_video_foreign_refs", AsyncMock())
@@ -220,6 +231,50 @@ async def test_cleanup_retains_claim_and_rows_when_an_operation_is_unsettled(
         await seed._prepare_fixture_video_cleanup(db, object())
     assert failure.value.detail == {"code": "e2e_seed_video_operation_unsettled"}
     assert output.state == "building"
+    db.commit.assert_not_awaited()
+
+
+@pytest.mark.parametrize("settled", [True, False])
+async def test_cleanup_drains_known_work_before_judging_live_permits(
+    monkeypatch, settled
+):
+    """A permit the page still holds is drained, not reported as unknown owner."""
+    location = uuid.uuid4()
+    output = SimpleNamespace(
+        id=uuid.uuid4(),
+        state="ready",
+        original_ref={"location_id": str(location)},
+        storage_ref={"location_id": str(location)},
+    )
+    db = SimpleNamespace(commit=AsyncMock(), flush=AsyncMock())
+    monkeypatch.setattr(
+        seed,
+        "_fixture_video_outputs",
+        AsyncMock(return_value=((uuid.uuid4(),), [output])),
+    )
+    drain = AsyncMock(return_value=settled)
+    monkeypatch.setattr(seed, "_drain_fixture_video_operations", drain)
+    monkeypatch.setattr(seed, "_fixture_video_source_operations", AsyncMock())
+    monkeypatch.setattr(seed, "_fixture_video_foreign_refs", AsyncMock())
+    monkeypatch.setattr(objects, "snapshot", lambda value: value)
+    in_use = AsyncMock(return_value=False)
+    monkeypatch.setattr(objects, "_in_use", in_use)
+    if settled:
+        plan = await seed._prepare_fixture_video_cleanup(db, object())
+        drain.assert_awaited_once()
+        assert drain.await_args.kwargs["locations"] == {location}
+        assert drain.await_args.kwargs["purposes"] == (
+            objects.purpose(output.id),
+        )
+        assert output.state == "retiring"
+        assert plan.receipts == (output,)
+        db.commit.assert_awaited_once()
+        return
+    with pytest.raises(HTTPException) as failure:
+        await seed._prepare_fixture_video_cleanup(db, object())
+    assert failure.value.detail == {"code": "e2e_seed_video_operation_unsettled"}
+    in_use.assert_not_awaited()
+    assert output.state == "ready"
     db.commit.assert_not_awaited()
 
 
@@ -246,6 +301,7 @@ async def test_cleanup_deletes_only_saved_owner_and_keeps_rows_on_close_failure(
     receipt = SimpleNamespace(
         id=uuid.uuid4(),
         state="retiring",
+        original_ref={"location_id": str(uuid.uuid4())},
         storage_ref={"location_id": str(uuid.uuid4())},
     )
     plan = seed._FixtureVideoCleanup(scope, (), (receipt,))
@@ -261,8 +317,10 @@ async def test_cleanup_deletes_only_saved_owner_and_keeps_rows_on_close_failure(
         yield fresh
 
     @asynccontextmanager
-    async def access(actual_db, actual_receipt, guard):
+    async def access(actual_db, actual_receipt, guard, *, on_acquired=None):
         assert (actual_db, actual_receipt) == (db, receipt)
+        if on_acquired is not None:
+            await on_acquired(SimpleNamespace(id=uuid.uuid4(), revision=7))
         await guard(7)
         yield client
         if close_fails:
@@ -273,6 +331,8 @@ async def test_cleanup_deletes_only_saved_owner_and_keeps_rows_on_close_failure(
         sqlalchemy_async, "async_sessionmaker", lambda *_a, **_k: session
     )
     monkeypatch.setattr(storage_access, "engine", lambda _db: object())
+    drain = AsyncMock(return_value=True)
+    monkeypatch.setattr(seed, "_drain_fixture_video_operations", drain)
     monkeypatch.setattr(seed, "_fixture_video_source_operations", AsyncMock())
     monkeypatch.setattr(objects, "snapshot", lambda value: value)
     monkeypatch.setattr(objects, "access", access)
@@ -292,3 +352,184 @@ async def test_cleanup_deletes_only_saved_owner_and_keeps_rows_on_close_failure(
     remove.assert_called_once_with(client, receipt)
     db.delete.assert_not_awaited()
     assert receipt.state == "retiring"
+    # The collector's own permit is the only remaining owner; it is excluded from
+    # the drain so the guard can still prove it is the sole permit afterwards.
+    assert drain.await_count == (1 if close_fails else 2)
+    assert drain.await_args.kwargs["excluding"]
+    assert drain.await_args.kwargs["purposes"] == (objects.purpose(receipt.id),)
+
+
+async def test_cleanup_keeps_saved_owner_when_known_work_outlives_the_drain(
+    monkeypatch,
+):
+    import sqlalchemy.ext.asyncio as sqlalchemy_async
+
+    scope = object()
+    receipt = SimpleNamespace(
+        id=uuid.uuid4(),
+        state="retiring",
+        original_ref={"location_id": str(uuid.uuid4())},
+        storage_ref={"location_id": str(uuid.uuid4())},
+    )
+    plan = seed._FixtureVideoCleanup(scope, (), (receipt,))
+    client, db = object(), SimpleNamespace(delete=AsyncMock())
+    fresh = SimpleNamespace(
+        scalar=AsyncMock(return_value=receipt),
+        scalars=AsyncMock(return_value=[SimpleNamespace(revision=7)]),
+        commit=AsyncMock(),
+    )
+
+    @asynccontextmanager
+    async def session():
+        yield fresh
+
+    @asynccontextmanager
+    async def access(actual_db, actual_receipt, guard, *, on_acquired=None):
+        await on_acquired(SimpleNamespace(id=uuid.uuid4(), revision=7))
+        await guard(7)
+        yield client
+
+    monkeypatch.setattr(
+        sqlalchemy_async, "async_sessionmaker", lambda *_a, **_k: session
+    )
+    monkeypatch.setattr(storage_access, "engine", lambda _db: object())
+    monkeypatch.setattr(
+        seed, "_drain_fixture_video_operations", AsyncMock(return_value=False)
+    )
+    monkeypatch.setattr(objects, "snapshot", lambda value: value)
+    monkeypatch.setattr(objects, "access", access)
+    remove = MagicMock(return_value=2)
+    monkeypatch.setattr(physical, "delete_output", remove)
+    monkeypatch.setattr(
+        originals,
+        "physical",
+        AsyncMock(side_effect=lambda call, *args, **_k: call(*args)),
+    )
+    with pytest.raises(HTTPException) as failure:
+        await seed._delete_fixture_video_objects(
+            db, plan, AsyncMock(return_value=scope)
+        )
+    assert failure.value.detail == {"code": "e2e_seed_video_operation_unsettled"}
+    remove.assert_not_called()
+    fresh.commit.assert_not_awaited()
+    assert receipt.state == "retiring"
+    assert plan.revisions == {}
+
+
+async def test_fixture_video_drain_settles_known_work_and_reports_expiry():
+    class Probe:
+        def __init__(self, probes):
+            self.probes = list(probes)
+
+        @property
+        def no_autoflush(self):
+            return nullcontext()
+
+        async def scalars(self, _statement):
+            return self.probes.pop(0)
+
+    deadline = asyncio.get_running_loop().time() + 1
+    settled = await seed._drain_fixture_video_operations(
+        Probe([[uuid.uuid4()], []]),
+        deadline,
+        locations={uuid.uuid4()},
+        purposes=("video_derivative_" + uuid.uuid4().hex,),
+    )
+    assert settled is True
+    expired = await seed._drain_fixture_video_operations(
+        Probe([[uuid.uuid4()]]),
+        0.0,
+        locations={uuid.uuid4()},
+    )
+    assert expired is False
+    assert (
+        await seed._drain_fixture_video_operations(Probe([]), deadline) is True
+    ), "an empty scope has nothing to drain"
+
+
+async def test_finalize_adopts_only_idle_unbuilt_owners_allocated_during_cleanup(
+    monkeypatch,
+):
+    scope = object()
+    plan_identifier, extra_identifier = uuid.uuid4(), uuid.uuid4()
+    receipt = SimpleNamespace(
+        id=plan_identifier,
+        state="retiring",
+        storage_ref={"location_id": str(uuid.uuid4())},
+    )
+    planned = SimpleNamespace(
+        id=plan_identifier,
+        state="retiring",
+        original_ref={"location_id": str(uuid.uuid4())},
+        storage_ref={"location_id": str(uuid.uuid4())},
+    )
+    extra = SimpleNamespace(
+        id=extra_identifier,
+        state="building",
+        lease_token=None,
+        inventory=None,
+        original_ref={"location_id": str(uuid.uuid4())},
+        storage_ref={"location_id": str(uuid.uuid4())},
+    )
+    plan = seed._FixtureVideoCleanup(scope, (), (receipt,))
+    db = SimpleNamespace(execute=AsyncMock(), flush=AsyncMock())
+    monkeypatch.setattr(
+        seed,
+        "_fixture_video_outputs",
+        AsyncMock(return_value=((), [planned, extra])),
+    )
+    monkeypatch.setattr(seed, "_fixture_video_foreign_refs", AsyncMock())
+    monkeypatch.setattr(seed, "_fixture_video_source_operations", AsyncMock())
+    monkeypatch.setattr(
+        seed, "_drain_fixture_video_operations", AsyncMock(return_value=True)
+    )
+    monkeypatch.setattr(
+        objects,
+        "snapshot",
+        lambda value: receipt if value is planned else value,
+    )
+    monkeypatch.setattr(objects, "_in_use", AsyncMock(return_value=False))
+    await seed._finalize_fixture_video_cleanup(db, plan, AsyncMock(return_value=scope))
+    assert extra.state == "retiring"
+    statements = [call.args[0] for call in db.execute.await_args_list]
+    deleted = {
+        value
+        for value in statements[-1].compile().params.values()
+        if isinstance(value, uuid.UUID)
+    }
+    assert deleted == {plan_identifier, extra_identifier}
+    db.flush.assert_awaited()
+
+
+async def test_finalize_keeps_published_late_owner_as_unknown_ownership(monkeypatch):
+    scope = object()
+    receipt = SimpleNamespace(
+        id=uuid.uuid4(),
+        state="retiring",
+        original_ref={"location_id": str(uuid.uuid4())},
+        storage_ref={"location_id": str(uuid.uuid4())},
+    )
+    extra = SimpleNamespace(
+        id=uuid.uuid4(),
+        state="ready",
+        lease_token=None,
+        inventory={"schema": 1},
+        original_ref={"location_id": str(uuid.uuid4())},
+        storage_ref={"location_id": str(uuid.uuid4())},
+    )
+    plan = seed._FixtureVideoCleanup(scope, (), (receipt,))
+    db = SimpleNamespace(execute=AsyncMock(), flush=AsyncMock())
+    monkeypatch.setattr(
+        seed,
+        "_fixture_video_outputs",
+        AsyncMock(return_value=((), [receipt, extra])),
+    )
+    monkeypatch.setattr(objects, "snapshot", lambda value: value)
+    monkeypatch.setattr(objects, "_in_use", AsyncMock(return_value=False))
+    with pytest.raises(HTTPException) as failure:
+        await seed._finalize_fixture_video_cleanup(
+            db, plan, AsyncMock(return_value=scope)
+        )
+    assert failure.value.detail == {"code": "e2e_seed_video_owner_changed"}
+    assert extra.state == "ready"
+    db.execute.assert_not_awaited()

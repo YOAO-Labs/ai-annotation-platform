@@ -29,6 +29,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -472,6 +473,93 @@ class _FixtureVideoCleanup:
     item_ids: tuple
     receipts: tuple
     revisions: dict = field(default_factory=dict)
+    # Monotonic budget for the physical delete phase; the first guarded receipt
+    # starts it, so every receipt of one plan shares the same bound.
+    deadline: float = 0.0
+
+
+# The Playwright seed fixture tears down before the page closes, so work that was
+# already admitted for this fixture (a source read, a derivative read whose HTTP
+# response outlived the closed page) can still hold a storage permit when cleanup
+# begins. Settling that exact, known work is a drain, not a retry: each cleanup
+# phase carries its own bounded budget and shares one budget across every receipt
+# it guards, and a permit that outlives it still ends in
+# ``e2e_seed_video_operation_unsettled`` so no physical output is removed while a
+# live or unknown permit remains. Same bounded-authority convention as
+# ``_test_seed_attachments.FENCE_LOCK_TIMEOUT``.
+FIXTURE_VIDEO_DRAIN_SECONDS = 5.0
+FIXTURE_VIDEO_DRAIN_INTERVAL = 0.05
+FIXTURE_VIDEO_SOURCE_PURPOSE = "video_derivative_original"
+
+
+def _fixture_video_source_locations(outputs):
+    """Locations whose ``video_derivative_original`` read permits gate deletion."""
+    return {UUID(output.original_ref["location_id"]) for output in outputs}
+
+
+def _fixture_video_busy(exc):
+    """Map a NOWAIT ownership conflict to the same bounded busy convention.
+
+    A request that is allocating a new owner for the same item holds that row
+    with ``FOR UPDATE``. That is known fixture work, so teardown reports a busy
+    rejection instead of a driver error; an unrelated database fault still raises.
+    """
+    if not isinstance(exc, DBAPIError):
+        return None
+    state = getattr(exc.orig, "sqlstate", None) or getattr(exc.orig, "pgcode", None)
+    if state not in {"55P03", "40P01", "40001"}:
+        return None
+    return HTTPException(409, detail={"code": "e2e_seed_video_cleanup_busy"})
+
+
+def _fixture_video_purposes(outputs):
+    from app.services import video_derivative_objects as objects
+
+    return tuple(objects.purpose(output.id) for output in outputs)
+
+
+async def _fixture_video_operations(db, *, locations, purposes, excluding=()):
+    """Probe the exact permits that can still touch these fixture outputs."""
+    from sqlalchemy import and_, or_, select
+    from app.db.models.storage_maintenance import StorageOperation
+
+    predicates = []
+    if locations:
+        predicates.append(
+            and_(
+                StorageOperation.location_id.in_(tuple(locations)),
+                StorageOperation.purpose == FIXTURE_VIDEO_SOURCE_PURPOSE,
+            )
+        )
+    if purposes:
+        predicates.append(StorageOperation.purpose.in_(tuple(purposes)))
+    if not predicates:
+        return ()
+    statement = select(StorageOperation.id).where(or_(*predicates))
+    if excluding:
+        statement = statement.where(StorageOperation.id.not_in(tuple(excluding)))
+    with db.no_autoflush:
+        return tuple(await db.scalars(statement))
+
+
+async def _drain_fixture_video_operations(
+    db, deadline, *, locations=(), purposes=(), excluding=()
+):
+    """Wait (bounded) until only this collector's own permits remain.
+
+    Returns ``False`` when the caller's budget expired, so each caller keeps its
+    own fail-closed rejection instead of treating an unsettled owner as settled.
+    """
+    while True:
+        live = await _fixture_video_operations(
+            db, locations=locations, purposes=purposes, excluding=excluding
+        )
+        if not live:
+            return True
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            return False
+        await asyncio.sleep(min(FIXTURE_VIDEO_DRAIN_INTERVAL, remaining))
 
 
 async def _fixture_video_outputs(db, scope, *, lock=False):
@@ -570,7 +658,25 @@ async def _fixture_video_source_operations(db, receipts):
 async def _prepare_fixture_video_cleanup(db, scope):
     from app.services import video_derivative_objects as objects
 
-    item_ids, outputs = await _fixture_video_outputs(db, scope, lock=True)
+    deadline = asyncio.get_running_loop().time() + FIXTURE_VIDEO_DRAIN_SECONDS
+    # Drain before taking the ownership locks: a request that is still returning
+    # bytes must be allowed to release its permit instead of holding the item
+    # rows this cleanup locks with NOWAIT.
+    _, pending = await _fixture_video_outputs(db, scope)
+    if not await _drain_fixture_video_operations(
+        db,
+        deadline,
+        locations=_fixture_video_source_locations(pending),
+        purposes=_fixture_video_purposes(pending),
+    ):
+        raise HTTPException(409, detail={"code": "e2e_seed_video_operation_unsettled"})
+    try:
+        item_ids, outputs = await _fixture_video_outputs(db, scope, lock=True)
+    except DBAPIError as exc:
+        busy = _fixture_video_busy(exc)
+        if busy is None:
+            raise
+        raise busy from None
     await _fixture_video_source_operations(
         db, [objects.snapshot(output) for output in outputs]
     )
@@ -583,7 +689,9 @@ async def _prepare_fixture_video_cleanup(db, scope):
         output.state = "retiring"
     await db.flush()
     plan = _FixtureVideoCleanup(
-        scope, item_ids, tuple(objects.snapshot(output) for output in outputs)
+        scope,
+        item_ids,
+        tuple(objects.snapshot(output) for output in outputs),
     )
     await db.commit()
     return plan
@@ -601,13 +709,33 @@ async def _delete_fixture_video_objects(db, plan, resolve_scope):
     )
 
     factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
+    if plan.receipts and plan.deadline <= 0:
+        plan.deadline = asyncio.get_running_loop().time() + FIXTURE_VIDEO_DRAIN_SECONDS
     for receipt in plan.receipts:
+        served = []
 
-        async def guard(revision, receipt=receipt):
+        def acquired(permit, served=served):
+            served.append(permit.id)
+
+        async def guard(revision, receipt=receipt, served=served):
             async with factory() as fresh:
                 if await resolve_scope(fresh) != plan.scope:
                     raise HTTPException(
                         409, detail={"code": "e2e_seed_video_scope_changed"}
+                    )
+                # This collector already owns the exact purpose, so a read admitted
+                # before it can no longer be replaced; only that earlier work is
+                # drained, and it must settle before the row lock is taken so an
+                # exiting reader never turns into a NOWAIT conflict.
+                if not await _drain_fixture_video_operations(
+                    fresh,
+                    plan.deadline,
+                    locations={UUID(receipt.original_ref["location_id"])},
+                    purposes=(objects.purpose(receipt.id),),
+                    excluding=served,
+                ):
+                    raise HTTPException(
+                        409, detail={"code": "e2e_seed_video_operation_unsettled"}
                     )
                 current = await fresh.scalar(
                     select(VideoDerivativeOutput)
@@ -643,10 +771,21 @@ async def _delete_fixture_video_objects(db, plan, resolve_scope):
                 plan.revisions[location] = revision
                 await fresh.commit()
 
-        async with objects.access(db, receipt, guard) as storage:
-            await originals.physical(
-                physical.delete_output, storage, receipt, timeout=originals.JOB_SECONDS
-            )
+        try:
+            async with objects.access(
+                db, receipt, guard, on_acquired=acquired
+            ) as storage:
+                await originals.physical(
+                    physical.delete_output,
+                    storage,
+                    receipt,
+                    timeout=originals.JOB_SECONDS,
+                )
+        except DBAPIError as exc:
+            busy = _fixture_video_busy(exc)
+            if busy is None:
+                raise
+            raise busy from None
 
 
 async def _finalize_fixture_video_cleanup(db, plan, resolve_scope):
@@ -659,14 +798,43 @@ async def _finalize_fixture_video_cleanup(db, plan, resolve_scope):
         raise HTTPException(409, detail={"code": "e2e_seed_video_scope_changed"})
     item_ids, outputs = await _fixture_video_outputs(db, plan.scope, lock=True)
     expected = {receipt.id: receipt for receipt in plan.receipts}
-    if item_ids != plan.item_ids or {output.id for output in outputs} != set(expected):
+    current = {output.id for output in outputs}
+    if item_ids != plan.item_ids or set(expected) - current:
         raise HTTPException(409, detail={"code": "e2e_seed_video_owner_changed"})
-    await _fixture_video_foreign_refs(db, item_ids, list(expected))
+    # A browser read of a collecting owner may legitimately allocate a *fresh*
+    # owner for the same item slot while this cleanup runs. That owner owns no
+    # saved object, no lease and no permit yet, so it joins the plan under the
+    # same retirement fence; anything already published or claimed stays
+    # unknown ownership and still fails the cleanup.
+    stale = []
+    for output in outputs:
+        if output.id in expected:
+            continue
+        if (
+            output.state != "building"
+            or output.lease_token is not None
+            or output.inventory is not None
+            or await objects._in_use(db, output.id)
+        ):
+            raise HTTPException(409, detail={"code": "e2e_seed_video_owner_changed"})
+        stale.append(output.id)
+    if not await _drain_fixture_video_operations(
+        db,
+        asyncio.get_running_loop().time() + FIXTURE_VIDEO_DRAIN_SECONDS,
+        locations=_fixture_video_source_locations(outputs),
+        purposes=_fixture_video_purposes(outputs),
+    ):
+        raise HTTPException(409, detail={"code": "e2e_seed_video_operation_unsettled"})
+    identifiers = [*expected, *stale]
+    await _fixture_video_foreign_refs(db, item_ids, identifiers)
     await _fixture_video_source_operations(db, plan.receipts)
     for output in outputs:
-        if objects.snapshot(output) != expected[output.id] or await objects._in_use(
-            db, output.id
-        ):
+        if output.id in expected:
+            changed = objects.snapshot(output) != expected[output.id]
+        else:
+            changed = False
+            output.state = "retiring"
+        if changed or await objects._in_use(db, output.id):
             raise HTTPException(
                 409, detail={"code": "e2e_seed_video_operation_unsettled"}
             )
@@ -692,16 +860,14 @@ async def _finalize_fixture_video_cleanup(db, plan, resolve_scope):
     await db.execute(
         update(VideoDerivativeOutput)
         .where(
-            VideoDerivativeOutput.id.in_(list(expected)),
+            VideoDerivativeOutput.id.in_(identifiers),
             VideoDerivativeOutput.state == "retiring",
         )
         .values(state="deleted")
     )
     await db.flush()
     await db.execute(
-        delete(VideoDerivativeOutput).where(
-            VideoDerivativeOutput.id.in_(list(expected))
-        )
+        delete(VideoDerivativeOutput).where(VideoDerivativeOutput.id.in_(identifiers))
     )
     await db.flush()
 

@@ -421,20 +421,42 @@ class PlaybackRegistry:
         await self._wait_close(entry)
 
     async def revoke_contexts(self, predicate: Callable[[object], bool]):
-        """Revoke a snapshot of matching leases, preserving active response pins."""
-        records = tuple(
-            record
-            for record in self._leases.values()
-            if predicate(record.lease.context)
-        )
+        """Revoke a snapshot of matching ownership, preserving active response pins.
+
+        Published leases and owners that are still capturing are both revoked:
+        a capture that published after its fixture was deleted would serve a
+        stage nobody authorized any more, so it is retired and can only fail its
+        ``prepare`` once its own capture settles. That capture belongs to another
+        caller, so it is never cancelled here and its stage closes through that
+        caller's interrupted path. Pins are preserved (the response already left
+        the capture) and drain through the reaper as before.
+        """
+        entries, seen = [], set()
+
+        def remember(entry):
+            if id(entry) not in seen:
+                seen.add(id(entry))
+                entries.append(entry)
+
+        snapshot = tuple(self._entries.values())
+        for record in tuple(self._leases.values()):
+            if predicate(record.lease.context):
+                remember(record.entry)
+        for entry in snapshot:
+            if predicate(entry.context):
+                remember(entry)
+
+        for entry in entries:
+            # Retiring drops the key and every lease; a capture still running is
+            # left to its owner, which can no longer publish it.
+            self._retire(entry)
         pending = asyncio.gather(
-            *(self.revoke_lease(record.lease.id) for record in records),
-            return_exceptions=True,
+            *(self._wait_close(entry) for entry in entries), return_exceptions=True
         )
         results, failure, cancelled = await _drain(pending)
         if cancelled:
             error = asyncio.CancelledError()
-            if any(record.entry.unsettled for record in records):
+            if any(entry.unsettled for entry in entries):
                 mark_unsettled(error)
             raise error
         if failure is not None:

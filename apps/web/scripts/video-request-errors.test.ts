@@ -198,6 +198,34 @@ test("HTTP failures, other network failures and unrelated endpoints remain error
     expectDenied({ ...known, path }, videoWorkbenchAborts);
 });
 
+test("aborted native playback lease revokes stay a documented unload cancellation", () => {
+  const lease = "00000000-0000-0000-0000-000000000000";
+  const dataset = "00000000-0000-0000-0000-000000000000";
+  for (const path of [
+    `${task}/original-playback/${lease}`,
+    `/api/v1/datasets/${dataset}/items/${dataset}/original-playback/${lease}`,
+  ]) {
+    expectAllowed({ ...abort, method: "DELETE", path }, videoWorkbenchAborts);
+    for (const method of ["GET", "POST", "PUT", "PATCH"] as const)
+      expectDenied({ ...abort, method, path }, videoWorkbenchAborts);
+    expectDenied(
+      { kind: "http", message: "Service Unavailable", method: "DELETE", path, status: 503 },
+      videoWorkbenchAborts,
+    );
+    expectDenied(
+      { ...abort, method: "DELETE", message: "net::ERR_CONNECTION_RESET", path },
+      videoWorkbenchAborts,
+    );
+    for (const deeper of [`${path}/extra`, `${path}s`, `${task}/original-playback`])
+      expectDenied({ ...abort, method: "DELETE", path: deeper }, videoWorkbenchAborts);
+  }
+  // Retiring the task still cancels its owned original read as a GET only.
+  expectDenied(
+    { ...abort, method: "DELETE", path: `${task}/original` },
+    videoWorkbenchAborts,
+  );
+});
+
 test("console and page errors never classify as request cancellations", () => {
   for (const kind of ["console", "page"] as const)
     expectDenied(

@@ -380,6 +380,62 @@ async def test_revoke_contexts_preserves_neighbor_and_closes_only_after_last_pin
 
 
 @pytest.mark.asyncio
+async def test_revoke_contexts_fences_a_capture_that_can_no_longer_lease(world):
+    registry, clock = world
+    owned_started, owned_stage = asyncio.Event(), Stage()
+    neighbor_started, neighbor_stage = asyncio.Event(), Stage()
+    release_owned, release_neighbor = asyncio.Event(), asyncio.Event()
+
+    def factory(started, stage, release):
+        async def build():
+            started.set()
+            await release.wait()
+            return stage
+
+        return build
+
+    owned = asyncio.create_task(
+        prepare(
+            registry,
+            clock,
+            key="owned",
+            context="owned",
+            factory=factory(owned_started, owned_stage, release_owned),
+        )
+    )
+    neighbor = asyncio.create_task(
+        prepare(
+            registry,
+            clock,
+            key="neighbor",
+            context=object(),
+            factory=factory(neighbor_started, neighbor_stage, release_neighbor),
+        )
+    )
+    await owned_started.wait()
+    await neighbor_started.wait()
+
+    # Revoking a capture belongs to its owner: it is retired, not cancelled, so
+    # it can never mint a lease for a fixture that is already being destroyed.
+    await registry.revoke_contexts(lambda context: context == "owned")
+    assert not owned.done() and not neighbor.done()
+    release_owned.set()
+    with pytest.raises(ContentError) as error:
+        await owned
+    assert_error(error, "video_playback_expired", 410)
+    assert owned_stage.closed and owned_stage.close_calls == 1
+    assert registry.diagnostics()["stages"] == 1
+
+    # The unrelated capture still publishes, and the revoked key is free again.
+    release_neighbor.set()
+    registry.validate_lease(await neighbor)
+    revived = await prepare(registry, clock, key="owned", context="owned")
+    assert registry.diagnostics()["stages"] == 2
+    await registry.revoke_lease(revived.id)
+    assert not neighbor_stage.closed
+
+
+@pytest.mark.asyncio
 async def test_revoke_contexts_drains_all_matching_closes_after_repeated_cancellation(
     world,
 ):
