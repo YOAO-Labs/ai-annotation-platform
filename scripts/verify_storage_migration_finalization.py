@@ -1334,6 +1334,7 @@ def main(argv=None):
     parser.add_argument("--cache-reads", action="store_true")
     parser.add_argument("--staged-reads", action="store_true")
     parser.add_argument("--cutover", action="store_true")
+    parser.add_argument("--observation", action="store_true")
     parser.add_argument("--browser-wait-seconds", type=int, default=1200)
     args = parser.parse_args(argv)
     owner = None
@@ -1347,6 +1348,26 @@ def main(argv=None):
             "summary_exists",
         )
         require(1 <= args.browser_wait_seconds <= 3600, "browser_wait_budget")
+        if not args.cleanup:
+            require(
+                sum(
+                    (
+                        args.original_reads,
+                        args.artifact_reads,
+                        args.retained_reads,
+                        args.cache_reads,
+                        args.staged_reads,
+                        args.cutover,
+                        args.observation,
+                    )
+                )
+                <= 1,
+                "fixture_conflict",
+            )
+            require(
+                not (args.observation and args.pause_for_browser),
+                "observation_browser_not_supported",
+            )
         for sig in (signal.SIGINT, signal.SIGTERM):
             handlers[sig] = signal.signal(sig, interrupted)
         if not args.cleanup:
@@ -1372,21 +1393,12 @@ def main(argv=None):
         owner = LiveOwner(args.manifest, create=not args.cleanup)
         if not args.cleanup:
             fixture = None
-            require(
-                sum(
-                    (
-                        args.original_reads,
-                        args.artifact_reads,
-                        args.retained_reads,
-                        args.cache_reads,
-                        args.staged_reads,
-                        args.cutover,
-                    )
-                )
-                <= 1,
-                "fixture_conflict",
-            )
-            if args.cutover:
+            if args.observation:
+                from verify_storage_migration_observation import Observation
+
+                fixture = Observation()
+                summary["schema"] = "aap.storage-migration-observation-verification/v1"
+            elif args.cutover:
                 from verify_storage_migration_cutover import Cutover
 
                 fixture = Cutover()

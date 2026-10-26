@@ -391,6 +391,9 @@ class Cutover(OriginalReads):
         "sha256:93e7634e348d2874890d995ce0fdfa428699a094ef59ff306799900bdd6b8c4a"
     )
 
+    def after_forward(self, **context):
+        return False
+
     def start_media_worker(self, owner, environment):
         from app.config import Settings
 
@@ -738,6 +741,10 @@ class Cutover(OriginalReads):
             and current["bindings"] == active["after_bindings"],
             "cutover_rewrote_saved_owners",
         )
+        forward_started = {
+            "utc": datetime.now(timezone.utc).isoformat(),
+            "monotonic": time.monotonic(),
+        }
 
         summary["stage"] = "cutover_real_b_upload"
         upload = http.call(
@@ -837,6 +844,19 @@ class Cutover(OriginalReads):
             == source_before,
             "cutover_new_write_changed_a",
         )
+        if self.after_forward(
+            context=context,
+            cutover=cutover,
+            active=active,
+            publication=publication,
+            before=before,
+            records=records,
+            read_saved=read_saved,
+            source_before=source_before,
+            target_before=target_before,
+            forward_started=forward_started,
+        ):
+            return
 
         summary["stage"] = "cutover_b_native_stop"
         draining = cutover("begin-rollback", expected_revision=active["revision"])
