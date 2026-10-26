@@ -16,7 +16,7 @@ from sqlalchemy import func, select
 
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import Dataset, DatasetItem
-from app.db.models.dataset_asset import DatasetAssetLocation
+from app.db.models.dataset_asset import DatasetAsset, DatasetAssetLocation
 from app.db.models.dataset_source import DatasetScanEntry, DatasetScanRun
 from app.db.models.storage_connection import StorageConnection
 from app.schemas.dataset_source import DatasetSourceCreate
@@ -164,7 +164,7 @@ async def scan(db, world):
 
 
 async def test_exact_keys_register_without_original_copies(db_session, s3_world):
-    memory, actor, _, _, _ = s3_world
+    memory, actor, dataset, _, _ = s3_world
     keys = ["a//b.png", "a/./b.png", "a/../b.png", "a\\b.png", " edge +%2F.png "]
     memory.objects = {f"root/collection/{k}": memory.data for k in keys}
     memory.objects["root/collection-adjacent/secret.png"] = memory.data
@@ -184,11 +184,26 @@ async def test_exact_keys_register_without_original_copies(db_session, s3_world)
         snapshot = await reference_snapshot(db_session, result["item_id"], actor)
         assert snapshot.file.read() == memory.data
         snapshot.close()
-    assert await db_session.scalar(
-        select(func.count()).select_from(DatasetItem)
-    ) == len(keys)
     assert (
-        await db_session.scalar(select(func.count()).select_from(DatasetAssetLocation))
+        await db_session.scalar(
+            select(func.count())
+            .select_from(DatasetItem)
+            .where(DatasetItem.dataset_id == dataset.id)
+        )
+        == len(keys)
+    )
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(DatasetAssetLocation)
+            .where(
+                DatasetAssetLocation.asset_id.in_(
+                    select(DatasetAsset.id)
+                    .join(DatasetItem, DatasetItem.id == DatasetAsset.dataset_item_id)
+                    .where(DatasetItem.dataset_id == dataset.id)
+                )
+            )
+        )
         == 0
     )
     assert {
@@ -414,7 +429,7 @@ async def test_ignored_conditions_cannot_start_or_bypass_preflight(
 ):
     from app.services import dataset_registration as registration
 
-    memory, actor, _, location, source = s3_world
+    memory, actor, dataset, _, _ = s3_world
     run = await scan(db_session, s3_world)
     memory.ignore_condition = True
     with pytest.raises(HTTPException) as failure:
@@ -432,7 +447,14 @@ async def test_ignored_conditions_cannot_start_or_bypass_preflight(
         await register_entry(
             db_session, run.id, entry.path_digest, actor, node_id="worker:content@test"
         )
-    assert await db_session.scalar(select(func.count()).select_from(DatasetItem)) == 0
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(DatasetItem)
+            .where(DatasetItem.dataset_id == dataset.id)
+        )
+        == 0
+    )
 
 
 async def test_version_receipt_pins_every_subsequent_read(db_session, s3_world):

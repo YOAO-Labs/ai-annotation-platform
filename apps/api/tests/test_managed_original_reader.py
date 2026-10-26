@@ -505,26 +505,30 @@ async def test_stage_holds_binary_capacity_until_closed(provider, monkeypatch):
 
 
 @pytest.mark.parametrize("phase", ["read", "client_close"])
-@pytest.mark.parametrize("finish", ["cancel", "timeout"])
+@pytest.mark.parametrize("finish", ["cancel", "deadline"])
 async def test_interruption_drains_thread_before_return_and_releases_own_slot(
     provider, monkeypatch, phase, finish
 ):
     entered, release = threading.Event(), threading.Event()
+    elapsed = [0.0]
     monkeypatch.setattr(service, "_slots", threading.BoundedSemaphore(1))
+    # The pinned deadline is driven by this test instead of wall-clock jitter:
+    # a blocked provider call must outlive it without an early return.
+    monkeypatch.setattr(service, "time", SimpleNamespace(monotonic=lambda: elapsed[0]))
 
     def blocked(*args):
         entered.set()
         assert release.wait(3)
 
     setattr(provider, phase + "_hook", blocked)
-    operation = asyncio.create_task(
-        capture(timeout_seconds=0.05 if finish == "timeout" else 3)
-    )
+    operation = asyncio.create_task(capture(timeout_seconds=3))
     try:
         assert await asyncio.to_thread(entered.wait, 1)
         if finish == "cancel":
             operation.cancel()
-        await asyncio.sleep(0.08)
+        else:
+            elapsed[0] = 4.0
+        await asyncio.sleep(0)
         assert not operation.done() and service._slots._value == 0
         operation.cancel()
         await asyncio.sleep(0)

@@ -13,7 +13,7 @@ from sqlalchemy import func, select
 from app.config import settings, SftpReferenceRoot
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import Dataset, DatasetItem
-from app.db.models.dataset_asset import DatasetAssetLocation
+from app.db.models.dataset_asset import DatasetAsset, DatasetAssetLocation
 from app.db.models.dataset_source import DatasetScanEntry
 from app.db.models.storage_connection import StorageConnection
 from app.schemas.dataset_source import DatasetSourceCreate
@@ -170,7 +170,7 @@ async def first_entry(db, run):
 async def test_register_qualified_jail_without_copies_and_reject_links(
     db_session, sftp_world
 ):
-    root, _, actor, _, location, _ = sftp_world
+    root, _, actor, dataset, location, _ = sftp_world
     (root / "collection" / "escape.png").symlink_to("/etc/passwd")
     run = await scan(db_session, sftp_world)
     assert run.complete and run.counts["file_count"] == 2
@@ -192,9 +192,26 @@ async def test_register_qualified_jail_without_copies_and_reject_links(
             == (root / "collection" / entry.relative_path).read_bytes()
         )
         snapshot.close()
-    assert await db_session.scalar(select(func.count()).select_from(DatasetItem)) == 2
     assert (
-        await db_session.scalar(select(func.count()).select_from(DatasetAssetLocation))
+        await db_session.scalar(
+            select(func.count())
+            .select_from(DatasetItem)
+            .where(DatasetItem.dataset_id == dataset.id)
+        )
+        == 2
+    )
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(DatasetAssetLocation)
+            .where(
+                DatasetAssetLocation.asset_id.in_(
+                    select(DatasetAsset.id)
+                    .join(DatasetItem, DatasetItem.id == DatasetAsset.dataset_item_id)
+                    .where(DatasetItem.dataset_id == dataset.id)
+                )
+            )
+        )
         == 0
     )
     assert (await locations.to_out(db_session, location, actor))[

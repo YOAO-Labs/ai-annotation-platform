@@ -40,6 +40,7 @@ from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindin
 from app.services.managed_original_reclaim_io import ReclaimResult
 from app.services.storage import storage_service
 from app.workers import managed_original_reclaim as worker
+from tests import live_provider_guard
 from tests.factory import create_user
 from tests.test_managed_original_creation import migration
 from tests.test_managed_original_reclamation import assertion, declared_hold
@@ -444,8 +445,9 @@ async def test_http_preview_commit_and_worker_real_small_version_delete(
     reclaim_db, monkeypatch
 ):
     db, actor = reclaim_db
-    bucket = storage_service.datasets_bucket
-    assert bucket.startswith("aap-wt-")
+    bucket = live_provider_guard.owned_bucket(
+        storage_service.datasets_bucket, purpose="datasets"
+    )
     storage_service.client.put_bucket_versioning(
         Bucket=bucket, VersioningConfiguration={"Status": "Enabled"}
     )
@@ -751,8 +753,9 @@ async def test_real_delete_lost_ack_publication_then_terminal_retry_never_delete
     from contextlib import contextmanager
 
     db, actor = reclaim_db
-    bucket = storage_service.datasets_bucket
-    assert bucket.startswith("aap-wt-")
+    bucket = live_provider_guard.owned_bucket(
+        storage_service.datasets_bucket, purpose="datasets"
+    )
     storage_service.client.put_bucket_versioning(
         Bucket=bucket, VersioningConfiguration={"Status": "Enabled"}
     )
