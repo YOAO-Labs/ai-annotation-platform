@@ -168,7 +168,7 @@ class _ModelExecutionGateway(ModelExecutionPort):
                 )
                 selection = await router.acquire(
                     pool.id if pool is not None else None,
-                    registry_id=request.requested_registry_id,
+                    registry_id=request.requested_registry_id if pool is None else None,
                     project_id=request.project_id,
                     owner=request.route_owner,
                     operation=request.route_operation,

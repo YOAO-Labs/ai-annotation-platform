@@ -60,6 +60,8 @@ uv run --project apps/inference --locked --extra runtime python -m aap_inference
 
 普通 API 先执行既有 Identity／Workspace 授权，固定逻辑任务、请求、项目和 owner。`model_execution_port(db, *, bound_route=None)` 选择实际 registry／pool／member，使用原调用方事务捕获密封 endpoint，并附上精确路由 scope 和 attempt 身份。公开 Registry 投影只返回 `credential_configured`，不返回存量 auth token。
 
+路由准入只传 pool 或 direct registry 其中之一；已选实例通过 `required_instance_id` 限定，不能把 registry 与 pool 当作两个并列 selector 发送。
+
 Inference 在 owner 内打开密封 endpoint；对写操作，在真实 HTTP 前用新鲜的 owner-local issuer 建立短路由 subject。捕获时尚未提交的端点值、原 credential rotation 语义和实际所选实例保持一致；不能仅按 registry ID 在另一个快照回读后端密钥来替代原请求快照。
 
 只读 health、setup、catalog、statistics、receipt／versions 不创建预测 attempt。模型写入与 unload／reload／warmup 则保持各自 scope/control 生命周期、begin／settle 和 GPU one-shot grant 的真实响应／未发送／不确定结果。过期租约不等于 backend 已停止；未确认 scope 必须保留。
