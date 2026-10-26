@@ -30,6 +30,7 @@ from app.services.raster_mask_storage import (
     store_coco_rle_gzip,
     validate_mask_geometry_for_task,
 )
+from tests._owned_s3 import patch_owned_client
 
 
 def memory_mask_storage(*, get_error: Exception | None = None):
@@ -72,6 +73,18 @@ def memory_mask_storage(*, get_error: Exception | None = None):
         head(Bucket=storage.bucket, Key=key) if key in storage.objects else None
     )
     return storage
+
+
+@pytest.fixture
+def owned_mask_storage(monkeypatch):
+    """Point the owned per-call write transport at the same in-memory provider."""
+
+    def make(*, get_error: Exception | None = None):
+        storage = memory_mask_storage(get_error=get_error)
+        patch_owned_client(monkeypatch, storage.client)
+        return storage
+
+    return make
 
 
 async def mask_owner_for(db, reference, *, state="ready"):
@@ -119,8 +132,8 @@ async def ready_mask_owner(db, storage, rle, *, compressed=False, encoded_data=N
     return reference, key
 
 
-async def test_store_coco_rle_uses_content_addressed_key_and_put_if_absent(db_session):
-    storage = memory_mask_storage()
+async def test_store_coco_rle_uses_content_addressed_key_and_put_if_absent(db_session, owned_mask_storage):
+    storage = owned_mask_storage()
     reference = await store_coco_rle(
         {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 2, 2, 1]},
         storage=storage,
@@ -145,8 +158,10 @@ async def test_store_coco_rle_uses_content_addressed_key_and_put_if_absent(db_se
     storage.client.put_object.assert_not_called()
 
 
-async def test_unknown_legacy_logical_bytes_do_not_authorize_a_read(db_session):
-    storage = memory_mask_storage()
+async def test_unknown_legacy_logical_bytes_do_not_authorize_a_read(
+    db_session, owned_mask_storage
+):
+    storage = owned_mask_storage()
     rle = {"encoding": "coco_rle", "size": [3, 7], "counts": [2, 19]}
     reference = build_rle_reference(rle)
     original = canonical_rle_bytes(rle)
@@ -160,8 +175,8 @@ async def test_unknown_legacy_logical_bytes_do_not_authorize_a_read(db_session):
     assert storage.objects == {reference["object_key"]: original}
 
 
-async def test_load_coco_rle_verifies_reference_metadata(db_session):
-    storage = memory_mask_storage()
+async def test_load_coco_rle_verifies_reference_metadata(db_session, owned_mask_storage):
+    storage = owned_mask_storage()
     reference = await store_coco_rle(
         {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 2, 2, 1]},
         storage=storage,
@@ -182,8 +197,8 @@ async def test_load_coco_rle_verifies_reference_metadata(db_session):
     stream.close.assert_called_once()
 
 
-async def test_load_coco_rle_rejects_digest_mismatch(db_session):
-    storage = memory_mask_storage()
+async def test_load_coco_rle_rejects_digest_mismatch(db_session, owned_mask_storage):
+    storage = owned_mask_storage()
     reference = await store_coco_rle(
         {"encoding": "coco_rle", "size": [2, 3], "counts": [6]},
         storage=storage,
@@ -201,10 +216,10 @@ async def test_load_coco_rle_rejects_digest_mismatch(db_session):
 
 @pytest.mark.parametrize("compressed", [False, True])
 async def test_store_rejects_corrupt_existing_object_without_overwrite(
-    compressed, db_session
+    compressed, db_session, owned_mask_storage
 ):
     rle = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 2, 2, 1]}
-    storage = memory_mask_storage()
+    storage = owned_mask_storage()
     _, key = await ready_mask_owner(db_session, storage, rle, compressed=compressed)
     storage.objects[key] = b"corrupt"
     writer = store_coco_rle_gzip if compressed else store_coco_rle
@@ -216,17 +231,17 @@ async def test_store_rejects_corrupt_existing_object_without_overwrite(
     storage.client.delete_object.assert_not_called()
 
 
-async def test_store_requires_conditional_creation_and_full_readback(db_session):
-    storage = memory_mask_storage()
+async def test_store_requires_conditional_creation_and_full_readback(db_session, owned_mask_storage):
+    storage = owned_mask_storage()
     rle = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 2, 2, 1]}
     await store_coco_rle(rle, storage=storage, db=db_session)
     assert storage.client.put_object.call_args.kwargs["IfNoneMatch"] == "*"
     storage.client.get_object.assert_called_once()
 
 
-async def test_store_reuses_historical_gzip_with_different_mtime(db_session):
+async def test_store_reuses_historical_gzip_with_different_mtime(db_session, owned_mask_storage):
     rle = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 2, 2, 1]}
-    storage = memory_mask_storage()
+    storage = owned_mask_storage()
     original = gzip.compress(canonical_rle_bytes(rle), mtime=1)
     expected, key = await ready_mask_owner(
         db_session, storage, rle, compressed=True, encoded_data=original
@@ -239,8 +254,8 @@ async def test_store_reuses_historical_gzip_with_different_mtime(db_session):
     storage.client.get_object.assert_called_once()
 
 
-async def test_cancelled_store_drains_thread_before_releasing_caller_lock(db_session):
-    storage = memory_mask_storage()
+async def test_cancelled_store_drains_thread_before_releasing_caller_lock(db_session, owned_mask_storage):
+    storage = owned_mask_storage()
     entered, release, finished = threading.Event(), threading.Event(), threading.Event()
     put = storage.client.put_object.side_effect
 
@@ -281,8 +296,8 @@ async def test_cancelled_store_drains_thread_before_releasing_caller_lock(db_ses
 
 
 @pytest.mark.parametrize("correct_winner", [False, True])
-async def test_conditional_creation_race_verifies_winner(correct_winner, db_session):
-    storage = memory_mask_storage()
+async def test_conditional_creation_race_verifies_winner(correct_winner, db_session, owned_mask_storage):
+    storage = owned_mask_storage()
     rle = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 5]}
 
     def race(**kwargs):
@@ -313,9 +328,9 @@ async def test_conditional_creation_race_verifies_winner(correct_winner, db_sess
     ],
 )
 async def test_store_does_not_treat_other_provider_errors_as_reusable(
-    operation, code, db_session
+    operation, code, db_session, owned_mask_storage
 ):
-    storage = memory_mask_storage()
+    storage = owned_mask_storage()
     rle = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 5]}
     if operation == "head_object":
         await ready_mask_owner(db_session, storage, rle)
@@ -336,8 +351,8 @@ async def test_store_does_not_treat_other_provider_errors_as_reusable(
         storage.client.put_object.assert_not_called()
 
 
-async def test_store_rejects_corrupt_bytes_after_successful_put(db_session):
-    storage = memory_mask_storage()
+async def test_store_rejects_corrupt_bytes_after_successful_put(db_session, owned_mask_storage):
+    storage = owned_mask_storage()
     put = storage.client.put_object.side_effect
 
     def corrupt(**kwargs):
@@ -364,8 +379,8 @@ async def test_store_rejects_corrupt_bytes_after_successful_put(db_session):
 
 
 @pytest.mark.parametrize("version", [None, "null", "version-1"])
-async def test_read_pins_real_version_and_rechecks_current_key(version, db_session):
-    storage = memory_mask_storage()
+async def test_read_pins_real_version_and_rechecks_current_key(version, db_session, owned_mask_storage):
+    storage = owned_mask_storage()
     rle = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 5]}
     reference, _ = await ready_mask_owner(db_session, storage, rle)
     head, get = (
@@ -395,8 +410,8 @@ async def test_read_pins_real_version_and_rechecks_current_key(version, db_sessi
 
 
 @pytest.mark.parametrize("stage", ["response", "after_close"])
-async def test_read_rejects_identity_changes_and_closes_body(stage, db_session):
-    storage = memory_mask_storage()
+async def test_read_rejects_identity_changes_and_closes_body(stage, db_session, owned_mask_storage):
+    storage = owned_mask_storage()
     rle = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 5]}
     reference, physical_key = await ready_mask_owner(db_session, storage, rle)
     raw = canonical_rle_bytes(rle)
@@ -424,8 +439,8 @@ async def test_read_rejects_identity_changes_and_closes_body(stage, db_session):
 @pytest.mark.parametrize(
     "mode", ["short_chunks", "truncated", "overflow", "read_error", "close_error"]
 )
-async def test_read_bounds_and_real_stream_closure(mode, monkeypatch, db_session):
-    storage = memory_mask_storage()
+async def test_read_bounds_and_real_stream_closure(mode, monkeypatch, db_session, owned_mask_storage):
+    storage = owned_mask_storage()
     rle = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 5]}
     reference, _ = await ready_mask_owner(db_session, storage, rle)
     raw = canonical_rle_bytes(rle)
@@ -473,9 +488,9 @@ async def test_read_bounds_and_real_stream_closure(mode, monkeypatch, db_session
     ],
 )
 async def test_read_preserves_missing_and_changed_error_contract(
-    code, reason, db_session
+    code, reason, db_session, owned_mask_storage
 ):
-    storage = memory_mask_storage()
+    storage = owned_mask_storage()
     rle = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 5]}
     reference, _ = await ready_mask_owner(db_session, storage, rle)
     storage.client.get_object.side_effect = ClientError(
@@ -497,11 +512,11 @@ async def test_read_preserves_missing_and_changed_error_contract(
     ],
 )
 async def test_interrupted_load_drains_real_stream(
-    stage, interrupt, monkeypatch, db_session
+    stage, interrupt, monkeypatch, db_session, owned_mask_storage
 ):
     from app.observability.metrics import RASTER_MASK_CONTENT_OPERATIONS_TOTAL
 
-    storage = memory_mask_storage()
+    storage = owned_mask_storage()
     rle = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 5]}
     reference, _ = await ready_mask_owner(db_session, storage, rle)
     raw = canonical_rle_bytes(rle)

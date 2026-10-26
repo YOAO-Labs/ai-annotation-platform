@@ -25,6 +25,7 @@ from tests.test_interactive_native_mask_endpoint import _setup
 from tests.test_reference_image_inference import accept_body, call
 from tests.prediction_input_live_assertions import (
     assert_retired_input_versions,
+    ensure_versioned_import_bucket,
     retire_known_inputs,
 )
 
@@ -39,6 +40,7 @@ async def test_real_http_minio_native_create_refine_and_predict_test(
     monkeypatch,
 ):
     _, project, task, content = reference_world
+    await ensure_versioned_import_bucket()
     project.raster_mask_native_editing_enabled = True
     project.tool_bindings = {
         "region": {

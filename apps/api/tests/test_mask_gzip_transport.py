@@ -36,7 +36,7 @@ from app.utils.raster_mask_gzip import (
     compress_mask_gzip,
     decompress_mask_gzip,
 )
-from tests.test_raster_mask_storage import memory_mask_storage as _storage
+from tests.test_raster_mask_storage import owned_mask_storage
 from tests.test_raster_mask_storage import mask_owner_for, ready_mask_owner
 
 RLE = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 2, 2, 1]}
@@ -135,11 +135,11 @@ def test_compress_mask_gzip_is_symmetric_and_idempotent():
     assert decompress_mask_gzip(a) == data
 
 
-async def test_store_coco_rle_gzip_content_addressed(db_session):
+async def test_store_coco_rle_gzip_content_addressed(db_session, owned_mask_storage):
     """gzip path stores .json.gz, sha256 over uncompressed canonical bytes,
     and the reference schema matches the uncompressed form except for
     object_key suffix + encoding marker."""
-    storage = _storage()
+    storage = owned_mask_storage()
     reference = await store_coco_rle_gzip(RLE, storage=storage, db=db_session)
 
     assert reference["encoding"] == "coco_rle_ref"
@@ -166,9 +166,9 @@ async def test_store_coco_rle_gzip_content_addressed(db_session):
     assert decompress_mask_gzip(stored_body) == canonical
 
 
-async def test_load_coco_rle_gzip_roundtrip(db_session):
+async def test_load_coco_rle_gzip_roundtrip(db_session, owned_mask_storage):
     """store gzip → load → original counts; all digest/byte/run checks pass."""
-    storage = _storage()
+    storage = owned_mask_storage()
     reference = await store_coco_rle_gzip(RLE, storage=storage, db=db_session)
     body = storage.client.put_object.call_args.kwargs["Body"]
     stream = BytesIO(body)
@@ -182,9 +182,9 @@ async def test_load_coco_rle_gzip_roundtrip(db_session):
     stream.close.assert_called_once()
 
 
-async def test_load_coco_rle_backward_compat_json(db_session):
+async def test_load_coco_rle_backward_compat_json(db_session, owned_mask_storage):
     """The unchanged portable JSON DTO resolves its independent UUID owner."""
-    storage = _storage()
+    storage = owned_mask_storage()
     reference = await store_coco_rle(RLE, storage=storage, db=db_session)
     assert reference["object_key"].endswith(".json")
     body = storage.client.put_object.call_args.kwargs["Body"]
@@ -196,13 +196,13 @@ async def test_load_coco_rle_backward_compat_json(db_session):
     assert payload["counts"] == [1, 2, 2, 1]
 
 
-async def test_gzip_writer_falls_back_when_reader_ratio_would_reject(db_session):
+async def test_gzip_writer_falls_back_when_reader_ratio_would_reject(db_session, owned_mask_storage):
     highly_compressible = {
         "encoding": "coco_rle",
         "size": [1, 4000],
         "counts": [0] * 4000 + [4000],
     }
-    storage = _storage()
+    storage = owned_mask_storage()
     reference = await store_coco_rle_gzip(
         highly_compressible, storage=storage, db=db_session
     )
@@ -211,9 +211,9 @@ async def test_gzip_writer_falls_back_when_reader_ratio_would_reject(db_session)
     assert "storage_encoding" not in reference
 
 
-async def test_load_coco_rle_gzip_rejects_digest_mismatch(db_session):
+async def test_load_coco_rle_gzip_rejects_digest_mismatch(db_session, owned_mask_storage):
     """gzip path still enforces the digest check over decompressed canonical."""
-    storage = _storage()
+    storage = owned_mask_storage()
     reference = await store_coco_rle_gzip(RLE, storage=storage, db=db_session)
     # Swap in a gzip body whose decompressed canonical has a different counts
     # array → its sha256 won't match the reference.
@@ -229,9 +229,9 @@ async def test_load_coco_rle_gzip_rejects_digest_mismatch(db_session):
     assert rejected.value.code == "raster_object_storage_integrity_mismatch"
 
 
-async def test_load_coco_rle_gzip_rejects_over_uncompressed(db_session):
+async def test_load_coco_rle_gzip_rejects_over_uncompressed(db_session, owned_mask_storage):
     """An oversized replacement fails the independent stored receipt first."""
-    storage = _storage()
+    storage = owned_mask_storage()
     reference, key = await ready_mask_owner(db_session, storage, RLE, compressed=True)
     big = b"x" * (MAX_UNCOMPRESSED_BYTES + 1)
     corrupted = compress_mask_gzip(big)

@@ -520,9 +520,18 @@ async def test_private_receipt_rejects_changed_payload_owner_and_transaction(
         elif fault == "snapshot":
             owner.deliveries[task_id][0]._snapshot.close()
         elif fault == "expired":
-            owner.deliveries[task_id][0].record.expires_at = datetime.now(
-                timezone.utc
-            ) - timedelta(seconds=1)
+            # Keep the receipt's immutable deadlines; advance the actual clock
+            # past them so the delivery expires through its real comparison.
+            expired = owner.deliveries[task_id][0].record.expires_at + timedelta(
+                seconds=1
+            )
+
+            class Advanced(datetime):
+                @classmethod
+                def now(cls, tz=None):
+                    return expired
+
+            monkeypatch.setattr(refs, "datetime", Advanced)
         elif fault == "transaction":
             await w.db.commit()
         elif fault == "job":

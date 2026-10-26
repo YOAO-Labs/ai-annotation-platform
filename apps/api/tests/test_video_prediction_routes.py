@@ -293,9 +293,17 @@ async def source_task(world, *, origin="direct", status="pending"):
             content_type="video/x-msvideo",
         )
         client = Client()
+        client.meta = SimpleNamespace(
+            endpoint_url=(
+                f"{'https' if settings.minio_use_ssl else 'http'}://"
+                f"{settings.minio_endpoint}"
+            )
+        )
         client.store(allocation["staging_bucket"], allocation["staging_key"], world.raw)
         with world.monkeypatch.context() as patch:
+            # The saved legacy staging address selects the shared client seam.
             patch.setattr(creation, "create_client", lambda **_: client)
+            patch.setattr(creation.storage_service, "client", client)
             created = await creation.complete_direct(db, allocation)
         task.file_path = allocation["object_key"]
         await task_originals.publish(db, task, allocation, created)

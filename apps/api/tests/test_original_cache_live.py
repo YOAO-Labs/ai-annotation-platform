@@ -24,6 +24,7 @@ async def test_actual_minio_copy_read_and_worker_recovery(
     world = cache_world
     monkeypatch.setattr(cache, "make_storage", _STORAGE)
     queue = f"original-cache-test-{uuid.uuid4().hex}"
+    node = f"{queue}@local"
     worker = None
     result = None
     log_path = tmp_path / "worker.log"
@@ -58,13 +59,31 @@ async def test_actual_minio_copy_read_and_worker_recovery(
                 "-Q",
                 queue,
                 "-n",
-                f"{queue}@local",
+                node,
             ],
             cwd=Path(__file__).parents[1],
             env=os.environ.copy(),
             stdout=output,
             stderr=subprocess.STDOUT,
         )
+        # The result deadline covers only the task, never a cold worker import.
+        deadline = asyncio.get_running_loop().time() + 60
+        while asyncio.get_running_loop().time() < deadline:
+            registered = await asyncio.to_thread(
+                lambda: (
+                    celery_app.control.inspect(destination=[node], timeout=1).registered()
+                    or {}
+                )
+            )
+            if (
+                "app.workers.original_cache.maintain_original_cache"
+                in registered.get(node, [])
+            ):
+                break
+            assert worker.poll() is None, "Owned cache worker exited at startup"
+            await asyncio.sleep(0.1)
+        else:
+            raise AssertionError("Owned cache worker did not register")
         result = celery_app.send_task(
             "app.workers.original_cache.maintain_original_cache", queue=queue
         )

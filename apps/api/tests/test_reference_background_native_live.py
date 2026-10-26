@@ -43,6 +43,8 @@ async def test_http_minio_native_reference_generation_content_and_acceptance(
         urlsplit(storage_service.client.meta.endpoint_url).netloc,
     )
     expected = response_for(w)
+    # Worker writes expire caller instances; retain only immutable identifiers.
+    project_id, task_id = w.project.id, w.task.id
     seen, inputs = [], []
     key = w.mask["object_key"]
     preexisting = storage_service.verify_upload(key) is not None
@@ -113,26 +115,26 @@ async def test_http_minio_native_reference_generation_content_and_acceptance(
         failures = list(
             await w.db.scalars(
                 select(FailedPrediction.message).where(
-                    FailedPrediction.project_id == w.project.id
+                    FailedPrediction.project_id == project_id
                 )
             )
         )
         assert job.status == "completed", failures
         prediction = await w.db.scalar(
-            select(Prediction).where(Prediction.task_id == w.task.id)
+            select(Prediction).where(Prediction.task_id == task_id)
         )
         meta = await w.db.scalar(
             select(PredictionMeta).where(PredictionMeta.prediction_id == prediction.id)
         )
         assert meta.extra["reference_native"]["reference_input"]["sha256"] == seen[0]
         response = await httpx_client.get(
-            f"/api/v1/tasks/{w.task.id}/predictions/{prediction.id}/mask-content/0",
+            f"/api/v1/tasks/{task_id}/predictions/{prediction.id}/mask-content/0",
             headers=headers(super_admin),
         )
         assert response.status_code == 200, response.text
         assert response.json() == w.rle
         response = await httpx_client.post(
-            f"/api/v1/tasks/{w.task.id}/predictions/{prediction.id}/accept",
+            f"/api/v1/tasks/{task_id}/predictions/{prediction.id}/accept",
             headers=headers(super_admin),
         )
         assert response.status_code == 200, response.text

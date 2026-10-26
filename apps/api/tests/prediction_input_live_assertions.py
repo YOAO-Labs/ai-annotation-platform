@@ -12,6 +12,22 @@ from app.db.models.storage_maintenance import StorageOperation
 from app.services import prediction_inputs
 
 
+async def ensure_versioned_import_bucket():
+    """Require immutable input versions on the disposable import bucket."""
+    from app.services.storage import storage_service
+
+    bucket = storage_service.import_bucket
+    current = await asyncio.to_thread(
+        storage_service.client.get_bucket_versioning, Bucket=bucket
+    )
+    if current.get("Status") != "Enabled":
+        await asyncio.to_thread(
+            storage_service.client.put_bucket_versioning,
+            Bucket=bucket,
+            VersioningConfiguration={"Status": "Enabled"},
+        )
+
+
 async def _records(factory, task_id):
     async with factory() as db:
         rows = list(

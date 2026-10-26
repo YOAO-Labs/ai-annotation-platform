@@ -38,6 +38,7 @@ from app.services.training_dataset_bridge import TrainingDatasetError, assign_sp
 from app.workers import training_dataset as worker
 from scripts import seed_online_training as fixture_seed
 from scripts.seed_assets import SeedAssetError
+from tests._owned_s3 import patch_owned_client
 from tests.factory import create_project, create_user
 
 
@@ -127,6 +128,9 @@ def memory_storage(monkeypatch):
             )
 
     client = Client()
+    # Owned conditional writes build a per-call transport from the saved client
+    # config, so that seam must forward to this same in-memory provider.
+    patch_owned_client(monkeypatch, client)
     monkeypatch.setattr(storage_service, "client", client)
     monkeypatch.setattr(reader, "create_client", lambda **kwargs: client)
     monkeypatch.setattr(storage_service, "delete_prefix", lambda *args, **kwargs: 0)
@@ -145,6 +149,15 @@ def coco8_seg(coco8, monkeypatch):
     monkeypatch.setattr(settings, "raster_mask_read_enabled", True)
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
     return root
+
+
+async def job_count_for(db, version):
+    """Count only jobs this version actually owns, not unrelated committed rows."""
+    return await db.scalar(
+        select(func.count())
+        .select_from(AsyncJob)
+        .where(AsyncJob.payload["training_dataset_id"].astext == str(version.id))
+    )
 
 
 async def test_fresh_initial_segmentation_exposes_sources_to_independent_mask_owner(
@@ -460,8 +473,23 @@ async def test_fixture_materializes_reviewed_input_and_preserves_edits(
         db_session, fixture=coco8, **kwargs
     )
     assert created
-    assets = list(await db_session.scalars(select(DatasetAsset)))
-    replicas = list(await db_session.scalars(select(DatasetAssetLocation)))
+    dataset = await db_session.get(Dataset, fixture_seed.DATASET_ID)
+    assert dataset is not None
+    assets = list(
+        await db_session.scalars(
+            select(DatasetAsset)
+            .join(DatasetItem, DatasetItem.id == DatasetAsset.dataset_item_id)
+            .where(DatasetItem.dataset_id == dataset.id)
+        )
+    )
+    replicas = list(
+        await db_session.scalars(
+            select(DatasetAssetLocation)
+            .join(DatasetAsset, DatasetAsset.id == DatasetAssetLocation.asset_id)
+            .join(DatasetItem, DatasetItem.id == DatasetAsset.dataset_item_id)
+            .where(DatasetItem.dataset_id == dataset.id)
+        )
+    )
     assert len(assets) == len(replicas) == 8
     by_asset = {asset.id: asset for asset in assets}
     for replica in replicas:
@@ -644,7 +672,7 @@ async def test_baseline_rerun_recovers_unfinished_build(
     assert old_job.status == ("cancelled" if status == "cancelled" else "failed")
     assert old_job.completed_at is not None
     assert await fixture_seed.prepare_baseline(db_session, project) is version
-    assert await db_session.scalar(select(func.count()).select_from(AsyncJob)) == 2
+    assert await job_count_for(db_session, version) == 2
     assert (
         await db_session.scalar(
             select(func.count()).select_from(TrainingDatasetVersion)
@@ -719,7 +747,7 @@ async def test_baseline_rerun_does_not_replace_an_active_attempt(
     await db_session.refresh(version)
     assert version.status == status
     assert version.async_job_id == job_id and version.attempt_id == attempt_id
-    assert await db_session.scalar(select(func.count()).select_from(AsyncJob)) == 1
+    assert await job_count_for(db_session, version) == 1
 
 
 async def test_fixture_refuses_unrelated_project(

@@ -388,8 +388,11 @@ async def test_changed_default_bucket_does_not_redirect_existing_lease(
     monkeypatch.setattr(settings, "minio_import_bucket", saved_bucket + "-other")
     await current.upload_crop(SimpleNamespace(id=current.record.task_id), 1, b"crop")
     assert world.puts[0][0] == saved_bucket
-    with pytest.raises(ContentError, match="configuration_changed"):
-        await inputs(world)
+    # Allocation follows the saved binding; a changed default is inert rather
+    # than a reason to reject the existing lease or redirect new inputs.
+    replacement = await inputs(world)
+    assert replacement.record.bucket == saved_bucket
+    await replacement.close()
     await current.close()
     assert (await lease(world, current.record.id)).state == "deleted"
 

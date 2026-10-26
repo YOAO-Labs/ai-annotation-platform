@@ -59,6 +59,7 @@ from app.services.training_dataset_bridge import content_digest, semantic_partit
 from app.services.training_evaluations import SEMANTICS
 from app.utils.raster_mask_rle import decode_coco_rle, encode_coco_rle
 from app.workers import training_dataset as dataset_worker
+from tests._owned_s3 import patch_owned_client
 from tests.conftest import create_registry_with_pool
 from tests.factory import (
     build_tool_bindings,
@@ -150,6 +151,8 @@ def memory_objects(monkeypatch, training_config_fixture):  # noqa: F811
         "delete_object",
         lambda *, Bucket, Key: values.pop((Bucket, Key), None),
     )
+    # Owned mask writes build a per-call transport from the saved client config.
+    patch_owned_client(monkeypatch, storage.client)
     monkeypatch.setattr(training_datasets, "dispatch_dataset", AsyncMock())
     monkeypatch.setattr(dataset_worker, "notify_job_terminal", AsyncMock())
     monkeypatch.setattr(settings, "raster_mask_read_enabled", True)

@@ -22,6 +22,7 @@ from tests.test_interactive_native_mask_endpoint import _setup
 from tests.test_prediction_inputs import input_world as input_world
 from tests.prediction_input_live_assertions import (
     assert_retired_input_versions,
+    ensure_versioned_import_bucket,
     retire_known_inputs,
 )
 from tests.test_reference_mask_repair import (
@@ -44,6 +45,7 @@ async def test_real_http_minio_repair_candidate_and_acceptance(
     reference_repair, repair_client, monkeypatch
 ):
     w = reference_repair
+    await ensure_versioned_import_bucket()
     for target, value in (
         ("app.services.ml_client.MLBackendClient.setup", _SETUP),
         ("app.services.ml_client.MLBackendClient.predict_interactive", _PREDICT),
