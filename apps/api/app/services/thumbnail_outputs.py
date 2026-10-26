@@ -398,6 +398,7 @@ def _receipt(output):
 
 
 def _same_source(output, source, *, migrated):
+    migrated = migrated or getattr(source, "read_route", None) is not None
     current, expected = source_facts(source), output.input_ref.get("source")
     if not migrated:
         return current == expected
@@ -503,8 +504,7 @@ async def thumbnail_url(db, owner_kind, owner_id, path):
             source = await _source(current, kind, identifier)
             if not _same_source(output, source, migrated=route is not None):
                 return None
-            if route is not None:
-                await original_sources.recheck_read_route(current, source)
+            await original_sources.recheck_read_route(current, source)
             await current.commit()
             await read_bytes(current, output.id)
             if await _business_pointer(current, owner_kind, owner_id, path) != pointer:
@@ -512,8 +512,7 @@ async def thumbnail_url(db, owner_kind, owner_id, path):
             source = await _source(current, kind, identifier)
             if not _same_source(output, source, migrated=route is not None):
                 return None
-            if route is not None:
-                await original_sources.recheck_read_route(current, source)
+            await original_sources.recheck_read_route(current, source)
             output = await current.get(
                 ThumbnailOutput, output_id, populate_existing=True
             )

@@ -567,3 +567,27 @@ def test_pyramid_selection_keeps_requested_members_and_existing_errors(fault):
             prefix + "manifest.json",
             prefix + "tiles/0/1/0.webp",
         )
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [("width", None), ("height", 0), ("manifest_key", None), ("overview_key", 1)],
+)
+def test_pyramid_selection_rejects_inconsistent_saved_geometry_as_receipt_error(
+    field, value
+):
+    from app.api.v1.tasks.image_pyramid import _requested_keys
+
+    prefix = image_storage.prefix_for(uuid.uuid4())
+    generation = SimpleNamespace(
+        generation=1,
+        width=1024,
+        height=512,
+        manifest_key=prefix + "manifest.json",
+        overview_key=prefix + "overview.webp",
+    )
+    setattr(generation, field, value)
+    payload = SimpleNamespace(items=[SimpleNamespace(kind="overview", generation=1)])
+    with pytest.raises(image_storage.ImagePyramidStorageError) as rejected:
+        _requested_keys(generation, payload)
+    assert rejected.value.code == "image_pyramid_storage_invalid_receipt"

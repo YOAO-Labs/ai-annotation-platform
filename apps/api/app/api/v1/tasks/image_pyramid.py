@@ -405,9 +405,9 @@ async def create_image_pyramid_asset_urls(
             detail={"reason": "stale_generation", "active_generation": None},
         )
 
-    keys = _requested_keys(generation, payload)
     await db.commit()
     try:
+        keys = _requested_keys(generation, payload)
         async with objects.reading(
             db, owner, generation, authority=authority, keys=keys
         ) as output_owner:
@@ -436,6 +436,15 @@ async def create_image_pyramid_asset_urls(
 
 
 def _requested_keys(generation, payload):
+    if (
+        type(generation.width) is not int
+        or type(generation.height) is not int
+        or generation.width <= 0
+        or generation.height <= 0
+        or not isinstance(generation.manifest_key, str)
+        or not generation.manifest_key.endswith("/manifest.json")
+    ):
+        raise physical.ImagePyramidStorageError("invalid_receipt")
     levels = {
         level["level"]: level
         for level in pyramid_levels(generation.width, generation.height)
@@ -451,8 +460,11 @@ def _requested_keys(generation, payload):
                 },
             )
         if item.kind == "overview":
-            if not generation.overview_key:
-                raise HTTPException(409, {"reason": "inconsistent_ready"})
+            if (
+                not isinstance(generation.overview_key, str)
+                or not generation.overview_key
+            ):
+                raise physical.ImagePyramidStorageError("invalid_receipt")
             keys.append(generation.overview_key)
         else:
             level = levels.get(item.level)

@@ -20,6 +20,9 @@ from app.db.models.storage_maintenance import StorageOperation
 from app.db.models.thumbnail_output import ThumbnailOutput
 from app.db.models.video_derivative import VideoDerivativeOutput
 from app.services import media_cache_storage, media_cache_urls, storage_access
+from app.services import storage_migration_artifact_reads as artifact_reads
+from app.services import storage_migration_read_publications as publications
+from app.services.content_snapshot import ContentError
 from app.services.original_binary_response import _drain
 from app.services.original_playback_response import select_range
 
@@ -81,6 +84,7 @@ class PinnedObject:
     media_type: str
     version_id: str | None = None
     saved_etag: str | None = None
+    source_version_id: str | None = None
 
 
 async def _object(db, capability, *, permit=None):
@@ -119,7 +123,7 @@ async def _object(db, capability, *, permit=None):
         if media_cache_urls.reference_digest(reference) != capability.reference:
             _missing()
         key = owner.key(capability.relative)
-        version_id, saved_etag = None, None
+        version_id, saved_etag, source_version_id = None, None, None
         if capability.kind == "thumbnail":
             if (
                 row.uncertain_write
@@ -132,6 +136,7 @@ async def _object(db, capability, *, permit=None):
                 _missing()
             receipt = {"sha256": row.sha256, "size_bytes": row.size_bytes}
             version_id = _version({"VersionId": row.version_id})
+            source_version_id = row.version_id
             saved_etag = row.etag
             if saved_etag is not None and not _plain(saved_etag):
                 _missing()
@@ -167,14 +172,26 @@ async def _object(db, capability, *, permit=None):
         media_type,
         version_id,
         saved_etag,
+        source_version_id,
     )
 
 
 class Transfer:
     """Adopt handles inside their executor, including results arriving late."""
 
-    def __init__(self, pinned, target, permit):
+    def __init__(
+        self,
+        pinned,
+        target,
+        permit,
+        *,
+        route=None,
+        publication_permit=None,
+        capability=None,
+    ):
         self.pinned, self.target, self.permit = pinned, target, permit
+        self.route, self.publication_permit = route, publication_permit
+        self.capability = capability
         self.context = self.client = self.body = None
         self.entered = False
         self.unsettled = False
@@ -187,12 +204,22 @@ class Transfer:
         except BaseException as exc:
             self.unsettled = True
             raise storage_access.mark_unsettled(exc)
-        params = {"Bucket": self.target.bucket, "Key": self.pinned.key}
-        if self.pinned.version_id is not None:
+        params = (
+            {
+                "Bucket": self.route.target_bucket,
+                "Key": self.route.target_object_key,
+                "VersionId": self.route.target_version_id,
+            }
+            if self.route is not None
+            else {"Bucket": self.target.bucket, "Key": self.pinned.key}
+        )
+        if self.route is None and self.pinned.version_id is not None:
             params["VersionId"] = self.pinned.version_id
         observed = self.client.head_object(**params)
         etag, version = observed.get("ETag"), _version(observed)
-        if (
+        if self.route is not None:
+            artifact_reads.validate_response(self.route, observed)
+        elif (
             not _plain(etag)
             or (
                 observed.get("DeleteMarker") is not None
@@ -220,6 +247,14 @@ class Transfer:
         result = self.client.get_object(**(params | condition))
         # Assign before validating, so malformed responses still have an owner.
         self.body = result.get("Body")
+        if self.route is not None:
+            artifact_reads.validate_response(
+                self.route,
+                result,
+                status_code=selected.status_code,
+                size_bytes=selected.length,
+                content_range=selected.content_range,
+            )
         if (
             self.body is None
             or (
@@ -235,6 +270,16 @@ class Transfer:
             or _version(result) != version
         ):
             raise _error("media_cache_mismatch")
+
+    async def recheck(self):
+        """Revalidate current saved ownership and publication before delivery."""
+        if self.route is None:
+            return
+        async with async_session() as db:
+            if await _object(db, self.capability, permit=self.permit) != self.pinned:
+                _missing()
+            await publications.recheck(db, self.route, lock=True)
+            await db.commit()
 
     def close(self):
         failure = None
@@ -257,16 +302,44 @@ class Transfer:
 
 async def _metadata(capability):
     """Own a short session, committing every metadata transaction before I/O."""
-    permit = None
+    permit = publication_permit = None
     try:
         async with async_session() as db:
             pinned = await _object(db, capability)
-            target = await media_cache_storage.target_for_ref(db, pinned.reference)
-            revision = await storage_access.check(db, target.location_id)
+            route = await artifact_reads.resolve(
+                db,
+                pinned.reference,
+                pinned.key,
+                pinned.sha256,
+                pinned.size,
+                source_version_id=(
+                    pinned.source_version_id
+                    if pinned.source_version_id is not None
+                    else publications.ANY_VERSION
+                ),
+                source_etag=pinned.saved_etag,
+            )
+            if route is None:
+                target = await media_cache_storage.target_for_ref(db, pinned.reference)
+                location_id = target.location_id
+                revision = await storage_access.check(db, location_id)
+            else:
+                target = await publications.target_for_route(db, route)
+                location_id, revision = (
+                    route.target_location_id,
+                    route.maintenance_revision,
+                )
             await db.commit()
+            if route is not None:
+                publication_permit = await storage_access.acquire(
+                    db,
+                    location_id,
+                    route.purpose,
+                    expected_revision=revision,
+                )
             permit = await storage_access.acquire(
                 db,
-                target.location_id,
+                location_id,
                 _purpose(capability),
                 expected_revision=revision,
             )
@@ -274,15 +347,25 @@ async def _metadata(capability):
             # business row lock or metadata transaction survives into the client.
             if await _object(db, capability, permit=permit) != pinned:
                 _missing()
-            target = await media_cache_storage.target_for_ref(db, pinned.reference)
-            await storage_access.check(
-                db, target.location_id, expected_revision=permit.revision, lock=True
-            )
+            if route is None:
+                target = await media_cache_storage.target_for_ref(db, pinned.reference)
+                await storage_access.check(
+                    db, target.location_id, expected_revision=permit.revision, lock=True
+                )
+            else:
+                target = await publications.target_for_route(db, route)
+                await publications.recheck(db, route, lock=True)
             await db.commit()
-        return Transfer(pinned, target, permit)
+        return Transfer(
+            pinned,
+            target,
+            permit,
+            route=route,
+            publication_permit=publication_permit,
+            capability=capability,
+        )
     except BaseException as exc:
-        if permit is not None:
-            await permit.__aexit__(type(exc), exc, exc.__traceback__)
+        await _settle_permits((permit, publication_permit), exc)
         raise
 
 
@@ -292,6 +375,34 @@ async def _executor(call, *args):
     )
 
 
+async def _settle_permits(permits, failure=None):
+    """Attempt every settlement even when another settlement is interrupted."""
+    first_error = None
+    cancelled = False
+    for permit in permits:
+        if permit is None:
+            continue
+        settling = asyncio.create_task(
+            permit.__aexit__(
+                type(failure) if failure is not None else None,
+                failure,
+                failure.__traceback__ if failure is not None else None,
+            )
+        )
+        _, settle_error, interrupted = await _drain(settling)
+        cancelled = cancelled or interrupted
+        first_error = first_error or settle_error
+    if cancelled:
+        interrupted = asyncio.CancelledError()
+        if getattr(failure, "storage_operation_unsettled", False) or getattr(
+            first_error, "storage_operation_unsettled", False
+        ):
+            storage_access.mark_unsettled(interrupted)
+        raise interrupted
+    if first_error is not None:
+        raise first_error
+
+
 async def _release(transfer, failure=None):
     """Physical closes precede settling the independent operation record."""
     closing = asyncio.create_task(_executor(transfer.close))
@@ -299,10 +410,9 @@ async def _release(transfer, failure=None):
     if close_error is not None:
         failure = storage_access.mark_unsettled(_error("storage_operation_unsettled"))
     settling = asyncio.create_task(
-        transfer.permit.__aexit__(
-            type(failure) if failure is not None else None,
+        _settle_permits(
+            (transfer.permit, transfer.publication_permit),
             failure,
-            failure.__traceback__ if failure is not None else None,
         )
     )
     _, settle_error, settle_cancelled = await _drain(settling)
@@ -348,6 +458,7 @@ class MediaCacheResponse(StreamingResponse):
             return
         remaining = self.selected.length
         while remaining:
+            await self.transfer.recheck()
             requested = min(CHUNK_BYTES, remaining)
             self.pending = asyncio.create_task(
                 _executor(self.transfer.body.read, requested)
@@ -362,6 +473,7 @@ class MediaCacheResponse(StreamingResponse):
             self.pending = None
             if type(chunk) is not bytes or not 0 < len(chunk) <= requested:
                 raise _error("media_cache_mismatch")
+            await self.transfer.recheck()
             remaining -= len(chunk)
             yield chunk
 
@@ -369,6 +481,7 @@ class MediaCacheResponse(StreamingResponse):
         failure = None
         try:
             async with asyncio.timeout(RESPONSE_SECONDS):
+                await self.transfer.recheck()
                 await super().__call__(scope, receive, send)
         except TimeoutError:
             failure = _error("media_cache_timeout", 504)
@@ -430,6 +543,7 @@ async def response(capability, *, method="GET", range_header=None, if_range=None
                 _executor(lambda: transfer.open(selected, head=method == "HEAD"))
             )
             await asyncio.shield(pending)
+            await transfer.recheck()
         return MediaCacheResponse(transfer, selected, head=method == "HEAD")
     except BaseException as exc:
         late_result, late_error, cancelled = await _drain(pending)
@@ -456,6 +570,11 @@ async def response(capability, *, method="GET", range_header=None, if_range=None
             raise interrupted
         if isinstance(exc, HTTPException):
             raise
+        if isinstance(exc, ContentError):
+            error = _error(exc.code, exc.status)
+            if getattr(exc, "storage_operation_unsettled", False):
+                storage_access.mark_unsettled(error)
+            raise error from None
         error = _error()
         if getattr(exc, "storage_operation_unsettled", False):
             storage_access.mark_unsettled(error)

@@ -64,7 +64,15 @@ def validate_response(
     full content identity remains established by sealed copy verification and
     a full HEAD, rather than treating a partial GET as a full SHA calculation.
     """
+    if not isinstance(response, dict):
+        reject()
     metadata = response.get("Metadata", {})
+    if not isinstance(metadata, dict):
+        reject()
+    try:
+        content_sha256 = copy.digest(copy.content_target(response))
+    except (copy.CopyError, TypeError, AttributeError):
+        reject()
     if (
         response.get("ResponseMetadata", {}).get("HTTPStatusCode") != status_code
         or response.get("VersionId") != route.target_version_id
@@ -77,7 +85,7 @@ def validate_response(
         or metadata.get("aap-copy-plan") != route.creation_plan_uuid
         or metadata.get("aap-copy-object") != route.source_object_id
         or metadata.get("aap-copy-nonce") != route.creation_nonce
-        or copy.digest(copy.content_target(response)) != route.target_content_sha256
+        or content_sha256 != route.target_content_sha256
     ):
         reject()
 

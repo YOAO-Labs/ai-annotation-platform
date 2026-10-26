@@ -270,8 +270,9 @@ async def test_owner_is_rechecked_after_permit_before_sdk_open(
 
 
 @pytest.mark.parametrize("mapped", [True, False])
+@pytest.mark.parametrize("published_source", [True, False])
 async def test_only_published_signing_ignores_source_transport_facts(
-    monkeypatch, mapped
+    monkeypatch, mapped, published_source
 ):
     row, selected = saved()
     session = bind_session(monkeypatch, row)
@@ -286,7 +287,11 @@ async def test_only_published_signing_ignores_source_transport_facts(
     monkeypatch.setattr(
         outputs,
         "_source",
-        AsyncMock(return_value=replace(source(selected), maintenance_revision=99)),
+        AsyncMock(
+            return_value=replace(
+                source(selected if published_source else None), maintenance_revision=99
+            )
+        ),
     )
     monkeypatch.setattr(original_sources, "recheck_read_route", AsyncMock())
     recheck = AsyncMock()
@@ -297,7 +302,7 @@ async def test_only_published_signing_ignores_source_transport_facts(
     url = await outputs.thumbnail_url(
         session, "dataset_item", row.owner_id, selected.source_object_key
     )
-    if mapped:
+    if mapped or published_source:
         assert url.startswith(f"/api/v1/media-cache/thumbnail/{row.id}/thumbnail.webp?")
         token = url.split("token=", 1)[1]
         capability = media_cache_urls.decode(
@@ -307,7 +312,8 @@ async def test_only_published_signing_ignores_source_transport_facts(
             row.storage_ref
         )
         assert capability.sha256 == row.sha256
-        recheck.assert_awaited_once_with(session, selected, lock=True)
+        if mapped:
+            recheck.assert_awaited_once_with(session, selected, lock=True)
         read.assert_awaited_once()
     else:
         assert url is None
@@ -315,7 +321,9 @@ async def test_only_published_signing_ignores_source_transport_facts(
     assert vars(row) == before
 
 
-@pytest.mark.parametrize("changed", ["source", "pointer", "publication"])
+@pytest.mark.parametrize(
+    "changed", ["source", "pointer", "publication", "original_publication"]
+)
 async def test_signing_keeps_business_and_publication_bookends(monkeypatch, changed):
     row, selected = saved()
     session = bind_session(monkeypatch, row)
@@ -324,11 +332,23 @@ async def test_signing_keeps_business_and_publication_bookends(monkeypatch, chan
     pointers = [pointer, None if changed == "pointer" else pointer]
     monkeypatch.setattr(outputs, "_business_pointer", AsyncMock(side_effect=pointers))
     sources = [
-        source(),
-        replace(source(), sha256="f" * 64) if changed == "source" else source(),
+        source(selected) if changed == "original_publication" else source(),
+        replace(source(), sha256="f" * 64)
+        if changed == "source"
+        else source(selected)
+        if changed == "original_publication"
+        else source(),
     ]
     monkeypatch.setattr(outputs, "_source", AsyncMock(side_effect=sources))
-    monkeypatch.setattr(original_sources, "recheck_read_route", AsyncMock())
+    monkeypatch.setattr(
+        original_sources,
+        "recheck_read_route",
+        AsyncMock(
+            side_effect=[None, ContentError("read_publication_changed")]
+            if changed == "original_publication"
+            else None
+        ),
+    )
     monkeypatch.setattr(outputs, "read_bytes", AsyncMock(return_value=b"data"))
     monkeypatch.setattr(
         publications,

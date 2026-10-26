@@ -7,6 +7,7 @@ import hashlib
 from io import BytesIO
 import threading
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from urllib.parse import parse_qs, urlsplit
 import uuid
 
@@ -179,6 +180,9 @@ class Harness:
         )
         monkeypatch.setattr(service.storage_access, "check", check)
         monkeypatch.setattr(service.storage_access, "acquire", acquire)
+        monkeypatch.setattr(
+            service.artifact_reads, "resolve", AsyncMock(return_value=None)
+        )
 
     @contextmanager
     def client(self, *, read_timeout):

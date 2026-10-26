@@ -417,6 +417,8 @@ def test_signed_url_pins_target_version_and_preserves_expiry():
         {"ContentType": "text/plain"},
         {"CacheControl": "public"},
         {"Metadata": {}},
+        {"Metadata": None},
+        {"Metadata": {"aap-copy-nonce": 1}},
         {"Metadata": {"aap-copy-nonce": "other"}},
     ],
 )

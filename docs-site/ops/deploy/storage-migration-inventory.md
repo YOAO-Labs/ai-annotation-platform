@@ -176,7 +176,9 @@ apps/api/.venv/bin/python scripts/finalize_storage_migration.py status-reads \
 
 发布ID就是Finalization ID。`status-reads`只查询同一责任的耐久数据库记录，不表示当前原生栅栏有效；源离线时也可查询修订以续做撤回。原Task／样本／Asset、保存定位与创建回执不改写；托管原件读取根据完整原定位和保存SHA／大小，使用目标准确VersionId和ETag，取得目标位置的实际许可。源仍可保持停止，B的同名新版本或删除标记不会替换保存副本。业务权限、当前目标连接、物理身份及访问维护仍逐次核对。retain、rebuild和marker不生成可读副本；其他冻结包／派生物、新分配用途绑定及全量切换／回滚另行实施。
 
-同一发布也用于训练保留包、冻结媒体／mask及已有产物的纯读取和导出ZIP的缓存核验／新签名。完整保存地址和SHA限定对象；有独立大小或保存源版本时同时核对。目标实际读取同时登记发布责任和原产物读取purpose，回收与撤回都等待真实句柄关闭。头像、报告附件、审计归档、RLE掩码、评论附件、指南图片及ready独立导出媒体也使用这一读取接缝。RLE按保存的压缩字节匹配，再核canonical内容；独立媒体的完整冻结inventory须与同一封存源prefix的当前可见键及内容全等。目标迁移prefix不作为原目录列举，部分retain／rebuild映射不提供完整目录证明。训练日志等读取后继续写派生件、building副本回读及媒体缓存Range保持各自既有合同。
+同一发布也用于训练保留包、冻结媒体／mask及已有产物的纯读取和导出ZIP的缓存核验／新签名。完整保存地址和SHA限定对象；有独立大小或保存源版本时同时核对。目标实际读取同时登记发布责任和原产物读取purpose，回收与撤回都等待真实句柄关闭。头像、报告附件、审计归档、RLE掩码、评论附件、指南图片及ready独立导出媒体也使用这一读取接缝。RLE按保存的压缩字节匹配，再核canonical内容；独立媒体的完整冻结inventory须与同一封存源prefix的当前可见键及内容全等。目标迁移prefix不作为原目录列举，部分retain／rebuild映射不提供完整目录证明。训练日志等读取后继续写派生件及building副本回读保持各自既有合同。
+
+缩略图、图像金字塔、视频派生物和ready原图缓存也可读取封存副本。金字塔／视频只要求本次实际请求成员有合格映射，既有库存及当前owner／代际核验保持；未映射成员继续要求原A可读。schema 2的同源能力地址保留原逻辑身份，服务端以准确B版本处理HEAD、完整GET和Range，核对区间、大小、ETag与复制内容属性；部分GET不等同于重算整文件SHA。schema 1保持直接S3签名及原期限。原图缓存继续按规范原件位置授权和计费，保存的缓存位置不改写；实际读取操作按Entry身份跨位置阻止清理，不因临时租约过期忽略尚未关闭的句柄。发布撤回停止新准入，流式响应逐块复核、发现撤回即停止后续交付，已经发送的字节不能追回；Body或client关闭不明时保留实际B上的发布和owner责任。
 
 新签名固定B的准确VersionId并使用B的实际可达端点。之前发出的A签名，以及冻结ZIP中已经嵌入的媒体URL，继续遵循原有效期；ZIP最长七天的期限须计入已有观察／退役安排，旧入口保留只读直至这些链接自然失效。不能改写冻结包或把发布撤回宣称为撤销已发出的S3签名。最终用途切换与新写入回滚仍须另行执行。
 
@@ -206,6 +208,8 @@ pnpm dev:worktree -- exec --mode test -- env PYTHONDONTWRITEBYTECODE=1 \
 原件读取的扩展验收使用相同的空test约束，将上面脚本换成 `scripts/verify_storage_migration_original_reads.py`。它在自有源中建立真实原件，复制封存并发布后停止源容器，在目标制造同键新版本及删除标记，实际核对认证HTTP图片／下载与独立Worker原件读取、逻辑事实不变、撤回拒读和原生claim保留。它不代替所有业务消费者或九用途最终切换资格。
 
 训练及ZIP读取的扩展验收使用 `scripts/verify_storage_migration_artifact_reads.py`，同样要求所属空test模式。它核对源离线和目标同键新版本／marker下的认证训练包下载、独立Worker冻结媒体／mask和ZIP完整核验、新签名GET及真实打开GET的撤回排空；已发出的目标S3签名继续按原期限可用。其余保留文件的实际验收入口为 `scripts/verify_storage_migration_retained_reads.py`，参数相同；涵盖头像HTTP和七类读取的独立Worker，使用持久头像／RLE owner及其余物理读取接缝，核对源离线、目标foreign latest／marker、准确签名和真实GET撤回排空。各业务权限与owner最终复核仍由相应SQL回归验证，不将物理接缝测试称为全部业务流程验收。所属资源及launcher测试模式分别按owner清理，不使用人工环境作为测试库。
+
+媒体缓存扩展验收入口为 `scripts/verify_storage_migration_cache_reads.py`，参数和空test约束相同。它建立持久缩略图／金字塔／视频输出及通过正常store创建的原图缓存，源离线且目标有foreign latest／marker时，核对同源HEAD／完整GET／Range、独立Worker缓存读取与金字塔／视频物理读取计划、旧schema直接准确签名，以及真实打开Range GET的撤回排空。视频payload为合成传输字节，不作为编解码或播放资格；物理计划不代替业务权限／当前代际的SQL回归。
 
 ## 执行与核对
 

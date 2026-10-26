@@ -1323,6 +1323,7 @@ def main(argv=None):
     parser.add_argument("--original-reads", action="store_true")
     parser.add_argument("--artifact-reads", action="store_true")
     parser.add_argument("--retained-reads", action="store_true")
+    parser.add_argument("--cache-reads", action="store_true")
     parser.add_argument("--browser-wait-seconds", type=int, default=1200)
     args = parser.parse_args(argv)
     owner = None
@@ -1362,11 +1363,23 @@ def main(argv=None):
         if not args.cleanup:
             fixture = None
             require(
-                sum((args.original_reads, args.artifact_reads, args.retained_reads))
+                sum(
+                    (
+                        args.original_reads,
+                        args.artifact_reads,
+                        args.retained_reads,
+                        args.cache_reads,
+                    )
+                )
                 <= 1,
                 "fixture_conflict",
             )
-            if args.retained_reads:
+            if args.cache_reads:
+                from verify_storage_migration_cache_reads import CacheReads
+
+                fixture = CacheReads()
+                summary["schema"] = "aap.storage-migration-cache-reads-verification/v1"
+            elif args.retained_reads:
                 from verify_storage_migration_retained_reads import RetainedReads
 
                 fixture = RetainedReads()
@@ -1393,6 +1406,8 @@ def main(argv=None):
         summary.update(error_code=safe_error(exc), failure_site=failure_site(exc))
         if owner is not None and "operator_failure" in owner.data:
             summary["operator_failure"] = owner.data["operator_failure"]
+        if owner is not None and "retained_failure" in owner.data:
+            summary["fixture_failure"] = owner.data["retained_failure"]
         code = 130 if isinstance(exc, KeyboardInterrupt) else 1
     finally:
         if owner is not None:
