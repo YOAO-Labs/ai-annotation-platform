@@ -30,6 +30,7 @@ from app.services import storage_access
 from app.services.annotation import AnnotationService
 from app.services.ml_client import PredictionResult
 from app.services.ml_routing.client import RoutedMLBackendClient
+from tests import live_provider_guard
 from tests.conftest import create_registry_with_pool
 from tests.factory import (
     build_tool_bindings,
@@ -723,12 +724,11 @@ async def test_post_write_jwt_logout_rolls_back_attributes_and_audit(
     super_admin,
     monkeypatch,
 ):
-    import os
     from app.api.v1.tasks import annotations as route
     from app.core import token_blacklist
     from app.core.security import decode_access_token
 
-    assert os.environ.get("AAP_WORKTREE_MODE") == "test"
+    live_provider_guard.owned_redis()
     world = secondary_world
     claims = decode_access_token(super_admin[1])
     jti = claims["jti"]

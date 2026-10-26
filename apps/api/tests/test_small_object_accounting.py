@@ -3,8 +3,6 @@
 import asyncio
 import gzip
 import io
-import os
-import re
 import threading
 from types import SimpleNamespace
 import uuid
@@ -32,6 +30,7 @@ from app.services.raster_mask_storage import (
     build_rle_gzip_reference,
     canonical_rle_bytes,
 )
+from tests import live_provider_guard
 from tests.test_bug_attachment_accounting import Provider
 from tests.test_comment_polish import _seed_project_with_annotation
 from tests.test_conditional_write_accounting import (
@@ -286,11 +285,11 @@ async def test_real_owner_keeps_physical_facts_and_drains_before_finish(
 
 @pytest.mark.parametrize("kind", CASES)
 async def test_real_minio_actual_production_owner(caller, monkeypatch, kind):
-    assert os.environ.get("AAP_WORKTREE_MODE") == "test"
-    bucket = (
-        settings.minio_avatars_bucket if kind == "avatar" else settings.minio_bucket
+    purpose = "avatars" if kind == "avatar" else "annotations"
+    bucket = live_provider_guard.owned_bucket(
+        settings.minio_avatars_bucket if kind == "avatar" else settings.minio_bucket,
+        purpose=purpose,
     )
-    assert re.fullmatch(r"aap-wt-[0-9a-f]{16}-test-(avatars|annotations)", bucket)
     service = storage.StorageService()
     service.client.put_bucket_versioning(
         Bucket=bucket, VersioningConfiguration={"Status": "Enabled"}

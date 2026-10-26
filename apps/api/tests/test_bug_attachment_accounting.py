@@ -2,8 +2,6 @@
 
 import asyncio
 import io
-import os
-import re
 import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -27,6 +25,7 @@ from app.services import (
 )
 from app.services import media_cache_accounting, storage, storage_access
 from app.services.managed_s3_target import Target
+from tests import live_provider_guard
 from tests.test_bug_attachment_storage import RAW, endpoint, record
 from tests.test_bug_attachment_uploads import clear_closed_test_operations
 from tests.test_storage_usage_accounting import accounting_factory as accounting_factory
@@ -477,9 +476,9 @@ async def test_actual_upload_owner_preserves_facts_and_original_drain(
 async def test_real_minio_production_upload_and_single_duplicate_condition(
     caller, monkeypatch, schema
 ):
-    assert os.environ.get("AAP_WORKTREE_MODE") == "test"
-    bucket = settings.minio_bug_reports_bucket
-    assert re.fullmatch(r"aap-wt-[0-9a-f]{16}-test-bug-reports", bucket)
+    bucket = live_provider_guard.owned_bucket(
+        settings.minio_bug_reports_bucket, purpose="bug-reports"
+    )
     service = storage.StorageService()
     service.client.put_bucket_versioning(
         Bucket=bucket, VersioningConfiguration={"Status": "Enabled"}

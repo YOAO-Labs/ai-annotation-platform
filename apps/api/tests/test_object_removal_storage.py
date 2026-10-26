@@ -3,7 +3,6 @@
 import asyncio
 import hashlib
 import io
-import os
 from types import SimpleNamespace
 from unittest.mock import Mock
 import uuid
@@ -19,6 +18,7 @@ from app.services import avatar, avatar_storage, bug_attachment_storage as bug
 from app.services import object_removal_accounting as removal
 from app.services import storage
 from app.services.managed_s3_target import Target
+from tests import live_provider_guard
 from tests.test_avatar_storage import record as avatar_record, reference as avatar_ref
 from tests.test_bug_attachment_storage import record as bug_record, reference as bug_ref
 from tests.test_export_media_removal_accounting import Provider
@@ -375,13 +375,13 @@ def test_unaccounted_legacy_bug_keeps_original_helper(monkeypatch):
 async def test_real_minio_physical_delete_and_legacy_unknown(
     accounting_factory, kind, schema, known
 ):
-    assert os.environ.get("AAP_WORKTREE_MODE") == "test"
-    bucket = (
+    purpose = "avatars" if kind == "avatar" else "bug-reports"
+    bucket = live_provider_guard.owned_bucket(
         settings.minio_avatars_bucket
         if kind == "avatar"
-        else settings.minio_bug_reports_bucket
+        else settings.minio_bug_reports_bucket,
+        purpose=purpose,
     )
-    assert bucket.startswith("aap-wt-") and "-test-" in bucket
     client = storage.StorageService().client
     row = owner_record(
         kind, bucket=bucket, schema=schema, version=None, data=b"new", fresh=True

@@ -2,7 +2,6 @@
 
 import asyncio
 from contextlib import contextmanager
-import os
 from types import SimpleNamespace
 from unittest.mock import Mock
 import uuid
@@ -19,6 +18,7 @@ from app.services import key_removal_accounting as removal
 from app.services import storage as storage_module
 from app.services import video_derivative_storage as video
 from app.services.managed_s3_target import Target
+from tests import live_provider_guard
 from tests.test_export_storage import record as zip_record, reference as zip_ref
 from tests.test_image_pyramid_storage import reference as pyramid_ref
 from tests.test_key_removal_accounting import MarkerProvider
@@ -342,13 +342,13 @@ async def test_owned_zip_client_close_failure_keeps_unknown(
 async def test_real_minio_actual_cleanup_preserves_versions_and_records_marker_delta(
     accounting_factory, kind, schema
 ):
-    assert os.environ.get("AAP_WORKTREE_MODE") == "test"
-    bucket = (
+    purpose = "export" if kind == "zip" else "media-cache"
+    bucket = live_provider_guard.owned_bucket(
         settings.minio_export_bucket
         if kind == "zip"
-        else settings.minio_media_cache_bucket
+        else settings.minio_media_cache_bucket,
+        purpose=purpose,
     )
-    assert bucket.startswith("aap-wt-") and "-test-" in bucket
     row = record(kind, bucket=bucket, schema=schema)
     selected = keys(kind, row)
     client = storage_module.StorageService().client

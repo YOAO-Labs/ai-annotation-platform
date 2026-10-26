@@ -35,6 +35,7 @@ from app.services.ai_mask_receipt import issue_ai_mask_receipt, verify_ai_mask_r
 from app.services.ai_mask_session import issue_ai_mask_session, verify_ai_mask_session
 from app.services.content_snapshot import ContentError
 from app.services.ml_client import PredictionResult
+from tests import live_provider_guard
 from tests.factory import create_project
 from tests.managed_image_inference_fixtures import (
     assert_inputs_retired,
@@ -852,16 +853,15 @@ async def test_jwt_logout_during_mask_storage_rolls_back_every_business_write(
     accept_storage_mocks,
     monkeypatch,
 ):
-    import os
-
     from app.core import token_blacklist
     from app.core.security import decode_access_token
     from app.db.models.ai_mask_accept_decision import AiMaskAcceptDecision
     from app.db.models.audit_log import AuditLog
 
-    # This regression deliberately exercises the launcher's own Redis, not an
-    # authentication substitute or a developer service selected by a default.
-    assert os.environ.get("AAP_WORKTREE_MODE") == "test"
+    # This regression deliberately exercises the run's own disposable Redis,
+    # never an authentication substitute or a developer service selected by a
+    # default.
+    live_provider_guard.owned_redis()
     world = managed_world
     world.mask = True
     claims = decode_access_token(super_admin[1])

@@ -4,9 +4,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 import hashlib
 import io
-import os
 from pathlib import Path
-import re
 import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -28,6 +26,7 @@ from app.services import (
 from app.services import media_cache_accounting, storage, storage_access
 from app.services.managed_s3_target import Target
 from app.workers import lidar_export
+from tests import live_provider_guard
 from tests.test_export_storage import record, reference, endpoint
 from tests.test_storage_usage_accounting import accounting_factory as accounting_factory
 
@@ -549,9 +548,9 @@ async def test_both_async_owners_preserve_guards_and_drain_before_accounting(
 async def test_actual_sdk_single_put_and_managed_multipart(
     accounting_factory, tmp_path, monkeypatch, schema, size
 ):
-    assert os.environ.get("AAP_WORKTREE_MODE") == "test"
-    bucket = settings.minio_export_bucket
-    assert re.fullmatch(r"aap-wt-[0-9a-f]{16}-test-export", bucket)
+    bucket = live_provider_guard.owned_bucket(
+        settings.minio_export_bucket, purpose="export"
+    )
     service = storage.StorageService()
     service.client.put_bucket_versioning(
         Bucket=bucket, VersioningConfiguration={"Status": "Enabled"}

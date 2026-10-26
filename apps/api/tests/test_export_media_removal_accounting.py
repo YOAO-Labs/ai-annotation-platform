@@ -17,6 +17,7 @@ from app.services import export_media_removal_accounting as removal
 from app.services import export_media_storage as physical
 from app.services import storage_usage_accounting as usage
 from app.services.conditional_write_accounting import finish
+from tests import live_provider_guard
 from tests.test_export_media_storage import RAW, record
 from tests.test_storage_usage_accounting import accounting_factory as accounting_factory
 
@@ -518,15 +519,12 @@ def test_owned_client_option_is_local_and_preserves_single_attempt(
 async def test_real_minio_inventory_delete_has_immutable_ack_and_current_deltas(
     accounting_factory, schema
 ):
-    import os
     from app.config import settings
     from app.services.managed_s3_target import Target
     from app.services.storage import StorageService
 
-    assert os.environ.get("AAP_WORKTREE_MODE") == "test"
-    assert (
-        settings.minio_export_bucket.startswith("aap-wt-")
-        and "-test-" in settings.minio_export_bucket
+    bucket = live_provider_guard.owned_bucket(
+        settings.minio_export_bucket, purpose="export"
     )
     client = StorageService().client
     bucket, identifier = settings.minio_export_bucket, uuid.uuid4()

@@ -4,7 +4,6 @@ import asyncio
 from contextlib import contextmanager
 import hashlib
 import io
-import os
 from pathlib import Path
 from types import SimpleNamespace
 import uuid
@@ -22,6 +21,7 @@ from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.storage import storage_service
 from app.services.training_dataset_bridge import TrainingDatasetError
 from app.workers import training_dataset as worker
+from tests import live_provider_guard
 from tests.test_dataset_content import content_world as content_world, headers
 from tests.test_export_zip_accounting import Provider as ZipProvider
 from tests.test_storage_usage_accounting import accounting_factory as accounting_factory
@@ -358,8 +358,9 @@ async def test_build_wrapper_preserves_consumed_errors_and_finishes_after_conten
 async def test_real_worker_ledger_waits_for_outer_directory_and_preserves_partial_writes(
     db_session, reference_training, httpx_client, super_admin, monkeypatch, fault
 ):
-    assert os.environ.get("AAP_WORKTREE_MODE") == "test"
-    assert "-test-" in storage_service.training_bucket
+    live_provider_guard.owned_bucket(
+        storage_service.training_bucket, purpose="training"
+    )
     await asyncio.to_thread(
         storage_service.client.put_bucket_versioning,
         Bucket=storage_service.training_bucket,

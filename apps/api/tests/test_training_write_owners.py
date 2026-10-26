@@ -4,8 +4,6 @@ import asyncio
 from contextlib import asynccontextmanager
 import hashlib
 import io
-import os
-import re
 import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -24,6 +22,7 @@ from app.services import training_observability as observations
 from app.services.dataset_assets import ensure_legacy_bindings
 from app.services.managed_s3_target import Target
 from app.services.managed_original_reader import BinaryStage
+from tests import live_provider_guard
 from tests.test_sample_evaluation_worker import world as world
 from tests.test_training_write_accounting import (
     Provider,
@@ -249,9 +248,9 @@ async def test_actual_async_owner_retains_facts_after_physical_drain(
 
 @pytest.mark.parametrize("kind", ["active", "report", "log"])
 async def test_real_pg_minio_owned_overwrites_and_net_zero(caller, monkeypatch, kind):
-    assert os.environ.get("AAP_WORKTREE_MODE") == "test"
-    bucket = settings.minio_training_bucket
-    assert re.fullmatch(r"aap-wt-[0-9a-f]{16}-test-training", bucket)
+    bucket = live_provider_guard.owned_bucket(
+        settings.minio_training_bucket, purpose="training"
+    )
     service = storage.StorageService()
     service.client.put_bucket_versioning(
         Bucket=bucket, VersioningConfiguration={"Status": "Enabled"}
@@ -379,8 +378,7 @@ async def test_both_report_worker_entries_finish_after_real_permit(
     value = SimpleNamespace(kind="report", row=run, owner=owner, target=None)
     real_service = None
     if mode == "real_minio":
-        assert os.environ.get("AAP_WORKTREE_MODE") == "test"
-        assert re.fullmatch(r"aap-wt-[0-9a-f]{16}-test-training", owner.bucket)
+        live_provider_guard.owned_bucket(owner.bucket, purpose="training")
         real_service = storage.StorageService()
         real_service.client.put_bucket_versioning(
             Bucket=owner.bucket, VersioningConfiguration={"Status": "Enabled"}
