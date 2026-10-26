@@ -45,14 +45,13 @@ _AUDIT_VIEWS = {
     "aap_workspace_audit_v1.project_facts",
     "aap_workspace_audit_v1.project_member_facts",
     "aap_workspace_audit_v1.schema_capabilities",
+    "aap_labeling_audit_v1.task_facts",
+    "aap_labeling_audit_v1.task_batch_facts",
+    "aap_labeling_audit_v1.annotation_facts",
+    "aap_labeling_audit_v1.task_lock_facts",
+    "aap_labeling_audit_v1.schema_capabilities",
 }
-_READ_ONLY_TABLES = {
-    "alembic_version",
-    "annotations",
-    "task_batches",
-    "task_locks",
-    "tasks",
-}
+_READ_ONLY_TABLES = {"alembic_version"}
 _IDENTITY_API_FUNCTIONS = {
     "read_actor_facts(uuid)",
     "lock_accounts_share(uuid[],boolean)",
@@ -170,10 +169,7 @@ async def _temporary_runtime_role(test_engine, historical, monkeypatch):
             await db.execute(text("GRANT USAGE ON SCHEMA public TO legacy_runtime"))
             await db.execute(
                 text(
-                    "GRANT SELECT ON TABLE public.alembic_version, "
-                    "public.annotations, "
-                    "public.task_batches, public.task_locks, public.tasks "
-                    "TO legacy_runtime"
+                    "GRANT SELECT ON TABLE public.alembic_version TO legacy_runtime"
                 )
             )
 
@@ -340,6 +336,10 @@ async def _assert_runtime_acl(
             "public.user_invitations",
             "public.projects",
             "public.project_members",
+            "public.tasks",
+            "public.task_batches",
+            "public.annotations",
+            "public.task_locks",
         ):
             assert not await db.scalar(
                 text(
@@ -365,8 +365,9 @@ async def _assert_runtime_acl(
                             "FROM pg_catalog.pg_class AS relation "
                             "JOIN pg_catalog.pg_namespace AS namespace "
                             "ON namespace.oid=relation.relnamespace "
-                            "WHERE namespace.nspname IN ('aap_identity_audit_v1','aap_workspace_audit_v1') "
-                            "AND relation.relkind='v' "
+                            "WHERE namespace.nspname IN ("
+                            "'aap_identity_audit_v1','aap_workspace_audit_v1',"
+                            "'aap_labeling_audit_v1') "
                             "AND pg_catalog.has_table_privilege("
                             "'legacy_runtime',relation.oid,'SELECT')"
                         )
@@ -383,6 +384,18 @@ async def _assert_runtime_acl(
                 text(
                     "SELECT pg_catalog.has_schema_privilege("
                     "'legacy_runtime','aap_identity_audit_v1','USAGE')"
+                )
+            )
+            assert await db.scalar(
+                text(
+                    "SELECT pg_catalog.has_schema_privilege("
+                    "'legacy_runtime','aap_workspace_audit_v1','USAGE')"
+                )
+            )
+            assert await db.scalar(
+                text(
+                    "SELECT pg_catalog.has_schema_privilege("
+                    "'legacy_runtime','aap_labeling_audit_v1','USAGE')"
                 )
             )
             for view in _AUDIT_VIEWS:
@@ -650,6 +663,21 @@ async def test_installed_role_audit_uses_owned_identity_views_on_real_0171(
                     historical,
                     "workspace-role-audit-grants.sql",
                     workspace_owner="workspace_code",
+                    consumer_role="legacy_runtime",
+                )
+                missing_labeling = await _audit_cli(cli, "--max-rows", "1")
+                record_property(
+                    "labeling_role_audit_missing_profile", missing_labeling.evidence
+                )
+                assert (
+                    missing_labeling.exit_code == 2
+                    and not missing_labeling.timed_out
+                )
+                assert await _source_snapshot(historical) == before
+                _grants(
+                    historical,
+                    "labeling-role-audit-grants.sql",
+                    labeling_owner="labeling_code",
                     consumer_role="legacy_runtime",
                 )
                 await _assert_runtime_acl(historical, installed=True)

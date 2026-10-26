@@ -131,7 +131,7 @@ async def historical_audit_database(test_engine, *, initialize=True):
 
 @asynccontextmanager
 async def audit_reader(test_engine, *, cli_role=False):
-    """Compose explicit owner audit profiles with the remaining Labeling reads."""
+    """Compose private-table-free Identity, Workspace, and Labeling audit profiles."""
     from tests.test_workspace_consumer_profile_native import _grants
 
     _verify_postgres(test_engine.url)
@@ -158,7 +158,7 @@ async def audit_reader(test_engine, *, cli_role=False):
             await db.execute(text(f"GRANT USAGE ON SCHEMA public TO {role}"))
             await db.execute(
                 text(
-                    f"GRANT SELECT ON public.tasks,public.task_batches,public.annotations,public.task_locks,public.alembic_version TO {role}"
+                    f"GRANT SELECT ON public.alembic_version TO {role}"
                 )
             )
             # Prove the owner profile removes existing table and column grants.
@@ -180,11 +180,17 @@ async def audit_reader(test_engine, *, cli_role=False):
             await db.execute(
                 text(f"GRANT SELECT (id,role) ON public.project_members TO {role}")
             )
-        for installer in (
-            "identity-role-audit-grants.sql",
-            "workspace-role-audit-grants.sql",
+        for installer, variables in (
+            ("identity-role-audit-grants.sql", {}),
+            ("workspace-role-audit-grants.sql", {}),
+            ("labeling-role-audit-grants.sql", {"labeling_owner": "labeling_code"}),
         ):
-            result = await _grants(test_engine, ROOT / "infra/docker" / installer, role)
+            result = await _grants(
+                test_engine,
+                ROOT / "infra/docker" / installer,
+                role,
+                **variables,
+            )
             assert result.returncode == 0, result.stderr
         engine = create_async_engine(
             test_engine.url.set(username=role, password=password), hide_parameters=True

@@ -33,13 +33,30 @@ last_reviewed: 2026-09-19
 ## 1. 只读审计（迁移前） {#1-只读审计迁移前}
 
 审计在 `0173` 存在**之前**也可运行，缺失的加性列按 `NULL` / “未知”报告，不会虚构完整性。
+审计 LOGIN 不直接读取 Identity、Workspace 或 Labeling 私表；维护者必须预先在目标库按
+Identity → Workspace → Labeling 顺序安装固定审计关系。以下命令假设既有迁移角色
+`owner`、三个非 LOGIN owner，以及已预置的受限 LOGIN `role_auditor`：
 
-先由维护者使用迁移凭据运行仓库的 `infra/docker/identity-role-audit-grants.sql`，将
-现有 Identity 非 LOGIN owner 与专用审计 LOGIN 绑定到目标数据库。它显式安装三个
-固定审计关系，撤销该 LOGIN 对 User／邀请私表及列的权限，不修改业务数据或 Alembic
-revision；审计 CLI 本身不会安装或自动回退。其余领域的只读权限和 Alembic 元数据
-读取仍须显式提供。将本次审计的 `DATABASE_URL` 指向该 LOGIN，安装步骤见仓库
-`DEV.md` 的“历史角色审计的 Identity 读取”。
+```bash
+DB=annotation_prod
+psql -U owner -d "$DB" -v expected_database="$DB" -v migration_role=owner \
+  -v identity_owner=identity_code -v consumer_role=role_auditor \
+  -f infra/docker/identity-role-audit-grants.sql
+psql -U owner -d "$DB" -v expected_database="$DB" -v migration_role=owner \
+  -v workspace_owner=workspace_code -v consumer_role=role_auditor \
+  -f infra/docker/workspace-role-audit-grants.sql
+psql -U owner -d "$DB" -v expected_database="$DB" -v migration_role=owner \
+  -v labeling_owner=labeling_code -v consumer_role=role_auditor \
+  -f infra/docker/labeling-role-audit-grants.sql
+psql -U owner -d "$DB" -c \
+  'GRANT USAGE ON SCHEMA public TO role_auditor; GRANT SELECT ON public.alembic_version TO role_auditor;'
+```
+
+安装器只绑定目标库中已有的安全角色并显式创建固定投影，不创建 LOGIN、不改业务数据或
+Alembic revision. Labeling 安装器仅为审计投影向其 owner 授予 `tasks`、`task_batches`、
+`annotations`、`task_locks` 所需列的读取；审计 LOGIN 只获固定审计关系的 `SELECT`，不获这些私表的表级
+或列级权限。若目标库之后应用 `0173`，必须再次显式运行 Labeling 安装器刷新 task
+投影，然后再使用审计 CLI；CLI 不安装、登录、迁移或自动刷新任何关系。
 
 ```bash
 cd apps/api

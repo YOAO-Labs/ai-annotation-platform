@@ -5,14 +5,12 @@ Increment A preparation for the project-scoped employee roles plan
 ``REPEATABLE READ, READ ONLY`` transaction enforced by PostgreSQL and never
 writes roles, memberships or assignments.
 
-The audit also runs *before* revision 0173 exists.  It inspects
-``information_schema`` and owner metadata for the additive preparation columns and substitutes
-``NULL`` projections plus missing-evidence classifications, so reviewing a
-production schema ahead of the migration is safe and reports unknown rather
-than fabricating completeness. An operator must first install the fixed Identity
-and Workspace audit relations with identity-role-audit-grants.sql and
-workspace-role-audit-grants.sql; this read-only CLI never installs them or falls
-back to private owner tables.
+The audit also runs *before* revision 0173 exists. It reads a fixed Labeling
+audit projection whose preparation fields are NULL when the additive columns are
+absent, and fixed schema-capability projections report those columns. Operators
+must explicitly install the Identity, Workspace and Labeling audit relations
+with their role-audit-grants.sql installers; this read-only CLI never installs
+them or falls back to private owner tables.
 
 Report shape (versioned JSON)::
 
@@ -129,8 +127,8 @@ WITH effective AS (
            t.status,
            COALESCE(t.assignee_id, b.annotator_id) AS effective_assignee_id,
            COALESCE(t.reviewer_id, b.reviewer_id) AS effective_reviewer_id
-    FROM tasks t
-    LEFT JOIN task_batches b ON b.id = t.batch_id
+    FROM aap_labeling_audit_v1.task_facts t
+    LEFT JOIN aap_labeling_audit_v1.task_batch_facts b ON b.id = t.batch_id
 )
 """
 _EFFECTIVE_ASSIGNMENT_JOINS = """
@@ -185,18 +183,8 @@ class AuditError(RuntimeError):
 
 
 async def detect_schema_capabilities(db: AsyncSession) -> dict[str, bool]:
-    """Report which 0173 preparation columns exist, without assuming any."""
-    rows = await _fetch(
-        db,
-        "SELECT table_name, column_name FROM information_schema.columns "
-        "WHERE table_schema = ANY(current_schemas(false)) "
-        "AND table_name = 'tasks'",
-    )
+    """Report which 0173 preparation columns exist using fixed audit views."""
     available: dict[str, set[str]] = {table: set() for table in PREPARATION_COLUMNS}
-    for row in rows:
-        table = row["table_name"]
-        if table in available:
-            available[table].add(row["column_name"])
     workspace = await _fetch(
         db,
         "SELECT member_version, member_updated_at "
@@ -221,6 +209,23 @@ async def detect_schema_capabilities(db: AsyncSession) -> dict[str, bool]:
         raise AuditError("Invalid Identity audit schema capabilities")
     if identity[0]["invitation_project_role"]:
         available["user_invitations"].add("project_role")
+    labeling = await _fetch(
+        db,
+        "SELECT task_annotation_contributor_ids, task_review_contributor_ids, "
+        "task_review_submitter_id FROM aap_labeling_audit_v1.schema_capabilities",
+    )
+    labeling_capabilities = {
+        "annotation_contributor_ids": "task_annotation_contributor_ids",
+        "review_contributor_ids": "task_review_contributor_ids",
+        "review_submitter_id": "task_review_submitter_id",
+    }
+    if len(labeling) != 1 or any(
+        type(labeling[0][key]) is not bool for key in labeling_capabilities.values()
+    ):
+        raise AuditError("Invalid Labeling audit schema capabilities")
+    for column, key in labeling_capabilities.items():
+        if labeling[0][key]:
+            available["tasks"].add(column)
     return {
         f"{table}.{column}": column in available[table]
         for table, columns in PREPARATION_COLUMNS.items()
@@ -799,13 +804,17 @@ async def audit_review_evidence(
         "SELECT id AS task_id, project_id, review_round_id, "
         f"{columns['has_submitter']}, "
         f"{columns['review_contributor_kind']}, "
-        f"{columns['annotation_contributor_kind']} FROM tasks "
+        f"{columns['annotation_contributor_kind']} "
+        "FROM aap_labeling_audit_v1.task_facts "
     )
 
     async def category(name: str) -> dict:
         return await _count_and_rows(
             db,
-            count_sql="SELECT count(*) FROM tasks WHERE " + predicates[name],
+            count_sql=(
+                "SELECT count(*) FROM aap_labeling_audit_v1.task_facts WHERE "
+                + predicates[name]
+            ),
             rows_sql=detail
             + "WHERE "
             + predicates[name]
@@ -818,7 +827,9 @@ async def audit_review_evidence(
     incomplete_reasons = {
         name: {
             "total": await _scalar(
-                db, "SELECT count(*) FROM tasks WHERE " + predicates[name]
+                db,
+                "SELECT count(*) FROM aap_labeling_audit_v1.task_facts WHERE "
+                + predicates[name],
             )
         }
         for name in (
@@ -833,7 +844,9 @@ async def audit_review_evidence(
     # is expected, not a defect (no default marks a legacy writer's row known).
     no_review_activity = await _scalar(
         db,
-        "SELECT count(*) FROM tasks WHERE NOT (" + _REVIEW_ACTIVITY_SQL + ")",
+        "SELECT count(*) FROM aap_labeling_audit_v1.task_facts WHERE NOT ("
+        + _REVIEW_ACTIVITY_SQL
+        + ")",
     )
     return {
         "complete": complete,
@@ -864,23 +877,29 @@ async def audit_reconciliation(db: AsyncSession) -> dict:
         "role",
     )
     tasks_by_status = await grouped(
-        "SELECT status, count(*) AS count FROM tasks GROUP BY status", "status"
+        "SELECT status, count(*) AS count "
+        "FROM aap_labeling_audit_v1.task_facts GROUP BY status",
+        "status",
     )
     projects_by_status = await grouped(
         "SELECT status, count(*) AS count FROM aap_workspace_audit_v1.project_facts GROUP BY status",
         "status",
     )
     annotations_by_source = await grouped(
-        "SELECT source, count(*) AS count FROM annotations GROUP BY source", "source"
+        "SELECT source, count(*) AS count "
+        "FROM aap_labeling_audit_v1.annotation_facts GROUP BY source",
+        "source",
     )
     first_review_by_result = await grouped(
-        "SELECT first_review_result, count(*) AS count FROM tasks "
+        "SELECT first_review_result, count(*) AS count "
+        "FROM aap_labeling_audit_v1.task_facts "
         "WHERE first_review_result IS NOT NULL GROUP BY first_review_result",
         "first_review_result",
     )
     annotations_by_author = await _fetch(
         db,
-        "SELECT user_id, count(*) AS active_annotations FROM annotations "
+        "SELECT user_id, count(*) AS active_annotations "
+        "FROM aap_labeling_audit_v1.annotation_facts "
         "WHERE is_active IS TRUE AND was_cancelled IS FALSE AND user_id IS NOT NULL "
         "GROUP BY user_id ORDER BY user_id",
     )
@@ -912,7 +931,9 @@ async def audit_reconciliation(db: AsyncSession) -> dict:
             "by_status": projects_by_status,
         },
         "tasks": {
-            "total": await _scalar(db, "SELECT count(*) FROM tasks"),
+            "total": await _scalar(
+                db, "SELECT count(*) FROM aap_labeling_audit_v1.task_facts"
+            ),
             "by_status": tasks_by_status,
         },
         "assignments": {
@@ -933,36 +954,47 @@ async def audit_reconciliation(db: AsyncSession) -> dict:
             ),
             "review_claimed_not_completed": await _scalar(
                 db,
-                "SELECT count(*) FROM tasks "
+                "SELECT count(*) FROM aap_labeling_audit_v1.task_facts "
                 "WHERE reviewer_claimed_at IS NOT NULL AND status = 'review'",
             ),
         },
         "locks": {
-            "total": await _scalar(db, "SELECT count(*) FROM task_locks"),
+            "total": await _scalar(
+                db, "SELECT count(*) FROM aap_labeling_audit_v1.task_lock_facts"
+            ),
             "unexpired": await _scalar(
-                db, "SELECT count(*) FROM task_locks WHERE expire_at > now()"
+                db,
+                "SELECT count(*) FROM aap_labeling_audit_v1.task_lock_facts "
+                "WHERE expire_at > now()",
             ),
         },
         "annotations": {
-            "total": await _scalar(db, "SELECT count(*) FROM annotations"),
+            "total": await _scalar(
+                db, "SELECT count(*) FROM aap_labeling_audit_v1.annotation_facts"
+            ),
             "active": await _scalar(
                 db,
-                "SELECT count(*) FROM annotations "
+                "SELECT count(*) FROM aap_labeling_audit_v1.annotation_facts "
                 "WHERE is_active IS TRUE AND was_cancelled IS FALSE",
             ),
             "cancelled": await _scalar(
-                db, "SELECT count(*) FROM annotations WHERE was_cancelled IS TRUE"
+                db,
+                "SELECT count(*) FROM aap_labeling_audit_v1.annotation_facts "
+                "WHERE was_cancelled IS TRUE",
             ),
             "distinct_authors": await _scalar(
                 db,
-                "SELECT count(DISTINCT user_id) FROM annotations "
+                "SELECT count(DISTINCT user_id) "
+                "FROM aap_labeling_audit_v1.annotation_facts "
                 "WHERE user_id IS NOT NULL",
             ),
             "by_source": annotations_by_source,
         },
         "historical_review": {
             "first_reviewed": await _scalar(
-                db, "SELECT count(*) FROM tasks WHERE first_reviewed_at IS NOT NULL"
+                db,
+                "SELECT count(*) FROM aap_labeling_audit_v1.task_facts "
+                "WHERE first_reviewed_at IS NOT NULL",
             ),
             "by_first_review_result": first_review_by_result,
         },

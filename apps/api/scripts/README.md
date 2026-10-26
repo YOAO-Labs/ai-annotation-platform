@@ -192,8 +192,35 @@ UUID，并硬校验 ML Backend 主绑定、项目启用关联、connected 状态
 `REPEATABLE READ, READ ONLY` 事务（由 PostgreSQL 强制），绝不写入角色、成员或分派；
 用于员工身份转换前的差异盘点与对账，不改变任何现有行为。
 
-该审计同时可在 0173 迁移之前运行：它先检查 `information_schema` 中是否存在增量列，
-缺失时改用 `NULL` 投影并把相应证据归类为“未知/不完整”，因此不会因读取尚不存在的列而失败。
+审计不直接读取 Identity、Workspace、Task、TaskBatch、Annotation 或 TaskLock 私表。
+它只读三个领域的固定审计关系；0173 准备列由各自的固定 `schema_capabilities`
+关系报告。运行前由维护者按 Identity → Workspace → Labeling 顺序显式安装：
+
+```bash
+DB=annotation_test
+MIGRATION_ROLE=owner
+AUDIT_ROLE=role_auditor
+psql -U "$MIGRATION_ROLE" -d "$DB" \
+  -v expected_database="$DB" -v migration_role="$MIGRATION_ROLE" \
+  -v identity_owner=identity_code -v consumer_role="$AUDIT_ROLE" \
+  -f infra/docker/identity-role-audit-grants.sql
+psql -U "$MIGRATION_ROLE" -d "$DB" \
+  -v expected_database="$DB" -v migration_role="$MIGRATION_ROLE" \
+  -v workspace_owner=workspace_code -v consumer_role="$AUDIT_ROLE" \
+  -f infra/docker/workspace-role-audit-grants.sql
+psql -U "$MIGRATION_ROLE" -d "$DB" \
+  -v expected_database="$DB" -v migration_role="$MIGRATION_ROLE" \
+  -v labeling_owner=labeling_code -v consumer_role="$AUDIT_ROLE" \
+  -f infra/docker/labeling-role-audit-grants.sql
+```
+
+上述安装器要求目标库已有迁移角色、各领域非 LOGIN owner 和受限审计 LOGIN；
+安装器仅为审计投影向 Labeling owner 授予以下私表列读取权限：`tasks`、`task_batches`、
+`annotations`、`task_locks`；审计 LOGIN 只获固定审计视图的 `SELECT`，不获这些私表的表级或列级权限。还需显式授予该 LOGIN 读取
+`public.alembic_version` 的 `SELECT` 和 `public` schema 的 `USAGE`。
+
+若目标库之后应用 0173，维护者须显式重新运行 `labeling-role-audit-grants.sql`，
+使 task 投影读取新增准备列；审计 CLI 不自动安装或刷新任何关系。
 
 ```bash
 cd apps/api
