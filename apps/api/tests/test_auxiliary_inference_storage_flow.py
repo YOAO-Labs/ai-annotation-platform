@@ -8,7 +8,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 import uuid
 
+from botocore.config import Config
 from botocore.exceptions import ClientError
+from botocore.hooks import HierarchicalEmitter
 from botocore.response import StreamingBody
 from fastapi import HTTPException
 import pytest
@@ -27,16 +29,22 @@ from app.services import (
 )
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.managed_original_retirement import managed_storage_identity
-from app.services.storage import storage_service
+from app.services.storage import StorageService, storage_service
 from app.services.training_dataset_bridge import TrainingDatasetError
 from app.workers import active_learning as round_worker
 from app.workers import sample_evaluations as evaluation_worker
+from tests.test_storage_usage_accounting import accounting_factory as accounting_factory
 
 
 class Objects:
     def __init__(self, endpoint):
-        self.meta = SimpleNamespace(endpoint_url=endpoint)
+        self.meta = SimpleNamespace(
+            endpoint_url=endpoint, config=Config(), events=HierarchicalEmitter()
+        )
         self.objects, self.metadata, self.calls = {}, {}, []
+
+    def close(self):
+        pass
 
     def head_object(self, *, Bucket, Key):
         self.calls.append(("head", Bucket, Key))
@@ -68,6 +76,21 @@ class Objects:
         self.calls.append(("delete", Bucket, Key))
         self.objects.pop((Bucket, Key), None)
 
+    def list_objects_v2(self, *, Bucket, Prefix, **kwargs):
+        return {
+            "IsTruncated": False,
+            "Contents": [
+                {"Key": key}
+                for bucket, key in self.objects
+                if bucket == Bucket and key.startswith(Prefix)
+            ],
+        }
+
+    def delete_objects(self, *, Bucket, Delete):
+        for value in Delete["Objects"]:
+            self.delete_object(Bucket=Bucket, Key=value["Key"])
+        return {}
+
 
 def reference(project_id, identity, *, purpose, owner, endpoint):
     return {
@@ -93,6 +116,12 @@ def world(monkeypatch):
         f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}"
     )
     client = Objects(endpoint)
+
+    def provider_client(self, **_kwargs):
+        self.client = client
+
+    # Exclusive accounting transports use the same in-memory provider, not S3.
+    monkeypatch.setattr(StorageService, "__init__", provider_client)
     monkeypatch.setattr(storage_service, "client", client)
     monkeypatch.setattr(storage_service, "training_bucket", "new-current-bucket")
     project_id = uuid.uuid4()
@@ -192,15 +221,17 @@ def test_evaluation_upload_rejects_unproven_ownership_before_io(world, invalid):
     assert not world.client.calls
 
 
-async def test_evaluation_cached_reads_still_verify_saved_bytes(world, monkeypatch):
+async def test_evaluation_cached_reads_still_verify_saved_bytes(
+    world, monkeypatch, db_session
+):
     report, artifact = published_report(world)
     monkeypatch.setattr(evaluations, "sample_rows", AsyncMock(return_value=[]))
     monkeypatch.setattr(evaluations, "verify_report", lambda value, *_args: value)
-    assert await evaluations.read_report(None, world.run, world.attempt) == report
+    assert await evaluations.read_report(db_session, world.run, world.attempt) == report
     world.client.objects["new-current-bucket", artifact["key"]] = b"current trap"
     world.client.objects[world.bucket, artifact["key"]] = b"changed retained bytes"
     with pytest.raises(HTTPException) as error:
-        await evaluations.read_report(None, world.run, world.attempt)
+        await evaluations.read_report(db_session, world.run, world.attempt)
     assert error.value.status_code == 409
     assert world.client.calls == [("get", world.bucket, artifact["key"])] * 2
 
@@ -220,9 +251,12 @@ async def test_evaluation_reads_refuse_before_io(world, monkeypatch, invalid):
     assert not world.client.calls
 
 
-async def test_late_candidate_cleanup_carries_owner_after_run_is_deleted(world):
+async def test_late_candidate_cleanup_carries_owner_after_run_is_deleted(
+    world, test_engine
+):
     _report, artifact = published_report(world)
     db = SimpleNamespace(
+        bind=test_engine,
         scalar=AsyncMock(return_value=None),
         get=AsyncMock(return_value=None),
         commit=AsyncMock(),
@@ -234,11 +268,11 @@ async def test_late_candidate_cleanup_carries_owner_after_run_is_deleted(world):
         artifact,
         storage_ref=deepcopy(world.run.storage_ref),
     )
-    assert world.client.calls == [("delete", world.bucket, artifact["key"])]
+    assert (world.bucket, artifact["key"]) not in world.client.objects
 
 
 async def test_finish_captures_owner_before_upload_and_row_disappearance(
-    world, monkeypatch
+    world, monkeypatch, storage_db
 ):
     world.run.status = "running"
     monkeypatch.setattr(
@@ -254,24 +288,21 @@ async def test_finish_captures_owner_before_upload_and_row_disappearance(
     )
     upload = evaluations.upload_report
 
-    def upload_then_remove_row(*args):
-        artifact = upload(*args)
+    def upload_then_remove_row(*args, **kwargs):
+        artifact = upload(*args, **kwargs)
         world.run.storage_ref = None
         return artifact
 
     monkeypatch.setattr(evaluations, "upload_report", upload_then_remove_row)
     db = SimpleNamespace(
+        bind=storage_db.bind,
         scalar=AsyncMock(return_value=None),
         get=AsyncMock(return_value=None),
         commit=AsyncMock(),
     )
     with pytest.raises(evaluation_worker.FencedOut):
         await evaluation_worker.finish(factory_for(db), world.attempt.id, uuid.uuid4())
-    assert [operation for operation, _bucket, _key in world.client.calls] == [
-        "put",
-        "get",
-        "delete",
-    ]
+    assert not world.client.objects
     assert all(
         bucket == world.bucket for _operation, bucket, _key in world.client.calls
     )
@@ -325,24 +356,28 @@ async def test_candidate_cleanup_preserves_committed_report_after_lost_ack(world
 
 
 async def test_evaluation_cleanup_uses_saved_prefix_outside_business_transaction(
-    world, monkeypatch
+    world, monkeypatch, test_engine
 ):
+    _report, artifact = published_report(world)
+    foreign_key = "another-owner/retained.json"
+    world.client.objects[world.bucket, foreign_key] = b"unrelated"
     world.run.deletion_requested_at = evaluations.now()
     db = SimpleNamespace(
+        bind=test_engine,
         scalar=AsyncMock(return_value=world.run), commit=AsyncMock(), delete=AsyncMock()
     )
-    guard = AsyncMock()
-    monkeypatch.setattr(active_learning_pool, "guard_source", guard)
+    monkeypatch.setattr(active_learning_pool, "guard_source", AsyncMock())
+    delete_objects = world.client.delete_objects
 
-    def purge(prefix, *, bucket):
+    def physical_delete(*, Bucket, Delete):
         assert db.commit.await_count == 1
-        assert prefix == world.run.storage_ref["prefix"] and bucket == world.bucket
+        assert Bucket == world.bucket
+        return delete_objects(Bucket=Bucket, Delete=Delete)
 
-    physical = Mock(side_effect=purge)
-    monkeypatch.setattr(storage_service, "delete_prefix", physical)
+    monkeypatch.setattr(world.client, "delete_objects", physical_delete)
     assert await evaluations.purge_requested(db, world.run.id)
-    physical.assert_called_once()
-    assert guard.await_count == 2
+    assert (world.bucket, artifact["key"]) not in world.client.objects
+    assert world.client.objects[world.bucket, foreign_key] == b"unrelated"
     db.delete.assert_awaited_once_with(world.run)
 
 
@@ -435,29 +470,23 @@ async def test_unknown_owner_does_not_block_confirmed_evaluation_stop(
     assert not world.client.calls
 
 
-def png_context(world, monkeypatch):
-    db = SimpleNamespace(commit=AsyncMock())
+@pytest.fixture
+async def storage_db(accounting_factory):
+    # Independent accounting commits stay inside the established disposable
+    # accounting schema, while admission and owner metadata use the real DB.
+    async with accounting_factory() as db:
+        yield db
+
+
+def png_context(world, monkeypatch, db):
     context = SimpleNamespace(proof=None, key=None)
     world.round.spec = {"original_contract": 1}
     monkeypatch.setattr(rounds.originals, "delegated", AsyncMock(return_value=context))
     monkeypatch.setattr(rounds.originals, "check", AsyncMock())
     monkeypatch.setattr(rounds.originals.access, "check_clock", Mock())
 
-    class Permit:
-        revision = 1
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            pass
-
-    monkeypatch.setattr(
-        rounds.originals.storage_access,
-        "acquire",
-        AsyncMock(side_effect=lambda *_a, **_k: Permit()),
-    )
-    monkeypatch.setattr(rounds.originals.storage_access, "check", AsyncMock())
+    # Admission, target preparation, migration lookup, accounting and bounded
+    # threads remain real; only delegated source authorization is out of scope.
 
     @asynccontextmanager
     async def source(*_a, **_k):
@@ -469,9 +498,9 @@ def png_context(world, monkeypatch):
 
 
 async def test_active_learning_prepares_and_reuses_png_in_saved_bucket(
-    world, monkeypatch
+    world, monkeypatch, storage_db
 ):
-    db, context, source = png_context(world, monkeypatch)
+    db, context, source = png_context(world, monkeypatch, storage_db)
     descriptor = rounds.media_descriptor(world.round, world.sample)
     assert await rounds.prepare_image(db, world.round, world.sample) == world.png
     world.client.objects["new-current-bucket", descriptor["key"]] = b"current trap"
@@ -498,8 +527,10 @@ async def test_unknown_round_owner_never_reads_current_source_or_storage(
     assert not world.client.calls
 
 
-async def test_active_learning_reuse_verifies_full_png_digest(world, monkeypatch):
-    db, _context, _source = png_context(world, monkeypatch)
+async def test_active_learning_reuse_verifies_full_png_digest(
+    world, monkeypatch, storage_db
+):
+    db, _context, _source = png_context(world, monkeypatch, storage_db)
     await rounds.prepare_image(db, world.round, world.sample)
     descriptor = rounds.media_descriptor(world.round, world.sample)
     world.client.objects[world.bucket, descriptor["key"]] = b"changed bytes"
