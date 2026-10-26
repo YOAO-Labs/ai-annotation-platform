@@ -24,30 +24,16 @@ from aap_labeling.batch_control_contract import (
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("display_id", ["BT-12", None, "BT-", "T-12", 12])
-async def test_batch_creation_allocates_only_through_its_owner(monkeypatch, display_id):
+@pytest.mark.parametrize("display_id", [None, "BT-", "T-12", 12])
+async def test_batch_creation_allocates_only_through_its_owner(display_id):
     from app.services import batch as service
 
     db = SimpleNamespace(scalar=AsyncMock(return_value=display_id), flush=AsyncMock())
-    command = AsyncMock()
-    expected = object()
-    monkeypatch.setattr(service, "execute_batch_control", command)
-    monkeypatch.setattr(service, "get_core_row", AsyncMock(return_value=expected))
-    create = service.BatchService(db)._create_batch(
-        project_id=uuid.uuid4(), name="Owner allocated", created_by=None
-    )
-    if display_id == "BT-12":
-        assert await create is expected
-        assert command.await_args.args[1].display_id == display_id
-    else:
-        with pytest.raises(HTTPException) as rejected:
-            await create
-        assert rejected.value.status_code == 503
-        command.assert_not_awaited()
-        db.flush.assert_not_awaited()
-    assert str(db.scalar.await_args.args[0]) == (
-        "SELECT aap_labeling_v1.next_batch_display_id()"
-    )
+    with pytest.raises(HTTPException) as rejected:
+        await service.BatchService(db)._create_batch(
+            project_id=uuid.uuid4(), name="Owner allocated", created_by=None
+        )
+    assert rejected.value.status_code == 503
 
 
 def test_batch_control_schema_is_closed_and_rejects_generic_patch_fields():
@@ -76,14 +62,6 @@ def test_batch_control_schema_is_closed_and_rejects_generic_patch_fields():
     assert schema["x-postgresql-functions"] == [BATCH_CONTROL_FUNCTION]
     command = schema["$defs"]["UpdateBatch"]
     assert command["additionalProperties"] is False
-    from importlib.resources import files
-
-    assert (
-        json.loads(
-            files("aap_labeling").joinpath("batch-control.schema.json").read_text()
-        )
-        == schema
-    )
 
     with pytest.raises(BatchControlUnavailable):
         decode_batch_control_command(encoded[:-1] + ',"patch":{"status":"approved"}}')

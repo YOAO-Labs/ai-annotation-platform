@@ -43,12 +43,16 @@ PostgreSQL 副本恢复后验证原数据、对象 owner 和本次迁移，再�
 
 Audit 与 Labeling 未暂缓范围的实现和已知调用方收口阶段已交付。Audit 独立维护 CLI、当前 API 查询／导出与元数据 worker、既有 Beat／维护队列三项任务的集中冷验收及 PostgreSQL 恢复均已通过。旧视频的 [PostgreSQL](#legacy-video-postgres-fence)、[精确 worker 与作用域 S3](#legacy-video-worker-storage-facts)事实采集已独立于测试图，并通过[当前本地组合验收](#legacy-video-current-combination)：真实 scope 退役、同任务旧凭据重投失败及 Native 删除／输入保留守卫均保持。Workspace 当前支持协议的实现、消费者迁移与本地模块资格已通过；[实际本机盘点](#workspace-local-history-applicability)没有历史作业，不能再将假定缺少历史清单作为当前外部阻塞。通用旧库退役入口尚未实现，未知旧状态继续 409 并保留输入，不冒充历史迁移已通过。完整 Audit 保留暂缓 Learning 读取，默认混合维护 worker 凭据由 Runtime assembly 单列；不扩修业务 request ID 遗留问题，训练／Learning、Assets 和 Go 范围保持。
 
+Workspace 已按[本机日常采用](#workspace-daily-adoption)切换普通 API 数据库账号与独立运行进程。
+下文原始操作切片中的“日常未切换”限定其当时证据；当前状态以上方说明、唯一台账及采用节为准，
+不据此将其他模块或生产环境一并标为已采用。
+
 <!-- prettier-ignore -->
 | 模块／操作组                             | 实现                                                                                                               | 消费者迁移                                                                                       | 独立运行验收与证据                                                                                                                                       | 剩余阻塞／下一交付                                                                                                                                                                                                                                                                                                                                               |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Identity：完整模块                       | 九组业务能力、账号事实／事务锁、provisioning 及独立工件已实现                                                      | 生产 API／worker、邮件、种子／截图、运维及门控测试的 Identity 操作已迁移                         | [整模块装配](#identity-整模块独立装配)与主工作树采用检查点 d2ea90f3f 保留，本地冷安装／真实消费者／完整恢复通过                                          | 本地模块资格和源码采用完成；日常独立拓扑未切换，另一语言完整提供方、其他网络拓扑及生产容量未验收。宿主机转发仍见 Runtime assembly                                                                                                                                                                                                                                |
-| Workspace：项目、成员、配置及访问 | 六组 HTTP 能力、31项具名操作及既有同事务 Native 能力已盘点；契约环与默认存储围栏已收口 | 普通 Project／成员／模板／回执、固定 seed／运维调用已审计，不改 caller UOW | [当前模块资格](#workspace-module-audit)：源码与非 editable 安装各547项、626项不同 Native 行为案例；strict／default 九进程恢复与真实 worker、生成 LOGIN 冷 API 22次 TCP 调用及当前并发1／4／8混合负载通过 | 当前支持协议的本地模块门槛完成；[本机历史迁移不适用](#workspace-local-history-applicability)；通用旧库退役入口未实现，未知旧状态仍409；日常独立拓扑尚未采用 |
-| Workspace／Jobs：取消后重投 | 取消和审计先提交，再复用现有派发器重投同一作业；不确定投递返回可重试503 | 当前 API 入口已迁移；重复取消不重建作业、不重复审计 | [取消恢复](#video-cancel-redrive)：真实队列／prefork 丢失恢复、退役与删除门禁通过 | 操作及当前组合的本地资格完成；未知旧库的围栏／退役适用性见[实际盘点](#workspace-local-history-applicability)，不据空库生成凭证；Jobs 整模块另列，日常拓扑未采用 |
+| Workspace：项目、成员、配置及访问 | 六组 HTTP 能力、31项具名操作及既有同事务 Native 能力已盘点；契约环与默认存储围栏已收口 | 普通 Project／成员／模板／回执、固定 seed／运维调用已审计，不改 caller UOW | [当前模块资格](#workspace-module-audit)保留源码／非editable各547项、626项Native及恢复／worker／混合负载证据；[本机日常采用](#workspace-daily-adoption)的实际普通账号、六个HTTP边界、八个服务及真实Guide字节检查通过 | 当前支持协议的本地模块门槛与本机日常独立拓扑采用完成；[本机历史迁移不适用](#workspace-local-history-applicability)；通用旧库退役入口未实现，未知旧状态仍409；不代表生产或其他环境采用 |
+| Workspace／Jobs：取消后重投 | 取消和审计先提交，再复用现有派发器重投同一作业；不确定投递返回可重试503 | 当前 API 入口已迁移；重复取消不重建作业、不重复审计 | [取消恢复](#video-cancel-redrive)：真实队列／prefork 丢失恢复、退役与删除门禁通过 | 操作及当前组合的本地资格完成，Workspace本机日常采用完成；未知旧库仍须真实围栏／退役，不据空库生成凭证；Jobs整模块另列，本次不新增Celery消费者 |
 | Workspace：项目删除 | 原子 Native 协调器及 Workspace 可移植命令／连接式客户端已实现 | API 已通过同一请求事务调用 owner；不新增独立提交点 | [项目删除](#workspace-项目删除事务切片)通过76项源码／受限 PG／Node／实际 API 定向检查，当前组合冷恢复通过 | 当前支持协议与[退役门禁](#video-deletion-retirement)已通过；未知旧作业仍409；通用旧库排空／修复是条件性未实现能力，不作为本机缺资料阻塞 |
 | Workspace：数据集解绑 | 原协调器、可移植合同／管理器及借用事务 PostgreSQL 绑定已实现 | API 通过相同 Session 调用 Workspace；原响应／缓存／提交保持 | [解绑切片](#workspace-数据集解绑事务切片)通过72项不同案例，含受限双函数 LOGIN、Node、实际 HTTP 与当前组合冷恢复 | 当前调用、退役门禁、受限凭据与恢复已通过；未知旧作业仍409；通用旧库排空／修复适用性与项目删除相同 |
 | Assets：来源、目录、连接及媒体／输入     | 已有 Source、Catalog、Media、Images、accepted inputs 和视频输入能力                                                | 已迁移选定导入、Workbench 和推理输入消费者                                                       | [数据能力协议](/api/guides/module-data)及既有 ADR 保留受限进程／容器证据；[辅助保留](#来源删除的辅助引用)的实际删除与 HTTP 映射通过 11 项定向检查        | 已确认沿用既有辅助引用 409 guard；部分相机／轨迹引用缺少独立解除入口，任务、标注及学习证据保留；一般 Blob、其余输入、运维写入与完整装配仍待收口                                                                                                                                                                                                                  |
@@ -505,8 +509,11 @@ ARM64 正确性资格，不证明对象存储灾难恢复、GPU／模型正确�
 Workspace 调用前提。冻结 scope 的行、计数、分页结果与 caller autoflush／回滚分别检查，
 不把 SQL 次数、旧函数体文本或触发器写入轨迹作为新的功能契约。
 
-本轮图检查还记录 API 的 `annotation_cleanup ↔ batch` 环，不属于 Workspace 包；
-该失败保持，不通过收窄或关闭已有 API 图守卫掩盖，也不扩大 Labeling 实施。
+此前图检查记录的 API `annotation_cleanup ↔ batch` 环已修复：共用 SQL／错误映射／
+ORM缓存同步适配器迁入 `labeling_batch_control_data.py`，所有实际调用方改接该入口，
+不留兼容包装，也不改变调用方事务。API／Workspace两个原图守卫通过；隔离PostgreSQL中
+清理AI／保留人工内容、贡献者记录与指派覆盖等10个行为案例通过。原失败收据保留，
+没有关闭或收窄图守卫。
 
 ### 当前混合读写补验 {#workspace-current-mixed-load}
 
@@ -541,16 +548,16 @@ API应用／迁移／CLI、安装包和其他运行字节未变；没有重建�
 窗口／捕获／clearance／scope／retirement均为0。两张非空Jobs表分别保存1条权威配置和
 4条恢复函数定义，不是作业历史；没有读取其秘密或函数内容。
 
-Docker仅有主PostgreSQL／Redis／MinIO及另一个带worktree归属的测试Redis，没有停止的
-worker容器。实际宿主机API／Web由已加载的KeepAlive LaunchAgent运行，无Celery
-worker／beat或对应自动重启项，用户crontab为空；有效broker的只读扫描无键或未确认消息。
-数据库和Redis健康接口均200。未改变数据库、凭据、进程、broker、分支或其他Agent资源。
+上述只读盘点时，Docker只有主PostgreSQL／Redis／MinIO及另一个带worktree归属的测试Redis，
+没有停止的worker容器；API／Web由KeepAlive LaunchAgent运行，没有Celery worker／beat或
+对应自动重启项，用户crontab为空，有效broker无键或未确认消息。该盘点本身未改变运行状态。
+后续经用户授权的凭据／进程采用见[本机日常采用](#workspace-daily-adoption)，不改写原始盘点。
 
 因此，**当前已观察本机没有需要退役的历史作业，历史迁移执行不适用；“缺少真实清单”
 不是当前已证明的外部阻塞**。这不证明远程／过去的部署不存在，不实现通用旧库退役入口，
 也不把空库变成凭据围栏、journal或clearance。将来接入有无账本旧作业的库时，完整写入／
 凭据／重启清单与能消费真实围栏的Jobs授权能力仍须实际实现并验收；未知状态继续409并保留输入。
-日常库仍使用既有高权限账号，当前资格中的受限账号与独立拓扑未在日常部署采用。
+本机日常API随后已切换普通账号及独立Workspace进程；这不补造任何历史退役授权。
 
 只读原始收据`.worktree/workspace-real-history-inventory-1792977605.json` SHA-256为
 `84b37226094b84e5a7b8dab4cf751cad8fadce902f634e6717b715aa19c2c71a`。
@@ -559,6 +566,51 @@ worker／beat或对应自动重启项，用户crontab为空；有效broker的只
 12份原始记录／配方逐项核对后保存于`.worktree/workspace-current-local-evidence.tar.gz`，
 SHA-256为`f1c3386a76083881c5ab25e17c7e344fc95b05d856529aa9aca0b847c8adfc53`。
 此前139份证据包保持不变，原失败与旧范围不重写、不重计。
+
+### 本机日常采用 {#workspace-daily-adoption}
+
+本机主checkout的`annotation`库保持原OID16384、迁移head0366与原PostgreSQL容器。
+采用前已保存私有数据库、角色与API LaunchAgent备份；没有清库、播种用户／项目或
+改动共享根`.env`。角色与Native所有权使用原`module-data-grants.sql`，
+普通账号使用原`lan-production-grants.sql`，六个Workspace、Identity Briefs及真实
+Inference probe各使用既有function-only授权脚本，不引入第二套ACL。
+
+实际日常Uvicorn环境与数据库连接均核对为`aap_development_app`，不是迁移账号。
+它没有superuser／CREATEDB／CREATEROLE／BYPASSRLS，12个Workspace私有表／视图及
+列权限全部拒绝，固定media seed能力保留。该角色仍有既有限定统计／分区维护权限，
+不是纯DML账号，也不是32函数最小账号。Uvicorn的迁移连接值为空，六组绑定均为HTTP；
+删除、解绑和引用锁等原子Native能力继续借用相同调用方事务，不拆成独立RPC提交。
+
+私有状态位于`~/.local/state/ai-annotation-platform/workspace-development/`，
+API／Compose环境与完整凭据文件为0600，容器secret按既有0444文件／0700父目录方式挂载。
+API LaunchAgent只增加`UV_ENV_FILE`路径，仍运行`pnpm dev:api`：先用迁移连接执行升级，
+启动Uvicorn前清空该连接值；没有把密码写进plist或共享`.env`。
+仅重载该已核实归属的API服务，Web及共享PostgreSQL／Redis／MinIO的ID／启动时间未变。
+首次bootstrap返回5；确认旧job已移除后显式bootstrap成功，原失败保留，不把原因当作已证明事实。
+
+独立Compose项目`aap-workspace-development`复用六个Workspace能力定义及原依赖overlay，
+新增`docker-compose.workspace-development.yml`只组合镜像、持久重启和已验证的外部私网。
+八个真实进程为六个Workspace能力、Inference probe及Assets Source Guide-only；
+均普通UID、只读根文件系统、1 CPU／256 MiB／64 PIDs，重启策略为`unless-stopped`。
+Guide-only没有Source数据库、Dataset或连接器凭据；S3身份只允许annotation桶
+`projects/*/guide/*`的Get／Put／普通Delete，并显式拒绝版本删除。
+
+八个服务均健康；日常API的DB／Redis／MinIO健康检查均200。六个实际HTTP端点分别
+拒绝无凭据401及带凭据的畸形请求400。真实Guide provider完成签名PUT、HEAD、GET字节
+比对及普通DELETE；ListBucket、前缀外PUT、版本删除均被拒绝，精确探针对象／版本已清理。
+主库没有账号或项目，因此没有伪造成功认证CRUD；上述业务行为案例只在独占测试库运行。
+Inference probe证明了真实SQL配置与健康，不据此宣称真实模型`/setup`或GPU已执行。
+
+Workspace／Inference／AssetsSource的完整583／135／162项COPY名称及哈希仍与已验镜像相等，
+复用三个不可变镜像及离线证明。API使用当前宿主源码，不把旧API冷镜像记作本次新源码工件。
+本机原无Celery消费者，本次没有新起普通／ML／maintenance worker；其他模块的采用门槛不变。
+部署与迁移后重新授权命令见仓库`DEV.md`的“本机日常Workspace独立运行”。
+
+规范收据`.worktree/workspace-daily-adoption.json` SHA-256为
+`619925b66c0143847e67bfe515a563ad0f045fcf3b6e49039fbae57c0605d805`；
+8份源码／原始记录逐项核对后归档到`.worktree/workspace-daily-adoption-evidence.tar.gz`，
+SHA-256为`160a2c59c54e2f07e4d7242ec87704bd471a05f5f4a8e67393e1e6b0bd03c9ec`。
+证据包不含私有密码、API环境、数据库dump或角色备份；历史收据与原失败保持。
 
 ## Identity 内嵌运行权限
 

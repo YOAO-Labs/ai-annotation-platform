@@ -1,0 +1,58 @@
+# Combine the existing Workspace capability/provider files; never the primary stack.
+x-workspace-runtime: &workspace-runtime
+  image: ${AAP_WORKSPACE_IMAGE:?Set the accepted Workspace image}
+  restart: unless-stopped
+
+services:
+  workspace-membership:
+    <<: *workspace-runtime
+  workspace-owner-transfer:
+    <<: *workspace-runtime
+  workspace-configuration:
+    <<: *workspace-runtime
+  workspace-template-query:
+    <<: *workspace-runtime
+  workspace-project-query:
+    <<: *workspace-runtime
+  workspace-directory-query:
+    <<: *workspace-runtime
+  inference-probe:
+    image: ${AAP_INFERENCE_IMAGE:?Set the accepted Inference image}
+    restart: unless-stopped
+  assets-source:
+    image: ${AAP_ASSETS_SOURCE_IMAGE:?Set the accepted Assets Source image}
+    restart: unless-stopped
+    environment:
+      ASSETS_SOURCE_MODE: guide-only
+      ASSETS_SOURCE_TOKEN_FILE: /run/secrets/guide_objects_token
+      ASSETS_SOURCE_GUIDE_S3_ENDPOINT: ${ASSETS_SOURCE_GUIDE_S3_ENDPOINT:?Set the verified internal S3 origin}
+      ASSETS_SOURCE_GUIDE_S3_PUBLIC_URL: ${ASSETS_SOURCE_GUIDE_S3_PUBLIC_URL:-/minio}
+      ASSETS_SOURCE_GUIDE_S3_REGION: ${ASSETS_SOURCE_GUIDE_S3_REGION:-us-east-1}
+      ASSETS_SOURCE_GUIDE_S3_BUCKET: ${ASSETS_SOURCE_GUIDE_S3_BUCKET:?Set the existing annotation bucket}
+      ASSETS_SOURCE_GUIDE_S3_ACCESS_KEY_FILE: /run/secrets/guide_s3_access_key
+      ASSETS_SOURCE_GUIDE_S3_SECRET_KEY_FILE: /run/secrets/guide_s3_secret_key
+    secrets:
+      - guide_objects_token
+      - guide_s3_access_key
+      - guide_s3_secret_key
+    expose:
+      - "8767"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 1
+
+secrets:
+  guide_s3_access_key:
+    file: ${ASSETS_SOURCE_GUIDE_S3_ACCESS_KEY_FILE:?Set the scoped Guide S3 key file}
+  guide_s3_secret_key:
+    file: ${ASSETS_SOURCE_GUIDE_S3_SECRET_KEY_FILE:?Set the scoped Guide S3 secret file}
+
+networks:
+  default:
+    external: true
+    name: ${AAP_WORKSPACE_DEVELOPMENT_NETWORK:?Set the verified primary infrastructure network}

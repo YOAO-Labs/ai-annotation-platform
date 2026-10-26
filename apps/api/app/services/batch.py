@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from aap_labeling.batch_control_contract import (
     ApplyBatchAssignments,
-    ApplyTaskAssignments,
     AssignTasks,
     BatchAssignment,
     BulkApproveBatches,
@@ -114,7 +113,6 @@ def _tracked_task_ids(
         },
         key=str,
     )
-
 
 
 VALID_TRANSITIONS: dict[str, set[str]] = {
@@ -1148,8 +1146,6 @@ class BatchService:
         rollback and a failing item is never partially mutated.  ``actor_id=None``
         fails closed.
         """
-
-        from sqlalchemy.exc import DBAPIError
 
         from app.services.annotation_evidence import lock_tasks_for_evidence
         from aap_workspace_contract.access import ProjectCapability

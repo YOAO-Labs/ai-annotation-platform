@@ -35,7 +35,7 @@ API 默认使用本地 caller Session；可选 `WORKSPACE_MEMBERSHIP_DATABASE_UR
 
 成员命令切片已通过独立安装包、受限Native权限、进程／镜像、真实API、并发交接、重启重放和备份恢复的本地验收；该切片原始计数见[ADR-0133](/dev/adr/0133-workspace-membership-lifecycle-owner)。命令owner只持有三项RPC权限；普通消费者与默认内嵌装配的现行凭据组合见后文。
 
-当前Workspace六组HTTP能力、31项具名操作、同事务Native能力及维护／seed／夹具调用已完成盘点与消费者迁移。源码、非editable安装、受限冷工件、整库恢复、实际worker和并发1／4／8混合读写的本地资格见[模块审计](/dev/concepts/module-deployment#workspace-module-audit)。[本机实际盘点](/dev/concepts/module-deployment#workspace-local-history-applicability)没有历史作业，不能将假定缺少旧部署清单当作当前外部阻塞；通用旧库退役入口仍未实现，未知旧作业继续409并保留输入。这些结论不代表日常独立拓扑采用、生产容量、完整另一语言提供方或其他模块完成；Go仍是实验。
+当前Workspace六组HTTP能力、31项具名操作、同事务Native能力及维护／seed／夹具调用已完成盘点与消费者迁移。源码、非editable安装、受限冷工件、整库恢复、实际worker和并发1／4／8混合读写的本地资格见[模块审计](/dev/concepts/module-deployment#workspace-module-audit)。本机主部署已完成[日常普通账号与独立拓扑采用](/dev/concepts/module-deployment#workspace-daily-adoption)；其他环境不会自动切换。[实际盘点](/dev/concepts/module-deployment#workspace-local-history-applicability)没有历史作业；通用旧库退役入口仍未实现，未知旧作业继续409并保留输入。这不代表生产容量、完整另一语言提供方或其他模块完成；Go仍是实验。
 
 ## 项目负责人转移
 
@@ -535,9 +535,10 @@ Node、worker计数及回滚，另有8项既有角色回归通过。兼容授权
 
 共享开发账号保留既有固定导入、seed、scale、维护函数和仅 `_test`／`_e2e` 库启用的
 夹具能力；不会为了采用存储围栏而收回受支持脚本的执行权，也不把它描述为32函数
-最小账号。显式最小配置、专用操作配置及其 NOLOGIN owner 校验保持不变。采用前仍须
-更新并排空旧直接访问消费者，按原部署流程应用匹配授权；日常环境未自动切换。
-限定本地证据见[默认存储围栏](/dev/concepts/module-deployment#workspace-default-private-storage)。
+最小账号。显式最小配置、专用操作配置及其NOLOGIN owner校验保持不变。采用前仍须
+核对并排空旧直接访问消费者，应用匹配授权；当前本机主API已按此边界切换普通账号，
+六个HTTP能力运行于独立Compose项目，见[本机日常采用](/dev/concepts/module-deployment#workspace-daily-adoption)。
+其他环境不自动采用，原默认存储围栏证据仍见[限定资格](/dev/concepts/module-deployment#workspace-default-private-storage)。
 
 镜像健康探针读取既有 `WORKSPACE_PORT`，默认8172，负责人转移8173和配置8174也使用
 各自的 `/ready`。该探针只检查已选择的 Native SQL policy；不能代替 Guide、后端探测

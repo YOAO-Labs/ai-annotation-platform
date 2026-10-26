@@ -353,6 +353,49 @@ launchctl kickstart -k "gui/$(id -u)/local.ai-annotation-platform.api"
 
 API 文档：http://localhost:8000/docs
 
+### 本机日常Workspace独立运行
+
+当前macOS主checkout保留Web／API的LaunchAgent，Workspace六个HTTP能力及真实
+Inference probe／Guide-only存储使用独立Compose项目`aap-workspace-development`。
+事务型删除、解绑及引用锁继续使用API的相同数据库事务，不经独立HTTP提交。
+
+私有配置在`~/.local/state/ai-annotation-platform/workspace-development/`：
+`api.env`、`compose.env`、`credentials.json`为0600；不要提交、打印或复制到共享根`.env`。
+容器secret文件位于0700父目录，按既有模式0444只读挂载给普通UID容器。
+API的LaunchAgent通过`EnvironmentVariables.UV_ENV_FILE`读取`api.env`；
+`pnpm dev:api`的第一次uv读取迁移连接，第二次在启动Uvicorn前清空`MIGRATION_DATABASE_URL`。
+已加载job的环境配置变化需要卸载／重新bootstrap，而不是只kickstart旧配置；先核对
+服务归属，确认旧job已移除后再bootstrap，不用sudo绕过错误或按端口杀未知进程。
+
+`compose.env`保存完整`COMPOSE_FILE`链、专用项目名、已核对私网和不可变镜像选择。
+它组合原六份能力Compose、class-rename／Guide／Inference依赖overlay、真实Inference
+probe及`docker-compose.workspace-development.yml`；不要叠加主基础设施Compose。
+
+```bash
+docker compose --env-file "$HOME/.local/state/ai-annotation-platform/workspace-development/compose.env" up -d --no-build --wait
+docker compose --env-file "$HOME/.local/state/ai-annotation-platform/workspace-development/compose.env" ps
+```
+
+首次采用须先备份并核对真实库／owner／现有消费者，再创建无继承的普通LOGIN及NOLOGIN
+code owner。复用`infra/docker/module-data-grants.sql`头部的完整owner／caller变量，
+随后应用`lan-production-grants.sql`的`expected_database`、`application_role`、
+`migration_role`和`asset_cleanup_role`；不要把测试验证器当作运维安装入口。
+再按各文件头参数应用六份`workspace-*-grants.sql`能力配置、`identity-briefs-grants.sql`
+和`inference-backend-probe-grants.sql`。Guide-only不需要Source数据库授权；其S3身份仅有
+固定annotation桶Guide前缀的Get／Put／普通Delete，必须显式拒绝DeleteObjectVersion。
+数据库迁移后重新应用匹配的owner／runtime授权；已改变的独立运行字节需重建对应镜像。
+
+日常API使用`aap_development_app`，私有Workspace存储不可访问；固定seed／运维能力和
+既有限定维护DDL保留，不将它描述为32函数最小账号。独立服务分别使用function-only LOGIN。
+核对实际Uvicorn环境、数据库连接角色、全部私表／列权限、六个HTTP绑定及
+`/health/db`、`/health/redis`、`/health/minio`；`/ready`不能替代Guide字节／IAM或真实后端检查。
+无账号的日常库不为验收播种；业务回归使用已核实的独占测试库。
+
+采用前的数据库／角色／plist备份留在该私有目录的`backup/`。若操作者明确需要回退，
+只恢复已核实的API服务配置并停止这个独立Compose项目，保留角色／数据／凭据供恢复；
+不自动还原或删除日常数据库，不强制删除有依赖的角色。当前证据与边界见
+[本机日常采用](docs-site/dev/concepts/module-deployment.md#workspace-daily-adoption)。
+
 ### 独立素材探测服务
 
 `apps/media-probe` 提供视频元数据、完整帧时间表和分块 packet 样本的独立 HTTP
