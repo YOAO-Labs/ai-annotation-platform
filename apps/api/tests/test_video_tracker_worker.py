@@ -1,3 +1,4 @@
+import json
 import pytest
 import uuid
 import httpx
@@ -11,6 +12,7 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
 from aap_inference.backend_transport import PredictionResult
+from aap_inference_contract.execution import thaw_json
 from app.services.video_tracking.adapters import TrackerContext
 from aap_inference.tracker import TrackerFrameResult
 from app.services.video_tracking.runner import accept_tracker_job, run_tracker_job
@@ -26,6 +28,117 @@ from tests.tracker_input_test_ports import (
 @pytest.fixture(autouse=True)
 def _tracker_input_owner_test_port(tracker_input_owner_fakes):
     return tracker_input_owner_fakes
+
+
+class _TrackerRoutingLedger:
+    """Minimal ledger port; tracker routing policy stays in MLBackendRouter."""
+
+    async def circuit_open_instances(self, _pool_id: str) -> set[str]:
+        return set()
+
+    async def aclose(self) -> None:
+        return None
+
+
+def _tracker_routing_scope(
+    *,
+    pool,
+    instance_id: uuid.UUID,
+    project_id: uuid.UUID | None,
+    mode: str,
+    owner: str,
+    operation: str,
+):
+    from aap_inference_contract.routing import RoutingScopeView
+
+    return RoutingScopeView(
+        id=uuid.uuid4(),
+        pool_id=pool.id,
+        registry_id=instance_id,
+        project_id=project_id,
+        mode=mode,
+        owner=owner,
+        operation=operation,
+        generation=pool.routing_generation,
+        config_revision=1,
+        eligibility_revision=1,
+        authority_epoch=uuid.uuid4(),
+        state="reserved",
+        closed=False,
+        heartbeat_deadline_ms=9_999_999_999_999,
+        capability="a" * 64,
+    )
+
+
+def _install_tracker_routing_authority(
+    monkeypatch,
+    *,
+    pool,
+    instance_id: uuid.UUID,
+    project_id: uuid.UUID | None,
+    runtime_snapshot=None,
+):
+    """Stand in for the independent durable routing owner over its public port.
+
+    Tracker jobs pin one instance per job through ``MLBackendRouter``, which only
+    consumes the immutable ``RoutingScopeView`` the authority returns. Unit tests
+    keep the real router/lease fencing and replace only the HTTP owner boundary.
+    """
+    from app.services.ml_routing.authority import RoutingAuthority
+
+    calls: dict[str, list] = {"acquire": [], "close": [], "snapshot": []}
+
+    async def acquire(
+        _authority,
+        *,
+        pool_id=None,
+        registry_id=None,
+        project_id=None,
+        mode="direct",
+        owner="api",
+        operation="backend_http",
+        required_instance_id=None,
+        execution=None,
+    ):
+        calls["acquire"].append(
+            {
+                "pool_id": pool_id,
+                "registry_id": registry_id,
+                "project_id": project_id,
+                "mode": mode,
+                "owner": owner,
+                "operation": operation,
+                "required_instance_id": required_instance_id,
+                "execution": execution,
+            }
+        )
+        if required_instance_id is not None and required_instance_id != instance_id:
+            raise AssertionError("tracker pinned an unexpected registry instance")
+        if pool_id is not None and pool_id != pool.id:
+            raise AssertionError("tracker acquired an unexpected service pool")
+        if registry_id is not None and registry_id != instance_id:
+            raise AssertionError("tracker acquired an unexpected legacy registry")
+        return _tracker_routing_scope(
+            pool=pool,
+            instance_id=instance_id,
+            project_id=project_id,
+            mode=mode,
+            owner=owner,
+            operation=operation,
+        )
+
+    async def close(_authority, scope, outcome="success"):
+        calls["close"].append((scope, outcome))
+        return {"closed": True}
+
+    async def snapshot(_authority, registry_ids):
+        calls["snapshot"].append(tuple(registry_ids))
+        return runtime_snapshot
+
+    monkeypatch.setattr(RoutingAuthority, "acquire", acquire)
+    monkeypatch.setattr(RoutingAuthority, "close", close)
+    monkeypatch.setattr(RoutingAuthority, "runtime_snapshot", snapshot)
+    return calls
 
 
 async def _make_video_task(db_session, owner_id):
@@ -115,7 +228,9 @@ async def test_tracker_worker_completes_mock_bbox_job_and_writes_video_track(
     events: list[dict] = []
 
     async def collect(_channel: str, payload: dict) -> None:
-        events.append(payload)
+        # Published events cross a JSON transport boundary; consumers never see
+        # the worker's frozen in-memory mappings.
+        events.append(json.loads(json.dumps(payload)))
 
     await run_tracker_job(db_session, job.id, publisher=collect)
     await db_session.refresh(job)
@@ -274,6 +389,8 @@ async def test_tracker_http_error_redacts_signed_source_url_from_logs_and_job(
     signed_url = "https://source.test/clip.mp4?X-Amz-Signature=tracker-secret-123"
 
     class FailingAdapter:
+        # TrackerAdapter.propagate is awaited and must return the propagation
+        # result; an async generator would be awaited as a plain coroutine.
         async def propagate(self, _context):
             request = httpx.Request("GET", signed_url)
             response = httpx.Response(502, request=request)
@@ -282,7 +399,6 @@ async def test_tracker_http_error_redacts_signed_source_url_from_logs_and_job(
                 request=request,
                 response=response,
             )
-            yield  # pragma: no cover - makes this an async generator
 
     monkeypatch.setattr(
         runner, "get_tracker_adapter", lambda _capability: FailingAdapter()
@@ -687,6 +803,8 @@ async def test_tracker_worker_calls_project_ml_backend_in_windows(
     db_session.add(job)
     await db_session.commit()
     monkeypatch.setattr(settings, "video_tracker_window_size_frames", 2)
+    monkeypatch.setattr(settings, "ml_backend_router_heartbeat_interval_seconds", 3600)
+    monkeypatch.setattr(settings, "ml_backend_router_mode", "off")
     calls: list[dict] = []
 
     async def fake_predict_interactive(self, task_data, context):
@@ -704,6 +822,12 @@ async def test_tracker_worker_calls_project_ml_backend_in_windows(
         )
 
     install_tracker_execution_fake(monkeypatch, fake_predict_interactive)
+    routing = _install_tracker_routing_authority(
+        monkeypatch,
+        pool=pool,
+        instance_id=backend.id,
+        project_id=task.project_id,
+    )
 
     async def collect(_channel: str, _payload: dict) -> None:
         return None
@@ -717,6 +841,11 @@ async def test_tracker_worker_calls_project_ml_backend_in_windows(
     await db_session.refresh(annotation)
 
     assert job.status == "pending_review"
+    # One job-scope route is acquired for the project-bound instance and
+    # finished after publication.
+    assert [call["mode"] for call in routing["acquire"]] == ["off"]
+    assert routing["acquire"][0]["pool_id"] == pool.id
+    assert [scope.registry_id for scope, _outcome in routing["close"]] == [backend.id]
     assert [(c["from_frame"], c["to_frame"]) for c in calls] == [(0, 1), (2, 3), (4, 4)]
     assert {c["type"] for c in calls} == {"video_tracker"}
     assert {c["model_key"] for c in calls} == {"sam2_video"}
@@ -800,6 +929,8 @@ async def test_tracker_worker_uses_backend_context_session(
     db_session.add(job)
     await db_session.commit()
     monkeypatch.setattr(settings, "video_tracker_window_size_frames", 2)
+    monkeypatch.setattr(settings, "ml_backend_router_heartbeat_interval_seconds", 3600)
+    monkeypatch.setattr(settings, "ml_backend_router_mode", "off")
     actions: list[str] = []
 
     async def fake_predict_interactive(self, task_data, context):
@@ -824,6 +955,12 @@ async def test_tracker_worker_uses_backend_context_session(
         )
 
     install_tracker_execution_fake(monkeypatch, fake_predict_interactive)
+    _install_tracker_routing_authority(
+        monkeypatch,
+        pool=pool,
+        instance_id=backend.id,
+        project_id=task.project_id,
+    )
     await run_tracker_job(db_session, job.id, publisher=_noop_pub)
     await db_session.refresh(job)
     assert job.status == "pending_review"
@@ -900,6 +1037,8 @@ async def test_tracker_worker_marks_low_confidence_backend_results_outside(
     db_session.add(job)
     await db_session.commit()
     monkeypatch.setattr(settings, "video_tracker_low_confidence_outside_threshold", 0.5)
+    monkeypatch.setattr(settings, "ml_backend_router_heartbeat_interval_seconds", 3600)
+    monkeypatch.setattr(settings, "ml_backend_router_mode", "off")
 
     async def fake_predict_interactive(self, task_data, context):
         return PredictionResult(
@@ -919,6 +1058,12 @@ async def test_tracker_worker_marks_low_confidence_backend_results_outside(
         )
 
     install_tracker_execution_fake(monkeypatch, fake_predict_interactive)
+    _install_tracker_routing_authority(
+        monkeypatch,
+        pool=pool,
+        instance_id=backend.id,
+        project_id=task.project_id,
+    )
 
     async def collect(_channel: str, _payload: dict) -> None:
         return None
@@ -1348,8 +1493,11 @@ async def test_materialize_tracker_mask_result_stores_rle_and_adds_aabb(monkeypa
         job_id=job_id,
         task_id=task_id,
     )
-    assert result.geometry["mask"] == reference
-    assert result.geometry["bbox"] == {"x": 1 / 3, "y": 0, "w": 1 / 3, "h": 1}
+    # The immutable frame result exports its JSON content; compare that durable
+    # geometry (not the frozen container types) with the stored reference.
+    exported = thaw_json(result.geometry)
+    assert exported["mask"] == reference
+    assert exported["bbox"] == {"x": 1 / 3, "y": 0, "w": 1 / 3, "h": 1}
     assert events == [
         "content_write_lock",
         "storage_put",
@@ -1374,7 +1522,6 @@ async def test_materialize_tracker_mask_keeps_raw_result_during_fence(
 
     async def store(actual_db, actual_rle, *, writer):
         assert actual_db is db
-        assert actual_rle is rle
         attempts.append(actual_rle)
         if len(attempts) <= 5:
             raise storage.RasterMaskContractError(
@@ -1421,8 +1568,9 @@ async def test_materialize_tracker_mask_keeps_raw_result_during_fence(
         assert len(attempts) == 6
         assert db.rollback.await_count == 5
         db.commit.assert_awaited_once()
-        assert result.geometry["mask"] == reference
-    assert held.geometry["rle"] is rle
+        assert thaw_json(result.geometry)["mask"] == reference
+    # The held raw model result still carries the inferred RLE it must retry.
+    assert thaw_json(held.geometry)["rle"] == rle
 
 
 def test_apply_tracker_results_converts_source_to_mask_track():
@@ -1656,9 +1804,13 @@ async def test_tracker_observe_mode_records_would_select_evidence(
     db_session.add(job)
     await db_session.commit()
     monkeypatch.setattr(settings, "video_tracker_window_size_frames", 2)
+    monkeypatch.setattr(settings, "ml_backend_router_heartbeat_interval_seconds", 3600)
     monkeypatch.setattr(settings, "ml_backend_router_mode", "observe")
 
+    dispatched: list[str] = []
+
     async def fake_predict_interactive(self, task_data, context):
+        dispatched.append(str(self.backend_id))
         return PredictionResult(
             task_id=task_data["id"],
             result=[
@@ -1672,13 +1824,25 @@ async def test_tracker_observe_mode_records_would_select_evidence(
         )
 
     install_tracker_execution_fake(monkeypatch, fake_predict_interactive)
+    monkeypatch.setattr(
+        "app.services.ml_routing.router.make_ledger_from_settings",
+        lambda: _TrackerRoutingLedger(),
+    )
+    routing = _install_tracker_routing_authority(
+        monkeypatch,
+        pool=pool,
+        instance_id=backend.id,
+        project_id=task.project_id,
+    )
 
     await run_tracker_job(db_session, job.id, publisher=_noop_pub)
     await db_session.refresh(job)
-    # observe: job still completes normally (behavior unchanged).
+    # observe: the route is acquired for evidence but never gates dispatch, so the
+    # job completes against the legacy capability-selected instance.
     assert job.status == VideoTrackerJobStatus.PENDING_REVIEW.value
-    # the backend used is the capability-selected legacy instance (not a router-picked one).
-    # would-select evidence was recorded via log (verified by the acquire path not raising).
+    assert [call["mode"] for call in routing["acquire"]] == ["observe"]
+    assert [call["pool_id"] for call in routing["acquire"]] == [pool.id]
+    assert set(dispatched) == {str(backend.id)}
 
 
 @pytest.mark.asyncio
@@ -1738,6 +1902,7 @@ async def test_tracker_enforce_mode_acquires_and_finishes_route_lease(
     db_session.add(job)
     await db_session.commit()
     monkeypatch.setattr(settings, "video_tracker_window_size_frames", 2)
+    monkeypatch.setattr(settings, "ml_backend_router_heartbeat_interval_seconds", 3600)
     monkeypatch.setattr(settings, "ml_backend_router_mode", "enforce")
 
     async def fake_predict_interactive(self, task_data, context):
@@ -1754,23 +1919,28 @@ async def test_tracker_enforce_mode_acquires_and_finishes_route_lease(
         )
 
     install_tracker_execution_fake(monkeypatch, fake_predict_interactive)
+    monkeypatch.setattr(
+        "app.services.ml_routing.router.make_ledger_from_settings",
+        lambda: _TrackerRoutingLedger(),
+    )
+    routing = _install_tracker_routing_authority(
+        monkeypatch,
+        pool=pool,
+        instance_id=backend.id,
+        project_id=task.project_id,
+    )
 
     await run_tracker_job(db_session, job.id, publisher=_noop_pub)
     await db_session.refresh(job)
-    # enforce: job completes; the route lease was acquired + finished (no leak).
+    # enforce: job completes; one job-scope lease was reserved and finished
+    # (successful close, no lease leak) for the pinned instance.
     assert job.status == VideoTrackerJobStatus.PENDING_REVIEW.value
-    from sqlalchemy import text
-
-    rows = (
-        await db_session.execute(
-            text(
-                "SELECT state, closed FROM aap_inference_routing_v1.scopes "
-                "WHERE owner=:owner"
-            ),
-            {"owner": f"tracker:{job.id}"},
-        )
-    ).all()
-    assert rows == [("finished", True)]
+    assert [call["mode"] for call in routing["acquire"]] == ["enforce"]
+    assert routing["acquire"][0]["owner"] == f"tracker:{job.id}"
+    assert routing["acquire"][0]["pool_id"] == pool.id
+    assert [
+        (scope.registry_id, outcome) for scope, outcome in routing["close"]
+    ] == [(backend.id, "success")]
 
 
 async def _make_multi_member_tracker_job(db_session, user_id):
@@ -1869,6 +2039,7 @@ async def _make_multi_member_tracker_job(db_session, user_id):
 async def test_tracker_enforce_dispatches_to_router_selected_instance(
     db_session, super_admin, monkeypatch
 ):
+    from app.services.ml_routing.authority import RoutingAuthority
     from app.services.ml_routing.contracts import (
         RouteLease,
         RouteOutcome,
@@ -1885,14 +2056,23 @@ async def test_tracker_enforce_dispatches_to_router_selected_instance(
         db_session, user.id
     )
     legacy_id, selected_id = legacy.id, selected.id
+    scope = _tracker_routing_scope(
+        pool=pool,
+        instance_id=selected.id,
+        project_id=None,
+        mode="enforce",
+        owner=f"tracker:{job.id}",
+        operation="tracker",
+    )
     lease = RouteLease(
-        lease_id="tracker-selected-lease",
+        lease_id=str(scope.id),
         pool_id=pool.id,
         instance_id=selected.id,
         owner=f"tracker:{job.id}",
         operation="tracker",
         generation=pool.routing_generation,
-        expires_at_ms=9999999999999,
+        expires_at_ms=scope.heartbeat_deadline_ms,
+        scope=scope,
     )
     finished: list[tuple[uuid.UUID, RouteOutcome]] = []
     cancelled: list[uuid.UUID] = []
@@ -1940,10 +2120,18 @@ async def test_tracker_enforce_dispatches_to_router_selected_instance(
     monkeypatch.setattr(MLBackendRouter, "acquire", fake_acquire)
     monkeypatch.setattr(MLBackendRouter, "finish", fake_finish)
     monkeypatch.setattr(MLBackendRouter, "cancel", fake_cancel)
+    runtime_snapshots: list[tuple[uuid.UUID, ...]] = []
+
+    async def fake_runtime_snapshot(_authority, registry_ids):
+        runtime_snapshots.append(tuple(registry_ids))
+        return None
+
+    monkeypatch.setattr(RoutingAuthority, "runtime_snapshot", fake_runtime_snapshot)
     install_tracker_execution_fake(monkeypatch, fake_predict_interactive)
 
     await run_tracker_job(db_session, job.id, publisher=_noop_pub)
     await db_session.refresh(job)
+    assert runtime_snapshots == [(selected_id,)]
     assert legacy_id != selected_id
     assert job.status == VideoTrackerJobStatus.PENDING_REVIEW.value, job.error_message
     assert used_backend_ids == [str(selected_id)]
@@ -1962,13 +2150,27 @@ async def test_tracker_runtime_identity_outage_defers_without_failing_the_job(
     from app.services.video_tracking.execution import TrackerExecutionDeferred
 
     user, _ = super_admin
-    job, _, _, _ = await _make_multi_member_tracker_job(db_session, user.id)
+    job, _, selected, pool = await _make_multi_member_tracker_job(db_session, user.id)
     job_id = job.id
+    monkeypatch.setattr(settings, "ml_backend_router_mode", "enforce")
+    monkeypatch.setattr(settings, "ml_backend_router_heartbeat_interval_seconds", 3600)
+    monkeypatch.setattr(
+        "app.services.ml_routing.router.make_ledger_from_settings",
+        lambda: _TrackerRoutingLedger(),
+    )
+    _install_tracker_routing_authority(
+        monkeypatch,
+        pool=pool,
+        instance_id=selected.id,
+        project_id=None,
+    )
     snapshot = AsyncMock(side_effect=RoutingUnavailable())
     monkeypatch.setattr(RoutingAuthority, "runtime_snapshot", snapshot)
     with pytest.raises(TrackerExecutionDeferred, match="routing_unavailable"):
         await run_tracker_job(db_session, job_id, publisher=_noop_pub)
     await db_session.refresh(job)
+    # The owner outage is retryable: no canonical failure is written and no
+    # dispatch happens without the pinned runtime identity.
     assert job.status == "running" and job.error_message is None
     snapshot.assert_awaited_once()
 
