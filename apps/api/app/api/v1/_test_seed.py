@@ -3644,8 +3644,13 @@ def _make_test_raster_mask(
     elif variant == "smart_scribble_source":
         return list(_make_smart_scribble_mask(width, height))
     else:
-        # 损坏 fixture 使用独立形状，并故意不存对象。
+        # 损坏 fixture 必须拥有独有内容：保留标记矩形，并在首行写入 64 位随机
+        # 位图，使每次注入的 RLE 摘要唯一。这样它建立的是自己的存储归属，随后
+        # 删除物理对象只影响本夹具，绝不会波及共享或未知的同内容行。
         _rect(6, 30, 18, 42)
+        for offset, byte in enumerate(secrets.token_bytes(8)):
+            for bit in range(8):
+                pixels[offset * 8 + bit] = (byte >> bit) & 1
     return pixels
 
 
@@ -3667,6 +3672,41 @@ def _make_sparse_test_rle(width: int, height: int) -> dict:
         "size": [height, width],
         "counts": counts,
     }
+
+
+async def _delete_owned_raster_mask_object(db, reference) -> None:
+    """Remove the physical bytes this fixture just published for itself.
+
+    The ready owner row is left untouched, so the annotation still points at a
+    pinned saved object; only its bytes are gone. Every corrupt fixture writes
+    unique content, therefore this deletes exactly one object it owns and never
+    an object shared with healthy rows.
+    """
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.db.models.raster_mask_object import RasterMaskObject
+    from app.services import raster_object_storage as physical, storage_access
+    from app.services.storage import storage_service
+
+    async with AsyncSession(
+        bind=storage_access.engine(db), expire_on_commit=False
+    ) as owned:
+        try:
+            row = await owned.scalar(
+                select(RasterMaskObject).where(
+                    RasterMaskObject.logical_key == reference["object_key"],
+                    RasterMaskObject.state == "ready",
+                )
+            )
+            if row is None:
+                raise HTTPException(
+                    status_code=409, detail="corrupt fixture owner missing"
+                )
+            receipt = physical.snapshot(row)
+        finally:
+            await owned.rollback()
+    physical.delete(storage_service.client, receipt)
 
 
 @router.post(
@@ -3692,8 +3732,6 @@ async def seed_inject_raster_mask(
     from app.db.models.task import Task
     from app.db.models.user import User
     from app.services.raster_mask_storage import (
-        build_rle_reference,
-        rle_object_key,
         store_coco_rle,
         lock_raster_mask_references,
     )
@@ -3737,13 +3775,11 @@ async def seed_inject_raster_mask(
         item.width = width
         item.height = height
     if payload.variant == "corrupt":
-        reference = build_rle_reference(rle)
-        missing_digest = secrets.token_hex(32)
-        reference = {
-            **reference,
-            "sha256": missing_digest,
-            "object_key": rle_object_key(missing_digest),
-        }
+        # Store the fixture's own content, then remove exactly the saved object.
+        # The owner row stays pinned and ready, so readers diagnose genuine
+        # missing masks content instead of an unknown/unpinned reference.
+        reference = await store_coco_rle(rle, db=db)
+        await _delete_owned_raster_mask_object(db, reference)
     else:
         reference = await store_coco_rle(rle, db=db)
 

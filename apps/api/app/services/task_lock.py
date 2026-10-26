@@ -52,16 +52,23 @@ class TaskLockService:
         self.db = db
 
     async def _lock_task_scope(
-        self, task_id: uuid.UUID, *, nowait: bool = False
+        self,
+        task_id: uuid.UUID,
+        *,
+        nowait: bool = False,
+        shared: bool = False,
     ) -> None:
-        """Serialize lock-table decisions with annotation writes for one task."""
+        """Serialize lock-table decisions with annotation writes for one task.
 
+        ``shared`` takes the read form of the same scope: concurrent readers
+        coexist, while a writer's exclusive form still excludes them.
+        """
+
+        function = (
+            "pg_try_advisory_xact_lock" if nowait else "pg_advisory_xact_lock"
+        ) + ("_shared" if shared else "")
         result = await self.db.execute(
-            text(
-                "SELECT pg_try_advisory_xact_lock(hashtextextended(:key, 0))"
-                if nowait
-                else "SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"
-            ),
+            text(f"SELECT {function}(hashtextextended(:key, 0))"),
             {"key": f"aap:task-edit-lock:{task_id}"},
         )
         if nowait and not result.scalar():
