@@ -177,7 +177,7 @@ async def test_filtering_cli_preserves_guards_seed_and_resume_with_private_users
             counts = (
                 await db.execute(
                     text(
-                        "SELECT (SELECT count(*) FROM aap_identity_v1.account_profiles), (SELECT count(*) FROM aap_workspace_v1.project_facts), (SELECT count(*) FROM tasks)"
+                        "SELECT (SELECT count(*) FROM aap_identity_v1.account_profiles), (SELECT count(*) FROM aap_workspace_v1.project_facts), (SELECT count(*) FROM aap_labeling_v1.task_rows)"
                     )
                 )
             ).one()
@@ -198,7 +198,7 @@ async def test_filtering_cli_preserves_guards_seed_and_resume_with_private_users
             assert (
                 await db.execute(
                     text(
-                        "SELECT (SELECT count(*) FROM aap_identity_v1.account_profiles), (SELECT count(*) FROM aap_workspace_v1.project_facts), (SELECT count(*) FROM tasks)"
+                        "SELECT (SELECT count(*) FROM aap_identity_v1.account_profiles), (SELECT count(*) FROM aap_workspace_v1.project_facts), (SELECT count(*) FROM aap_labeling_v1.task_rows)"
                     )
                 )
             ).one() == counts

@@ -168,9 +168,7 @@ async def _temporary_runtime_role(test_engine, historical, monkeypatch):
         async with historical.begin() as db:
             await db.execute(text("GRANT USAGE ON SCHEMA public TO legacy_runtime"))
             await db.execute(
-                text(
-                    "GRANT SELECT ON TABLE public.alembic_version TO legacy_runtime"
-                )
+                text("GRANT SELECT ON TABLE public.alembic_version TO legacy_runtime")
             )
 
         historical_runtime_url = runtime_url.set(database=database_name)
@@ -670,8 +668,7 @@ async def test_installed_role_audit_uses_owned_identity_views_on_real_0171(
                     "labeling_role_audit_missing_profile", missing_labeling.evidence
                 )
                 assert (
-                    missing_labeling.exit_code == 2
-                    and not missing_labeling.timed_out
+                    missing_labeling.exit_code == 2 and not missing_labeling.timed_out
                 )
                 assert await _source_snapshot(historical) == before
                 _grants(

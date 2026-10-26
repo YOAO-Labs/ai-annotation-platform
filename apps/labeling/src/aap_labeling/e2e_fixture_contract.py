@@ -423,24 +423,17 @@ def decode_fixture_write_reply(
                 request.operation == "patch_feedback_anchor"
                 and reply.data.anchor_position is None
             )
-            or (
-                request.operation != "patch_feedback_anchor"
-                and reply.data.ids is None
-            )
+            or (request.operation != "patch_feedback_anchor" and reply.data.ids is None)
             or (
                 rendering
                 and (
                     reply.data.rendered_predictions is None
                     or reply.data.ids != expected_rendering_ids
-                    or [
-                        row.id for row in reply.data.rendered_predictions
-                    ]
+                    or [row.id for row in reply.data.rendered_predictions]
                     != expected_rendering_ids
                 )
             )
-            or (
-                not rendering and reply.data.rendered_predictions is not None
-            )
+            or (not rendering and reply.data.rendered_predictions is not None)
         ):
             raise ValueError("Labeling E2E fixture reply does not match its request")
         expected_count = (

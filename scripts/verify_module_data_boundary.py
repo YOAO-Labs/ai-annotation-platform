@@ -89,6 +89,7 @@ NOTIFICATION_INBOX_PRIVATE_HELPER = (
 )
 FUNCTION_BODY_ARTIFACTS = {
     "aap_labeling_v1.e2e_fixture_command(jsonb)": "0362_labeling_e2e_fixture_writes.sql",
+    "aap_labeling_v1.prepare_filtering_rendering(jsonb)": "0367_labeling_filtering_rendering.sql",
     "aap_labeling_v1.screenshot_operations_command(jsonb)": "0363_labeling_screenshot_operations.sql",
     "aap_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[])": "0364_labeling_scale_seed_operations.sql",
     "aap_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid)": "0364_labeling_scale_seed_operations.sql",
@@ -981,9 +982,11 @@ SQL_ARTIFACTS = (
     "0363_labeling_screenshot_operations.sql",
     "0364_labeling_scale_seed_operations.sql",
     "0366_audit_fixture_cleanup.sql",
+    "0367_labeling_filtering_rendering.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0362_labeling_e2e_fixture_writes.schema.json",
+    "0367_labeling_filtering_rendering.schema.json",
     "0363_labeling_screenshot_operations.schema.json",
     "0364_labeling_scale_seed_operations.schema.json",
     "0360_labeling_video_segment_lifecycle.schema.json",
@@ -5264,8 +5267,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0366"]:
-            raise RuntimeError("module-data acceptance requires migration head 0366")
+        if heads != ["0367"]:
+            raise RuntimeError("module-data acceptance requires migration head 0367")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         relation_sql_hashes = _read_relation_sql_input_sha256()
         evidence["migrations"]["read_relation_sql_input_sha256"] = relation_sql_hashes

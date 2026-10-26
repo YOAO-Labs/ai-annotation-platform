@@ -274,7 +274,9 @@ async def test_filtering_rendering_is_scoped_atomic_and_caller_transactional(
                 )
                 project_ids = [project.id, foreign_project.id]
                 task = await create_task(
-                    db, project_id=project.id, display_id=f"T-E2E-{uuid.uuid4().hex[:10]}"
+                    db,
+                    project_id=project.id,
+                    display_id=f"T-E2E-{uuid.uuid4().hex[:10]}",
                 )
                 task.file_type = "video"
                 foreign_task = await create_task(
@@ -388,11 +390,11 @@ async def test_filtering_rendering_is_scoped_atomic_and_caller_transactional(
                     assert partial_failure.value.orig.sqlstate == "22023"
                 finally:
                     await savepoint.rollback()
-                assert await _prediction_results(owner, prediction_ids) == initial_results
+                assert (
+                    await _prediction_results(owner, prediction_ids) == initial_results
+                )
 
-                candidate_ids = [
-                    predictions[key].id for key in ("low", "at", "above")
-                ]
+                candidate_ids = [predictions[key].id for key in ("low", "at", "above")]
                 tracked = (
                     await db.scalars(
                         select(prediction_row).where(

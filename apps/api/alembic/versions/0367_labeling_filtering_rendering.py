@@ -16,6 +16,7 @@ _SQL_PATH = (
 )
 
 
+def upgrade() -> None:
     for statement in _SQL_PATH.read_text(encoding="utf-8").split(
         "-- aap-statement-break"
     ):

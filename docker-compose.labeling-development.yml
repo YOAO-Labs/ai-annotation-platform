@@ -1,0 +1,55 @@
+# Combine the existing Labeling class-query, video-writer and Mask Content files.
+services:
+  labeling-class-query:
+    image: ${AAP_LABELING_CLASS_QUERY_IMAGE:?Set the accepted Labeling class-query image}
+    restart: unless-stopped
+  labeling-video-writer:
+    image: ${AAP_LABELING_VIDEO_WRITER_IMAGE:?Set the accepted Labeling video-writer image}
+    environment:
+      ASSETS_MASK_CONTENT_URL: http://assets-mask-content:8770
+    restart: unless-stopped
+  assets-mask-content:
+    image: ${AAP_ASSETS_MASK_CONTENT_IMAGE:?Set the accepted Mask Content image}
+    ports:
+      - "127.0.0.1:8770:8770"
+    pids_limit: 64
+  assets-mask-cleanup:
+    image: ${AAP_ASSETS_MASK_CONTENT_IMAGE:?Set the accepted Mask Content image}
+    pids_limit: 64
+  labeling-mask-gc:
+    image: ${AAP_LABELING_MASK_GC_IMAGE:?Set the accepted Labeling Mask GC image}
+    build:
+      context: .
+      dockerfile: apps/labeling-mask-gc/Dockerfile
+    environment:
+      MASK_GC_DATABASE_URL_FILE: /run/secrets/mask_gc_database_url
+      MASK_GC_TOKEN_FILE: /run/secrets/mask_gc_token
+      MASK_GC_CONTENT_URL: http://assets-mask-cleanup:8770
+      MASK_GC_CONTENT_TOKEN_FILE: /run/secrets/mask_cleanup_token
+      MASK_GC_POLL_ENABLED: "false"
+    secrets:
+      - mask_gc_database_url
+      - mask_gc_token
+      - mask_cleanup_token
+    ports:
+      - "127.0.0.1:8771:8771"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 1
+    restart: unless-stopped
+
+secrets:
+  mask_gc_database_url:
+    file: ${LABELING_RUNTIME_MASK_GC_DATABASE_URL_FILE:?Set the Mask GC function-only DSN file}
+  mask_gc_token:
+    file: ${LABELING_RUNTIME_MASK_GC_CONTROL_TOKEN_FILE:?Set the Mask GC private bearer file}
+
+networks:
+  default:
+    external: true
+    name: ${AAP_LABELING_DEVELOPMENT_NETWORK:?Set the verified primary infrastructure network}

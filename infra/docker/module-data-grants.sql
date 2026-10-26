@@ -2886,6 +2886,8 @@ ALTER FUNCTION aap_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,inte
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.e2e_fixture_command(jsonb)
     OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.prepare_filtering_rendering(jsonb)
+    OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.task_rows OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.batch_rows OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.annotation_rows OWNER TO :"labeling_owner";

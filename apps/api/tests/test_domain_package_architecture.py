@@ -836,6 +836,17 @@ def _iter_workspace_files() -> list[tuple[Path, str]]:
     return files
 
 
+def _iter_labeling_files() -> list[tuple[Path, str]]:
+    files = []
+    for source in (_REPO_ROOT / "apps/labeling/src",):
+        for path in sorted(source.rglob("*.py")):
+            parts = path.relative_to(source).with_suffix("").parts
+            if parts[-1] == "__init__":
+                parts = parts[:-1]
+            files.append((path, ".".join(parts)))
+    return files
+
+
 def _source_context_module(path: Path, module: str) -> str:
     if path.name == "__init__.py":
         return f"{module}.__init__"
@@ -1278,10 +1289,12 @@ def test_scc_detector_finds_two_and_three_node_cycles() -> None:
 
 
 @pytest.mark.parametrize(
-    "files", [_iter_service_files, _iter_workspace_files], ids=["api", "workspace"]
+    "files",
+    [_iter_service_files, _iter_workspace_files, _iter_labeling_files],
+    ids=["api", "workspace", "labeling"],
 )
 def test_services_graph_has_no_cycle(files) -> None:
-    """API services and portable Workspace owners obey the same acyclic contract."""
+    """API services and portable owners obey the same acyclic contract."""
     graph = _import_graph(files())
     offenders = [
         component

@@ -57,6 +57,9 @@ Alembic revision. Labeling 安装器仅为审计投影向其 owner 授予 `tasks
 `annotations`、`task_locks` 所需列的读取；审计 LOGIN 只获固定审计关系的 `SELECT`，不获这些私表的表级
 或列级权限。若目标库之后应用 `0173`，必须再次显式运行 Labeling 安装器刷新 task
 投影，然后再使用审计 CLI；CLI 不安装、登录、迁移或自动刷新任何关系。
+固定 Labeling 字段、类型与原始可空语义见
+`infra/docker/labeling-role-audit.schema.json`；Schema capability 来自物理 catalog，
+不以受限账号能否看见私列判断。三套安装器必须使用同一可信只读审计 LOGIN。
 
 ```bash
 cd apps/api

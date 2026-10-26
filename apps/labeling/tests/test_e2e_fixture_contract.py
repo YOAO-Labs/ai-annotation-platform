@@ -23,7 +23,9 @@ from aap_labeling.e2e_fixture_contract import (
 
 def test_fixture_schema_matches_the_current_contract_and_migration():
     root = Path(__file__).resolve().parents[3]
-    migration = root / "apps/api/alembic/sql/0367_labeling_filtering_rendering.schema.json"
+    migration = (
+        root / "apps/api/alembic/sql/0367_labeling_filtering_rendering.schema.json"
+    )
     resource = files("aap_labeling")
     packaged_schema = json.loads(
         resource.joinpath("e2e-fixtures.schema.json").read_text(encoding="utf-8")

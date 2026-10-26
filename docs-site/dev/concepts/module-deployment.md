@@ -57,7 +57,7 @@ Workspace 已按[本机日常采用](#workspace-daily-adoption)切换普通 API 
 | Workspace：数据集解绑 | 原协调器、可移植合同／管理器及借用事务 PostgreSQL 绑定已实现 | API 通过相同 Session 调用 Workspace；原响应／缓存／提交保持 | [解绑切片](#workspace-数据集解绑事务切片)通过72项不同案例，含受限双函数 LOGIN、Node、实际 HTTP 与当前组合冷恢复 | 当前调用、退役门禁、受限凭据与恢复已通过；未知旧作业仍409；通用旧库排空／修复适用性与项目删除相同 |
 | Assets：来源、目录、连接及媒体／输入     | 已有 Source、Catalog、Media、Images、accepted inputs 和视频输入能力                                                | 已迁移选定导入、Workbench 和推理输入消费者                                                       | [数据能力协议](/api/guides/module-data)及既有 ADR 保留受限进程／容器证据；[辅助保留](#来源删除的辅助引用)的实际删除与 HTTP 映射通过 11 项定向检查        | 已确认沿用既有辅助引用 409 guard；部分相机／轨迹引用缺少独立解除入口，任务、标注及学习证据保留；一般 Blob、其余输入、运维写入与完整装配仍待收口                                                                                                                                                                                                                  |
 | Labeling：任务、标注、审核、Mask 与视频写入 | 任务／批次生命周期、人工／批量标注、审核计数、预测／轨迹、Mask／点云质检及最终发布均已有固定 owner 能力 | 选定 API／worker 调用已迁移；原授权、UOW、缓存、锁序与 Audit 时点保持；七处标注响应刷新改用公开关系 | [集中原生验收](#labeling-native-cohort-acceptance)与既有操作证据保留；四项刷新过期状态／缺失行检查通过 | 创建标注的限权冷 API、幂等重放与重启读取已通过；全部运维边界仍待闭合 |
-| Labeling：核心读取、讨论、场景与分区维护 | 十二项核心读取关系、有序锁、讨论／场景能力及预测分区 owner 已实现；0365 将效率 MV 改接已有 TaskEvent 公开事实 | API、导出、视频、工作流、兼容学习读取及选定维护调用已迁移；效率 MV 保留聚合、索引、所有者和有效显式授权 | [核心读取与维护](#labeling-current-candidate-acceptance)的既有受限读锁／分区证据保留；效率 MV 普通角色实际刷新与 0365 完整恢复已通过限定验收 | 本轮只修复撤销私表权限暴露出的 MV 依赖，不扩大 Insights 或暂缓领域 |
+| Labeling：核心读取、讨论、场景与分区维护 | 十三项核心读取关系、七项固定行锁、讨论／场景能力及预测分区 owner 已实现；0365 将效率 MV 改接已有 TaskEvent 公开事实 | API、导出、视频、工作流、兼容学习读取及选定维护调用已迁移；效率 MV 保留聚合、索引、所有者和有效显式授权 | [核心读取与维护](#labeling-current-candidate-acceptance)的既有受限读锁／分区证据保留；效率 MV 普通角色实际刷新与完整恢复已通过限定验收 | 不扩大 Insights 或暂缓领域；本阶段运维／当前工件资格按下行更新 |
 | Labeling：普通凭据与运维兼容 | LAN／worktree 共用固定 ACL，撤销 49 张私表及分区、列、序列和宽默认授权；E2E／截图／规模种子使用固定 owner 能力 | 兼容读取与锁、批次编号及选定种子／截图调用已迁移，原事务和作用域守卫保持 | [普通权限与兼容调用](#labeling-private-runtime-acl)：原有 56 项 Native 通过证据保留；原 Audit 筛选失败已通过本阶段真实 HTTP 复验，另补共享清理和维护凭据／守卫证据；不是当前头全套重跑 | 未暂缓的已知生产／运维调用已收口；Assets reset 手动维护仍暂缓，完整模块资格和独立拓扑采用待完成 |
 | Labeling：完整模块工件与恢复 | 独立包、writer 及 API 消费者工件已有源码证明；视频中间状态和最终发布 owner 已接入 | 当前普通角色冷 API 与真实 worker 使用既有公开能力及限定凭据 | [当前工件与恢复](#labeling-private-runtime-acl)：独立包 120 项、工件离线检查、两个真实 worker 用例、冷 API、完整恢复和普通角色 MV 刷新分批通过 | 限定工件与恢复门槛已有通过证据；Assets reset 手动维护仍暂缓，全部运维边界与整模块审计与独立拓扑采用待完成；主环境运行资格未更新 |
 | Jobs／Labeling：旧视频输入保留 | 0312 的窄 Jobs 事实与 Labeling 保留投影已实现；0313 补齐历史垃圾领取围栏 | tracker sweep 和 video garbage claim 使用当前保留事实；pin、审核宽限期及已证明替代的前缀清理保留 | [输入保留](#tracker-input-retention)：0312的23项与0313的10项定向案例及完整迁移往返通过；进程内取消单测单列 | 新领取路径的本地资格完成；已领租约仍须真实停机／凭据围栏；历史 expired／已删对象修复和无账本退役 operator 未实现，适用旧库时单列代码项；[当前组合工件](#coherent-module-artifact)已验收，日常拓扑未采用 |
@@ -3144,3 +3144,16 @@ Labeling 状态的整库备份恢复也通过。普通运行角色实际刷新�
 只补冷 API 日志的失败、迁移参数和旧验收 head 的两次准备阶段失败，以及旧宽权限
 断言失败；不改写原始状态。迁移参数问题已先在独占 PostgreSQL 中以最小 SQL 复现
 并验证 text 转换。当前代码、限定运行资格与主工作树采用分别记录；未切换日常拓扑。
+
+## Labeling 非暂缓运维边界 {#labeling-operational-boundary}
+
+本次源码盘点补齐两个真实遗漏，不新增普通业务服务：历史角色审计通过五项固定
+`aap_labeling_audit_v1` 投影和物理 schema capability 读取 Task／Batch／Annotation／Lock；
+手动 filtering CLI 通过测试库限定的 `prepare_filtering_rendering(jsonb)` 更新三条固定
+候选，保留 seed 之后的独立提交、原 confidence 与帧 0／0／10 几何。普通自动 seed 不变。
+两项边界均无通用编辑、私表回退或新的业务授权。审计安装器不迁移历史库，不补造未知证据。
+
+源码与调用迁移已完成，受影响的集中原生／CLI、当前安装工件及本机适用采用正在验收；
+此实现说明不提前提升下表的运行资格。既有成功 worker／恢复证据按原源码和作用域保留，
+不会因新夹具函数重复执行未受影响的视频执行场景。Assets reset、训练／Learning
+仍暂缓，不以抽检或本机空库冒充其他部署的历史退役授权。

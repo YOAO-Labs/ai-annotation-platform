@@ -1,0 +1,690 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-labeling-role-audit/v1",
+  "$defs": {
+    "LabelingRoleAuditTask": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 30
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "assignee_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reviewer_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "review_round_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reviewer_claimed_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reviewed_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "first_reviewed_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "first_review_result": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 16
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "annotation_contributor_ids": {},
+        "review_contributor_ids": {},
+        "review_submitter_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "project_id",
+        "status",
+        "assignee_id",
+        "reviewer_id",
+        "batch_id",
+        "review_round_id",
+        "reviewer_claimed_at",
+        "reviewed_at",
+        "first_reviewed_at",
+        "first_review_result",
+        "annotation_contributor_ids",
+        "review_contributor_ids",
+        "review_submitter_id"
+      ],
+      "title": "LabelingRoleAuditTask",
+      "description": "One row per Task, without filtering or normalization. Optional preparation columns are NULL before they exist; reinstall the explicit profile after an additive preparation migration."
+    },
+    "LabelingRoleAuditBatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "annotator_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reviewer_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["id", "annotator_id", "reviewer_id"],
+      "title": "LabelingRoleAuditBatch",
+      "description": "One row per TaskBatch, preserving raw nullable assignment facts."
+    },
+    "LabelingRoleAuditAnnotation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 20
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "user_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "is_active": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "was_cancelled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["source", "user_id", "is_active", "was_cancelled"],
+      "title": "LabelingRoleAuditAnnotation",
+      "description": "One row per Annotation, including inactive or cancelled rows and raw unknown source values."
+    },
+    "LabelingRoleAuditLock": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "expire_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["expire_at"],
+      "title": "LabelingRoleAuditLock",
+      "description": "One row per TaskLock, preserving expiry for reconciliation in the caller snapshot."
+    },
+    "LabelingRoleAuditSchemaCapabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "task_annotation_contributor_ids": {
+          "type": "boolean"
+        },
+        "task_review_contributor_ids": {
+          "type": "boolean"
+        },
+        "task_review_submitter_id": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "task_annotation_contributor_ids",
+        "task_review_contributor_ids",
+        "task_review_submitter_id"
+      ],
+      "title": "LabelingRoleAuditSchemaCapabilities",
+      "description": "Exactly one row reports physical optional Task column presence from pg_catalog, independent of consumer private-column privileges."
+    }
+  },
+  "title": "Labeling project-role audit relation rows",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/LabelingRoleAuditTask"
+    },
+    {
+      "$ref": "#/$defs/LabelingRoleAuditBatch"
+    },
+    {
+      "$ref": "#/$defs/LabelingRoleAuditAnnotation"
+    },
+    {
+      "$ref": "#/$defs/LabelingRoleAuditLock"
+    },
+    {
+      "$ref": "#/$defs/LabelingRoleAuditSchemaCapabilities"
+    }
+  ],
+  "x-postgres-read-relations": {
+    "protocol": "aap-labeling-role-audit/v1",
+    "relations": [
+      {
+        "name": "task_facts",
+        "qualified_name": "aap_labeling_audit_v1.task_facts",
+        "kind": "security_barrier_view",
+        "columns": [
+          {
+            "name": "id",
+            "postgres_type": "uuid",
+            "nullable": false,
+            "json_schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "project_id",
+            "postgres_type": "uuid",
+            "nullable": true,
+            "json_schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "name": "status",
+            "postgres_type": "character varying(30)",
+            "nullable": true,
+            "json_schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 30
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "name": "assignee_id",
+            "postgres_type": "uuid",
+            "nullable": true,
+            "json_schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "name": "reviewer_id",
+            "postgres_type": "uuid",
+            "nullable": true,
+            "json_schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "name": "batch_id",
+            "postgres_type": "uuid",
+            "nullable": true,
+            "json_schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "name": "review_round_id",
+            "postgres_type": "uuid",
+            "nullable": true,
+            "json_schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "name": "reviewer_claimed_at",
+            "postgres_type": "timestamp with time zone",
+            "nullable": true,
+            "json_schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "name": "reviewed_at",
+            "postgres_type": "timestamp with time zone",
+            "nullable": true,
+            "json_schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "name": "first_reviewed_at",
+            "postgres_type": "timestamp with time zone",
+            "nullable": true,
+            "json_schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "name": "first_review_result",
+            "postgres_type": "character varying(16)",
+            "nullable": true,
+            "json_schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 16
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "name": "annotation_contributor_ids",
+            "postgres_type": "jsonb",
+            "nullable": true,
+            "json_schema": {}
+          },
+          {
+            "name": "review_contributor_ids",
+            "postgres_type": "jsonb",
+            "nullable": true,
+            "json_schema": {}
+          },
+          {
+            "name": "review_submitter_id",
+            "postgres_type": "uuid",
+            "nullable": true,
+            "json_schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        ],
+        "semantics": "One row per Task, without filtering or normalization. Optional preparation columns are NULL before they exist; reinstall the explicit profile after an additive preparation migration."
+      },
+      {
+        "name": "task_batch_facts",
+        "qualified_name": "aap_labeling_audit_v1.task_batch_facts",
+        "kind": "security_barrier_view",
+        "columns": [
+          {
+            "name": "id",
+            "postgres_type": "uuid",
+            "nullable": false,
+            "json_schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "annotator_id",
+            "postgres_type": "uuid",
+            "nullable": true,
+            "json_schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "name": "reviewer_id",
+            "postgres_type": "uuid",
+            "nullable": true,
+            "json_schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        ],
+        "semantics": "One row per TaskBatch, preserving raw nullable assignment facts."
+      },
+      {
+        "name": "annotation_facts",
+        "qualified_name": "aap_labeling_audit_v1.annotation_facts",
+        "kind": "security_barrier_view",
+        "columns": [
+          {
+            "name": "source",
+            "postgres_type": "character varying(20)",
+            "nullable": true,
+            "json_schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 20
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "name": "user_id",
+            "postgres_type": "uuid",
+            "nullable": true,
+            "json_schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "name": "is_active",
+            "postgres_type": "boolean",
+            "nullable": true,
+            "json_schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "name": "was_cancelled",
+            "postgres_type": "boolean",
+            "nullable": true,
+            "json_schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        ],
+        "semantics": "One row per Annotation, including inactive or cancelled rows and raw unknown source values."
+      },
+      {
+        "name": "task_lock_facts",
+        "qualified_name": "aap_labeling_audit_v1.task_lock_facts",
+        "kind": "security_barrier_view",
+        "columns": [
+          {
+            "name": "expire_at",
+            "postgres_type": "timestamp with time zone",
+            "nullable": true,
+            "json_schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        ],
+        "semantics": "One row per TaskLock, preserving expiry for reconciliation in the caller snapshot."
+      },
+      {
+        "name": "schema_capabilities",
+        "qualified_name": "aap_labeling_audit_v1.schema_capabilities",
+        "kind": "security_barrier_view",
+        "columns": [
+          {
+            "name": "task_annotation_contributor_ids",
+            "postgres_type": "boolean",
+            "nullable": false,
+            "json_schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "task_review_contributor_ids",
+            "postgres_type": "boolean",
+            "nullable": false,
+            "json_schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "task_review_submitter_id",
+            "postgres_type": "boolean",
+            "nullable": false,
+            "json_schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "semantics": "Exactly one row reports physical optional Task column presence from pg_catalog, independent of consumer private-column privileges."
+      }
+    ],
+    "authorization_boundary": "Only a trusted historical-audit LOGIN receives SELECT on these five fixed relations; no private source-table or column access. Ordinary Labeling capabilities are unchanged.",
+    "transaction_boundary": "The caller owns the REPEATABLE READ READ ONLY snapshot and final rollback. These views do not write, lock business rows, authorize rows or advance Alembic."
+  }
+}

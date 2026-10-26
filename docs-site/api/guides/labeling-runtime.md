@@ -9,15 +9,11 @@ last_reviewed: 2026-10-25
 
 公开 `GET /api/v1/projects/{project_id}/class-usage` 保持原路径、响应与管理权限。
 API 先由 Workspace 核验当前项目管理权，再调用 Labeling 读取统计。
-这里只描述内部提供方配置；完整 Labeling 模块仍在迁移。
-
-视频人工控制、导入／转换、多相机、Mask 质检／修复、点云／视频质检和无来源任务
-维护已接入固定 Native 能力；通用读取使用十二项公开关系与五项固定行锁。普通 API／worker
-继续持有原业务事务与提交权，专用账号 profile 和验收选择器见 `DEV.md`。
-章节读取经过 Assets Media 的五列公开投影，质检账号只得到命令执行权。
-视频 worker 中间状态及 AI 路由溯源的 Inference 读取已接入固定能力；其余 API／看板、
-查询聚合和共享工作流读取仍在迁移。这些源码边界不代表完整模块独立运行
-或备份恢复已完成，详细状态见[唯一台账](/dev/concepts/module-deployment)。
+当前未暂缓操作使用便携 Labeling 包、固定 Native 能力，以及可选独立类别查询／视频
+最终发布进程。事务型写入继续使用调用方同一连接，不拆成独立 HTTP 提交。
+核心读取包含十三项公开关系与七项固定行锁；章节读取经过 Assets Media 的五列投影。
+实现、实际消费者、限定本地资格与日常采用分别记录在[唯一台账](/dev/concepts/module-deployment)；
+Assets dataset reset 与 Learning 扩展仍暂缓，不据选定子能力宣称全后端完成。
 
 ## 读取与事务
 
@@ -188,11 +184,10 @@ runtime 授权必须匹配；专用可信账号分别由 `infra/docker/labeling-
 可编辑性及锁。运动补偿使用既有几何规则与 Assets 公开位姿能力。四项命令都借用原连接
 和事务，不新增产品部署方式或提交点；命令载荷不是授权凭据。
 
-专用可信账号分别使用 `infra/docker/labeling-prediction-grants.sql`（两个预测函数）、
-`infra/docker/labeling-scene-track-commands-grants.sql` 与
+专用可信账号分别使用 `infra/docker/labeling-prediction-grants.sql`（两项预测写入及一项
+分区维护）、`infra/docker/labeling-scene-track-commands-grants.sql` 与
 `infra/docker/labeling-cross-frame-grants.sql`（各一个函数）。既有账号不扩大执行权，
-原生回归使用验收器创建的独占数据库及角色。生产入口之外的旧测试夹具清理、其他
-Labeling 内容写入与读取仍待迁移，完整模块原生／冷装配／恢复资格继续按唯一台账验收。
+原生回归使用验收器创建的独占数据库及角色；资格与采用范围继续按唯一台账记录。
 
 ## 视频 worker 的最终写入
 
@@ -293,3 +288,27 @@ Task UUID，未增加产品参数。场景读取使用 `scene_read_query`，严�
 三组可信账号分别使用 `infra/docker/labeling-discussion-grants.sql`、
 `labeling-mask-edit-grants.sql`、`labeling-scene-read-grants.sql`。源码及调用接线已集成，
 原生权限、并发、冷安装及恢复仍按完整 Labeling 模块集中验收。
+
+## 历史角色审计与手动验收
+
+`infra/docker/labeling-role-audit-grants.sql` 显式安装五项
+`aap_labeling_audit_v1` 固定只读投影，字段／可空语义见同目录的
+`labeling-role-audit.schema.json`。审计账号不读 Task、Batch、Annotation 或 TaskLock
+私表，也不通过 `information_schema` 猜测被权限隐藏的准备列。安装器支持准备迁移前的
+历史库，不修改业务行或 Alembic revision；新增准备列后需显式重装，CLI 不自动迁移。
+审计仍使用同一 REPEATABLE READ READ ONLY 快照及最终回滚，NULL／未知值不补造为已知。
+
+`scripts/worktree_filtering.py` 在原 seed 提交之后，通过
+`aap_labeling_v1.prepare_filtering_rendering(jsonb)` 更新三条指定视频候选。
+其模型／项目／视频任务范围固定，只能在实际库名以 `_test`／`_e2e` 结尾时执行，
+保留原 confidence 和帧 0／0／10 的几何；自动化筛选 seed 仍只写原指标夹具。
+命令不代替外层提交，也不开放通用预测编辑。
+
+## 本机组合拓扑
+
+`docker-compose.labeling-development.yml` 组合已有 class-query、video-writer 和
+Mask Content Compose 定义。使用不可变合格镜像、各自专用 SQL／S3／bearer 凭据与
+经核实的外部基础设施网络，不重新部署主 PostgreSQL／Redis／MinIO。
+Mask Content 与 cleanup 分用读写和删除身份；Mask GC 进程在该 overlay 中明确
+`MASK_GC_POLL_ENABLED=false`，仅提供手动／预览入口，不因拓扑采用自动开始删除。
+私有配置与实际采用状态见 `DEV.md` 和唯一台账。

@@ -378,9 +378,7 @@ class LabelingE2EFixtureWrites:
             if isinstance(prediction, Prediction):
                 identity = inspect(prediction).identity
                 if identity is not None and identity[0] in rendered:
-                    set_committed_value(
-                        prediction, "result", rendered[identity[0]]
-                    )
+                    set_committed_value(prediction, "result", rendered[identity[0]])
 
 
 def _sqlstate(exc: DBAPIError) -> str | None:

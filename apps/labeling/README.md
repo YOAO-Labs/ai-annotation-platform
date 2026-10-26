@@ -67,9 +67,9 @@ Apply current migrations and `infra/docker/module-data-grants.sql`, then the
 existing LAN/worktree runtime grants. A dedicated trusted caller can use
 `infra/docker/labeling-task-control-grants.sql`; it grants exactly these two
 functions and rejects direct data access, role membership, CREATE and TEMP.
-It does not grant public end users access to the commands. Unmigrated Batch and
-Annotation operations still need their legacy permissions; this capability does
-not close the entire Labeling module.
+It does not grant public end users access to the commands. Full module qualification and
+local adoption are tracked in the module deployment ledger; this profile alone
+is not a deployment claim.
 
 ## Manual Annotation writes
 
@@ -100,9 +100,9 @@ grants together; `infra/docker/labeling-annotation-writes-grants.sql` supplies a
 dedicated trusted caller with exactly these three functions. The existing task
 control credential keeps its two-function profile.
 
-Slice/Mask operations, remaining imports and human video candidate decisions
-remain separate caller migrations. This write group does not close the complete
-Labeling module.
+Slice/Mask operations, imports and human video candidate decisions use their
+own fixed capabilities and caller transactions. Assets dataset reset remains a
+separately held cross-owner workflow.
 
 ## Bulk editing, compact video and batch control
 
@@ -176,7 +176,7 @@ policy uses the standard library and keeps the previous API import paths.
 These four functions use closed JSON contracts and borrow the original
 transaction. Apply matching migrations and owner/runtime grants together. Trusted
 prediction callers use `infra/docker/labeling-prediction-grants.sql` for exactly
-the two prediction functions. SceneTrack and cross-frame callers use
+the two prediction-write functions and the partition-maintenance function. SceneTrack and cross-frame callers use
 `infra/docker/labeling-scene-track-commands-grants.sql` and
 `infra/docker/labeling-cross-frame-grants.sql`, each with one function. The LOGIN
 roles receive no private tables, role membership, CREATE or TEMP. Test-only
@@ -214,14 +214,13 @@ Native, cold and restore qualification remains a complete-module acceptance gate
 
 ## Video control, transfer, core reads and quality
 
-`video_control_command` owns human candidate, keyframe and worker state control;
-complete consumer permissions and recovery remain unqualified.
+`video_control_command` owns human candidate, keyframe and worker state control.
 `annotation_transfer_command` owns the
 existing import, conversion, camera editing and Mask format-import ledger.
 `task_maintenance_command` owns source-less Task cleanup and derived counters.
 All borrow the original caller transaction and preserve its commit boundary.
 
-Twelve public core-row views retain native column types. Five fixed row-lock
+Thirteen public core-row views retain native column types. Seven fixed row-lock
 functions return their explicit published column order and preserve the selected
 lock mode. The core-read LOGIN receives only these views and lock functions.
 
@@ -249,8 +248,8 @@ and the outer commit. Existing draft service methods remain internal; no draft
 product flow is added.
 
 `infra/docker/labeling-annotation-maintenance-grants.sql` gives a trusted caller
-exactly this one function, without private-table, CREATE or TEMP access. Native
-permission/concurrency and recovery qualification remain pending for the module.
+exactly this one function, without private-table, CREATE or TEMP access. Module
+qualification and local adoption are recorded separately in the deployment ledger.
 
 ## Video worker finalization
 
@@ -295,7 +294,30 @@ Mask credentials. The HTTP client uses the separate `LABELING_VIDEO_WRITER_URL`,
 `LABELING_VIDEO_WRITER_CONTROL_TOKEN(_FILE)` and
 `LABELING_VIDEO_WRITER_TIMEOUT_SECONDS` settings.
 
-This slice does not move human accept/decide/discard or intermediate start and
-progress writes out of the API. Local owned-resource tests cover crash-cancellation recovery, all three actual
-consumer bindings, Mask content and an HTTP process restart. Installed artifacts,
-backups, images and capacity remain separate qualification gates. See [ADR-0159](../../docs/adr/0159-independent-labeling-video-writer.md).
+Human accept/decide/discard and intermediate start/progress use separate fixed
+Native capabilities in their original caller transaction. Consumer, Mask,
+crash-cancellation, installed-artifact, restore and bounded-load evidence is
+tracked with its exact source and scope in the module deployment ledger. See
+[ADR-0159](../../docs/adr/0159-independent-labeling-video-writer.md).
+
+## Operational consumers
+
+`infra/docker/labeling-role-audit-grants.sql` explicitly installs the five fixed
+`aap_labeling_audit_v1` read projections for the historical project-role audit.
+Its sibling `labeling-role-audit.schema.json` publishes column types and raw
+nullable semantics. It supports the pre-preparation schema without advancing
+Alembic; rerun it after adding preparation columns. The audit LOGIN has no direct
+Task, Batch, Annotation or TaskLock privileges and retains its read-only snapshot.
+
+Manual filtering preparation uses the test-database-only
+`prepare_filtering_rendering(jsonb)` command. It changes only the three expected
+video fixture candidates, preserves their confidence and supplies the fixed
+frame 0/0/10 geometry. Automatic metric-only seeds are unchanged. The caller
+retains the existing separate post-seed commit and synchronizes loaded rows from
+the owner reply; there is no generic prediction editor or production grant.
+
+For daily local topology, combine the existing class-query, video-writer and Mask
+Content Compose files with `docker-compose.labeling-development.yml`. Select
+immutable qualified images, scoped credentials and the verified external
+infrastructure network. The Mask GC process is manual-only in this overlay;
+automatic collection requires a separate explicit operational decision.

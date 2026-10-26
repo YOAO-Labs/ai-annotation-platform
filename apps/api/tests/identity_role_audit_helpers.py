@@ -156,11 +156,7 @@ async def audit_reader(test_engine, *, cli_role=False):
                 )
             )
             await db.execute(text(f"GRANT USAGE ON SCHEMA public TO {role}"))
-            await db.execute(
-                text(
-                    f"GRANT SELECT ON public.alembic_version TO {role}"
-                )
-            )
+            await db.execute(text(f"GRANT SELECT ON public.alembic_version TO {role}"))
             # Prove the owner profile removes existing table and column grants.
             await db.execute(text(f"GRANT SELECT ON public.users TO {role}"))
             await db.execute(text(f"GRANT SELECT (id,role) ON public.users TO {role}"))

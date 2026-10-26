@@ -168,13 +168,9 @@ async def prepare_filtering(resources: dict, manifest_path: Path) -> dict:
                 # memberships/counts. The automatic tests keep their metric-only data.
                 await LabelingE2EFixtureWrites(db).prepare_filtering_rendering(
                     project_id=UUID(manifest.video.project_id),
-                    low_prediction_id=UUID(
-                        manifest.video.candidate_ids["low"]
-                    ),
+                    low_prediction_id=UUID(manifest.video.candidate_ids["low"]),
                     at_prediction_id=UUID(manifest.video.candidate_ids["at"]),
-                    above_prediction_id=UUID(
-                        manifest.video.candidate_ids["above"]
-                    ),
+                    above_prediction_id=UUID(manifest.video.candidate_ids["above"]),
                 )
                 await db.commit()
                 print("[dev:worktree] 已创建筛选验收数据", flush=True)

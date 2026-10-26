@@ -396,6 +396,38 @@ code owner。复用`infra/docker/module-data-grants.sql`头部的完整owner／c
 不自动还原或删除日常数据库，不强制删除有依赖的角色。当前证据与边界见
 [本机日常采用](docs-site/dev/concepts/module-deployment.md#workspace-daily-adoption)。
 
+### Labeling 本机组合运行
+
+Labeling 的本机组合使用单独项目 `aap-labeling-development`：将
+`docker-compose.labeling-class-query.yml`、`docker-compose.labeling-video-writer.yml`、
+`docker-compose.assets-mask-content.yml` 与 `docker-compose.labeling-development.yml`
+组合，不叠加主基础设施 Compose。
+
+私有 `~/.local/state/ai-annotation-platform/labeling-development/compose.env`
+保存 `COMPOSE_FILE`／项目名、`AAP_LABELING_DEVELOPMENT_NETWORK`、四项不可变镜像选择
+（`AAP_LABELING_CLASS_QUERY_IMAGE`、`AAP_LABELING_VIDEO_WRITER_IMAGE`、
+`AAP_ASSETS_MASK_CONTENT_IMAGE`、`AAP_LABELING_MASK_GC_IMAGE`）及各宿主 secret 文件选择器。
+文件权限、外部私网、普通 UID、只读根和备份约定与上节相同；不用共享根 `.env` 保存这些凭据。
+
+先备份并应用当前迁移、module-data／LAN 授权，再分别安装
+`labeling-class-query-grants.sql`（三函数）、`labeling-video-writer-grants.sql`
+（单函数）与既有 `labeling-mask-gc-data-grants.sql`（六函数）。
+历史角色审计另用受限只读 LOGIN，按 Identity → Workspace → Labeling 安装三份
+`*-role-audit-grants.sql`；不要把审计投影或私表权限交给普通 API。
+
+```bash
+docker compose --env-file "$HOME/.local/state/ai-annotation-platform/labeling-development/compose.env" up -d --no-build --wait
+docker compose --env-file "$HOME/.local/state/ai-annotation-platform/labeling-development/compose.env" ps
+```
+
+API 继续复用 Workspace 私有 `api.env` 与既有 LaunchAgent，显式选择 localhost 的
+类别查询、视频最终发布、Mask Content 和 Mask GC 地址；事务型能力仍走原业务连接。
+Mask cleanup 不公开宿主端口。内容和清理 S3 身份分离，策略由
+`scripts/mask_content_s3_policy.py` 生成，只覆盖固定桶的内容／回收 journal 前缀。
+该 overlay 明确关闭自动 GC 轮询；采用只启用手动／预览入口，不授权自动删除。
+只读审计和负面权限检查可在空日常库执行，真实标注／候选写入验证必须使用独占测试库。
+实际执行结果及未覆盖范围以[模块台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)为准。
+
 ### 独立素材探测服务
 
 `apps/media-probe` 提供视频元数据、完整帧时间表和分块 packet 样本的独立 HTTP

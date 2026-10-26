@@ -341,6 +341,8 @@ REVOKE ALL ON FUNCTION aap_labeling_v1.delete_fixture_project_rows(uuid[])
     FROM :"application_role", PUBLIC;
 REVOKE ALL ON FUNCTION aap_labeling_v1.e2e_fixture_command(jsonb)
     FROM :"application_role", PUBLIC;
+REVOKE ALL ON FUNCTION aap_labeling_v1.prepare_filtering_rendering(jsonb)
+    FROM :"application_role", PUBLIC;
 REVOKE ALL ON FUNCTION aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid)
     FROM :"application_role", PUBLIC;
 SELECT right(lower(current_database()),5)='_test' OR right(lower(current_database()),4)='_e2e'
@@ -353,6 +355,8 @@ GRANT EXECUTE ON FUNCTION aap_jobs_v1.delete_fixture_project_jobs(uuid[])
 GRANT EXECUTE ON FUNCTION aap_labeling_v1.delete_fixture_project_rows(uuid[])
     TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_labeling_v1.e2e_fixture_command(jsonb)
+    TO :"application_role";
+GRANT EXECUTE ON FUNCTION aap_labeling_v1.prepare_filtering_rendering(jsonb)
     TO :"application_role";
 GRANT USAGE ON SCHEMA aap_workspace_fixture_v1 TO :"application_role";
 GRANT SELECT ON aap_workspace_fixture_v1.templates TO :"application_role";
