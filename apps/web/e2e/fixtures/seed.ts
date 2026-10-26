@@ -617,10 +617,12 @@ export class SeedAPI {
   }
 
   /** Build the filtering fixture inside this test's own owned namespace. */
-  async filtering(namespace?: string): Promise<FilteringSeedManifest> {
-    const token = this.ownedNamespace(namespace);
+  async filtering(
+    options: { namespace?: string; videoReady?: boolean } = {},
+  ): Promise<FilteringSeedManifest> {
+    const token = this.ownedNamespace(options.namespace);
     const res = await this.request.post(`${API_BASE}/api/v1/__test/seed/filtering`, {
-      data: { namespace: token },
+      data: { namespace: token, video_ready: options.videoReady === true },
       timeout: 120_000,
     });
     if (!res.ok()) {

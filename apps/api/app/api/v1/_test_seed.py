@@ -2110,6 +2110,10 @@ async def seed_project_roles(
     )
 
 
+class SeedFilteringRequest(SeedOwnedRequest):
+    video_ready: bool = False
+
+
 @router.post(
     "/seed/filtering",
     response_model=FilteringSeedManifest,
@@ -2118,7 +2122,7 @@ async def seed_project_roles(
 )
 async def seed_filtering(
     request: Request,
-    payload: SeedOwnedRequest | None = None,
+    payload: SeedFilteringRequest | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> FilteringSeedManifest:
     """Build the deterministic filtering acceptance fixture.
@@ -2129,16 +2133,17 @@ async def seed_filtering(
     exception for callers that have not migrated yet.
     """
     namespace = payload.namespace if payload is not None else None
+    video_ready = payload.video_ready if payload is not None else False
     if namespace is None:
         await seed_reset(request, db)
-        return await build_filtering_seed(db)
+        return await build_filtering_seed(db, video_ready=video_ready)
     scope = _parse_owned_namespace(namespace)
     await _cleanup_e2e_fixtures(
         db,
         owned=scope,
         registry=getattr(request.app.state, "original_playback_registry", None),
     )
-    return await build_filtering_seed(db, namespace)
+    return await build_filtering_seed(db, namespace, video_ready=video_ready)
 
 
 class SeedLidar(BaseModel):

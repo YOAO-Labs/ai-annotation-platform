@@ -2,8 +2,11 @@ import type { FilteringSeedManifest, SeedAPI } from "./seed";
 
 export type { FilteringSeedManifest } from "./seed";
 
-export async function resetFiltering(seed: SeedAPI): Promise<FilteringSeedManifest> {
-  return seed.filtering();
+export async function resetFiltering(
+  seed: SeedAPI,
+  options: { videoReady?: boolean } = {},
+): Promise<FilteringSeedManifest> {
+  return seed.filtering(options);
 }
 
 export interface FilteringSeedSession {

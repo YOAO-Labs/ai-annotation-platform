@@ -798,12 +798,72 @@ async def _seed_image_semantics(
     )
 
 
+async def _materialize_filtering_video(db: AsyncSession, item_ids: list[UUID]) -> None:
+    """Complete real derivative owners for filtering videos inside the API process.
+
+    The E2E deployment runs the API without a celery worker. Lazily requested
+    manifests would therefore stay in ``video_metadata_preparing`` forever. Each
+    output is built by the same worker entry point a broker delivery would use,
+    and the fixture fails loudly when an output did not become ready.
+    """
+    from fastapi import HTTPException
+
+    from app.config import settings
+    from app.db.models.dataset import DatasetItem
+    from app.db.models.video_derivative import VideoDerivativeOutput
+    from app.services import video_derivative_originals as originals
+    from app.services import video_derivatives as derivatives
+    from app.workers import media_derivatives as worker
+
+    async def require_ready(identifier: UUID) -> None:
+        output = await db.get(VideoDerivativeOutput, identifier, populate_existing=True)
+        if output is None or output.state != "ready":
+            code = output.error_code if output is not None else "missing"
+            raise HTTPException(
+                500,
+                detail=f"filtering video derivative {identifier} not ready: {code}",
+            )
+
+    await db.commit()
+    for item_id in item_ids:
+        source = await originals.pin(db, "dataset_item", item_id)
+        authority = await originals.delegated(
+            db, originals.system_authorization("dataset_item", item_id, source)
+        )
+        metadata, _ = await derivatives.prepare(db, item_id, authority, "metadata")
+        metadata_id = metadata.id
+        await db.commit()
+        await worker.run_outputs([str(metadata_id)])
+        await require_ready(metadata_id)
+        item = await db.get(DatasetItem, item_id, populate_existing=True)
+        source = await originals.pin(db, "dataset_item", item_id)
+        metadata = await derivatives.metadata(db, item, source)
+        info, _ = derivatives.metadata_result(metadata)
+        size = max(1, settings.video_chunk_size_frames)
+        specs = [
+            derivatives.chunk_spec(metadata, chunk_id)
+            for chunk_id in range((info.frame_count + size - 1) // size)
+        ]
+        chunk_ids: list[UUID] = []
+        for spec in specs:
+            output, _ = await derivatives.prepare(
+                db, item_id, authority, "chunk", spec=spec
+            )
+            chunk_ids.append(output.id)
+            await db.commit()
+        await worker.run_outputs([str(identifier) for identifier in chunk_ids])
+        for identifier in chunk_ids:
+            await require_ready(identifier)
+
+
 async def _seed_video_review(
     db: AsyncSession,
     ids: _FilterIds,
     users: dict[str, Any],
     video_key: str,
     video_payload: bytes,
+    *,
+    video_ready: bool = False,
 ) -> FilteringVideoManifest:
     from app.db.models.annotation import Annotation
     from app.db.models.prediction import Prediction
@@ -858,6 +918,7 @@ async def _seed_video_review(
     )
     names = ["detection_only", "tracker_only", "both", "neither"]
     tasks: dict[str, Any] = {}
+    video_item_ids: list[UUID] = []
     for index, name in enumerate(names):
         item = await _create_item(
             db,
@@ -889,7 +950,10 @@ async def _seed_video_review(
             file_type="video",
             sequence_order=index,
         )
+        video_item_ids.append(item.id)
     batch.total_tasks = 4
+    if video_ready:
+        await _materialize_filtering_video(db, video_item_ids)
     # ponytail: metric-only candidate payloads omit render geometry; Workbench coverage
     # imports valid framed shapes through the product API when geometry is required.
     predictions: dict[str, Any] = {}
@@ -1623,7 +1687,10 @@ async def _seed_operations(
 
 
 async def build_filtering_seed(
-    db: AsyncSession, namespace: str | None = None
+    db: AsyncSession,
+    namespace: str | None = None,
+    *,
+    video_ready: bool = False,
 ) -> FilteringSeedManifest:
     """Build all filtering scenarios for the shared fixture or one owned namespace."""
     from app.services.storage import storage_service
@@ -1651,7 +1718,9 @@ async def build_filtering_seed(
         ContentType="video/webm",
     )
     image = await _seed_image_semantics(db, ids, users, image_key, image_svg)
-    video = await _seed_video_review(db, ids, users, video_key, video_payload)
+    video = await _seed_video_review(
+        db, ids, users, video_key, video_payload, video_ready=video_ready
+    )
     paging = await _seed_paging(db, ids, users, image_key, image_svg)
     lidar = await _seed_lidar(db, ids, users, ids.storage_prefix)
     operations = await _seed_operations(db, ids, users)
