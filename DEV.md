@@ -1697,53 +1697,52 @@ Compose 为 1 CPU／768 MiB，
 
 ### Inference 命名流水线
 
-命名流水线默认借用 API 的调用方事务。显式配置
-`INFERENCE_PIPELINES_DATABASE_URL(_FILE)` 可改为独立事务连接，或配置
-`INFERENCE_PIPELINES_URL` 和 `INFERENCE_PIPELINES_TOKEN(_FILE)` 选择独立进程。
-URL 与 DSN 不能同时配置；`INFERENCE_PIPELINES_TIMEOUT_SECONDS` 默认30秒，
-显式配置失败不回退。账号资料投影仍复用 API 现有的 Identity Briefs。
+命名流水线默认借用 API 的调用方事务；配置 `INFERENCE_PIPELINES_URL` 和
+`INFERENCE_PIPELINES_TOKEN(_FILE)` 后选择独立进程。普通 API 不再接受 Inference 私有
+DSN selector。`INFERENCE_PIPELINES_TIMEOUT_SECONDS` 默认30秒，显式提供方失败不回退；
+账号资料投影仍复用 API 现有的 Identity Briefs。
 
 独立进程运行 `uv run --project apps/inference --locked --extra runtime python -m aap_inference`，
 需要 `inference_pipelines_client` 的 `INFERENCE_PIPELINES_DATABASE_URL(_FILE)` 及
 `INFERENCE_CONTROL_TOKEN(_FILE)`。默认监听 `127.0.0.1:8768`，
-`INFERENCE_MAX_CONCURRENCY` 默认8；请求及响应上限均为16 MiB，超限不截断。
+`INFERENCE_MAX_CONCURRENCY` 默认8；保存流水线的 metadata 请求及响应上限为16 MiB，超限不截断。
 先迁移当前 head，再对同一数据库安装 `infra/docker/module-data-grants.sql` 和
 `infra/docker/inference-pipelines-grants.sql`；后者要求显式指定数据库与 owner／client 角色。
 
-`docker-compose.inference.yml` 只发布本机8768，宿主 secret 文件选择器为
-`INFERENCE_RUNTIME_PIPELINES_DATABASE_URL_FILE` 与 `INFERENCE_RUNTIME_CONTROL_TOKEN_FILE`。
-容器使用 UID10008、只读文件系统及1 CPU／256 MiB 预算；这是开发运行配置，
-容量资格须由实际验收记录确认。它不替换日常服务或生产部署。
+`docker-compose.inference.yml` 装配流水线、探测、健康观察、环境同步、路由、模型执行、
+后端控制及 GPU 八项能力，只发布本机8768。`.env.example` 中 `INFERENCE_RUNTIME_*_FILE`
+映射各专用 LOGIN、独立 bearer、Redis 与 GPU 签名文件；私有凭据只挂载给 Inference。
+容器使用 UID10008 与只读文件系统；运行预算不代替容量资格，配置变更也不等于已切换日常或生产。
 合同、事务及故障恢复见 [Inference 运行指南](docs-site/api/guides/inference-runtime.md)。
 
 ### Inference 服务池策略与项目主绑定清理
 
-能力规范化、指纹及 diff 的单一实现位于 `aap_inference.pool_capability`，API 调用方
-直接使用该包。注册实例删除仍由 API 原事务协调；项目主绑定清理改为 Workspace 固定
-函数 `aap_workspace_v1.clear_primary_backend_bindings(uuid)`。先应用当前迁移，再应用
-`module-data-grants.sql`；本地 compatibility runtime 和 LAN grant source 显式列出
-真实 API 角色所需的这一项执行权。LAN source 修改不等于已应用到生产。
+能力规范化、指纹及 diff 的单一实现位于 `aap_inference.pool_capability`。API 使用
+凭据不可见的 Registry／pool／member 事实和原 caller UOW 中的拓扑 Native 能力；
+`MLBackendService(db)` 不返回私有 ORM 行，也不执行模型 HTTP。注册删除的项目主绑定
+清理由 Workspace 固定函数 `aap_workspace_v1.clear_primary_backend_bindings(uuid)` 执行，
+仍与 Registry 删除及 Audit 同进退，原项目服务池启用关系保留。
 
-没有新增配置、独立端口或 LOGIN。函数不自行提交，仍与 registry 删除及 Audit 同进退；
-原项目服务池启用关系保留。完整 Backend control 的 health、routing、GPU 与真实消费者
-边界继续推进，见 [ADR-0147](docs/adr/0147-inference-pool-policy-and-workspace-bindings.md)。
+先应用当前迁移，再应用 `module-data-grants.sql` 与实际 API／worker 的
+`lan-production-grants.sql`。后者撤销存量 token、GPU 私表和私有 opener 的普通运行权限；
+不能只更新源码而继续使用旧宽权限账号。LAN source 修改不等于已应用到生产。
 
 ### Inference 后端 HTTP 与删除依赖
 
-注册后端 HTTP 的实现位于 `aap_inference.backend_transport`，API 的
-`MLBackendClient` 只装配现有 GPU 权威、动态超时、指标和公开错误。没有新增 endpoint
-或配置；完整 Backend control 的独立运行继续推进。注册删除的 Learning 评估引用与
-Jobs 运行预测计数使用固定 Native 函数；应用当前迁移后需重授 owner 与实际 API 角色
-的精确权限，不能给 Inference 外域原表权限。范围见
-[ADR-0148](docs/adr/0148-inference-backend-transport-and-deletion-dependencies.md)。
+`aap_inference.backend_transport` 与 GPU 权威在独立 Inference 进程运行。API／worker
+通过 `model_execution_port(db, *, bound_route=None)` 发送不可变请求，返回实际所选实例、
+路由 provenance、逐模型结果和原 transport observation；控制操作使用 `backend_control_service(db)`。
+只读发现不创建预测 attempt，写操作保留原 begin／settle 和 one-shot GPU grant。
+普通 API 不打开存量 backend bearer，也不持有 GPU 私钥；显式远程故障不回退本地或 CPU。
+注册删除的 Learning 评估引用与 Jobs 运行预测计数仍使用既有固定 Native 能力。
 
 ### Workspace 后端能力探测
 
 Workspace 的后端事实只包含 registry ID 和不透明 `probe_subject`；实际 `/setup` 请求由
-Inference 持有凭据并执行。API 默认在现有 caller connection 打开同一事务快照；可选
-`INFERENCE_BACKEND_PROBE_DATABASE_URL(_FILE)` 或 `INFERENCE_BACKEND_PROBE_URL`，两者互斥。
-HTTP 使用 `INFERENCE_BACKEND_PROBE_TOKEN(_FILE)` 和默认30秒的
-`INFERENCE_BACKEND_PROBE_TIMEOUT_SECONDS`。显式选择的提供方失败不回退。
+Inference 持有凭据并执行。API 在 caller transaction 捕获密封快照，通过
+`INFERENCE_BACKEND_PROBE_URL` 和 `INFERENCE_BACKEND_PROBE_TOKEN(_FILE)` 调用独立 owner；
+`INFERENCE_BACKEND_PROBE_TIMEOUT_SECONDS` 默认30秒。普通 API 不读取 probe DSN，
+缺少配置或显式提供方失败时不回退本地。
 
 独立 Workspace 配置进程使用 `WORKSPACE_INFERENCE_PROBE_URL`、
 `WORKSPACE_INFERENCE_PROBE_TOKEN(_FILE)` 与 `WORKSPACE_INFERENCE_PROBE_TIMEOUT_SECONDS`。

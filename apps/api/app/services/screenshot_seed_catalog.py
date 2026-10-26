@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import uuid
+from collections.abc import Mapping
 from typing import Any
 
 from pydantic import ValidationError
@@ -13,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException
 
 from aap_assets_images import contract as image_contract
+from aap_inference_contract.topology import to_record
 from aap_assets_images.policy import ImagePolicy
 from aap_assets_images.transport import (
     ImageAssetReferencesRequest,
@@ -301,16 +303,14 @@ async def _resolve_backend(
     # v0.23.3 ADR-0050 · 项目主绑定存 pool id; 经 pool.legacy_instance_id 解析后比较 registry id。
     declared_registry: uuid.UUID | None = None
     if project.ml_backend_pool_id is not None:
-        from app.db.models.ml_backend_pool import MLBackendServicePool
-
-        pool = await db.get(MLBackendServicePool, project.ml_backend_pool_id)
+        pool = await service.get_pool(project.ml_backend_pool_id)
         declared_registry = pool.legacy_instance_id if pool is not None else None
     if declared_registry != backend.id:
         issues.append(
             f"{prefix}: resolved ML backend is not the declared primary backend"
         )
     capabilities = (backend.health_meta or {}).get("capabilities")
-    capabilities = capabilities if isinstance(capabilities, dict) else {}
+    capabilities = capabilities if isinstance(capabilities, Mapping) else {}
     for detail in backend_requirement_issues(backend, requirement):
         issues.append(f"{prefix}: ML backend {detail}")
     tracker = selected_tracker(capabilities, requirement)
@@ -327,7 +327,7 @@ async def _resolve_backend(
         "is_interactive": backend.is_interactive,
         "requirement": requirement.key,
         "selected_tracker": tracker,
-        "capabilities": capabilities,
+        "capabilities": to_record(capabilities),
     }
 
 

@@ -14,7 +14,7 @@ from redis.asyncio import Redis
 from redis.cluster import key_slot
 
 from app.config import settings
-from app.services.gpu_arbitration.ledger import (
+from aap_inference.gpu.ledger import (
     GPUAllocation,
     GPUAllocationState,
     GPUArbiterStore,
@@ -26,8 +26,8 @@ from app.services.gpu_arbitration.ledger import (
     gpu_arbiter_keys,
     normalize_gpu_backend_max_concurrency,
 )
-from app.services.gpu_arbitration.ledger import store as gpu_arbiter_store_module
-from app.services.gpu_arbitration.ledger.types import _LEDGER_REVISION_REBASE_THRESHOLD
+from aap_inference.gpu.ledger import store as gpu_arbiter_store_module
+from aap_inference.gpu.ledger.types import _LEDGER_REVISION_REBASE_THRESHOLD
 
 
 _TEST_BACKEND_DOMAIN = (

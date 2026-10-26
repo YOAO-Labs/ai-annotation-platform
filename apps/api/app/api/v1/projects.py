@@ -7,6 +7,7 @@ from aap_workspace_contract.project_query_contract import (
 )
 import logging
 import uuid
+from collections.abc import Mapping
 from app.application.preannotation_contract import (
     BatchPredictionDispatcher,
     BatchPredictionRequest,
@@ -1072,12 +1073,12 @@ def _stage_supported_inputs(backend, model_id: str | None) -> list[str]:
     无快照 / 无 model_id / 匹配不到 → 返回 [] (调用方据此放过门控, 保持零退化)。
     """
     meta = getattr(backend, "health_meta", None)
-    caps = meta.get("capabilities") if isinstance(meta, dict) else None
-    models = caps.get("models") if isinstance(caps, dict) else None
-    if not isinstance(models, list) or model_id is None:
+    caps = meta.get("capabilities") if isinstance(meta, Mapping) else None
+    models = caps.get("models") if isinstance(caps, Mapping) else None
+    if not isinstance(models, (list, tuple)) or model_id is None:
         return []
     for m in models:
-        if isinstance(m, dict) and str(m.get("id")) == str(model_id):
+        if isinstance(m, Mapping) and str(m.get("id")) == str(model_id):
             return list(m.get("supported_inputs") or [])
     return []
 
@@ -1089,12 +1090,12 @@ def _stage_model(backend, model_id: str | None) -> dict:
     health_meta.capabilities.models[] (extract_capabilities 已规范化), 不走 /instances。
     """
     meta = getattr(backend, "health_meta", None)
-    caps = meta.get("capabilities") if isinstance(meta, dict) else None
-    models = caps.get("models") if isinstance(caps, dict) else None
-    if not isinstance(models, list) or model_id is None:
+    caps = meta.get("capabilities") if isinstance(meta, Mapping) else None
+    models = caps.get("models") if isinstance(caps, Mapping) else None
+    if not isinstance(models, (list, tuple)) or model_id is None:
         return {}
     for m in models:
-        if isinstance(m, dict) and str(m.get("id")) == str(model_id):
+        if isinstance(m, Mapping) and str(m.get("id")) == str(model_id):
             return {
                 **m,
                 "task": normalize_task(m.get("task") or "unknown", allow_unknown=True),
@@ -1149,7 +1150,7 @@ async def _compute_pipeline_capability_warnings(db, stages) -> list[str]:
     for s in stages:
         if not isinstance(s, dict) or not s.get("ml_backend_id"):
             continue
-        backend = await svc.get(s["ml_backend_id"])
+        backend = await svc.get_registry(s["ml_backend_id"])
         if not backend:
             continue
         caps = _stage_model(backend, s.get("model_id"))
@@ -1379,7 +1380,7 @@ async def trigger_preannotation(
     source_backend_id = body.ml_backend_id
     if source_backend_id is None:
         raise HTTPException(status_code=422, detail="ml_backend_id 必填")
-    backend = await svc.get(source_backend_id)
+    backend = await svc.get_registry(source_backend_id)
     # v0.19.0 ADR-0044 · 校验 backend 存在且在本项目「已启用」
     # (project_ml_backend_pool.enabled, 经 pool member 解析回 registry):
     # 与下游阶段校验对称, 防止 owner 手动 POST 未启用/别项目 backend id 触发预标。
@@ -1435,7 +1436,7 @@ async def trigger_preannotation(
         for st in body.pipeline_stages:
             resolved_input = st.input
             if st.parent_stage is not None:
-                st_backend = await svc.get(st.ml_backend_id)
+                st_backend = await svc.get_registry(st.ml_backend_id)
                 if not st_backend or not await svc.is_enabled(
                     project.id, st.ml_backend_id
                 ):

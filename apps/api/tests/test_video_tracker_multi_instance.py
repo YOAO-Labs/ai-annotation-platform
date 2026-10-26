@@ -19,7 +19,8 @@ from app.db.models.dataset import Dataset, DatasetItem, VideoSegment
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
-from app.services.video_tracking.adapters import TrackerContext, TrackerFrameResult
+from app.services.video_tracking.adapters import TrackerContext
+from aap_inference.tracker import TrackerFrameResult
 from app.services.video_tracking.runner import (
     _partition_results_by_instance,
     accept_tracker_job,
@@ -31,12 +32,12 @@ from app.schemas.task import VideoMetadata
 from tests.media_owner_fixtures import media_owner as media_owner
 from tests.tracker_input_test_ports import (
     seed_staged_tracker_input,
-    yield_tracker_fake_results,
+    tracker_fake_propagation,
 )
 
 
 @pytest.fixture(autouse=True)
-def _tracker_input_owner_test_port(tracker_input_owner_fakes, savepoint_routing_owner):
+def _tracker_input_owner_test_port(tracker_input_owner_fakes):
     tracker_input_owner_fakes.declare_tracker_backend = True
     return tracker_input_owner_fakes
 
@@ -224,8 +225,7 @@ class _MultiInstanceAdapter:
                         primary=False,
                     )
                 )
-        async for result in yield_tracker_fake_results(ctx, results):
-            yield result
+        return tracker_fake_propagation(ctx, results)
 
 
 async def test_runner_lands_extra_instances_as_new_tracks(
@@ -947,8 +947,7 @@ class _WindowLocalMultiplexAdapter:
                     primary=False,
                 )
             )
-        async for result in yield_tracker_fake_results(ctx, results):
-            yield result
+        return tracker_fake_propagation(ctx, results)
 
 
 async def test_runner_associates_window_local_ids_across_windows(
@@ -1076,8 +1075,7 @@ class _MultiSourceAdapter:
                     primary=False,
                 )
             )
-        async for result in yield_tracker_fake_results(ctx, results):
-            yield result
+        return tracker_fake_propagation(ctx, results)
 
 
 async def _seed_two_source_job(db_session, user, media_owner):
@@ -1405,8 +1403,7 @@ class _MultiSourcePlusDiscoveryAdapter:
                         primary=(iid == "1"),
                     )
                 )
-        async for result in yield_tracker_fake_results(ctx, results):
-            yield result
+        return tracker_fake_propagation(ctx, results)
 
 
 async def test_accept_multi_source_touched_covers_sources_and_created(

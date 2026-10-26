@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services import capability_registry as reg
+from aap_inference import capability_registry as reg
 
 
 @pytest.mark.asyncio

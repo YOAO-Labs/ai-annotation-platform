@@ -1,4 +1,4 @@
-"""Bind Inference Registry ingress to the API caller's ORM transaction."""
+"""Bind credential-free screenshot-seed ingress to the caller transaction."""
 
 from __future__ import annotations
 
@@ -6,41 +6,37 @@ from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 import json
-from typing import Any, Literal
+from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, event, select, text
+from sqlalchemy import DateTime, event, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, attributes, object_session
 
-from app.db.models.ml_backend_pool import MLBackendServicePool
+from aap_inference.registry_ingress import RegistrySeedFacts
+from aap_inference_contract.topology import PoolFacts
 from app.db.models.ml_backend_registry import MLBackendRegistry
 
 _NATIVE = "aap_inference_registry_ingress_v1."
 _STAGES = "aap_inference_registry_ingress_stages"
 _BASELINES = "aap_inference_registry_ingress_extra_baselines"
+_SEED_IDENTITY_FIELDS = (
+    "id, name, url, state, is_interactive, source, health_meta, extra_params"
+)
 
-
-@dataclass
-class _ObservationStage:
-    row: MLBackendRegistry
-    profile: Literal["env", "seed"]
-    state: str
-    name: Any
-    is_interactive: bool
-    health_meta: Any
-    last_checked_at: Any
-    error_message: str | None
-    usable_caps: bool
-    expected_snapshot: dict[str, Any]
-
-
-@dataclass
-class _EnvironmentDisconnectStage:
-    row: MLBackendRegistry
-    expected_url: str
-    expected_state: str
+_SEED_BY_URL = text(
+    "SELECT "
+    + _SEED_IDENTITY_FIELDS
+    + " FROM "
+    + "aap_inference_topology_v1.seed_registry_by_url(:url)"
+)
+_SEED_CREATE = text(
+    "SELECT "
+    + _SEED_IDENTITY_FIELDS
+    + " FROM "
+    + "aap_inference_topology_v1.create_seed_registry(:registry_id,:name,:url,:marker)"
+)
 
 
 @dataclass
@@ -52,20 +48,18 @@ class _SeedMarkerStage:
     staged_extra_params: Any
 
 
+@dataclass
+class _SeedMarkerIdentityStage:
+    registry_id: UUID
+    marker: dict[str, Any]
+
+
 def _session_stages(session: Session) -> list[Any]:
     return session.info.setdefault(_STAGES, [])
 
 
 def _mapping(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
-
-
-def _set_applied_value(row: Any, name: str, applied: Any, staged: Any) -> None:
-    current = getattr(row, name)
-    changed_later = current != staged
-    attributes.set_committed_value(row, name, applied)
-    if changed_later:
-        setattr(row, name, current)
 
 
 def _merge_seed_extra(stage: _SeedMarkerStage, native_extra: Any) -> Any:
@@ -130,7 +124,17 @@ def _discard_ingress_stages(session: Session, row: MLBackendRegistry) -> None:
     stages = session.info.get(_STAGES)
     if not stages:
         return
-    remaining = [stage for stage in stages if stage.row is not row]
+    remaining = [
+        stage
+        for stage in stages
+        if not (
+            getattr(stage, "row", None) is row
+            or (
+                isinstance(stage, _SeedMarkerIdentityStage)
+                and stage.registry_id == row.id
+            )
+        )
+    ]
     if remaining:
         session.info[_STAGES] = remaining
     else:
@@ -139,70 +143,6 @@ def _discard_ingress_stages(session: Session, row: MLBackendRegistry) -> None:
 
 def _execute(session: Session, statement, parameters):
     return session.connection().execute(statement, parameters)
-
-
-def _apply_observation(session: Session, stage: _ObservationStage) -> None:
-    if stage.profile == "env" or stage.usable_caps:
-        health_meta_json = json.dumps(stage.health_meta)
-    else:
-        # Failed seed probes do not serialize or replace the previous snapshot.
-        health_meta_json = None
-    expected_snapshot_json = json.dumps(
-        stage.expected_snapshot,
-        ensure_ascii=False,
-        separators=(",", ":"),
-    )
-    statement = text(
-        "SELECT " + _NATIVE + "apply_observation("
-        ":registry_id,:profile,:state,:name,:interactive,:health_meta,:checked_at,"
-        ":error_message,:usable_caps,:expected_snapshot)"
-    ).columns(updated_at=DateTime(timezone=True))
-    updated_at = _execute(
-        session,
-        statement,
-        {
-            "registry_id": stage.row.id,
-            "profile": stage.profile,
-            "state": stage.state,
-            "name": stage.name,
-            "interactive": stage.is_interactive,
-            "health_meta": health_meta_json,
-            "checked_at": stage.last_checked_at,
-            "error_message": stage.error_message,
-            "usable_caps": stage.usable_caps,
-            "expected_snapshot": expected_snapshot_json,
-        },
-    ).scalar_one()
-
-    row = stage.row
-    _set_applied_value(row, "state", stage.state, stage.state)
-    _set_applied_value(
-        row, "last_checked_at", stage.last_checked_at, stage.last_checked_at
-    )
-    if stage.profile == "env" or stage.usable_caps:
-        _set_applied_value(row, "name", stage.name, stage.name)
-        _set_applied_value(
-            row, "is_interactive", stage.is_interactive, stage.is_interactive
-        )
-        _set_applied_value(row, "health_meta", stage.health_meta, stage.health_meta)
-    if stage.profile == "seed":
-        _set_applied_value(
-            row, "error_message", stage.error_message, stage.error_message
-        )
-    _set_stamp(row, updated_at)
-
-
-def _apply_env_disconnect(session: Session, stage: _EnvironmentDisconnectStage) -> None:
-    statement = text(
-        "SELECT " + _NATIVE + "disconnect_env_registry(:registry_id,:expected_url)"
-    ).columns(updated_at=DateTime(timezone=True))
-    updated_at = _execute(
-        session,
-        statement,
-        {"registry_id": stage.row.id, "expected_url": stage.expected_url},
-    ).scalar_one()
-    _set_applied_value(stage.row, "state", "disconnected", stage.expected_state)
-    _set_stamp(stage.row, updated_at)
 
 
 def _apply_seed_marker(session: Session, stage: _SeedMarkerStage) -> None:
@@ -239,21 +179,65 @@ def _apply_seed_marker(session: Session, stage: _SeedMarkerStage) -> None:
     _set_stamp(stage.row, result["updated_at"])
 
 
+def _apply_seed_marker_identity(
+    session: Session, stage: _SeedMarkerIdentityStage
+) -> None:
+    row = next(
+        (
+            item
+            for item in session.identity_map.values()
+            if isinstance(item, MLBackendRegistry) and item.id == stage.registry_id
+        ),
+        None,
+    )
+    if (
+        row is not None
+        and "extra_params" in row.__dict__
+        and row not in session.deleted
+    ):
+        current = deepcopy(row.extra_params)
+        staged = {**_mapping(current), "seed": stage.marker}
+        database = session.info.get(_BASELINES, {}).get(stage.registry_id, current)
+        _apply_seed_marker(
+            session,
+            _SeedMarkerStage(
+                row=row,
+                marker=stage.marker,
+                database_extra_params=database,
+                previous_extra_params=current,
+                staged_extra_params=staged,
+            ),
+        )
+        return
+    statement = text(
+        "SELECT * FROM " + _NATIVE + "tag_seed_registry(:registry_id,:marker_json)"
+    ).columns(extra_params=JSONB(), updated_at=DateTime(timezone=True))
+    _execute(
+        session,
+        statement,
+        {
+            "registry_id": stage.registry_id,
+            "marker_json": json.dumps(
+                stage.marker, ensure_ascii=False, separators=(",", ":")
+            ),
+        },
+    ).mappings().one()
+
+
 @event.listens_for(Session, "before_flush")
-def _flush_registry_ingress(session, flush_context, instances) -> None:
+def _flush_registry_ingress(session: Session, flush_context, instances) -> None:
     stages = session.info.get(_STAGES, [])
     for stage in list(stages):
+        if isinstance(stage, _SeedMarkerIdentityStage):
+            stages.remove(stage)
+            _apply_seed_marker_identity(session, stage)
+            continue
         if instances is not None and stage.row not in instances:
             continue
         stages.remove(stage)
         if stage.row not in session or stage.row in session.deleted:
             continue
-        if isinstance(stage, _ObservationStage):
-            _apply_observation(session, stage)
-        elif isinstance(stage, _EnvironmentDisconnectStage):
-            _apply_env_disconnect(session, stage)
-        else:
-            _apply_seed_marker(session, stage)
+        _apply_seed_marker(session, stage)
     if not stages:
         session.info.pop(_STAGES, None)
 
@@ -284,86 +268,67 @@ class InferenceRegistryIngressData:
             raise RuntimeError("Registry ingress requires an attached AsyncSession")
         return self.db
 
-    async def by_url(self, url: str) -> MLBackendRegistry | None:
-        statement = select(MLBackendRegistry).from_statement(
-            text("SELECT * FROM " + _NATIVE + "registry_by_url(:url)")
+    @staticmethod
+    def _seed_facts(row: Mapping[str, Any]) -> RegistrySeedFacts:
+        return RegistrySeedFacts(
+            id=row["id"],
+            name=row["name"],
+            url=row["url"],
+            state=row["state"],
+            is_interactive=row["is_interactive"],
+            source=row["source"],
+            health_meta=row["health_meta"],
+            extra_params=row["extra_params"],
         )
-        return await self._db().scalar(statement, {"url": url})
 
-    async def candidates(
-        self, profile: Literal["env", "live"]
-    ) -> list[MLBackendRegistry]:
-        statement = select(MLBackendRegistry).from_statement(
-            text("SELECT * FROM " + _NATIVE + "registry_candidates(:profile)")
-        )
-        result = await self._db().execute(statement, {"profile": profile})
-        return list(result.scalars().all())
+    async def seed_by_url(self, url: str) -> RegistrySeedFacts | None:
+        db = self._db()
+        if db.autoflush:
+            await db.flush()
+        result = await db.execute(_SEED_BY_URL, {"url": url})
+        row = result.mappings().one_or_none()
+        return self._seed_facts(row) if row is not None else None
 
-    async def create_registry(
-        self,
-        name: str | None,
-        url: str,
-        source: Literal["env", "seed"],
-        *,
-        is_interactive: bool = False,
-        extra_params: Any = None,
-    ) -> MLBackendRegistry:
-        statement = (
-            select(MLBackendRegistry)
-            .from_statement(
-                text(
-                    "SELECT * FROM "
-                    + _NATIVE
-                    + "create_registry(:registry_id,:name,:url,:source,:interactive,:extra_params)"
-                )
-            )
-            .execution_options(autoflush=False)
-        )
-        row = await self._db().scalar(
-            statement,
+    async def create_seed_registry(
+        self, name: Any, url: str, marker: dict[str, Any]
+    ) -> RegistrySeedFacts:
+        db = self._db()
+        result = await db.execute(
+            _SEED_CREATE.execution_options(autoflush=False),
             {
                 "registry_id": uuid4(),
                 "name": name,
                 "url": url,
-                "source": source,
-                "interactive": is_interactive,
-                "extra_params": json.dumps(
-                    {} if extra_params is None else extra_params
-                ),
+                "marker": json.dumps(marker),
             },
         )
+        row = result.mappings().one_or_none()
         if row is None:
-            raise RuntimeError("Registry ingress create returned no row")
-        # The original ORM create flushed after adding the Registry object. The
-        # Native insert runs first, then the caller's other pending rows flush.
-        await self._db().flush()
-        return row
+            raise RuntimeError("Registry ingress seed create returned no facts")
+        await db.flush()
+        return self._seed_facts(row)
 
-    async def singleton_pool(self, registry_id: UUID) -> MLBackendServicePool | None:
-        statement = select(MLBackendServicePool).from_statement(
-            text("SELECT * FROM " + _NATIVE + "singleton_pool(:registry_id)")
+    async def singleton_pool(self, registry_id: UUID) -> PoolFacts | None:
+        result = await self._db().execute(
+            text("SELECT * FROM " + _NATIVE + "singleton_pool(:registry_id)"),
+            {"registry_id": registry_id},
         )
-        return await self._db().scalar(statement, {"registry_id": registry_id})
+        row = result.mappings().one_or_none()
+        return PoolFacts.from_record(row) if row is not None else None
 
     async def create_singleton_pool(
         self,
-        row: MLBackendRegistry,
+        row: RegistrySeedFacts,
         snapshot: dict[str, Any] | None,
         fingerprint: str | None,
-    ) -> MLBackendServicePool:
+    ) -> PoolFacts:
         # Mirrors the old pool helper's explicit flush boundary.
         await self._db().flush()
-        statement = (
-            select(MLBackendServicePool)
-            .from_statement(
-                text(
-                    "SELECT * FROM " + _NATIVE + "create_singleton_pool("
-                    ":registry_id,:pool_id,:member_id,:name,:snapshot,:fingerprint)"
-                )
-            )
-            .execution_options(autoflush=False)
-        )
-        pool = await self._db().scalar(
+        statement = text(
+            "SELECT * FROM " + _NATIVE + "create_singleton_pool("
+            ":registry_id,:pool_id,:member_id,:name,:snapshot,:fingerprint)"
+        ).execution_options(autoflush=False)
+        result = await self._db().execute(
             statement,
             {
                 "registry_id": row.id,
@@ -378,112 +343,26 @@ class InferenceRegistryIngressData:
                 "fingerprint": fingerprint,
             },
         )
+        pool = result.mappings().one_or_none()
         if pool is None:
             raise RuntimeError("Registry ingress singleton pool create returned no row")
-        return pool
+        return PoolFacts.from_record(pool)
 
-    async def stage_observation(
+    async def stage_seed_marker_identity(
         self,
-        row: MLBackendRegistry,
-        *,
-        profile: Literal["env", "seed"],
-        usable_caps: bool,
-        expected_snapshot: dict[str, Any],
-    ) -> None:
-        if self.db is None:
-            return
-        _session_stages(self.db.sync_session).append(
-            _ObservationStage(
-                row=row,
-                profile=profile,
-                state=row.state,
-                name=row.name,
-                is_interactive=row.is_interactive,
-                health_meta=deepcopy(row.health_meta),
-                last_checked_at=row.last_checked_at,
-                error_message=row.error_message,
-                usable_caps=usable_caps,
-                expected_snapshot=deepcopy(expected_snapshot),
-            )
-        )
-
-    async def stage_env_disconnect(self, row: MLBackendRegistry) -> None:
-        if self.db is None:
-            return
-        if not attributes.get_history(row, "state").has_changes():
-            return
-        _session_stages(self.db.sync_session).append(
-            _EnvironmentDisconnectStage(
-                row=row,
-                expected_url=row.url,
-                expected_state=row.state,
-            )
-        )
-
-    async def stage_seed_marker(
-        self,
-        row: MLBackendRegistry,
+        row: RegistrySeedFacts,
         marker: dict[str, Any],
         previous_extra_params: Any,
     ) -> None:
-        if self.db is None:
+        if self.db is None or _mapping(previous_extra_params).get("seed") == marker:
             return
-        previous = _mapping(previous_extra_params)
-        if previous.get("seed") == marker:
-            return
-        history = attributes.get_history(row, "extra_params")
-        database_extra_params = (
-            deepcopy(history.deleted[0])
-            if history.deleted
-            else deepcopy(previous_extra_params)
-        )
-        database_extra_params = self.db.sync_session.info.get(_BASELINES, {}).get(
-            row.id, database_extra_params
-        )
         _session_stages(self.db.sync_session).append(
-            _SeedMarkerStage(
-                row=row,
-                marker=deepcopy(marker),
-                database_extra_params=database_extra_params,
-                previous_extra_params=deepcopy(previous_extra_params),
-                staged_extra_params=deepcopy(row.extra_params),
-            )
+            _SeedMarkerIdentityStage(row.id, deepcopy(marker))
         )
 
     async def flush(self) -> None:
         if self.db is not None:
             await self.db.flush()
-
-    async def sync_result(
-        self, request_id: UUID, command_sha256: str
-    ) -> dict[str, Any] | None:
-        statement = text(
-            "SELECT " + _NATIVE + "sync_result(:request_id,:command_sha256)"
-        ).columns(result=JSONB())
-        return await self._db().scalar(
-            statement,
-            {"request_id": request_id, "command_sha256": command_sha256},
-        )
-
-    async def record_sync_result(
-        self,
-        request_id: UUID,
-        command_sha256: str,
-        observed_urls: int,
-    ) -> dict[str, Any]:
-        statement = text(
-            "SELECT "
-            + _NATIVE
-            + "record_sync_result(:request_id,:command_sha256,:observed_urls)"
-        ).columns(result=JSONB())
-        return await self._db().scalar(
-            statement,
-            {
-                "request_id": request_id,
-                "command_sha256": command_sha256,
-                "observed_urls": observed_urls,
-            },
-        )
 
 
 __all__ = ["InferenceRegistryIngressData"]

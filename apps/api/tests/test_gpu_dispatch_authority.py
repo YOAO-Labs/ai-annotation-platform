@@ -4,6 +4,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+import hashlib
 import time
 import uuid
 
@@ -15,15 +16,18 @@ from aap_protocol_v2.lifecycle import (
     ManagedUnloadResponse,
 )
 
-from app.config import Settings
-from app.db.models.ml_backend_registry import MLBackendRegistry
-from app.services.gpu_arbitration import dispatch as authority_module
-from app.services.gpu_arbitration.contracts import (
+from aap_inference.backend_endpoint import (
+    BackendEndpointBinding,
+    BackendEndpointSnapshot,
+)
+from aap_inference_contract.backend_endpoint import BackendEndpointAuthority
+from aap_inference.gpu import dispatch as authority_module
+from aap_inference.gpu.contracts import (
     GPUArbiterDispatchError,
     GPUArbiterErrorCode,
     GPUDispatchRequest,
 )
-from app.services.gpu_arbitration.proofs import (
+from aap_inference.gpu.proofs import (
     GPUColdRuntimeSubject,
     GPUColdTerminalCommitResult,
     GPUEvictionCommitResult,
@@ -35,7 +39,7 @@ from app.services.gpu_arbitration.proofs import (
     GPUResidentRuntimeSubject,
     GPUResidentRuntimeSubjectError,
 )
-from app.services.gpu_arbitration.ledger import (
+from aap_inference.gpu.ledger import (
     GPUAdmissionResult,
     GPUAllocation,
     GPUAllocationState,
@@ -50,6 +54,8 @@ from app.services.gpu_arbitration.ledger import (
     GPUTransitionOwnerResult,
     GPUTransitionResult,
 )
+
+from app.config import Settings
 
 
 _RESOURCE_ID = "node-runtime/index:0"
@@ -188,21 +194,8 @@ def _idle_eviction_subject(
     challenge: str,
 ) -> GPUIdleEvictionRuntimeSubject:
     backend_id = uuid.UUID(allocation.backend_id)
-    backend = MLBackendRegistry(
-        id=backend_id,
-        name=f"victim-{backend_id}",
-        url=f"http://victim-{backend_id}.test",
-        state="connected",
-        auth_method="none",
-        auth_token=None,
-        extra_params={"gpu_max_concurrency": allocation.max_concurrency},
-        gpu_resource_id=resource_id,
-        vram_budget_mb=allocation.budget_mb,
-        eviction_priority=allocation.eviction_priority,
-    )
     assert allocation.generation is not None
     return GPUIdleEvictionRuntimeSubject(
-        backend=backend,
         backend_registry_id=backend_id,
         gpu_resource_id=resource_id,
         membership_epoch=1,
@@ -227,7 +220,6 @@ def _prepared_idle_eviction_subject(
     token_expires_at: datetime,
 ) -> GPUPreparedIdleEvictionRuntimeSubject:
     return GPUPreparedIdleEvictionRuntimeSubject(
-        backend=subject.backend,
         backend_registry_id=subject.backend_registry_id,
         gpu_resource_id=subject.gpu_resource_id,
         membership_epoch=subject.membership_epoch,
@@ -261,7 +253,6 @@ def _prepared_eviction_cancel_subject() -> GPUPreparedEvictionCancelRuntimeSubje
         token_expires_at=source.db_now + timedelta(seconds=60),
     )
     return GPUPreparedEvictionCancelRuntimeSubject(
-        backend=drain.backend,
         backend_registry_id=drain.backend_registry_id,
         gpu_resource_id=drain.gpu_resource_id,
         membership_epoch=drain.membership_epoch,
@@ -454,6 +445,7 @@ def _request(
     scope: AdmissionScope = AdmissionScope.PREDICT,
 ) -> GPUDispatchRequest:
     return GPUDispatchRequest(
+        request_id=uuid.uuid4(),
         backend_id=str(subject.backend_registry_id),
         gpu_resource_id=subject.gpu_resource_id,
         operation=operation,  # type: ignore[arg-type]
@@ -495,8 +487,9 @@ def test_eviction_cancel_signer_replays_exact_durable_resume_claims() -> None:
     signer = _ScopeSigner(events)
     subject = _prepared_eviction_cancel_subject()
 
-    first = authority_module._sign_eviction_cancel_grant(signer, subject)
-    replayed = authority_module._sign_eviction_cancel_grant(signer, subject)
+    clock = _DispatchTestClock()
+    first = authority_module._sign_eviction_cancel_grant(signer, subject, clock)
+    replayed = authority_module._sign_eviction_cancel_grant(signer, subject, clock)
 
     assert first == replayed == f"signed:resume:{subject.jti}"
     assert signer.claims_history[0] == signer.claims_history[1]
@@ -1202,10 +1195,8 @@ def _install_eviction_authority_fakes(
         )
 
     class SuccessfulEvictionClient:
-        def __init__(
-            self, backend: MLBackendRegistry, *, shadow_session_factory=None
-        ) -> None:
-            self.backend_id = backend.id
+        def __init__(self, endpoint: BackendEndpointSnapshot) -> None:
+            self.backend_id = endpoint.registry_id
 
         async def lifecycle_drain(self, grant):
             events.append(f"drain:{self.backend_id}")
@@ -1233,20 +1224,141 @@ def _install_eviction_authority_fakes(
         commit_phase,
     )
     monkeypatch.setattr(
-        authority_module,
-        "MLBackendClient",
+        _dispatch_test_transport,
+        "client_factory",
         SuccessfulEvictionClient,
     )
     return prepared_by_id
 
 
-def _session_factory(events: list[str]):
-    @asynccontextmanager
-    async def sessions():
-        events.append("db")
-        yield object()
+class _TestAuthorityData:
+    async def step(self, action, arguments):
+        raise AssertionError(f"unmocked Native GPU action: {action}")
 
-    return sessions
+
+class _TestAuthorityProvider:
+    def __init__(self, events: list[str]) -> None:
+        self.events = events
+        self.data = _TestAuthorityData()
+
+    @asynccontextmanager
+    async def transaction(self):
+        self.events.append("db")
+        yield self.data
+
+
+class _DispatchEndpointSource:
+    async def open_owned(
+        self,
+        registry_id: uuid.UUID,
+        *,
+        request_id: uuid.UUID,
+        purpose: str,
+        binding=None,
+    ) -> BackendEndpointSnapshot:
+        if purpose == "gpu_control" and binding is None:
+            raise AssertionError("GPU control endpoint requires a route binding")
+        endpoint_url = f"http://gpu-dispatch-{registry_id}.test"
+        authority = (
+            None
+            if binding is None
+            else BackendEndpointAuthority(
+                kind=binding.kind,
+                scope_id=binding.scope_id,
+                control_id=binding.control_id,
+                attempt_id=binding.attempt_id,
+            )
+        )
+        return BackendEndpointSnapshot(
+            registry_id=registry_id,
+            request_id=request_id,
+            purpose=purpose,
+            authority=authority,
+            endpoint_sha256=hashlib.sha256(endpoint_url.encode()).hexdigest(),
+            url=endpoint_url,
+            auth_method=None,
+            auth_token=None,
+            gpu_resource_id=_RESOURCE_ID,
+            vram_budget_mb=1024,
+            eviction_priority=0,
+            extra_params={},
+        )
+
+    async def readiness(self) -> bool:
+        return True
+
+
+class _DispatchTestBackendTransport:
+    client_factory = None
+
+    @asynccontextmanager
+    async def control_binding(self, _registry_id, *, request_id, operation):
+        yield BackendEndpointBinding(
+            kind="control",
+            scope_id=None,
+            control_id=uuid.uuid4(),
+            attempt_id=request_id,
+            capability="0" * 64,
+        )
+
+    def _client(self, endpoint: BackendEndpointSnapshot):
+        if self.client_factory is None:
+            raise AssertionError("unexpected GPU backend control request")
+        return self.client_factory(endpoint)
+
+    async def health_meta(self, *args, **kwargs):
+        raise AssertionError("unexpected GPU backend health request")
+
+    async def lifecycle_mode(self, *args, **kwargs):
+        raise AssertionError("unexpected GPU backend mode request")
+
+    async def lifecycle_reset(self, *args, **kwargs):
+        raise AssertionError("unexpected GPU backend reset request")
+
+    async def lifecycle_drain(self, endpoint, grant, **kwargs):
+        return await self._client(endpoint).lifecycle_drain(grant)
+
+    async def lifecycle_cancel_drain(self, endpoint, grant, **kwargs):
+        return await self._client(endpoint).lifecycle_cancel_drain(grant)
+
+    async def lifecycle_unload(self, endpoint, grant, **kwargs):
+        return await self._client(endpoint).lifecycle_unload(grant)
+
+
+_dispatch_test_transport = _DispatchTestBackendTransport()
+
+
+class _DispatchTestClock:
+    def monotonic(self) -> float:
+        return time.monotonic()
+
+    def time(self) -> float:
+        return time.time()
+
+    async def sleep(self, delay: float) -> None:
+        await asyncio.sleep(delay)
+
+
+async def _dispatch_health_refresher(_backend_id: uuid.UUID, _challenge: str) -> bool:
+    return True
+
+
+def _build_dispatch_context_factory(data_provider, **kwargs):
+    return authority_module.build_gpu_dispatch_context_factory(
+        data_provider,
+        _DispatchEndpointSource(),
+        _dispatch_test_transport,
+        config=kwargs.pop("config", Settings(_env_file=None)),
+        store_factory=kwargs.pop("store_factory"),
+        signer_factory=kwargs.pop("signer_factory"),
+        health_refresher=kwargs.pop("health_refresher", _dispatch_health_refresher),
+        clock=kwargs.pop("clock", _DispatchTestClock()),
+        **kwargs,
+    )
+
+
+def _session_factory(events: list[str]) -> _TestAuthorityProvider:
+    return _TestAuthorityProvider(events)
 
 
 @pytest.mark.parametrize("ready_order", ("redis_first", "backend_first"))
@@ -1332,6 +1444,7 @@ async def test_busy_eviction_wait_requires_redis_and_backend_domains(
         _session_factory(events),
         store,  # type: ignore[arg-type]
         prepared,
+        _DispatchTestClock(),
         health_refresher=refresh_health,
         heartbeat_task=None,
         queue_deadline=time.monotonic() + 10,
@@ -1383,6 +1496,7 @@ async def test_busy_eviction_wait_is_bounded_by_work_deadline(monkeypatch) -> No
             _session_factory(events),
             store,  # type: ignore[arg-type]
             prepared,
+            _DispatchTestClock(),
             health_refresher=blocked_health,
             heartbeat_task=None,
             queue_deadline=time.monotonic() + 10,
@@ -1455,10 +1569,14 @@ async def test_busy_eviction_owner_keeps_full_cancel_horizon(monkeypatch) -> Non
 
     outcome = await authority_module._evict_one_idle_victim(
         _session_factory(events),
+        _DispatchEndpointSource(),
+        _dispatch_test_transport,
         store,  # type: ignore[arg-type]
         _RecordingSigner(events),  # type: ignore[arg-type]
         requester,
         victim,
+        request_id=uuid.uuid4(),
+        clock=_DispatchTestClock(),
         health_refresher=lambda backend_id, challenge: asyncio.sleep(0, result=True),
         hard_ttl_ms=1_000,
         heartbeat_interval_seconds=5,
@@ -1550,10 +1668,8 @@ async def test_busy_eviction_end_to_end_waits_then_unloads(monkeypatch) -> None:
         )
 
     class BusyEvictionClient:
-        def __init__(
-            self, backend: MLBackendRegistry, *, shadow_session_factory=None
-        ) -> None:
-            assert backend.id == prepared.backend_registry_id
+        def __init__(self, endpoint: BackendEndpointSnapshot) -> None:
+            assert endpoint.registry_id == prepared.backend_registry_id
 
         async def lifecycle_drain(self, grant):
             events.append("drain")
@@ -1590,14 +1706,18 @@ async def test_busy_eviction_end_to_end_waits_then_unloads(monkeypatch) -> None:
         "commit_gpu_eviction_phase_from_health",
         commit_phase,
     )
-    monkeypatch.setattr(authority_module, "MLBackendClient", BusyEvictionClient)
+    monkeypatch.setattr(_dispatch_test_transport, "client_factory", BusyEvictionClient)
 
     outcome = await authority_module._evict_one_idle_victim(
         _session_factory(events),
+        _DispatchEndpointSource(),
+        _dispatch_test_transport,
         store,  # type: ignore[arg-type]
         _ScopeSigner(events),  # type: ignore[arg-type]
         requester,
         victim,
+        request_id=uuid.uuid4(),
+        clock=_DispatchTestClock(),
         health_refresher=refresh_health,
         hard_ttl_ms=120_000,
         heartbeat_interval_seconds=5,
@@ -1623,7 +1743,6 @@ async def test_busy_eviction_cancel_orders_durable_intent_arm_resume_and_proof(
     events: list[str] = []
     cancel_subject = _prepared_eviction_cancel_subject()
     drain_subject = GPUPreparedIdleEvictionRuntimeSubject(
-        backend=cancel_subject.backend,
         backend_registry_id=cancel_subject.backend_registry_id,
         gpu_resource_id=cancel_subject.gpu_resource_id,
         membership_epoch=cancel_subject.membership_epoch,
@@ -1671,10 +1790,8 @@ async def test_busy_eviction_cancel_orders_durable_intent_arm_resume_and_proof(
             )
 
     class CancelClient:
-        def __init__(
-            self, backend: MLBackendRegistry, *, shadow_session_factory=None
-        ) -> None:
-            assert backend.id == cancel_subject.backend_registry_id
+        def __init__(self, endpoint: BackendEndpointSnapshot) -> None:
+            assert endpoint.registry_id == cancel_subject.backend_registry_id
 
         async def lifecycle_cancel_drain(self, grant):
             events.append("resume")
@@ -1703,7 +1820,7 @@ async def test_busy_eviction_cancel_orders_durable_intent_arm_resume_and_proof(
         "prepare_gpu_eviction_cancel_runtime_generation",
         prepare_cancel,
     )
-    monkeypatch.setattr(authority_module, "MLBackendClient", CancelClient)
+    monkeypatch.setattr(_dispatch_test_transport, "client_factory", CancelClient)
     monkeypatch.setattr(
         authority_module,
         "commit_gpu_eviction_cancel_from_health",
@@ -1712,9 +1829,13 @@ async def test_busy_eviction_cancel_orders_durable_intent_arm_resume_and_proof(
     signer = _ScopeSigner(events)
     result, branch = await authority_module._cancel_busy_eviction(
         _session_factory(events),
+        _DispatchEndpointSource(),
+        _dispatch_test_transport,
         CancelStore(),  # type: ignore[arg-type]
         signer,  # type: ignore[arg-type]
         drain_subject,
+        request_id=uuid.uuid4(),
+        clock=_DispatchTestClock(),
         health_refresher=refresh_health,
         owner_id=cancel_subject.owner_id,
         owner_hard_deadline_ms=cancel_subject.owner_hard_deadline_ms,
@@ -1741,7 +1862,6 @@ async def test_busy_eviction_cancel_never_sends_resume_after_unload_branch_wins(
     events: list[str] = []
     cancel_subject = _prepared_eviction_cancel_subject()
     drain_subject = GPUPreparedIdleEvictionRuntimeSubject(
-        backend=cancel_subject.backend,
         backend_registry_id=cancel_subject.backend_registry_id,
         gpu_resource_id=cancel_subject.gpu_resource_id,
         membership_epoch=cancel_subject.membership_epoch,
@@ -1774,9 +1894,7 @@ async def test_busy_eviction_cancel_never_sends_resume_after_unload_branch_wins(
             )
 
     class ForbiddenClient:
-        def __init__(
-            self, backend: MLBackendRegistry, *, shadow_session_factory=None
-        ) -> None:
+        def __init__(self, _endpoint: BackendEndpointSnapshot) -> None:
             raise AssertionError("unload branch must fence real RESUME")
 
     async def no_health(backend_id: uuid.UUID, challenge: str) -> bool:
@@ -1787,13 +1905,17 @@ async def test_busy_eviction_cancel_never_sends_resume_after_unload_branch_wins(
         "prepare_gpu_eviction_cancel_runtime_generation",
         prepare_cancel,
     )
-    monkeypatch.setattr(authority_module, "MLBackendClient", ForbiddenClient)
+    monkeypatch.setattr(_dispatch_test_transport, "client_factory", ForbiddenClient)
     signer = _ScopeSigner(events)
     result, branch = await authority_module._cancel_busy_eviction(
         _session_factory(events),
+        _DispatchEndpointSource(),
+        _dispatch_test_transport,
         ConflictStore(),  # type: ignore[arg-type]
         signer,  # type: ignore[arg-type]
         drain_subject,
+        request_id=uuid.uuid4(),
+        clock=_DispatchTestClock(),
         health_refresher=no_health,
         owner_id=cancel_subject.owner_id,
         owner_hard_deadline_ms=cancel_subject.owner_hard_deadline_ms,
@@ -1819,7 +1941,7 @@ def test_resident_authority_builder_is_lazy() -> None:
         events.append("signer")
         raise AssertionError("signer factory must stay lazy")
 
-    authority_module.build_gpu_dispatch_context_factory(
+    _build_dispatch_context_factory(
         sessions,  # type: ignore[arg-type]
         store_factory=open_store,  # type: ignore[arg-type]
         signer_factory=load_signer,  # type: ignore[arg-type]
@@ -1843,7 +1965,7 @@ def test_resident_authority_builder_is_lazy() -> None:
 )
 def test_resident_authority_rejects_invalid_fifo_timings(kwargs: dict) -> None:
     with pytest.raises(ValueError):
-        authority_module.build_gpu_dispatch_context_factory(
+        _build_dispatch_context_factory(
             _session_factory([]),
             **kwargs,
         )
@@ -1901,7 +2023,7 @@ async def test_resident_authority_orders_horizon_signing_and_release(
         events.append("store")
         return store
 
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=open_store,  # type: ignore[arg-type]
         signer_factory=load_signer,  # type: ignore[arg-type]
@@ -1948,7 +2070,7 @@ async def test_resident_authority_marks_missing_outcome_uncertain(monkeypatch) -
     store = _RecordingStore(events)
     signer = _RecordingSigner(events)
     _install_authority_fakes(monkeypatch, events, subject)
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -1969,7 +2091,7 @@ async def test_resident_authority_releases_only_its_proven_unsent_lease(monkeypa
     subject = _subject()
     store = _RecordingStore(events)
     _install_authority_fakes(monkeypatch, events, subject)
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,
         signer_factory=lambda: _RecordingSigner(events),
@@ -2002,7 +2124,7 @@ async def test_resident_authority_releases_when_horizon_revalidation_fails(
         "record_gpu_resident_runtime_token_expiry",
         reject_horizon,
     )
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -2026,7 +2148,7 @@ async def test_resident_authority_cleans_up_same_lease_after_admit_error(
     store = _RecordingStore(events, admission_status="error")
     signer = _RecordingSigner(events)
     _install_authority_fakes(monkeypatch, events, subject)
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -2053,7 +2175,7 @@ async def test_resident_authority_releases_when_pre_yield_heartbeat_fails(
     store = _RecordingStore(events, heartbeat_status="stale")
     signer = _RecordingSigner(events)
     _install_authority_fakes(monkeypatch, events, subject)
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -2074,7 +2196,7 @@ async def test_resident_authority_releases_when_signing_fails(monkeypatch) -> No
     store = _RecordingStore(events)
     signer = _RecordingSigner(events, fail=True)
     _install_authority_fakes(monkeypatch, events, subject)
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -2095,7 +2217,7 @@ async def test_resident_authority_heartbeats_until_response(monkeypatch) -> None
     store = _RecordingStore(events)
     signer = _RecordingSigner(events)
     _install_authority_fakes(monkeypatch, events, subject)
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -2123,7 +2245,7 @@ async def test_resident_authority_maps_concurrency_and_rejects_unload_before_io(
     store = _RecordingStore(events, admission_status="concurrency_saturated")
     signer = _RecordingSigner(events)
     _install_authority_fakes(monkeypatch, events, subject)
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -2170,7 +2292,7 @@ async def test_resident_authority_waits_in_backend_fifo_and_consumes_exact_ticke
     )
     signer = _RecordingSigner(events)
     _install_authority_fakes(monkeypatch, events, subject)
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -2219,6 +2341,7 @@ async def test_fifo_enqueue_retry_keeps_original_deadline(monkeypatch) -> None:
     monkeypatch.setattr(store, "enqueue_backend", lose_first_enqueue_response)
     ticket = await authority_module._enqueue_fifo_ticket(
         store,  # type: ignore[arg-type]
+        _DispatchTestClock(),
         _RESOURCE_ID,
         backend_id="backend:test",
         membership_epoch=3,
@@ -2247,7 +2370,7 @@ async def test_resident_uncertain_admit_then_rejection_keeps_exact_cleanup(
     )
     signer = _RecordingSigner(events)
     _install_authority_fakes(monkeypatch, events, subject)
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -2281,7 +2404,7 @@ async def test_resident_backend_fifo_timeout_cancels_ticket_before_store_close(
     store = _RecordingStore(events, admission_status="concurrency_saturated")
     signer = _RecordingSigner(events)
     _install_authority_fakes(monkeypatch, events, subject)
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -2317,7 +2440,7 @@ async def test_resident_authority_finishes_uncertain_cleanup_under_repeated_canc
     store.block_uncertain = True
     signer = _RecordingSigner(events)
     _install_authority_fakes(monkeypatch, events, subject)
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -2363,7 +2486,7 @@ async def test_cold_authority_orders_generation_reservation_and_loading(
         events.append("store")
         return store
 
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=open_store,  # type: ignore[arg-type]
         signer_factory=load_signer,  # type: ignore[arg-type]
@@ -2421,7 +2544,7 @@ async def test_cold_authority_waits_for_card_fifo_head_before_capacity_or_owner(
     store = _RecordingStore(events, card_queue_positions=[2, 2, 1])
     signer = _RecordingSigner(events)
     _install_cold_authority_fakes(monkeypatch, events, subject)
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -2452,7 +2575,7 @@ async def test_cold_card_fifo_timeout_cancels_ticket_without_capacity_work(
     store = _RecordingStore(events, card_queue_positions=[2])
     signer = _RecordingSigner(events)
     _install_cold_authority_fakes(monkeypatch, events, subject)
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -2483,7 +2606,7 @@ async def test_cold_card_fifo_cancellation_cleans_ticket_before_store_close(
     store = _RecordingStore(events, card_queue_positions=[2])
     signer = _RecordingSigner(events)
     _install_cold_authority_fakes(monkeypatch, events, subject)
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -2540,7 +2663,7 @@ async def test_cold_cooldown_timeout_waits_then_cleans_exact_ticket(
     )
     signer = _RecordingSigner(events)
     _install_cold_authority_fakes(monkeypatch, events, subject)
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -2605,7 +2728,7 @@ async def test_cold_cooldown_cancellation_cleans_ticket_before_store_close(
     )
     signer = _RecordingSigner(events)
     _install_cold_authority_fakes(monkeypatch, events, subject)
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -2659,7 +2782,7 @@ async def test_cold_authority_keeps_unknown_or_stale_terminal_lease_uncertain(
         terminal_state=GPUAllocationState.UNKNOWN,
         terminal_status=terminal_status,
     )
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -2718,7 +2841,7 @@ async def test_cold_authority_heartbeats_through_terminal_commit(monkeypatch) ->
         "commit_gpu_cold_terminal_from_health",
         commit_after_heartbeat,
     )
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -2741,7 +2864,7 @@ async def test_cold_authority_releases_intent_when_revalidation_is_missing(
     store = _RecordingStore(events, cold_revalidate_status="missing")
     signer = _RecordingSigner(events)
     _install_cold_authority_fakes(monkeypatch, events, subject)
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -2768,7 +2891,7 @@ async def test_cold_authority_rolls_back_unexposed_signing_failure(
     store = _RecordingStore(events)
     signer = _RecordingSigner(events, fail=True)
     _install_cold_authority_fakes(monkeypatch, events, subject)
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -2795,7 +2918,7 @@ async def test_cold_authority_retracts_only_its_proven_unsent_loading_reservatio
     subject = _cold_subject()
     store = _RecordingStore(events)
     _install_cold_authority_fakes(monkeypatch, events, subject)
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,
         signer_factory=lambda: _RecordingSigner(events),
@@ -2818,7 +2941,7 @@ async def test_cold_authority_rolls_back_invalid_unexposed_grant(monkeypatch) ->
     store = _RecordingStore(events)
     signer = _RecordingSigner(events, token=" ")
     _install_cold_authority_fakes(monkeypatch, events, subject)
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -2842,7 +2965,7 @@ async def test_cold_authority_retries_exact_admission_after_response_loss(
     store = _RecordingStore(events, admission_status="error_once")
     signer = _RecordingSigner(events)
     _install_cold_authority_fakes(monkeypatch, events, subject)
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -2867,7 +2990,7 @@ async def test_cold_authority_rolls_back_when_exact_admission_retry_is_lost(
     store = _RecordingStore(events, admission_status="error")
     signer = _RecordingSigner(events)
     _install_cold_authority_fakes(monkeypatch, events, subject)
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -2901,7 +3024,7 @@ async def test_cold_uncertain_admit_then_rejection_keeps_exact_cleanup(
     )
     signer = _RecordingSigner(events)
     _install_cold_authority_fakes(monkeypatch, events, subject)
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -2943,7 +3066,7 @@ async def test_cold_authority_uses_durable_horizon_when_it_is_earlier(
     signer = _RecordingSigner(events)
     _install_cold_authority_fakes(monkeypatch, events, subject)
     config = Settings(_env_file=None, ml_predict_timeout=1)
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         config=config,
         store_factory=lambda: store,  # type: ignore[arg-type]
@@ -2975,7 +3098,7 @@ async def test_cold_authority_rejects_invalid_ttl_before_secret_redis_or_prepare
         events.append("store")
         raise AssertionError("store must not be opened")
 
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         config=Settings(_env_file=None, ml_predict_timeout=3_000_000),
         store_factory=open_store,  # type: ignore[arg-type]
@@ -3007,7 +3130,7 @@ async def test_cold_authority_requires_post_token_reconcile_window(
         events.append("store")
         raise AssertionError("store must not be opened")
 
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         config=Settings(_env_file=None, ml_predict_timeout=151),
         store_factory=open_store,  # type: ignore[arg-type]
@@ -3034,7 +3157,7 @@ async def test_cold_authority_finishes_uncertain_cleanup_under_repeated_cancel(
     store.block_uncertain = True
     signer = _RecordingSigner(events)
     _install_cold_authority_fakes(monkeypatch, events, subject)
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -3080,7 +3203,7 @@ async def test_cold_authority_rejects_exhausted_generation_before_secret_or_redi
         events.append("store")
         raise AssertionError("store must not be opened")
 
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=open_store,  # type: ignore[arg-type]
         signer_factory=load_signer,  # type: ignore[arg-type]
@@ -3265,7 +3388,7 @@ async def test_cold_capacity_waits_for_cumulative_cooldown_with_exact_ticket(
     async def evict_one(*args, **kwargs) -> str:
         evictions.append(
             {
-                "victim": args[4],
+                "victim": args[6],
                 "card_ticket_id": kwargs["requester_card_ticket_id"],
                 "queue_owner_id": kwargs["requester_queue_owner_id"],
             }
@@ -3279,9 +3402,13 @@ async def test_cold_capacity_waits_for_cumulative_cooldown_with_exact_ticket(
     monkeypatch.setattr(authority_module, "_evict_one_idle_victim", evict_one)
     changed = await authority_module._ensure_cold_capacity(
         _session_factory(events),
+        _DispatchEndpointSource(),
+        _dispatch_test_transport,
         store,  # type: ignore[arg-type]
         _RecordingSigner(events),  # type: ignore[arg-type]
         requester,
+        request_id=uuid.uuid4(),
+        clock=_DispatchTestClock(),
         health_refresher=no_health,
         hard_ttl_ms=120_000,
         heartbeat_interval_seconds=5,
@@ -3341,9 +3468,13 @@ async def test_cold_capacity_uses_busy_victim_only_when_idle_capacity_is_insuffi
     monkeypatch.setattr(authority_module, "_evict_one_idle_victim", evict_one)
     changed = await authority_module._ensure_cold_capacity(
         _session_factory(events),
+        _DispatchEndpointSource(),
+        _dispatch_test_transport,
         store,  # type: ignore[arg-type]
         _RecordingSigner(events),  # type: ignore[arg-type]
         requester,
+        request_id=uuid.uuid4(),
+        clock=_DispatchTestClock(),
         health_refresher=no_health,
         hard_ttl_ms=120_000,
         heartbeat_interval_seconds=5,
@@ -3396,9 +3527,13 @@ async def test_cold_capacity_does_not_treat_not_ready_as_busy_fallback(
     with pytest.raises(GPUArbiterDispatchError) as caught:
         await authority_module._ensure_cold_capacity(
             _session_factory(events),
+            _DispatchEndpointSource(),
+            _dispatch_test_transport,
             store,  # type: ignore[arg-type]
             _RecordingSigner(events),  # type: ignore[arg-type]
             requester,
+            request_id=uuid.uuid4(),
+            clock=_DispatchTestClock(),
             health_refresher=lambda backend_id, challenge: asyncio.sleep(
                 0,
                 result=True,
@@ -3456,9 +3591,13 @@ async def test_cold_cooldown_wait_isolated_per_gpu_resource() -> None:
     waiting = asyncio.create_task(
         authority_module._ensure_cold_capacity(
             session_factory,  # type: ignore[arg-type]
+            _DispatchEndpointSource(),
+            _dispatch_test_transport,
             waiting_store,  # type: ignore[arg-type]
             signer,  # type: ignore[arg-type]
             requester_a,
+            request_id=uuid.uuid4(),
+            clock=_DispatchTestClock(),
             health_refresher=no_health,
             hard_ttl_ms=120_000,
             heartbeat_interval_seconds=5,
@@ -3477,9 +3616,13 @@ async def test_cold_cooldown_wait_isolated_per_gpu_resource() -> None:
     free = await asyncio.wait_for(
         authority_module._ensure_cold_capacity(
             session_factory,  # type: ignore[arg-type]
+            _DispatchEndpointSource(),
+            _dispatch_test_transport,
             free_store,  # type: ignore[arg-type]
             signer,  # type: ignore[arg-type]
             requester_b,
+            request_id=uuid.uuid4(),
+            clock=_DispatchTestClock(),
             health_refresher=no_health,
             hard_ttl_ms=120_000,
             heartbeat_interval_seconds=5,
@@ -3552,6 +3695,7 @@ async def test_eviction_heartbeat_fails_at_hard_deadline() -> None:
         await authority_module._heartbeat_eviction_owner(
             store,  # type: ignore[arg-type]
             prepared,
+            _DispatchTestClock(),
             owner_id="evict:test",
             heartbeat_ttl_ms=30_000,
             heartbeat_interval_seconds=1,
@@ -3607,9 +3751,13 @@ async def test_cold_capacity_deadline_stops_before_next_victim(monkeypatch) -> N
     with pytest.raises(GPUArbiterDispatchError) as caught:
         await authority_module._ensure_cold_capacity(
             _session_factory(events),
+            _DispatchEndpointSource(),
+            _dispatch_test_transport,
             store,  # type: ignore[arg-type]
             signer,  # type: ignore[arg-type]
             subject,
+            request_id=uuid.uuid4(),
+            clock=_DispatchTestClock(),
             health_refresher=lambda backend_id, challenge: asyncio.sleep(
                 0,
                 result=True,
@@ -3673,10 +3821,8 @@ async def test_cold_eviction_timeout_reserves_owner_for_unknown_cleanup(
     monkeypatch.setattr(store, "begin_idle_eviction", record_owner_deadline)
 
     class BlockingDrainClient:
-        def __init__(
-            self, backend: MLBackendRegistry, *, shadow_session_factory=None
-        ) -> None:
-            self.backend_id = backend.id
+        def __init__(self, endpoint: BackendEndpointSnapshot) -> None:
+            self.backend_id = endpoint.registry_id
 
         async def lifecycle_drain(self, grant):
             events.append(f"drain:{self.backend_id}")
@@ -3686,7 +3832,7 @@ async def test_cold_eviction_timeout_reserves_owner_for_unknown_cleanup(
                 events.append(f"drain_cancelled:{self.backend_id}")
                 raise
 
-    monkeypatch.setattr(authority_module, "MLBackendClient", BlockingDrainClient)
+    monkeypatch.setattr(_dispatch_test_transport, "client_factory", BlockingDrainClient)
 
     async def commit_unknown(
         session_factory,
@@ -3720,7 +3866,7 @@ async def test_cold_eviction_timeout_reserves_owner_for_unknown_cleanup(
     async def refresh_health(backend_id: uuid.UUID, challenge: str) -> bool:
         return True
 
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -3823,7 +3969,7 @@ async def test_cold_authority_evicts_multiple_idle_victims_before_target_owner(
         health_challenges.setdefault(backend_id, []).append(challenge)
         return True
 
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -3952,7 +4098,7 @@ async def test_cold_authority_rereads_target_after_eviction_before_issuing_owner
         events.append(f"eviction_health:{backend_id}")
         return True
 
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -4021,7 +4167,7 @@ async def test_target_health_failure_after_eviction_blocks_cold_owner(
             return False
         return True
 
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -4068,7 +4214,7 @@ async def test_cold_authority_rejects_when_only_higher_priority_victim_exists(
         health_calls.append(backend_id)
         return True
 
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -4142,10 +4288,8 @@ async def test_eviction_retries_same_route_token_with_fresh_outcome_channel(
     )
 
     class RetryClient:
-        def __init__(
-            self, backend: MLBackendRegistry, *, shadow_session_factory=None
-        ) -> None:
-            self.backend_id = backend.id
+        def __init__(self, endpoint: BackendEndpointSnapshot) -> None:
+            self.backend_id = endpoint.registry_id
 
         async def lifecycle_drain(self, grant):
             attempts["drain"].append(grant)
@@ -4163,12 +4307,12 @@ async def test_eviction_retries_same_route_token_with_fresh_outcome_channel(
             grant.report_response(200)
             return _unload_response(prepared_by_id[self.backend_id])
 
-    monkeypatch.setattr(authority_module, "MLBackendClient", RetryClient)
+    monkeypatch.setattr(_dispatch_test_transport, "client_factory", RetryClient)
 
     async def refresh_health(backend_id: uuid.UUID, challenge: str) -> bool:
         return True
 
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -4273,7 +4417,7 @@ async def test_eviction_replays_lost_terminal_commit_before_cleanup(
     async def refresh_health(backend_id: uuid.UUID, challenge: str) -> bool:
         return True
 
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -4377,10 +4521,14 @@ async def test_uncertain_begin_still_runs_conservative_owner_cleanup(
 
     outcome = await authority_module._evict_one_idle_victim(
         _session_factory(events),
+        _DispatchEndpointSource(),
+        _dispatch_test_transport,
         store,  # type: ignore[arg-type]
         signer,  # type: ignore[arg-type]
         subject,
         victim,
+        request_id=uuid.uuid4(),
+        clock=_DispatchTestClock(),
         health_refresher=refresh_health,
         hard_ttl_ms=120_000,
         heartbeat_interval_seconds=5,
@@ -4432,10 +4580,8 @@ async def test_uncertain_victim_stops_before_evicting_another_or_target(
     )
 
     class InvalidDrainClient:
-        def __init__(
-            self, backend: MLBackendRegistry, *, shadow_session_factory=None
-        ) -> None:
-            self.backend_id = backend.id
+        def __init__(self, endpoint: BackendEndpointSnapshot) -> None:
+            self.backend_id = endpoint.registry_id
 
         async def lifecycle_drain(self, grant):
             events.append(f"invalid_drain:{self.backend_id}")
@@ -4463,7 +4609,7 @@ async def test_uncertain_victim_stops_before_evicting_another_or_target(
             reason="eviction_response_uncertain",
         )
 
-    monkeypatch.setattr(authority_module, "MLBackendClient", InvalidDrainClient)
+    monkeypatch.setattr(_dispatch_test_transport, "client_factory", InvalidDrainClient)
     monkeypatch.setattr(
         authority_module,
         "commit_gpu_eviction_phase_from_health",
@@ -4476,7 +4622,7 @@ async def test_uncertain_victim_stops_before_evicting_another_or_target(
         health_calls.append(backend_id)
         return True
 
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -4546,14 +4692,17 @@ async def test_phase_health_failure_converges_unknown_and_stops_eviction(
     )
     if lost_unload_responses:
 
-        class LostUnloadResponseClient(authority_module.MLBackendClient):
+        class LostUnloadResponseClient:
+            def __init__(self, endpoint: BackendEndpointSnapshot) -> None:
+                self.backend_id = endpoint.registry_id
+
             async def lifecycle_unload(self, grant):
                 events.append(f"unload:{self.backend_id}")
                 grant.report_uncertain_if_missing("request_aborted")
                 raise TimeoutError("unload response lost")
 
         monkeypatch.setattr(
-            authority_module, "MLBackendClient", LostUnloadResponseClient
+            _dispatch_test_transport, "client_factory", LostUnloadResponseClient
         )
     commit_calls: list[tuple[str, str | None]] = []
 
@@ -4600,7 +4749,7 @@ async def test_phase_health_failure_converges_unknown_and_stops_eviction(
             return False
         return True
 
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]
@@ -4662,7 +4811,7 @@ async def test_unavailable_initial_victim_health_sends_no_lifecycle_request(
             raise TimeoutError("health unavailable")
         return False
 
-    factory = authority_module.build_gpu_dispatch_context_factory(
+    factory = _build_dispatch_context_factory(
         _session_factory(events),
         store_factory=lambda: store,  # type: ignore[arg-type]
         signer_factory=lambda: signer,  # type: ignore[arg-type]

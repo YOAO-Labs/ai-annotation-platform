@@ -1,0 +1,431 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-inference-topology-native/v1",
+  "title": "Inference backend topology Native API",
+  "$comment": "Fixed borrowed-transaction topology functions. Public Registry facts expose credential_configured only; no function returns auth_token.",
+  "$defs": {},
+  "type": "object",
+  "function_defaults": {
+    "parallel": "UNSAFE",
+    "security_definer": true,
+    "search_path": ["pg_catalog", "pg_temp"],
+    "time_zone": "UTC",
+    "date_style": "ISO, YMD",
+    "extra_float_digits": 3
+  },
+  "tables": [],
+  "functions": [
+    {
+      "signature": "aap_inference_topology_v1.topology_policy()",
+      "language": "sql",
+      "volatility": "STABLE",
+      "arguments": [],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Closed function inventory and caller-owned transaction declaration."
+    },
+    {
+      "signature": "aap_inference_topology_v1.registry_facts(uuid)",
+      "language": "sql",
+      "volatility": "STABLE",
+      "arguments": [{ "name": "p_registry_id", "type": "uuid", "nullable": true }],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Credential-free public Registry facts; stored credential bytes are never projected."
+    },
+    {
+      "signature": "aap_inference_topology_v1.registry_url_owner(text)",
+      "language": "sql",
+      "volatility": "STABLE",
+      "arguments": [{ "name": "p_url", "type": "text", "nullable": true }],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Normalized URL owner name and identity only."
+    },
+    {
+      "signature": "aap_inference_topology_v1.registry_catalog()",
+      "language": "sql",
+      "volatility": "STABLE",
+      "arguments": [],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Credential-free Registry catalog ordered by creation time descending."
+    },
+    {
+      "signature": "aap_inference_topology_v1.registry_names(uuid[])",
+      "language": "plpgsql",
+      "volatility": "STABLE",
+      "arguments": [{ "name": "p_registry_ids", "type": "uuid[]", "nullable": false }],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Names only for requested actual Registry IDs; rejects batches over 500."
+    },
+    {
+      "signature": "aap_inference_topology_v1.registry_reference(uuid)",
+      "language": "sql",
+      "volatility": "STABLE",
+      "arguments": [{ "name": "p_registry_id", "type": "uuid", "nullable": true }],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Existence and ID only."
+    },
+    {
+      "signature": "aap_inference_topology_v1.pool_reference(uuid)",
+      "language": "sql",
+      "volatility": "STABLE",
+      "arguments": [{ "name": "p_pool_id", "type": "uuid", "nullable": true }],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Nonlocking public Pool reference and configuration facts."
+    },
+    {
+      "signature": "aap_inference_topology_v1.pool_for_registry(uuid)",
+      "language": "sql",
+      "volatility": "STABLE",
+      "arguments": [{ "name": "p_registry_id", "type": "uuid", "nullable": true }],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Credential-free owning Pool facts for one Registry."
+    },
+    {
+      "signature": "aap_inference_topology_v1.pool_catalog()",
+      "language": "sql",
+      "volatility": "STABLE",
+      "arguments": [],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Public Pool catalog ordered by creation time descending."
+    },
+    {
+      "signature": "aap_inference_topology_v1.pool_members(uuid)",
+      "language": "sql",
+      "volatility": "STABLE",
+      "arguments": [{ "name": "p_pool_id", "type": "uuid", "nullable": true }],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Member facts with credential-free Registry projections."
+    },
+    {
+      "signature": "aap_inference_topology_v1.project_backend_catalog(uuid)",
+      "language": "sql",
+      "volatility": "STABLE",
+      "arguments": [{ "name": "p_project_id", "type": "uuid", "nullable": true }],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "All Registry facts and optional project association/member projection."
+    },
+    {
+      "signature": "aap_inference_topology_v1.project_backend_facts(uuid[])",
+      "language": "plpgsql",
+      "volatility": "STABLE",
+      "arguments": [{ "name": "p_project_ids", "type": "uuid[]", "nullable": false }],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Enabled project-member facts for at most 500 project IDs; credential-free."
+    },
+    {
+      "signature": "aap_inference_topology_v1.enabled_project_ids(uuid[])",
+      "language": "plpgsql",
+      "volatility": "STABLE",
+      "arguments": [{ "name": "p_project_ids", "type": "uuid[]", "nullable": false }],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Projects with any enabled association, including pools with no current members; rejects batches over 500."
+    },
+    {
+      "signature": "aap_inference_topology_v1.project_pool_catalog(uuid)",
+      "language": "sql",
+      "volatility": "STABLE",
+      "arguments": [{ "name": "p_project_id", "type": "uuid", "nullable": true }],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "All Pool facts, member counts and optional project association."
+    },
+    {
+      "signature": "aap_inference_topology_v1.project_assoc_for_registry(uuid,uuid)",
+      "language": "sql",
+      "volatility": "STABLE",
+      "arguments": [
+        { "name": "p_project_id", "type": "uuid", "nullable": true },
+        { "name": "p_registry_id", "type": "uuid", "nullable": true }
+      ],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Project association resolved through current Registry membership."
+    },
+    {
+      "signature": "aap_inference_topology_v1.project_interactive_backend(uuid)",
+      "language": "sql",
+      "volatility": "STABLE",
+      "arguments": [{ "name": "p_project_id", "type": "uuid", "nullable": true }],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "First enabled, connected, interactive Registry fact for the project."
+    },
+    {
+      "signature": "aap_inference_topology_v1.create_manual_registry(uuid,text)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_registry_id", "type": "uuid", "nullable": false },
+        { "name": "p_values", "type": "text", "nullable": false }
+      ],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Whitelisted manual Registry creation; credential input is write-only and public facts omit token bytes."
+    },
+    {
+      "signature": "aap_inference_topology_v1.singleton_pool(uuid)",
+      "language": "sql",
+      "volatility": "STABLE",
+      "arguments": [{ "name": "p_registry_id", "type": "uuid", "nullable": true }],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Current singleton Pool, if any."
+    },
+    {
+      "signature": "aap_inference_topology_v1.create_singleton_pool(uuid,uuid,text,text,text)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_registry_id", "type": "uuid", "nullable": false },
+        { "name": "p_pool_id", "type": "uuid", "nullable": false },
+        { "name": "p_name", "type": "text", "nullable": false },
+        { "name": "p_snapshot", "type": "text", "nullable": true },
+        { "name": "p_fingerprint", "type": "text", "nullable": true }
+      ],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Create disabled singleton Pool preserving separate Registry/Pool/Member flush phases."
+    },
+    {
+      "signature": "aap_inference_topology_v1.create_singleton_member(uuid,uuid,uuid)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_registry_id", "type": "uuid", "nullable": false },
+        { "name": "p_pool_id", "type": "uuid", "nullable": false },
+        { "name": "p_member_id", "type": "uuid", "nullable": false }
+      ],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Create the singleton active weight-one Member in its own phase."
+    },
+    {
+      "signature": "aap_inference_topology_v1.patch_registry(uuid,text)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_registry_id", "type": "uuid", "nullable": false },
+        { "name": "p_patch", "type": "text", "nullable": false }
+      ],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Whitelisted Registry update with protected-change, GPU fence, routing and cache-invalidation guards."
+    },
+    {
+      "signature": "aap_inference_topology_v1.validate_registry_delete(uuid)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [{ "name": "p_registry_id", "type": "uuid", "nullable": false }],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Learning reference, legacy running Jobs and managed GPU deletion guards."
+    },
+    {
+      "signature": "aap_inference_topology_v1.delete_registry(uuid,text)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_registry_id", "type": "uuid", "nullable": false },
+        { "name": "p_expected", "type": "text", "nullable": false }
+      ],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Final locked Registry revalidation, ordered owning/legacy Pool updates, Member removal and final owning Pool identity."
+    },
+    {
+      "signature": "aap_inference_topology_v1.create_pool(uuid,text)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_pool_id", "type": "uuid", "nullable": false },
+        { "name": "p_name", "type": "text", "nullable": false }
+      ],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Create a disabled, empty Pool with no arbitrary legacy assignment."
+    },
+    {
+      "signature": "aap_inference_topology_v1.patch_pool(uuid,text)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_pool_id", "type": "uuid", "nullable": false },
+        { "name": "p_patch", "type": "text", "nullable": false }
+      ],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Whitelisted Pool name/enabled patch with active legacy and capability guards."
+    },
+    {
+      "signature": "aap_inference_topology_v1.lock_empty_pool(uuid)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [{ "name": "p_pool_id", "type": "uuid", "nullable": false }],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Lock Pool and confirm it has no members before Workspace clear."
+    },
+    {
+      "signature": "aap_inference_topology_v1.delete_empty_pool(uuid)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [{ "name": "p_pool_id", "type": "uuid", "nullable": false }],
+      "returns": { "kind": "scalar", "type": "boolean" },
+      "semantics": "Recheck emptiness and delete Pool after same-UOW Workspace binding clear."
+    },
+    {
+      "signature": "aap_inference_topology_v1.lock_member_upsert_rows(uuid,uuid)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_pool_id", "type": "uuid", "nullable": false },
+        { "name": "p_registry_id", "type": "uuid", "nullable": false }
+      ],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Registry SHARE, Pool UPDATE, owned Member UPDATE in prescribed order."
+    },
+    {
+      "signature": "aap_inference_topology_v1.upsert_member(uuid,uuid,integer,text)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_pool_id", "type": "uuid", "nullable": false },
+        { "name": "p_registry_id", "type": "uuid", "nullable": false },
+        { "name": "p_weight", "type": "integer", "nullable": false },
+        { "name": "p_expected", "type": "text", "nullable": false }
+      ],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Compare locked capability/member review facts, seed first baseline/legacy, preserve state on weight upsert."
+    },
+    {
+      "signature": "aap_inference_topology_v1.remove_member(uuid,uuid,text)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_pool_id", "type": "uuid", "nullable": false },
+        { "name": "p_registry_id", "type": "uuid", "nullable": false },
+        { "name": "p_expected", "type": "text", "nullable": true }
+      ],
+      "returns": { "kind": "scalar", "type": "boolean" },
+      "semantics": "Registry KEY SHARE, Pool UPDATE, Member UPDATE; revalidate expected topology and clear legacy/disable if needed."
+    },
+    {
+      "signature": "aap_inference_topology_v1.drain_member(uuid,uuid)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_pool_id", "type": "uuid", "nullable": false },
+        { "name": "p_registry_id", "type": "uuid", "nullable": false }
+      ],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Pool then Member transition to draining; no later Registry wait."
+    },
+    {
+      "signature": "aap_inference_topology_v1.resume_member(uuid,uuid)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_pool_id", "type": "uuid", "nullable": false },
+        { "name": "p_registry_id", "type": "uuid", "nullable": false }
+      ],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Pool then Member transition to active; disabled members require capability revalidation."
+    },
+    {
+      "signature": "aap_inference_topology_v1.drift_review_rows(uuid,uuid)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_pool_id", "type": "uuid", "nullable": false },
+        { "name": "p_registry_id", "type": "uuid", "nullable": false }
+      ],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Read target Pool and joined credential-free Member/Registry facts for portable review."
+    },
+    {
+      "signature": "aap_inference_topology_v1.lock_drift_acceptance_rows(uuid,uuid)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_pool_id", "type": "uuid", "nullable": false },
+        { "name": "p_registry_id", "type": "uuid", "nullable": false }
+      ],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Registry SHARE, Pool UPDATE, only joined Members UPDATE; never locks peer Registries."
+    },
+    {
+      "signature": "aap_inference_topology_v1.accept_drift(uuid,uuid,text,boolean,text)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_pool_id", "type": "uuid", "nullable": false },
+        { "name": "p_registry_id", "type": "uuid", "nullable": false },
+        { "name": "p_candidate_fingerprint", "type": "text", "nullable": false },
+        { "name": "p_enable_pool", "type": "boolean", "nullable": false },
+        { "name": "p_expected", "type": "text", "nullable": false }
+      ],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Compare fresh locked reviewed facts, restore disabled target, optionally replace reviewed baseline and enable Pool."
+    },
+    {
+      "signature": "aap_inference_topology_v1.set_project_registry_enablement(uuid,uuid,boolean,text)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_project_id", "type": "uuid", "nullable": false },
+        { "name": "p_registry_id", "type": "uuid", "nullable": false },
+        { "name": "p_enabled", "type": "boolean", "nullable": false },
+        { "name": "p_overrides", "type": "text", "nullable": false }
+      ],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Workspace project lock precedes Registry/Pool locks; registry-compatible enable may enable singleton Pool; preserves omitted/null override mask."
+    },
+    {
+      "signature": "aap_inference_topology_v1.set_project_pool_enablement(uuid,uuid,boolean,text)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_project_id", "type": "uuid", "nullable": false },
+        { "name": "p_pool_id", "type": "uuid", "nullable": false },
+        { "name": "p_enabled", "type": "boolean", "nullable": false },
+        { "name": "p_overrides", "type": "text", "nullable": false }
+      ],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Workspace project lock precedes Pool update; enabling requires existing enabled Pool/legacy; does not globally enable."
+    },
+    {
+      "signature": "aap_inference_topology_v1.delete_project_associations(uuid)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [{ "name": "p_project_id", "type": "uuid", "nullable": false }],
+      "returns": { "kind": "scalar", "type": "integer" },
+      "semantics": "Delete only topology-owned project association rows through existing database triggers."
+    }
+  ],
+  "x-postgresql-functions": [
+    "aap_inference_topology_v1.topology_policy()",
+    "aap_inference_topology_v1.registry_facts(uuid)",
+    "aap_inference_topology_v1.registry_url_owner(text)",
+    "aap_inference_topology_v1.registry_catalog()",
+    "aap_inference_topology_v1.registry_names(uuid[])",
+    "aap_inference_topology_v1.registry_reference(uuid)",
+    "aap_inference_topology_v1.pool_reference(uuid)",
+    "aap_inference_topology_v1.pool_for_registry(uuid)",
+    "aap_inference_topology_v1.pool_catalog()",
+    "aap_inference_topology_v1.pool_members(uuid)",
+    "aap_inference_topology_v1.project_backend_catalog(uuid)",
+    "aap_inference_topology_v1.project_backend_facts(uuid[])",
+    "aap_inference_topology_v1.enabled_project_ids(uuid[])",
+    "aap_inference_topology_v1.project_pool_catalog(uuid)",
+    "aap_inference_topology_v1.project_assoc_for_registry(uuid,uuid)",
+    "aap_inference_topology_v1.project_interactive_backend(uuid)",
+    "aap_inference_topology_v1.create_manual_registry(uuid,text)",
+    "aap_inference_topology_v1.singleton_pool(uuid)",
+    "aap_inference_topology_v1.create_singleton_pool(uuid,uuid,text,text,text)",
+    "aap_inference_topology_v1.create_singleton_member(uuid,uuid,uuid)",
+    "aap_inference_topology_v1.patch_registry(uuid,text)",
+    "aap_inference_topology_v1.validate_registry_delete(uuid)",
+    "aap_inference_topology_v1.delete_registry(uuid,text)",
+    "aap_inference_topology_v1.create_pool(uuid,text)",
+    "aap_inference_topology_v1.patch_pool(uuid,text)",
+    "aap_inference_topology_v1.lock_empty_pool(uuid)",
+    "aap_inference_topology_v1.delete_empty_pool(uuid)",
+    "aap_inference_topology_v1.lock_member_upsert_rows(uuid,uuid)",
+    "aap_inference_topology_v1.upsert_member(uuid,uuid,integer,text)",
+    "aap_inference_topology_v1.remove_member(uuid,uuid,text)",
+    "aap_inference_topology_v1.drain_member(uuid,uuid)",
+    "aap_inference_topology_v1.resume_member(uuid,uuid)",
+    "aap_inference_topology_v1.drift_review_rows(uuid,uuid)",
+    "aap_inference_topology_v1.lock_drift_acceptance_rows(uuid,uuid)",
+    "aap_inference_topology_v1.accept_drift(uuid,uuid,text,boolean,text)",
+    "aap_inference_topology_v1.set_project_registry_enablement(uuid,uuid,boolean,text)",
+    "aap_inference_topology_v1.set_project_pool_enablement(uuid,uuid,boolean,text)",
+    "aap_inference_topology_v1.delete_project_associations(uuid)"
+  ]
+}

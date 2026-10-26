@@ -13,8 +13,8 @@ from aap_protocol_v2.lifecycle import (
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from app.config import Settings
-from app.services.gpu_arbitration.signing import (
+from aap_inference.gpu.settings import GPUArbiterMode, GPUAuthoritySettings
+from aap_inference.gpu.signing import (
     GPUAdmissionSignerConfigError,
     GPUAdmissionTokenSigner,
 )
@@ -70,8 +70,8 @@ def test_signer_selects_active_key_and_emits_verifiable_token(tmp_path) -> None:
 
 
 def test_settings_keep_signer_file_lazy(monkeypatch) -> None:
-    config = Settings(
-        _env_file=None,
+    config = GPUAuthoritySettings(
+        gpu_arbiter_mode=GPUArbiterMode.OFF,
         gpu_lifecycle_signing_keys_file="/must-not-be-read",
         gpu_lifecycle_active_signing_kid="current",
     )

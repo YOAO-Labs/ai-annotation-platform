@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import uuid
 from pathlib import Path
 
 from celery.signals import task_prerun, worker_ready
@@ -48,10 +49,10 @@ def _record_batch_delivery(task_id, task, **_kwargs) -> None:
 
 def install() -> None:
     from app.application.preannotation_results import BatchResultExecution
-    from aap_inference.backend_transport import PredictionResult
+    from aap_inference_contract.execution import ModelTaskResult
     from app.workers.tasks import batch_predict
     from app.workers.predictions_retry import retry_failed_prediction
-    from app.services.ml_routing.client import RoutedMLBackendClient
+    from tests.inference_execution_test_ports import pipeline_output
 
     original_call = BatchResultExecution.call
     original_capture = BatchResultExecution.capture
@@ -139,33 +140,44 @@ def install() -> None:
                 await asyncio.sleep(0.1)
         return result
 
-    async def fake_model_pipeline(task, *_args, **_kwargs):
+    async def fake_model_pipeline(task, stages, *_args, **_kwargs):
+        from sqlalchemy import inspect
+
+        task_id = str(inspect(task).identity[0])
+        backend_id = uuid.UUID(str(stages[0]["ml_backend_id"]))
         _append_json(
             "AAP_TEST_BATCH_RESULT_MODEL_CALLS_PATH",
-            {"pid": os.getpid(), "task_id": str(task.id)},
+            {"pid": os.getpid(), "task_id": task_id},
         )
-        return (
+        return pipeline_output(
             [
-                PredictionResult(
-                    task_id=str(task.id),
-                    result=[],
+                ModelTaskResult(
+                    task_id=task_id,
+                    result=(),
                     score=0.91,
                     model_version="worker-recovery-fixture",
                     inference_time_ms=7,
                     meta={"total_cost": 0.0042},
                 )
             ],
-            None,
-            None,
+            instance_id=backend_id,
         )
 
-    async def fake_retry_model(_client, tasks, **kwargs):
-        from types import SimpleNamespace
-
-        results, _metrics, _stages = await fake_model_pipeline(
-            SimpleNamespace(id=tasks[0]["id"])
+    async def fake_retry_pipeline(task_id, stages, *_args, **_kwargs):
+        backend_id = uuid.UUID(str(stages[0]["ml_backend_id"]))
+        return pipeline_output(
+            [
+                ModelTaskResult(
+                    task_id=str(task_id),
+                    result=(),
+                    score=0.91,
+                    model_version="worker-recovery-fixture",
+                    inference_time_ms=7,
+                    meta={"total_cost": 0.0042},
+                )
+            ],
+            instance_id=backend_id,
         )
-        return results
 
     original_prediction_retry = retry_failed_prediction.retry
 
@@ -182,10 +194,13 @@ def install() -> None:
     BatchResultExecution.capture = capture_then_hold
     batch_predict.retry = retry_after_lease_window
     retry_failed_prediction.retry = prediction_retry_after_lease_window
-    RoutedMLBackendClient.predict = fake_retry_model
+    import app.application.durable_prediction_retry as retry
     import app.application.preannotation_execution as execution
 
+    execution._model_execution_port = lambda *_args, **_kwargs: object()
     execution._run_task_pipeline = fake_model_pipeline
+    retry._model_execution_port = lambda *_args, **_kwargs: object()
+    retry.execute_task_pipeline = fake_retry_pipeline
 
 
 install()

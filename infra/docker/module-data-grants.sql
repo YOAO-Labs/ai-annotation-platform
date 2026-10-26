@@ -3871,4 +3871,37 @@ GRANT USAGE ON SCHEMA aap_labeling_v1 TO :"jobs_owner";
 GRANT SELECT (id, status, job_kind)
     ON aap_labeling_v1.video_tracker_job_rows TO :"jobs_owner";
 REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
+-- Complete Inference ownership: public topology/caller capabilities never return credentials.
+GRANT USAGE, CREATE ON SCHEMA aap_inference_topology_v1,
+    aap_inference_backend_endpoint_v1, aap_inference_gpu_v1,
+    aap_inference_gpu_caller_v1, aap_inference_gpu_collector_v1 TO :"inference_owner";
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.ml_backend_registry,
+    public.ml_backend_service_pools, public.ml_backend_pool_members,
+    public.project_ml_backend_pool, public.gpu_backend_fences,
+    public.gpu_backend_memberships, public.gpu_arbiter_rollouts,
+    public.gpu_backend_cancel_intents TO :"inference_owner";
+GRANT SELECT (id, ml_backend_pool_id) ON public.projects TO :"inference_owner";
+DO $inference_owner$
+DECLARE
+    v_function record;
+    v_owner name := current_setting('aap.inference_owner');
+BEGIN
+    FOR v_function IN
+        SELECT p.oid::pg_catalog.regprocedure AS signature
+        FROM pg_catalog.pg_proc p
+        JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+        WHERE n.nspname IN (
+            'aap_inference_topology_v1','aap_inference_backend_endpoint_v1',
+            'aap_inference_gpu_v1','aap_inference_gpu_caller_v1',
+            'aap_inference_gpu_collector_v1'
+        )
+    LOOP
+        EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO %I',v_function.signature,v_owner);
+    END LOOP;
+END;
+$inference_owner$;
+ALTER TABLE aap_inference_backend_endpoint_v1.endpoint_secret OWNER TO :"inference_owner";
+REVOKE CREATE ON SCHEMA aap_inference_topology_v1,
+    aap_inference_backend_endpoint_v1, aap_inference_gpu_v1,
+    aap_inference_gpu_caller_v1, aap_inference_gpu_collector_v1 FROM :"inference_owner";
 COMMIT;

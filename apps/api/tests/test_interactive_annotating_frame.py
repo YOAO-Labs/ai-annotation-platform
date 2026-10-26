@@ -15,7 +15,7 @@ from __future__ import annotations
 import io
 import json
 import uuid
-from unittest.mock import patch
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -28,10 +28,17 @@ from aap_protocol_v2 import (
 )
 from PIL import Image
 
+from aap_inference_contract.backend_control import BackendControlSetupResult
+from aap_inference_contract.execution import (
+    ExecutionProvenance,
+    ModelExecutionObservation,
+    ModelOperationResult,
+    ModelTaskResult,
+    thaw_json,
+)
 from app.db.models.ml_backend_registry import ProjectMLBackendPool
 from app.db.models.project import Project
 from app.db.models.task import Task
-from aap_inference.backend_transport import PredictionResult
 from tests.conftest import create_registry_with_pool
 
 FRAME_URL = "http://minio/import/frame-interactive/x/7.jpg"
@@ -83,86 +90,122 @@ async def _seed(db, owner_id, *, is_interactive=True):
     )
     db.add(task)
     await db.flush()
-    return proj, backend, task
+    return proj, backend, task, pool
 
 
 @pytest.fixture
 def patched(monkeypatch):
-    """抓取 predict_interactive 的调用参数；把对象存储上传打桩成固定 URL。"""
+    """Install control/execution port fakes and capture the actual model request."""
     captured: dict = {}
+    setup_payload = {
+        "models": [
+            {
+                "id": "frame-interactive",
+                "task": "interactive_seg",
+                "is_interactive": True,
+                "supported_prompts": ["point", "interactive_box"],
+                "supported_inputs": [
+                    "full_image",
+                    "point_prompt",
+                    "bbox_prompt",
+                ],
+                "supported_geometric_outputs": ["polygon", "mask"],
+            }
+        ]
+    }
 
-    async def fake_setup(self):
-        return {
-            "models": [
-                {
-                    "id": "frame-interactive",
-                    "task": "interactive_seg",
-                    "is_interactive": True,
-                    "supported_prompts": ["point", "interactive_box"],
-                    "supported_inputs": [
-                        "full_image",
-                        "point_prompt",
-                        "bbox_prompt",
-                    ],
-                    "supported_geometric_outputs": ["polygon", "mask"],
-                }
-            ]
-        }
+    async def fake_setup(registry_id):
+        return BackendControlSetupResult(registry_id=registry_id, setup=setup_payload)
 
-    async def fake_predict_interactive(self, task_data, context, **kwargs):
-        captured["task_data"] = task_data
-        captured["context"] = context
-        captured["predict_kwargs"] = kwargs
-        if context.get("output_geometry") == "mask":
-            height, width = captured.get("native_size", (24, 32))
-            rle = CocoRlePayload(
-                encoding="coco_rle",
-                size=[height, width],
-                counts=[0, 1, height * width - 1],
-            )
-            candidate = NativeMaskCandidate(
-                value=NativeMaskCandidateValue(rle=rle, masklabels=["object"]),
-                score=0.91,
-                candidate_id=native_mask_candidate_id(
-                    rle,
-                    prompt_revision=context["prompt_revision"],
-                    candidate_index=0,
+    monkeypatch.setattr(
+        "app.api.v1.ml_backends.backend_control_service",
+        lambda _db: SimpleNamespace(setup=fake_setup),
+    )
+
+    class FakeExecutionPort:
+        async def execute(self, operation):
+            task_data = thaw_json(operation.task_inputs[0])
+            context = thaw_json(operation.context) or {}
+            captured["operation"] = operation
+            captured["task_data"] = task_data
+            captured["context"] = context
+            if context.get("output_geometry") == "mask":
+                height, width = captured.get("native_size", (24, 32))
+                rle = CocoRlePayload(
+                    encoding="coco_rle",
+                    size=[height, width],
+                    counts=[0, 1, height * width - 1],
+                )
+                candidate = NativeMaskCandidate(
+                    value=NativeMaskCandidateValue(rle=rle, masklabels=["object"]),
+                    score=0.91,
+                    candidate_id=native_mask_candidate_id(
+                        rle,
+                        prompt_revision=context["prompt_revision"],
+                        candidate_index=0,
+                    ),
+                )
+                result = ModelTaskResult(
+                    task_id=task_data["id"],
+                    result=(candidate.model_dump(mode="json"),),
+                    score=0.91,
+                    model_version="test-frame-model",
+                    inference_time_ms=13,
+                    cache_hit=True,
+                    model_load_ms=42,
+                    meta={"backend": "frame-interactive"},
+                )
+            else:
+                result = ModelTaskResult(
+                    task_id=task_data["id"],
+                    result=({"type": "polygonlabels", "points": [[0.1, 0.1]]},),
+                    score=0.9,
+                    model_version="test-frame-model",
+                    inference_time_ms=7,
+                    cache_hit=False,
+                    model_load_ms=42,
+                    meta={"backend": "frame-interactive"},
+                    mask_input_next=RAW_MASK_INPUT,
+                )
+            registry_id = operation.requested_registry_id
+            return ModelOperationResult(
+                request_id=operation.request_id,
+                operation=operation.operation,
+                results=(result,),
+                provenance=ExecutionProvenance(
+                    requested_registry_id=operation.requested_registry_id,
+                    requested_pool_id=operation.requested_pool_id,
+                    registry_id=registry_id,
+                    pool_id=captured.get("pool_id"),
+                    instance_id=registry_id,
+                    route_scope_id=uuid.uuid4(),
+                    attempt_id=operation.request_id,
+                    topology_generation=operation.topology_generation,
+                    member_id=operation.selected_member_id,
                 ),
+                observation=ModelExecutionObservation(
+                    backend_id=str(registry_id),
+                    operation="predict_interactive",
+                    outcome="success",
+                    elapsed_seconds=0.001,
+                ),
+                wall_time_ms=1,
             )
-            return PredictionResult(
-                task_id=task_data["id"],
-                result=[candidate.model_dump(mode="json")],
-                model_version="test-frame-model",
-            )
-        return PredictionResult(
-            task_id=task_data["id"],
-            result=[{"type": "polygonlabels", "points": [[0.1, 0.1]]}],
-            score=0.9,
-            inference_time_ms=7,
-            cache_hit=False,
-            model_load_ms=42,
-            mask_input_next=RAW_MASK_INPUT,
-        )
+
+    monkeypatch.setattr(
+        "app.api.v1.ml_backends.model_execution_port",
+        lambda *_args, **_kwargs: FakeExecutionPort(),
+    )
 
     def fake_upload(self, data, key):
         captured["upload_key"] = key
         captured["upload_size"] = len(data)
         return FRAME_URL
 
-    with (
-        patch(
-            "app.services.ml_client.MLBackendClient.setup",
-            new=fake_setup,
-        ),
-        patch(
-            "app.services.ml_client.MLBackendClient.predict_interactive",
-            new=fake_predict_interactive,
-        ),
-    ):
-        monkeypatch.setattr(
-            "app.services.storage.StorageService.upload_crop_bytes", fake_upload
-        )
-        yield captured
+    monkeypatch.setattr(
+        "app.services.storage.StorageService.upload_crop_bytes", fake_upload
+    )
+    return captured
 
 
 def _url(proj, backend) -> str:
@@ -177,7 +220,8 @@ async def test_frame_bytes_become_backend_file_path(
 ):
     """帧 JPEG 上传换 URL 后投给 backend；task 的 mp4 路径不得出现在 task_data。"""
     user, token = super_admin
-    proj, backend, task = await _seed(db_session, user.id)
+    proj, backend, task, pool = await _seed(db_session, user.id)
+    patched["pool_id"] = pool.id
     await db_session.commit()
 
     resp = await httpx_client.post(
@@ -205,7 +249,8 @@ async def test_context_passthrough_without_threshold_injection(
 ):
     """context 原样透传；平台不注入项目级 DINO 阈值（与 interactive-annotating 一致）。"""
     user, token = super_admin
-    proj, backend, task = await _seed(db_session, user.id)
+    proj, backend, task, pool = await _seed(db_session, user.id)
+    patched["pool_id"] = pool.id
     await db_session.commit()
 
     resp = await httpx_client.post(
@@ -233,7 +278,8 @@ async def test_mask_input_next_passthrough(
 ):
     """low-res logits 由平台绑定帧与模型后签名，供同帧下一次点击精修。"""
     user, token = super_admin
-    proj, backend, task = await _seed(db_session, user.id)
+    proj, backend, task, pool = await _seed(db_session, user.id)
+    patched["pool_id"] = pool.id
     await db_session.commit()
 
     resp = await httpx_client.post(
@@ -256,6 +302,9 @@ async def test_mask_input_next_passthrough(
     assert session["frame_index"] == 3
     assert session["model_id"] == "frame-interactive"
     assert session["model_variants"] == {}
+    assert body["score"] == pytest.approx(0.9)
+    assert body["model_version"] == "test-frame-model"
+    assert body["inference_time_ms"] == 7
     assert body["model_load_ms"] == 42
     assert body["cache_hit"] is False
     assert body["result"][0]["type"] == "polygonlabels"
@@ -269,7 +318,8 @@ async def test_native_mask_frame_validates_jpeg_size_and_returns_lineage(
     httpx_client, super_admin, db_session, patched
 ):
     user, token = super_admin
-    proj, backend, task = await _seed(db_session, user.id)
+    proj, backend, task, pool = await _seed(db_session, user.id)
+    patched["pool_id"] = pool.id
     await db_session.commit()
 
     resp = await httpx_client.post(
@@ -288,6 +338,10 @@ async def test_native_mask_frame_validates_jpeg_size_and_returns_lineage(
     assert body["result"][0]["value"]["rle"]["size"] == [24, 32]
     assert body["routing"]["model_id"] == "frame-interactive"
     assert body["model_version"] == "test-frame-model"
+    assert body["score"] == pytest.approx(0.91)
+    assert body["inference_time_ms"] == 13
+    assert body["cache_hit"] is True
+    assert body["model_load_ms"] == 42
     assert body["prompt_revision"]
     candidate_id = body["result"][0]["candidate_id"]
     from app.services.ai_mask_receipt import verify_ai_mask_receipt
@@ -302,14 +356,15 @@ async def test_native_mask_frame_validates_jpeg_size_and_returns_lineage(
         "source_version": None,
         "frame_index": 4,
     }
-    assert patched["predict_kwargs"]["max_response_bytes"] == 16 * 1024 * 1024
+    assert patched["operation"].max_response_bytes == 16 * 1024 * 1024
 
 
 async def test_native_mask_frame_rejects_backend_size_mismatch(
     httpx_client, super_admin, db_session, patched
 ):
     user, token = super_admin
-    proj, backend, task = await _seed(db_session, user.id)
+    proj, backend, task, pool = await _seed(db_session, user.id)
+    patched["pool_id"] = pool.id
     await db_session.commit()
     patched["native_size"] = (23, 32)
 
@@ -332,7 +387,7 @@ async def test_non_interactive_backend_rejected(
     httpx_client, super_admin, db_session, patched
 ):
     user, token = super_admin
-    proj, backend, task = await _seed(db_session, user.id, is_interactive=False)
+    proj, backend, task, _ = await _seed(db_session, user.id, is_interactive=False)
     await db_session.commit()
 
     resp = await httpx_client.post(
@@ -352,7 +407,7 @@ async def test_interactive_frame_rejects_context_over_one_mib_before_upload(
     httpx_client, super_admin, db_session, patched
 ):
     user, token = super_admin
-    proj, backend, task = await _seed(db_session, user.id)
+    proj, backend, task, _ = await _seed(db_session, user.id)
     await db_session.commit()
     oversized = json.dumps(
         {"type": "point", "padding": "界" * 400_000},
@@ -378,7 +433,7 @@ async def test_interactive_frame_rejects_context_over_one_mib_before_upload(
 async def test_empty_frame_rejected(httpx_client, super_admin, db_session, patched):
     """空帧不该白跑一次 GPU 推理。"""
     user, token = super_admin
-    proj, backend, task = await _seed(db_session, user.id)
+    proj, backend, task, _ = await _seed(db_session, user.id)
     await db_session.commit()
 
     resp = await httpx_client.post(
@@ -397,7 +452,7 @@ async def test_invalid_context_json_rejected(
     httpx_client, super_admin, db_session, patched
 ):
     user, token = super_admin
-    proj, backend, task = await _seed(db_session, user.id)
+    proj, backend, task, _ = await _seed(db_session, user.id)
     await db_session.commit()
 
     resp = await httpx_client.post(
@@ -415,7 +470,7 @@ async def test_invalid_context_json_rejected(
 
 async def test_unknown_task_rejected(httpx_client, super_admin, db_session, patched):
     user, token = super_admin
-    proj, backend, _ = await _seed(db_session, user.id)
+    proj, backend, _, _ = await _seed(db_session, user.id)
     await db_session.commit()
 
     resp = await httpx_client.post(
@@ -434,8 +489,8 @@ async def test_cross_project_task_rejected(
 ):
     """跨项目越权: 用 A 项目的 backend + B 项目的 task_id → 404, 不落对象存储。"""
     user, token = super_admin
-    proj_a, backend_a, _ = await _seed(db_session, user.id)
-    _, _, task_b = await _seed(db_session, user.id)
+    proj_a, backend_a, _, _ = await _seed(db_session, user.id)
+    _, _, task_b, _ = await _seed(db_session, user.id)
     await db_session.commit()
 
     resp = await httpx_client.post(
@@ -454,7 +509,7 @@ async def test_ai_interactive_disabled_rejected(
 ):
     """项目关掉「交互式 AI 工具」总开关后, 直接调 API 也应 403 (开关不再是装饰)。"""
     user, token = super_admin
-    proj, backend, task = await _seed(db_session, user.id)
+    proj, backend, task, _ = await _seed(db_session, user.id)
     proj.ai_interactive_enabled = False
     await db_session.commit()
 

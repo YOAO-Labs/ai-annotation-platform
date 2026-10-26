@@ -12,7 +12,7 @@ Usage
     uv run python scripts/freeze_gpu_ledger_lua.py --check <file>   # compare to golden
 
 The 15 final script names mirror the constants defined in
-``app.services.gpu_arbitration.ledger.scripts`` (moved from the legacy flat module).
+``aap_inference.gpu.ledger.scripts``.
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    from app.services.gpu_arbitration.ledger import scripts as lua_sources
+    from aap_inference.gpu.ledger import scripts as lua_sources
 
     rows = compute_digest(lua_sources)
 

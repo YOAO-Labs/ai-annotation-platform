@@ -249,3 +249,28 @@ async def test_probe_only_readiness_and_pipeline_only_health_body_compatibility(
     )
     status, body = await combined._dispatch("GET", "/health", {}, b"")
     assert (status, json.loads(body)) == (200, {"status": "ready"})
+
+
+@pytest.mark.asyncio
+async def test_required_capabilities_health_tracks_each_selected_owner():
+    pipeline_data = _PipelineData(ready=False)
+    probe_manager = _ProbeManager(ready=True)
+    server = PipelineHttpServer(
+        _PipelineManager(),
+        pipeline_data,
+        "pipeline-token",
+        backend_probe_manager=probe_manager,
+        backend_probe_control_token="probe-token",
+        required_capabilities=("pipelines", "backend_probe"),
+    )
+
+    status, _ = await server._dispatch("GET", "/health", {}, b"")
+    assert status == 503
+
+    pipeline_data.ready = True
+    status, _ = await server._dispatch("GET", "/health", {}, b"")
+    assert status == 200
+
+    probe_manager.ready = False
+    status, _ = await server._dispatch("GET", "/health", {}, b"")
+    assert status == 503

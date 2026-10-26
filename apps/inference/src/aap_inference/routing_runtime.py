@@ -6,8 +6,9 @@ import asyncio
 from contextlib import asynccontextmanager
 import logging
 import math
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from typing import Any
+from uuid import UUID
 
 from aap_inference_contract.routing import (
     RoutingCommand,
@@ -15,6 +16,12 @@ from aap_inference_contract.routing import (
     RoutingRuntimeResult,
     RoutingStatusRequest,
     RoutingUnavailable,
+    ROUTING_DATA_PROTOCOL,
+    ROUTING_QUIESCENCE_RESULT_PROTOCOL,
+    RoutingQuiescenceRequest,
+    RoutingQuiescenceResult,
+    decode_routing_quiescence_request,
+    decode_routing_quiescence_result,
 )
 from aap_inference_contract.scope_retirement import (
     ScopeRetirementRequest,
@@ -101,6 +108,72 @@ class RoutingRuntime:
     async def execute(self, command: RoutingCommand | dict | bytes | str):
         return await self.manager.execute(command)
 
+    @asynccontextmanager
+    async def transport_subject_issuer(
+        self,
+        *,
+        parent_kind: str,
+        parent_id: UUID,
+        capability: str,
+        attempt_id: UUID,
+        transport_identity: Mapping[str, Any],
+    ) -> AsyncIterator[str]:
+        """Keep the Native subject issuer transaction live through ``begin``.
+
+        Callers must execute the matching begin command inside this context. The
+        issuer closes before the caller starts backend HTTP; the endpoint identity
+        and scope/control capability are validated by the existing Native owner.
+        """
+        if (
+            parent_kind not in {"scope", "control"}
+            or type(parent_id) is not UUID
+            or type(attempt_id) is not UUID
+            or type(capability) is not str
+            or not isinstance(transport_identity, Mapping)
+            or set(transport_identity)
+            != {
+                "url",
+                "auth_method",
+                "auth_token",
+                "gpu_resource_id",
+                "extra_params",
+            }
+            or type(transport_identity.get("url")) is not str
+            or type(transport_identity.get("auth_method")) is not str
+            or (
+                transport_identity.get("auth_token") is not None
+                and type(transport_identity.get("auth_token")) is not str
+            )
+            or (
+                transport_identity.get("gpu_resource_id") is not None
+                and type(transport_identity.get("gpu_resource_id")) is not str
+            )
+            or (
+                transport_identity.get("extra_params") is not None
+                and not isinstance(transport_identity.get("extra_params"), Mapping)
+            )
+        ):
+            raise RoutingUnavailable()
+        async with self._transaction() as data:
+            captured = await data.step(
+                "capture_transport_subject",
+                {
+                    "parent_kind": parent_kind,
+                    "parent_id": str(parent_id),
+                    "capability": capability,
+                    "attempt_id": str(attempt_id),
+                    "transport_identity": dict(transport_identity),
+                },
+            )
+            if (
+                captured.get("schema") != ROUTING_DATA_PROTOCOL
+                or captured.get("status") != "ok"
+                or set(captured) != {"schema", "status", "subject"}
+                or type(captured.get("subject")) is not str
+            ):
+                raise RoutingUnavailable()
+            yield captured["subject"]
+
     async def status(self, request: RoutingStatusRequest | dict | bytes | str):
         return await self.manager.status(request)
 
@@ -108,6 +181,74 @@ class RoutingRuntime:
         self, request: RoutingRuntimeRequest | dict | bytes | str
     ) -> RoutingRuntimeResult:
         return await self.manager.runtime(request)
+
+    async def quiescence(
+        self,
+        request: RoutingQuiescenceRequest | dict | bytes | str,
+    ) -> RoutingQuiescenceResult:
+        typed_request = decode_routing_quiescence_request(request)
+        try:
+            async with self._transaction() as data:
+                facts = await data.step(
+                    "quiescence",
+                    {"registry_id": str(typed_request.registry_id)},
+                )
+        except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
+            raise
+        except Exception:
+            raise RoutingUnavailable() from None
+        try:
+            if type(facts) is not dict or facts.get("schema") != ROUTING_DATA_PROTOCOL:
+                raise RoutingUnavailable()
+            status = facts.get("status")
+            base = {
+                "schema": ROUTING_QUIESCENCE_RESULT_PROTOCOL,
+                "request_id": str(typed_request.request_id),
+                "registry_id": str(typed_request.registry_id),
+                "status": status,
+            }
+            if status == "ok":
+                if set(facts) != {
+                    "schema",
+                    "status",
+                    "topology",
+                    "active_scopes",
+                    "uncertain_scopes",
+                    "continuity",
+                    "control_id",
+                }:
+                    raise RoutingUnavailable()
+                result = {
+                    **base,
+                    "reason": None,
+                    "control_id": facts["control_id"],
+                    "topology": facts["topology"],
+                    "active_scopes": facts["active_scopes"],
+                    "uncertain_scopes": facts["uncertain_scopes"],
+                    "continuity": facts["continuity"],
+                }
+            elif status == "rejected":
+                if set(facts) not in (
+                    {"schema", "status", "reason"},
+                    {"schema", "status", "reason", "control_id"},
+                ):
+                    raise RoutingUnavailable()
+                result = {
+                    **base,
+                    "reason": facts["reason"],
+                    "control_id": facts.get("control_id"),
+                    "topology": None,
+                    "active_scopes": None,
+                    "uncertain_scopes": None,
+                    "continuity": None,
+                }
+            else:
+                raise RoutingUnavailable()
+            return decode_routing_quiescence_result(typed_request, result)
+        except RoutingUnavailable:
+            raise
+        except (KeyError, TypeError, ValueError, OverflowError):
+            raise RoutingUnavailable() from None
 
     async def video_execution_status(self, proof):
         return await self.manager.video_execution_status(proof)

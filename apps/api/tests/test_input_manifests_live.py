@@ -348,7 +348,7 @@ async def test_bulk_consumer_retains_original_inputs_for_roi_partial_failure_and
     from app.db.models.ml_backend_registry import MLBackendRegistry
     from app.db.models.prediction import FailedPrediction, Prediction, PredictionMeta
     from app.workers.predictions_retry import _do_retry_with_factory
-    from tests.test_staged_pipeline_worker import _Result, _bbox
+    from tests.test_staged_pipeline_worker import _bbox
 
     caplog.set_level(logging.WARNING, logger="httpx")
     async with _manifest_runtime(test_engine, tmp_path) as runtime:
@@ -438,31 +438,26 @@ async def test_bulk_consumer_retains_original_inputs_for_roi_partial_failure_and
         model_calls, roi_pixels, legacy_urls = [], [], []
         fail_model = {"enabled": True}
 
-        def mutable_url(_task):
-            legacy_urls.append(_task.id)
-            pytest.fail("manifest execution must not resolve a current Task URL")
+        from app.application import preannotation_execution as execution
+        from tests.inference_execution_test_ports import FakeModelExecutionPort
 
-        def mutable_image(_task):
-            pytest.fail("manifest ROI must use the private original Input")
+        def respond(operation, payload):
+            if operation.route_owner.endswith("stage:11"):
 
-        class Models:
-            def __init__(self, _db, registry, *, owner, **_kwargs):
-                self.owner = owner
-                self.last_instance_id, self.pool_id = registry.id, None
-                self.last_routing_meta = None
-
-            async def predict(self, value, context=None):
-                payload = value[0]
-                if self.owner.endswith("stage:11"):
+                async def classify():
                     async with httpx.AsyncClient(trust_env=False) as http:
                         response = await http.get(payload["file_path"])
                     assert response.status_code == 200
                     with Image.open(BytesIO(response.content)) as roi:
                         roi_pixels.append(roi.getpixel((20, 20)))
-                    return [_Result("0", [{"attributes": {"color": "original-red"}}])]
-                task_id = payload["id"]
-                model_calls.append(task_id)
-                assert "versionId=" in payload["file_path"]
+                    return [{"attributes": {"color": "original-red"}}]
+
+                return classify()
+            task_id = payload["id"]
+            model_calls.append(task_id)
+            assert "versionId=" in payload["file_path"]
+
+            async def detect():
                 async with httpx.AsyncClient(trust_env=False) as http:
                     response = await http.get(payload["file_path"])
                 assert response.status_code == 200
@@ -471,14 +466,25 @@ async def test_bulk_consumer_retains_original_inputs_for_roi_partial_failure_and
                 )
                 if task_id == str(tasks[1].id) and fail_model["enabled"]:
                     raise RuntimeError("injected bulk model failure")
-                return [_Result(task_id, [_bbox(0, 0, 100, 100)])]
+                return [_bbox(0, 0, 100, 100)]
+
+            return detect()
+
+        def mutable_url(_task):
+            legacy_urls.append(_task.id)
+            pytest.fail("manifest execution must not resolve a current Task URL")
+
+        def mutable_image(_task):
+            pytest.fail("manifest ROI must use the private original Input")
 
         monkeypatch.setattr("app.services.storage.resolve_task_url", mutable_url)
         monkeypatch.setattr(
             "app.services.prediction_context.load_task_image", mutable_image
         )
         monkeypatch.setattr(
-            "app.services.ml_routing.client.RoutedMLBackendClient", Models
+            execution,
+            "_model_execution_port",
+            lambda *_args, **_kwargs: FakeModelExecutionPort(respond),
         )
         request = BatchPredictionRequest(
             project_id=str(project.id),

@@ -34,8 +34,12 @@ from tests.active_learning_fixtures import (
 async def test_preview_rejects_libre_through_real_shared_qualification(
     db_session, super_admin, httpx_client, monkeypatch
 ):
-    from app.services import active_learning_pool, managed_inference, trained_models
-    from app.services.ml_client import MLBackendClient
+    from app.services import (
+        active_learning_pool,
+        inference_backend_control,
+        managed_inference,
+        trained_models,
+    )
 
     owner, token = super_admin
     world = await seed(db_session, owner, monkeypatch)
@@ -51,7 +55,10 @@ async def test_preview_rejects_libre_through_real_shared_qualification(
         lambda _db: reference_port,
     )
     profile = AsyncMock()
-    monkeypatch.setattr(MLBackendClient, "managed_evaluation_request", profile)
+    control = SimpleNamespace(managed_evaluation_profile=profile)
+    monkeypatch.setattr(
+        inference_backend_control, "backend_control_service", lambda _db: control
+    )
     response = await httpx_client.post(
         f"/api/v1/projects/{world.project.id}/active-learning-rounds:preview",
         json=world.selection.model_dump(mode="json"),

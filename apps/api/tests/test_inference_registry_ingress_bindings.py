@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import AsyncExitStack, asynccontextmanager
+from contextlib import AsyncExitStack
 import os
 import uuid
 
@@ -43,7 +43,7 @@ async def _receipt_ids(owner):
     )
 
 
-@pytest.mark.parametrize("binding", ["borrowed", "dsn", "http"])
+@pytest.mark.parametrize("binding", ["http"])
 async def test_actual_startup_bindings_preserve_manual_priority_failure_fields_and_empty_reconcile(
     test_engine,
     monkeypatch,
@@ -85,12 +85,6 @@ async def test_actual_startup_bindings_preserve_manual_priority_failure_fields_a
                     ]
                 )
 
-            @asynccontextmanager
-            async def session():
-                async with maker() as db:
-                    yield db
-
-            monkeypatch.setattr(env, "async_session", session)
             monkeypatch.setattr(env, "_observe_urls", lambda: [origin, manual_url])
             async with AsyncExitStack() as stack:
                 await select_binding(stack, monkeypatch, test_engine, binding)

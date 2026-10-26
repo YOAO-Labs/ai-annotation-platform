@@ -32,11 +32,6 @@ from app.application.async_job_contracts import (
     JobCancellationPort,
     PredictionRetryPort,
 )
-from app.services.gpu_arbitration.contracts import (
-    GPUDispatchContextFactory,
-    GPUShadowSessionFactory,
-)
-from app.services.gpu_arbitration.dispatch import build_gpu_dispatch_context_factory
 
 bearer_scheme = HTTPBearer()
 
@@ -55,18 +50,6 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             raise HTTPException(
                 status_code=rejection.status_code, detail=rejection.detail
             ) from None
-
-
-def get_gpu_shadow_session_factory() -> GPUShadowSessionFactory:
-    """可覆写的 observe 短会话工厂；业务请求 session 不交给旁路关闭。"""
-
-    return async_session
-
-
-def get_gpu_dispatch_context_factory() -> GPUDispatchContextFactory:
-    """可覆写的 workload authority；构造本身不访问 DB、Redis 或私钥。"""
-
-    return build_gpu_dispatch_context_factory(async_session)
 
 
 def get_quality_job_dispatcher() -> QualityJobDispatcher:

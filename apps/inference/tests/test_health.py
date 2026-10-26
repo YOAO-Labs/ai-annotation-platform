@@ -18,6 +18,8 @@ from aap_inference.pool_capability import (
 )
 from aap_inference_contract.capabilities import CapabilityLimits
 
+_ENDPOINT_SHA256 = "a" * 64
+
 
 class _Data:
     def __init__(
@@ -152,10 +154,9 @@ async def test_invalid_challenge_is_rejected_before_reading_data():
 @pytest.mark.asyncio
 async def test_gpu_probe_requires_membership_and_start_clock_before_client():
     backend = SimpleNamespace(
-        url="http://backend",
-        auth_method=None,
-        auth_token=None,
+        id=uuid.uuid4(),
         gpu_resource_id="gpu/0",
+        endpoint_sha256=_ENDPOINT_SHA256,
         last_checked_at=None,
     )
     data = _Data(backend=backend, clocks=[None])
@@ -176,10 +177,9 @@ async def test_gpu_health_phases_keep_io_before_locks_and_proof_after_observatio
     started_at = datetime(2026, 1, 1, tzinfo=UTC)
     observed_at = started_at + timedelta(seconds=2)
     backend = SimpleNamespace(
-        url="http://backend",
-        auth_method="token",
-        auth_token="synthetic",
+        id=registry_id,
         gpu_resource_id="gpu/0",
+        endpoint_sha256=_ENDPOINT_SHA256,
         last_checked_at=None,
     )
     pool_id = uuid.uuid4()
@@ -295,10 +295,9 @@ async def test_drift_stages_native_disable_with_pre_mutation_fences():
 @pytest.mark.asyncio
 async def test_missing_observation_clock_drops_response_before_any_write():
     backend = SimpleNamespace(
-        url="http://backend",
-        auth_method=None,
-        auth_token=None,
+        id=uuid.uuid4(),
         gpu_resource_id=None,
+        endpoint_sha256=_ENDPOINT_SHA256,
         last_checked_at=None,
     )
     data = _Data(backend=backend, clocks=[None])
@@ -311,4 +310,36 @@ async def test_missing_observation_clock_drops_response_before_any_write():
         is False
     )
     assert data.trace == ["backend", "health", "setup", "clock"]
+    assert data.values is None
+
+
+@pytest.mark.asyncio
+async def test_rotated_endpoint_after_observation_drops_the_stale_write():
+    registry_id = uuid.uuid4()
+    observed = SimpleNamespace(
+        id=registry_id,
+        gpu_resource_id=None,
+        endpoint_sha256=_ENDPOINT_SHA256,
+        last_checked_at=None,
+    )
+    rotated = SimpleNamespace(
+        id=registry_id,
+        gpu_resource_id=None,
+        endpoint_sha256="b" * 64,
+        last_checked_at=None,
+    )
+    data = _Data(
+        backend=observed,
+        current_backend=rotated,
+        clocks=[datetime(2026, 1, 1, tzinfo=UTC)],
+    )
+    client = _Client(data, meta={"compute": {}})
+
+    assert (
+        await _coordinator(data, client_factory=lambda _backend: client).check_health(
+            registry_id
+        )
+        is False
+    )
+    assert data.trace == ["backend", "health", "setup", "clock", "backend_lock"]
     assert data.values is None

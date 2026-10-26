@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from typing import Literal, Protocol
-from uuid import UUID
 
 from app.schemas.annotation import SecondaryInferenceResponse
 from app.services.audit_origin_contract import AuditOriginContext
@@ -17,7 +16,6 @@ class SecondaryInferenceWritePort(Protocol):
         *,
         write_scope: LabelingWriteScope,
         result: SecondaryInferenceResult,
-        ml_backend_id: UUID,
         write_target: Literal["attributes", "geometry"],
         audit_origin: AuditOriginContext,
     ) -> SecondaryInferenceResponse:

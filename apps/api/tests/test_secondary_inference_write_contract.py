@@ -21,9 +21,11 @@ from app.db.models.user import User
 from app.services.audit import AuditAction, AuditService
 from app.services.audit_origin_contract import AuditOriginContext
 from app.services.labeling_write_scope import capture_labeling_write_scope
-from app.services.ml_backend import MLBackendService
 from app.services.secondary_inference_result import (
     SecondaryInferenceResult,
+)
+from aap_inference_contract.execution import (
+    ExecutionProvenance,
     freeze_json,
 )
 from tests.factory import create_project, create_task, create_user
@@ -60,7 +62,6 @@ async def test_secondary_inference_rejects_cross_bound_scope_before_sql(
             task=task,
             annotation=annotation,
             actor=actor,
-            ml_service=MLBackendService(db),
         )
         statements = []
 
@@ -78,7 +79,6 @@ async def test_secondary_inference_rejects_cross_bound_scope_before_sql(
                         attributes=(),
                         geometry_shapes=(),
                     ),
-                    ml_backend_id=world.backend_id,
                     write_target="attributes",
                     audit_origin=AuditOriginContext(
                         method="POST", path="/fixture", ip=None
@@ -95,8 +95,7 @@ async def committed_secondary_inference_world(
 ):
     """Give each route request a real Session and observe commits independently."""
 
-    from app.deps import get_db, get_gpu_dispatch_context_factory
-    from app.deps import get_gpu_shadow_session_factory
+    from app.deps import get_db
     from app.services.annotation import AnnotationService
 
     engine = create_async_engine(test_db_url, echo=False)
@@ -112,8 +111,6 @@ async def committed_secondary_inference_world(
             yield db
 
     app.dependency_overrides[get_db] = committed_get_db
-    app.dependency_overrides[get_gpu_dispatch_context_factory] = lambda: None
-    app.dependency_overrides[get_gpu_shadow_session_factory] = lambda: None
     try:
         async with sessions() as db:
             actor = await create_user(
@@ -188,7 +185,7 @@ def controlled_secondary_inference(monkeypatch, committed_secondary_inference_wo
         def __init__(self, _db):
             pass
 
-        async def get(self, backend_id):
+        async def get_registry(self, backend_id):
             return SimpleNamespace(id=backend_id, health_meta=None)
 
         async def is_enabled(self, _project_id, _backend_id):
@@ -198,12 +195,22 @@ def controlled_secondary_inference(monkeypatch, committed_secondary_inference_wo
             return world.pool_id
 
     async def run_controlled(_db, *, write_target, **_kwargs):
+        provenance = ExecutionProvenance(
+            requested_registry_id=world.backend_id,
+            requested_pool_id=world.pool_id,
+            registry_id=world.backend_id,
+            pool_id=world.pool_id,
+            instance_id=world.backend_id,
+            route_scope_id=uuid.uuid4(),
+            attempt_id=uuid.uuid4(),
+        )
         if write_target == "attributes":
             return SecondaryInferenceResult(
                 write_target="attributes",
                 model_ref=(("model_id", "test-classifier"),),
                 attributes=(("color", freeze_json("blue")),),
                 geometry_shapes=(),
+                execution_provenance=provenance,
             )
         return SecondaryInferenceResult(
             write_target="geometry",
@@ -225,6 +232,7 @@ def controlled_secondary_inference(monkeypatch, committed_secondary_inference_wo
                     }
                 ),
             ),
+            execution_provenance=provenance,
         )
 
     monkeypatch.setattr(annotations_api, "MLBackendService", _FakeMLBackendService)

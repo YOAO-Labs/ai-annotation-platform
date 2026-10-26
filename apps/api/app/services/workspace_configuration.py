@@ -57,7 +57,7 @@ def configuration_manager(data, *, db=None, noop_projection=None, guide_objects=
         capability_limits=capability_limits_from_settings(),
         video_segment_size_frames=settings.video_segment_size_frames,
         setup_timeout=settings.ml_health_timeout,
-        backend_probe=backend_probe(db),
+        backend_probe=backend_probe(),
         **options,
     )
 

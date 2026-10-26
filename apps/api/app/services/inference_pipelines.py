@@ -9,21 +9,14 @@ import uuid
 from aap_inference.pipeline_client import PipelineHttpClient
 from aap_inference.pipeline_contract import (
     PipelineCommandRequest,
-    PipelineFailure,
     PipelineInvalidRequest,
     PipelinePostCommitFailure,
     PipelineRejected,
-    PipelineResult,
-    PipelineStatusSuccess,
-    PipelineSuccess,
     PipelineUnavailable,
-    decode_pipeline_reply,
     pipeline_command_request,
     pipeline_query_request,
-    pipeline_status_request,
 )
 from aap_inference.pipeline_manager import PipelineManager
-from aap_inference.pipeline_postgres import PipelinePostgresData
 from aap_workspace.config import secret_source
 from fastapi import HTTPException
 import httpx
@@ -36,9 +29,8 @@ from app.services.user_brief import resolve_briefs
 
 @dataclass(frozen=True, slots=True)
 class _Owner:
-    mode: Literal["borrowed", "database", "http"]
+    mode: Literal["borrowed", "http"]
     url: str = ""
-    dsn: str = field(default="", repr=False)
     token: str = field(default="", repr=False)
     timeout: float = 30.0
 
@@ -59,16 +51,6 @@ def _role(actor) -> str:
 
 def _select_owner() -> _Owner:
     url = settings.inference_pipelines_url.strip()
-    try:
-        dsn = secret_source(
-            settings.inference_pipelines_database_url,
-            settings.inference_pipelines_database_url_file,
-        )
-    except ValueError:
-        raise PipelineUnavailable() from None
-
-    if url and dsn:
-        raise PipelineUnavailable()
     if url:
         try:
             token = secret_source(
@@ -84,10 +66,6 @@ def _select_owner() -> _Owner:
             url=url,
             token=token,
             timeout=settings.inference_pipelines_timeout_seconds,
-        )
-    if dsn:
-        return _Owner(
-            "database", dsn=dsn, timeout=settings.inference_pipelines_timeout_seconds
         )
     return _Owner("borrowed")
 
@@ -117,43 +95,6 @@ async def _invoke(owner: _Owner, db, operation: str, request):
             return await client.status(request)
         finally:
             await client.close()
-
-    data = PipelinePostgresData(owner.dsn, command_timeout=owner.timeout)
-    try:
-        manager = PipelineManager(data)
-        if operation == "execute":
-            reply = await manager.execute(request)
-            if isinstance(reply, PipelineFailure) and reply.commit_state == "unknown":
-                reply = await _resolve_database_commit(manager, request)
-            return reply
-        if operation == "query":
-            return await manager.query(request)
-        return await manager.status(request)
-    finally:
-        await data.close()
-
-
-async def _resolve_database_commit(manager, request):
-    try:
-        status = await manager.status(pipeline_status_request(request))
-    except (PipelineRejected, PipelineUnavailable):
-        raise PipelineUnavailable() from None
-    if not isinstance(status, PipelineStatusSuccess) or status.state != "committed":
-        raise PipelineUnavailable()
-    return decode_pipeline_reply(
-        request,
-        PipelineSuccess(
-            schema="aap-inference-pipelines/v1",
-            ok=True,
-            operation_id=request.operation_id,
-            operation=request.operation,
-            actor_id=request.admitted_actor.id,
-            target_id=request.target_id,
-            result=PipelineResult(resource_id=status.resource_id),
-            commit_state="committed",
-        ),
-        require_committed=True,
-    )
 
 
 def _unavailable() -> HTTPException:

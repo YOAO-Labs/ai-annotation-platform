@@ -12,58 +12,77 @@
 
 from __future__ import annotations
 
-from aap_inference import resolve_model_task
 
 import logging
+import uuid
+from typing import NoReturn
 
-import httpx
+from aap_inference import resolve_model_task
+from aap_inference_contract.topology import RegistryPublicFacts
+
+from aap_inference.secondary import (
+    apply_secondary_result,
+    build_secondary_context,
+)
+from aap_inference.roi import _box_bbox_pct, crop_inputs_from_boxes
+from aap_inference_contract.execution import (
+    FrozenModelOperation,
+    ModelExecutionError,
+    thaw_json,
+)
 from fastapi import HTTPException
 
 from app.config import settings
 from app.db.models.annotation import Annotation
-from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.task import Task
-from app.services.gpu_arbitration.contracts import (
-    GPUDispatchContextFactory,
-    GPUShadowSessionFactory,
-)
 from app.services.predictions_import import internal_geometry_to_ls_shape
 from app.services import prediction_context
-from app.services.prediction_roi import (
-    _box_bbox_pct,
-    crop_inputs_from_boxes,
-    merge_classify_attributes,
-    remap_geometry_to_image,
-)
-from app.services.secondary_inference_result import (
-    SecondaryInferenceResult,
-    freeze_json,
-)
+from app.services.secondary_inference_result import SecondaryInferenceResult
 
 
 logger = logging.getLogger("app.services.secondary_inference")
 
 
-def _resolve_text_output_mode(backend: MLBackendRegistry, model_id: str | None) -> str:
-    """按所选模型自报的 `supported_text_outputs` 定 `context.output` (仅 prompt 路径生效)。
+def _raise_secondary_execution_error(error: ModelExecutionError) -> NoReturn:
+    failure = error.failure
+    if failure.code == "backend_timeout":
+        detail = (
+            f"推理超时 (>{settings.ml_predict_timeout}s)。backend 可能正在加载模型; "
+            "若多个 GPU backend 同时驻留模型, 显存不足会让加载慢一个数量级。"
+            "可先卸载暂不使用的 backend 释放显存, 再重试。"
+        )
+        raise HTTPException(status_code=504, detail=detail) from error
+    if failure.code == "backend_unreachable":
+        raise HTTPException(
+            status_code=502, detail=thaw_json(failure.detail)
+        ) from error
+    if failure.kind == "backend" and failure.status_code is not None:
+        status = failure.status_code
+        raise HTTPException(
+            status_code=status if status < 500 or status == 503 else 502,
+            detail=f"ML backend error (HTTP {status})",
+            headers=(
+                {"Retry-After": failure.retry_after}
+                if failure.retry_after is not None
+                else None
+            ),
+        ) from error
 
-    协议只认 box|mask|both。检测型模型自报 ["box"], 分割型自报 ["mask","both"] ——
-    优先 box (二次推理产子框), 否则取模型支持的首个; 无自报时按协议默认 "mask"。
-    """
-    caps = (backend.health_meta or {}).get("capabilities") or {}
-    for m in caps.get("models") or []:
-        if m.get("id") != model_id:
-            continue
-        outs = m.get("supported_text_outputs") or []
-        if "box" in outs:
-            return "box"
-        # 协议只认 box|mask|both: 错配 backend 自报 ["polygon"] 之类时不原样透传, 回落默认,
-        # 避免把非法 output 送进 context 重现最初的 output 非法值问题。
-        for candidate in outs:
-            if candidate in {"box", "mask", "both"}:
-                return candidate
-        break
-    return "mask"
+    detail = thaw_json(failure.detail)
+    if failure.kind == "admission":
+        if not isinstance(detail, dict):
+            detail = {"message": str(detail)}
+        detail.setdefault("error_code", failure.code)
+    status = failure.status_code or (503 if failure.kind == "unavailable" else 502)
+    raise HTTPException(
+        status_code=status,
+        detail=detail,
+        headers=(
+            {"Retry-After": failure.retry_after}
+            if failure.retry_after is not None
+            else None
+        ),
+    ) from error
 
 
 async def run_secondary_inference(
@@ -71,7 +90,7 @@ async def run_secondary_inference(
     *,
     annotation: Annotation,
     task: Task,
-    backend: MLBackendRegistry,
+    backend: RegistryPublicFacts,
     write_target: str,
     write_keys: list[str] | None,
     label: str | None,
@@ -82,13 +101,12 @@ async def run_secondary_inference(
     prompt: str | None,
     class_filter: list[int] | None,
     pad: float,
-    shadow_session_factory: GPUShadowSessionFactory | None = None,
-    dispatch_context_factory: GPUDispatchContextFactory | None = None,
     visual_task: str | None = None,
     prompt_type: str | None = None,
 ) -> SecondaryInferenceResult:
     """Run secondary inference and return immutable output facts for labeling."""
-    from app.services.ml_routing.client import RoutedMLBackendClient
+    from app.services.inference_model_execution import model_execution_port
+    from app.services.ml_backend import MLBackendService
     from app.services.storage import StorageService
     from app.services.trained_models import is_controlled
 
@@ -97,9 +115,9 @@ async def run_secondary_inference(
 
     try:
         visual_task = resolve_model_task(backend, model_id, visual_task or task_type)
-        context = prediction_context.build_predict_context(
+        context = build_secondary_context(
+            health_meta=backend.health_meta,
             prompt=prompt,
-            output_mode=_resolve_text_output_mode(backend, model_id),
             params=params,
             model_id=model_id,
             task=visual_task,
@@ -163,72 +181,41 @@ async def run_secondary_inference(
             detail="选中框过小或贴边, 裁出的 ROI 退化, 无法二次推理 (可放大框或改选更大的对象)",
         )
 
-    # 4. 构造发往 backend 的 context (与批量下游同一纯函数)。
-
-    # 5. 同步推理。批量 wire 的 predict() 不翻译传输层异常 (worker 靠原始异常分类失败原因),
-    #    但二次推理是同步用户请求 —— 冒泡的 ReadTimeout 会变成含糊的 500。这里按
-    #    predict_interactive 的同款语义翻译成 504。
-    #    典型诱因: backend 空闲卸载后按需重载 (冷启动本身只需 ~10s), 但多个 GPU backend 同时
-    #    驻留模型挤爆显存时, 加载会退化一个数量级 (实测 8s → 160s) 而超时。故文案指向卸载
-    #    其它 backend, 而非调大 ML_PREDICT_TIMEOUT (后者只是盖住症状)。
-    client = RoutedMLBackendClient(
-        db,
-        backend,
-        project_id=task.project_id,
-        owner=f"secondary:{annotation.id}",
-        operation="secondary_inference",
-        shadow_session_factory=shadow_session_factory,
-        dispatch_context_factory=dispatch_context_factory,
+    requested_pool_id = await MLBackendService(db).pool_id_for_registry(
+        uuid.UUID(str(backend.id))
+    )
+    request = FrozenModelOperation(
+        request_id=uuid.uuid4(),
+        operation="batch_predict",
+        task_inputs=tuple(batch.inputs),
+        context=context,
+        project_id=uuid.UUID(str(task.project_id)),
+        requested_registry_id=uuid.UUID(str(backend.id)),
+        requested_pool_id=requested_pool_id,
+        endpoint_registry_id=None,
+        required_instance_id=None,
+        route_owner=f"secondary:{annotation.id}",
+        route_operation="secondary_inference",
+        correlation={"annotation_id": str(annotation.id)},
     )
     try:
-        results = await client.predict(batch.inputs, context=context)
-    except httpx.TimeoutException as exc:
-        raise HTTPException(
-            status_code=504,
-            detail=(
-                f"推理超时 (>{settings.ml_predict_timeout}s)。backend 可能正在加载模型; "
-                "若多个 GPU backend 同时驻留模型, 显存不足会让加载慢一个数量级。"
-                "可先卸载暂不使用的 backend 释放显存, 再重试。"
-            ),
-        ) from exc
-    except httpx.ConnectError as exc:
-        raise HTTPException(
-            status_code=502, detail=f"ML backend unreachable: {exc}"
-        ) from exc
-    except httpx.HTTPStatusError as exc:
-        # client.predict() 用裸 raise_for_status() (worker 靠原始异常分类失败原因); 同步
-        # 二次推理这里对齐 predict_interactive 的 _raise_for_backend_status: 上游 4xx 透传、
-        # 5xx (权重加载 OOM / 模型内部错) → 502, 别让它冒泡成含糊 500。
-        status = exc.response.status_code
-        raise HTTPException(
-            status_code=status if (status < 500 or status == 503) else 502,
-            detail=f"ML backend error (HTTP {status})",
-        ) from exc
+        operation = await model_execution_port(db).execute(request)
+    except ModelExecutionError as exc:
+        _raise_secondary_execution_error(exc)
 
-    model_ref = {
-        "backend_id": str(client.last_instance_id or backend.id),
-        "model_id": model_id,
-    }
-
-    if write_target == "attributes":
-        merge_classify_attributes([ls_box], results, write_keys=write_keys, label=label)
-        ai_attrs = ls_box.get("attributes") or {}
-        return SecondaryInferenceResult(
-            write_target="attributes",
-            model_ref=tuple(model_ref.items()),
-            attributes=tuple(
-                (key, freeze_json(value)) for key, value in ai_attrs.items()
-            ),
-            geometry_shapes=(),
-        )
-
-    # 6b. Remap crop output to original-image coordinates; labeling creates children.
-    transform = batch.transforms.get("0")
-    raw_shapes = [s for cr in results for s in (cr.result or []) if isinstance(s, dict)]
-    remapped = remap_geometry_to_image(raw_shapes, transform) if transform else []
+    output = apply_secondary_result(
+        ls_box,
+        operation,
+        write_target=write_target,
+        model_id=model_id,
+        write_keys=write_keys,
+        label=label,
+        transform=batch.transforms.get("0"),
+    )
     return SecondaryInferenceResult(
-        write_target="geometry",
-        model_ref=tuple(model_ref.items()),
-        attributes=(),
-        geometry_shapes=tuple(freeze_json(shape) for shape in remapped),
+        write_target=output.write_target,
+        model_ref=output.model_ref,
+        attributes=output.attributes,
+        geometry_shapes=output.geometry_shapes,
+        execution_provenance=operation.provenance,
     )

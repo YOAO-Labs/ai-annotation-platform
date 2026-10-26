@@ -6,16 +6,20 @@ from unittest.mock import AsyncMock
 
 import pytest
 import redis
-from aap_inference.backend_transport import PredictionResult
-from app.services.gpu_arbitration.contracts import (
-    GPUArbiterDispatchError,
-    GPUArbiterErrorCode,
+from aap_inference.gpu.contracts import GPUArbiterErrorCode
+from aap_inference.tracker import TrackerSessionState
+from aap_inference_contract.execution import (
+    ExecutionFailure,
+    ExecutionProvenance,
+    ModelExecutionError,
+    ModelExecutionObservation,
+    ModelOperationResult,
+    ModelTaskResult,
 )
 from app.services.video_tracking import adapters as tracker_impl_module
 from app.services.video_tracking.adapters import (
     MLBackendVideoTrackerAdapter,
     TrackerContext,
-    TrackerSession,
 )
 from app.workers import frame_preannotate
 
@@ -28,23 +32,77 @@ from tests.test_frame_preannotate_persistence import (
 )
 
 
+def _execution_result(
+    operation,
+    task_id: str,
+    instance_id: uuid.UUID,
+    *,
+    scope_id: uuid.UUID | None = None,
+    result: tuple = (),
+    session_token: str | None = None,
+):
+    selected_pool_id = operation.selected_pool_id or operation.requested_pool_id
+    return ModelOperationResult(
+        request_id=operation.request_id,
+        operation=operation.operation,
+        results=(
+            ModelTaskResult(
+                task_id=task_id,
+                result=result,
+                session_token=session_token,
+            ),
+        ),
+        provenance=ExecutionProvenance(
+            requested_registry_id=operation.requested_registry_id,
+            requested_pool_id=operation.requested_pool_id,
+            registry_id=instance_id,
+            pool_id=selected_pool_id,
+            instance_id=instance_id,
+            route_scope_id=scope_id or uuid.uuid4(),
+            attempt_id=operation.request_id,
+        ),
+        observation=ModelExecutionObservation(
+            backend_id=str(instance_id),
+            operation=(
+                "predict"
+                if operation.operation == "batch_predict"
+                else "predict_interactive"
+            ),
+            outcome="success",
+            elapsed_seconds=0.0,
+        ),
+        wall_time_ms=0,
+        response_digest="d" * 64 if operation.operation == "pinned_tracker" else None,
+    )
+
+
 @pytest.mark.asyncio
-async def test_video_tracker_adapter_updates_opaque_session_token(monkeypatch) -> None:
+async def test_video_tracker_adapter_returns_immutable_session_and_provenance(
+    monkeypatch,
+):
     contexts: list[dict] = []
+    port_arguments: list[dict] = []
+    instance_id, scope_id = uuid.uuid4(), uuid.uuid4()
+    scope = SimpleNamespace(id=scope_id, registry_id=instance_id, pool_id=None)
 
-    class FakeClient:
-        def __init__(self, _backend, **_kwargs) -> None:
-            pass
-
-        async def predict_interactive(self, task_data, context):
-            contexts.append(context)
-            return SimpleNamespace(
-                result=[],
-                meta={"tracker_context": {"mode": "session", "token": "secret"}},
+    class FakePort:
+        async def execute(self, operation):
+            contexts.append(operation.context)
+            return _execution_result(
+                operation,
+                operation.task_inputs[0]["id"],
+                instance_id,
+                scope_id=scope_id,
+                session_token="secret",
             )
 
-    monkeypatch.setattr(tracker_impl_module, "MLBackendClient", FakeClient)
-    session = TrackerSession(span_start_frame=0, span_end_frame=9)
+    def port_factory(db, *, bound_route=None):
+        port_arguments.append({"db": db, "bound_route": bound_route})
+        return FakePort()
+
+    monkeypatch.setattr(tracker_impl_module, "model_execution_port", port_factory)
+    session = TrackerSessionState(span_start_frame=0, span_end_frame=9)
+    db = object()
     context = TrackerContext(
         job_id=uuid.uuid4(),
         task_id=uuid.uuid4(),
@@ -57,60 +115,55 @@ async def test_video_tracker_adapter_updates_opaque_session_token(monkeypatch) -
         prompt={},
         source_geometry={},
         task_data={"id": "task"},
-        ml_backend=SimpleNamespace(state="connected"),
+        db=db,
+        bound_route=scope,
+        requested_registry_id=instance_id,
+        required_instance_id=instance_id,
         session=session,
     )
-
-    assert [
-        item
-        async for item in MLBackendVideoTrackerAdapter("sam2_video").propagate(context)
-    ] == []
+    propagation = await MLBackendVideoTrackerAdapter("sam2_video").propagate(context)
     assert contexts[0]["tracker_context"]["action"] == "start"
-    assert session.action == "continue"
-    assert session.token == "secret"
+    assert session.action == "start" and session.token is None
+    assert propagation.session.action == "continue"
+    assert propagation.session.token == "secret"
+    assert propagation.provenance.instance_id == instance_id
+    assert propagation.response_digest == "d" * 64
+    assert port_arguments == [{"db": db, "bound_route": scope}]
 
 
 @pytest.mark.asyncio
-async def test_frame_segment_builds_authority_from_its_own_session_factory(
+async def test_frame_segment_does_not_pass_worker_session_factory_to_gateway(
     frame_world,
     monkeypatch,
 ) -> None:
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
-    authority_marker = object()
-    client_kwargs: list[dict] = []
-    built_from: list[object] = []
     session_factories: list[object] = []
+    port_arguments: list[dict] = []
 
     def tracked_session_factory(*args, **kwargs):
         factory = async_sessionmaker(*args, **kwargs)
         session_factories.append(factory)
         return factory
 
-    def build_authority(received_factory):
-        built_from.append(received_factory)
-        return authority_marker
+    class FakePort:
+        async def execute(self, operation):
+            return _execution_result(
+                operation,
+                operation.task_inputs[0]["id"],
+                frame_world.backend_id,
+            )
 
-    class FakeClient:
-        def __init__(self, _db, backend, **kwargs):
-            assert backend.id == frame_world.backend_id
-            client_kwargs.append(kwargs)
-            self.last_instance_id = backend.id
-            self.pool_id = None
-
-        async def predict(self, *_args, **_kwargs):
-            return [PredictionResult(task_id=str(frame_world.task_id), result=[])]
+    def port_factory(db, *, bound_route=None):
+        port_arguments.append({"db": db, "bound_route": bound_route})
+        return FakePort()
 
     _install_video_gateway(monkeypatch, frame_world)
     monkeypatch.setattr(
         "sqlalchemy.ext.asyncio.async_sessionmaker", tracked_session_factory
     )
     monkeypatch.setattr(
-        "app.services.gpu_arbitration.dispatch.build_gpu_dispatch_context_factory",
-        build_authority,
-    )
-    monkeypatch.setattr(
-        "app.services.ml_routing.client.RoutedMLBackendClient", FakeClient
+        "app.services.inference_model_execution.model_execution_port", port_factory
     )
     monkeypatch.setattr(frame_preannotate, "_bump_progress", lambda *_args: (1, 1))
     monkeypatch.setattr(
@@ -123,37 +176,31 @@ async def test_frame_segment_builds_authority_from_its_own_session_factory(
     assert stats["frames_done"] == 1
     assert stats["failed"] == 0
     assert len(session_factories) == 1
-    assert built_from
-    assert all(factory is session_factories[0] for factory in built_from)
-    assert len(client_kwargs) == 1
-    assert client_kwargs[0]["shadow_session_factory"] is session_factories[0]
-    assert client_kwargs[0]["dispatch_context_factory"] is authority_marker
-    assert client_kwargs[0]["operation"] == "frame_predict"
+    assert len(port_arguments) == 1
+    assert port_arguments[0]["bound_route"] is None
 
 
 @pytest.mark.asyncio
 async def test_frame_segment_aggregates_gpu_arbiter_failures(
     frame_world, monkeypatch
 ) -> None:
-    class RejectedClient:
-        def __init__(self, _db, backend, **_kwargs):
-            self.last_instance_id = backend.id
-            self.pool_id = None
-
-        async def predict(self, inputs, context=None):
-            raise GPUArbiterDispatchError(
-                GPUArbiterErrorCode.BACKEND_CONCURRENCY_SATURATED,
-                message="busy",
-                retry_after_s=2,
+    class RejectedPort:
+        async def execute(self, operation):
+            raise ModelExecutionError(
+                ExecutionFailure(
+                    request_id=operation.request_id,
+                    kind="admission",
+                    code=GPUArbiterErrorCode.BACKEND_CONCURRENCY_SATURATED.value,
+                    status_code=503,
+                    detail={"message": "busy"},
+                    retry_after="2",
+                )
             )
 
     _install_video_gateway(monkeypatch, frame_world)
     monkeypatch.setattr(
-        "app.services.gpu_arbitration.dispatch.build_gpu_dispatch_context_factory",
-        lambda factory: object(),
-    )
-    monkeypatch.setattr(
-        "app.services.ml_routing.client.RoutedMLBackendClient", RejectedClient
+        "app.services.inference_model_execution.model_execution_port",
+        lambda *_args, **_kwargs: RejectedPort(),
     )
     monkeypatch.setattr(frame_preannotate, "_bump_progress", lambda *_args: (2, 2))
     monkeypatch.setattr(

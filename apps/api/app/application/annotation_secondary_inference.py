@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from typing import Literal
-from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,7 +19,6 @@ from app.services.annotation_secondary_inference_contract import (
 from app.services.audit import AuditAction, AuditService
 from app.services.audit_origin_contract import AuditOriginContext
 from app.services.labeling_write_scope import LabelingWriteScope
-from app.services.ml_backend import MLBackendService
 from app.services.secondary_inference_result import SecondaryInferenceResult
 from app.services.video_collaboration import heartbeat_task_lock_for_legacy_video
 from app.services.identity_contracts import IdentityActorFacts
@@ -37,13 +35,11 @@ class _AnnotationSecondaryInferenceSqlAdapter(SecondaryInferenceWritePort):
         task: Task,
         annotation: Annotation,
         actor: User | IdentityActorFacts,
-        ml_service: MLBackendService,
     ) -> None:
         self._db = db
         self._task = task
         self._annotation = annotation
         self._actor = actor
-        self._ml_service = ml_service
         self._annotations = AnnotationService(db)
 
     def _assert_bound(self, write_scope: LabelingWriteScope) -> None:
@@ -65,11 +61,11 @@ class _AnnotationSecondaryInferenceSqlAdapter(SecondaryInferenceWritePort):
         *,
         write_scope: LabelingWriteScope,
         result: SecondaryInferenceResult,
-        ml_backend_id: UUID,
         write_target: Literal["attributes", "geometry"],
         audit_origin: AuditOriginContext,
     ) -> SecondaryInferenceResponse:
         self._assert_bound(write_scope)
+        provenance = result.execution_provenance
         try:
             updated, children = await self._annotations._apply_secondary_inference(
                 task=self._task,
@@ -91,9 +87,13 @@ class _AnnotationSecondaryInferenceSqlAdapter(SecondaryInferenceWritePort):
                 detail={
                     "task_id": str(self._task.id),
                     "secondary_inference": True,
-                    "ml_backend_id": str(ml_backend_id),
-                    "ml_backend_pool_id": str(
-                        await self._ml_service.pool_id_for_registry(ml_backend_id)
+                    "ml_backend_id": (
+                        str(provenance.instance_id) if provenance is not None else None
+                    ),
+                    "ml_backend_pool_id": (
+                        str(provenance.pool_id)
+                        if provenance is not None and provenance.pool_id is not None
+                        else None
                     ),
                     "write_target": write_target,
                     "created_children": len(children),

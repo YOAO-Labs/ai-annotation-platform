@@ -209,7 +209,7 @@ async def test_repeated_execution_contention_retries_held_mask_without_inference
     monkeypatch,
 ):
     from app.services import raster_mask_storage as storage
-    from app.services.video_tracking.adapters import TrackerFrameResult
+    from aap_inference.tracker import TrackerFrameResult
 
     rle = {"encoding": "coco_rle", "size": [1, 1], "counts": [0, 1]}
     reference = storage.build_rle_reference(rle)

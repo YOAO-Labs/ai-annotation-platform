@@ -19,8 +19,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
+
+from aap_inference_contract.topology import to_record
 
 # The protocol currently persists normalized ``models[]`` entries.  Keep the old
 # flat fields as a compatibility branch for snapshots written by older versions;
@@ -237,14 +240,10 @@ def _canonicalize_models(value: Any) -> list[dict]:
     return sorted(models, key=lambda item: str(item.get("id") or ""))
 
 
-def canonicalize_capability(raw: dict | None) -> dict:
-    """Build the canonical routing-capability snapshot from a raw ``/setup`` / health_meta dict.
-
-    Applies: defaults fill, list sort+dedupe, param-schema display-field strip,
-    variant-axis normalization, fixed field order. Deterministic regardless of input
-    field/list ordering or omitted-vs-default fields (golden fixture §C.1).
-    """
-    raw = raw or {}
+def canonicalize_capability(raw: Mapping[str, Any] | None) -> dict:
+    """Build the canonical snapshot from raw or frozen JSON capability facts."""
+    record = to_record(raw) if raw is not None else {}
+    raw = record if isinstance(record, dict) else {}
     caps = raw.get("capabilities") if "capabilities" in raw else raw
     caps = caps if isinstance(caps, dict) else {}
 
@@ -272,19 +271,14 @@ def canonicalize_capability(raw: dict | None) -> dict:
     return canonical
 
 
-def capability_fingerprint(raw_or_canonical: dict | None) -> str:
-    """SHA-256 hex (64 chars) of the canonical capability snapshot.
-
-    Accepts either a raw ``/setup`` dict (canonicalized internally) or an already-
-    canonicalized dict. Deterministic across field/list order and missing defaults.
-    """
-    if raw_or_canonical is None:
-        raw_or_canonical = {}
-    # Detect already-canonical input: it has exactly the canonical field set.
-    if set(raw_or_canonical.keys()) == set(_CANONICAL_FIELDS):
-        canonical = raw_or_canonical
-    else:
-        canonical = canonicalize_capability(raw_or_canonical)
+def capability_fingerprint(raw_or_canonical: Mapping[str, Any] | None) -> str:
+    """SHA-256 hex of canonical capabilities, accepting raw or frozen facts."""
+    record = to_record(raw_or_canonical) if raw_or_canonical is not None else {}
+    canonical = (
+        record
+        if isinstance(record, dict) and record.keys() == _DEFAULTS.keys()
+        else canonicalize_capability(record)
+    )
     encoded = json.dumps(
         canonical, sort_keys=True, ensure_ascii=False, separators=(",", ":")
     )
@@ -301,7 +295,8 @@ class CapabilityMismatch:
 
 
 def diff_capabilities(
-    pool_snapshot: dict | None, candidate_snapshot: dict | None
+    pool_snapshot: Mapping[str, Any] | None,
+    candidate_snapshot: Mapping[str, Any] | None,
 ) -> CapabilityMismatch | None:
     """Compare two canonical snapshots field-by-field. Returns None if identical.
 

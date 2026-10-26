@@ -1,7 +1,8 @@
-"""Exercise Registry deletion with the ordinary runtime's restricted GPU ACL."""
+"""Public Registry deletion keeps orphan and managed GPU fence guards intact."""
 
 from __future__ import annotations
 
+import json
 import os
 import uuid
 
@@ -112,9 +113,6 @@ async def test_registry_delete_skips_only_missing_fence_rows(test_engine) -> Non
         )
 
         await connection.execute('SET LOCAL ROLE "identity_api_consumer"')
-        assert (
-            await connection.fetchval("SELECT current_user") == "identity_api_consumer"
-        )
         privileges = await connection.fetchrow(
             """
             SELECT has_table_privilege(current_user,
@@ -123,76 +121,50 @@ async def test_registry_delete_skips_only_missing_fence_rows(test_engine) -> Non
                        'public.gpu_backend_fences', 'DELETE') AS fence_delete
             """
         )
-        assert privileges["registry_delete"] is True
+        assert privileges["registry_delete"] is False
         assert privileges["fence_delete"] is False
-
-        await _assert_pg_error(
-            connection,
+        for statement in (
             "DELETE FROM public.gpu_backend_fences WHERE false",
-            sqlstate="42501",
-        )
+            "DELETE FROM public.ml_backend_registry WHERE false",
+            "SELECT * FROM public.gpu_backend_fences",
+        ):
+            await _assert_pg_error(connection, statement, sqlstate="42501")
 
+        delete = "SELECT aap_inference_topology_v1.delete_registry($1::uuid,'null')"
+        result = json.loads(await connection.fetchval(delete, no_fence_id))
+        assert result == {"deleted": True, "pool_id": None}
+        await _assert_pg_error(
+            connection, delete, historical_fence_id, sqlstate="23514"
+        )
+        await _assert_pg_error(connection, delete, managed_id, sqlstate="P0001")
+
+        await connection.execute("RESET ROLE")
         assert (
             await connection.fetchval(
-                "SELECT count(*) FROM public.gpu_backend_fences "
-                "WHERE backend_registry_id = $1",
+                "SELECT count(*) FROM public.ml_backend_registry WHERE id=$1",
                 no_fence_id,
             )
             == 0
         )
         assert (
-            await connection.execute(
-                "DELETE FROM public.ml_backend_registry WHERE id = $1", no_fence_id
-            )
-            == "DELETE 1"
-        )
-        assert (
             await connection.fetchval(
-                "SELECT count(*) FROM public.ml_backend_registry WHERE id = $1",
-                no_fence_id,
+                "SELECT count(*) FROM public.ml_backend_registry WHERE id=ANY($1::uuid[])",
+                [historical_fence_id, managed_id],
             )
-            == 0
-        )
-
-        await _assert_pg_error(
-            connection,
-            "DELETE FROM public.ml_backend_registry WHERE id = $1",
-            historical_fence_id,
-            sqlstate="42501",
-        )
-        assert (
-            await connection.fetchval(
-                "SELECT count(*) FROM public.ml_backend_registry WHERE id = $1",
-                historical_fence_id,
-            )
-            == 1
+            == 2
         )
         assert (
             await connection.fetchval(
                 "SELECT count(*) FROM public.gpu_backend_fences "
-                "WHERE backend_registry_id = $1",
+                "WHERE backend_registry_id=$1",
                 historical_fence_id,
-            )
-            == 1
-        )
-
-        await _assert_pg_error(
-            connection,
-            "DELETE FROM public.ml_backend_registry WHERE id = $1",
-            managed_id,
-            sqlstate="23514",
-        )
-        assert (
-            await connection.fetchval(
-                "SELECT count(*) FROM public.ml_backend_registry WHERE id = $1",
-                managed_id,
             )
             == 1
         )
         assert (
             await connection.fetchval(
                 "SELECT state FROM public.gpu_backend_memberships "
-                "WHERE backend_registry_id = $1",
+                "WHERE backend_registry_id=$1",
                 managed_id,
             )
             == "pending"
@@ -200,7 +172,7 @@ async def test_registry_delete_skips_only_missing_fence_rows(test_engine) -> Non
         assert (
             await connection.fetchval(
                 "SELECT runtime_epoch_high_water FROM public.gpu_backend_fences "
-                "WHERE backend_registry_id = $1",
+                "WHERE backend_registry_id=$1",
                 managed_id,
             )
             == 1

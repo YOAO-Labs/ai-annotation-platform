@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from collections.abc import Mapping, Sequence
+from contextlib import AsyncExitStack, asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import UTC, datetime, timedelta
@@ -41,18 +42,54 @@ from aap_protocol_v2.lifecycle import (
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from sqlalchemy import or_, select, text
 
-from app.config import GPUArbiterMode, Settings, settings
+from app.config import Settings, settings
 from app.db.models.gpu_backend_cancel_intent import GPUBackendCancelIntent
 from app.db.models.gpu_backend_fence import GPUBackendFence
 from app.db.models.gpu_backend_membership import GPUBackendMembership
 from app.db.models.ml_backend_registry import MLBackendRegistry
-from app.services.gpu_arbitration.contracts import (
-    GPUArbiterDispatchError,
-    GPUDispatchRequest,
-)
-from app.services.gpu_arbitration.ledger import GPUArbiterStore, GPUArbiterStoreError
-from app.services.gpu_arbitration.signing import GPUAdmissionTokenSigner
+from aap_inference.backend_transport import BackendTransport
+from aap_inference.gpu.contracts import GPUArbiterDispatchError, GPUDispatchRequest
+from aap_inference.gpu.ledger import GPUArbiterStore, GPUArbiterStoreError
+from aap_inference.gpu.settings import GPUArbiterMode, GPUAuthoritySettings
+from aap_inference.gpu.signing import GPUAdmissionTokenSigner
+from aap_workspace.configuration import secret_source
+from app.observability.metrics import observe_ml_backend
 from app.utils.gpu_resource import validate_gpu_resource_id
+
+
+def _owner_database_url(name: str) -> str:
+    value = secret_source(os.environ.get(name, ""), os.environ.get(f"{name}_FILE", ""))
+    if not value:
+        raise ValueError(f"{name} or {name}_FILE is required for owner validation")
+    return value.replace("postgresql+asyncpg://", "postgresql://", 1)
+
+
+def _owner_settings(config: Settings) -> GPUAuthoritySettings:
+    return GPUAuthoritySettings(
+        gpu_arbiter_mode=config.gpu_arbiter_mode,
+        gpu_arbiter_resources=config.gpu_arbiter_resources,
+        gpu_arbiter_config_errors=tuple(config.gpu_arbiter_config_errors),
+        gpu_arbiter_rollout_enabled=config.gpu_arbiter_rollout_enabled,
+        gpu_arbiter_admission_timeout_seconds=config.gpu_arbiter_admission_timeout_seconds,
+        gpu_arbiter_residency_cooldown_seconds=config.gpu_arbiter_residency_cooldown_seconds,
+        ml_predict_timeout=config.ml_predict_timeout,
+        redis_url=config.redis_url,
+        gpu_lifecycle_signing_keys_file=os.environ.get(
+            "GPU_LIFECYCLE_SIGNING_KEYS_FILE", ""
+        ),
+        gpu_lifecycle_active_signing_kid=os.environ.get(
+            "GPU_LIFECYCLE_ACTIVE_SIGNING_KID", ""
+        ),
+        gpu_arbiter_collector_database_url_file=os.environ.get(
+            "GPU_ARBITER_COLLECTOR_DATABASE_URL_FILE", ""
+        ),
+    )
+
+
+@asynccontextmanager
+async def _readonly_dispatch(_operation, _scope):
+    raise RuntimeError("Backend observation cannot issue a GPU mutation")
+    yield  # The context manager must reject entry rather than provide a grant.
 
 
 EVIDENCE_SCHEMA = "aap.gpu-arbitration.acceptance/v1"
@@ -798,11 +835,14 @@ async def collect_redis_snapshot(
 async def collect_live_backends(
     endpoints: Mapping[str, BackendEndpoint],
 ) -> dict[str, Any]:
-    from app.services.ml_client import MLBackendClient  # noqa: PLC0415
-
     async def collect(endpoint: BackendEndpoint) -> tuple[str, dict[str, Any]]:
         challenge = secrets.token_hex(32)
-        client = MLBackendClient(endpoint.client_subject())
+        client = BackendTransport(
+            endpoint.client_subject(),
+            options=settings,
+            dispatch_context=_readonly_dispatch,
+            observe=observe_ml_backend,
+        )
         setup: dict[str, Any] | None = None
         setup_error: str | None = None
         try:
@@ -1286,7 +1326,7 @@ async def collect_preflight(
         if window_check["status"] == "passed":
             break
     try:
-        signer = GPUAdmissionTokenSigner.from_settings(config)
+        signer = GPUAdmissionTokenSigner.from_settings(_owner_settings(config))
     except Exception as exc:  # noqa: BLE001 - reported as a preflight blocker
         signer_check = _check(
             "signer_ready",
@@ -1360,7 +1400,6 @@ async def collect_preflight(
 
 
 async def refresh_runtime_proofs(
-    session_factory,
     backend_ids: Sequence[str],
     *,
     refresher=None,
@@ -1368,15 +1407,19 @@ async def refresh_runtime_proofs(
     """Persist fresh challenge proofs before the mutating validation run."""
 
     if refresher is None:
-        from app.services.gpu_arbitration.dispatch import (  # noqa: PLC0415
-            _refresh_gpu_health as refresher,
+        from aap_inference.gpu_health import PersistedGPUHealthRefresher
+        from app.services.inference_limits import capability_limits_from_settings
+
+        refresher = PersistedGPUHealthRefresher(
+            _owner_database_url("INFERENCE_HEALTH_DATA_DATABASE_URL"),
+            options=settings,
+            capability_limits_factory=capability_limits_from_settings,
         )
 
     checks: list[dict[str, Any]] = []
     for backend_id in sorted(set(backend_ids)):
         try:
             refreshed = await refresher(
-                session_factory,
                 uuid.UUID(backend_id),
                 secrets.token_hex(32),
             )
@@ -1454,6 +1497,7 @@ async def _run_action(
         "started_monotonic_ms": started_monotonic_ms,
     }
     request = GPUDispatchRequest(
+        request_id=uuid.uuid4(),
         backend_id=action.backend_id,
         gpu_resource_id=action.resource_id,
         operation=action.operation,
@@ -2778,9 +2822,14 @@ async def run_validation(
     session_factory,
     config: Settings,
 ) -> dict[str, Any]:
-    from app.services.gpu_arbitration.dispatch import (  # noqa: PLC0415
-        build_gpu_dispatch_context_factory,
-    )
+    import asyncpg
+    from aap_inference.gpu.dispatch import build_gpu_dispatch_context_factory
+    from aap_inference.gpu.endpoint_source import GPUOwnedBackendEndpointSource
+    from aap_inference.gpu.native import GPUAuthorityPoolData
+    from aap_inference.gpu_health import PersistedGPUHealthRefresher
+    from aap_inference.owner_transport import BackendTransportGPUControlAdapter
+    from aap_inference.routing_runtime import RoutingRuntime
+    from app.services.inference_limits import capability_limits_from_settings
 
     _validate_run_safety(
         environment=config.environment,
@@ -2797,6 +2846,7 @@ async def run_validation(
         else None
     )
     store = GPUArbiterStore.from_url(config.redis_url)
+    owner_stack = AsyncExitStack()
     started_at = _utc_now()
     evidence_manifest = _evidence_manifest(manifest)
     evidence_manifest_sha256 = _sha256_json(evidence_manifest)
@@ -2834,7 +2884,6 @@ async def run_validation(
             }
 
         runtime_proof_checks = await refresh_runtime_proofs(
-            session_factory,
             endpoints,
         )
         if not all(check["status"] == "passed" for check in runtime_proof_checks):
@@ -2900,26 +2949,57 @@ async def run_validation(
                 },
             }
 
-        fault_module = None
-        if fault is not None and fault.kind == "health-timeout":
-            from app.services.gpu_arbitration import dispatch as fault_module  # noqa: PLC0415
+        routing = RoutingRuntime(_owner_database_url("INFERENCE_ROUTING_DATABASE_URL"))
+        owner_stack.push_async_callback(routing.close)
+
+        async def owner_pool(name: str):
+            pool = await asyncpg.create_pool(
+                _owner_database_url(name),
+                min_size=0,
+                max_size=8,
+                timeout=5,
+                command_timeout=30,
+            )
+            owner_stack.push_async_callback(pool.close)
+            return pool
+
+        authority = GPUAuthorityPoolData(await owner_pool("INFERENCE_GPU_DATABASE_URL"))
+        endpoint_source = GPUOwnedBackendEndpointSource(
+            {
+                purpose: await owner_pool(
+                    f"INFERENCE_GPU_ENDPOINT_{purpose.upper()}_DATABASE_URL"
+                )
+                for purpose in ("health_observation", "gpu_control")
+            }
+        )
+        persisted_health = PersistedGPUHealthRefresher(
+            _owner_database_url("INFERENCE_HEALTH_DATA_DATABASE_URL"),
+            options=config,
+            capability_limits_factory=capability_limits_from_settings,
+        )
 
         async def refresh_health(backend_id: uuid.UUID, challenge: str) -> bool:
             if fault is not None and fault.hit_health(backend_id):
                 raise TimeoutError("injected health-timeout")
-            assert fault_module is not None
-            return await fault_module._refresh_gpu_health(  # noqa: SLF001
-                session_factory, backend_id, challenge
-            )
+            return await persisted_health(backend_id, challenge)
 
+        @asynccontextmanager
+        async def store_factory():
+            owned_store = GPUArbiterStore.from_url(config.redis_url)
+            try:
+                yield owned_store
+            finally:
+                await owned_store.aclose()
+
+        owner_config = _owner_settings(config)
         dispatch_factory = build_gpu_dispatch_context_factory(
-            session_factory,
-            config=config,
-            health_refresher=(
-                refresh_health
-                if fault is not None and fault.kind == "health-timeout"
-                else None
-            ),
+            authority,
+            endpoint_source,
+            BackendTransportGPUControlAdapter(routing),
+            config=owner_config,
+            store_factory=store_factory,
+            signer_factory=lambda: GPUAdmissionTokenSigner.from_settings(owner_config),
+            health_refresher=refresh_health,
         )
         baseline_samples = await _gpu_samples()
         before_runtime = await _runtime_sample(
@@ -3036,7 +3116,10 @@ async def run_validation(
             },
         }
     finally:
-        await store.aclose()
+        try:
+            await owner_stack.aclose()
+        finally:
+            await store.aclose()
 
 
 _PRIMARY_CHECKS = frozenset(

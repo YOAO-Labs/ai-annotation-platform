@@ -118,8 +118,10 @@ async def heartbeat(factory, attempt_id, claim_id, stop):
             log.warning("Evaluation heartbeat unavailable attempt=%s", attempt_id)
 
 
-async def private_client(db, run):
-    return await managed.private_client(db, run.spec["model_ref"])
+async def backend_control_handle(db, run, *, session_factory):
+    return await managed.backend_control_handle(
+        db, run.spec["model_ref"], session_factory=session_factory
+    )
 
 
 def recovered_result(receipt, run):
@@ -132,7 +134,7 @@ async def remote_receipt(client, row, *, seal=False):
 
 async def obtain_result(factory, run, row, png, attempt_id, claim_id):
     async with factory() as db:
-        client = await private_client(db, run)
+        client = await backend_control_handle(db, run, session_factory=factory)
         await db.commit()
     # Read cached evidence first, including when a previous GPU grant is uncertain.
     for _ in range(120):
@@ -376,7 +378,9 @@ async def settle_cancel(factory, run_id):
         attempt = await db.get(Attempt, run.current_attempt_id)
         rows = await service.sample_rows(db, run)
         client = (
-            await private_client(db, run) if any(row.request for row in rows) else None
+            await backend_control_handle(db, run, session_factory=factory)
+            if any(row.request for row in rows)
+            else None
         )
         await db.commit()
     recovered = {}

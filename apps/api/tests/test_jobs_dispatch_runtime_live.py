@@ -17,7 +17,6 @@ import signal
 import socket
 import subprocess
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
 from celery import signals
 from celery.contrib.testing.worker import start_worker
@@ -38,7 +37,10 @@ from app.db.models.prediction import Prediction
 from app.workers import frame_preannotate
 from app.workers.celery_app import celery_app
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
-from tests.test_frame_preannotate_persistence import _install_video_gateway
+from tests.test_frame_preannotate_persistence import (
+    _install_frame_execution_fake,
+    _install_video_gateway,
+)
 from tests.test_frame_preannotate_persistence import frame_world as frame_world
 from tests.test_identity_sessions_live import _verify_redis
 
@@ -238,38 +240,31 @@ async def test_killed_publisher_partial_canvas_replays_original_ids_and_complete
     world = frame_world
     _install_video_gateway(monkeypatch, world)
     monkeypatch.setattr(settings, "frame_preannotate_chunk_size", 1)
-    client = SimpleNamespace(
-        predict=AsyncMock(
-            return_value=[
-                SimpleNamespace(
-                    result=[
-                        {
-                            "type": "rectanglelabels",
-                            "value": {
-                                "x": 10,
-                                "y": 20,
-                                "width": 30,
-                                "height": 40,
-                                "rectanglelabels": ["car"],
-                            },
-                        }
-                    ],
-                    score=0.9,
-                    model_version="protocol-fixture",
-                    inference_time_ms=12,
-                    meta={"total_tokens": 7},
-                )
-            ]
-        ),
-        last_instance_id=None,
-        pool_id=None,
-    )
-    monkeypatch.setattr(
-        "app.services.ml_routing.client.RoutedMLBackendClient", lambda *_a, **_k: client
-    )
-    monkeypatch.setattr(
-        "app.services.ml_backend.MLBackendService.pool_id_for_registry",
-        AsyncMock(return_value=None),
+
+    async def predict(_tasks, _context):
+        return [
+            SimpleNamespace(
+                result=[
+                    {
+                        "type": "rectanglelabels",
+                        "value": {
+                            "x": 10,
+                            "y": 20,
+                            "width": 30,
+                            "height": 40,
+                            "rectanglelabels": ["car"],
+                        },
+                    }
+                ],
+                score=0.9,
+                model_version="protocol-fixture",
+                inference_time_ms=12,
+                meta={"total_tokens": 7},
+            )
+        ]
+
+    _install_frame_execution_fake(
+        monkeypatch, predict, actual_instance_id=world.backend_id
     )
     dispatcher = frame_preannotate.JobsFramePreannotationDispatcher()
     async with world.maker() as acceptance:

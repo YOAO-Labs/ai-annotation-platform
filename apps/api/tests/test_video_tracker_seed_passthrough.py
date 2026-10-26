@@ -12,16 +12,17 @@ import pytest
 from app.config import settings
 from app.db.models.annotation import Annotation
 from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
-from app.services.video_tracking.adapters import TrackerContext, TrackerFrameResult
+from app.services.video_tracking.adapters import TrackerContext
+from aap_inference.tracker import TrackerFrameResult
 from app.services.video_tracking.runner import run_tracker_job
-from tests.tracker_input_test_ports import yield_tracker_fake_results
+from tests.tracker_input_test_ports import tracker_fake_propagation
 
 # 复用多实例测试里的视频 task/dataset 建置, 避免重复 ~40 行 fixture。
 from tests.test_video_tracker_multi_instance import _make_video_task
 
 
 @pytest.fixture(autouse=True)
-def _tracker_input_owner_test_port(tracker_input_owner_fakes, savepoint_routing_owner):
+def _tracker_input_owner_test_port(tracker_input_owner_fakes):
     tracker_input_owner_fakes.declare_tracker_backend = True
     return tracker_input_owner_fakes
 
@@ -52,8 +53,7 @@ class _CaptureAdapter:
                     outside=False,
                 )
             )
-        async for result in yield_tracker_fake_results(ctx, results):
-            yield result
+        return tracker_fake_propagation(ctx, results)
 
 
 async def _run_with_capture(db_session, super_admin, monkeypatch, *, direction: str):
@@ -167,8 +167,7 @@ class _TwoInstanceCaptureAdapter:
                     primary=False,
                 )
             )
-        async for result in yield_tracker_fake_results(ctx, results):
-            yield result
+        return tracker_fake_propagation(ctx, results)
 
 
 class _SingleInstanceWithoutPrimaryCaptureAdapter:
@@ -205,8 +204,7 @@ class _SingleInstanceWithoutPrimaryCaptureAdapter:
                     primary=False,
                 )
             )
-        async for result in yield_tracker_fake_results(ctx, results):
-            yield result
+        return tracker_fake_propagation(ctx, results)
 
 
 @pytest.mark.parametrize(

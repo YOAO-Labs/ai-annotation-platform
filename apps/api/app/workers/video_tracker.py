@@ -10,8 +10,7 @@ from app.services.project_access import get_workspace_project
 from app.db.models.video_tracker_job import VideoTrackerJobKind, VideoTrackerJobStatus
 from app.services import async_job as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
-from app.services.gpu_arbitration.contracts import gpu_arbiter_failure_record
-from app.services.gpu_arbitration.dispatch import build_gpu_dispatch_context_factory
+from aap_inference.gpu.contracts import gpu_arbiter_failure_record
 from app.services.accepted_tracker_inputs import TrackerInputDeferred
 from app.services.video_tracking.execution import (
     TrackerExecutionDeferred,
@@ -71,7 +70,6 @@ async def _run_video_tracker_job(job_id: str, celery_task_id: str | None) -> Non
     SessionLocal = async_sessionmaker(
         engine, class_=AsyncSession, expire_on_commit=False
     )
-    dispatch_context_factory = build_gpu_dispatch_context_factory(SessionLocal)
     try:
         async with SessionLocal() as db:
             job = await video_control_job(
@@ -153,7 +151,6 @@ async def _run_video_tracker_job(job_id: str, celery_task_id: str | None) -> Non
                     db,
                     uuid.UUID(job_id),
                     shadow_session_factory=SessionLocal,
-                    dispatch_context_factory=dispatch_context_factory,
                     failure_recorder=_record_gpu_arbiter_failure,
                     tracker_input_ready=tracker_input_ready,
                     celery_task_id=celery_task_id,

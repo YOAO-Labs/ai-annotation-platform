@@ -223,3 +223,27 @@ async def test_status_rejects_a_different_frozen_incarnation():
 
     with pytest.raises(BackendRoutingControlUnavailable):
         await control.status(context)
+
+
+@pytest.mark.parametrize(
+    ("url", "method", "accepted"),
+    [
+        ("https://backend.example.test/base%20path/setup", "GET", True),
+        ("https://backend.example.test/setup", "GET", False),
+        ("https://backend.example.test/base%20path/setup?extra=1", "GET", False),
+        ("https://backend.example.test/base%20path/setup", "POST", False),
+    ],
+)
+def test_registered_control_target_preserves_exact_encoded_base_path(
+    url, method, accepted
+):
+    from aap_inference.owner_transport import _matches_backend_control_target
+
+    assert (
+        _matches_backend_control_target(
+            httpx.Request(method, url),
+            ("GET", "/setup", None),
+            base_url="https://backend.example.test/base%20path/",
+        )
+        is accepted
+    )

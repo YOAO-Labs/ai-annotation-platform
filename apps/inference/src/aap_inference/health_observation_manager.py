@@ -9,8 +9,10 @@ import re
 import httpx
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
-from typing import Any, Callable, Protocol
+from collections.abc import Callable
+from typing import Any, Protocol
 from uuid import UUID
+
 
 from aap_inference_contract.health_observation import (
     HEALTH_OBSERVATION_PROTOCOL,

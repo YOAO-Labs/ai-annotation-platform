@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field, fields
+import hashlib
 import json
 from datetime import datetime
 from typing import Any, Literal
@@ -137,6 +138,23 @@ class BackendHealthRow:
     last_checked_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+    @property
+    def endpoint_sha256(self) -> str:
+        """Fence this private owner snapshot against an endpoint rotation."""
+        endpoint = (
+            self.id.hex,
+            self.url,
+            self.auth_method,
+            self.auth_token,
+            self.gpu_resource_id,
+            self.vram_budget_mb,
+            self.eviction_priority,
+            self.extra_params,
+        )
+        return hashlib.sha256(
+            json.dumps(endpoint, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
 
 
 @dataclass

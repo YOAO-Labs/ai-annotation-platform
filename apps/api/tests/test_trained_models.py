@@ -18,8 +18,7 @@ from app.services import trained_models as service
 from app.services import trained_model_backend as backend_io
 from app.services import training_artifacts as artifacts
 from app.services.labeling_prediction_contract import ApplyPredictionResultRequest
-from aap_inference.backend_transport import PredictionResult
-from app.services.ml_client import MLBackendClient
+from aap_inference_contract.execution import ModelTaskResult, thaw_json
 from app.services.prediction import PredictionService, to_internal_shape
 from app.services.labeling_write_scope import capture_labeling_write_scope
 from app.services.trained_model_reference_contract import (
@@ -265,12 +264,24 @@ async def ready_deployment(db, project, version):
 
 
 def mock_live_receipts(monkeypatch, db):
-    async def receipt(_client, version_id):
+    from app.services import inference_backend_control
+
+    async def receipt(_registry_id, version_id):
         return service.expected_receipt(
             await db.get(TrainedModelVersion, uuid.UUID(version_id))
         )
 
-    monkeypatch.setattr(MLBackendClient, "trained_model_receipt", receipt)
+    control = SimpleNamespace(
+        credential_policy=AsyncMock(
+            return_value=SimpleNamespace(
+                auth_method="token", auth_token_length_valid=True
+            )
+        ),
+        trained_model_receipt=receipt,
+    )
+    monkeypatch.setattr(
+        inference_backend_control, "backend_control_service", lambda _db: control
+    )
 
 
 async def publish(client, token, project, version, deployment, generation, **extra):
@@ -527,14 +538,22 @@ async def test_ready_deployment_restores_a_missing_backend_installation(
     backend, deployment = await ready_deployment(db_session, project, version)
     from fastapi import HTTPException
 
-    monkeypatch.setattr(
-        MLBackendClient,
-        "trained_model_receipt",
-        AsyncMock(
+    from app.services import inference_backend_control
+
+    control = SimpleNamespace(
+        credential_policy=AsyncMock(
+            return_value=SimpleNamespace(
+                auth_method="token", auth_token_length_valid=True
+            )
+        ),
+        trained_model_receipt=AsyncMock(
             side_effect=TimeoutError()
             if unavailable
             else HTTPException(status_code=409, detail="missing installation")
         ),
+    )
+    monkeypatch.setattr(
+        inference_backend_control, "backend_control_service", lambda _db: control
     )
 
     observed = {}
@@ -609,9 +628,9 @@ async def test_stale_deployment_check_cannot_publish_older_trial(
 
 
 def prediction_result(ref, **extra):
-    return PredictionResult(
+    return ModelTaskResult(
         task_id=str(uuid.uuid4()),
-        result=[
+        result=(
             {
                 "type": "rectanglelabels",
                 "native_class_index": 0,
@@ -624,8 +643,8 @@ def prediction_result(ref, **extra):
                     "rectanglelabels": [ref["classes"][0]],
                 },
                 **extra,
-            }
-        ],
+            },
+        ),
         meta={
             "trained_model": {
                 k: ref[k] for k in ("model_version_id", "sha256", "classes_digest")
@@ -658,8 +677,12 @@ async def test_mapping_canonicalization_and_provenance_survive_acceptance_aliase
         class_name="person",
         tool_unit_id="polygon",
     )
-    service.validate_and_map_results([result], ref)
-    normalized = to_internal_shape(result.result[0])
+    mapped = service.validate_and_map_results([result], ref)
+    shapes = thaw_json(mapped[0].result)
+    normalized = to_internal_shape(shapes[0])
+    assert result.model_version is None
+    assert result.result[0]["value"]["rectanglelabels"] == (ref["classes"][0],)
+    assert mapped[0].model_version == f"trained:{ref['model_version_id']}"
     assert normalized["class_name"] == "car" and normalized["tool_unit_id"] == "bbox"
     assert normalized["geometry"]["x"] == pytest.approx(0.001)
     task = await create_task(db_session, project_id=project.id)
@@ -688,7 +711,7 @@ async def test_mapping_canonicalization_and_provenance_survive_acceptance_aliase
             task_id=task.id,
             project_id=project.id,
             ml_backend_id=deployment.registry_id,
-            result=result.result,
+            result=shapes,
             model_provenance=ref,
             write_scope=prediction_scope,
         )
@@ -722,16 +745,40 @@ def test_wrong_identity_native_class_and_coordinates_are_rejected(change):
         "bindings": ["车辆"],
     }
     result = prediction_result(ref)
+    shapes = thaw_json(result.result)
+    meta = thaw_json(result.meta)
     if change == "identity":
-        result.meta["trained_model"]["sha256"] = "c" * 64
+        meta["trained_model"]["sha256"] = "c" * 64
     elif change == "index":
-        result.result[0]["native_class_index"] = 9
+        shapes[0]["native_class_index"] = 9
     elif change == "name":
-        result.result[0]["value"]["rectanglelabels"] = ["person"]
+        shapes[0]["value"]["rectanglelabels"] = ["person"]
     else:
-        result.result[0]["value"]["x"] = float("nan")
+        shapes[0]["value"]["x"] = 100.5
+    malformed = ModelTaskResult(
+        task_id=result.task_id,
+        result=shapes,
+        meta=meta,
+    )
     with pytest.raises(ValueError):
-        service.validate_and_map_results([result], ref)
+        service.validate_and_map_results([malformed], ref)
+
+
+def test_backend_control_errors_preserve_status_detail_and_retry_after():
+    control_error = SimpleNamespace(
+        failure=SimpleNamespace(
+            status_code=409,
+            code="evaluation_request_busy",
+            detail={"reason": "evaluation_request_busy"},
+            retry_after="1",
+        )
+    )
+
+    error = service.backend_control_http_exception(control_error)
+
+    assert error.status_code == 409
+    assert error.detail == {"reason": "evaluation_request_busy"}
+    assert error.headers == {"Retry-After": "1"}
 
 
 @pytest.mark.parametrize(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from copy import deepcopy
 from decimal import Decimal
 import math
@@ -36,7 +37,14 @@ from app.services.prediction_retry_data import (
     SqlAlchemyPredictionRetryData,
 )
 from app.services.raster_mask_contract import RasterMaskContractError
-from app.services.gpu_arbitration.contracts import GPUArbiterDispatchError
+from aap_inference.gpu.contracts import GPUArbiterDispatchError
+from aap_inference.execution_pipeline import execute_task_pipeline
+
+from aap_inference_contract.execution import (
+    ModelExecutionError,
+    freeze_json,
+    thaw_json,
+)
 from app.services.labeling_core_read_relations import get_core_row, task_row
 
 _DEFER_CODES = frozenset(
@@ -51,10 +59,6 @@ _DEFER_CODES = frozenset(
 )
 
 
-class _ModelRequestFailure(RuntimeError):
-    code = "model_request_failed"
-
-
 def retry_scope(attempt):
     return {
         "job_id": attempt.job_id,
@@ -62,6 +66,13 @@ def retry_scope(attempt):
         "project_id": attempt.project_id,
         "request_digest": attempt.request_digest,
     }
+
+
+def _model_execution_port(db):
+    """Use the parent-composed, route/GPU-authorized execution owner."""
+    from app.services.inference_model_execution import model_execution_port
+
+    return model_execution_port(db)
 
 
 async def call_retry(database, operation, **values):
@@ -157,8 +168,8 @@ def _one_result(results, task_id):
         raise ValueError("retry backend returned an invalid task identity") from None
     if returned != task_id:
         raise ValueError("retry backend returned another task's result")
-    if not isinstance(first.result, list) or any(
-        not isinstance(item, dict) for item in first.result
+    if not isinstance(first.result, (list, tuple)) or any(
+        not isinstance(item, Mapping) for item in first.result
     ):
         raise ValueError("retry backend returned invalid result objects")
     if first.score is not None and (
@@ -171,15 +182,13 @@ def _one_result(results, task_id):
         type(first.inference_time_ms) is not int or first.inference_time_ms < 0
     ):
         raise ValueError("retry backend returned an invalid inference duration")
-    if first.meta is not None and not isinstance(first.meta, dict):
+    if first.meta is not None and not isinstance(first.meta, Mapping):
         raise ValueError("retry backend returned invalid metadata")
     return first
 
 
 async def _infer(execution, attempt, prepared, session_factory):
-    from app.db.models.ml_backend_registry import MLBackendRegistry
-    from app.services.gpu_arbitration.dispatch import build_gpu_dispatch_context_factory
-    from app.services.ml_routing.client import RoutedMLBackendClient
+    from app.services.inference_topology_data import InferenceTopologyData
     from app.services.prediction import remap_prediction_track_ids
     from app.services.storage import resolve_task_url
 
@@ -187,24 +196,18 @@ async def _infer(execution, attempt, prepared, session_factory):
         raise prepared.terminal_error
     if attempt.task_id is None or attempt.ml_backend_id is None:
         raise ValueError("missing_task_or_backend")
+    task_id = uuid.UUID(str(attempt.task_id))
+    project_id = uuid.UUID(str(attempt.project_id))
+    requested_backend_id = uuid.UUID(str(attempt.ml_backend_id))
     context = attempt.source_extra.get("request_context")
     context = context if isinstance(context, dict) else None
     async with session_factory() as db:
-        task = await get_core_row(db, task_row, attempt.task_id)
-        backend = await db.get(MLBackendRegistry, attempt.ml_backend_id)
-        if task is None or backend is None:
-            raise ValueError("missing_task_or_backend")
-        client = RoutedMLBackendClient(
-            db,
-            backend,
-            project_id=attempt.project_id,
-            owner=f"retry:{attempt.job_id}",
-            operation="prediction_retry",
-            shadow_session_factory=session_factory,
-            dispatch_context_factory=build_gpu_dispatch_context_factory(
-                session_factory
-            ),
+        task = await get_core_row(db, task_row, task_id)
+        registry_reference = await InferenceTopologyData(db).registry_reference(
+            requested_backend_id
         )
+        if task is None or registry_reference is None:
+            raise ValueError("missing_task_or_backend")
         input_url = (
             prepared.reference.url
             if prepared.reference is not None
@@ -215,43 +218,79 @@ async def _infer(execution, attempt, prepared, session_factory):
                 )
             )
         )
-        task_input = {"id": str(attempt.task_id), "file_path": input_url}
-        try:
-            results = await client.predict(
-                [task_input], **({"context": context} if context is not None else {})
-            )
-        except GPUArbiterDispatchError:
-            raise
-        except HTTPException as error:
-            # A model response is an attempted inference, even when its HTTP
-            # status also describes a temporary source/provider outage.
-            raise _ModelRequestFailure(str(error)) from error
-        first = _one_result(results, attempt.task_id)
+        stages = (
+            freeze_json(
+                {
+                    "stage": 0,
+                    "parent_stage": None,
+                    "ml_backend_id": str(requested_backend_id),
+                    "model_id": (context or {}).get("model_id"),
+                    "write": None,
+                }
+            ),
+        )
+        accepted_input_facts = (
+            {
+                key: str(value) if isinstance(value, uuid.UUID) else value
+                for key, value in prepared.accepted_input.items()
+            }
+            if prepared.accepted_input is not None
+            else None
+        )
+        model_port = _model_execution_port(db)
+        output = await execute_task_pipeline(
+            str(task_id),
+            stages,
+            (model_port,),
+            (freeze_json(context) if context is not None else None,),
+            source_url=input_url,
+            project_id=project_id,
+            owner_prefix=f"retry:{attempt.job_id}",
+            route_operation="prediction_retry",
+            correlation={
+                "job_id": str(attempt.job_id),
+                "failed_prediction_id": str(attempt.failed_prediction_id),
+            },
+            input_provenance=(
+                {"accepted_input": accepted_input_facts}
+                if accepted_input_facts is not None
+                else None
+            ),
+        )
+        first = _one_result(output.results, task_id)
         request = ApplyPredictionResultRequest(
-            task_id=attempt.task_id,
-            project_id=attempt.project_id,
-            ml_backend_id=client.last_instance_id or attempt.ml_backend_id,
-            ml_backend_pool_id=client.pool_id,
-            result=remap_prediction_track_ids(first.result),
+            task_id=task_id,
+            project_id=project_id,
+            ml_backend_id=output.provenance.instance_id,
+            ml_backend_pool_id=output.provenance.pool_id,
+            result=remap_prediction_track_ids(thaw_json(first.result)),
             score=first.score,
             model_version=first.model_version,
             inference_time_ms=first.inference_time_ms,
-            token_meta=first.meta,
+            token_meta=thaw_json(first.meta) if first.meta is not None else None,
             write_scope=restore_write_scope(attempt.write_scope),
-            pipeline_extra={
-                "accepted_input": {
-                    key: str(value) if isinstance(value, uuid.UUID) else value
-                    for key, value in prepared.accepted_input.items()
-                    if key != "project_id"
+            pipeline_extra=(
+                {
+                    **(thaw_json(output.extra) if output.extra is not None else {}),
+                    **(
+                        {
+                            "accepted_input": {
+                                key: value
+                                for key, value in accepted_input_facts.items()
+                                if key != "project_id"
+                            }
+                        }
+                        if accepted_input_facts is not None
+                        else {}
+                    ),
                 }
-            }
-            if prepared.accepted_input is not None
-            else None,
+                or None
+            ),
             accepted_video_input=prepared.accepted_video_input,
             model_provenance=(context or {}).get("frozen_model_ref"),
         )
     raw_context = {
-        "task_id": str(attempt.task_id),
+        "task_id": str(task_id),
         "total_cost": format(
             Decimal(str((first.meta or {}).get("total_cost") or 0)), "f"
         ),
@@ -338,10 +377,11 @@ async def _finish_failure(
     execution, attempt, data, session_factory, error, *, abandon=False
 ):
     from aap_preannotation_results.retry_contract import PredictionRetryFailure
-    from app.services.gpu_arbitration.contracts import gpu_arbiter_failure_record
+    from aap_inference.gpu.contracts import gpu_arbiter_failure_record
     from app.services.labeling_write_guard import lock_labeling_write
 
     gpu_error = gpu_arbiter_failure_record(error)
+    model_failure = error.failure if isinstance(error, ModelExecutionError) else None
     saved = (
         (await execution.read_result(1)).result if attempt.task_id is not None else None
     )
@@ -357,9 +397,21 @@ async def _finish_failure(
     )
     if gpu_error is not None:
         context = {**context, "gpu_arbiter_failures": [gpu_error]}
+    if model_failure is not None and model_failure.provenance is not None:
+        context = {
+            **context,
+            "ml_backend_id": str(model_failure.provenance.instance_id),
+            "ml_backend_pool_id": (
+                str(model_failure.provenance.pool_id)
+                if model_failure.provenance.pool_id is not None
+                else None
+            ),
+        }
     code = (
         gpu_error["error_code"]
         if gpu_error is not None
+        else model_failure.code
+        if model_failure is not None
         else getattr(error, "code", None) or type(error).__name__
     )
     async with session_factory() as db:
@@ -415,7 +467,9 @@ async def _finish_failure(
 def _transient(error):
     from sqlalchemy.exc import DataError, IntegrityError
 
-    if isinstance(error, (DataError, IntegrityError, GPUArbiterDispatchError)):
+    if isinstance(
+        error, (DataError, IntegrityError, GPUArbiterDispatchError, ModelExecutionError)
+    ):
         return False
     if isinstance(
         error, (SQLAlchemyError, FrozenInputRetryDeferred, PreannotationResultDeferred)
@@ -441,7 +495,11 @@ def _transient(error):
 
 
 def _invalidated(error):
-    code = getattr(error, "code", None)
+    code = (
+        error.failure.code
+        if isinstance(error, ModelExecutionError)
+        else getattr(error, "code", None)
+    )
     if isinstance(error, (RasterMaskContractError, GPUArbiterDispatchError)):
         return False
     if isinstance(error, HTTPException):

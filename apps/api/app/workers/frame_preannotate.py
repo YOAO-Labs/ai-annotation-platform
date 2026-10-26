@@ -648,18 +648,21 @@ async def _run_segment(
         create_async_engine,
     )
 
-    from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
-    from app.services.labeling_core_read_relations import get_core_row, task_row
-    from app.services import async_job as async_job_svc
-    from app.services.gpu_arbitration.dispatch import (
-        build_gpu_dispatch_context_factory,
-    )
-    from app.services.gpu_arbitration.contracts import (
+    from aap_inference.execution_context import build_predict_context
+    from aap_inference.gpu.contracts import (
+        GPUArbiterErrorCode,
         gpu_arbiter_failure_record,
     )
-    from app.services.ml_routing.client import RoutedMLBackendClient
+    from aap_inference_contract.execution import (
+        FrozenModelOperation,
+        ModelExecutionError,
+        thaw_json,
+    )
+    from app.services.labeling_core_read_relations import get_core_row, task_row
+    from app.services import async_job as async_job_svc
+    from app.services.inference_model_execution import model_execution_port
+    from app.services.ml_backend import MLBackendService
     from app.services.prediction import PredictionService, to_video_bbox_result
-    from app.services.prediction_context import build_predict_context
     from app.services import prediction_retry
     from app.services.labeling_write_scope import (
         LabelingWriteScope,
@@ -686,7 +689,6 @@ async def _run_segment(
     SessionLocal = async_sessionmaker(
         engine, class_=AsyncSession, expire_on_commit=False
     )
-    dispatch_context_factory = build_gpu_dispatch_context_factory(SessionLocal)
 
     stats = {
         "task_id": task_id,
@@ -946,20 +948,16 @@ async def _run_segment(
                         ) from exc
                     source_failure = exc.code
 
-                from app.services.ml_backend import MLBackendService
-                from app.services.prediction import PredictionService
-                from app.services.prediction import to_video_bbox_result
-                from app.services.prediction_context import build_predict_context
-
                 pred_svc: ApplyPredictionResultPort = PredictionService(db)
-                backend = await db.get(MLBackend, backend_uuid)
+                backend_service = MLBackendService(db)
+                backend = await backend_service.get(backend_uuid)
                 if backend is None:
                     await _fail_frame_job_in_session(
                         db, job_id, project_id, "ml_backend_unavailable"
                     )
                     return stats
                 try:
-                    source_pool_id = await MLBackendService(db).pool_id_for_registry(
+                    source_pool_id = await backend_service.pool_id_for_registry(
                         backend_uuid
                     )
                 except Exception:
@@ -980,18 +978,44 @@ async def _run_segment(
                 retry_request_context = prediction_retry.retryable_request_context(
                     context
                 )
-                dispatch_context_factory = build_gpu_dispatch_context_factory(
-                    SessionLocal
-                )
-                client = RoutedMLBackendClient(
-                    db,
-                    backend,
-                    project_id=project_uuid,
-                    owner=f"frame:{job_id}:{task_id}",
-                    operation="frame_predict",
-                    shadow_session_factory=SessionLocal,
-                    dispatch_context_factory=dispatch_context_factory,
-                )
+                execution_port = model_execution_port(db)
+                current_provenance = None
+
+                gpu_error_codes = frozenset(code.value for code in GPUArbiterErrorCode)
+
+                def model_failure_provenance(error):
+                    if isinstance(error, ModelExecutionError):
+                        return error.failure.provenance
+                    return None
+
+                def model_gpu_failure_record(error):
+                    cause = error
+                    while cause is not None:
+                        record = gpu_arbiter_failure_record(cause)
+                        if record is not None:
+                            return record
+                        cause = cause.__cause__
+                    if not isinstance(error, ModelExecutionError):
+                        return None
+                    failure = error.failure
+                    if failure.code not in gpu_error_codes:
+                        return None
+                    detail = thaw_json(failure.detail)
+                    message = (
+                        detail.get("message") if isinstance(detail, dict) else None
+                    )
+                    retry_after_s = None
+                    if failure.retry_after is not None:
+                        try:
+                            retry_after_s = int(failure.retry_after)
+                        except (TypeError, ValueError):
+                            retry_after_s = None
+                    return {
+                        "error_code": failure.code,
+                        "status_code": failure.status_code,
+                        "retry_after_s": retry_after_s,
+                        "message": message or failure.code,
+                    }
 
                 async def record_failure(
                     ordinal: int,
@@ -1001,6 +1025,15 @@ async def _run_segment(
                     frame_record=None,
                     gpu_error=None,
                 ) -> None:
+                    gpu_error = gpu_error or model_gpu_failure_record(error)
+                    model_failure = (
+                        error.failure
+                        if isinstance(error, ModelExecutionError)
+                        else None
+                    )
+                    selected_provenance = (
+                        model_failure_provenance(error) or current_provenance
+                    )
                     evidence = video_evidence.failure_evidence(
                         plan,
                         entry,
@@ -1018,9 +1051,37 @@ async def _run_segment(
                         gpu_error["error_code"]
                         if gpu_error is not None
                         else (
-                            error.code
-                            if isinstance(error, VideoInputFailure)
-                            else type(error).__name__
+                            model_failure.code
+                            if model_failure is not None
+                            else (
+                                error.code
+                                if isinstance(error, VideoInputFailure)
+                                else type(error).__name__
+                            )
+                        )
+                    )
+                    model_failure_detail = (
+                        thaw_json(model_failure.detail)
+                        if model_failure is not None
+                        else None
+                    )
+                    model_failure_wire = (
+                        {
+                            "code": model_failure.code,
+                            "status_code": model_failure.status_code,
+                            "detail": model_failure_detail,
+                            "retry_after": model_failure.retry_after,
+                        }
+                        if model_failure is not None
+                        else None
+                    )
+                    model_failure_message = (
+                        (model_failure_detail.get("message") or model_failure.code)
+                        if isinstance(model_failure_detail, dict)
+                        else (
+                            str(model_failure_detail)
+                            if model_failure_detail is not None
+                            else None
                         )
                     )
                     extra = {
@@ -1035,23 +1096,28 @@ async def _run_segment(
                             else {}
                         ),
                         **({"gpu_arbiter_error": gpu_error} if gpu_error else {}),
+                        **(
+                            {"model_execution_failure": model_failure_wire}
+                            if model_failure_wire is not None
+                            else {}
+                        ),
                     }
                     failure = {
                         "error_type": str(error_type),
                         "message": (
                             gpu_error["message"]
                             if gpu_error is not None
-                            else str(error)
+                            else (model_failure_message or str(error))
                         ),
                         "extra": extra,
                         "ml_backend_id": (
-                            client.last_instance_id or backend_uuid
-                            if client is not None
+                            selected_provenance.instance_id
+                            if selected_provenance is not None
                             else backend_uuid
                         ),
                         "ml_backend_pool_id": (
-                            client.pool_id or source_pool_id
-                            if client is not None
+                            selected_provenance.pool_id
+                            if selected_provenance is not None
                             else source_pool_id
                         ),
                         "model_version": None,
@@ -1131,6 +1197,7 @@ async def _run_segment(
                     if await _job_cancelled(db, job_id):
                         stats["skipped"] += len(frame_ordinals) - index
                         break
+                    current_provenance = None
                     if pending_failure is not None:
                         failure = pending_failure
                         pending_failure = None
@@ -1242,7 +1309,7 @@ async def _run_segment(
                                 ) from exc
                             await db.rollback()
                             frame_record = None
-                            gpu_error = gpu_arbiter_failure_record(exc)
+                            gpu_error = model_gpu_failure_record(exc)
                             await record_failure(
                                 ordinal,
                                 entries[ordinal],
@@ -1264,43 +1331,73 @@ async def _run_segment(
                             continue
                         ready = video_evidence.ready_evidence(plan, frame_record)
                         try:
-                            from sqlalchemy import inspect
-
-                            if inspect(backend).expired:
-                                await db.refresh(backend)
-                            results = await client.predict(
-                                [
-                                    {
-                                        "id": f"{task_id}:{reference.entry.frame_index}",
-                                        "file_path": reference.url,
-                                    }
-                                ],
-                                context=context,
+                            frame_task_id = f"{task_id}:{reference.entry.frame_index}"
+                            operation_result = await execution_port.execute(
+                                FrozenModelOperation(
+                                    request_id=uuid.uuid4(),
+                                    operation="batch_predict",
+                                    task_inputs=(
+                                        {
+                                            "id": frame_task_id,
+                                            "file_path": reference.url,
+                                        },
+                                    ),
+                                    context=context,
+                                    project_id=str(project_uuid),
+                                    requested_registry_id=str(backend_uuid),
+                                    requested_pool_id=(
+                                        str(source_pool_id)
+                                        if source_pool_id is not None
+                                        else None
+                                    ),
+                                    route_owner=f"frame:{job_id}:{task_id}",
+                                    route_operation="frame_predict",
+                                    correlation={
+                                        "accepted_video_input_job_id": str(
+                                            input_job_uuid
+                                        ),
+                                        "accepted_video_plan_digest": plan_digest,
+                                        "frame_ordinal": ordinal,
+                                        "frame_index": reference.entry.frame_index,
+                                    },
+                                    input_provenance=ready.model_dump(
+                                        mode="json", by_alias=True
+                                    ),
+                                )
                             )
-                            raw = results[0].result if results else []
+                            if (
+                                len(operation_result.results) != 1
+                                or operation_result.results[0].task_id != frame_task_id
+                            ):
+                                raise RuntimeError(
+                                    "Frame prediction result identity mismatch"
+                                )
+                            current_provenance = operation_result.provenance
+                            prediction = operation_result.results[0]
+                            raw = thaw_json(prediction.result)
+                            token_meta = thaw_json(prediction.meta)
                             pending_write = {
                                 "task_id": write_scope.task_id,
                                 "project_id": project_uuid,
-                                "ml_backend_id": client.last_instance_id
-                                or backend_uuid,
+                                "ml_backend_id": (
+                                    operation_result.provenance.instance_id
+                                ),
                                 "result": to_video_bbox_result(
                                     raw if isinstance(raw, list) else [],
                                     reference.entry.frame_index,
                                 )[:box_cap],
-                                "score": results[0].score if results else None,
-                                "model_version": results[0].model_version
-                                if results
-                                else None,
-                                "inference_time_ms": (
-                                    results[0].inference_time_ms if results else None
+                                "score": prediction.score,
+                                "model_version": prediction.model_version,
+                                "inference_time_ms": prediction.inference_time_ms,
+                                "token_meta": token_meta,
+                                "ml_backend_pool_id": (
+                                    operation_result.provenance.pool_id
                                 ),
-                                "token_meta": results[0].meta if results else None,
-                                "ml_backend_pool_id": client.pool_id or source_pool_id,
                             }
                             pending_evidence = ready
                         except Exception as exc:  # noqa: BLE001
                             await db.rollback()
-                            gpu_error = gpu_arbiter_failure_record(exc)
+                            gpu_error = model_gpu_failure_record(exc)
                             await record_failure(
                                 ordinal,
                                 reference.entry,
@@ -1372,7 +1469,7 @@ async def _run_segment(
                                     frame_id=pending_evidence.frame_id,
                                     frame_sha256=pending_evidence.frame_sha256,
                                 )
-                                gpu_error = gpu_arbiter_failure_record(exc)
+                                gpu_error = model_gpu_failure_record(exc)
                                 failure_extra = {
                                     **video_evidence.prediction_extra(failed_evidence),
                                     "accepted_video_execution_job_id": str(
@@ -1469,7 +1566,7 @@ async def _finish_segment(
     job_id: str,
     segment_id: str,
 ) -> dict:
-    from app.services.gpu_arbitration.contracts import summarize_gpu_arbiter_failures
+    from aap_inference.gpu.contracts import summarize_gpu_arbiter_failures
 
     if gpu_arbiter_failures:
         stats["gpu_arbiter_failures"] = summarize_gpu_arbiter_failures(
@@ -1652,7 +1749,7 @@ async def _finalize(segment_stats: list[dict], *, project_id: str, job_id: str) 
     )
 
     from app.services import async_job as async_job_svc
-    from app.services.gpu_arbitration.contracts import summarize_gpu_arbiter_failures
+    from aap_inference.gpu.contracts import summarize_gpu_arbiter_failures
 
     engine = create_async_engine(settings.database_url, echo=False)
     SessionLocal = async_sessionmaker(

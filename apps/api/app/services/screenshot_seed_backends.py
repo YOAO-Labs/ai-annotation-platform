@@ -2,27 +2,24 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from collections.abc import Mapping
+from dataclasses import replace
 from typing import Any
 from urllib.parse import urlsplit
 
-from aap_inference.registry_ingress import (
-    get_or_create_seed,
-    refresh_candidates as refresh_registry_candidates,
-)
-from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession, async_object_session
+from aap_inference.registry_ingress import get_or_create_seed
+from aap_inference_contract.topology import RegistryPublicFacts
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBackendPool
+from app.config import settings
+from app.services.inference_registry_ingress_data import InferenceRegistryIngressData
+from app.services.ml_backend import MLBackendService
 from app.services.workspace_seed_data import (
     register_seed_project_projection,
     seed_projects,
 )
-from app.config import settings
-from app.services.ml_backend import MLBackendService
-from app.services.ml_client import MLBackendClient
-from app.services.inference_limits import capability_limits_from_settings
-from app.services.inference_registry_ingress_data import InferenceRegistryIngressData
+
 from app.services.screenshot_seed_spec import (
     BACKEND_REQUIREMENTS,
     PROJECT_SPECS,
@@ -53,22 +50,22 @@ def default_screenshot_stub_url() -> str:
     return f"http://{rendered_host}:9100"
 
 
-def _capabilities(backend: MLBackendRegistry) -> dict[str, Any]:
+def _capabilities(backend: RegistryPublicFacts) -> Mapping[str, Any]:
     value = (backend.health_meta or {}).get("capabilities")
-    return value if isinstance(value, dict) else {}
+    return value if isinstance(value, Mapping) else {}
 
 
-def _is_owned_stub(backend: MLBackendRegistry) -> bool:
+def _is_owned_stub(backend: RegistryPublicFacts) -> bool:
     marker = (backend.extra_params or {}).get("seed")
     return bool(
-        isinstance(marker, dict)
+        isinstance(marker, Mapping)
         and marker.get("managed_by") == SEED_MANAGED_BY
         and marker.get("profile") == "screenshots"
     )
 
 
 def selected_tracker(
-    capabilities: dict[str, Any], requirement: BackendRequirement
+    capabilities: Mapping[str, Any], requirement: BackendRequirement
 ) -> str | None:
     supported = set(capabilities.get("supported_trackers") or [])
     return next(
@@ -78,7 +75,7 @@ def selected_tracker(
 
 
 def backend_requirement_issues(
-    backend: MLBackendRegistry, requirement: BackendRequirement
+    backend: RegistryPublicFacts, requirement: BackendRequirement
 ) -> list[str]:
     issues: list[str] = []
     if backend.state != "connected":
@@ -91,17 +88,16 @@ def backend_requirement_issues(
         return [*issues, "capabilities snapshot is missing"]
 
     models = capabilities.get("models") or []
-    model_tasks = {model.get("task") for model in models if isinstance(model, dict)}
+    model_tasks = {model.get("task") for model in models if isinstance(model, Mapping)}
     prompts = set(capabilities.get("supported_prompts") or [])
     inputs = set(capabilities.get("supported_inputs") or [])
     geometries = set(capabilities.get("supported_geometric_outputs") or [])
     output_attributes = {
         attribute
         for model in models
-        if isinstance(model, dict)
+        if isinstance(model, Mapping)
         for attribute in (model.get("output_attribute_types") or [])
     }
-
     missing_prompts = sorted(set(requirement.required_prompts) - prompts)
     missing_tasks = sorted(set(requirement.required_tasks) - model_tasks)
     missing_inputs = sorted(set(requirement.required_inputs) - inputs)
@@ -128,8 +124,8 @@ def backend_requirement_issues(
 
 
 def select_backend_for_requirement(
-    backends: list[MLBackendRegistry], requirement: BackendRequirement
-) -> MLBackendRegistry | None:
+    backends: list[RegistryPublicFacts], requirement: BackendRequirement
+) -> RegistryPublicFacts | None:
     matches = [
         backend
         for backend in backends
@@ -138,7 +134,7 @@ def select_backend_for_requirement(
     if not matches:
         return None
 
-    def sort_key(backend: MLBackendRegistry) -> tuple[int, str, str]:
+    def sort_key(backend: RegistryPublicFacts) -> tuple[int, str, str]:
         tracker = selected_tracker(_capabilities(backend), requirement)
         tracker_rank = (
             requirement.tracker_priority.index(tracker)
@@ -151,20 +147,57 @@ def select_backend_for_requirement(
 
 
 async def _refresh_candidates(
-    backends: list[MLBackendRegistry],
-) -> list[MLBackendRegistry]:
-    session = async_object_session(backends[0]) if backends else None
-    return await refresh_registry_candidates(
-        InferenceRegistryIngressData(session),
-        backends,
-        client_factory=MLBackendClient,
-        capability_limits_factory=capability_limits_from_settings,
-        clock=lambda: datetime.now(UTC),
-    )
+    db: AsyncSession, backends: list[RegistryPublicFacts]
+) -> list[RegistryPublicFacts]:
+    if not backends:
+        return []
+    from app.services.inference_backend_control import BackendControlService
+    from app.services.inference_topology_data import InferenceTopologyData
+
+    control = BackendControlService(db)
+    observations: dict[Any, tuple[bool, str | None, Mapping[str, Any] | None]] = {}
+    for backend in backends:
+        try:
+            healthy = await control.check_health(backend.id)
+            if not healthy:
+                observations[backend.id] = (False, "health check failed", None)
+                continue
+            setup_result = await control.setup(backend.id)
+            setup = setup_result.setup
+            if setup_result.error is not None or not isinstance(setup, Mapping):
+                observations[backend.id] = (
+                    False,
+                    str(setup_result.error or "setup response is unavailable"),
+                    None,
+                )
+                continue
+            observations[backend.id] = (True, None, setup)
+        except Exception as exc:
+            observations[backend.id] = (
+                False,
+                f"{type(exc).__name__}: {exc}",
+                None,
+            )
+
+    fresh_rows = await InferenceTopologyData(db).registry_catalog()
+    current = {fact.id: fact for fact in fresh_rows}
+    service = MLBackendService(db)
+    refreshed = []
+    for backend in backends:
+        fact = current.get(backend.id, backend)
+        healthy, error, setup = observations[backend.id]
+        if healthy and setup is not None:
+            name = str(setup.get("name") or fact.name)
+            if name != fact.name:
+                fact = await service.update(fact.id, name=name) or fact
+        elif not healthy:
+            fact = replace(fact, state="error", error_message=error)
+        refreshed.append(fact)
+    return refreshed
 
 
 def _format_discovery_failure(
-    requirement: BackendRequirement, backends: list[MLBackendRegistry]
+    requirement: BackendRequirement, backends: list[RegistryPublicFacts]
 ) -> str:
     observed = []
     for backend in sorted(backends, key=lambda item: item.url.casefold()):
@@ -176,16 +209,21 @@ def _format_discovery_failure(
     return f"{requirement.key} requires {requirement.description}{suffix}"
 
 
-async def _live_candidates(db: AsyncSession) -> list[MLBackendRegistry]:
-    rows = await InferenceRegistryIngressData(db).candidates("live")
-    return await _refresh_candidates(
-        [backend for backend in rows if not _is_owned_stub(backend)]
-    )
+async def _live_candidates(db: AsyncSession) -> list[RegistryPublicFacts]:
+    from app.services.inference_topology_data import InferenceTopologyData
+
+    rows = await InferenceTopologyData(db).registry_catalog()
+    candidates = [
+        backend
+        for backend in rows
+        if backend.source != "seed" and not _is_owned_stub(backend)
+    ]
+    return await _refresh_candidates(db, candidates)
 
 
-async def _stub_candidate(db: AsyncSession, stub_url: str) -> list[MLBackendRegistry]:
+async def _stub_candidate(db: AsyncSession, stub_url: str) -> list[RegistryPublicFacts]:
     url = stub_url.rstrip("/")
-    backend = await get_or_create_seed(
+    registry = await get_or_create_seed(
         InferenceRegistryIngressData(db),
         url,
         STUB_BACKEND_NAME,
@@ -195,10 +233,15 @@ async def _stub_candidate(db: AsyncSession, stub_url: str) -> list[MLBackendRegi
             "revision": SEED_REVISION,
         },
     )
-    candidates = await _refresh_candidates([backend])
-    if backend.name != STUB_BACKEND_NAME:
+    from app.services.inference_topology_data import InferenceTopologyData
+
+    backend = await InferenceTopologyData(db).registry_facts(registry.id)
+    if backend is None:
+        raise ScreenshotSeedBackendError(f"stub Registry {registry.id} is missing")
+    candidates = await _refresh_candidates(db, [backend])
+    if candidates and candidates[0].name != STUB_BACKEND_NAME:
         raise ScreenshotSeedBackendError(
-            f"stub mode expected {STUB_BACKEND_NAME} at {url}, got {backend.name}"
+            f"stub mode expected {STUB_BACKEND_NAME} at {url}, got {candidates[0].name}"
         )
     return candidates
 
@@ -223,7 +266,7 @@ async def reconcile_screenshot_backends(
         )
     )
 
-    selected: dict[str, MLBackendRegistry] = {}
+    selected: dict[str, RegistryPublicFacts] = {}
     failures: list[str] = []
     for key, requirement in BACKEND_REQUIREMENTS.items():
         if key not in required:
@@ -243,6 +286,9 @@ async def reconcile_screenshot_backends(
 
     service = MLBackendService(db)
     bindings: dict[str, dict[str, str]] = {}
+    from app.services.inference_topology_data import InferenceTopologyData
+
+    topology_data = InferenceTopologyData(db)
     for logical_key, spec in PROJECT_SPECS.items():
         project = await db.scalar(
             select(seed_projects).where(seed_projects.display_id == spec.display_id)
@@ -252,11 +298,7 @@ async def reconcile_screenshot_backends(
                 f"screenshot project {spec.display_id} is missing"
             )
         register_seed_project_projection(db, project.id)
-        await db.execute(
-            delete(ProjectMLBackendPool).where(
-                ProjectMLBackendPool.project_id == project.id
-            )
-        )
+        await topology_data.delete_project_associations(project.id)
         project.ml_backend_pool_id = None
         if spec.required_backend not in required:
             project.preannotate_pipeline = []
@@ -264,9 +306,9 @@ async def reconcile_screenshot_backends(
         backend = selected[spec.required_backend]
         await service.set_enabled(project.id, backend.id, True)
         # v0.23.3 ADR-0050 · 项目主绑定存 pool id; set_enabled 内部已解析 registry→pool。
-        pool = await service._pool_for_registry(backend.id)
+        pool_id = await service.pool_id_for_registry(backend.id)
         register_seed_project_projection(db, project.id)
-        project.ml_backend_pool_id = pool.id if pool is not None else None
+        project.ml_backend_pool_id = pool_id
         requirement = BACKEND_REQUIREMENTS[spec.required_backend]
         if spec.default_pipeline_model_id:
             project.preannotate_pipeline = [

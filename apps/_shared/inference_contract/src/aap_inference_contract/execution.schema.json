@@ -1,0 +1,327 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-inference-model-execution/v1",
+  "title": "Inference model execution",
+  "oneOf": [
+    { "$ref": "#/$defs/request" },
+    { "$ref": "#/$defs/result" },
+    { "$ref": "#/$defs/failure" }
+  ],
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "json": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "boolean" },
+        { "type": "integer" },
+        { "type": "number" },
+        { "type": "string" },
+        { "type": "array", "items": { "$ref": "#/$defs/json" } },
+        {
+          "type": "object",
+          "propertyNames": { "type": "string" },
+          "additionalProperties": { "$ref": "#/$defs/json" }
+        }
+      ]
+    },
+    "endpointAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "scope_id", "control_id", "attempt_id"],
+      "properties": {
+        "kind": { "const": "scope" },
+        "scope_id": { "$ref": "#/$defs/uuid" },
+        "control_id": { "type": "null" },
+        "attempt_id": { "$ref": "#/$defs/uuid" }
+      }
+    },
+    "endpointSubject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "request_id", "registry_id", "purpose", "authority", "subject"],
+      "properties": {
+        "schema": { "const": "aap-inference-backend-endpoint/v1" },
+        "request_id": { "$ref": "#/$defs/uuid" },
+        "registry_id": { "$ref": "#/$defs/uuid" },
+        "purpose": { "const": "execution" },
+        "authority": { "$ref": "#/$defs/endpointAuthority" },
+        "subject": { "type": "string", "minLength": 1 }
+      }
+    },
+    "routeBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope_id", "attempt_id", "capability"],
+      "properties": {
+        "scope_id": { "$ref": "#/$defs/uuid" },
+        "attempt_id": { "$ref": "#/$defs/uuid" },
+        "capability": { "type": "string", "minLength": 1, "maxLength": 16384 }
+      }
+    },
+    "taskInput": {
+      "type": "object",
+      "required": ["id"],
+      "properties": { "id": { "type": "string", "minLength": 1 } },
+      "additionalProperties": { "$ref": "#/$defs/json" }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol",
+        "request_id",
+        "operation",
+        "task_inputs",
+        "context",
+        "project_id",
+        "requested_registry_id",
+        "requested_pool_id",
+        "endpoint_registry_id",
+        "required_instance_id",
+        "route_owner",
+        "route_operation",
+        "selected_pool_id",
+        "selected_member_id",
+        "topology_generation",
+        "max_response_bytes",
+        "correlation",
+        "input_provenance",
+        "health_meta",
+        "route_binding",
+        "endpoint_subject"
+      ],
+      "properties": {
+        "protocol": { "const": "aap-inference-model-execution/v1" },
+        "request_id": { "$ref": "#/$defs/uuid" },
+        "operation": { "enum": ["batch_predict", "interactive_predict", "pinned_tracker"] },
+        "task_inputs": { "type": "array", "items": { "$ref": "#/$defs/taskInput" }, "minItems": 1 },
+        "context": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "object", "additionalProperties": { "$ref": "#/$defs/json" } }
+          ]
+        },
+        "project_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/uuid" }] },
+        "requested_registry_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/uuid" }] },
+        "requested_pool_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/uuid" }] },
+        "endpoint_registry_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/uuid" }] },
+        "required_instance_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/uuid" }] },
+        "route_owner": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "route_operation": { "type": "string", "minLength": 1, "maxLength": 96 },
+        "selected_pool_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/uuid" }] },
+        "selected_member_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/uuid" }] },
+        "topology_generation": { "type": ["integer", "null"], "minimum": 0 },
+        "max_response_bytes": {
+          "oneOf": [{ "type": "null" }, { "type": "integer", "minimum": 1 }]
+        },
+        "correlation": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "object", "additionalProperties": { "$ref": "#/$defs/json" } }
+          ]
+        },
+        "input_provenance": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "object", "additionalProperties": { "$ref": "#/$defs/json" } }
+          ]
+        },
+        "health_meta": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "object", "additionalProperties": { "$ref": "#/$defs/json" } }
+          ]
+        },
+        "route_binding": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/routeBinding" }] },
+        "endpoint_subject": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/endpointSubject" }] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "operation": { "const": "batch_predict" } } },
+          "then": {
+            "properties": {
+              "task_inputs": {
+                "items": {
+                  "required": ["id", "file_path"],
+                  "properties": { "file_path": { "type": "string" } }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "x-secret-fields": ["context.tracker_context.token"]
+    },
+    "taskResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_id",
+        "result",
+        "score",
+        "model_version",
+        "inference_time_ms",
+        "cache_hit",
+        "model_load_ms",
+        "meta",
+        "mask_input_next",
+        "diagnostic",
+        "session_token"
+      ],
+      "properties": {
+        "task_id": { "type": "string", "minLength": 1 },
+        "result": { "type": "array", "items": { "$ref": "#/$defs/json" } },
+        "score": { "type": ["number", "null"] },
+        "model_version": { "type": ["string", "null"] },
+        "inference_time_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "cache_hit": { "type": ["boolean", "null"] },
+        "model_load_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "meta": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "object", "additionalProperties": { "$ref": "#/$defs/json" } }
+          ]
+        },
+        "mask_input_next": { "type": ["string", "null"] },
+        "diagnostic": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "object", "additionalProperties": { "$ref": "#/$defs/json" } }
+          ]
+        },
+        "session_token": { "type": ["string", "null"] }
+      },
+      "x-secret-fields": ["session_token"]
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requested_registry_id",
+        "requested_pool_id",
+        "registry_id",
+        "pool_id",
+        "instance_id",
+        "route_scope_id",
+        "attempt_id",
+        "topology_generation",
+        "member_id",
+        "endpoint_sha256"
+      ],
+      "properties": {
+        "requested_registry_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/uuid" }] },
+        "requested_pool_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/uuid" }] },
+        "registry_id": { "$ref": "#/$defs/uuid" },
+        "pool_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/uuid" }] },
+        "instance_id": { "$ref": "#/$defs/uuid" },
+        "route_scope_id": { "$ref": "#/$defs/uuid" },
+        "attempt_id": { "$ref": "#/$defs/uuid" },
+        "topology_generation": { "type": ["integer", "null"], "minimum": 0 },
+        "member_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/uuid" }] },
+        "endpoint_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["backend_id", "operation", "outcome", "elapsed_seconds"],
+      "properties": {
+        "backend_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "operation": { "enum": ["predict", "predict_interactive"] },
+        "outcome": { "enum": ["success", "error"] },
+        "elapsed_seconds": { "type": "number", "minimum": 0 }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol",
+        "request_id",
+        "operation",
+        "results",
+        "provenance",
+        "observation",
+        "wall_time_ms",
+        "response_digest"
+      ],
+      "properties": {
+        "protocol": { "const": "aap-inference-model-execution-result/v1" },
+        "request_id": { "$ref": "#/$defs/uuid" },
+        "operation": { "enum": ["batch_predict", "interactive_predict", "pinned_tracker"] },
+        "results": { "type": "array", "items": { "$ref": "#/$defs/taskResult" } },
+        "provenance": { "$ref": "#/$defs/provenance" },
+        "observation": { "$ref": "#/$defs/observation" },
+        "wall_time_ms": { "type": "integer", "minimum": 0 },
+        "response_digest": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "operation": { "const": "batch_predict" } } },
+          "then": { "properties": { "response_digest": { "const": null } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": { "enum": ["interactive_predict", "pinned_tracker"] }
+            }
+          },
+          "then": { "properties": { "results": { "minItems": 1, "maxItems": 1 } } }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "pinned_tracker" } } },
+          "then": {
+            "properties": {
+              "response_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "interactive_predict" } } },
+          "then": { "properties": { "response_digest": { "const": null } } }
+        }
+      ]
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol",
+        "request_id",
+        "kind",
+        "code",
+        "status_code",
+        "detail",
+        "retry_after",
+        "uncertain",
+        "provenance",
+        "observation"
+      ],
+      "properties": {
+        "protocol": { "const": "aap-inference-model-execution-failure/v1" },
+        "request_id": { "$ref": "#/$defs/uuid" },
+        "kind": {
+          "enum": [
+            "invalid_request",
+            "unavailable",
+            "admission",
+            "backend",
+            "transport",
+            "uncertain"
+          ]
+        },
+        "code": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "status_code": { "type": ["integer", "null"], "minimum": 400, "maximum": 599 },
+        "detail": { "$ref": "#/$defs/json" },
+        "retry_after": { "type": ["string", "null"] },
+        "uncertain": { "type": "boolean" },
+        "provenance": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/provenance" }] },
+        "observation": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/observation" }] }
+      }
+    }
+  }
+}

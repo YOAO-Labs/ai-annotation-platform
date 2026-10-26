@@ -447,28 +447,27 @@ async def test_replayed_input_materializes_in_restricted_process_and_binds_one_v
                     await client.reference(identity)
                 ).version_id == reference.version_id
                 from app.application.preannotation_execution import _run_task_pipeline
-                from tests.test_staged_pipeline_worker import _Result, _bbox
+                from tests.inference_execution_test_ports import (
+                    FakeModelExecutionPort,
+                )
+                from tests.test_staged_pipeline_worker import _bbox
 
                 root_hashes = []
                 crop_pixels = []
 
-                class Detector:
-                    async def predict(self, inputs, context=None):
-                        async with httpx.AsyncClient(trust_env=False) as bare:
-                            result = await bare.get(inputs[0]["file_path"])
-                        assert result.status_code == 200
-                        root_hashes.append(sha256(result.content).hexdigest())
-                        return [_Result(str(task.id), [_bbox(0, 0, 100, 100)])]
+                async def detect(_operation, task_input):
+                    async with httpx.AsyncClient(trust_env=False) as bare:
+                        result = await bare.get(task_input["file_path"])
+                    assert result.status_code == 200
+                    root_hashes.append(sha256(result.content).hexdigest())
+                    return [_bbox(0, 0, 100, 100)]
 
-                class Classifier:
-                    async def predict(self, inputs, context=None):
-                        raw = base64.b64decode(inputs[0]["file_path"].split(",", 1)[1])
-                        with Image.open(BytesIO(raw)) as crop:
-                            assert crop.size == (128, 96)
-                            crop_pixels.append(crop.getpixel((20, 20)))
-                        return [
-                            _Result("0", [{"attributes": {"color": "original-red"}}])
-                        ]
+                async def classify(_operation, task_input):
+                    raw = base64.b64decode(task_input["file_path"].split(",", 1)[1])
+                    with Image.open(BytesIO(raw)) as crop:
+                        assert crop.size == (128, 96)
+                        crop_pixels.append(crop.getpixel((20, 20)))
+                    return [{"attributes": {"color": "original-red"}}]
 
                 def no_task_reload(_task):
                     pytest.fail("frozen ROI must not reload a mutable Task image")
@@ -484,7 +483,7 @@ async def test_replayed_input_materializes_in_restricted_process_and_binds_one_v
                     Key=source_key,
                     Body=_solid_png((128, 96), (10, 20, 240)),
                 )
-                predictions, _extra, stats = await _run_task_pipeline(
+                result = await _run_task_pipeline(
                     task,
                     [
                         {"stage": 3, "parent_stage": None},
@@ -495,10 +494,16 @@ async def test_replayed_input_materializes_in_restricted_process_and_binds_one_v
                             "write": {"target": "attributes", "keys": ["color"]},
                         },
                     ],
-                    [Detector(), Classifier()],
+                    [
+                        FakeModelExecutionPort(detect),
+                        FakeModelExecutionPort(classify),
+                    ],
                     [None, None],
                     resolve_url=lambda _task: replay_reference.url,
                     input_image_path=tmp_path / "accepted-after-overwrite.png",
+                    project_id=project.id,
+                    owner_prefix="accepted-input-live",
+                    route_operation="batch_predict",
                 )
                 assert root_hashes == [record.sha256]
                 assert crop_pixels and all(
@@ -507,8 +512,10 @@ async def test_replayed_input_materializes_in_restricted_process_and_binds_one_v
                         crop_pixels[0], (240, 20, 30), strict=True
                     )
                 )
-                assert predictions[0].result[0]["attributes"]["color"] == "original-red"
-                assert stats[11]["ok"] == 1
+                assert (
+                    result.results[0].result[0]["attributes"]["color"] == "original-red"
+                )
+                assert result.stage_stats[11]["ok"] == 1
                 with pytest.raises(c.InputFailure, match="source_changed"):
                     await client.verify_source(identity)
                 await asyncio.to_thread(

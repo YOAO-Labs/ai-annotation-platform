@@ -11,6 +11,7 @@ import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from aap_inference.registry_ingress import get_or_create_seed
+from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.services.inference_registry_ingress_data import InferenceRegistryIngressData
 from tests.labeling_class_query_helpers import assert_owned_test_database
 from tests.test_inference_registry_ingress_native import (
@@ -61,12 +62,13 @@ async def test_seed_apply_merges_only_caller_changed_keys_and_keeps_outer_rollba
         )
         async with maker() as db:
             data = InferenceRegistryIngressData(db)
-            row = await data.by_url(origin)
+            row = await db.get(MLBackendRegistry, registry_id)
             if in_place:
                 row.extra_params["caller_base"] = 2
             else:
                 row.extra_params = {**row.extra_params, "caller_base": 2}
-            assert await get_or_create_seed(data, origin, "Seed UOW", _MARKER) is row
+            updated = await get_or_create_seed(data, origin, "Seed UOW", _MARKER)
+            assert updated.id == row.id
             await owner.execute(
                 "UPDATE ml_backend_registry SET extra_params=$2::jsonb WHERE id=$1",
                 registry_id,

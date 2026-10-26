@@ -5,10 +5,10 @@ from __future__ import annotations
 import uuid
 
 from aap_inference.topology import RegistryTopologySnapshot
-from aap_inference_contract.routing import ROUTING_DATA_PROTOCOL, RoutingUnavailable
+from aap_inference_contract.routing import RoutingUnavailable
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.models.ml_backend_registry import MLBackendRegistry
 
+from app.services.inference_topology_data import InferenceTopologyData
 from .authority import RoutingAuthority
 from .contracts import MLBackendQuiescenceError, quiescence_error
 
@@ -17,24 +17,21 @@ async def require_registry_quiescent(
     db: AsyncSession, registry_id: uuid.UUID
 ) -> RegistryTopologySnapshot:
     """Read durable work and verified backend continuity under the owner fence."""
-    if await db.get(MLBackendRegistry, registry_id) is None:
+    if await InferenceTopologyData(db).registry_reference(registry_id) is None:
         return RegistryTopologySnapshot(registry_id, None, None, None, None)
     try:
-        async with RoutingAuthority(db.bind).data_transaction() as data:
-            result = await data.step("quiescence", {"registry_id": str(registry_id)})
-        if result.get("schema") != ROUTING_DATA_PROTOCOL:
+        result = await RoutingAuthority().quiescence(registry_id)
+        if result.status == "rejected":
+            raise quiescence_error(result.reason)
+        if result.status != "ok" or result.topology is None:
             raise RoutingUnavailable()
-        if result.get("status") == "rejected":
-            raise quiescence_error(result.get("reason"))
-        if result.get("status") != "ok":
-            raise RoutingUnavailable()
-        topology = result["topology"]
+        topology = result.topology
         return RegistryTopologySnapshot(
             registry_id,
-            uuid.UUID(topology["member_id"]) if topology["member_id"] else None,
-            uuid.UUID(topology["pool_id"]) if topology["pool_id"] else None,
-            topology["routing_generation"],
-            topology["traffic_state"],
+            topology.member_id,
+            topology.pool_id,
+            topology.routing_generation,
+            topology.traffic_state,
         )
     except MLBackendQuiescenceError:
         raise

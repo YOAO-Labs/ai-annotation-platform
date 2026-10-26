@@ -8,7 +8,7 @@ import hashlib
 import inspect
 import json
 
-from app.services.gpu_arbitration import ledger
+from aap_inference.gpu import ledger
 
 
 _GOLDEN_SHA256 = {

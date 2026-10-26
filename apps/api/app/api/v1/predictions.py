@@ -34,7 +34,6 @@ from app.deps import (
     require_scopes,
 )
 from app.db.enums import UserRole
-from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
 from app.db.models.project import Project
 from app.schemas.aap_json import AAPImportErrorEntry, AAPImportResult
 from app.schemas.prediction import (
@@ -117,10 +116,9 @@ async def list_failed_predictions(
     count_q = select(func.count()).select_from(failed_prediction_row)
     project_row = aliased(Project, project_rows(), adapt_on_names=True)
     rows_q = (
-        select(failed_prediction_row, task_row, project_row, MLBackend)
+        select(failed_prediction_row, task_row, project_row)
         .outerjoin(task_row, task_row.id == failed_prediction_row.task_id)
         .outerjoin(project_row, project_row.id == failed_prediction_row.project_id)
-        .outerjoin(MLBackend, MLBackend.id == failed_prediction_row.ml_backend_id)
         .order_by(desc(failed_prediction_row.created_at))
     )
     if actor.role == UserRole.PROJECT_ADMIN.value:
@@ -140,9 +138,19 @@ async def list_failed_predictions(
     rows = (
         await db.execute(rows_q.offset((page - 1) * page_size).limit(page_size))
     ).all()
+    from app.services.inference_topology_data import InferenceTopologyData
+
+    registry_ids = list(
+        dict.fromkeys(
+            fp.ml_backend_id
+            for fp, _task, _project in rows
+            if fp.ml_backend_id is not None
+        )
+    )
+    backend_names = await InferenceTopologyData(db).registry_names(registry_ids)
 
     items: list[FailedPredictionItem] = []
-    for fp, t, p, b in rows:
+    for fp, t, p in rows:
         items.append(
             FailedPredictionItem(
                 id=fp.id,
@@ -151,7 +159,7 @@ async def list_failed_predictions(
                 project_id=fp.project_id,
                 project_name=p.name if p else None,
                 ml_backend_id=fp.ml_backend_id,
-                backend_name=b.name if b else None,
+                backend_name=backend_names.get(fp.ml_backend_id),
                 model_version=fp.model_version,
                 error_type=fp.error_type,
                 message=fp.message,

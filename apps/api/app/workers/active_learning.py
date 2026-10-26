@@ -140,7 +140,9 @@ async def debit(factory, attempt_id, claim_id):
 
 async def obtain_result(factory, round, row, png, attempt_id, claim_id):
     async with factory() as db:
-        client = await managed.private_client(db, round.spec["model_ref"])
+        client = await managed.backend_control_handle(
+            db, round.spec["model_ref"], session_factory=factory
+        )
         await db.commit()
     for _ in range(120):
         try:
@@ -361,7 +363,9 @@ async def settle_cancel(factory, round_id):
         attempt_id = round.current_attempt_id
         rows = await service.candidate_rows(db, round)
         client = (
-            await managed.private_client(db, round.spec["model_ref"])
+            await managed.backend_control_handle(
+                db, round.spec["model_ref"], session_factory=factory
+            )
             if any(row.request for row in rows)
             else None
         )

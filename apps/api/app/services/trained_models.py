@@ -2,20 +2,21 @@
 
 from __future__ import annotations
 
-from aap_task_contract import normalize_task_fields
-from training_contract.dataset import config_task
-
 import asyncio
 import math
 import uuid
+from collections.abc import Mapping
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import NoReturn
+
+from aap_task_contract import normalize_task_fields
+from training_contract.dataset import config_task
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from training_contract.model_return import registration_eligibility
 
-from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.services.project_access import get_workspace_project
 from app.db.models.trained_model import (
     ModelDeployment,
@@ -25,7 +26,6 @@ from app.db.models.trained_model import (
 )
 from app.db.models.training_run import TrainingAttempt, TrainingRun
 from app.services.ml_backend import MLBackendService
-from app.services.ml_client import MLBackendClient
 from app.services.storage import storage_service as storage
 from app.services.training_dataset_bridge import content_digest
 from app.services.training_runs import internal_download
@@ -267,28 +267,44 @@ def check_receipt(version, receipt):
         )
 
 
+def backend_control_http_exception(error):
+    """Translate the framework-neutral control failure at the API consumer edge."""
+    failure = error.failure
+    return HTTPException(
+        status_code=failure.status_code or 503,
+        detail=(
+            failure.detail if failure.detail is not None else {"code": failure.code}
+        ),
+        headers={"Retry-After": failure.retry_after} if failure.retry_after else None,
+    )
+
+
 async def enabled_backend(db, project_id, registry_id):
-    backend = await db.get(MLBackendRegistry, registry_id)
-    if not backend or not await MLBackendService(db).is_enabled(
-        project_id, registry_id
-    ):
+    topology = MLBackendService(db)
+    backend = await topology.get_registry(registry_id)
+    if not backend or not await topology.is_enabled(project_id, registry_id):
         raise HTTPException(status_code=404, detail="推理实例未在当前项目启用")
+    from app.services import inference_backend_control
+
+    credential = await inference_backend_control.backend_control_service(
+        db
+    ).credential_policy(registry_id)
     if (
-        backend.auth_method != "token"
-        or not backend.auth_token
-        or len(backend.auth_token) < 32
+        credential is None
+        or credential.auth_method != "token"
+        or not credential.auth_token_length_valid
     ):
         raise HTTPException(status_code=422, detail="受控模型需要配置已认证的推理实例")
     return backend
 
 
 async def assert_routable_backend(db, project_id, registry_id):
-    from app.db.models.ml_backend_pool import MLBackendServicePool
     from app.services.ml_routing.contracts import RouterMode
     from app.services.ml_routing.router import MLBackendRouter, _router_mode
 
-    pool_id = await MLBackendService(db).pool_id_for_registry(registry_id)
-    pool = await db.get(MLBackendServicePool, pool_id) if pool_id else None
+    topology = MLBackendService(db)
+    pool_id = await topology.pool_id_for_registry(registry_id)
+    pool = await topology.get_pool(pool_id) if pool_id else None
     mode = _router_mode()
     if (
         not pool
@@ -309,6 +325,82 @@ async def assert_routable_backend(db, project_id, registry_id):
         for c in candidates
     ):
         raise HTTPException(status_code=409, detail="推理实例健康或能力校验尚未就绪")
+
+
+def validate_and_map_results(results, ref: FrozenModelReference):
+    from aap_inference_contract.execution import ModelTaskResult
+
+    identity = {k: ref[k] for k in ("model_version_id", "sha256", "classes_digest")}
+    mapped_results = []
+    for result in results:
+        if not isinstance(result, ModelTaskResult):
+            raise TypeError("Controlled model results must be immutable task results")
+        if (result.meta or {}).get("trained_model") != identity:
+            raise ValueError("Backend returned a different controlled model identity")
+        mapped = []
+        for item in result.result:
+            if not isinstance(item, Mapping):
+                raise ValueError("Controlled detection returned malformed geometry")
+            index = item.get("native_class_index")
+            if type(index) is not int or not 0 <= index < len(ref["classes"]):
+                raise ValueError("Backend returned an unknown native class index")
+            if item.get("type") != "rectanglelabels":
+                raise ValueError("Controlled detection returned unsupported geometry")
+            value = item.get("value", {})
+            if not isinstance(value, Mapping):
+                raise ValueError("Controlled detection returned malformed geometry")
+            if value.get("rectanglelabels") not in (
+                [ref["classes"][index]],
+                (ref["classes"][index],),
+            ):
+                raise ValueError("Backend class order differs from registered classes")
+            coordinates = [value.get(k) for k in ("x", "y", "width", "height")]
+            if any(
+                type(v) not in {float, int} or not math.isfinite(v) for v in coordinates
+            ):
+                raise ValueError(
+                    "Controlled boxes must have finite percent coordinates"
+                )
+            x, y, width, height = coordinates
+            if not (
+                0 <= x <= 100
+                and 0 <= y <= 100
+                and width > 0
+                and height > 0
+                and x + width <= 100.00001
+                and y + height <= 100.00001
+            ):
+                raise ValueError("Controlled box is outside the image")
+            score = item.get("score")
+            if (
+                type(score) not in {float, int}
+                or not math.isfinite(score)
+                or not 0 <= score <= 1
+            ):
+                raise ValueError("Controlled confidence is invalid")
+            mapped.append(
+                {
+                    "type": "rectanglelabels",
+                    "native_class_index": index,
+                    "score": score,
+                    "coordinate_units": "percent",
+                    "value": {
+                        "x": x,
+                        "y": y,
+                        "width": width,
+                        "height": height,
+                        "rectanglelabels": [ref["bindings"][index]],
+                    },
+                }
+            )
+        mapped_results.append(
+            replace(
+                result,
+                result=tuple(mapped),
+                model_version=f"trained:{ref['model_version_id']}",
+            )
+        )
+    return tuple(mapped_results)
 
 
 def download_url(key):
@@ -397,64 +489,6 @@ def assert_image_scope(
             raise HTTPException(
                 status_code=422, detail="受控模型只支持整图输入与矩形框输出"
             )
-
-
-def validate_and_map_results(results, ref: FrozenModelReference):
-    identity = {k: ref[k] for k in ("model_version_id", "sha256", "classes_digest")}
-    for result in results:
-        if (result.meta or {}).get("trained_model") != identity:
-            raise ValueError("Backend returned a different controlled model identity")
-        mapped = []
-        for item in result.result:
-            index = item.get("native_class_index")
-            if type(index) is not int or not 0 <= index < len(ref["classes"]):
-                raise ValueError("Backend returned an unknown native class index")
-            if item.get("type") != "rectanglelabels":
-                raise ValueError("Controlled detection returned unsupported geometry")
-            value = item.get("value", {})
-            if value.get("rectanglelabels") != [ref["classes"][index]]:
-                raise ValueError("Backend class order differs from registered classes")
-            coordinates = [value.get(k) for k in ("x", "y", "width", "height")]
-            if any(
-                type(v) not in {float, int} or not math.isfinite(v) for v in coordinates
-            ):
-                raise ValueError(
-                    "Controlled boxes must have finite percent coordinates"
-                )
-            x, y, width, height = coordinates
-            if not (
-                0 <= x <= 100
-                and 0 <= y <= 100
-                and width > 0
-                and height > 0
-                and x + width <= 100.00001
-                and y + height <= 100.00001
-            ):
-                raise ValueError("Controlled box is outside the image")
-            score = item.get("score")
-            if (
-                type(score) not in {float, int}
-                or not math.isfinite(score)
-                or not 0 <= score <= 1
-            ):
-                raise ValueError("Controlled confidence is invalid")
-            mapped.append(
-                {
-                    "type": "rectanglelabels",
-                    "native_class_index": index,
-                    "score": score,
-                    "coordinate_units": "percent",
-                    "value": {
-                        "x": x,
-                        "y": y,
-                        "width": width,
-                        "height": height,
-                        "rectanglelabels": [ref["bindings"][index]],
-                    },
-                }
-            )
-        result.result = mapped
-        result.model_version = f"trained:{ref['model_version_id']}"
 
 
 def _reference_http_error(code: str, exc: HTTPException) -> FreezeModelReferenceError:
@@ -672,9 +706,16 @@ async def publish(db, project, user, body):
             raise HTTPException(
                 status_code=409, detail="模型尚未完成加载检查与样本试用"
             )
-        backend = await enabled_backend(db, project.id, deployment.registry_id)
+        await enabled_backend(db, project.id, deployment.registry_id)
         await assert_routable_backend(db, project.id, deployment.registry_id)
-        live = await MLBackendClient(backend).trained_model_receipt(str(version.id))
+        from app.services import inference_backend_control
+
+        try:
+            live = await inference_backend_control.backend_control_service(
+                db
+            ).trained_model_receipt(deployment.registry_id, str(version.id))
+        except inference_backend_control.BackendControlOperationError as exc:
+            raise backend_control_http_exception(exc) from exc
         check_receipt(version, live)
     if body.rollback_from_id:
         previous = await db.get(ModelRelease, body.rollback_from_id)

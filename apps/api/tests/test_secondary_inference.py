@@ -9,17 +9,26 @@ mock 掉图像加载 / 对象存储 / ml_client.predict, 只验编排 + 产物�
 from __future__ import annotations
 
 import types
+import uuid
 
 import pytest
 from fastapi import HTTPException
 from PIL import Image
 
-import app.services.ml_client as ml_client_mod
+from aap_inference.backend_transport import PredictionResult
+import app.services.inference_model_execution as model_execution_mod
 import app.services.prediction_context as prediction_context
 import app.services.storage as storage_mod
+from aap_inference_contract.execution import (
+    ExecutionFailure,
+    ExecutionProvenance,
+    ModelExecutionError,
+    ModelExecutionObservation,
+    ModelOperationResult,
+    ModelTaskResult,
+)
 from app.services.annotation import AnnotationService
 from app.services.labeling_write_scope import capture_labeling_write_scope
-from aap_inference.backend_transport import PredictionResult
 from app.services.secondary_inference import run_secondary_inference
 from tests.factory import create_project, create_task
 
@@ -30,10 +39,8 @@ class _FakeStorage:
 
 
 def _fake_backend(models: list[dict] | None = None):
-    # run_secondary_inference 用 backend.id (str) + health_meta 的能力快照 (定 context.output),
-    # 其余传给 (被 mock 的) MLBackendClient。
     health_meta = {"capabilities": {"models": models}} if models is not None else None
-    return types.SimpleNamespace(id="be-0001", health_meta=health_meta)
+    return types.SimpleNamespace(id=uuid.uuid4(), health_meta=health_meta)
 
 
 @pytest.fixture
@@ -45,18 +52,53 @@ def _patch_io(monkeypatch):
     monkeypatch.setattr(storage_mod, "StorageService", _FakeStorage)
 
 
-def _patch_predict(
-    monkeypatch,
-    results: list[PredictionResult],
-):
-    class _FakeClient:
-        def __init__(self, backend, **_kwargs):
-            pass
+def _patch_predict(monkeypatch, results, *, seen=None, failure_factory=None):
+    class _FakePort:
+        async def execute(self, operation):
+            if seen is not None:
+                seen["context"] = operation.context
+            if failure_factory is not None:
+                raise failure_factory(operation)
+            backend_id = operation.requested_registry_id
+            result_rows = tuple(
+                ModelTaskResult(
+                    task_id=result.task_id,
+                    result=result.result,
+                    score=result.score,
+                    model_version=result.model_version,
+                    inference_time_ms=result.inference_time_ms,
+                    meta=result.meta,
+                )
+                for result in results
+            )
+            provenance = ExecutionProvenance(
+                requested_registry_id=backend_id,
+                requested_pool_id=operation.requested_pool_id,
+                registry_id=backend_id,
+                pool_id=operation.requested_pool_id,
+                instance_id=backend_id,
+                route_scope_id=uuid.uuid4(),
+                attempt_id=operation.request_id,
+            )
+            return ModelOperationResult(
+                request_id=operation.request_id,
+                operation=operation.operation,
+                results=result_rows,
+                provenance=provenance,
+                observation=ModelExecutionObservation(
+                    backend_id=str(backend_id),
+                    operation="predict",
+                    outcome="success",
+                    elapsed_seconds=0.0,
+                ),
+                wall_time_ms=0,
+            )
 
-        async def predict(self, inputs, context=None):
-            return results
-
-    monkeypatch.setattr(ml_client_mod, "MLBackendClient", _FakeClient)
+    monkeypatch.setattr(
+        model_execution_mod,
+        "model_execution_port",
+        lambda *_args, **_kwargs: _FakePort(),
+    )
 
 
 async def _mk_box(db, task_id, user_id, **kw):
@@ -611,15 +653,11 @@ async def test_prompt_path_sends_legal_output_in_context(
 
     seen: dict = {}
 
-    class _FakeClient:
-        def __init__(self, backend, **_kwargs):
-            pass
-
-        async def predict(self, inputs, context=None):
-            seen["context"] = context
-            return [PredictionResult(task_id="0", result=[])]
-
-    monkeypatch.setattr(ml_client_mod, "MLBackendClient", _FakeClient)
+    _patch_predict(
+        monkeypatch,
+        [PredictionResult(task_id="0", result=[])],
+        seen=seen,
+    )
 
     await run_secondary_inference(
         db_session,
@@ -653,7 +691,6 @@ async def test_backend_timeout_surfaces_as_504_not_500(
     批量 wire 的 predict() 原样抛 httpx.ReadTimeout —— 同步的二次推理端点若不翻译, 用户
     只看到含糊的 500。必须是 504 + 可操作文案 (重试即可), 与 predict_interactive 语义一致。
     """
-    import httpx
 
     user, _ = super_admin
     proj = await create_project(db_session, owner_id=user.id, type_key="image-det")
@@ -662,14 +699,19 @@ async def test_backend_timeout_surfaces_as_504_not_500(
     box = await _mk_box(db_session, task.id, user.id)
     await db_session.flush()
 
-    class _TimingOutClient:
-        def __init__(self, backend, **_kwargs):
-            pass
-
-        async def predict(self, inputs, context=None):
-            raise httpx.ReadTimeout("timed out")
-
-    monkeypatch.setattr(ml_client_mod, "MLBackendClient", _TimingOutClient)
+    _patch_predict(
+        monkeypatch,
+        [],
+        failure_factory=lambda operation: ModelExecutionError(
+            ExecutionFailure(
+                request_id=operation.request_id,
+                kind="transport",
+                code="backend_timeout",
+                status_code=504,
+                detail={"message": "timed out"},
+            )
+        ),
+    )
 
     with pytest.raises(HTTPException) as exc:
         await run_secondary_inference(
@@ -698,7 +740,6 @@ async def test_backend_5xx_surfaces_as_502_not_500(
     """回归守卫: client.predict() 用裸 raise_for_status(), 上游 500 (权重 OOM / 模型内部错)
     抛 httpx.HTTPStatusError。同步二次推理端点必须翻成 502 (backend 故障), 而非冒泡成含糊的
     平台 500 —— 正是本轮修复的老症状, 与 predict_interactive 的 5xx→502 语义一致。"""
-    import httpx
 
     user, _ = super_admin
     proj = await create_project(db_session, owner_id=user.id, type_key="image-det")
@@ -707,16 +748,19 @@ async def test_backend_5xx_surfaces_as_502_not_500(
     box = await _mk_box(db_session, task.id, user.id)
     await db_session.flush()
 
-    class _Failing5xxClient:
-        def __init__(self, backend, **_kwargs):
-            pass
-
-        async def predict(self, inputs, context=None):
-            request = httpx.Request("POST", "http://backend/predict")
-            response = httpx.Response(500, request=request)
-            raise httpx.HTTPStatusError("boom", request=request, response=response)
-
-    monkeypatch.setattr(ml_client_mod, "MLBackendClient", _Failing5xxClient)
+    _patch_predict(
+        monkeypatch,
+        [],
+        failure_factory=lambda operation: ModelExecutionError(
+            ExecutionFailure(
+                request_id=operation.request_id,
+                kind="backend",
+                code="backend_upstream_error",
+                status_code=500,
+                detail={"message": "boom"},
+            )
+        ),
+    )
 
     with pytest.raises(HTTPException) as exc:
         await run_secondary_inference(

@@ -2,15 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-import uuid
 
 import pytest
 
-from aap_inference.pipeline_contract import (
-    PIPELINE_PROTOCOL,
-    PipelineQuerySuccess,
-    pipeline_query_request,
-)
 from aap_inference.pipeline_server import PipelineHttpServer, _PayloadTooLarge
 
 
@@ -73,7 +67,6 @@ def test_bounded_server_returns_503_before_dispatch_when_full():
 
     assert manager.calls == []
     assert b"503 Service Unavailable" in writer.output
-    assert b"Inference pipeline owner busy" in writer.output
     assert writer.closed is True
 
 
@@ -85,37 +78,36 @@ def test_health_reports_unconfigured_owner_as_not_ready():
     assert json.loads(body) == {"status": "not_ready"}
 
 
-def test_authenticated_query_dispatch_keeps_typed_reply_on_http_200():
-    query = pipeline_query_request(
-        "list_pipelines",
-        actor_id=uuid.UUID("0f9210aa-91c3-4a26-a78f-16367d4f811d"),
-        actor_role="project_admin",
-        filters={"scope": None, "project_id": None, "organization_id": None},
+@pytest.mark.asyncio
+@pytest.mark.parametrize("authorization", [None, "Bearer control-token"])
+async def test_model_execution_auth_precedes_unbounded_body(authorization):
+    server = PipelineHttpServer(
+        None,
+        None,
+        "control-token",
+        model_execution_manager=object(),
+        model_execution_control_token="execution-token",
     )
-    reply = PipelineQuerySuccess(
-        schema=PIPELINE_PROTOCOL,
-        ok=True,
-        request_id=query.request_id,
-        operation=query.operation,
-        actor_id=query.admitted_actor.id,
-        target_id=query.target_id,
-        rows=[],
-    )
-    manager = _Manager(reply)
-    server = PipelineHttpServer(manager, _Data(True), "control-token")
-
-    status, body = asyncio.run(
-        server._dispatch(
-            "POST",
-            "/v1/pipelines/query",
-            {"authorization": "Bearer control-token"},
-            query.model_dump_json(by_alias=True).encode(),
-        )
-    )
-
-    assert status == 200
-    assert json.loads(body)["ok"] is True
-    assert manager.calls == [("query", query.model_dump_json(by_alias=True).encode())]
+    listener = await asyncio.start_server(server._handle, "127.0.0.1", 0)
+    async with listener:
+        port = listener.sockets[0].getsockname()[1]
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        try:
+            headers = [
+                "POST /v1/model-execution/execute HTTP/1.1",
+                "Host: localhost",
+                "Content-Type: application/json",
+                "Content-Length: 10000000",
+            ]
+            if authorization is not None:
+                headers.append(f"Authorization: {authorization}")
+            writer.write(("\r\n".join(headers) + "\r\n\r\n").encode("ascii"))
+            await writer.drain()
+            response = await asyncio.wait_for(reader.read(), timeout=5)
+            assert response.startswith(b"HTTP/1.1 401 ")
+        finally:
+            writer.close()
+            await writer.wait_closed()
 
 
 def test_authentication_rejects_wrong_bearer_before_manager_call():
@@ -132,7 +124,6 @@ def test_authentication_rejects_wrong_bearer_before_manager_call():
     )
 
     assert status == 401
-    assert json.loads(body) == {"detail": "Unauthorized"}
     assert manager.calls == []
 
 

@@ -32,6 +32,20 @@ class RegistryRow(Protocol):
     extra_params: Any
 
 
+@dataclass(frozen=True)
+class RegistrySeedFacts:
+    """Credential-free identity/config needed to maintain a screenshot seed."""
+
+    id: UUID
+    name: str
+    url: str
+    state: str
+    is_interactive: bool
+    source: str
+    health_meta: Any
+    extra_params: Any
+
+
 class PoolRow(Protocol):
     id: UUID
     name: str
@@ -66,11 +80,24 @@ class RegistryIngressData(Protocol):
         extra_params: Any = None,
     ) -> RegistryRow: ...
 
+    async def seed_by_url(self, url: str) -> RegistrySeedFacts | None: ...
+
+    async def create_seed_registry(
+        self, name: Any, url: str, marker: dict[str, Any]
+    ) -> RegistrySeedFacts: ...
+
+    async def stage_seed_marker_identity(
+        self,
+        row: RegistrySeedFacts,
+        marker: dict[str, Any],
+        previous_extra_params: Any,
+    ) -> None: ...
+
     async def singleton_pool(self, registry_id: UUID) -> PoolRow | None: ...
 
     async def create_singleton_pool(
         self,
-        row: RegistryRow,
+        row: RegistryRow | RegistrySeedFacts,
         snapshot: dict[str, Any] | None,
         fingerprint: str | None,
     ) -> PoolRow: ...
@@ -121,7 +148,9 @@ def endpoint_snapshot(row: RegistryRow) -> dict[str, Any]:
     }
 
 
-async def ensure_singleton_pool(data: RegistryIngressData, row: RegistryRow) -> PoolRow:
+async def ensure_singleton_pool(
+    data: RegistryIngressData, row: RegistryRow | RegistrySeedFacts
+) -> PoolRow:
     existing = await data.singleton_pool(row.id)
     if existing is not None:
         return existing
@@ -139,23 +168,28 @@ async def get_or_create_seed(
     url: str,
     name: Any,
     marker: dict[str, Any],
-) -> RegistryRow:
+) -> RegistrySeedFacts:
     normalized_url = url.rstrip("/")
-    row = await data.by_url(normalized_url)
+    row = await data.seed_by_url(normalized_url)
     if row is None:
-        row = await data.create_registry(
-            name,
-            normalized_url,
-            source="seed",
-            extra_params={"seed": marker},
-        )
+        row = await data.create_seed_registry(name, normalized_url, marker)
     else:
         previous_extra_params = row.extra_params
-        row.extra_params = {
+        staged_extra_params = {
             **(row.extra_params or {}),
             "seed": marker,
         }
-        await data.stage_seed_marker(row, marker, previous_extra_params)
+        await data.stage_seed_marker_identity(row, marker, previous_extra_params)
+        row = RegistrySeedFacts(
+            id=row.id,
+            name=row.name,
+            url=row.url,
+            state=row.state,
+            is_interactive=row.is_interactive,
+            source=row.source,
+            health_meta=row.health_meta,
+            extra_params=staged_extra_params,
+        )
     await ensure_singleton_pool(data, row)
     return row
 
@@ -366,4 +400,5 @@ __all__ = [
     "get_or_create_seed",
     "refresh_candidates",
     "sync_environment",
+    "RegistrySeedFacts",
 ]

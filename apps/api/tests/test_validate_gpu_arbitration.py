@@ -10,10 +10,11 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
-from app.config import Settings
-from app.services.gpu_arbitration.contracts import (
-    GPUArbiterDispatchError,
-    GPUArbiterErrorCode,
+from aap_inference.gpu.contracts import GPUArbiterDispatchError, GPUArbiterErrorCode
+from aap_inference.gpu.settings import (
+    GPUArbiterMode,
+    GPUAuthoritySettings,
+    parse_gpu_resources,
 )
 from scripts.validate_gpu_arbitration import (
     ActionSpec,
@@ -375,15 +376,13 @@ def test_run_safety_blocks_production_and_mismatched_confirmation() -> None:
 async def test_run_refreshes_every_runtime_proof_and_fails_closed() -> None:
     calls: list[tuple[str, str]] = []
 
-    async def refresher(session_factory, backend_id, challenge):
-        assert session_factory == "sessions"
+    async def refresher(backend_id, challenge):
         calls.append((str(backend_id), challenge))
         if str(backend_id) == _BACKEND_B:
             raise TimeoutError("health refresh timed out")
         return True
 
     checks = await refresh_runtime_proofs(
-        "sessions",
         [_BACKEND_B, _BACKEND_A, _BACKEND_A],
         refresher=refresher,
     )
@@ -466,9 +465,8 @@ def test_token_horizon_allows_initial_null_but_never_regresses_to_null() -> None
 
 def test_preflight_requires_exact_db_redis_health_and_gpu_identity() -> None:
     manifest = _manifest()
-    config = Settings(
-        gpu_arbiter_mode="enforce",
-        gpu_arbiter_resources_json=json.dumps(
+    resources, config_errors = parse_gpu_resources(
+        json.dumps(
             {
                 _RESOURCE_A: {
                     "node_id": "node-a",
@@ -477,7 +475,12 @@ def test_preflight_requires_exact_db_redis_health_and_gpu_identity() -> None:
                     "mode": "enforce",
                 }
             }
-        ),
+        )
+    )
+    config = GPUAuthoritySettings(
+        gpu_arbiter_mode=GPUArbiterMode.ENFORCE,
+        gpu_arbiter_resources=resources,
+        gpu_arbiter_config_errors=config_errors,
     )
     database = {
         "database_heads": ["0128"],

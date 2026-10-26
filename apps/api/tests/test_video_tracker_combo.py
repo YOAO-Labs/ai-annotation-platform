@@ -13,7 +13,8 @@ import pytest
 
 from app.config import settings
 from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
-from app.services.video_tracking.adapters import TrackerContext, TrackerFrameResult
+from app.services.video_tracking.adapters import TrackerContext
+from aap_inference.tracker import TrackerFrameResult
 from app.services.video_tracking.runner import (
     _combo_seeds_from_discovery,
     run_tracker_job,
@@ -21,11 +22,11 @@ from app.services.video_tracking.runner import (
 
 # 复用多实例测试里的视频 task/dataset 建置。
 from tests.test_video_tracker_multi_instance import _make_video_task
-from tests.tracker_input_test_ports import yield_tracker_fake_results
+from tests.tracker_input_test_ports import tracker_fake_propagation
 
 
 @pytest.fixture(autouse=True)
-def _tracker_input_owner_test_port(tracker_input_owner_fakes, savepoint_routing_owner):
+def _tracker_input_owner_test_port(tracker_input_owner_fakes):
     tracker_input_owner_fakes.declare_tracker_backend = True
     return tracker_input_owner_fakes
 
@@ -118,8 +119,7 @@ class _DiscoveryAdapter:
                         instance_id=str(k + 1),
                     )
                 )
-        async for result in yield_tracker_fake_results(ctx, results):
-            yield result
+        return tracker_fake_propagation(ctx, results)
 
 
 class _PvsCaptureAdapter:
@@ -154,8 +154,7 @@ class _PvsCaptureAdapter:
                         primary=(oid == "1"),
                     )
                 )
-        async for result in yield_tracker_fake_results(ctx, results):
-            yield result
+        return tracker_fake_propagation(ctx, results)
 
 
 def _dispatch(discovery: _DiscoveryAdapter, pvs: _PvsCaptureAdapter):

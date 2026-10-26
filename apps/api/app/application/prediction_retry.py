@@ -14,7 +14,7 @@ from app.services.project_access import get_workspace_project
 from app.config import settings
 from app.db.enums import PlatformRole
 from app.db.models.async_job import AsyncJob
-from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
+from app.services.ml_backend import MLBackendService
 from app.schemas.async_job import AsyncJobRetryFailedResponse
 from app.services import async_job as jobs, prediction as prediction_service
 from app.services.identity_account_lock_data import IdentityAccountLockData
@@ -67,8 +67,8 @@ class SqlPredictionRetry(PredictionRetryPort):
             else None
         )
         project = await get_workspace_project(self._db, project_id=attempt.project_id)
-        backend = (
-            await self._db.get(MLBackend, attempt.ml_backend_id)
+        registry = (
+            await MLBackendService(self._db).get_registry(attempt.ml_backend_id)
             if attempt.ml_backend_id
             else None
         )
@@ -78,8 +78,8 @@ class SqlPredictionRetry(PredictionRetryPort):
             metadata.update(
                 project_display_id=project.display_id, project_name=project.name
             )
-        if backend is not None:
-            metadata["ml_backend_name"] = backend.name
+        if registry is not None:
+            metadata["ml_backend_name"] = registry.name
         if metadata:
             await jobs.update_payload(self._db, attempt.job_id, metadata)
         return attempt
@@ -108,9 +108,10 @@ class SqlPredictionRetry(PredictionRetryPort):
                 )
             device: str | None = None
             if fp.ml_backend_id is not None:
-                backend = await db.get(MLBackend, fp.ml_backend_id)
-                if backend and isinstance(backend.health_meta, dict):
-                    rp = (backend.health_meta.get("capabilities") or {}).get(
+                registry = await MLBackendService(db).get_registry(fp.ml_backend_id)
+                if registry is not None:
+                    health_meta = registry.health_meta or {}
+                    rp = (health_meta.get("capabilities") or {}).get(
                         "resource_profile"
                     ) or {}
                     device = rp.get("device")
@@ -125,7 +126,7 @@ class SqlPredictionRetry(PredictionRetryPort):
                     if is_controlled(context.get("model_id")) or context.get(
                         "frozen_model_ref"
                     ):
-                        device = controlled_device(backend)
+                        device = controlled_device(registry)
             queue = resolve_preannotate_queue(
                 [device],
                 gpu_queue=settings.preannotate_gpu_queue,

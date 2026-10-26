@@ -17,6 +17,12 @@
     },
     {
       "$ref": "#/$defs/RoutingRuntimeResult"
+    },
+    {
+      "$ref": "#/$defs/RoutingQuiescenceRequest"
+    },
+    {
+      "$ref": "#/$defs/RoutingQuiescenceResult"
     }
   ],
   "$defs": {
@@ -1450,6 +1456,112 @@
           "items": {
             "$ref": "#/$defs/RoutingRuntimeRegistryView"
           }
+        }
+      }
+    },
+    "RoutingQuiescenceRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "request_id", "registry_id"],
+      "properties": {
+        "schema": {
+          "const": "aap-inference-routing-quiescence/v1"
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "registry_id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "RoutingQuiescenceTopology": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["registry_id", "member_id", "pool_id", "routing_generation", "traffic_state"],
+      "properties": {
+        "registry_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "member_id": {
+          "type": ["string", "null"],
+          "format": "uuid"
+        },
+        "pool_id": {
+          "type": ["string", "null"],
+          "format": "uuid"
+        },
+        "routing_generation": {
+          "type": ["integer", "null"]
+        },
+        "traffic_state": {
+          "type": ["string", "null"],
+          "enum": ["active", "draining", "disabled", null]
+        }
+      }
+    },
+    "RoutingQuiescenceResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "request_id",
+        "registry_id",
+        "status",
+        "reason",
+        "control_id",
+        "topology",
+        "active_scopes",
+        "uncertain_scopes",
+        "continuity"
+      ],
+      "properties": {
+        "schema": {
+          "const": "aap-inference-routing-quiescence-result/v1"
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "registry_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "status": {
+          "enum": ["ok", "rejected"]
+        },
+        "reason": {
+          "type": ["string", "null"],
+          "enum": [
+            "pool_unavailable",
+            "management_busy",
+            "member_not_draining",
+            "member_not_quiescent",
+            "continuity_unverified",
+            "generation_mismatch",
+            "backend_not_ready",
+            null
+          ]
+        },
+        "control_id": {
+          "type": ["string", "null"],
+          "format": "uuid"
+        },
+        "topology": {
+          "oneOf": [{ "$ref": "#/$defs/RoutingQuiescenceTopology" }, { "type": "null" }]
+        },
+        "active_scopes": {
+          "type": ["integer", "null"]
+        },
+        "uncertain_scopes": {
+          "type": ["integer", "null"]
+        },
+        "continuity": {
+          "type": ["string", "null"],
+          "enum": ["unverified", "ready", null]
         }
       }
     },

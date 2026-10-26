@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import io
 import uuid
-from unittest.mock import patch
 
 import pytest
 from PIL import Image
@@ -235,22 +234,26 @@ async def _seed(db, owner_id):
 
 @pytest.fixture
 def patched_storage(monkeypatch):
-    """Stub ML backend + storage so the 413 path is reached before either fires."""
+    """Guard storage and model execution while the upload cap rejects the frame."""
     captured: dict = {}
 
-    async def fake_predict(self, items, context):
-        captured["predict_called"] = True
-        return []
+    class UnexpectedExecution:
+        async def execute(self, _operation):
+            captured["execution_called"] = True
+            raise AssertionError("oversize frame reached model execution")
 
     def fake_upload(self, data, key):
         captured["upload_called"] = True
         return FRAME_URL
 
-    with patch("app.services.ml_client.MLBackendClient.predict", new=fake_predict):
-        monkeypatch.setattr(
-            "app.services.storage.StorageService.upload_crop_bytes", fake_upload
-        )
-        yield captured
+    monkeypatch.setattr(
+        "app.api.v1.ml_backends.model_execution_port",
+        lambda *_args, **_kwargs: UnexpectedExecution(),
+    )
+    monkeypatch.setattr(
+        "app.services.storage.StorageService.upload_crop_bytes", fake_upload
+    )
+    return captured
 
 
 def _predict_url(proj, backend) -> str:
@@ -260,7 +263,7 @@ def _predict_url(proj, backend) -> str:
 async def test_predict_frame_rejects_oversize_content_length(
     httpx_client, super_admin, db_session, patched_storage
 ):
-    """Content-Length > 32 MiB → 413, no storage upload, no backend call."""
+    """Content-Length > 32 MiB → 413, no storage upload or model execution."""
     user, token = super_admin
     proj, backend, task = await _seed(db_session, user.id)
     await db_session.commit()
@@ -275,10 +278,9 @@ async def test_predict_frame_rejects_oversize_content_length(
         },
     )
     # Either 413 (cap tripped) or 400 (multipart parse fails on the synthetic
-    # content-length) — both prove we never reached the backend. The streaming
-    # cap rejects before storage.upload_crop_bytes / predict fire.
+    # content-length) — both prove the frame was rejected before execution.
     assert resp.status_code in (400, 413)
-    assert not patched_storage.get("predict_called")
+    assert not patched_storage.get("execution_called")
     assert not patched_storage.get("upload_called")
 
 
@@ -301,7 +303,7 @@ async def test_predict_frame_rejects_oversize_streamed(
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 413
-    assert not patched_storage.get("predict_called")
+    assert not patched_storage.get("execution_called")
     assert not patched_storage.get("upload_called")
 
 
@@ -321,5 +323,5 @@ async def test_predict_frame_rejects_undecodable_image(
     )
     assert resp.status_code == 400
     assert "decodable" in resp.json()["detail"]
-    assert not patched_storage.get("predict_called")
+    assert not patched_storage.get("execution_called")
     assert not patched_storage.get("upload_called")

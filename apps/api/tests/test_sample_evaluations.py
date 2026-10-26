@@ -26,8 +26,11 @@ from tests.sample_evaluation_fixtures import Objects, complete_rows, evaluation,
 async def test_shared_qualification_rejects_libre_before_any_profile_request(
     db_session, super_admin, objects, monkeypatch
 ):
-    from app.services import managed_inference, trained_models
-    from app.services.ml_client import MLBackendClient
+    from app.services import (
+        inference_backend_control,
+        managed_inference,
+        trained_models,
+    )
 
     owner, _token = super_admin
     world = await seed(db_session, owner, objects)
@@ -39,7 +42,10 @@ async def test_shared_qualification_rejects_libre_before_any_profile_request(
         lambda _db: reference_port,
     )
     profile = AsyncMock()
-    monkeypatch.setattr(MLBackendClient, "managed_evaluation_request", profile)
+    control = SimpleNamespace(managed_evaluation_profile=profile)
+    monkeypatch.setattr(
+        inference_backend_control, "backend_control_service", lambda _db: control
+    )
     with pytest.raises(HTTPException) as error:
         await managed_inference.qualification(
             db_session, world.project, world.model.id, world.deployment.id

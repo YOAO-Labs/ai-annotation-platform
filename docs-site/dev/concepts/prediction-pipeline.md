@@ -2,16 +2,18 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-27
 ---
 
 # 预标注流水线（Prediction Pipeline）
 
 AI 预标注流水线以 `async_jobs(kind=batch_predict)` 作为用户可见任务真值，以 `predictions` / `failed_predictions` 保存可采纳结果和失败项。本页讲清应用用例、Celery 派发边界、持久化五态及写入时点。
 
-`application/preannotation_contract.py::BatchPredictionRequest` 固定现有任务参数，`preannotation_execution.run_preannotation` 持有批量/分阶段编排和数据库资源生命周期。HTTP 经注入的 `BatchPredictionDispatcher` 派发，`workers/batch_prediction_dispatch.py` 保留原 Celery 参数、执行 ID、设备队列及 tracker 超时；`workers/tasks.py::batch_predict` 保留原注册名/签名与失败钩子，直接调用应用命令。
+`application/preannotation_contract.py::BatchPredictionRequest` 固定现有任务参数，`preannotation_execution.run_preannotation` 持有业务资源生命周期、Jobs／结果账本和最终写回。模型任务、阶段图、ROI、上下文及结果转换由 `aap_inference.execution_pipeline`、`execution_context`、`roi` 和 `secondary` 持有，通过同一不可变 `ModelExecutionPort` 执行；调用方不再使用旧模型客户端或直接打开后端凭据。
 
-帧模式在应用的同一 Session 中逐任务读取元数据，仅把任务 ID/帧数、阶段配置与作业/执行 ID 交给帧派发端口。`workers/frame_preannotate.py` 负责段规划、Redis 进度和两阶段 chord；无帧时由应用完成空作业，派发后由既有帧任务完成预测与收尾。进程内请求保留原 JSON 引用，调用完成前由调用方持有；没有增加本地 RPC 或新的 ML 协议。
+HTTP 经注入的 `BatchPredictionDispatcher` 派发，`workers/batch_prediction_dispatch.py` 保留原 Celery 参数、执行 ID、设备队列及 tracker 超时；`workers/tasks.py::batch_predict` 保留原注册名/签名与失败钩子。Assets 继续提供已校验输入与 crop 发布，Jobs／Labeling 持有原始／准备结果、最终候选和终态；Inference 不代替这些 owner 提交。
+
+帧模式在应用的同一 Session 中逐任务读取元数据，仅把任务 ID/帧数、阶段配置与作业/执行 ID 交给帧派发端口。`workers/frame_preannotate.py` 负责段规划、Redis 进度和两阶段 chord；无帧时由应用完成空作业，派发后由既有帧任务完成预测与收尾。每次模型调用通过 [Inference 私有执行协议](/api/guides/inference-runtime)，保留精确 task IDs、实际实例、原响应上限与期限、结构化错误和 transport observation；不在不确定响应后重发模型请求。
 
 > 决策依据：[ADR 0014 — Prediction Jobs 历史表](../adr/archive/0014-prediction-jobs-table)
 
@@ -217,7 +219,7 @@ if params:
 
 ### 下游投递路由（`_resolve_input_mode`）
 
-应用层解析投递模式：端点（`apps/api/app/api/v1/projects.py`）按下游 model 的 `supported_inputs` + `write.target` 烘焙 `input.mode`，`apps/api/app/application/preannotation_execution.py::_resolve_input_mode` 只读已烘焙的字段，缺省回落 `write.target` 启发式（产几何→`geometry`，产属性→`crop`）。
+API 端点（`apps/api/app/api/v1/projects.py`）按下游 model 的 `supported_inputs` + `write.target` 烘焙 `input.mode`，`aap_inference.execution_pipeline.resolve_input_mode` 只读已烘焙的字段，缺省回落 `write.target` 启发式（产几何→`geometry`，产属性→`crop`）。
 
 | `write.target` × 下游 `supported_inputs`                        | 投递模式               | 投递内容                                                                                  | 典型场景                                                         |
 | --------------------------------------------------------------- | ---------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |

@@ -13,13 +13,12 @@ from typing import Any, Literal
 
 from aap_preannotation_results.video_execution_plan import BackendCompatibilityIdentity
 
-from app.services.video_tracking.adapters import (
-    MockBboxTrackerAdapter,
-    TrackerContext,
+from aap_inference.tracker import (
     TrackerFrameResult,
-    _bbox_from_geometry,
-    _bbox_from_points,
+    bbox_from_geometry as _bbox_from_geometry,
+    bbox_from_points as _bbox_from_points,
 )
+from app.services.video_tracking.adapters import MockBboxTrackerAdapter, TrackerContext
 
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 _BUILTIN_MODEL_KEY = "mock_bbox"

@@ -290,15 +290,13 @@ def test_worker_normalization_policy_changes_the_compatibility_identity():
         bind_video_normalization_policy(identities, outside_threshold=float("nan"))
 
 
-def test_frozen_outside_threshold_survives_a_runtime_setting_change(monkeypatch):
-    from app.config import settings
-    from app.services.video_tracking.adapters import _frame_result_from_payload
+def test_frozen_outside_threshold_is_passed_to_core_frame_parser():
+    from aap_inference.tracker import frame_result_from_payload
 
     payload = {
         "frame_index": 1,
         "confidence": 0.5,
         "geometry": {"type": "bbox", "x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2},
     }
-    monkeypatch.setattr(settings, "video_tracker_low_confidence_outside_threshold", 0.9)
-    assert _frame_result_from_payload(payload).outside is True
-    assert _frame_result_from_payload(payload, outside_threshold=0.2).outside is False
+    assert frame_result_from_payload(payload, outside_threshold=0.9).outside is True
+    assert frame_result_from_payload(payload, outside_threshold=0.2).outside is False

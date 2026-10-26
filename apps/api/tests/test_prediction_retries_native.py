@@ -71,32 +71,44 @@ async def _world(
         )
 
 
-def _predict(monkeypatch, world, *, fail=False, returned_task=None, count=1):
+def _predict(
+    monkeypatch,
+    world,
+    *,
+    fail=False,
+    returned_task=None,
+    count=1,
+    invalid_score=False,
+):
+    from aap_inference_contract.execution import ModelTaskResult
+    from app.application import durable_prediction_retry as retry
+    from tests.inference_execution_test_ports import pipeline_output
+
     calls = []
 
-    async def predict(client, tasks, **kwargs):
-        from aap_inference.backend_transport import PredictionResult
-
-        calls.append((tasks, kwargs))
+    async def execute(task_id, stages, model_ports, contexts, **kwargs):
+        calls.append((task_id, stages, contexts, kwargs))
         if fail:
             raise ValueError("model failed once")
-        client.last_instance_id = world.backend_id
-        client.pool_id = world.pool_id
-        return [
-            PredictionResult(
+        results = tuple(
+            ModelTaskResult(
                 task_id=str(returned_task or world.task_id),
-                result=[],
-                score=0.9,
+                result=(),
+                score="not a numeric score" if invalid_score else 0.9,
                 model_version="retry-ledger",
                 inference_time_ms=7,
                 meta={"total_cost": 0.25},
             )
             for _ in range(count)
-        ]
+        )
+        return pipeline_output(
+            results,
+            instance_id=world.backend_id,
+            pool_id=world.pool_id,
+        )
 
-    monkeypatch.setattr(
-        "app.services.ml_routing.client.RoutedMLBackendClient.predict", predict
-    )
+    monkeypatch.setattr(retry, "_model_execution_port", lambda *_a, **_k: object())
+    monkeypatch.setattr(retry, "execute_task_pipeline", execute)
     monkeypatch.setattr(
         "app.services.storage.resolve_task_url",
         lambda _task: "https://example.test/original.txt",
@@ -280,29 +292,28 @@ async def test_permanent_failure_is_charged_once_and_replayed_exactly(
             fail=failure == "model",
             returned_task=uuid.uuid4() if failure == "wrong_task" else None,
             count=2 if failure == "extra_result" else 1,
+            invalid_score=failure == "invalid_metadata",
         )
-        if failure == "invalid_metadata":
-            from app.services.ml_routing.client import RoutedMLBackendClient
-
-            predict = RoutedMLBackendClient.predict
-
-            async def invalid_metadata(client, tasks, **kwargs):
-                results = await predict(client, tasks, **kwargs)
-                results[0].score = "not a numeric score"
-                return results
-
-            monkeypatch.setattr(RoutedMLBackendClient, "predict", invalid_metadata)
         if failure == "model_http":
-            from fastapi import HTTPException
-
-            async def unavailable_model(_client, _tasks, **_kwargs):
-                calls.append("attempted")
-                raise HTTPException(status_code=503, detail="model unavailable")
-
-            monkeypatch.setattr(
-                "app.services.ml_routing.client.RoutedMLBackendClient.predict",
-                unavailable_model,
+            from aap_inference_contract.execution import (
+                ExecutionFailure,
+                ModelExecutionError,
             )
+            from app.application import durable_prediction_retry as retry
+
+            async def unavailable_model(*_args, **_kwargs):
+                calls.append("attempted")
+                raise ModelExecutionError(
+                    ExecutionFailure(
+                        request_id=uuid.uuid4(),
+                        kind="backend",
+                        code="model_unavailable",
+                        status_code=503,
+                        detail="model unavailable",
+                    )
+                )
+
+            monkeypatch.setattr(retry, "execute_task_pipeline", unavailable_model)
         if failure == "invalid_result":
             from app.services.labeling_prediction_contract import (
                 ApplyPredictionResultError,

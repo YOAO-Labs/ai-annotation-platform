@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import os
+import socket
 import uuid
 from contextlib import asynccontextmanager
 
 import pytest
 from sqlalchemy import select
+from aap_inference.pipeline_server import PipelineHttpServer
+from aap_inference.routing_runtime import RoutingRuntime
 
 from app.config import settings
 from app.db.models.audit_log import AuditLog
@@ -15,6 +19,8 @@ from app.services.ml_backend import (
     MLBackendCapabilityRevalidationError,
     MLBackendService,
 )
+from aap_inference_contract.topology import to_record
+
 from aap_inference.pool_capability import capability_fingerprint
 from tests.conftest import create_registry_with_pool
 
@@ -23,6 +29,42 @@ def _caps(model_id: str = "sam3") -> dict:
     return {
         "capabilities": {"model_ids": [model_id], "supported_trackers": ["sam3_video"]}
     }
+
+
+@asynccontextmanager
+async def _routing_owner_http(test_engine, monkeypatch):
+    from tests.labeling_class_query_helpers import assert_owned_test_database
+
+    await assert_owned_test_database(test_engine)
+    dsn = os.environ.get("AAP_MODULE_DATA_INFERENCE_ROUTING_URL")
+    if not dsn:
+        pytest.skip("requires the verified disposable module-data routing LOGIN")
+    runtime = RoutingRuntime(dsn)
+    assert await runtime.readiness()
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+    token = uuid.uuid4().hex
+    server = PipelineHttpServer(
+        manager=None,
+        data=None,
+        control_token=None,
+        host="127.0.0.1",
+        port=port,
+        routing_manager=runtime.manager,
+        routing_control_token=token,
+    )
+    await server.start()
+    monkeypatch.setattr(settings, "inference_routing_url", f"http://127.0.0.1:{port}")
+    monkeypatch.setattr(settings, "inference_routing_token", token)
+    monkeypatch.setattr(settings, "inference_routing_token_file", "")
+    monkeypatch.setattr(settings, "inference_routing_database_url", "")
+    monkeypatch.setattr(settings, "inference_routing_database_url_file", "")
+    try:
+        yield
+    finally:
+        await server.close()
+        await runtime.close()
 
 
 @pytest.mark.asyncio
@@ -69,11 +111,11 @@ async def test_member_mutation_projects_cached_pool_after_commit(
         )
     assert response.status_code == 200, response.text
     body = response.json()
-    # Keep this same identity-map object alive across commit: get() alone does
-    # not reload its server-generated, partially expired updated_at value.
-    assert pool.id == pool_id
-    assert body["routing_generation"] == generation + 1
-    assert pool.updated_at >= previous_updated_at
+    # Route responses come from a fresh public pool projection after commit.
+    fresh_pool = await MLBackendService(db_session).get_pool(pool_id)
+    assert fresh_pool is not None
+    assert fresh_pool.updated_at >= previous_updated_at
+    assert body["updated_at"] == to_record(fresh_pool)["updated_at"]
     assert body["updated_at"] is not None
     if operation == "remove":
         assert body["members"] == []
@@ -792,12 +834,13 @@ async def test_capability_drift_api_rejects_failed_fresh_probe(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires the verified disposable module-data routing LOGIN",
+)
 async def test_remove_managed_member_requires_real_drain(
-    httpx_client, db_session, super_admin, monkeypatch, savepoint_routing_owner
+    test_engine, httpx_client, db_session, super_admin, monkeypatch
 ) -> None:
-    from app.services.ml_routing import authority, safety
-
-    monkeypatch.setattr(safety, "RoutingAuthority", authority.RoutingAuthority)
     _, token = super_admin
     backend, pool = await create_registry_with_pool(
         db_session,
@@ -808,10 +851,11 @@ async def test_remove_managed_member_requires_real_drain(
     await db_session.commit()
     monkeypatch.setattr(settings, "ml_backend_router_mode", "enforce")
 
-    response = await httpx_client.delete(
-        f"/api/v1/admin/ml-integrations/service-pools/{pool.id}/members/{backend.id}",
-        headers={"Authorization": f"Bearer {token}"},
-    )
+    async with _routing_owner_http(test_engine, monkeypatch):
+        response = await httpx_client.delete(
+            f"/api/v1/admin/ml-integrations/service-pools/{pool.id}/members/{backend.id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
     assert response.status_code == 409
     assert response.json()["detail"]["error_code"] == "ml_backend_member_draining"
 
@@ -823,14 +867,7 @@ async def test_remove_fails_closed_when_routing_owner_is_unavailable(
     from app.services.ml_routing import safety
 
     class UnavailableAuthority:
-        def __init__(self, _engine):
-            pass
-
-        @asynccontextmanager
-        async def data_transaction(self):
-            yield self
-
-        async def step(self, _action, _arguments):
+        async def quiescence(self, _registry_id):
             raise ConnectionError("routing owner unavailable")
 
     _, token = super_admin

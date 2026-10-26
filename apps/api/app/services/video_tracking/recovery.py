@@ -17,7 +17,7 @@ from .journal import TrackerWindowJournal
 
 
 async def retire_tracker_scope(db, job_id, *, authority=None):
-    authority = authority or RoutingAuthority(db.bind)
+    authority = authority or RoutingAuthority()
     try:
         status = await authority.video_execution_status(
             execution_proof(job_id).model_dump(mode="json")

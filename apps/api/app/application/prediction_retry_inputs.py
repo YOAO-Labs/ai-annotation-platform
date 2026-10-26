@@ -157,14 +157,14 @@ async def _prepare_retry_input(
     """Prepare the retained version before model execution or a started notification."""
     from aap_assets_inputs import contract as c
     from aap_assets_inputs.contract import InputFailure
-    from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
+    from app.services.inference_topology_data import InferenceTopologyData
 
     fid = uuid.UUID(failed_id)
     accepted_input = None
     accepted_video_failure = None
     terminal_error = None
     task_id = None
-    task = backend = None
+    task = registry_reference = None
     async with session_factory() as db:
         if frozen_attempt is None:
             failed = await get_core_row(db, failed_prediction_row, fid)
@@ -187,8 +187,8 @@ async def _prepare_retry_input(
                 if failed.task_id
                 else None
             )
-            backend = (
-                await db.get(MLBackend, failed.ml_backend_id)
+            registry_reference = (
+                await InferenceTopologyData(db).registry_reference(failed.ml_backend_id)
                 if failed.ml_backend_id is not None
                 else None
             )
@@ -262,7 +262,7 @@ async def _prepare_retry_input(
         or terminal_error is not None
         or task_id is None
         or task is None
-        or backend is None
+        or registry_reference is None
     ):
         yield _PreparedRetryInput(
             accepted_input=accepted_input,

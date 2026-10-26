@@ -135,12 +135,12 @@ async def _do_retry_with_factory(
 async def _retry_job_metadata(
     db: AsyncSession, fid: uuid.UUID
 ) -> tuple[uuid.UUID | None, dict]:
-    from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
     from app.services.labeling_core_read_relations import (
         failed_prediction_row,
         get_core_row,
         task_row,
     )
+    from app.services.ml_backend import MLBackendService
 
     payload: dict = {"failed_prediction_id": str(fid)}
     fp = await get_core_row(db, failed_prediction_row, fid)
@@ -163,9 +163,13 @@ async def _retry_job_metadata(
     if project is not None:
         payload["project_display_id"] = project.display_id
         payload["project_name"] = project.name
-    backend = await db.get(MLBackend, fp.ml_backend_id) if fp.ml_backend_id else None
-    if backend is not None:
-        payload["ml_backend_name"] = backend.name
+    registry = (
+        await MLBackendService(db).get_registry(fp.ml_backend_id)
+        if fp.ml_backend_id
+        else None
+    )
+    if registry is not None:
+        payload["ml_backend_name"] = registry.name
     return fp.project_id, payload
 
 

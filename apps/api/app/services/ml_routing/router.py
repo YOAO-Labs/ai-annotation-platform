@@ -13,14 +13,12 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import AsyncIterator
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
-from app.db.models.gpu_backend_membership import GPUBackendMembership
-from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
-from app.db.models.ml_backend_registry import MLBackendRegistry
 from aap_inference.pool_capability import capability_fingerprint
+from aap_inference_contract.topology import PoolFacts, to_record
+from app.config import settings
+from app.services.inference_topology_data import InferenceTopologyData
 from app.services.ml_routing.contracts import (
     RejectionReason,
     RouteLease,
@@ -67,12 +65,11 @@ class MLBackendRouter:
         self.mode = mode or _router_mode()
         from .authority import RoutingAuthority
 
-        self.authority = authority or RoutingAuthority(db.bind)
+        self.authority = authority or RoutingAuthority()
 
-    # ── acquire ───────────────────────────────────────────────────────────────
     async def acquire(
         self,
-        pool_id: uuid.UUID | None,
+        pool_id: uuid.UUID | None = None,
         *,
         owner: str,
         operation: str,
@@ -134,67 +131,64 @@ class MLBackendRouter:
             and self.ledger is not None
             and pool_id is not None
         ):
-            with self.db.no_autoflush:
-                pool = await self.db.get(MLBackendServicePool, pool_id)
-                if pool is not None:
-                    selection = await self._shadow_would_select(
-                        pool, selection, required_instance_id=required_instance_id
-                    )
+            pool = await InferenceTopologyData(self.db).pool_reference(pool_id)
+            if pool is not None:
+                selection = await self._shadow_would_select(
+                    pool, selection, required_instance_id=required_instance_id
+                )
         return selection
 
     async def _build_candidates(
         self,
-        pool: MLBackendServicePool,
+        pool: PoolFacts,
         *,
         required_instance_id: uuid.UUID | None = None,
     ) -> list[RoutingCandidate]:
-        """Read DB topology under pool.routing_generation → validated candidates."""
-        members = await self.db.execute(
-            select(MLBackendPoolMember).where(
-                MLBackendPoolMember.pool_id == pool.id,
-                MLBackendPoolMember.traffic_state == TrafficState.ACTIVE.value,
-            )
-        )
-        member_rows = list(members.scalars())
+        """Build shadow candidates from the immutable public topology projection."""
+        member_rows = [
+            member
+            for member in await InferenceTopologyData(self.db).pool_members(pool.id)
+            if member.traffic_state == TrafficState.ACTIVE.value
+        ]
         singleton_without_fingerprint = (
             pool.capability_fingerprint is None and len(member_rows) == 1
         )
         candidates: list[RoutingCandidate] = []
         now = datetime.now(UTC)
         max_age = timedelta(seconds=settings.ml_backend_router_health_max_age_seconds)
+        gpu_data = None
         for member in member_rows:
             if (
                 required_instance_id is not None
                 and member.registry_id != required_instance_id
             ):
                 continue
-            registry = await self.db.get(MLBackendRegistry, member.registry_id)
-            if registry is None:
-                continue
+            registry = member.registry
             if registry.state != "connected":
                 continue
-            # health freshness
             health_fresh = (
                 registry.last_checked_at is not None
                 and registry.last_checked_at >= now - max_age
             )
-            # capability fingerprint exact match (D3)
-            caps = (
-                (registry.health_meta or {}).get("capabilities")
-                if registry.health_meta
-                else None
-            )
+            caps = (registry.health_meta or {}).get("capabilities")
             fingerprint_ok = False
             if pool.capability_fingerprint and caps is not None:
                 fingerprint_ok = (
-                    capability_fingerprint(caps) == pool.capability_fingerprint
+                    capability_fingerprint(to_record(caps))
+                    == pool.capability_fingerprint
                 )
             elif singleton_without_fingerprint and caps is not None:
                 # 0132-created singleton pools predate capability seeding. A single
                 # member is interchangeable with itself; its next health refresh
                 # persists the canonical fingerprint. Multi-member pools stay closed.
                 fingerprint_ok = True
-            max_conc = await self._max_concurrency_for(registry.id)
+            if gpu_data is None:
+                from app.services.inference_gpu_data import bind_gpu_authority_data
+
+                gpu_data = await bind_gpu_authority_data(self.db)
+            max_conc = await self._max_concurrency_for(
+                gpu_data, registry.id, registry.extra_params
+            )
             candidates.append(
                 RoutingCandidate(
                     instance_id=registry.id,
@@ -207,30 +201,22 @@ class MLBackendRouter:
             )
         return candidates
 
-    async def _max_concurrency_for(self, registry_id: uuid.UUID) -> int:
-        """Source the per-instance concurrency cap. Reads GPUBackendMembership.max_concurrency
-        if a membership exists; otherwise falls back to extra_params.max_concurrency or 4."""
-        membership = await self.db.execute(
-            select(GPUBackendMembership.max_concurrency).where(
-                GPUBackendMembership.backend_registry_id == registry_id,
-                GPUBackendMembership.state.in_(["pending", "active"]),
-            )
-        )
-        row = membership.first()
-        if row and row[0]:
-            return int(row[0])
-        # fallback for CPU / no-GPU-claim instances
-        registry = await self.db.get(MLBackendRegistry, registry_id)
-        if registry is not None:
-            extra = registry.extra_params or {}
-            mc = extra.get("max_concurrency")
-            if isinstance(mc, int) and mc > 0:
-                return mc
+    async def _max_concurrency_for(
+        self, gpu_data, registry_id: uuid.UUID, extra_params
+    ) -> int:
+        """Use the typed GPU membership override, then public registry defaults."""
+        membership_limit = await gpu_data.membership_max_concurrency(registry_id)
+        if membership_limit:
+            return int(membership_limit)
+        extra = extra_params or {}
+        max_concurrency = extra.get("max_concurrency")
+        if isinstance(max_concurrency, int) and max_concurrency > 0:
+            return max_concurrency
         return 4
 
     async def _shadow_would_select(
         self,
-        pool: MLBackendServicePool,
+        pool: PoolFacts,
         legacy_selection: RouteSelection,
         *,
         required_instance_id: uuid.UUID | None = None,
@@ -309,23 +295,9 @@ class MLBackendRouter:
         return True
 
     # ── legacy resolver (off/observe: registry id → its singleton pool) ───────
-    async def pool_for_registry(
-        self, registry_id: uuid.UUID
-    ) -> MLBackendServicePool | None:
-        """Resolve the singleton pool owning a registry (for legacy-id dispatch paths).
-
-        Used by call sites that still carry a registry id (pre-router migration) to find
-        the pool so they can record the requested_pool_id on results (ADR-0050 §5.4).
-        """
-        result = await self.db.execute(
-            select(MLBackendServicePool)
-            .join(
-                MLBackendPoolMember,
-                MLBackendPoolMember.pool_id == MLBackendServicePool.id,
-            )
-            .where(MLBackendPoolMember.registry_id == registry_id)
-        )
-        return result.scalars().first()
+    async def pool_for_registry(self, registry_id: uuid.UUID) -> PoolFacts | None:
+        """Resolve the immutable public facts for a registry's service pool."""
+        return await InferenceTopologyData(self.db).pool_for_registry(registry_id)
 
 
 @asynccontextmanager

@@ -86,6 +86,7 @@ REMOVED_MODULES = (
     "app.services.gpu_membership_activation",
     "app.services.gpu_rollout_control",
     "app.workers.roi",
+    "app.services.prediction_roi",
     "app.services.project_delete",
     "app.services.project",
     "app.services.pipeline_template",
@@ -477,11 +478,6 @@ DOMAIN_PACKAGES = (
         package="prediction_progress",
         legacy_facades=(),
         allowed_app_imports=("app.config",),
-    ),
-    DomainSpec(
-        package="prediction_roi",
-        legacy_facades=("app.workers.roi",),
-        allowed_app_imports=(),
     ),
     DomainSpec(package="task_discussion", legacy_facades=()),
     DomainSpec(package="discussion_notifications", legacy_facades=()),
@@ -1124,41 +1120,6 @@ def test_backend_http_implementation_lives_in_portable_inference_owner() -> None
         for node in tree.body
     )
 
-    adapter = _SERVICES_DIR / "ml_client.py"
-    api_tree = ast.parse(adapter.read_text(encoding="utf-8"), filename=str(adapter))
-    client = next(
-        node
-        for node in api_tree.body
-        if isinstance(node, ast.ClassDef) and node.name == "MLBackendClient"
-    )
-    assert [ast.unparse(base) for base in client.bases] == ["BackendTransport"]
-    assert {
-        node.name
-        for node in client.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-    } == {
-        "__init__",
-        "_observe_gpu_dispatch",
-        "_gpu_dispatch",
-    }
-    assert not any(
-        isinstance(node, ast.ClassDef) and node.name == "PredictionResult"
-        for node in api_tree.body
-    )
-    adapter_imports = _collect_imports(api_tree, "app.services.ml_client")
-    assert not any(
-        imported == "httpx" or imported.startswith("httpx.")
-        for imported, _local in adapter_imports
-    )
-    assert {
-        imported
-        for imported, _local in adapter_imports
-        if imported.startswith("aap_inference.")
-    } == {
-        "aap_inference.backend_transport",
-        "aap_inference.backend_transport.BackendTransport",
-    }
-
 
 @pytest.mark.parametrize(
     ("module", "forbidden"),
@@ -1312,49 +1273,3 @@ def test_services_graph_has_no_cycle(files) -> None:
         )
         details.append(f"SCC {component!r}: {edges!r}")
     assert not offenders, "\n".join(details)
-
-
-def test_backend_health_coordinator_has_one_portable_policy_owner() -> None:
-    """Health and reconciliation use the owner with a borrowed data binding."""
-    api = ast.parse((_SERVICES_DIR / "ml_backend.py").read_text())
-    service = next(
-        node
-        for node in api.body
-        if isinstance(node, ast.ClassDef) and node.name == "MLBackendService"
-    )
-    methods = {
-        node.name: node
-        for node in service.body
-        if isinstance(node, ast.AsyncFunctionDef)
-    }
-    for name, port in (
-        ("check_health", "BackendHealthCoordinator"),
-        ("_reconcile_pool_capability", "reconcile_pool_capability"),
-    ):
-        method = methods[name]
-        imports = {
-            alias.name
-            for node in ast.walk(method)
-            if isinstance(node, ast.ImportFrom)
-            and node.module == "aap_inference.health"
-            for alias in node.names
-        }
-        assert port in imports
-        assert not any(
-            isinstance(node, ast.Name)
-            and node.id
-            in {"select", "update", "canonicalize_capability", "capability_fingerprint"}
-            for node in ast.walk(method)
-        )
-    owner = _REPO_ROOT / "apps/inference/src/aap_inference/health.py"
-    tree = ast.parse(owner.read_text())
-    imported = [name for name, _local in _collect_imports(tree, "aap_inference.health")]
-    forbidden = {"app", "sqlalchemy", "fastapi", "celery", "redis", "boto3"}
-    assert not [name for name in imported if name.split(".", 1)[0] in forbidden]
-    binding = ast.parse((_SERVICES_DIR / "inference_health_data.py").read_text())
-    assert not [
-        node.attr
-        for node in ast.walk(binding)
-        if isinstance(node, ast.Attribute)
-        and node.attr in {"commit", "rollback", "close", "begin", "begin_nested"}
-    ]

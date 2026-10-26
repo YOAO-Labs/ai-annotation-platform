@@ -37538,7 +37538,6 @@
             "title": "Legacy Instance Id"
           },
           "members": {
-            "default": [],
             "items": {
               "$ref": "#/components/schemas/ServicePoolMemberItem"
             },
@@ -52586,7 +52585,7 @@
     },
     "/api/v1/admin/ml-integrations/observe/smoke-test": {
       "post": {
-        "description": "试启动: 空池时 warm 指定变体验证可加载性, 成功后自动 /unload 还原现场。\n\n若容器已有变体常驻 (很可能某注册 backend 正在用), 不预热也不卸载 —— 既然已载着\n就证明能启, 避免驱逐在用模型 (不和注册的 backend 冲突)。",
+        "description": "Try a registered or explicitly unregistered backend without proxying arbitrary requests.",
         "operationId": "smoke_test_backend_api_v1_admin_ml_integrations_observe_smoke_test_post",
         "requestBody": {
           "content": {

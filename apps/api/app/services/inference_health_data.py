@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
+from datetime import datetime
 import json
 from typing import Any
+from uuid import UUID
 
-from sqlalchemy import event, select, text
+from sqlalchemy import event, inspect, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, attributes
+from sqlalchemy.orm.util import identity_key
 
 from app.db.models.gpu_backend_membership import GPUBackendMembership
 from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
@@ -26,6 +29,83 @@ class _Reconciliation:
     params: dict[str, Any]
     pool_values: dict[str, Any]
     member_values: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class HealthBackendFact:
+    """Health-only registry projection; stored credentials are never hydrated."""
+
+    id: UUID
+    state: str
+    is_interactive: bool
+    gpu_resource_id: str | None
+    last_checked_at: datetime | None
+    health_meta: dict[str, Any] | None
+    endpoint_sha256: str
+
+
+_HEALTH_BACKEND_FIELDS = {
+    "id",
+    "state",
+    "is_interactive",
+    "gpu_resource_id",
+    "last_checked_at",
+    "health_meta",
+    "endpoint_sha256",
+}
+_HEALTH_ENDPOINT_NATIVE = "aap_inference_backend_endpoint_v1."
+
+
+def _health_backend_fact(value) -> HealthBackendFact | None:
+    if value is None:
+        return None
+    if type(value) is str:
+        try:
+            value = json.loads(value)
+        except (TypeError, ValueError, UnicodeError):
+            raise RuntimeError(
+                "Native health backend projection is malformed"
+            ) from None
+    if type(value) is not dict or set(value) != _HEALTH_BACKEND_FIELDS:
+        raise RuntimeError("Native health backend projection is malformed")
+    identity = value["id"]
+    if not isinstance(identity, UUID):
+        try:
+            identity = UUID(identity)
+        except (TypeError, ValueError, AttributeError):
+            raise RuntimeError("Native health backend identity is malformed") from None
+    resource = value["gpu_resource_id"]
+    if resource is not None and type(resource) is not str:
+        raise RuntimeError("Native health GPU identity is malformed")
+    timestamp = value["last_checked_at"]
+    if timestamp is not None and not isinstance(timestamp, datetime):
+        if type(timestamp) is not str:
+            raise RuntimeError("Native health timestamp is malformed")
+        try:
+            timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        except ValueError:
+            raise RuntimeError("Native health timestamp is malformed") from None
+    metadata = value["health_meta"]
+    if metadata is not None and type(metadata) is not dict:
+        raise RuntimeError("Native health metadata is malformed")
+    digest = value["endpoint_sha256"]
+    if (
+        type(digest) is not str
+        or len(digest) != 64
+        or any(character not in "0123456789abcdef" for character in digest)
+    ):
+        raise RuntimeError("Native endpoint identity is malformed")
+    if type(value["state"]) is not str or type(value["is_interactive"]) is not bool:
+        raise RuntimeError("Native health state is malformed")
+    return HealthBackendFact(
+        id=identity,
+        state=value["state"],
+        is_interactive=value["is_interactive"],
+        gpu_resource_id=resource,
+        last_checked_at=timestamp,
+        health_meta=metadata,
+        endpoint_sha256=digest,
+    )
 
 
 def _synchronise(row, applied):
@@ -86,21 +166,18 @@ class InferenceHealthData:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    async def _backend(self, registry_id, *, locked=False, populate=False):
-        statement = (
-            select(MLBackendRegistry)
-            .from_statement(
-                text(
-                    "SELECT * FROM "
-                    + _NATIVE
-                    + "backend_row(:registry_id,"
-                    + ("true" if locked else "false")
-                    + ")"
-                )
-            )
-            .execution_options(populate_existing=populate)
+    async def _backend(self, registry_id, *, locked=False, autoflush=True):
+        if autoflush and self.db.autoflush:
+            await self.db.flush()
+        value = await self.db.scalar(
+            text(
+                "SELECT "
+                + _HEALTH_ENDPOINT_NATIVE
+                + "health_backend_row(:registry_id,:for_update)"
+            ),
+            {"registry_id": registry_id, "for_update": locked},
         )
-        return await self.db.scalar(statement, {"registry_id": registry_id})
+        return _health_backend_fact(value)
 
     async def get_backend(self, registry_id):
         return await self._backend(registry_id)
@@ -131,7 +208,7 @@ class InferenceHealthData:
         return await self.db.scalar(text("SELECT " + _NATIVE + "observation_clock()"))
 
     async def lock_current_backend(self, registry_id):
-        return await self._backend(registry_id, locked=True, populate=True)
+        return await self._backend(registry_id, locked=True)
 
     async def lock_gpu_resource(self, resource_id):
         await self.db.execute(
@@ -162,11 +239,24 @@ class InferenceHealthData:
         )
 
     async def refresh_backend(self, backend):
-        # refresh() expired this same identity and bypassed autoflush.
+        # Refresh only the non-secret fields changed by Native health writes.
         registry_id = backend.id
-        self.db.expire(backend)
         with self.db.no_autoflush:
-            await self._backend(registry_id, populate=True)
+            fresh = await self._backend(registry_id, autoflush=False)
+        if fresh is None:
+            return
+        cached = self.db.sync_session.identity_map.get(
+            identity_key(MLBackendRegistry, ident=registry_id)
+        )
+        if cached is None:
+            return
+        state = inspect(cached)
+        for name in ("state", "is_interactive", "health_meta", "last_checked_at"):
+            preserve = state.attrs[name].history.has_changes()
+            current = state.dict.get(name)
+            attributes.set_committed_value(cached, name, getattr(fresh, name))
+            if preserve:
+                setattr(cached, name, current)
 
     async def read_member_pool(self, registry_id):
         statement = select(MLBackendPoolMember.pool_id).from_statement(

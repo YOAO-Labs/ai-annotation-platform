@@ -76,19 +76,16 @@ async def ingress_provider(database_url):
 
 
 async def select_binding(stack, monkeypatch, test_engine, binding):
+    """Bind the API's only Registry ingress selector: an authenticated HTTP owner."""
     from app.config import settings
 
-    for name in ("url", "database_url", "database_url_file", "token", "token_file"):
+    for name in ("url", "token", "token_file"):
         monkeypatch.setattr(settings, "inference_registry_ingress_" + name, "")
-    if binding == "dsn":
-        monkeypatch.setattr(
-            settings,
-            "inference_registry_ingress_database_url",
-            ingress_dsn(test_engine.url),
+    if binding != "http":
+        raise ValueError(
+            "the API selects only an authenticated HTTP Registry ingress owner; "
+            f"unsupported binding {binding!r}"
         )
-    elif binding == "http":
-        origin, token = await stack.enter_async_context(
-            ingress_provider(test_engine.url)
-        )
-        monkeypatch.setattr(settings, "inference_registry_ingress_url", origin)
-        monkeypatch.setattr(settings, "inference_registry_ingress_token", token)
+    origin, token = await stack.enter_async_context(ingress_provider(test_engine.url))
+    monkeypatch.setattr(settings, "inference_registry_ingress_url", origin)
+    monkeypatch.setattr(settings, "inference_registry_ingress_token", token)

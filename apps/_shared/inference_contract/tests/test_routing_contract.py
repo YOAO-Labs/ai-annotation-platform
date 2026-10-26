@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from importlib.resources import files
 import hashlib
 import json
 import uuid
+from importlib.resources import files
 
 import pytest
 
@@ -17,6 +17,8 @@ from aap_inference_contract.routing import (
     ROUTING_PROTOCOL,
     ROUTING_REPLY_MAX_BYTES,
     ROUTING_REQUEST_MAX_BYTES,
+    ROUTING_QUIESCENCE_PROTOCOL,
+    ROUTING_QUIESCENCE_RESULT_PROTOCOL,
     ROUTING_RESULT_PROTOCOL,
     ROUTING_RUNTIME_PROTOCOL,
     ROUTING_RUNTIME_RESULT_PROTOCOL,
@@ -30,15 +32,20 @@ from aap_inference_contract.routing import (
     decode_routing_status_result,
     decode_routing_runtime_request,
     decode_routing_runtime_result,
+    decode_routing_quiescence_request,
+    decode_routing_quiescence_result,
     make_routing_command,
     make_routing_status_request,
     make_routing_runtime_request,
+    make_routing_quiescence_request,
     routing_command_bytes,
     routing_command_sha256,
     routing_native_policy_ready,
     routing_result_bytes,
     routing_runtime_request_bytes,
     routing_runtime_result_bytes,
+    routing_quiescence_request_bytes,
+    routing_quiescence_result_bytes,
     routing_status_request_bytes,
 )
 
@@ -515,6 +522,14 @@ def test_packaged_schema_matches_protocol_actions_and_size_caps() -> None:
         == ROUTING_RUNTIME_RESULT_PROTOCOL
     )
     assert (
+        defs["RoutingQuiescenceRequest"]["properties"]["schema"]["const"]
+        == ROUTING_QUIESCENCE_PROTOCOL
+    )
+    assert (
+        defs["RoutingQuiescenceResult"]["properties"]["schema"]["const"]
+        == ROUTING_QUIESCENCE_RESULT_PROTOCOL
+    )
+    assert (
         defs["RoutingRuntimeRequest"]["properties"]["registry_ids"]["maxItems"] == 512
     )
 
@@ -600,3 +615,76 @@ def test_runtime_observation_wire_is_closed_bounded_and_bound_to_requested_ids()
         )
     with pytest.raises(RoutingUnavailable):
         decode_routing_runtime_result(request, {**result_value, "extra": "not allowed"})
+
+
+def test_quiescence_wire_is_closed_and_bound_to_requested_registry():
+    request = make_routing_quiescence_request(_REGISTRY_ID, request_id=_REQUEST_ID)
+    encoded_request = routing_quiescence_request_bytes(request)
+    assert decode_routing_quiescence_request(encoded_request) == request
+    assert request.schema_ == ROUTING_QUIESCENCE_PROTOCOL
+
+    success_value = {
+        "schema": ROUTING_QUIESCENCE_RESULT_PROTOCOL,
+        "request_id": str(_REQUEST_ID),
+        "registry_id": str(_REGISTRY_ID),
+        "status": "ok",
+        "reason": None,
+        "control_id": None,
+        "topology": {
+            "registry_id": str(_REGISTRY_ID),
+            "member_id": str(_SCOPE_ID),
+            "pool_id": str(_EPOCH_ID),
+            "routing_generation": 7,
+            "traffic_state": "draining",
+        },
+        "active_scopes": 0,
+        "uncertain_scopes": 0,
+        "continuity": "ready",
+    }
+    success = decode_routing_quiescence_result(request, success_value)
+    assert success.topology is not None
+    assert success.topology.traffic_state == "draining"
+    assert (
+        decode_routing_quiescence_result(
+            request, routing_quiescence_result_bytes(success)
+        )
+        == success
+    )
+
+    rejected_value = {
+        "schema": ROUTING_QUIESCENCE_RESULT_PROTOCOL,
+        "request_id": str(_REQUEST_ID),
+        "registry_id": str(_REGISTRY_ID),
+        "status": "rejected",
+        "reason": "member_not_draining",
+        "control_id": None,
+        "topology": None,
+        "active_scopes": None,
+        "uncertain_scopes": None,
+        "continuity": None,
+    }
+    rejected = decode_routing_quiescence_result(request, rejected_value)
+    assert rejected.reason == "member_not_draining"
+    assert rejected.topology is None
+
+    for malformed in (
+        {**success_value, "active_scopes": 1},
+        {**success_value, "topology": {**success_value["topology"], "pool_id": None}},
+        {**success_value, "extra": "not allowed"},
+        {**rejected_value, "reason": "unknown"},
+        {
+            **success_value,
+            "registry_id": str(_SECOND_REGISTRY_ID),
+            "topology": {
+                **success_value["topology"],
+                "registry_id": str(_SECOND_REGISTRY_ID),
+            },
+        },
+    ):
+        with pytest.raises(RoutingUnavailable):
+            decode_routing_quiescence_result(request, malformed)
+
+    with pytest.raises(RoutingUnavailable):
+        decode_routing_quiescence_request(
+            json.dumps({**json.loads(encoded_request), "extra": "not allowed"})
+        )

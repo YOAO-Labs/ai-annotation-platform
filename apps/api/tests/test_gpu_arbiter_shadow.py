@@ -7,15 +7,16 @@ from types import SimpleNamespace
 import pytest
 from structlog.testing import capture_logs
 
-from app.config import GPUArbiterMode, Settings
-from app.services.gpu_arbitration.diagnostics import (
-    record_unregistered_gpu_shadow_dispatch,
-)
-from app.services.gpu_arbitration.policy import (
+from aap_inference.gpu.diagnostics import record_unregistered_gpu_shadow_dispatch
+from aap_inference.gpu.policy import (
     effective_gpu_arbiter_mode,
     evaluate_gpu_shadow_decision,
     gpu_shadow_observation_enabled,
-    record_gpu_shadow_dispatch,
+)
+from aap_inference.gpu.settings import (
+    GPUArbiterMode,
+    GPUAuthoritySettings,
+    parse_gpu_resources,
 )
 
 
@@ -28,7 +29,7 @@ def _config(
     resources: tuple[tuple[str, int, str | None], ...] = (
         ("node-a/index:0", 20_000, "observe"),
     ),
-) -> Settings:
+) -> GPUAuthoritySettings:
     rows = []
     for resource_id, allocatable_mb, mode in resources:
         node_id, physical_device_token = resource_id.split("/", 1)
@@ -38,10 +39,11 @@ def _config(
             f'"physical_device_token":"{physical_device_token}",'
             f'"allocatable_mb":{allocatable_mb}{mode_field}}}'
         )
-    return Settings(
-        _env_file=None,
-        gpu_arbiter_mode=global_mode,
-        gpu_arbiter_resources_json="{" + ",".join(rows) + "}",
+    resource_map, errors = parse_gpu_resources("{" + ",".join(rows) + "}")
+    return GPUAuthoritySettings(
+        gpu_arbiter_mode=GPUArbiterMode(global_mode),
+        gpu_arbiter_resources=resource_map,
+        gpu_arbiter_config_errors=errors,
     )
 
 
@@ -356,113 +358,6 @@ def test_missing_gpu_claim_in_observe_is_reported_as_non_authoritative_reject() 
     assert decision.effective_mode == "off"
 
 
-class _FakeScalars:
-    def __init__(self, rows: list[SimpleNamespace]) -> None:
-        self.rows = rows
-
-    def all(self) -> list[SimpleNamespace]:
-        return self.rows
-
-
-class _FakeResult:
-    def __init__(self, rows: list[SimpleNamespace]) -> None:
-        self.rows = rows
-
-    def scalars(self) -> _FakeScalars:
-        return _FakeScalars(self.rows)
-
-
-class _FakeSession:
-    def __init__(self, requester: SimpleNamespace, rows: list[SimpleNamespace]) -> None:
-        self.requester = requester
-        self.rows = rows
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *exc):
-        return False
-
-    async def get(self, model, registry_id):
-        assert registry_id == self.requester.id
-        return self.requester
-
-    async def execute(self, statement):
-        return _FakeResult(self.rows)
-
-
-@pytest.mark.asyncio
-async def test_dispatch_recorder_uses_short_session_and_emits_structured_decision() -> (
-    None
-):
-    requester = _backend(gpu_loaded=False, budget_mb=8_000)
-    peer = _backend(budget_mb=5_000, residency_overrides={"evictable": False})
-    sessions = 0
-
-    def factory():
-        nonlocal sessions
-        sessions += 1
-        return _FakeSession(requester, [requester, peer])
-
-    with capture_logs() as logs:
-        decision = await record_gpu_shadow_dispatch(
-            str(requester.id), "predict", factory, config=_config()
-        )
-
-    assert sessions == 1
-    assert decision is not None
-    assert decision.decision == "would-admit"
-    record = next(
-        item for item in logs if item["event"] == "gpu_arbiter_shadow_decision"
-    )
-    assert record["gpu_arbiter"]["authoritative"] is False
-    assert record["gpu_arbiter"]["resource_id"] == "node-a/index:0"
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("requester", "expected_reason"),
-    [
-        (_backend(resource_id=None, budget_mb=None), "gpu_claim_missing_or_unverified"),
-        (
-            _backend(resource_id="node-x/index:0", budget_mb=8_000),
-            "gpu_resource_unknown_or_invalid",
-        ),
-        (
-            _backend(
-                resource_id=None,
-                budget_mb=None,
-                compute={"configured_device": "cpu", "effective_device": "cpu"},
-            ),
-            None,
-        ),
-    ],
-)
-async def test_claimless_cpu_and_unknown_resource_do_not_scan_null_claim_peers(
-    requester: SimpleNamespace,
-    expected_reason: str | None,
-) -> None:
-    class NoPeerQuerySession(_FakeSession):
-        async def execute(self, statement):
-            raise AssertionError("claimless/unknown requester must not query peer rows")
-
-    if expected_reason is None:
-        requester.last_checked_at = datetime.now(UTC)
-
-    decision = await record_gpu_shadow_dispatch(
-        str(requester.id),
-        "predict",
-        lambda: NoPeerQuerySession(requester, []),
-        config=_config(),
-    )
-
-    if expected_reason is None:
-        assert decision is None
-    else:
-        assert decision is not None
-        assert decision.reason == expected_reason
-
-
 def test_off_fast_path_does_not_parse_resource_configuration() -> None:
     class OffConfig:
         gpu_arbiter_mode = GPUArbiterMode.OFF
@@ -490,20 +385,3 @@ def test_unregistered_unload_is_not_logged_as_would_reject() -> None:
     )
     assert "decision" not in record["gpu_arbiter"]
     assert record["gpu_arbiter"]["releases_allocation"] is False
-
-
-@pytest.mark.asyncio
-async def test_off_dispatch_recorder_does_not_open_session() -> None:
-    requester = _backend()
-
-    def factory():
-        raise AssertionError("off mode must not open a shadow DB session")
-
-    result = await record_gpu_shadow_dispatch(
-        str(requester.id),
-        "predict",
-        factory,
-        config=_config(global_mode="off"),
-    )
-
-    assert result is None

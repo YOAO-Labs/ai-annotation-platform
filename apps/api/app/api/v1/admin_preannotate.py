@@ -21,8 +21,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.db.enums import BatchStatus, UserRole
-from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
-from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBackendPool
 from app.db.models.project import Project
 from app.deps import get_current_user_id, get_db, require_roles
 from app.application.bulk_clear_preannotate import (
@@ -247,22 +245,35 @@ async def list_preannotate_project_summary(
     (image 走文本批量预标, video 走引导卡片+job 历史), summary 返回 data_type 供前端路由.
     """
     project_rows_alias = aliased(Project, project_rows(), adapt_on_names=True)
-    stmt = select(project_rows_alias).where(
-        select(ProjectMLBackendPool.id)
-        .where(
-            ProjectMLBackendPool.project_id == project_rows_alias.id,
-            ProjectMLBackendPool.enabled.is_(True),
-        )
-        .exists(),
-    )
+    stmt = select(project_rows_alias)
     if admin.role != UserRole.SUPER_ADMIN:
         stmt = stmt.where(project_rows_alias.owner_id == admin.id)
     pres = await db.execute(stmt)
     projects = list(pres.scalars().all())
     if not projects:
         return PreannotateProjectSummaryResponse(items=[])
-    project_ids = [p.id for p in projects]
 
+    from app.services.inference_topology_data import InferenceTopologyData
+
+    topology_data = InferenceTopologyData(db)
+    all_project_ids = [project.id for project in projects]
+    enabled_project_ids: set[uuid.UUID] = set()
+    for start in range(0, len(all_project_ids), 500):
+        enabled_project_ids.update(
+            await topology_data.enabled_project_ids(
+                all_project_ids[start : start + 500]
+            )
+        )
+    projects = [project for project in projects if project.id in enabled_project_ids]
+    if not projects:
+        return PreannotateProjectSummaryResponse(items=[])
+    project_ids = [project.id for project in projects]
+
+    backend_facts = []
+    for start in range(0, len(project_ids), 500):
+        backend_facts.extend(
+            await topology_data.project_backend_facts(project_ids[start : start + 500])
+        )
     bres = await db.execute(
         select(batch_row.project_id, batch_row.status, func.count(batch_row.id))
         .where(batch_row.project_id.in_(project_ids))
@@ -302,48 +313,26 @@ async def list_preannotate_project_summary(
     )
     fail_counts = {pid: int(cnt) for pid, cnt in fail_q.all()}
 
-    # v0.19.0 ADR-0044 · 按项目启用关联 join 全局注册表取本项目可用 backend。
-    # v0.23.3 ADR-0050 · 经服务池层 (project_ml_backend_pool → pool member → registry)。
-    bk_q = await db.execute(
-        select(ProjectMLBackendPool.project_id, MLBackendRegistry)
-        .join(
-            MLBackendPoolMember,
-            MLBackendPoolMember.pool_id == ProjectMLBackendPool.pool_id,
+    facts_by_project = {}
+    for fact in backend_facts:
+        facts_by_project.setdefault(fact.project_id, []).append(fact)
+    backends_by_project = {}
+    for project in projects:
+        facts = facts_by_project.get(project.id, [])
+        primary_pool_id = project.ml_backend_pool_id
+        preferred = next(
+            (
+                fact.registry
+                for fact in facts
+                if fact.pool_id == primary_pool_id
+                and fact.registry.id == fact.pool_legacy_instance_id
+            ),
+            None,
         )
-        .join(
-            MLBackendRegistry,
-            MLBackendRegistry.id == MLBackendPoolMember.registry_id,
-        )
-        .where(
-            ProjectMLBackendPool.project_id.in_(project_ids),
-            ProjectMLBackendPool.enabled.is_(True),
-        )
-    )
-    rows = list(bk_q.all())
-    backends_by_project: dict[uuid.UUID, MLBackendRegistry] = {}
-    # 同项目多 backend 时优先选项目主池的 legacy instance; 否则任取一条.
-    # v0.23.3: 项目主绑定存 pool id, 经 MLBackendServicePool.legacy_instance_id 解析。
-    pool_ids = {proj.ml_backend_pool_id for proj in projects if proj.ml_backend_pool_id}
-    legacy_map: dict[uuid.UUID, uuid.UUID] = {}
-    if pool_ids:
-        legacy_q = await db.execute(
-            select(
-                MLBackendServicePool.id, MLBackendServicePool.legacy_instance_id
-            ).where(MLBackendServicePool.id.in_(pool_ids))
-        )
-        legacy_map = {pid: leg for pid, leg in legacy_q.all() if leg is not None}
-    for pid, bk in rows:
-        backends_by_project.setdefault(pid, bk)
-    for proj in projects:
-        preferred_registry = (
-            legacy_map.get(proj.ml_backend_pool_id) if proj.ml_backend_pool_id else None
-        )
-        if preferred_registry:
-            for pid, bk in rows:
-                if bk.id == preferred_registry:
-                    backends_by_project[proj.id] = bk
-                    break
-
+        if preferred is not None:
+            backends_by_project[project.id] = preferred
+        elif facts:
+            backends_by_project[project.id] = facts[0].registry
     items: list[PreannotateProjectSummary] = []
     for proj in projects:
         bk = backends_by_project.get(proj.id)

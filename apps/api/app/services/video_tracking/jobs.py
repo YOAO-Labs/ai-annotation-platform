@@ -1020,7 +1020,7 @@ async def create_video_mask_correction_job(
         )
 
     backend_service = MLBackendService(db)
-    backend = await backend_service.get(payload.backend_id)
+    backend = await backend_service.get_registry(payload.backend_id)
     capabilities = (backend.health_meta or {}).get("capabilities") if backend else {}
     if (
         backend is None

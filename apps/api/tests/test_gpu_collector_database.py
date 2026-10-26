@@ -4,17 +4,17 @@ from pathlib import Path
 
 import pytest
 
-from app.config import Settings
-from app.services.gpu_arbitration.collector_database import (
+from aap_inference.gpu.collector_database import (
     GPUCollectorDatabaseConfigError,
     load_gpu_collector_database_url,
     validate_gpu_collector_role_boundary,
 )
+from aap_inference.gpu.settings import GPUArbiterMode, GPUAuthoritySettings
 
 
-def _config(path: Path | str) -> Settings:
-    return Settings(
-        _env_file=None,
+def _config(path: Path | str) -> GPUAuthoritySettings:
+    return GPUAuthoritySettings(
+        gpu_arbiter_mode=GPUArbiterMode.OFF,
         gpu_arbiter_collector_database_url_file=str(path),
     )
 

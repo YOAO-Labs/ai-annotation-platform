@@ -63,8 +63,8 @@ from app.services.labeling_write_scope import LabelingWriteScope
 from app.services.labeling_write_guard import lock_labeling_write
 from app.services.secondary_inference_result import (
     SecondaryInferenceResult,
-    thaw_json,
 )
+from aap_inference_contract.execution import thaw_json
 from app.services.raster_mask_storage import (
     _VerifiedMaskContent,
     RasterMaskContractError,

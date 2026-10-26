@@ -1,0 +1,460 @@
+{
+  "$id": "aap-inference-backend-control/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Inference backend control protocol",
+  "$defs": {
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "scope_id", "control_id", "attempt_id"],
+      "properties": {
+        "kind": { "enum": ["scope", "control"] },
+        "scope_id": { "type": ["string", "null"], "format": "uuid" },
+        "control_id": { "type": ["string", "null"], "format": "uuid" },
+        "attempt_id": { "type": "string", "format": "uuid" }
+      }
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "scope_id", "control_id", "attempt_id", "capability"],
+      "properties": {
+        "kind": { "enum": ["scope", "control"] },
+        "scope_id": { "type": ["string", "null"], "format": "uuid" },
+        "control_id": { "type": ["string", "null"], "format": "uuid" },
+        "attempt_id": { "type": "string", "format": "uuid" },
+        "capability": { "type": "string", "pattern": "^[0-9a-f]{64}$", "writeOnly": true }
+      }
+    },
+    "endpoint_subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "request_id", "registry_id", "purpose", "authority", "subject"],
+      "properties": {
+        "schema": { "const": "aap-inference-backend-endpoint/v1" },
+        "request_id": { "type": "string", "format": "uuid" },
+        "registry_id": { "type": "string", "format": "uuid" },
+        "purpose": {
+          "enum": [
+            "health_observation",
+            "setup",
+            "catalog_fallback",
+            "stats",
+            "backend_read",
+            "lifecycle",
+            "execution",
+            "gpu_control"
+          ]
+        },
+        "authority": { "oneOf": [{ "$ref": "#/$defs/authority" }, { "type": "null" }] },
+        "subject": {
+          "type": "string",
+          "pattern": "^v1\\.[A-Za-z0-9+/]+={0,2}$",
+          "maxLength": 25165824
+        }
+      }
+    },
+    "request_only_endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "auth_method", "auth_token"],
+      "properties": {
+        "url": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "auth_method": { "enum": ["none", "token"] },
+        "auth_token": { "type": ["string", "null"], "maxLength": 500, "writeOnly": true }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "auth_method": { "const": "none" } } },
+          "then": { "properties": { "auth_token": { "type": "null" } } }
+        },
+        {
+          "if": { "properties": { "auth_method": { "const": "token" } } },
+          "then": { "properties": { "auth_token": { "type": "string", "minLength": 1 } } }
+        }
+      ]
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "status_code", "detail", "retry_after"],
+      "properties": {
+        "code": { "type": "string", "pattern": "^[a-z0-9_]{1,96}$" },
+        "status_code": { "type": ["integer", "null"], "minimum": 100, "maximum": 599 },
+        "detail": {},
+        "retry_after": { "type": ["string", "null"] }
+      }
+    },
+    "registered_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "schema",
+        "operation",
+        "request_id",
+        "registry_id",
+        "endpoint_subject",
+        "binding"
+      ],
+      "properties": {
+        "kind": { "const": "registered" },
+        "schema": { "const": "aap-inference-backend-control/v1" },
+        "operation": {
+          "enum": [
+            "setup",
+            "health_meta",
+            "unload",
+            "reload",
+            "warmup",
+            "catalog_fallback",
+            "stats",
+            "install_trained_model",
+            "trained_model_receipt",
+            "managed_evaluation_profile",
+            "managed_evaluation_receipt",
+            "managed_evaluation_seal",
+            "versions"
+          ]
+        },
+        "request_id": { "type": "string", "format": "uuid" },
+        "registry_id": { "type": "string", "format": "uuid" },
+        "endpoint_subject": { "$ref": "#/$defs/endpoint_subject" },
+        "binding": { "oneOf": [{ "$ref": "#/$defs/binding" }, { "type": "null" }] },
+        "body": { "type": ["object", "null"] }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "enum": [
+                  "setup",
+                  "health_meta",
+                  "unload",
+                  "catalog_fallback",
+                  "stats",
+                  "managed_evaluation_profile",
+                  "versions"
+                ]
+              }
+            }
+          },
+          "then": { "properties": { "body": { "type": "null" } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "enum": [
+                  "warmup",
+                  "install_trained_model",
+                  "trained_model_receipt",
+                  "managed_evaluation_receipt",
+                  "managed_evaluation_seal"
+                ]
+              }
+            }
+          },
+          "then": { "required": ["body"], "properties": { "body": { "type": "object" } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "enum": [
+                  "setup",
+                  "health_meta",
+                  "catalog_fallback",
+                  "stats",
+                  "trained_model_receipt",
+                  "managed_evaluation_profile",
+                  "managed_evaluation_receipt",
+                  "versions"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "binding": { "type": "null" },
+              "endpoint_subject": { "properties": { "authority": { "type": "null" } } }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "operation": { "enum": ["unload", "reload"] } } },
+          "then": {
+            "properties": {
+              "binding": {
+                "allOf": [
+                  { "$ref": "#/$defs/binding" },
+                  { "properties": { "kind": { "const": "control" } }, "required": ["kind"] }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "enum": ["warmup", "install_trained_model", "managed_evaluation_seal"]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "binding": {
+                "allOf": [
+                  { "$ref": "#/$defs/binding" },
+                  { "properties": { "kind": { "const": "scope" } }, "required": ["kind"] }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "reload" } } },
+          "then": {
+            "properties": {
+              "body": {
+                "oneOf": [
+                  { "type": "null" },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "sam_variant": { "type": "string", "minLength": 1 },
+                      "dino_variant": { "type": "string", "minLength": 1 },
+                      "modality": { "type": "string", "minLength": 1 },
+                      "task_type": { "type": "string", "minLength": 1 }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "trained_model_receipt" } } },
+          "then": {
+            "properties": {
+              "body": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["version_id"],
+                "properties": { "version_id": { "type": "string", "format": "uuid" } }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "managed_evaluation_receipt" } } },
+          "then": {
+            "properties": {
+              "body": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["request_id", "binding_digest", "storage_identity"],
+                "properties": {
+                  "request_id": { "type": "string", "format": "uuid" },
+                  "binding_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                  "storage_identity": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "managed_evaluation_seal" } } },
+          "then": {
+            "properties": {
+              "body": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "request_id",
+                  "binding_digest",
+                  "profile_digest",
+                  "storage_identity",
+                  "issued_at",
+                  "expires_at"
+                ],
+                "properties": {
+                  "request_id": { "type": "string", "format": "uuid" },
+                  "binding_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                  "profile_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                  "storage_identity": { "type": "string" },
+                  "issued_at": { "type": "integer" },
+                  "expires_at": { "type": "integer" }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "credential_policy_fact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["auth_method", "auth_token_length_valid"],
+      "properties": {
+        "auth_method": { "type": "string" },
+        "auth_token_length_valid": { "type": "boolean" }
+      }
+    },
+    "stats_snapshot_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "backend_id",
+        "backend_name",
+        "project_id",
+        "project_display_id",
+        "project_name"
+      ],
+      "properties": {
+        "backend_id": { "type": "string", "format": "uuid" },
+        "backend_name": { "type": "string" },
+        "project_id": { "type": "null" },
+        "project_display_id": { "type": ["string", "null"] },
+        "project_name": { "type": ["string", "null"] }
+      }
+    },
+    "stats_snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "physical_key",
+        "url_host",
+        "backend_id",
+        "backend_name",
+        "bindings",
+        "state",
+        "timestamp"
+      ],
+      "properties": {
+        "physical_key": { "type": "string" },
+        "url_host": { "type": ["string", "null"] },
+        "backend_id": { "type": "string", "format": "uuid" },
+        "backend_name": { "type": "string" },
+        "bindings": { "type": "array", "items": { "$ref": "#/$defs/stats_snapshot_binding" } },
+        "state": { "enum": ["ok", "error"] },
+        "timestamp": { "type": "string" },
+        "meta": { "type": ["object", "null"] }
+      }
+    },
+    "stats_snapshots_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "schema", "request_id"],
+      "properties": {
+        "kind": { "const": "owner_stats_snapshots" },
+        "schema": { "const": "aap-inference-backend-control/v1" },
+        "request_id": { "type": "string", "format": "uuid" }
+      }
+    },
+    "stats_snapshots_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "snapshots"],
+      "properties": {
+        "request_id": { "type": "string", "format": "uuid" },
+        "snapshots": { "type": "array", "items": { "$ref": "#/$defs/stats_snapshot" } }
+      }
+    },
+    "control_observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["backend_id", "outcome", "duration_seconds"],
+      "properties": {
+        "backend_id": { "type": ["string", "null"] },
+        "outcome": { "type": "string" },
+        "duration_seconds": { "type": "number", "minimum": 0 }
+      }
+    },
+    "request_only_probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "schema", "operation", "request_id", "endpoints", "timeout_seconds"],
+      "properties": {
+        "kind": { "const": "request_only" },
+        "schema": { "const": "aap-inference-backend-control/v1" },
+        "operation": { "enum": ["manual_probe", "environment_observation"] },
+        "request_id": { "type": "string", "format": "uuid" },
+        "endpoints": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/request_only_endpoint" }
+        },
+        "timeout_seconds": { "type": "number", "exclusiveMinimum": 0 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "operation": { "const": "environment_observation" } } },
+          "then": {
+            "properties": {
+              "endpoints": {
+                "items": {
+                  "properties": {
+                    "auth_method": { "const": "none" },
+                    "auth_token": { "type": "null" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "unregistered_smoke": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "schema", "request_id", "endpoint", "body"],
+      "properties": {
+        "kind": { "const": "smoke_unregistered" },
+        "schema": { "const": "aap-inference-backend-control/v1" },
+        "request_id": { "type": "string", "format": "uuid" },
+        "endpoint": { "$ref": "#/$defs/request_only_endpoint" },
+        "body": { "type": "object" }
+      }
+    },
+    "reply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "request_id", "result", "observations", "error"],
+      "properties": {
+        "schema": { "const": "aap-inference-backend-control/v1" },
+        "request_id": { "type": "string", "format": "uuid" },
+        "result": { "type": ["object", "array", "null"] },
+        "observations": { "type": "array", "items": { "$ref": "#/$defs/control_observation" } },
+        "error": { "oneOf": [{ "$ref": "#/$defs/failure" }, { "type": "null" }] }
+      }
+    }
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/registered_request" },
+    { "$ref": "#/$defs/stats_snapshots_request" },
+    { "$ref": "#/$defs/request_only_probe" },
+    { "$ref": "#/$defs/unregistered_smoke" },
+    { "$ref": "#/$defs/reply" }
+  ],
+  "x-operation-purpose": {
+    "setup": "setup",
+    "health_meta": "health_observation",
+    "unload": "lifecycle",
+    "reload": "lifecycle",
+    "warmup": "execution",
+    "catalog_fallback": "catalog_fallback",
+    "stats": "stats",
+    "install_trained_model": "execution",
+    "trained_model_receipt": "backend_read",
+    "managed_evaluation_profile": "backend_read",
+    "managed_evaluation_receipt": "backend_read",
+    "managed_evaluation_seal": "execution",
+    "versions": "backend_read"
+  },
+  "x-fixed-http-endpoint": "POST /v1/backends/control",
+  "x-body-operation-key": "operation"
+}

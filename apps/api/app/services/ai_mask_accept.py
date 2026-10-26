@@ -27,7 +27,7 @@ from app.services.labeling_mask_edit import (
     ai_mask_accept_command,
     mask_task_fence,
 )
-from app.services.inference_health_data import InferenceHealthData
+from app.services.inference_topology_data import InferenceTopologyData
 from app.services.project_access import get_workspace_project
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import DatasetItem
@@ -288,19 +288,19 @@ async def _read_lineage_row(
 async def _resolve_routing_lineage(
     db: AsyncSession, data: AiMaskAcceptRequest
 ) -> tuple[uuid.UUID | None, uuid.UUID | None]:
-    inference_data = InferenceHealthData(db)
+    inference_data = InferenceTopologyData(db)
     actual = await _read_lineage_row(
         db,
         MLBackendRegistry,
         data.routing.backend_instance_id,
-        inference_data.get_backend,
+        inference_data.registry_reference,
     )
     pool = (
         await _read_lineage_row(
             db,
             MLBackendServicePool,
             data.routing.backend_pool_id,
-            inference_data.get_pool_reference,
+            inference_data.pool_reference,
         )
         if data.routing.backend_pool_id is not None
         else None

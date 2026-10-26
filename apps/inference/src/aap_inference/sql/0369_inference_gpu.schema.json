@@ -1,0 +1,2103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-inference-gpu-native/v1",
+  "title": "Inference GPU PostgreSQL Native authority contract",
+  "protocol": "aap-inference-gpu-native/v1",
+  "native": {
+    "schema": "aap_inference_gpu_v1",
+    "functions": [
+      "aap_inference_gpu_v1.gpu_authority_policy()",
+      "aap_inference_gpu_v1.gpu_authority_step(text,text)"
+    ],
+    "request": {
+      "arguments": "UTF-8 JSON object passed as the second text argument; maximum 1 MiB",
+      "action": "First text argument; one member of actions; action-specific exact key sets, types, and closed enums are enforced",
+      "uow": "Runs inside and borrows the caller's transaction; never commits or opens a transaction",
+      "response": {
+        "type": "object",
+        "required": ["protocol", "action", "result"],
+        "properties": {
+          "protocol": { "const": "aap-inference-gpu-native/v1" },
+          "action": {
+            "enum": [
+              "fence_advance",
+              "fence_token_expiry",
+              "fence_activate_membership",
+              "fence_read",
+              "rollout_read",
+              "rollout_read_all",
+              "rollout_boundary",
+              "rollout_begin",
+              "rollout_complete",
+              "rollout_block",
+              "runtime_subject",
+              "cold_runtime_subject",
+              "idle_eviction_subject",
+              "busy_eviction_subject",
+              "eviction_drain_health",
+              "prepare_cold_generation",
+              "prepare_idle_eviction_generation",
+              "prepare_eviction_cancel_generation",
+              "record_runtime_token_expiry",
+              "cold_terminal_from_health",
+              "eviction_cancel_from_health",
+              "eviction_phase_from_health",
+              "proof_domain",
+              "proof_reset_from_health",
+              "reconcile_resource",
+              "repair_resource",
+              "prepare_legacy_ack",
+              "prepare_rollout_control",
+              "membership_candidates",
+              "membership_max_concurrency",
+              "retired_probe_subject",
+              "retired_probe_commit",
+              "shadow_snapshot",
+              "resource_runtime_observation"
+            ]
+          },
+          "result": { "type": "object" }
+        },
+        "additionalProperties": false
+      },
+      "bounds": { "request_bytes": 1048576, "response_bytes": 4194304 }
+    },
+    "actions": [
+      {
+        "name": "fence_advance",
+        "arguments": {
+          "type": "object",
+          "required": [
+            "backend_registry_id",
+            "counter",
+            "gpu_resource_id",
+            "membership_epoch",
+            "token_expires_at"
+          ],
+          "properties": {
+            "backend_registry_id": { "$ref": "#/$defs/uuid" },
+            "counter": { "enum": ["generation", "control_epoch"] },
+            "gpu_resource_id": { "$ref": "#/$defs/resource_id" },
+            "membership_epoch": { "$ref": "#/$defs/positive_int64" },
+            "token_expires_at": { "$ref": "#/$defs/nullable_timestamp" }
+          },
+          "additionalProperties": false
+        },
+        "result": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["status", "value"],
+              "properties": {
+                "status": { "const": "advanced" },
+                "value": { "$ref": "#/$defs/nonnegative_int64" }
+              },
+              "additionalProperties": false
+            },
+            { "$ref": "#/$defs/membership_changed" },
+            { "$ref": "#/$defs/fence_missing" },
+            { "$ref": "#/$defs/high_water_exhausted" }
+          ]
+        }
+      },
+      {
+        "name": "fence_token_expiry",
+        "arguments": {
+          "type": "object",
+          "required": [
+            "backend_registry_id",
+            "gpu_resource_id",
+            "membership_epoch",
+            "token_expires_at"
+          ],
+          "properties": {
+            "backend_registry_id": { "$ref": "#/$defs/uuid" },
+            "gpu_resource_id": { "$ref": "#/$defs/resource_id" },
+            "membership_epoch": { "$ref": "#/$defs/positive_int64" },
+            "token_expires_at": { "$ref": "#/$defs/timestamp" }
+          },
+          "additionalProperties": false
+        },
+        "result": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["status", "token_expires_at"],
+              "properties": {
+                "status": { "const": "recorded" },
+                "token_expires_at": { "$ref": "#/$defs/timestamp" }
+              },
+              "additionalProperties": false
+            },
+            { "$ref": "#/$defs/membership_changed" },
+            { "$ref": "#/$defs/fence_missing" }
+          ]
+        }
+      },
+      {
+        "name": "fence_activate_membership",
+        "arguments": {
+          "type": "object",
+          "required": ["backend_registry_id", "gpu_resource_id", "membership_epoch"],
+          "properties": {
+            "backend_registry_id": { "$ref": "#/$defs/uuid" },
+            "gpu_resource_id": { "$ref": "#/$defs/resource_id" },
+            "membership_epoch": { "$ref": "#/$defs/positive_int64" }
+          },
+          "additionalProperties": false
+        },
+        "result": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["status", "runtime_epoch_high_water"],
+              "properties": {
+                "status": { "const": "activated" },
+                "runtime_epoch_high_water": { "$ref": "#/$defs/nonnegative_int64" }
+              },
+              "additionalProperties": false
+            },
+            { "$ref": "#/$defs/membership_changed" },
+            { "$ref": "#/$defs/fence_missing" },
+            { "$ref": "#/$defs/high_water_exhausted" }
+          ]
+        }
+      },
+      {
+        "name": "fence_read",
+        "arguments": {
+          "type": "object",
+          "required": ["backend_registry_id"],
+          "properties": { "backend_registry_id": { "$ref": "#/$defs/uuid" } },
+          "additionalProperties": false
+        },
+        "result": {
+          "type": "object",
+          "required": ["fence"],
+          "properties": {
+            "fence": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/fence_read_row" }] }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "rollout_read",
+        "arguments": {
+          "type": "object",
+          "required": ["resource_id"],
+          "properties": { "resource_id": { "$ref": "#/$defs/resource_id" } },
+          "additionalProperties": false
+        },
+        "result": {
+          "type": "object",
+          "required": ["snapshot"],
+          "properties": {
+            "snapshot": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/rollout_snapshot" }] }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "rollout_read_all",
+        "arguments": { "type": "object", "maxProperties": 0 },
+        "result": {
+          "type": "object",
+          "required": ["snapshots"],
+          "properties": {
+            "snapshots": { "type": "array", "items": { "$ref": "#/$defs/rollout_snapshot" } }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "rollout_boundary",
+        "arguments": { "type": "object", "maxProperties": 0 },
+        "result": {
+          "type": "object",
+          "required": ["active"],
+          "properties": { "active": { "type": "boolean" } },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "rollout_begin",
+        "arguments": {
+          "type": "object",
+          "required": ["resource_id", "target_mode", "candidate_transition_id"],
+          "properties": {
+            "resource_id": { "$ref": "#/$defs/resource_id" },
+            "target_mode": { "enum": ["off", "observe", "enforce"] },
+            "candidate_transition_id": { "$ref": "#/$defs/uuid" }
+          },
+          "additionalProperties": false
+        },
+        "result": {
+          "oneOf": [
+            { "$ref": "#/$defs/rollout_snapshot" },
+            {
+              "type": "object",
+              "required": ["outcome", "reason"],
+              "properties": {
+                "outcome": { "const": "conflict" },
+                "reason": { "type": "string", "minLength": 1 }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": ["outcome"],
+              "properties": { "outcome": { "const": "unavailable" } },
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      {
+        "name": "rollout_complete",
+        "arguments": {
+          "type": "object",
+          "required": ["resource_id", "transition_id"],
+          "properties": {
+            "resource_id": { "$ref": "#/$defs/resource_id" },
+            "transition_id": { "$ref": "#/$defs/uuid" }
+          },
+          "additionalProperties": false
+        },
+        "result": {
+          "oneOf": [
+            { "$ref": "#/$defs/rollout_snapshot" },
+            { "$ref": "#/$defs/operation_conflict" }
+          ]
+        }
+      },
+      {
+        "name": "rollout_block",
+        "arguments": {
+          "type": "object",
+          "required": ["resource_id", "transition_id", "reason"],
+          "properties": {
+            "resource_id": { "$ref": "#/$defs/resource_id" },
+            "transition_id": { "$ref": "#/$defs/uuid" },
+            "reason": { "type": "string", "minLength": 1, "maxLength": 256 }
+          },
+          "additionalProperties": false
+        },
+        "result": {
+          "oneOf": [
+            { "$ref": "#/$defs/rollout_snapshot" },
+            { "$ref": "#/$defs/operation_conflict" }
+          ]
+        }
+      },
+      {
+        "name": "runtime_subject",
+        "arguments": {
+          "type": "object",
+          "required": ["backend_registry_id", "gpu_resource_id"],
+          "properties": {
+            "backend_registry_id": { "$ref": "#/$defs/uuid" },
+            "gpu_resource_id": { "$ref": "#/$defs/resource_id" }
+          },
+          "additionalProperties": false
+        },
+        "result": { "$ref": "#/$defs/resident_subject_result" }
+      },
+      {
+        "name": "cold_runtime_subject",
+        "arguments": {
+          "type": "object",
+          "required": ["backend_registry_id", "gpu_resource_id", "expected_challenge"],
+          "properties": {
+            "backend_registry_id": { "$ref": "#/$defs/uuid" },
+            "gpu_resource_id": { "$ref": "#/$defs/resource_id" },
+            "expected_challenge": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] }
+          },
+          "additionalProperties": false
+        },
+        "result": { "$ref": "#/$defs/cold_subject_result" }
+      },
+      {
+        "name": "idle_eviction_subject",
+        "arguments": {
+          "type": "object",
+          "required": [
+            "backend_registry_id",
+            "gpu_resource_id",
+            "expected_generation",
+            "challenge"
+          ],
+          "properties": {
+            "backend_registry_id": { "$ref": "#/$defs/uuid" },
+            "gpu_resource_id": { "$ref": "#/$defs/resource_id" },
+            "expected_generation": { "$ref": "#/$defs/positive_decimal" },
+            "challenge": { "$ref": "#/$defs/sha256" }
+          },
+          "additionalProperties": false
+        },
+        "result": { "$ref": "#/$defs/idle_subject_result" }
+      },
+      {
+        "name": "busy_eviction_subject",
+        "arguments": {
+          "type": "object",
+          "required": [
+            "backend_registry_id",
+            "gpu_resource_id",
+            "expected_generation",
+            "challenge"
+          ],
+          "properties": {
+            "backend_registry_id": { "$ref": "#/$defs/uuid" },
+            "gpu_resource_id": { "$ref": "#/$defs/resource_id" },
+            "expected_generation": { "$ref": "#/$defs/positive_decimal" },
+            "challenge": { "$ref": "#/$defs/sha256" }
+          },
+          "additionalProperties": false
+        },
+        "result": { "$ref": "#/$defs/idle_subject_result" }
+      },
+      {
+        "name": "eviction_drain_health",
+        "arguments": {
+          "type": "object",
+          "required": ["expected_subject", "challenge"],
+          "properties": {
+            "expected_subject": { "$ref": "#/$defs/prepared_idle_subject" },
+            "challenge": { "$ref": "#/$defs/sha256" }
+          },
+          "additionalProperties": false
+        },
+        "result": { "$ref": "#/$defs/terminal_subject_result" }
+      },
+      {
+        "name": "prepare_cold_generation",
+        "arguments": {
+          "type": "object",
+          "required": ["expected_subject", "token_expires_at"],
+          "properties": {
+            "expected_subject": { "$ref": "#/$defs/cold_subject" },
+            "token_expires_at": { "$ref": "#/$defs/timestamp" }
+          },
+          "additionalProperties": false
+        },
+        "result": { "$ref": "#/$defs/prepared_cold_result" }
+      },
+      {
+        "name": "prepare_idle_eviction_generation",
+        "arguments": {
+          "type": "object",
+          "required": ["expected_subject", "token_expires_at"],
+          "properties": {
+            "expected_subject": { "$ref": "#/$defs/idle_subject" },
+            "token_expires_at": { "$ref": "#/$defs/timestamp" }
+          },
+          "additionalProperties": false
+        },
+        "result": { "$ref": "#/$defs/prepared_idle_result" }
+      },
+      {
+        "name": "prepare_eviction_cancel_generation",
+        "arguments": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "phase",
+                "expected_subject",
+                "owner_id",
+                "owner_hard_deadline_ms",
+                "token_expires_at"
+              ],
+              "properties": {
+                "phase": { "const": "prepare" },
+                "expected_subject": { "$ref": "#/$defs/prepared_idle_subject" },
+                "owner_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+                "owner_hard_deadline_ms": { "$ref": "#/$defs/owner_deadline_ms" },
+                "token_expires_at": { "$ref": "#/$defs/timestamp" }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": ["phase", "backend_registry_id", "gpu_resource_id", "owner_id"],
+              "properties": {
+                "phase": { "const": "recover" },
+                "backend_registry_id": { "$ref": "#/$defs/uuid" },
+                "gpu_resource_id": { "$ref": "#/$defs/resource_id" },
+                "owner_id": { "type": "string", "minLength": 1, "maxLength": 256 }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "result": { "$ref": "#/$defs/prepared_cancel_result" }
+      },
+      {
+        "name": "record_runtime_token_expiry",
+        "arguments": {
+          "type": "object",
+          "required": ["expected_subject", "token_expires_at"],
+          "properties": {
+            "expected_subject": { "$ref": "#/$defs/resident_subject" },
+            "token_expires_at": { "$ref": "#/$defs/timestamp" }
+          },
+          "additionalProperties": false
+        },
+        "result": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["status", "token_expires_at"],
+              "properties": {
+                "status": { "const": "recorded" },
+                "token_expires_at": { "$ref": "#/$defs/timestamp" }
+              },
+              "additionalProperties": false
+            },
+            { "$ref": "#/$defs/blocked" }
+          ]
+        }
+      },
+      {
+        "name": "cold_terminal_from_health",
+        "arguments": {
+          "type": "object",
+          "required": ["expected_subject", "challenge"],
+          "properties": {
+            "expected_subject": { "$ref": "#/$defs/prepared_cold_subject" },
+            "challenge": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] }
+          },
+          "additionalProperties": false
+        },
+        "result": { "$ref": "#/$defs/terminal_subject_result" }
+      },
+      {
+        "name": "eviction_cancel_from_health",
+        "arguments": {
+          "type": "object",
+          "required": ["expected_subject", "ack_confirmed", "challenge"],
+          "properties": {
+            "expected_subject": { "$ref": "#/$defs/prepared_cancel_subject" },
+            "ack_confirmed": { "type": "boolean" },
+            "challenge": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] }
+          },
+          "additionalProperties": false
+        },
+        "result": { "$ref": "#/$defs/terminal_subject_result" }
+      },
+      {
+        "name": "eviction_phase_from_health",
+        "arguments": {
+          "type": "object",
+          "required": ["expected_subject", "phase", "challenge"],
+          "properties": {
+            "expected_subject": { "$ref": "#/$defs/prepared_idle_subject" },
+            "phase": { "enum": ["drain", "unload"] },
+            "challenge": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] }
+          },
+          "additionalProperties": false
+        },
+        "result": { "$ref": "#/$defs/terminal_subject_result" }
+      },
+      {
+        "name": "proof_domain",
+        "arguments": {
+          "type": "object",
+          "required": ["resource_id", "wait_for_lock"],
+          "properties": {
+            "resource_id": { "$ref": "#/$defs/resource_id" },
+            "wait_for_lock": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        "result": { "$ref": "#/$defs/domain_result" }
+      },
+      {
+        "name": "proof_reset_from_health",
+        "arguments": {
+          "type": "object",
+          "required": ["resource_id", "expected_backend_memberships", "wait_for_lock"],
+          "properties": {
+            "resource_id": { "$ref": "#/$defs/resource_id" },
+            "expected_backend_memberships": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/expected_membership" }
+            },
+            "wait_for_lock": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        "result": {
+          "oneOf": [
+            { "$ref": "#/$defs/domain_result" },
+            {
+              "type": "object",
+              "required": ["status", "reason"],
+              "properties": { "status": { "const": "blocked" }, "reason": { "type": "string" } },
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      {
+        "name": "reconcile_resource",
+        "arguments": {
+          "type": "object",
+          "required": ["resource_id", "allocatable_mb"],
+          "properties": {
+            "resource_id": { "$ref": "#/$defs/resource_id" },
+            "allocatable_mb": { "type": "integer", "minimum": 1, "maximum": 2147483647 }
+          },
+          "additionalProperties": false
+        },
+        "result": { "$ref": "#/$defs/domain_result" }
+      },
+      {
+        "name": "repair_resource",
+        "arguments": {
+          "type": "object",
+          "required": ["resource_id", "allocatable_mb", "force_proof_reset", "readiness_blocker"],
+          "properties": {
+            "resource_id": { "$ref": "#/$defs/resource_id" },
+            "allocatable_mb": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+            "force_proof_reset": { "type": "boolean" },
+            "readiness_blocker": {
+              "oneOf": [{ "type": "null" }, { "type": "string", "maxLength": 256 }]
+            }
+          },
+          "additionalProperties": false
+        },
+        "result": { "$ref": "#/$defs/domain_result" }
+      },
+      {
+        "name": "prepare_legacy_ack",
+        "arguments": {
+          "type": "object",
+          "required": [
+            "backend_registry_id",
+            "gpu_resource_id",
+            "membership_epoch",
+            "token_ttl_seconds",
+            "evidence_ttl_seconds"
+          ],
+          "properties": {
+            "backend_registry_id": { "$ref": "#/$defs/uuid" },
+            "gpu_resource_id": { "$ref": "#/$defs/resource_id" },
+            "membership_epoch": { "$ref": "#/$defs/positive_int64" },
+            "token_ttl_seconds": { "type": "integer", "minimum": 1, "maximum": 300 },
+            "evidence_ttl_seconds": { "type": "number", "exclusiveMinimum": 0, "maximum": 300 }
+          },
+          "additionalProperties": false
+        },
+        "result": { "$ref": "#/$defs/legacy_control_preparation_result" }
+      },
+      {
+        "name": "prepare_rollout_control",
+        "arguments": {
+          "type": "object",
+          "required": [
+            "backend_registry_id",
+            "gpu_resource_id",
+            "membership_epoch",
+            "transition_id",
+            "target_gate",
+            "token_ttl_seconds",
+            "evidence_ttl_seconds"
+          ],
+          "properties": {
+            "backend_registry_id": { "$ref": "#/$defs/uuid" },
+            "gpu_resource_id": { "$ref": "#/$defs/resource_id" },
+            "membership_epoch": { "$ref": "#/$defs/positive_int64" },
+            "transition_id": { "$ref": "#/$defs/uuid" },
+            "target_gate": { "enum": ["legacy", "enforce"] },
+            "token_ttl_seconds": { "type": "integer", "minimum": 1, "maximum": 300 },
+            "evidence_ttl_seconds": { "type": "number", "exclusiveMinimum": 0, "maximum": 300 }
+          },
+          "additionalProperties": false
+        },
+        "result": { "$ref": "#/$defs/rollout_control_preparation_result" }
+      },
+      {
+        "name": "membership_candidates",
+        "arguments": {
+          "type": "object",
+          "required": ["gpu_resource_id", "states"],
+          "properties": {
+            "gpu_resource_id": { "$ref": "#/$defs/resource_id" },
+            "states": {
+              "oneOf": [
+                { "const": ["pending"] },
+                { "const": ["pending", "active"] },
+                { "const": ["retiring"] }
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "result": {
+          "type": "object",
+          "required": ["candidates"],
+          "properties": {
+            "candidates": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["backend_id", "membership_epoch", "state"],
+                "properties": {
+                  "backend_id": { "$ref": "#/$defs/uuid" },
+                  "membership_epoch": { "$ref": "#/$defs/positive_int64" },
+                  "state": { "enum": ["pending", "active", "retiring"] }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "membership_max_concurrency",
+        "arguments": {
+          "type": "object",
+          "required": ["backend_registry_id"],
+          "properties": { "backend_registry_id": { "$ref": "#/$defs/uuid" } },
+          "additionalProperties": false
+        },
+        "result": {
+          "type": "object",
+          "required": ["max_concurrency"],
+          "properties": {
+            "max_concurrency": {
+              "oneOf": [{ "type": "null" }, { "type": "integer", "minimum": 1, "maximum": 10000 }]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "retired_probe_subject",
+        "arguments": {
+          "type": "object",
+          "required": ["backend_id", "resource_id", "membership_epoch"],
+          "properties": {
+            "backend_id": { "$ref": "#/$defs/uuid" },
+            "resource_id": { "$ref": "#/$defs/resource_id" },
+            "membership_epoch": { "$ref": "#/$defs/positive_int64" }
+          },
+          "additionalProperties": false
+        },
+        "result": {
+          "type": "object",
+          "required": ["status", "reason", "subject"],
+          "properties": {
+            "status": { "enum": ["ready", "blocked"] },
+            "reason": { "type": "string" },
+            "subject": {
+              "oneOf": [
+                { "type": "null" },
+                {
+                  "type": "object",
+                  "required": ["challenge", "probe_started_at"],
+                  "properties": {
+                    "challenge": { "$ref": "#/$defs/sha256" },
+                    "probe_started_at": { "$ref": "#/$defs/timestamp" }
+                  },
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "retired_probe_commit",
+        "arguments": {
+          "type": "object",
+          "required": [
+            "backend_id",
+            "resource_id",
+            "membership_epoch",
+            "challenge",
+            "probe_started_at",
+            "endpoint_sha256",
+            "residency"
+          ],
+          "properties": {
+            "backend_id": { "$ref": "#/$defs/uuid" },
+            "resource_id": { "$ref": "#/$defs/resource_id" },
+            "membership_epoch": { "$ref": "#/$defs/positive_int64" },
+            "challenge": { "$ref": "#/$defs/sha256" },
+            "probe_started_at": { "$ref": "#/$defs/timestamp" },
+            "endpoint_sha256": { "$ref": "#/$defs/sha256" },
+            "residency": { "$ref": "#/$defs/residency" }
+          },
+          "additionalProperties": false
+        },
+        "result": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["status", "reason", "proof"],
+              "properties": {
+                "status": { "const": "live_unloaded" },
+                "reason": { "type": "string" },
+                "proof": {
+                  "type": "object",
+                  "required": [
+                    "observed_at",
+                    "evidence_deadline_ms",
+                    "evidence_fingerprint",
+                    "residency"
+                  ],
+                  "properties": {
+                    "observed_at": { "$ref": "#/$defs/timestamp" },
+                    "evidence_deadline_ms": { "$ref": "#/$defs/positive_int64" },
+                    "evidence_fingerprint": { "$ref": "#/$defs/sha256" },
+                    "residency": { "$ref": "#/$defs/residency" }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": ["status", "reason"],
+              "properties": {
+                "status": { "const": "blocked" },
+                "reason": { "type": "string", "minLength": 1 }
+              },
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      {
+        "name": "shadow_snapshot",
+        "arguments": {
+          "type": "object",
+          "required": ["resource_id", "backend_id"],
+          "properties": {
+            "resource_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/resource_id" }] },
+            "backend_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/uuid" }] }
+          },
+          "additionalProperties": false,
+          "description": "At most one selector may be non-null; both null lists all registry rows, a resource selector lists its members, and a backend selector reads one registry row."
+        },
+        "result": {
+          "type": "object",
+          "required": ["backends"],
+          "properties": {
+            "backends": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "backend_id",
+                  "gpu_resource_id",
+                  "vram_budget_mb",
+                  "eviction_priority",
+                  "extra_params",
+                  "state",
+                  "last_checked_at",
+                  "health_meta"
+                ],
+                "properties": {
+                  "backend_id": { "$ref": "#/$defs/uuid" },
+                  "gpu_resource_id": {
+                    "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/resource_id" }]
+                  },
+                  "vram_budget_mb": {
+                    "oneOf": [{ "type": "null" }, { "type": "integer", "minimum": 1 }]
+                  },
+                  "eviction_priority": { "type": "integer" },
+                  "extra_params": { "type": "object" },
+                  "state": { "type": "string" },
+                  "last_checked_at": { "$ref": "#/$defs/nullable_timestamp" },
+                  "health_meta": { "oneOf": [{ "type": "null" }, { "type": "object" }] }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "resource_runtime_observation",
+        "arguments": {
+          "type": "object",
+          "required": ["resource_id"],
+          "properties": { "resource_id": { "$ref": "#/$defs/resource_id" } },
+          "additionalProperties": false
+        },
+        "result": {
+          "type": "object",
+          "required": ["status", "memberships"],
+          "properties": {
+            "status": { "const": "ok" },
+            "memberships": { "type": "array", "items": { "$ref": "#/$defs/runtime_membership" } }
+          },
+          "additionalProperties": false
+        }
+      }
+    ]
+  },
+  "caller_native": {
+    "schema": "aap_inference_gpu_caller_v1",
+    "protocol": "aap-inference-gpu-caller-native/v1",
+    "functions": [
+      "aap_inference_gpu_caller_v1.gpu_caller_policy()",
+      "aap_inference_gpu_caller_v1.gpu_caller_step(text,text)"
+    ],
+    "actions": [
+      "fence_advance",
+      "fence_token_expiry",
+      "fence_activate_membership",
+      "fence_read",
+      "rollout_read",
+      "rollout_read_all",
+      "rollout_boundary",
+      "rollout_begin",
+      "rollout_complete",
+      "rollout_block",
+      "prepare_legacy_ack",
+      "prepare_rollout_control",
+      "membership_candidates",
+      "membership_max_concurrency"
+    ],
+    "bounds": { "request_bytes": 1048576, "response_bytes": 4194304 },
+    "transaction": "Borrows caller-owned workflow transaction; exposes only bounded administrative actions and public facts."
+  },
+  "dispatch_http": {
+    "protocol": "aap-inference-gpu-dispatch/v1",
+    "acquire": {
+      "method": "POST",
+      "path": "/internal/inference/gpu/v1/dispatch/acquire",
+      "request": {
+        "request_id": "outer request UUID for owner correlation",
+        "backend_id": "canonical registry UUID",
+        "gpu_resource_id": "physical GPU resource identifier",
+        "operation": ["predict", "predict_interactive", "warmup", "reload", "unload"],
+        "scope": ["predict", "warmup", "reload"]
+      },
+      "reply": {
+        "session_id": "one-shot 32-byte URL-safe session capability",
+        "generation": "canonical positive int64 decimal string",
+        "admission_token": "private GPU admission token"
+      }
+    },
+    "settle": {
+      "method": "POST",
+      "path": "/internal/inference/gpu/v1/dispatch/settle",
+      "request": {
+        "session_id": "one-shot session capability",
+        "outcome": ["response_received", "not_sent", "uncertain"],
+        "status_code": "required only for response_received",
+        "reason": "request_aborted or response_not_reported for uncertain"
+      },
+      "reply": { "settled": "false when the session is already unknown or expired" }
+    },
+    "session_semantics": "Owner-process in-memory context only; expiry/shutdown settles as uncertain, never stopped; no durable result/stop ledger."
+  },
+  "admin_http": {
+    "protocol": "aap-inference-gpu-admin/v1",
+    "transport": "JSON request/response bodies; models reject undeclared fields",
+    "operations": {
+      "activate_memberships": {
+        "method": "POST",
+        "path": "/internal/inference/gpu/v1/admin/activate-memberships",
+        "request": { "$ref": "#/$defs/activate_memberships_request" },
+        "reply": { "$ref": "#/$defs/activate_memberships_reply" }
+      },
+      "rollout_control": {
+        "method": "POST",
+        "path": "/internal/inference/gpu/v1/admin/rollout-control",
+        "request": { "$ref": "#/$defs/rollout_control_request" },
+        "reply": { "$ref": "#/$defs/rollout_control_reply" }
+      },
+      "observe_resource": {
+        "method": "POST",
+        "path": "/internal/inference/gpu/v1/admin/observe-resource",
+        "request": { "$ref": "#/$defs/resource_observation_request" },
+        "reply": { "$ref": "#/$defs/resource_runtime_observation_reply" }
+      },
+      "repair_resource": {
+        "method": "POST",
+        "path": "/internal/inference/gpu/v1/admin/repair-resource",
+        "request": { "$ref": "#/$defs/resource_repair_request" },
+        "reply": { "$ref": "#/$defs/resource_repair_reply" }
+      },
+      "probe_retired_membership": {
+        "method": "POST",
+        "path": "/internal/inference/gpu/v1/admin/probe-retired-membership",
+        "request": { "$ref": "#/$defs/retired_membership_request" },
+        "reply": { "$ref": "#/$defs/retired_membership_reply" }
+      },
+      "collect_tombstone": {
+        "method": "POST",
+        "path": "/internal/inference/gpu/v1/admin/collect-tombstone",
+        "request": { "$ref": "#/$defs/retired_membership_request" },
+        "reply": { "$ref": "#/$defs/tombstone_collection_reply" }
+      },
+      "diagnostics": {
+        "method": "POST",
+        "path": "/internal/inference/gpu/v1/admin/diagnostics",
+        "request": { "$ref": "#/$defs/admin_diagnostics_request" },
+        "reply": { "$ref": "#/$defs/admin_diagnostics_reply" }
+      }
+    }
+  },
+  "owner_protocol": {
+    "name": "GPUAuthorityData and GPUAuthorityDataProvider",
+    "functions": [
+      "aap_inference_gpu_v1.gpu_authority_policy()",
+      "aap_inference_gpu_v1.gpu_authority_step(text,text)"
+    ],
+    "request": {
+      "protocol": "aap-inference-gpu-authority/v1",
+      "action": "one closed authority action",
+      "arguments": "one action-specific object from actions"
+    },
+    "response": {
+      "protocol": "aap-inference-gpu-native/v1",
+      "action": "the requested action",
+      "result": "exact action-specific result schema"
+    },
+    "native_calls": "Caller supplies one action and its finite argument object; provider dispatches only to the two declared authority functions.",
+    "transaction": "Caller supplies the UOW; Native functions borrow its transaction, never commit or open a transaction. Lock order is resource advisory lock, membership rows by backend UUID, fence rows by backend UUID, then plain registry reads. Registry rows are not locked to avoid inverse registry/resource lock order.",
+    "bounds": { "request_bytes": 1048576, "response_bytes": 4194304 },
+    "security_boundary": "Native projects only finite membership, fence, rollout, proof, residency and diagnostic facts. It never projects endpoint_subject, request_id, endpoint URL, auth method/token or private credentials; endpoint capture/opening and token signing remain separate live owner capabilities. Health and Redis effects run in the owner while its caller transaction remains open."
+  },
+  "collector_native": {
+    "protocol": "aap-inference-gpu-collector-native/v1",
+    "schema": "aap_inference_gpu_collector_v1",
+    "functions": [
+      "aap_inference_gpu_collector_v1.gpu_collector_policy()",
+      "aap_inference_gpu_collector_v1.gpu_collector_step(text,text)"
+    ],
+    "actions": [
+      {
+        "name": "collect_tombstone",
+        "arguments": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["phase", "backend_id", "resource_id", "membership_epoch", "proof"],
+              "properties": {
+                "phase": { "const": "prepare" },
+                "backend_id": { "$ref": "#/$defs/uuid" },
+                "resource_id": { "$ref": "#/$defs/resource_id" },
+                "membership_epoch": { "$ref": "#/$defs/positive_int64" },
+                "proof": {
+                  "oneOf": [
+                    { "type": "null" },
+                    {
+                      "type": "object",
+                      "required": [
+                        "challenge",
+                        "probe_started_at",
+                        "observed_at",
+                        "evidence_deadline_ms",
+                        "evidence_fingerprint",
+                        "endpoint_sha256",
+                        "residency"
+                      ],
+                      "properties": {
+                        "challenge": { "$ref": "#/$defs/sha256" },
+                        "probe_started_at": { "$ref": "#/$defs/timestamp" },
+                        "observed_at": { "$ref": "#/$defs/timestamp" },
+                        "evidence_deadline_ms": { "$ref": "#/$defs/positive_int64" },
+                        "evidence_fingerprint": { "$ref": "#/$defs/sha256" },
+                        "endpoint_sha256": { "$ref": "#/$defs/sha256" },
+                        "residency": { "$ref": "#/$defs/residency" }
+                      },
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": [
+                "phase",
+                "backend_id",
+                "resource_id",
+                "membership_epoch",
+                "retirement_id",
+                "receipt_fingerprint",
+                "registry_exists"
+              ],
+              "properties": {
+                "phase": { "const": "commit" },
+                "backend_id": { "$ref": "#/$defs/uuid" },
+                "resource_id": { "$ref": "#/$defs/resource_id" },
+                "membership_epoch": { "$ref": "#/$defs/positive_int64" },
+                "retirement_id": { "$ref": "#/$defs/uuid" },
+                "receipt_fingerprint": { "$ref": "#/$defs/sha256" },
+                "registry_exists": { "type": "boolean" }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "result": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["status"],
+              "properties": { "status": { "const": "already_absent" } },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": ["status", "reason"],
+              "properties": {
+                "status": { "enum": ["blocked", "stale"] },
+                "reason": { "type": "string", "minLength": 1 }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": ["status", "backend_memberships", "retirement_id", "registry_exists"],
+              "properties": {
+                "status": { "const": "receipt_required" },
+                "backend_memberships": {
+                  "type": "array",
+                  "items": { "$ref": "#/$defs/runtime_membership" }
+                },
+                "retirement_id": { "$ref": "#/$defs/uuid" },
+                "registry_exists": { "type": "boolean" }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": [
+                "status",
+                "backend_memberships",
+                "retirement_id",
+                "registry_exists",
+                "vram_budget_mb",
+                "collection_id"
+              ],
+              "properties": {
+                "status": { "const": "proof_valid" },
+                "backend_memberships": {
+                  "type": "array",
+                  "items": { "$ref": "#/$defs/runtime_membership" }
+                },
+                "retirement_id": { "$ref": "#/$defs/uuid" },
+                "registry_exists": { "type": "boolean" },
+                "vram_budget_mb": { "type": "integer", "minimum": 1 },
+                "collection_id": { "$ref": "#/$defs/sha256" }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": ["status"],
+              "properties": { "status": { "const": "collected" } },
+              "additionalProperties": false
+            }
+          ]
+        }
+      }
+    ],
+    "http_protocol": "aap-inference-gpu-collector/v1",
+    "http_request": {
+      "type": "object",
+      "required": ["protocol", "action", "arguments"],
+      "properties": {
+        "protocol": { "const": "aap-inference-gpu-collector/v1" },
+        "action": { "const": "collect_tombstone" },
+        "arguments": {
+          "oneOf": [
+            { "$ref": "#/collector_native/actions/0/arguments/oneOf/0" },
+            { "$ref": "#/collector_native/actions/0/arguments/oneOf/1" }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "http_response": {
+      "type": "object",
+      "required": ["protocol", "action", "result"],
+      "properties": {
+        "protocol": { "const": "aap-inference-gpu-collector/v1" },
+        "action": { "const": "collect_tombstone" },
+        "result": { "$ref": "#/$defs/collector_result" }
+      },
+      "additionalProperties": false
+    },
+    "bounds": { "request_bytes": 1048576, "response_bytes": 4194304 },
+    "security_boundary": "The proof carries only endpoint_sha256 and a bounded residency DTO, never endpoint_subject, request_id, URL, auth material, or private credentials.",
+    "transaction": "Caller-owned UOW remains open while the owner verifies the Redis receipt and collection evidence. Lock order is resource advisory lock, membership row, fence row, then plain registry read. Prepare returns receipt_required or proof_valid; commit sets the exact transaction-local GC receipt only after receipt verification, deletes only the exact retiring membership, and deletes its fence only when the registry is absent."
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "resource_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 512,
+      "format": "gpu-resource-id"
+    },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "nullable_timestamp": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/timestamp" }] },
+    "positive_int64": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+    "nonnegative_int64": { "type": "integer", "minimum": 0, "maximum": 9223372036854775807 },
+    "positive_decimal": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,18}$",
+      "maxLength": 19,
+      "description": "Canonical positive int64 decimal string; upper bound 9223372036854775807."
+    },
+    "nonnegative_decimal": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "maxLength": 19,
+      "description": "Canonical nonnegative int64 decimal string; upper bound 9223372036854775807."
+    },
+    "owner_deadline_ms": { "type": "integer", "minimum": 1, "maximum": 253402300799999 },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "membership_changed": {
+      "type": "object",
+      "required": ["status"],
+      "properties": { "status": { "const": "membership_changed" } },
+      "additionalProperties": false
+    },
+    "fence_missing": {
+      "type": "object",
+      "required": ["status"],
+      "properties": { "status": { "const": "fence_missing" } },
+      "additionalProperties": false
+    },
+    "high_water_exhausted": {
+      "type": "object",
+      "required": ["status"],
+      "properties": { "status": { "const": "high_water_exhausted" } },
+      "additionalProperties": false
+    },
+    "blocked": {
+      "type": "object",
+      "required": ["status", "reason"],
+      "properties": {
+        "status": { "const": "blocked" },
+        "reason": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "operation_conflict": {
+      "type": "object",
+      "required": ["outcome", "reason"],
+      "properties": {
+        "outcome": { "const": "conflict" },
+        "reason": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "rollout_snapshot": {
+      "type": "object",
+      "required": [
+        "resource_id",
+        "state",
+        "effective_mode",
+        "target_mode",
+        "transition_id",
+        "last_transition_id",
+        "blocker_reason",
+        "revision"
+      ],
+      "properties": {
+        "resource_id": { "$ref": "#/$defs/resource_id" },
+        "state": { "enum": ["off", "promoting", "enforcing", "demoting", "blocked"] },
+        "effective_mode": { "enum": ["off", "enforce"] },
+        "target_mode": { "enum": ["off", "observe", "enforce"] },
+        "transition_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/uuid" }] },
+        "last_transition_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/uuid" }] },
+        "blocker_reason": { "oneOf": [{ "type": "null" }, { "type": "string" }] },
+        "revision": { "$ref": "#/$defs/positive_int64" }
+      },
+      "additionalProperties": false
+    },
+    "membership": {
+      "type": "object",
+      "required": [
+        "backend_registry_id",
+        "gpu_resource_id",
+        "membership_epoch",
+        "state",
+        "vram_budget_mb",
+        "eviction_priority",
+        "max_concurrency",
+        "runtime_epoch_baseline"
+      ],
+      "properties": {
+        "backend_registry_id": { "$ref": "#/$defs/uuid" },
+        "gpu_resource_id": { "$ref": "#/$defs/resource_id" },
+        "membership_epoch": { "$ref": "#/$defs/positive_int64" },
+        "state": { "enum": ["pending", "active", "retiring"] },
+        "vram_budget_mb": { "type": "integer", "minimum": 1 },
+        "eviction_priority": { "type": "integer" },
+        "max_concurrency": { "type": "integer", "minimum": 1, "maximum": 10000 },
+        "runtime_epoch_baseline": { "$ref": "#/$defs/nonnegative_int64" }
+      },
+      "additionalProperties": false
+    },
+    "fence": {
+      "type": "object",
+      "required": [
+        "backend_registry_id",
+        "generation_high_water",
+        "control_epoch_high_water",
+        "runtime_epoch_high_water",
+        "token_expires_at"
+      ],
+      "properties": {
+        "backend_registry_id": { "$ref": "#/$defs/uuid" },
+        "generation_high_water": { "$ref": "#/$defs/nonnegative_int64" },
+        "control_epoch_high_water": { "$ref": "#/$defs/nonnegative_int64" },
+        "runtime_epoch_high_water": { "$ref": "#/$defs/nonnegative_int64" },
+        "token_expires_at": { "$ref": "#/$defs/nullable_timestamp" }
+      },
+      "additionalProperties": false
+    },
+    "fence_read_row": {
+      "type": "object",
+      "required": [
+        "backend_registry_id",
+        "generation_high_water",
+        "control_epoch_high_water",
+        "runtime_epoch_high_water",
+        "token_expiry_high_water",
+        "updated_at"
+      ],
+      "properties": {
+        "backend_registry_id": { "$ref": "#/$defs/uuid" },
+        "generation_high_water": { "$ref": "#/$defs/nonnegative_int64" },
+        "control_epoch_high_water": { "$ref": "#/$defs/nonnegative_int64" },
+        "runtime_epoch_high_water": { "$ref": "#/$defs/nonnegative_int64" },
+        "token_expiry_high_water": { "$ref": "#/$defs/nullable_timestamp" },
+        "updated_at": { "$ref": "#/$defs/timestamp" }
+      },
+      "additionalProperties": false
+    },
+    "registry": {
+      "type": "object",
+      "required": [
+        "id",
+        "gpu_resource_id",
+        "vram_budget_mb",
+        "eviction_priority",
+        "extra_params",
+        "state",
+        "last_checked_at",
+        "health_meta"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/uuid" },
+        "gpu_resource_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/resource_id" }] },
+        "vram_budget_mb": { "oneOf": [{ "type": "null" }, { "type": "integer", "minimum": 1 }] },
+        "eviction_priority": { "type": "integer" },
+        "extra_params": { "type": "object" },
+        "state": { "type": "string" },
+        "last_checked_at": { "$ref": "#/$defs/nullable_timestamp" },
+        "health_meta": { "oneOf": [{ "type": "null" }, { "type": "object" }] }
+      },
+      "additionalProperties": false
+    },
+    "domain_result": {
+      "type": "object",
+      "required": ["status", "db_now", "memberships", "fences", "registries"],
+      "properties": {
+        "status": { "enum": ["ok", "matched", "domain_changed"] },
+        "db_now": { "$ref": "#/$defs/timestamp" },
+        "memberships": { "type": "array", "items": { "$ref": "#/$defs/membership" } },
+        "fences": { "type": "array", "items": { "$ref": "#/$defs/fence" } },
+        "registries": { "type": "array", "items": { "$ref": "#/$defs/registry" } }
+      },
+      "additionalProperties": false
+    },
+    "expected_membership": {
+      "type": "object",
+      "required": ["backend_id", "membership_epoch", "state"],
+      "properties": {
+        "backend_id": { "$ref": "#/$defs/uuid" },
+        "membership_epoch": { "$ref": "#/$defs/positive_decimal" },
+        "state": { "enum": ["pending", "active", "retiring"] }
+      },
+      "additionalProperties": false
+    },
+    "runtime_membership": {
+      "type": "object",
+      "required": ["backend_id", "membership_epoch", "state"],
+      "properties": {
+        "backend_id": { "$ref": "#/$defs/uuid" },
+        "membership_epoch": { "$ref": "#/$defs/positive_int64" },
+        "state": { "enum": ["pending", "active", "retiring"] }
+      },
+      "additionalProperties": false
+    },
+    "cold_subject_result": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["status", "subject", "proof"],
+          "properties": {
+            "status": { "const": "ready" },
+            "subject": { "$ref": "#/$defs/cold_subject" },
+            "proof": { "$ref": "#/$defs/proof" }
+          },
+          "additionalProperties": false
+        },
+        { "$ref": "#/$defs/blocked" }
+      ]
+    },
+    "idle_subject_result": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["status", "subject", "proof"],
+          "properties": {
+            "status": { "const": "ready" },
+            "subject": { "$ref": "#/$defs/idle_subject" },
+            "proof": { "$ref": "#/$defs/proof" }
+          },
+          "additionalProperties": false
+        },
+        { "$ref": "#/$defs/blocked" }
+      ]
+    },
+    "resident_subject": {
+      "type": "object",
+      "required": [
+        "backend_registry_id",
+        "gpu_resource_id",
+        "membership_epoch",
+        "budget_mb",
+        "eviction_priority",
+        "max_concurrency",
+        "boot_id",
+        "generation",
+        "control_epoch",
+        "runtime_epoch",
+        "db_now"
+      ],
+      "properties": {
+        "backend_registry_id": { "$ref": "#/$defs/uuid" },
+        "gpu_resource_id": { "$ref": "#/$defs/resource_id" },
+        "membership_epoch": { "$ref": "#/$defs/positive_int64" },
+        "budget_mb": { "type": "integer", "minimum": 1 },
+        "eviction_priority": { "type": "integer" },
+        "max_concurrency": { "type": "integer", "minimum": 1, "maximum": 10000 },
+        "boot_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "generation": { "$ref": "#/$defs/positive_decimal" },
+        "control_epoch": { "$ref": "#/$defs/nonnegative_decimal" },
+        "runtime_epoch": { "$ref": "#/$defs/positive_decimal" },
+        "db_now": { "$ref": "#/$defs/timestamp" }
+      },
+      "additionalProperties": false
+    },
+    "cold_subject": {
+      "type": "object",
+      "required": [
+        "backend_registry_id",
+        "gpu_resource_id",
+        "membership_epoch",
+        "budget_mb",
+        "eviction_priority",
+        "max_concurrency",
+        "boot_id",
+        "observed_generation",
+        "generation_high_water",
+        "control_epoch",
+        "runtime_epoch",
+        "db_now"
+      ],
+      "properties": {
+        "backend_registry_id": { "$ref": "#/$defs/uuid" },
+        "gpu_resource_id": { "$ref": "#/$defs/resource_id" },
+        "membership_epoch": { "$ref": "#/$defs/positive_int64" },
+        "budget_mb": { "type": "integer", "minimum": 1 },
+        "eviction_priority": { "type": "integer" },
+        "max_concurrency": { "type": "integer", "minimum": 1, "maximum": 10000 },
+        "boot_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "observed_generation": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/positive_decimal" }]
+        },
+        "generation_high_water": { "$ref": "#/$defs/nonnegative_int64" },
+        "control_epoch": { "$ref": "#/$defs/nonnegative_decimal" },
+        "runtime_epoch": { "$ref": "#/$defs/positive_decimal" },
+        "db_now": { "$ref": "#/$defs/timestamp" }
+      },
+      "additionalProperties": false
+    },
+    "idle_subject": {
+      "type": "object",
+      "required": [
+        "backend_registry_id",
+        "gpu_resource_id",
+        "membership_epoch",
+        "budget_mb",
+        "eviction_priority",
+        "max_concurrency",
+        "boot_id",
+        "generation",
+        "generation_high_water",
+        "pool_ids",
+        "control_epoch",
+        "runtime_epoch",
+        "challenge",
+        "require_idle",
+        "db_now"
+      ],
+      "properties": {
+        "backend_registry_id": { "$ref": "#/$defs/uuid" },
+        "gpu_resource_id": { "$ref": "#/$defs/resource_id" },
+        "membership_epoch": { "$ref": "#/$defs/positive_int64" },
+        "budget_mb": { "type": "integer", "minimum": 1 },
+        "eviction_priority": { "type": "integer" },
+        "max_concurrency": { "type": "integer", "minimum": 1, "maximum": 10000 },
+        "boot_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "generation": { "$ref": "#/$defs/positive_decimal" },
+        "generation_high_water": { "$ref": "#/$defs/nonnegative_int64" },
+        "pool_ids": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "control_epoch": { "$ref": "#/$defs/nonnegative_decimal" },
+        "runtime_epoch": { "$ref": "#/$defs/positive_decimal" },
+        "challenge": { "$ref": "#/$defs/sha256" },
+        "require_idle": { "type": "boolean" },
+        "db_now": { "$ref": "#/$defs/timestamp" }
+      },
+      "additionalProperties": false
+    },
+    "proof": {
+      "type": "object",
+      "required": ["membership", "fence", "registry", "db_now"],
+      "properties": {
+        "membership": { "$ref": "#/$defs/membership" },
+        "fence": { "$ref": "#/$defs/fence" },
+        "registry": { "$ref": "#/$defs/registry" },
+        "db_now": { "$ref": "#/$defs/timestamp" }
+      },
+      "additionalProperties": false
+    },
+    "resident_subject_result": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["status", "subject", "proof"],
+          "properties": {
+            "status": { "const": "ready" },
+            "subject": { "$ref": "#/$defs/resident_subject" },
+            "proof": { "$ref": "#/$defs/proof" }
+          },
+          "additionalProperties": false
+        },
+        { "$ref": "#/$defs/blocked" }
+      ]
+    },
+    "prepared_cold_subject": {
+      "type": "object",
+      "required": [
+        "backend_registry_id",
+        "gpu_resource_id",
+        "membership_epoch",
+        "budget_mb",
+        "eviction_priority",
+        "max_concurrency",
+        "boot_id",
+        "observed_generation",
+        "generation",
+        "control_epoch",
+        "runtime_epoch",
+        "token_expires_at",
+        "db_now"
+      ],
+      "properties": {
+        "backend_registry_id": { "$ref": "#/$defs/uuid" },
+        "gpu_resource_id": { "$ref": "#/$defs/resource_id" },
+        "membership_epoch": { "$ref": "#/$defs/positive_int64" },
+        "budget_mb": { "type": "integer", "minimum": 1 },
+        "eviction_priority": { "type": "integer" },
+        "max_concurrency": { "type": "integer", "minimum": 1, "maximum": 10000 },
+        "boot_id": { "type": "string" },
+        "observed_generation": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/positive_decimal" }]
+        },
+        "generation": { "$ref": "#/$defs/positive_decimal" },
+        "control_epoch": { "$ref": "#/$defs/nonnegative_decimal" },
+        "runtime_epoch": { "$ref": "#/$defs/positive_decimal" },
+        "token_expires_at": { "$ref": "#/$defs/timestamp" },
+        "db_now": { "$ref": "#/$defs/timestamp" }
+      },
+      "additionalProperties": false
+    },
+    "prepared_idle_subject": {
+      "type": "object",
+      "required": [
+        "backend_registry_id",
+        "gpu_resource_id",
+        "membership_epoch",
+        "budget_mb",
+        "eviction_priority",
+        "max_concurrency",
+        "boot_id",
+        "source_generation",
+        "generation",
+        "pool_ids",
+        "control_epoch",
+        "runtime_epoch",
+        "token_expires_at",
+        "require_idle",
+        "db_now"
+      ],
+      "properties": {
+        "backend_registry_id": { "$ref": "#/$defs/uuid" },
+        "gpu_resource_id": { "$ref": "#/$defs/resource_id" },
+        "membership_epoch": { "$ref": "#/$defs/positive_int64" },
+        "budget_mb": { "type": "integer", "minimum": 1 },
+        "eviction_priority": { "type": "integer" },
+        "max_concurrency": { "type": "integer", "minimum": 1, "maximum": 10000 },
+        "boot_id": { "type": "string" },
+        "source_generation": { "$ref": "#/$defs/positive_decimal" },
+        "generation": { "$ref": "#/$defs/positive_decimal" },
+        "pool_ids": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "control_epoch": { "$ref": "#/$defs/nonnegative_decimal" },
+        "runtime_epoch": { "$ref": "#/$defs/positive_decimal" },
+        "token_expires_at": { "$ref": "#/$defs/timestamp" },
+        "require_idle": { "type": "boolean" },
+        "db_now": { "$ref": "#/$defs/timestamp" }
+      },
+      "additionalProperties": false
+    },
+    "prepared_cancel_subject": {
+      "type": "object",
+      "required": [
+        "backend_registry_id",
+        "gpu_resource_id",
+        "membership_epoch",
+        "budget_mb",
+        "eviction_priority",
+        "max_concurrency",
+        "boot_id",
+        "source_generation",
+        "drain_generation",
+        "generation",
+        "pool_ids",
+        "control_epoch",
+        "runtime_epoch",
+        "owner_id",
+        "operation",
+        "owner_hard_deadline_ms",
+        "drain_token_expires_at",
+        "token_expires_at",
+        "jti",
+        "idempotent",
+        "db_now"
+      ],
+      "properties": {
+        "backend_registry_id": { "$ref": "#/$defs/uuid" },
+        "gpu_resource_id": { "$ref": "#/$defs/resource_id" },
+        "membership_epoch": { "$ref": "#/$defs/positive_int64" },
+        "budget_mb": { "type": "integer", "minimum": 1 },
+        "eviction_priority": { "type": "integer" },
+        "max_concurrency": { "type": "integer", "minimum": 1, "maximum": 10000 },
+        "boot_id": { "type": "string" },
+        "source_generation": { "$ref": "#/$defs/positive_decimal" },
+        "drain_generation": { "$ref": "#/$defs/positive_decimal" },
+        "generation": { "$ref": "#/$defs/positive_decimal" },
+        "pool_ids": { "type": "array", "items": { "type": "string" } },
+        "control_epoch": { "$ref": "#/$defs/nonnegative_decimal" },
+        "runtime_epoch": { "$ref": "#/$defs/positive_decimal" },
+        "owner_id": { "type": "string" },
+        "operation": { "const": "evict" },
+        "owner_hard_deadline_ms": { "$ref": "#/$defs/owner_deadline_ms" },
+        "drain_token_expires_at": { "$ref": "#/$defs/timestamp" },
+        "token_expires_at": { "$ref": "#/$defs/timestamp" },
+        "jti": { "type": "string" },
+        "idempotent": { "type": "boolean" },
+        "db_now": { "$ref": "#/$defs/timestamp" }
+      },
+      "additionalProperties": false
+    },
+    "prepared_cold_result": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["status", "preparation"],
+          "properties": {
+            "status": { "const": "prepared" },
+            "preparation": { "$ref": "#/$defs/prepared_cold_subject" }
+          },
+          "additionalProperties": false
+        },
+        { "$ref": "#/$defs/blocked" }
+      ]
+    },
+    "prepared_idle_result": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["status", "preparation"],
+          "properties": {
+            "status": { "const": "prepared" },
+            "preparation": { "$ref": "#/$defs/prepared_idle_subject" }
+          },
+          "additionalProperties": false
+        },
+        { "$ref": "#/$defs/blocked" }
+      ]
+    },
+    "prepared_cancel_result": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["status", "preparation"],
+          "properties": {
+            "status": { "const": "prepared" },
+            "preparation": { "$ref": "#/$defs/prepared_cancel_subject" }
+          },
+          "additionalProperties": false
+        },
+        { "$ref": "#/$defs/blocked" }
+      ]
+    },
+    "terminal_subject_result": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["status", "subject"],
+          "properties": { "status": { "const": "ready" }, "subject": { "$ref": "#/$defs/proof" } },
+          "additionalProperties": false
+        },
+        { "$ref": "#/$defs/blocked" }
+      ]
+    },
+    "legacy_control_preparation_result": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["status", "preparation"],
+          "properties": {
+            "status": { "const": "ok" },
+            "preparation": {
+              "type": "object",
+              "required": [
+                "action",
+                "backend_id",
+                "resource_id",
+                "membership_epoch",
+                "boot_id",
+                "runtime_epoch",
+                "control_epoch",
+                "token_expires_at",
+                "proof_ready"
+              ],
+              "properties": {
+                "action": { "enum": ["issue", "acknowledged"] },
+                "backend_id": { "$ref": "#/$defs/uuid" },
+                "resource_id": { "$ref": "#/$defs/resource_id" },
+                "membership_epoch": { "$ref": "#/$defs/positive_int64" },
+                "boot_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+                "runtime_epoch": { "$ref": "#/$defs/positive_decimal" },
+                "control_epoch": { "$ref": "#/$defs/nonnegative_decimal" },
+                "token_expires_at": { "$ref": "#/$defs/nullable_timestamp" },
+                "proof_ready": { "type": "boolean" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        { "$ref": "#/$defs/blocked" }
+      ]
+    },
+    "rollout_control_preparation_result": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["status", "preparation"],
+          "properties": {
+            "status": { "const": "ok" },
+            "preparation": {
+              "type": "object",
+              "required": [
+                "action",
+                "operation",
+                "target_gate",
+                "backend_id",
+                "resource_id",
+                "membership_epoch",
+                "transition_id",
+                "boot_id",
+                "control_epoch",
+                "token_expires_at",
+                "reason"
+              ],
+              "properties": {
+                "action": { "enum": ["issue", "acknowledged", "awaiting_health"] },
+                "operation": { "enum": ["reset", "mode_enforce", "mode_legacy"] },
+                "target_gate": { "enum": ["legacy", "enforce"] },
+                "backend_id": { "$ref": "#/$defs/uuid" },
+                "resource_id": { "$ref": "#/$defs/resource_id" },
+                "membership_epoch": { "$ref": "#/$defs/positive_int64" },
+                "transition_id": { "$ref": "#/$defs/uuid" },
+                "boot_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+                "control_epoch": { "$ref": "#/$defs/nonnegative_decimal" },
+                "token_expires_at": { "$ref": "#/$defs/timestamp" },
+                "reason": { "type": "string", "minLength": 1 }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        { "$ref": "#/$defs/blocked" }
+      ]
+    },
+    "public_resource_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "admin_protocol": { "const": "aap-inference-gpu-admin/v1" },
+    "activate_memberships_request": {
+      "type": "object",
+      "required": ["resource_id"],
+      "properties": {
+        "protocol": { "$ref": "#/$defs/admin_protocol" },
+        "resource_id": { "$ref": "#/$defs/public_resource_id" },
+        "pending_only": { "type": "boolean", "default": false }
+      },
+      "additionalProperties": false
+    },
+    "activation_result": {
+      "type": "object",
+      "required": [
+        "backend_id",
+        "resource_id",
+        "membership_epoch",
+        "status",
+        "reason",
+        "runtime_epoch",
+        "control_epoch",
+        "requires_proof_reset"
+      ],
+      "properties": {
+        "backend_id": { "$ref": "#/$defs/uuid" },
+        "resource_id": { "$ref": "#/$defs/public_resource_id" },
+        "membership_epoch": { "$ref": "#/$defs/positive_int64" },
+        "status": {
+          "enum": ["promoted", "acknowledged", "blocked", "active_unacked", "unavailable"]
+        },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "runtime_epoch": { "oneOf": [{ "type": "null" }, { "type": "string" }] },
+        "control_epoch": { "oneOf": [{ "type": "null" }, { "type": "string" }] },
+        "requires_proof_reset": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "activate_memberships_reply": {
+      "type": "object",
+      "required": ["protocol", "results"],
+      "properties": {
+        "protocol": { "$ref": "#/$defs/admin_protocol" },
+        "results": { "type": "array", "items": { "$ref": "#/$defs/activation_result" } }
+      },
+      "additionalProperties": false
+    },
+    "rollout_control_request": {
+      "type": "object",
+      "required": ["resource_id", "transition_id", "target_gate"],
+      "properties": {
+        "protocol": { "$ref": "#/$defs/admin_protocol" },
+        "resource_id": { "$ref": "#/$defs/public_resource_id" },
+        "transition_id": { "$ref": "#/$defs/uuid" },
+        "target_gate": { "enum": ["legacy", "enforce"] }
+      },
+      "additionalProperties": false
+    },
+    "rollout_control_result": {
+      "type": "object",
+      "required": [
+        "backend_id",
+        "resource_id",
+        "membership_epoch",
+        "transition_id",
+        "operation",
+        "status",
+        "reason",
+        "control_epoch"
+      ],
+      "properties": {
+        "backend_id": { "$ref": "#/$defs/uuid" },
+        "resource_id": { "$ref": "#/$defs/public_resource_id" },
+        "membership_epoch": { "$ref": "#/$defs/positive_int64" },
+        "transition_id": { "$ref": "#/$defs/uuid" },
+        "operation": {
+          "oneOf": [{ "type": "null" }, { "enum": ["reset", "mode_enforce", "mode_legacy"] }]
+        },
+        "status": { "enum": ["acknowledged", "issued", "pending", "blocked", "unavailable"] },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "control_epoch": { "oneOf": [{ "type": "null" }, { "type": "string" }] }
+      },
+      "additionalProperties": false
+    },
+    "rollout_control_reply": {
+      "type": "object",
+      "required": ["protocol", "results"],
+      "properties": {
+        "protocol": { "$ref": "#/$defs/admin_protocol" },
+        "results": { "type": "array", "items": { "$ref": "#/$defs/rollout_control_result" } }
+      },
+      "additionalProperties": false
+    },
+    "resource_observation_request": {
+      "type": "object",
+      "required": ["resource_id"],
+      "properties": {
+        "protocol": { "$ref": "#/$defs/admin_protocol" },
+        "resource_id": { "$ref": "#/$defs/public_resource_id" },
+        "allocatable_mb": { "oneOf": [{ "type": "null" }, { "type": "integer", "minimum": 1 }] }
+      },
+      "additionalProperties": false
+    },
+    "resource_runtime_observation_reply": {
+      "type": "object",
+      "required": [
+        "protocol",
+        "status",
+        "reason",
+        "ready",
+        "ledger_revision",
+        "ledger_incarnation",
+        "reconcile_deadline_ms",
+        "committed_mb",
+        "backend_count",
+        "active_backend_count",
+        "membership_state_counts",
+        "allocation_state_counts",
+        "lease_count",
+        "card_queue_count",
+        "backend_queue_count",
+        "transition_present",
+        "durable_domain_matches"
+      ],
+      "properties": {
+        "protocol": { "$ref": "#/$defs/admin_protocol" },
+        "status": {
+          "enum": [
+            "disabled",
+            "missing",
+            "prepared",
+            "ready",
+            "not_ready",
+            "corrupt",
+            "unavailable"
+          ]
+        },
+        "reason": { "type": "string" },
+        "ready": { "type": "boolean" },
+        "ledger_revision": { "oneOf": [{ "type": "null" }, { "type": "integer" }] },
+        "ledger_incarnation": { "oneOf": [{ "type": "null" }, { "type": "string" }] },
+        "reconcile_deadline_ms": { "oneOf": [{ "type": "null" }, { "type": "integer" }] },
+        "committed_mb": { "oneOf": [{ "type": "null" }, { "type": "integer" }] },
+        "backend_count": { "type": "integer", "minimum": 0 },
+        "active_backend_count": { "type": "integer", "minimum": 0 },
+        "membership_state_counts": {
+          "type": "object",
+          "additionalProperties": { "type": "integer" }
+        },
+        "allocation_state_counts": {
+          "type": "object",
+          "additionalProperties": { "type": "integer" }
+        },
+        "lease_count": { "oneOf": [{ "type": "null" }, { "type": "integer" }] },
+        "card_queue_count": { "oneOf": [{ "type": "null" }, { "type": "integer" }] },
+        "backend_queue_count": { "oneOf": [{ "type": "null" }, { "type": "integer" }] },
+        "transition_present": { "type": ["boolean", "null"] },
+        "durable_domain_matches": { "type": ["boolean", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "resource_repair_request": {
+      "type": "object",
+      "required": ["resource_id", "allocatable_mb"],
+      "properties": {
+        "protocol": { "$ref": "#/$defs/admin_protocol" },
+        "resource_id": { "$ref": "#/$defs/public_resource_id" },
+        "allocatable_mb": { "type": "integer", "minimum": 1 },
+        "force_proof_reset": { "type": "boolean", "default": false },
+        "readiness_blocker": {
+          "oneOf": [{ "type": "null" }, { "type": "string", "maxLength": 256 }]
+        }
+      },
+      "additionalProperties": false
+    },
+    "resource_repair_reply": {
+      "type": "object",
+      "required": [
+        "protocol",
+        "resource_id",
+        "action",
+        "status",
+        "ready",
+        "reason",
+        "ledger_revision",
+        "ledger_incarnation",
+        "committed_mb"
+      ],
+      "properties": {
+        "protocol": { "$ref": "#/$defs/admin_protocol" },
+        "resource_id": { "$ref": "#/$defs/public_resource_id" },
+        "action": { "enum": ["already_ready", "bootstrap", "repair", "resume_prepared"] },
+        "status": { "type": "string" },
+        "ready": { "type": "boolean" },
+        "reason": { "type": "string" },
+        "ledger_revision": { "type": "integer", "minimum": 0 },
+        "ledger_incarnation": { "type": "string", "minLength": 1 },
+        "committed_mb": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "retired_membership_request": {
+      "type": "object",
+      "required": ["backend_id", "resource_id", "membership_epoch"],
+      "properties": {
+        "protocol": { "$ref": "#/$defs/admin_protocol" },
+        "backend_id": { "$ref": "#/$defs/uuid" },
+        "resource_id": { "$ref": "#/$defs/public_resource_id" },
+        "membership_epoch": { "$ref": "#/$defs/positive_int64" }
+      },
+      "additionalProperties": false
+    },
+    "retired_membership_reply": {
+      "type": "object",
+      "required": [
+        "protocol",
+        "backend_id",
+        "resource_id",
+        "membership_epoch",
+        "reason",
+        "proof_available"
+      ],
+      "properties": {
+        "protocol": { "$ref": "#/$defs/admin_protocol" },
+        "backend_id": { "$ref": "#/$defs/uuid" },
+        "resource_id": { "$ref": "#/$defs/public_resource_id" },
+        "membership_epoch": { "$ref": "#/$defs/positive_int64" },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "proof_available": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "tombstone_collection_reply": {
+      "type": "object",
+      "required": [
+        "protocol",
+        "backend_id",
+        "resource_id",
+        "membership_epoch",
+        "status",
+        "reason",
+        "idempotent"
+      ],
+      "properties": {
+        "protocol": { "$ref": "#/$defs/admin_protocol" },
+        "backend_id": { "$ref": "#/$defs/uuid" },
+        "resource_id": { "$ref": "#/$defs/public_resource_id" },
+        "membership_epoch": { "$ref": "#/$defs/positive_int64" },
+        "status": { "enum": ["collected", "blocked", "stale", "error"] },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "idempotent": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "admin_diagnostics_request": {
+      "type": "object",
+      "properties": {
+        "protocol": { "$ref": "#/$defs/admin_protocol" },
+        "resource_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/public_resource_id" }] }
+      },
+      "additionalProperties": false
+    },
+    "admin_diagnostics_reply": {
+      "type": "object",
+      "required": ["protocol", "result"],
+      "properties": {
+        "protocol": { "$ref": "#/$defs/admin_protocol" },
+        "result": { "type": "object", "additionalProperties": true }
+      },
+      "additionalProperties": false
+    },
+    "residency": {
+      "type": "object",
+      "required": [
+        "state",
+        "gpu_loaded",
+        "active_requests",
+        "builders",
+        "borrowers",
+        "draining",
+        "evictable",
+        "generation",
+        "boot_id",
+        "lifecycle_gate",
+        "control_epoch",
+        "pools",
+        "identity"
+      ],
+      "properties": {
+        "state": {
+          "enum": ["unloaded", "loading", "resident", "draining", "unloading", "unknown"]
+        },
+        "gpu_loaded": { "type": ["boolean", "null"] },
+        "active_requests": { "type": "integer", "minimum": 0, "maximum": 9223372036854775807 },
+        "builders": { "type": "integer", "minimum": 0, "maximum": 9223372036854775807 },
+        "borrowers": { "type": "integer", "minimum": 0, "maximum": 9223372036854775807 },
+        "draining": { "type": "boolean" },
+        "evictable": { "type": "boolean" },
+        "generation": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/nonnegative_decimal" }] },
+        "boot_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "lifecycle_gate": { "enum": ["legacy", "enforce"] },
+        "control_epoch": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/nonnegative_decimal" }]
+        },
+        "pools": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "object",
+            "required": ["resident", "device", "provider"],
+            "properties": {
+              "resident": { "type": ["boolean", "null"] },
+              "device": { "type": ["string", "null"] },
+              "provider": { "type": ["string", "null"] }
+            },
+            "additionalProperties": false
+          }
+        },
+        "identity": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["audience", "backend_registry_id", "gpu_resource_id"],
+              "properties": {
+                "audience": { "const": "aap-gpu-lifecycle" },
+                "backend_registry_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+                "gpu_resource_id": { "$ref": "#/$defs/resource_id" }
+              },
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

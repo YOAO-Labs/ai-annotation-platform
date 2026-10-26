@@ -2,9 +2,8 @@
 title: AI 辅助标注
 audience: [annotator, project_admin, super_admin]
 type: how-to
-since: v0.9.0
 status: stable
-last_reviewed: 2026-08-16
+last_reviewed: 2026-10-27
 ---
 
 # AI 辅助标注
@@ -61,6 +60,9 @@ last_reviewed: 2026-08-16
 2. 项目是否启用了所需工具单位和交互式 AI 开关。
 3. 项目是否启用了声明该能力的 ML Backend；视频追踪还要求 backend 声明对应 tracker。
 4. 任务或批次是否满足运行前置条件。批量预标要求批次处于 `active`，或为尚未分派标注员与质检员的 `draft` 批次。
+5. 管理员是否已配置并启动独立 Inference 服务；模型后端在线不等于推理、路由和 GPU 权威都已就绪。运维配置见 [Inference 私有运行指南](/api/guides/inference-runtime)。
+
+推理服务不可用或结果尚未确认时，平台不会自动改用本地客户端、其他实例或 CPU 重跑。已有后台作业先查询状态，再按对应入口的恢复操作处理；不要把连接超时当作模型已经停止或结果已经回滚。
 
 具体的模型置灰、能力路由和项目配置见[项目 ML 模型](../projects/ml-backends)；运行失败后的恢复路径见[失败预测恢复](../workflows/failed-prediction-recovery)。
 

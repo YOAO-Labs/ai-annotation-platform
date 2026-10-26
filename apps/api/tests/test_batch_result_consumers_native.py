@@ -447,21 +447,24 @@ async def test_real_runner_continues_after_a_failed_member_and_publishes_durable
         _runtime_connections(monkeypatch, world)
         calls, updates = [], []
 
-        async def infer(task, _stages, clients, *_args, **_kwargs):
-            # Rollback of a prior model error expires the retained backend ORM.
-            assert clients[0].requested_backend.name.startswith("batch-result-")
-            clients[0].last_instance_id = world.backend_id
-            clients[0].pool_id = world.pool_id
-            calls.append(task.id)
+        from sqlalchemy import inspect as sa_inspect
+
+        from aap_inference.backend_transport import PredictionResult
+        from tests.inference_execution_test_ports import pipeline_output
+
+        async def infer(task, stages, _model_ports, *_args, **_kwargs):
+            assert str(stages[0]["ml_backend_id"]) == str(world.backend_id)
+            task_id = sa_inspect(task).identity[0]
+            calls.append(task_id)
             if len(calls) == 1:
                 raise ValueError("first member model failed")
             async with world.owner_factory() as owner:
                 current = await owner.get(AsyncJob, world.execution.scope["job_id"])
                 assert current.progress_pct == 50 and current.status == "running"
-            return (
+            return pipeline_output(
                 [
                     PredictionResult(
-                        task_id=str(task.id),
+                        task_id=str(task_id),
                         result=[],
                         score=0.8,
                         model_version="after-model-error",
@@ -469,10 +472,14 @@ async def test_real_runner_continues_after_a_failed_member_and_publishes_durable
                         meta={"total_cost": 0.125},
                     )
                 ],
-                None,
-                {0: {"detected": 1, "ok": 1}},
+                instance_id=world.backend_id,
+                pool_id=world.pool_id,
+                stage_stats={0: {"detected": 1, "ok": 1}},
             )
 
+        monkeypatch.setattr(
+            execution, "_model_execution_port", lambda *_args, **_kwargs: object()
+        )
         monkeypatch.setattr(execution, "_run_task_pipeline", infer)
         monkeypatch.setattr(
             prediction_progress,
@@ -522,7 +529,10 @@ async def test_legacy_delivery_without_job_id_resumes_the_same_captured_job(
     from dataclasses import replace
     from app.application import durable_preannotation as workflow
     from app.application import preannotation_execution as execution
+    from sqlalchemy import inspect as sa_inspect
+
     from aap_inference.backend_transport import PredictionResult
+    from tests.inference_execution_test_ports import pipeline_output
 
     async with _world(test_engine, staged=False, result_count=1) as world:
         _runtime_connections(monkeypatch, world)
@@ -535,19 +545,20 @@ async def test_legacy_delivery_without_job_id_resumes_the_same_captured_job(
         calls = []
 
         async def infer(task, *_args, **_kwargs):
-            calls.append(task.id)
-            return (
+            task_id = sa_inspect(task).identity[0]
+            calls.append(task_id)
+            return pipeline_output(
                 [
                     PredictionResult(
-                        task_id=str(task.id),
+                        task_id=str(task_id),
                         result=[],
                         score=0.7,
                         model_version="legacy-resume",
                         inference_time_ms=1,
                     )
                 ],
-                None,
-                None,
+                instance_id=world.backend_id,
+                pool_id=world.pool_id,
             )
 
         original_apply = workflow._apply_ready_result
@@ -555,6 +566,9 @@ async def test_legacy_delivery_without_job_id_resumes_the_same_captured_job(
         async def blocked(*_args, **_kwargs):
             raise PreannotationResultDeferred("task_busy")
 
+        monkeypatch.setattr(
+            execution, "_model_execution_port", lambda *_args, **_kwargs: object()
+        )
         monkeypatch.setattr(execution, "_run_task_pipeline", infer)
         monkeypatch.setattr(workflow, "_apply_ready_result", blocked)
         with pytest.raises(PreannotationResultDeferred, match="task_busy"):
@@ -580,6 +594,8 @@ async def test_large_failed_batch_has_a_bounded_summary_and_complete_paged_retry
     test_engine,
     monkeypatch,
 ):
+    from sqlalchemy import inspect as sa_inspect
+
     from app.application import preannotation_execution as execution
     from app.application.prediction_retry import _recorded_failed_ids
 
@@ -588,9 +604,12 @@ async def test_large_failed_batch_has_a_bounded_summary_and_complete_paged_retry
         calls = []
 
         async def failed_model(task, *_args, **_kwargs):
-            calls.append(task.id)
+            calls.append(sa_inspect(task).identity[0])
             raise ValueError("model rejected this member")
 
+        monkeypatch.setattr(
+            execution, "_model_execution_port", lambda *_args, **_kwargs: object()
+        )
         monkeypatch.setattr(execution, "_run_task_pipeline", failed_model)
         await execution.run_preannotation(
             world.request, execution_id="large-failed-batch"
@@ -633,6 +652,9 @@ async def test_cancelled_redelivery_applies_the_captured_member_then_stops(
         _runtime_connections(monkeypatch, world)
         model = AsyncMock(
             side_effect=AssertionError("captured result must not be inferred again")
+        )
+        monkeypatch.setattr(
+            execution, "_model_execution_port", lambda *_args, **_kwargs: object()
         )
         monkeypatch.setattr(execution, "_run_task_pipeline", model)
         await execution.run_preannotation(

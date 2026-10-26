@@ -4,22 +4,21 @@ from __future__ import annotations
 
 import json
 import uuid
-import httpx
 
+import httpx
 from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from aap_inference.health_observation_manager import BackendHealthObservationManager
-from aap_inference.health_observation_postgres import (
-    BackendHealthObservationPostgresData,
+from aap_inference.backend_endpoint import (
+    BackendEndpointManager,
+    BackendEndpointUnavailable,
 )
 from aap_inference_contract.client import BackendHealthObservationHttpClient
 from aap_inference_contract.health_observation import (
     BackendHealthObservationInvalidRequest,
     BackendHealthObservationUnavailable,
     decode_health_observation_reply,
-    health_observation_policy_ready,
     make_health_observation_request,
 )
 from aap_inference_contract.health_observation_outcome import (
@@ -28,20 +27,15 @@ from aap_inference_contract.health_observation_outcome import (
 from aap_workspace.config import secret_source
 from app.config import settings
 
-_POLICY = text("SELECT aap_inference_health_observation_v1.health_observation_policy()")
+_ENDPOINT_CAPTURE = text(
+    "SELECT aap_inference_backend_endpoint_v1.capture_backend_endpoint_subject("
+    "CAST(:registry_id AS uuid),CAST(:request_id AS uuid),CAST(:purpose AS text),"
+    "CAST(:binding_json AS text))"
+)
 _CAPTURE = text(
     "SELECT aap_inference_health_observation_v1.capture_health_observation_subject("
     "CAST(:registry_id AS uuid),CAST(:request_id AS uuid),CAST(:backend_json AS text),"
     "CAST(:challenge AS text),CAST(:timeout AS double precision))"
-)
-_OPEN = text(
-    "SELECT aap_inference_health_observation_v1.open_health_observation_subject("
-    "CAST(:subject AS text),CAST(:registry_id AS uuid),CAST(:request_id AS uuid))"
-)
-_SEAL = text(
-    "SELECT aap_inference_health_observation_v1.seal_health_observation("
-    "CAST(:subject AS text),CAST(:registry_id AS uuid),CAST(:request_id AS uuid),"
-    "CAST(:observation AS text))"
 )
 _VERIFY = text(
     "SELECT aap_inference_health_observation_v1.verify_health_observation("
@@ -52,47 +46,39 @@ _VERIFY = text(
 
 async def _scalar(db, statement, arguments=None):
     try:
-        # These capabilities must not flush pending caller work during backend I/O.
+        # Capture and evidence verification borrow the existing caller UOW.
         with db.no_autoflush:
             return await db.scalar(statement, arguments or {})
     except SQLAlchemyError:
         raise BackendHealthObservationUnavailable() from None
 
 
-class BorrowedHealthObservationData:
+class _BorrowedEndpointCapture:
+    """Capture a readonly registered endpoint without ever opening it in API code."""
+
     def __init__(self, db):
         self.db = db
 
-    async def readiness(self):
-        try:
-            return health_observation_policy_ready(await _scalar(self.db, _POLICY))
-        except BackendHealthObservationUnavailable:
-            return False
-
-    async def open_subject(self, subject, registry_id, request_id):
+    async def capture_subject(self, registry_id, request_id, purpose, binding):
+        if binding is not None:
+            raise BackendEndpointUnavailable()
         value = await _scalar(
             self.db,
-            _OPEN,
-            {"subject": subject, "registry_id": registry_id, "request_id": request_id},
-        )
-        if type(value) is not str:
-            raise BackendHealthObservationUnavailable()
-        return value
-
-    async def seal_observation(self, subject, registry_id, request_id, raw_json):
-        value = await _scalar(
-            self.db,
-            _SEAL,
+            _ENDPOINT_CAPTURE,
             {
-                "subject": subject,
                 "registry_id": registry_id,
                 "request_id": request_id,
-                "observation": raw_json,
+                "purpose": purpose,
+                "binding_json": None,
             },
         )
-        if type(value) is not str:
-            raise BackendHealthObservationUnavailable()
         return value
+
+    async def open_subject(self, subject, registry_id, request_id, purpose, authority):
+        raise BackendEndpointUnavailable()
+
+    async def readiness(self):
+        return False
 
 
 def _verified_outcome(raw):
@@ -115,39 +101,41 @@ class _SetupFailed(Exception):
 
 
 class HealthObservationClient:
-    def __init__(self, db, backend, local_client):
+    def __init__(self, db, backend):
         self.db = db
-        # PostgreSQL drivers may return a UUID subclass after an ORM refresh.
         self.registry_id = uuid.UUID(str(backend.id))
-        # Preserve constructor errors locally; health/setup do not use extra
-        # parameters or concurrency gates, so omit that unrelated pending JSON.
-        self.backend_json = json.dumps(
-            {
-                "id": str(backend.id),
-                "url": backend.url,
-                "auth_method": backend.auth_method,
-                "auth_token": backend.auth_token,
-                "gpu_resource_id": backend.gpu_resource_id,
-                "vram_budget_mb": getattr(backend, "vram_budget_mb", None),
-                "extra_params": {},
-            },
-            ensure_ascii=True,
-            allow_nan=True,
-        )
         self.timeout = settings.ml_health_timeout
-        self.local_client = local_client
         self.outcome = None
 
     async def health_meta(self, *, gpu_health_challenge=None):
         request_id = uuid.uuid4()
         try:
+            endpoint_subject = await BackendEndpointManager(
+                _BorrowedEndpointCapture(self.db)
+            ).capture(
+                self.registry_id,
+                request_id=request_id,
+                purpose="health_observation",
+            )
+            backend_json = json.dumps(
+                {
+                    "id": str(self.registry_id),
+                    "endpoint_subject": endpoint_subject.model_dump(
+                        mode="json", by_alias=True
+                    ),
+                },
+                ensure_ascii=True,
+                allow_nan=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
             subject = await _scalar(
                 self.db,
                 _CAPTURE,
                 {
                     "registry_id": self.registry_id,
                     "request_id": request_id,
-                    "backend_json": self.backend_json,
+                    "backend_json": backend_json,
                     "challenge": gpu_health_challenge,
                     "timeout": self.timeout,
                 },
@@ -155,41 +143,24 @@ class HealthObservationClient:
             request = make_health_observation_request(
                 self.registry_id, subject, request_id=request_id
             )
+            url = settings.inference_health_observation_url
+            if not url:
+                raise BackendHealthObservationUnavailable()
             try:
-                dsn = secret_source(
-                    settings.inference_health_observation_database_url,
-                    settings.inference_health_observation_database_url_file,
+                token = secret_source(
+                    settings.inference_health_observation_token,
+                    settings.inference_health_observation_token_file,
                 )
-                url = settings.inference_health_observation_url
-                if url and dsn:
-                    raise BackendHealthObservationUnavailable()
-                if url:
-                    token = secret_source(
-                        settings.inference_health_observation_token,
-                        settings.inference_health_observation_token_file,
-                    )
-                    client = BackendHealthObservationHttpClient(
-                        url,
-                        token,
-                        timeout_seconds=settings.inference_health_observation_timeout_seconds,
-                    )
-                elif dsn:
-                    data = BackendHealthObservationPostgresData(dsn)
             except (ValueError, OSError):
                 raise BackendHealthObservationUnavailable() from None
-            if url:
-                reply = await client.execute(request)
-            elif dsn:
-                try:
-                    reply = await BackendHealthObservationManager(data).execute(request)
-                finally:
-                    await data.close()
-            else:
-                reply = await BackendHealthObservationManager(
-                    BorrowedHealthObservationData(self.db),
-                    client_factory=lambda backend: self.local_client,
-                ).execute(request)
-            reply = decode_health_observation_reply(request, reply)
+            client = BackendHealthObservationHttpClient(
+                url,
+                token,
+                timeout_seconds=settings.inference_health_observation_timeout_seconds,
+            )
+            reply = decode_health_observation_reply(
+                request, await client.execute(request)
+            )
             raw = await _scalar(
                 self.db,
                 _VERIFY,
@@ -202,6 +173,7 @@ class HealthObservationClient:
             )
             self.outcome = _verified_outcome(raw)
         except (
+            BackendEndpointUnavailable,
             BackendHealthObservationUnavailable,
             BackendHealthObservationInvalidRequest,
         ):
@@ -217,11 +189,8 @@ class HealthObservationClient:
         return self.outcome["setup"]
 
 
-def health_observation_client_factory(db, *, client_factory):
+def health_observation_client_factory(db):
     def create(backend):
-        # Retain the old constructor/error phase and local instrumentation. The
-        # independently deployed provider constructs its own portable transport.
-        local_client = client_factory(backend)
-        return HealthObservationClient(db, backend, local_client)
+        return HealthObservationClient(db, backend)
 
     return create

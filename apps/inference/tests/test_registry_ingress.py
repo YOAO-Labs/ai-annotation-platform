@@ -18,6 +18,7 @@ from aap_inference.registry_ingress import (
     get_or_create_seed,
     refresh_candidates,
     sync_environment,
+    RegistrySeedFacts,
 )
 from aap_inference_contract.capabilities import CapabilityLimits
 
@@ -62,6 +63,43 @@ class _Data:
     async def by_url(self, url):
         self.trace.append(("by_url", url))
         return next((row for row in self.rows if row.url == url), None)
+
+    @staticmethod
+    def _seed_facts(row):
+        return RegistrySeedFacts(
+            id=row.id,
+            name=row.name,
+            url=row.url,
+            state=row.state,
+            is_interactive=row.is_interactive,
+            source=row.source,
+            health_meta=row.health_meta,
+            extra_params=row.extra_params,
+        )
+
+    async def seed_by_url(self, url):
+        self.trace.append(("seed_by_url", url))
+        row = next((row for row in self.rows if row.url == url), None)
+        return self._seed_facts(row) if row is not None else None
+
+    async def create_seed_registry(self, name, url, marker):
+        self.trace.append(("create_seed_registry", url, name))
+        row = RegistrySeedFacts(
+            id=uuid.uuid4(),
+            name=name,
+            url=url,
+            state="disconnected",
+            is_interactive=False,
+            source="seed",
+            health_meta=None,
+            extra_params={"seed": marker},
+        )
+        self.rows.append(row)
+        return row
+
+    async def stage_seed_marker_identity(self, row, marker, previous_extra_params):
+        self.trace.append(("stage_seed_marker_identity", row.url))
+        self.staged_seed_markers.append((row, marker, previous_extra_params))
 
     async def candidates(self, profile):
         self.trace.append(("candidates", profile))
@@ -248,13 +286,16 @@ async def test_seed_marker_is_staged_before_singleton_lookup_and_preserves_extra
 
     result = await get_or_create_seed(data, "http://stub/", "stub", marker)
 
-    assert result is row
-    assert row.url == "http://stub"
-    assert row.extra_params == {"owner": "fixture", "other": 3, "seed": marker}
-    assert data.staged_seed_markers == [(row, marker, previous)]
+    assert result.id == row.id
+    assert result.url == "http://stub"
+    assert result.extra_params == {"owner": "fixture", "other": 3, "seed": marker}
+    staged_row, staged_marker, staged_previous = data.staged_seed_markers[0]
+    assert staged_row.id == row.id
+    assert staged_marker == marker
+    assert staged_previous == previous
     assert [event[0] for event in data.trace] == [
-        "by_url",
-        "stage_seed_marker",
+        "seed_by_url",
+        "stage_seed_marker_identity",
         "singleton_pool",
         "create_singleton_pool",
     ]
@@ -271,7 +312,7 @@ async def test_seed_marker_keeps_legacy_mapping_error_before_staging():
 
     assert row.extra_params == ["invalid-object"]
     assert data.staged_seed_markers == []
-    assert data.trace == [("by_url", "http://stub")]
+    assert data.trace == [("seed_by_url", "http://stub")]
 
 
 @pytest.mark.asyncio
@@ -294,8 +335,8 @@ async def test_new_seed_is_inserted_with_marker_before_pool_creation():
         False,
     )
     assert [event[0] for event in data.trace] == [
-        "by_url",
-        "create_registry",
+        "seed_by_url",
+        "create_seed_registry",
         "singleton_pool",
         "create_singleton_pool",
     ]

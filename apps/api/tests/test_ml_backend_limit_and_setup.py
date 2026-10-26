@@ -12,7 +12,12 @@
 from __future__ import annotations
 
 import uuid
-from unittest.mock import patch
+from types import SimpleNamespace
+
+from aap_inference_contract.backend_control import (
+    BackendControlFailure,
+    BackendControlSetupResult,
+)
 
 import pytest
 
@@ -56,6 +61,22 @@ def _clear_setup_cache():
     ml_backends_route._setup_cache.clear()
     yield
     ml_backends_route._setup_cache.clear()
+
+
+def _patch_setup(monkeypatch, backend_id, response):
+    async def setup(registry_id):
+        assert registry_id == backend_id
+        value = response() if callable(response) else response
+        if isinstance(value, BackendControlSetupResult):
+            return value
+        return BackendControlSetupResult(registry_id=registry_id, setup=value)
+
+    control = SimpleNamespace(setup=setup)
+    monkeypatch.setattr(
+        ml_backends_route,
+        "backend_control_service",
+        lambda _db: control,
+    )
 
 
 async def test_create_multiple_ml_backends_no_limit(
@@ -159,7 +180,7 @@ async def test_project_out_drops_ml_backend_limit(
 
 
 async def test_setup_proxy_returns_capability_and_caches(
-    httpx_client, super_admin, db_session
+    httpx_client, super_admin, db_session, monkeypatch
 ):
     user, token = super_admin
     proj = await _seed_project(db_session, user.id)
@@ -176,15 +197,15 @@ async def test_setup_proxy_returns_capability_and_caches(
     }
     call_count = {"n": 0}
 
-    async def fake_setup(self):
+    def setup():
         call_count["n"] += 1
         return capability
 
-    with patch("app.services.ml_client.MLBackendClient.setup", new=fake_setup):
-        url = f"/api/v1/projects/{proj.id}/ml-backends/{backend.id}/setup"
-        headers = {"Authorization": f"Bearer {token}"}
-        r1 = await httpx_client.get(url, headers=headers)
-        r2 = await httpx_client.get(url, headers=headers)
+    _patch_setup(monkeypatch, backend.id, setup)
+    url = f"/api/v1/projects/{proj.id}/ml-backends/{backend.id}/setup"
+    headers = {"Authorization": f"Bearer {token}"}
+    r1 = await httpx_client.get(url, headers=headers)
+    r2 = await httpx_client.get(url, headers=headers)
 
     assert r1.status_code == 200, r1.text
     assert r1.json() == capability
@@ -211,21 +232,28 @@ async def test_setup_proxy_404_on_cross_project_backend(
 
 
 async def test_setup_proxy_502_when_backend_unreachable(
-    httpx_client, super_admin, db_session
+    httpx_client, super_admin, db_session, monkeypatch
 ):
     user, token = super_admin
     proj = await _seed_project(db_session, user.id)
     backend = await _seed_backend(db_session, proj.id)
     await db_session.commit()
 
-    async def fake_setup(self):
-        raise RuntimeError("connection refused")
-
-    with patch("app.services.ml_client.MLBackendClient.setup", new=fake_setup):
-        resp = await httpx_client.get(
-            f"/api/v1/projects/{proj.id}/ml-backends/{backend.id}/setup",
-            headers={"Authorization": f"Bearer {token}"},
-        )
+    _patch_setup(
+        monkeypatch,
+        backend.id,
+        BackendControlSetupResult(
+            registry_id=backend.id,
+            error=BackendControlFailure(
+                code="backend_control_unavailable",
+                status_code=503,
+            ),
+        ),
+    )
+    resp = await httpx_client.get(
+        f"/api/v1/projects/{proj.id}/ml-backends/{backend.id}/setup",
+        headers={"Authorization": f"Bearer {token}"},
+    )
     assert resp.status_code == 502
 
 
@@ -255,21 +283,18 @@ _SETUP_WITH_MODELS = {
 
 
 async def test_capabilities_returns_derived_models_snapshot(
-    httpx_client, super_admin, db_session
+    httpx_client, super_admin, db_session, monkeypatch
 ):
     user, token = super_admin
     proj = await _seed_project(db_session, user.id)
     backend = await _seed_backend(db_session, proj.id)
     await db_session.commit()
 
-    async def fake_setup(self):
-        return _SETUP_WITH_MODELS
-
-    with patch("app.services.ml_client.MLBackendClient.setup", new=fake_setup):
-        resp = await httpx_client.get(
-            f"/api/v1/projects/{proj.id}/ml-backends/{backend.id}/capabilities",
-            headers={"Authorization": f"Bearer {token}"},
-        )
+    _patch_setup(monkeypatch, backend.id, _SETUP_WITH_MODELS)
+    resp = await httpx_client.get(
+        f"/api/v1/projects/{proj.id}/ml-backends/{backend.id}/capabilities",
+        headers={"Authorization": f"Bearer {token}"},
+    )
     assert resp.status_code == 200, resp.text
     body = resp.json()
     # backend 默认 infra
@@ -286,7 +311,7 @@ async def test_capabilities_returns_derived_models_snapshot(
 
 
 async def test_capabilities_refresh_invalidates_cache(
-    httpx_client, super_admin, db_session
+    httpx_client, super_admin, db_session, monkeypatch
 ):
     """refresh 先 pop setup 缓存再重探: 两次结果不同时 refresh 拿到新值。"""
     user, token = super_admin
@@ -295,31 +320,31 @@ async def test_capabilities_refresh_invalidates_cache(
     await db_session.commit()
 
     state = {"infra": "pytorch"}
-
-    async def fake_setup(self):
-        return {"infra": state["infra"], "models": []}
-
+    _patch_setup(
+        monkeypatch,
+        backend.id,
+        lambda: {"infra": state["infra"], "models": []},
+    )
     headers = {"Authorization": f"Bearer {token}"}
-    with patch("app.services.ml_client.MLBackendClient.setup", new=fake_setup):
-        # 先 GET 一次填充缓存
-        r1 = await httpx_client.get(
-            f"/api/v1/projects/{proj.id}/ml-backends/{backend.id}/capabilities",
-            headers=headers,
-        )
-        assert r1.json()["infra"] == "pytorch"
-        # backend 升级换 infra
-        state["infra"] = "tensorrt"
-        # 不刷新时 GET 仍走 30s 缓存 → 旧值
-        r2 = await httpx_client.get(
-            f"/api/v1/projects/{proj.id}/ml-backends/{backend.id}/capabilities",
-            headers=headers,
-        )
-        assert r2.json()["infra"] == "pytorch"
-        # refresh 先 invalidate 缓存再重探 → 新值
-        r3 = await httpx_client.post(
-            f"/api/v1/projects/{proj.id}/ml-backends/{backend.id}/capabilities/refresh",
-            headers=headers,
-        )
+    # 先 GET 一次填充缓存
+    r1 = await httpx_client.get(
+        f"/api/v1/projects/{proj.id}/ml-backends/{backend.id}/capabilities",
+        headers=headers,
+    )
+    assert r1.json()["infra"] == "pytorch"
+    # backend 升级换 infra
+    state["infra"] = "tensorrt"
+    # 不刷新时 GET 仍走 30s 缓存 → 旧值
+    r2 = await httpx_client.get(
+        f"/api/v1/projects/{proj.id}/ml-backends/{backend.id}/capabilities",
+        headers=headers,
+    )
+    assert r2.json()["infra"] == "pytorch"
+    # refresh 先 invalidate 缓存再重探 → 新值
+    r3 = await httpx_client.post(
+        f"/api/v1/projects/{proj.id}/ml-backends/{backend.id}/capabilities/refresh",
+        headers=headers,
+    )
     assert r3.status_code == 200, r3.text
     assert r3.json()["infra"] == "tensorrt"
 

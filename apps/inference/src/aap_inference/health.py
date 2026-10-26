@@ -17,10 +17,8 @@ from .backend_transport import GPU_HEALTH_CHALLENGE_ECHO_MARKER
 
 class BackendRow(Protocol):
     id: uuid.UUID
-    url: str
-    auth_method: str | None
-    auth_token: str | None
     gpu_resource_id: str | None
+    endpoint_sha256: str
     last_checked_at: datetime | None
 
 
@@ -207,9 +205,6 @@ class BackendHealthCoordinator:
         backend = await self._data.get_backend(registry_id)
         if not backend:
             return False
-        requested_url = backend.url
-        requested_auth_method = backend.auth_method
-        requested_auth_token = backend.auth_token
         requested_gpu_resource_id = backend.gpu_resource_id
         requested_membership_epoch: int | None = None
         requested_membership_state: str | None = None
@@ -312,9 +307,7 @@ class BackendHealthCoordinator:
 
         current_backend = await self._data.lock_current_backend(registry_id)
         if current_backend is None or (
-            current_backend.url != requested_url
-            or current_backend.auth_method != requested_auth_method
-            or current_backend.auth_token != requested_auth_token
+            current_backend.endpoint_sha256 != backend.endpoint_sha256
             or current_backend.gpu_resource_id != requested_gpu_resource_id
         ):
             return False

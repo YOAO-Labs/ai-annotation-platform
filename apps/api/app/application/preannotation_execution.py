@@ -1,5 +1,16 @@
 from aap_task_contract import normalize_task_fields
 from aap_inference import resolve_model_task
+from aap_inference.execution_context import build_predict_context, model_label
+from aap_inference.execution_pipeline import (
+    execute_task_pipeline,
+    resolve_input_mode,
+    stage_totals_snapshot,
+)
+from aap_inference_contract.execution import (
+    ModelExecutionError,
+    freeze_json,
+    thaw_json,
+)
 from app.application.preannotation_contract import (
     BatchPredictionRequest,
     FramePreannotationDispatchRequest,
@@ -7,7 +18,7 @@ from app.application.preannotation_contract import (
     VideoFrameTaskPlan,
 )
 from app.services.project_access import get_workspace_project
-from app.services import prediction_context, prediction_progress
+from app.services import prediction_progress
 import asyncio
 import logging
 import time
@@ -47,27 +58,29 @@ async def _preannotation_actor_revoked(db, actor_id, project_uuid) -> bool:
     )
 
 
-def _stage_totals_snapshot(totals: dict[int, dict]) -> list[dict]:
-    """v0.18.6 · 把逐阶段累加器拍平成 ``[{stage, detected/targeted/ok/failed/...}]`` (按 stage 升序)。
-
-    实时推送 (运行中快照) 与终态写库 (result.pipeline_stages) 共用同一形态, 前端可无缝切换。
-    """
-    return [{"stage": sidx, **totals[sidx]} for sidx in sorted(totals)]
-
-
 def _make_crop_uploader(storage, job_id: str):
-    """v0.18.4 · 返回 ``upload_crop(task, box_idx, jpeg_bytes) -> presigned URL``。
+    """Return a crop publication adapter for existing temporary ROI objects."""
 
-    crop 上传 import 桶 (7 天 lifecycle 自动清), key=``roi-crops/{job_id}/{task_id}/{box_idx}.jpg``,
-    经 ml_backend host 重写返回容器可拉取 URL——对所有走 ``httpx.get`` 的下游后端通用
-    (gsam2/sam3 不支持 ``data:`` URI)。
-    """
-
-    def upload_crop(task, box_idx: int, jpeg_bytes: bytes) -> str:
-        key = f"roi-crops/{job_id}/{task.id}/{box_idx}.jpg"
+    def upload_crop(task_id: str, box_idx: int, jpeg_bytes: bytes) -> str:
+        key = f"roi-crops/{job_id}/{task_id}/{box_idx}.jpg"
         return storage.upload_crop_bytes(jpeg_bytes, key)
 
     return upload_crop
+
+
+@dataclass(frozen=True, slots=True)
+class _CropPublishPort:
+    upload: object
+
+    def publish(self, task_id: str, box_index: int, jpeg_bytes: bytes) -> str:
+        return self.upload(task_id, box_index, jpeg_bytes)
+
+
+def _model_execution_port(db):
+    """Use the parent-composed, route/GPU-authorized model execution owner."""
+    from app.services.inference_model_execution import model_execution_port
+
+    return model_execution_port(db)
 
 
 class PreannotationInputDeferred(RuntimeError):
@@ -1022,338 +1035,82 @@ async def _prepare_accepted_input(request: BatchPredictionRequest, SessionLocal)
             yield prepared
 
 
-_PAD_BY_DEPTH: dict[int, float] = {1: 0.05, 2: 0.08, 3: 0.12}
-
-
-def _resolve_input_mode(stage: dict) -> str:
-    """v0.18.14 / v0.18.15 · 下游阶段投递模式 (crop|geometry): 显式 input.mode 覆盖, 否则按 write.target 推断。
-
-    投递模式是「产物形态」(write.target) 与「投递方式」(supported_inputs) 的二维结果:
-    端点 (projects.py) 按子模型 supported_inputs 解析投递方式并烘焙进 ``input.mode`` —
-    产几何的子若是 box-prompt seg → ``geometry`` (整图+父框列表); 若是普通检测器 (supported_inputs
-    含 crop) → ``crop`` (裁父框 ROI, 检出几何回映回原图)。本函数只读已烘焙的 input.mode,
-    缺省 (旧 payload / 端点未烘焙) 回落 write.target 启发式: 产几何→geometry, 产属性→crop。
-    """
-    explicit = (stage.get("input") or {}).get("mode")
-    if explicit in {"crop", "geometry"}:
-        return explicit
-    target = (stage.get("write") or {}).get("target", "attributes")
-    if target in {"geometry", "intermediate"}:
-        return "geometry"
-    return "crop"
-
-
-def _resolve_pad(stage: dict, depth: int) -> float:
-    """v0.18.14 · crop pad: 显式 roi.pad 优先, 缺省按深度取默认 (越深裁得越松, 抗画质衰减)。"""
-    pad = (stage.get("roi") or {}).get("pad")
-    if pad is not None:
-        return float(pad)
-    return _PAD_BY_DEPTH.get(depth, 0.05)
-
-
-def _compute_stage_depths(stages: list[dict]) -> dict[int, int]:
-    """v0.18.14 · 按 parent_stage 链派生每阶段深度 (root=1)。受限树形保证 parent 序号更小。"""
-    depth: dict[int, int] = {}
-    for s in sorted(stages, key=lambda x: x["stage"]):
-        p = s.get("parent_stage")
-        depth[s["stage"]] = 1 if p is None else depth.get(p, 1) + 1
-    return depth
-
-
-def _pipeline_topology(stages: list[dict], depths: dict[int, int]) -> list[dict]:
-    """v0.18.4 / v0.18.14 · 从 stages 配置派生可审计的 pipeline 拓扑, 落 PredictionMeta.extra。
-
-    每项 ``{stage, parent_stage, depth, label, ml_backend_id, model_id, parent_class_filter,
-    write_keys, write_target, target_stage}``, 让「这框的某属性来自哪个 backend/model/阶段」
-    及流水线树形结构可追溯。纯派生 (跨 task 不变), 由 _run_task_pipeline 落每条预测。
-    """
-    topo: list[dict] = []
-    for s in stages:
-        write = s.get("write") or {}
-        topo.append(
-            {
-                "stage": s.get("stage"),
-                "parent_stage": s.get("parent_stage"),
-                "depth": depths.get(s.get("stage")),
-                "label": s.get("label"),
-                "ml_backend_id": s.get("ml_backend_id"),
-                "model_id": s.get("model_id"),
-                "parent_class_filter": s.get("parent_class_filter") or None,
-                "write_keys": write.get("keys") or None,
-                "write_target": write.get("target"),
-                "target_stage": write.get("target_stage", "root"),
-            }
-        )
-    return topo
-
-
 async def _run_task_pipeline(
     task,
     stages,
-    stage_clients,
+    model_ports,
     stage_contexts,
     *,
     resolve_url,
     upload_crop=None,
     stage_modes=None,
     input_image_path: Path | None = None,
+    project_id: uuid.UUID,
+    owner_prefix: str,
+    route_operation: str,
+    correlation=None,
+    input_provenance=None,
 ):
-    """v0.18.1 ~ v0.18.14 · 对单个 task 按受限树形拓扑跑各阶段, 返回 (pred_results, pipeline_extra, stage_stats)。
+    """Adapt verified application inputs to the portable pipeline owner."""
+    from sqlalchemy import inspect
 
-    - 单阶段 (len==1): 等价于原 ``client.predict``, extra=None, stats=None (逐字回归路径)。
-    - 多阶段 (v0.18.14 受限树形, max depth 3): root 产框 → 按 ``stage`` 号建 ``stage_outputs`` map,
-      每个下游阶段从 ``parent_stage`` 取上游输出 (不再恒为 root), 按投递模式分流:
-      - **crop 模式** (write.target=attributes): 加载原图, 按 parent_class_filter + 按深度 pad 裁父框
-        ROI 喂下游分类 → label 前缀合并 attributes 进父框 (原地改); 该阶段对孙子暴露 (已富集的) 父框几何。
-      - **geometry 模式** (write.target ∈ {geometry, intermediate}): 全图 URL + 父框归一化列表喂下游
-        box-seg → 出 polygon (带 parent_box_idx, 原图坐标)。geometry → 追加进预测; intermediate → 仅
-        供下游消费不落库。该阶段对下游暴露新几何。
-    - v0.18.2: 类别路由 (parent_class_filter)、阶段级失败策略 (on_failure)、逐阶段统计。
-    - v0.18.4: crop 经 upload_crop presigned 投递; 并行兄弟同框 crop 复用。
-    - v0.18.14: crop min_crop_side_px=32 守卫 (短边过小跳过); extra 落 depth/label/max_depth/target_stage。
+    task_identity = inspect(task).identity
+    task_id = str(task_identity[0] if task_identity else task.id)
+    source_url = resolve_url(task)
+    modes = tuple(stage_modes or ("crop",) * len(stages))
+    source_image = None
+    if len(stages) > 1 and any(mode == "crop" for mode in modes[1:]):
+        if input_image_path is not None:
+            from PIL import Image
 
-    注: 真正的几何 depth-3 (crop 内检测新子物体 + 坐标回映) 不在本版, 见 0.18.15 计划。
+            with Image.open(input_image_path) as opened:
+                source_image = opened.convert("RGB")
+        else:
+            from app.services.prediction_context import load_task_image
 
-    upload_crop: ``(task, box_idx, jpeg_bytes) -> url``; 非 None → presigned 投递, None → data URI。
-    stage_modes: ``list[str]`` 与 stages 等长 (按列表位置), 每项 ``"crop"|"geometry"``; None → 全 crop。
-    stage_stats: ``{stage号: {...}}`` —— 源阶段 {detected}; 下游 {targeted, ok, failed, skipped_geometry}。
-    """
-    from app.services.prediction_roi import (
-        collect_geometry_shapes,
-        crop_inputs_from_boxes,
-        geometry_prompts_from_boxes,
-        merge_classify_attributes,
-        remap_geometry_to_image,
+            source_image = load_task_image(task)
+    crop_publisher = _CropPublishPort(upload_crop) if upload_crop is not None else None
+    return await execute_task_pipeline(
+        task_id,
+        stages,
+        model_ports,
+        stage_contexts,
+        source_url=source_url,
+        project_id=project_id,
+        owner_prefix=owner_prefix,
+        route_operation=route_operation,
+        stage_modes=modes,
+        source_image=source_image,
+        crop_publisher=crop_publisher,
+        correlation=correlation,
+        input_provenance=input_provenance,
     )
-    from app.services.gpu_arbitration.contracts import gpu_arbiter_failure_record
 
-    url = resolve_url(task)
-    results = await stage_clients[0].predict(
-        [{"id": str(task.id), "file_path": url}], context=stage_contexts[0]
+
+def _execution_provenance(value):
+    if isinstance(value, ModelExecutionError):
+        return value.failure.provenance
+    return getattr(value, "provenance", None)
+
+
+def _execution_selection(value, *, requested_registry_id, requested_pool_id):
+    provenance = _execution_provenance(value)
+    if provenance is None:
+        return uuid.UUID(str(requested_registry_id)), requested_pool_id
+    return (
+        provenance.instance_id,
+        provenance.pool_id or provenance.requested_pool_id or requested_pool_id,
     )
-    if len(stages) == 1:
-        return results, None, None
 
-    modes = stage_modes or ["crop"] * len(stages)
-    depths = _compute_stage_depths(stages)
-    # geometry 模式纯坐标换算无需原图; 仅当存在 crop 下游阶段时才加载 (省去无谓全图拉取)。
-    needs_image = any(modes[si] == "crop" for si in range(1, len(stages)))
-    if needs_image and input_image_path is not None:
-        from PIL import Image
 
-        with Image.open(input_image_path) as opened:
-            image = opened.convert("RGB")
-    elif needs_image:
-        image = prediction_context.load_task_image(task)
-    else:
-        image = None
-    delivery = "presigned" if upload_crop is not None else "data_uri"
-    enriched_keys: set[str] = set()
-    gpu_arbiter_failures: list[dict] = []
-    root_stage = stages[0]["stage"]
-    # stats / stage_outputs 均按真实 stage 号键入 (与 meta 对齐, 支持前端按 depth 缩进)。
-    stats: dict[int, dict] = {root_stage: {"detected": 0}}
-    for si in range(1, len(stages)):
-        stats[stages[si]["stage"]] = {
-            "targeted": 0,
-            "ok": 0,
-            "failed": 0,
-            "skipped_geometry": 0,
-        }
-
-    for pred_result in results:
-        root_boxes = pred_result.result
-        if not isinstance(root_boxes, list) or not root_boxes:
-            continue
-        stats[root_stage]["detected"] += len(root_boxes)
-        # 每阶段对下游暴露的几何 (按 stage 号): root 暴露检测框, 下游按 parent_stage 取上游输出。
-        stage_outputs: dict[int, list] = {root_stage: root_boxes}
-        # v0.18.4 · 并行兄弟阶段 target 同一批父框时按 (box_idx, pad) 复用已裁/已上传 crop;
-        # depth-3 阶段的子下标语义与 root_boxes 不同 (是中间几何), 按 parent_stage 分桶
-        # 避免 (idx, pad) 撞键喂错图 (claude[bot] P1)。
-        crop_cache_by_parent: dict[int | None, dict] = {}
-        upload_fn = (
-            (lambda idx, buf: upload_crop(task, idx, buf))
-            if upload_crop is not None
-            else None
-        )
-        dropped: set[int] = set()
-        new_shapes: list[
-            dict
-        ] = []  # geometry-target 阶段产出的 shape, 阶段循环后追加进预测
-        for si in range(1, len(stages)):
-            stage = stages[si]
-            snum = stage["stage"]
-            parent_boxes = stage_outputs.get(stage.get("parent_stage"))
-            if parent_boxes is None:
-                continue  # 父阶段未产出 (上游跳过/失败) → 本阶段无输入, 跳过
-            write = stage.get("write") or {}
-            target = write.get("target", "attributes")
-            write_keys = write.get("keys") or None
-            label = stage.get("label")
-            pcf = stage.get("parent_class_filter") or None
-            if modes[si] == "geometry":
-                # geometry 投递: 全图 URL + 父框归一化列表, 下游 box-seg 出 polygon。
-                geo = geometry_prompts_from_boxes(parent_boxes, parent_class_filter=pcf)
-                stats[snum]["skipped_geometry"] += geo.skipped_geometry
-                if not geo.prompts:
-                    stage_outputs[snum] = []
-                    continue
-                stats[snum]["targeted"] += len(geo.prompts)
-                try:
-                    seg_results = await stage_clients[si].predict(
-                        [
-                            {
-                                "id": str(task.id),
-                                "file_path": url,
-                                "prompts": geo.prompts,
-                            }
-                        ],
-                        context=stage_contexts[si],
-                    )
-                    shapes = collect_geometry_shapes(seg_results, parent_boxes)
-                    stats[snum]["ok"] += len(shapes)
-                    stage_outputs[snum] = shapes
-                    # geometry → 落库为候选 shape; intermediate → 仅内部供下游消费, 不落库。
-                    if target == "geometry":
-                        new_shapes.extend(shapes)
-                except Exception as exc:  # noqa: BLE001
-                    stats[snum]["failed"] += len(geo.prompts)
-                    stage_outputs[snum] = []
-                    failure = gpu_arbiter_failure_record(exc)
-                    if failure is not None:
-                        backend_id = stage.get("ml_backend_id")
-                        gpu_arbiter_failures.append(
-                            {
-                                **failure,
-                                "stage": snum,
-                                "ml_backend_id": (
-                                    str(backend_id) if backend_id is not None else None
-                                ),
-                                "count": 1,
-                            }
-                        )
-                    logger.warning(
-                        "[ai-pre] stage %s 下游 box-seg 失败: %s: %s",
-                        snum,
-                        type(exc).__name__,
-                        exc,
-                    )
-                continue
-            # ── crop 投递 (平台逐父框裁 ROI 喂下游) ──
-            # attributes: 下游回属性, 合并进父框。geometry/intermediate: 下游在 crop 上检出
-            # 新子物体 (普通检测器, supported_inputs 含 crop), 检出几何回映回原图坐标 (v0.18.15)。
-            if image is None:  # crop 阶段必有原图 (needs_image 已保证); 防御性跳过。
-                stage_outputs[snum] = parent_boxes
-                continue
-            pad = _resolve_pad(stage, depths.get(snum, 2))
-            parent_key = stage.get("parent_stage")
-            crop_cache = crop_cache_by_parent.setdefault(parent_key, {})
-            batch = crop_inputs_from_boxes(
-                image,
-                parent_boxes,
-                pad=pad,
-                parent_class_filter=pcf,
-                delivery=delivery,
-                upload_fn=upload_fn,
-                cache=crop_cache,
-                min_crop_side_px=32,
-            )
-            stats[snum]["skipped_geometry"] += batch.skipped_geometry
-            crop_inputs = batch.inputs
-            # 默认 (attributes): 对孙子暴露 (可能已富集属性的) 父框几何。
-            # geometry/intermediate: 下面用回映后的检出几何改写 stage_outputs[snum]。
-            stage_outputs[snum] = parent_boxes
-            if not crop_inputs:
-                if target != "attributes":
-                    stage_outputs[snum] = []
-                continue  # 无符合类别/几何的父框 → 本阶段对本图降级跳过
-            targeted = {int(ci["id"]) for ci in crop_inputs}
-            stats[snum]["targeted"] += len(targeted)
-            try:
-                ds_results = await stage_clients[si].predict(
-                    crop_inputs, context=stage_contexts[si]
-                )
-                if target == "attributes":
-                    merged = merge_classify_attributes(
-                        parent_boxes, ds_results, write_keys=write_keys, label=label
-                    )
-                    stats[snum]["ok"] += merged
-                    stats[snum]["failed"] += len(targeted) - merged
-                    if write_keys:
-                        prefix = f"{label}_" if label else ""
-                        enriched_keys.update(f"{prefix}{k}" for k in write_keys)
-                else:
-                    # crop-detect: 每个 crop 的检出几何按其 transform 回映回原图坐标
-                    # (每个 crop 都裁自原图, transform 即相对原图, 无需链式 compose)。
-                    produced: list[dict] = []
-                    for cr in ds_results:
-                        transform = batch.transforms.get(str(cr.task_id))
-                        if transform is None:
-                            continue
-                        remapped = remap_geometry_to_image(cr.result or [], transform)
-                        try:
-                            pidx = int(cr.task_id)
-                        except (TypeError, ValueError):
-                            pidx = None
-                        for s in remapped:
-                            if pidx is not None:
-                                s["parent_box_idx"] = pidx
-                        produced.extend(remapped)
-                    stats[snum]["ok"] += len(produced)
-                    stage_outputs[snum] = produced
-                    # geometry → 落库为候选 shape; intermediate → 仅供下游消费, 不落库。
-                    if target == "geometry":
-                        new_shapes.extend(produced)
-            except Exception as exc:  # noqa: BLE001
-                # 阶段级失败: keep_parent=保留上游框属性留空; drop_box=丢这些父框。
-                stats[snum]["failed"] += len(targeted)
-                failure = gpu_arbiter_failure_record(exc)
-                if failure is not None:
-                    backend_id = stage.get("ml_backend_id")
-                    gpu_arbiter_failures.append(
-                        {
-                            **failure,
-                            "stage": snum,
-                            "ml_backend_id": (
-                                str(backend_id) if backend_id is not None else None
-                            ),
-                            "count": 1,
-                        }
-                    )
-                if target != "attributes":
-                    stage_outputs[snum] = []
-                # drop_box 的 targeted 是本阶段 parent_boxes 的下标, 而 dropped 恒作用于
-                # root_boxes。仅当父阶段就是 root 时两者下标才对齐; 深层父阶段的 parent_boxes
-                # 是中间几何 (与 root_boxes 下标语义不同), 误用会删掉无关的 root 框。校验层已
-                # 禁止非-root-父阶段设 drop_box, 此处兜底: 父非 root 时不删 (退化为 keep_parent)。
-                if (
-                    stage.get("on_failure") == "drop_box"
-                    and stage.get("parent_stage") == root_stage
-                ):
-                    dropped |= targeted
-                logger.warning(
-                    "[ai-pre] stage %s 下游 crop 投递失败 (on_failure=%s): %s: %s",
-                    snum,
-                    stage.get("on_failure", "keep_parent"),
-                    type(exc).__name__,
-                    exc,
-                )
-        if dropped:
-            root_boxes[:] = [b for i, b in enumerate(root_boxes) if i not in dropped]
-        if new_shapes:
-            root_boxes.extend(new_shapes)
-    extra = {
-        "pipeline": {
-            "stage_count": len(stages),
-            "max_depth": max(depths.values()) if depths else 1,
-            "enriched_attr_keys": sorted(enriched_keys) or None,
-            "stages": _pipeline_topology(stages, depths),
-        }
-    }
-    if gpu_arbiter_failures:
-        extra["pipeline"]["gpu_arbiter_failures"] = gpu_arbiter_failures
-    return results, extra, stats
+def _plain_pipeline_output(output):
+    return (
+        tuple(output.results),
+        thaw_json(output.extra) if output.extra is not None else None,
+        {stage: dict(values) for stage, values in (output.stage_stats or {}).items()}
+        if output.stage_stats is not None
+        else None,
+    )
 
 
 async def run_preannotation(
@@ -1522,6 +1279,18 @@ async def run_preannotation(
                 if (
                     isinstance(exc, SQLAlchemyError)
                     or (isinstance(exc, HTTPException) and exc.status_code >= 500)
+                    or (
+                        isinstance(exc, ModelExecutionError)
+                        and exc.failure.kind != "admission"
+                        and (
+                            (
+                                exc.failure.status_code is not None
+                                and exc.failure.status_code >= 500
+                            )
+                            or exc.failure.code
+                            in {"storage_unavailable", "invalid_response", "timeout"}
+                        )
+                    )
                     or getattr(exc, "code", None)
                     in {"storage_unavailable", "invalid_response", "timeout"}
                 ):
@@ -1626,26 +1395,22 @@ async def _execute_preannotation(
     from sqlalchemy import inspect, select
     from app.db.enums import WORKBENCH_AI_EDITABLE_TASK_STATUSES
     from app.db.models.async_job import AsyncJob, AsyncJobStatus
-    from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
     from app.services.labeling_core_read_relations import (
         batch_row as batch_core_row,
         execute_core_read,
         get_core_row,
         task_row as task_core_row,
     )
+    from app.services.inference_topology_data import InferenceTopologyData
     from app.services.identity_account_lock_data import IdentityAccountLockData
     from app.services.identity_contracts import IdentityActorStatus
     from app.services import async_job as async_job_svc
     from app.services.async_job_notify import notify_job_terminal
-    from app.services.gpu_arbitration.dispatch import (
-        build_gpu_dispatch_context_factory,
-    )
-    from app.services.gpu_arbitration.contracts import (
+    from aap_inference.gpu.contracts import (
         gpu_arbiter_failure_record,
         summarize_gpu_arbiter_failures,
     )
     from app.services.ml_backend import MLBackendService
-    from app.services.ml_routing.client import RoutedMLBackendClient
     from app.services.prediction import PredictionService
     from app.services.labeling_write_scope import capture_labeling_write_scope
     from app.services.project_access import is_privileged_for_project
@@ -1663,8 +1428,16 @@ async def _execute_preannotation(
     running_total_cost = 0.0
 
     async with SessionLocal() as db:
-        backend = await db.get(MLBackend, uuid.UUID(ml_backend_id))
-        if not backend:
+        requested_backend_id = uuid.UUID(str(ml_backend_id))
+        registry_reference = await InferenceTopologyData(db).registry_reference(
+            requested_backend_id
+        )
+        backend = (
+            await MLBackendService(db).get_registry(requested_backend_id)
+            if registry_reference is not None
+            else None
+        )
+        if backend is None:
             if batch_results is not None:
                 raise ValueError("ML Backend not found")
             if async_job_id is not None:
@@ -1682,9 +1455,12 @@ async def _execute_preannotation(
                 project_id, 0, 0, status="error", error="ML Backend not found"
             )
             return
-        # registry id 先解析为 requested pool；实际预测再由 RoutedMLBackendClient
-        # 在池内选物理实例，Prediction / FailedPrediction 同时保留逻辑池与执行实例。
-        source_pool_id = await MLBackendService(db).pool_id_for_registry(backend.id)
+        # Freeze registry identity and display metadata before rollback-capable work.
+        # The model gateway returns selected instance/pool facts for each operation.
+        backend_name = str(backend.name)
+        source_pool_id = await MLBackendService(db).pool_id_for_registry(
+            requested_backend_id
+        )
 
         # Build /predict context (flat text vs structured v2).
         # DINO thresholds come from project overrides.
@@ -1895,7 +1671,9 @@ async def _execute_preannotation(
             except FreezeModelReferenceError as exc:
                 trained_models.raise_frozen_model_reference_error(exc)
             model_id = f"trained:{frozen_model_ref['model_version_id']}"
-        context = prediction_context.build_predict_context(
+        box_thr = float(project.box_threshold) if project is not None else None
+        text_thr = float(project.text_threshold) if project is not None else None
+        context = build_predict_context(
             prompt=prompt,
             output_mode=output_mode,
             params=params,
@@ -1904,10 +1682,8 @@ async def _execute_preannotation(
             prompt_type=prompt_type,
             model_variants=model_variants,
             class_filter=class_filter,
-            box_threshold=float(project.box_threshold) if project is not None else None,
-            text_threshold=float(project.text_threshold)
-            if project is not None
-            else None,
+            box_threshold=box_thr,
+            text_threshold=text_thr,
             frozen_model_ref=frozen_model_ref,
         )
 
@@ -2250,7 +2026,7 @@ async def _execute_preannotation(
             "prompt": (prompt or "")[:200],
             "project_display_id": project.display_id if project else None,
             "project_name": project.name if project else None,
-            "ml_backend_name": backend.name,
+            "ml_backend_name": backend_name,
         }
         if model_id:
             job_payload["model_id"] = model_id
@@ -2262,7 +2038,7 @@ async def _execute_preannotation(
             job_payload["prompt_type"] = prompt_type
         if model_variants is not None:
             job_payload["model_variants"] = model_variants
-            label = prediction_context.model_label(model_variants)
+            label = model_label(model_variants)
             if label:
                 job_payload["model_label"] = label
         if prompt:
@@ -2736,57 +2512,33 @@ async def _execute_preannotation(
             )
             return
 
-        box_thr = float(project.box_threshold) if project is not None else None
-        text_thr = float(project.text_threshold) if project is not None else None
-        dispatch_context_factory = build_gpu_dispatch_context_factory(SessionLocal)
-        stage_clients: list[RoutedMLBackendClient] = []
+        model_port = _model_execution_port(db)
+        model_ports = (model_port,) * len(stages)
         stage_contexts: list[dict | None] = []
-        # v0.18.14 · 每阶段投递模式 (crop|geometry), 按 write.target 推断 (input.mode 可覆盖)。
-        # 源阶段 (stage 0) 模式无意义, 占位 "crop"。
         stage_modes: list[str] = []
-        for s in stages:
-            if s["parent_stage"] is None:
-                stage_clients.append(
-                    RoutedMLBackendClient(
-                        db,
-                        backend,
-                        project_id=uuid.UUID(project_id),
-                        owner=f"batch:{async_job_id}:stage:{s['stage']}",
-                        operation="batch_predict",
-                        shadow_session_factory=SessionLocal,
-                        dispatch_context_factory=dispatch_context_factory,
-                    )
-                )
+        for stage in stages:
+            if stage.get("parent_stage") is None:
                 stage_contexts.append(context)
                 stage_modes.append("crop")
             else:
-                s_backend = await db.get(MLBackend, uuid.UUID(s["ml_backend_id"]))
-                stage_clients.append(
-                    RoutedMLBackendClient(
-                        db,
-                        s_backend,
-                        project_id=uuid.UUID(project_id),
-                        owner=f"batch:{async_job_id}:stage:{s['stage']}",
-                        operation="batch_predict",
-                        shadow_session_factory=SessionLocal,
-                        dispatch_context_factory=dispatch_context_factory,
-                    )
-                )
-                stage_modes.append(_resolve_input_mode(s))
+                stage_modes.append(resolve_input_mode(stage))
                 stage_contexts.append(
-                    prediction_context.build_predict_context(
+                    build_predict_context(
                         prompt=None,
                         output_mode=output_mode,
-                        params=s.get("params"),
-                        model_id=s.get("model_id"),
-                        task=s.get("task"),
-                        prompt_type=s.get("prompt_type"),
-                        model_variants=s.get("model_variants"),
-                        class_filter=s.get("class_filter"),
+                        params=stage.get("params"),
+                        model_id=stage.get("model_id"),
+                        task=stage.get("task"),
+                        prompt_type=stage.get("prompt_type"),
+                        model_variants=stage.get("model_variants"),
+                        class_filter=stage.get("class_filter"),
                         box_threshold=box_thr,
                         text_threshold=text_thr,
                     )
                 )
+        stages = tuple(freeze_json(stage) for stage in stages)
+        stage_contexts = tuple(stage_contexts)
+        stage_modes = tuple(stage_modes)
 
         # v0.18.4 · 多阶段时构造 crop 上传器 (presigned 投递, 对所有下游后端通用)。
         # 单阶段无下游 crop, 不建 (省去对象存储往返)。
@@ -2885,7 +2637,7 @@ async def _execute_preannotation(
             from app.application.durable_preannotation import run_durable_batch
             from app.services.prediction import remap_prediction_track_ids
 
-            def durable_failure_facts(frozen_member, ordinal, task_id):
+            def durable_failure_facts(frozen_member, ordinal, task_id, execution=None):
                 record = (
                     frozen_member.get("input") if frozen_member is not None else None
                 )
@@ -2903,7 +2655,7 @@ async def _execute_preannotation(
                     if isinstance(record, dict)
                     else None
                 )
-                provenance = (
+                manifest_facts = (
                     {
                         "protocol": accepted_input_manifest_protocol,
                         "manifest_id": accepted_input_manifest_id,
@@ -2916,14 +2668,16 @@ async def _execute_preannotation(
                     and frozen_member is not None
                     else None
                 )
-                executed_pool = stage_clients[0].pool_id or source_pool_id
+                executed_backend_id, executed_pool_id = _execution_selection(
+                    execution,
+                    requested_registry_id=requested_backend_id,
+                    requested_pool_id=source_pool_id,
+                )
                 return {
-                    "ml_backend_id": str(
-                        stage_clients[0].last_instance_id or uuid.UUID(ml_backend_id)
+                    "ml_backend_id": str(executed_backend_id),
+                    "ml_backend_pool_id": (
+                        str(executed_pool_id) if executed_pool_id is not None else None
                     ),
-                    "ml_backend_pool_id": str(executed_pool)
-                    if executed_pool is not None
-                    else None,
                     "failure_extra": {
                         "execution_scope": execution_scope,
                         "execution_unit": execution_unit,
@@ -2937,8 +2691,8 @@ async def _execute_preannotation(
                             {"accepted_input": metadata} if metadata is not None else {}
                         ),
                         **(
-                            {"accepted_input_manifest": provenance}
-                            if provenance is not None
+                            {"accepted_input_manifest": manifest_facts}
+                            if manifest_facts is not None
                             else {}
                         ),
                     },
@@ -2947,18 +2701,33 @@ async def _execute_preannotation(
             async def infer_batch_member(
                 task, write_scope, retained, frozen_member, ordinal
             ):
-                # A preceding member failure rolls back and expires every ORM
-                # backend retained by the stage clients. Refresh before reuse.
-                for stage in stages:
-                    await db.get(
-                        MLBackend,
-                        uuid.UUID(stage["ml_backend_id"]),
-                        populate_existing=True,
-                    )
-                results, pipeline_extra, stage_stats = await _run_task_pipeline(
+                task_identity = inspect(task).identity
+                if not task_identity:
+                    raise ValueError("preannotation task identity is unavailable")
+                task_id = uuid.UUID(str(task_identity[0]))
+                input_metadata = retained.metadata if retained is not None else None
+                manifest_facts = (
+                    {
+                        "protocol": accepted_input_manifest_protocol,
+                        "manifest_id": accepted_input_manifest_id,
+                        "selection_digest": accepted_input_manifest_digest,
+                        "ordinal": ordinal,
+                        "task_id": str(task_id),
+                        "member_error": frozen_member.get("error"),
+                    }
+                    if accepted_input_manifest_protocol is not None
+                    and frozen_member is not None
+                    else None
+                )
+                input_facts = {}
+                if input_metadata is not None:
+                    input_facts["accepted_input"] = input_metadata
+                if manifest_facts is not None:
+                    input_facts["accepted_input_manifest"] = manifest_facts
+                output = await _run_task_pipeline(
                     task,
                     stages,
-                    stage_clients,
+                    model_ports,
                     stage_contexts,
                     resolve_url=(
                         (lambda _task: retained.reference.url)
@@ -2967,54 +2736,49 @@ async def _execute_preannotation(
                     ),
                     upload_crop=crop_uploader,
                     stage_modes=stage_modes,
-                    input_image_path=retained.local_path
-                    if retained is not None
-                    else None,
+                    input_image_path=(
+                        retained.local_path if retained is not None else None
+                    ),
+                    project_id=project_uuid,
+                    owner_prefix=f"batch:{async_job_id}",
+                    route_operation="batch_predict",
+                    correlation={"job_id": str(async_job_id), "ordinal": ordinal},
+                    input_provenance=input_facts or None,
                 )
-                metadata = retained.metadata if retained is not None else None
-                provenance = (
-                    {
-                        "protocol": accepted_input_manifest_protocol,
-                        "manifest_id": accepted_input_manifest_id,
-                        "selection_digest": accepted_input_manifest_digest,
-                        "ordinal": ordinal,
-                        "task_id": str(task.id),
-                        "member_error": frozen_member.get("error"),
-                    }
-                    if accepted_input_manifest_protocol is not None
-                    and frozen_member is not None
-                    else None
-                )
-                if metadata is not None:
+                results, pipeline_extra, stage_stats = _plain_pipeline_output(output)
+                if input_metadata is not None:
                     pipeline_extra = {
                         **(pipeline_extra or {}),
-                        "accepted_input": metadata,
+                        "accepted_input": input_metadata,
                     }
-                if provenance is not None:
+                if manifest_facts is not None:
                     pipeline_extra = {
                         **(pipeline_extra or {}),
-                        "accepted_input_manifest": provenance,
+                        "accepted_input_manifest": manifest_facts,
                     }
-                executed_backend_id = stage_clients[0].last_instance_id or uuid.UUID(
-                    ml_backend_id
+                executed_backend_id, executed_pool_id = _execution_selection(
+                    output,
+                    requested_registry_id=requested_backend_id,
+                    requested_pool_id=source_pool_id,
                 )
-                executed_pool_id = stage_clients[0].pool_id or source_pool_id
                 requests = tuple(
                     ApplyPredictionResultRequest(
-                        task_id=task.id,
+                        task_id=task_id,
                         project_id=project_uuid,
                         ml_backend_id=executed_backend_id,
-                        result=remap_prediction_track_ids(result.result),
+                        result=remap_prediction_track_ids(thaw_json(result.result)),
                         score=result.score,
                         model_version=result.model_version,
                         inference_time_ms=result.inference_time_ms,
-                        token_meta=result.meta,
+                        token_meta=(
+                            thaw_json(result.meta) if result.meta is not None else None
+                        ),
                         pipeline_extra=pipeline_extra,
                         ml_backend_pool_id=executed_pool_id,
                         write_scope=write_scope,
                         accepted_input_job_id=(
                             batch_results.scope["job_id"]
-                            if metadata is not None
+                            if input_metadata is not None
                             and accepted_input_manifest_protocol is not None
                             else None
                         ),
@@ -3023,8 +2787,8 @@ async def _execute_preannotation(
                     for result in results
                 )
                 return requests, {
-                    "task_id": str(task.id),
-                    **durable_failure_facts(frozen_member, ordinal, task.id),
+                    "task_id": str(task_id),
+                    **durable_failure_facts(frozen_member, ordinal, task_id, output),
                     "pipeline_stages": {
                         str(key): value for key, value in (stage_stats or {}).items()
                     },
@@ -3051,11 +2815,13 @@ async def _execute_preannotation(
                             else {}
                         ),
                         **(
-                            {"accepted_input": metadata} if metadata is not None else {}
+                            {"accepted_input": input_metadata}
+                            if input_metadata is not None
+                            else {}
                         ),
                         **(
-                            {"accepted_input_manifest": provenance}
-                            if provenance is not None
+                            {"accepted_input_manifest": manifest_facts}
+                            if manifest_facts is not None
                             else {}
                         ),
                     },
@@ -3107,8 +2873,11 @@ async def _execute_preannotation(
                 job_meta=job_meta_base,
                 result_extra=summary,
                 finish_batch=finish_durable_batch,
-                failure_context=lambda member: durable_failure_facts(
-                    member.manifest_member, member.ordinal, member.task_id
+                failure_context=lambda member, error=None: durable_failure_facts(
+                    member.manifest_member,
+                    member.ordinal,
+                    member.task_id,
+                    error,
                 ),
             )
             return
@@ -3204,12 +2973,23 @@ async def _execute_preannotation(
                     manifest_member.ordinal if manifest_member is not None else i + 1
                 )
                 continue
+            task_identity = inspect(task).identity
+            if not task_identity:
+                raise ValueError("preannotation task identity is unavailable")
+            task_id = uuid.UUID(str(task_identity[0]))
             if inspect(task).expired:
                 task = await get_core_row(
-                    db, task_core_row, task.id, populate_existing=True
+                    db, task_core_row, task_id, populate_existing=True
                 )
-            if inspect(backend).expired:
-                await db.refresh(backend)
+                if task is None:
+                    if requested_task_ids is not None:
+                        raise ValueError("explicit preannotation Task was deleted")
+                    await _skip_manifest_member(
+                        manifest_member.ordinal
+                        if manifest_member is not None
+                        else i + 1
+                    )
+                    continue
 
             # Fail before more model work when the initiating authority is gone.
             # The labeling owner independently fences the actual final write.
@@ -3259,7 +3039,7 @@ async def _execute_preannotation(
                 if skip_predicted and (task.total_predictions or 0) > 0:
                     await _skip_manifest_member(manifest_member.ordinal)
                     continue
-                current_locks = await TaskLockService(db).active_locks(task.id)
+                current_locks = await TaskLockService(db).active_locks(task_id)
                 if current_locks:
                     if explicit_scope:
                         raise ValueError(
@@ -3273,7 +3053,7 @@ async def _execute_preannotation(
             accepted_input_metadata = None
             if accepted_input is not None:
                 record = accepted_input.reference.input
-                if record.task_id != task.id:
+                if record.task_id != task_id:
                     raise ValueError("accepted image input differs from selected task")
                 accepted_input_metadata = {
                     "input_id": str(record.input_id),
@@ -3319,6 +3099,7 @@ async def _execute_preannotation(
                 ),
             )
             final_write_started = False
+            pipeline_output = None
 
             try:
                 if accepted_manifest is not None and manifest_member is not None:
@@ -3357,10 +3138,10 @@ async def _execute_preannotation(
                         [task.id], actor_id=actor.id
                     )
                     await db.commit()
-                results, pipeline_extra, stage_stats = await _run_task_pipeline(
+                pipeline_output = await _run_task_pipeline(
                     task,
                     stages,
-                    stage_clients,
+                    model_ports,
                     stage_contexts,
                     resolve_url=(
                         (lambda _task: prepared_manifest_member.reference.url)
@@ -3379,6 +3160,30 @@ async def _execute_preannotation(
                         if accepted_input is not None
                         else None
                     ),
+                    project_id=project_uuid,
+                    owner_prefix=f"batch:{async_job_id}",
+                    route_operation="batch_predict",
+                    correlation={
+                        "job_id": str(async_job_id),
+                        "task_id": str(task_id),
+                        "ordinal": i + 1,
+                    },
+                    input_provenance={
+                        **(
+                            {"accepted_input": accepted_input_metadata}
+                            if accepted_input_metadata is not None
+                            else {}
+                        ),
+                        **(
+                            {"accepted_input_manifest": manifest_provenance}
+                            if manifest_provenance is not None
+                            else {}
+                        ),
+                    }
+                    or None,
+                )
+                results, pipeline_extra, stage_stats = _plain_pipeline_output(
+                    pipeline_output
                 )
                 if prepared_manifest_member is not None:
                     if accepted_input_metadata is None:
@@ -3407,21 +3212,30 @@ async def _execute_preannotation(
                     .get("pipeline", {})
                     .get("gpu_arbiter_failures", [])
                 )
-                executed_backend_id = stage_clients[0].last_instance_id or backend.id
-                executed_pool_id = stage_clients[0].pool_id or source_pool_id
+                executed_backend_id, executed_pool_id = _execution_selection(
+                    pipeline_output,
+                    requested_registry_id=requested_backend_id,
+                    requested_pool_id=source_pool_id,
+                )
                 final_write_started = True
                 from app.services.prediction import remap_prediction_track_ids
 
                 write_requests = tuple(
                     ApplyPredictionResultRequest(
-                        task_id=task.id,
-                        project_id=uuid.UUID(project_id),
+                        task_id=task_id,
+                        project_id=project_uuid,
                         ml_backend_id=executed_backend_id,
-                        result=remap_prediction_track_ids(pred_result.result),
+                        result=remap_prediction_track_ids(
+                            thaw_json(pred_result.result)
+                        ),
                         score=pred_result.score,
                         model_version=pred_result.model_version,
                         inference_time_ms=pred_result.inference_time_ms,
-                        token_meta=pred_result.meta,
+                        token_meta=(
+                            thaw_json(pred_result.meta)
+                            if pred_result.meta is not None
+                            else None
+                        ),
                         pipeline_extra=pipeline_extra,
                         ml_backend_pool_id=executed_pool_id,
                         write_scope=write_scope,
@@ -3462,6 +3276,11 @@ async def _execute_preannotation(
                     and exc.status_code in {401, 403}
                 )
                 await db.rollback()
+                executed_backend_id, executed_pool_id = _execution_selection(
+                    pipeline_output or exc,
+                    requested_registry_id=requested_backend_id,
+                    requested_pool_id=source_pool_id,
+                )
                 if (
                     authority_denied
                     or write_scope.actor_id is None
@@ -3501,8 +3320,7 @@ async def _execute_preannotation(
                 failed = await pred_svc.create_failed(
                     task_id=write_scope.task_id,
                     project_id=uuid.UUID(project_id),
-                    ml_backend_id=stage_clients[0].last_instance_id
-                    or uuid.UUID(ml_backend_id),
+                    ml_backend_id=executed_backend_id,
                     error_type=(
                         gpu_arbiter_error["error_code"]
                         if gpu_arbiter_error is not None
@@ -3514,7 +3332,7 @@ async def _execute_preannotation(
                         else str(exc)
                     ),
                     extra=failure_extra or None,
-                    ml_backend_pool_id=stage_clients[0].pool_id or source_pool_id,
+                    ml_backend_pool_id=executed_pool_id,
                 )
                 failed_prediction_ids.append(str(failed.id))
                 await db.commit()
@@ -3537,7 +3355,7 @@ async def _execute_preannotation(
                 completed,
                 total,
                 pipeline_stages=(
-                    _stage_totals_snapshot(pipeline_stage_totals)
+                    stage_totals_snapshot(pipeline_stage_totals)
                     if pipeline_stage_totals and stage_step
                     else None
                 ),
@@ -3611,9 +3429,9 @@ async def _execute_preannotation(
                 success_count + failed_count + runtime_skipped_count
             )
         # v0.18.2 · 多阶段预标: 逐阶段统计 (检出框数 / 各下游富集成功失败), 供前端逐阶段徽标。
-        # v0.18.6 · 与运行中实时快照共用 _stage_totals_snapshot, 终态为最终真值。
+        # v0.18.6 · 与运行中实时快照共用同一阶段统计形态。
         if pipeline_stage_totals:
-            result_stats["pipeline_stages"] = _stage_totals_snapshot(
+            result_stats["pipeline_stages"] = stage_totals_snapshot(
                 pipeline_stage_totals
             )
         if gpu_arbiter_failures:

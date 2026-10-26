@@ -6,7 +6,7 @@ Text contexts retain their prompt type and carry an independent visual task.
 
 from __future__ import annotations
 
-from app.services.prediction_context import build_predict_context, model_label
+from aap_inference.execution_context import build_predict_context, model_label
 
 
 def _ctx(**kw):

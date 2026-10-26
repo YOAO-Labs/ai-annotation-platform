@@ -1,9 +1,20 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
-from app.config import GPUArbiterMode, Settings
-from app.services.gpu_arbitration.contracts import (
+from aap_inference_contract.gpu import (
+    GPU_CALLER_DATA_PROTOCOL,
+    GPU_CALLER_NATIVE_ACTIONS,
+    GPU_CALLER_NATIVE_FUNCTIONS,
+    GPU_CALLER_NATIVE_SCHEMA,
+    GPUAuthorityUnavailable,
+)
+from aap_inference.gpu.native import GPUCallerPostgresData
+from aap_owner_data import postgres as postgres_module
+
+from aap_inference.gpu.contracts import (
     GPUArbiterDispatchError,
     GPUArbiterErrorCode,
     GPUDispatchGrant,
@@ -11,8 +22,11 @@ from app.services.gpu_arbitration.contracts import (
     gpu_arbiter_failure_record,
     summarize_gpu_arbiter_failures,
 )
-from app.services.gpu_arbitration.diagnostics import (
-    unregistered_gpu_loading_blocked,
+from aap_inference.gpu.diagnostics import unregistered_gpu_loading_blocked
+from aap_inference.gpu.settings import (
+    GPUArbiterMode,
+    GPUAuthoritySettings,
+    GPUResourceSettings,
 )
 
 
@@ -45,8 +59,8 @@ def test_dispatch_error_contract(
         "error_code": code.value,
         "message": "stable message",
     }
-    assert error.headers == (
-        {"Retry-After": str(retry_after_s)} if retry_after_s is not None else None
+    assert (error.headers or {}).get("Retry-After") == (
+        str(retry_after_s) if retry_after_s is not None else None
     )
     assert gpu_arbiter_failure_record(error) == {
         "error_code": code.value,
@@ -207,14 +221,17 @@ def test_dispatch_outcome_channel_rejects_invalid_http_status(
 
 
 def test_unregistered_loading_gate_uses_effective_not_desired_mode() -> None:
-    config = Settings(
-        _env_file=None,
-        gpu_arbiter_mode="enforce",
-        gpu_arbiter_resources_json=(
-            '{"node-a/index:0":{"node_id":"node-a",'
-            '"physical_device_token":"index:0","allocatable_mb":20000,'
-            '"mode":"enforce"}}'
-        ),
+    config = GPUAuthoritySettings(
+        gpu_arbiter_mode=GPUArbiterMode.ENFORCE,
+        gpu_arbiter_resources={
+            "node-a/index:0": GPUResourceSettings(
+                resource_id="node-a/index:0",
+                node_id="node-a",
+                physical_device_token="index:0",
+                allocatable_mb=20_000,
+                mode=GPUArbiterMode.ENFORCE,
+            )
+        },
     )
 
     assert unregistered_gpu_loading_blocked(config=config) is False
@@ -223,18 +240,87 @@ def test_unregistered_loading_gate_uses_effective_not_desired_mode() -> None:
 def test_unregistered_loading_gate_stays_closed_during_demotion(
     monkeypatch,
 ) -> None:
-    config = Settings(
-        _env_file=None,
-        gpu_arbiter_mode="off",
-        gpu_arbiter_resources_json=(
-            '{"node-a/index:0":{"node_id":"node-a",'
-            '"physical_device_token":"index:0","allocatable_mb":20000,'
-            '"mode":"off"}}'
-        ),
+    config = GPUAuthoritySettings(
+        gpu_arbiter_mode=GPUArbiterMode.OFF,
+        gpu_arbiter_resources={
+            "node-a/index:0": GPUResourceSettings(
+                resource_id="node-a/index:0",
+                node_id="node-a",
+                physical_device_token="index:0",
+                allocatable_mb=20_000,
+                mode=GPUArbiterMode.OFF,
+            )
+        },
     )
     monkeypatch.setattr(
-        "app.services.gpu_arbitration.policy.effective_gpu_arbiter_mode",
+        "aap_inference.gpu.policy.effective_gpu_arbiter_mode",
         lambda _resource_id, *, config: GPUArbiterMode.ENFORCE,
     )
 
     assert unregistered_gpu_loading_blocked(config=config) is True
+
+
+@pytest.mark.asyncio
+async def test_caller_native_profile_uses_caller_functions_and_rejects_private_action(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    policy = {
+        "protocol": GPU_CALLER_DATA_PROTOCOL,
+        "native_schema": GPU_CALLER_NATIVE_SCHEMA,
+        "functions": list(GPU_CALLER_NATIVE_FUNCTIONS),
+        "actions": list(GPU_CALLER_NATIVE_ACTIONS),
+        "ready": True,
+    }
+
+    class Connection:
+        calls: list[tuple[str, tuple[object, ...]]]
+
+        def __init__(self) -> None:
+            self.calls = []
+
+        def is_in_transaction(self) -> bool:
+            return True
+
+        async def fetchval(self, query: str, *args: object) -> object:
+            self.calls.append((query, args))
+            if query.endswith("gpu_caller_policy()"):
+                return json.dumps(policy)
+            if query == "SELECT pg_catalog.pg_current_xact_id()::text":
+                return "42"
+            if query == "SELECT pg_catalog.pg_current_xact_id_if_assigned()::text":
+                return "42"
+            if query.endswith("gpu_caller_step($1::text,$2::text)"):
+                action = args[0]
+                return json.dumps(
+                    {
+                        "protocol": GPU_CALLER_DATA_PROTOCOL,
+                        "action": action,
+                        "result": {"candidates": []},
+                    }
+                )
+            raise AssertionError(f"unexpected Native query: {query}")
+
+    def reject_private_role_verification(*args: object, **kwargs: object) -> None:
+        raise AssertionError(
+            "caller profile must not verify the private authority role"
+        )
+
+    monkeypatch.setattr(
+        postgres_module, "verify_function_only_role", reject_private_role_verification
+    )
+    connection = Connection()
+
+    caller_data = await GPUCallerPostgresData.bind(connection)
+    result = await caller_data.step("membership_candidates", {})
+
+    assert result == {"candidates": []}
+    assert [query.rsplit(".", 1)[-1] for query, _ in connection.calls] == [
+        "gpu_caller_policy()",
+        "pg_current_xact_id()::text",
+        "pg_current_xact_id_if_assigned()::text",
+        "gpu_caller_step($1::text,$2::text)",
+    ]
+    assert connection.calls[-1][1][0] == "membership_candidates"
+    with pytest.raises(GPUAuthorityUnavailable):
+        await caller_data.step("runtime_subject", {})
+    assert len(connection.calls) == 4

@@ -371,6 +371,8 @@ Data Manager 将未解决问题与普通评论分别计数，兼容旧反馈筛�
 
 业务审计、HTTP 元数据及其 Celery 持久化现通过 `apps/audit` 的版本化追加能力写入，保留原事务、actor 快照及匿名重试。查询、归档及完整凭据边界仍在推进；现有 LAN 的分区所有权还不能直接采用严格追加配置，见 [Audit 能力](./apps/audit/README.md)与[模块台账](./docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
 
+模型执行、后端控制、健康观察、Registry 同步、持久路由与 GPU 权威由独立 Inference 进程承接。普通 API／worker 不读取存量后端 token 或 GPU 私钥；公开认证与项目权限、Jobs 账本及 Labeling 最终写入仍由原调用方持有。专用凭据、Compose 配置与恢复界限见 [Inference 私有运行指南](./docs-site/api/guides/inference-runtime.md)。
+
 命名布局预设通过账号偏好 API 跨设备保存；`namedPresets` 采用带 revision 的整份 map 替换与省略删除语义，陈旧设备写入返回冲突，而 `contexts` 可在预设专用 PATCH 中缺席。安全更新方式与兼容规则见[账号偏好与命名布局预设](./docs-site/api/guides/auth.md#账号偏好与命名布局预设)。
 
 资料、偏好、心跳、自助改密和头像引用可由同一独立 Identity 工件处理；偏好合并、当前凭据校验、状态和业务审计在所有者事务内提交。头像字节继续通过现有存储入口处理，在线扫描使用独立权限。协议见[自助账户命令](./docs-site/api/guides/identity-runtime.md#自助账户命令)，完整 Identity 与其他模块继续按[模块台账](./docs-site/dev/concepts/module-deployment.md)推进。

@@ -37,6 +37,41 @@ CONTAINER_ID_LABEL = "org.aap.acceptance-id"
 POSTGRES_IMAGE = "postgres:16-alpine"
 INFERENCE_REGISTRY_INGRESS_ROLE = "inference_registry_ingress_client"
 INFERENCE_ROUTING_ROLE = "inference_routing_client"
+INFERENCE_OWNER_PROFILES = {
+    "INFERENCE_ENDPOINT_SETUP": ("setup", "inference_endpoint_setup_client"),
+    "INFERENCE_ENDPOINT_HEALTH_OBSERVATION": (
+        "health_observation",
+        "inference_endpoint_health_client",
+    ),
+    "INFERENCE_ENDPOINT_CATALOG_FALLBACK": (
+        "catalog_fallback",
+        "inference_endpoint_catalog_client",
+    ),
+    "INFERENCE_ENDPOINT_STATS": ("stats", "inference_endpoint_stats_client"),
+    "INFERENCE_ENDPOINT_BACKEND_READ": (
+        "backend_read",
+        "inference_endpoint_read_client",
+    ),
+    "INFERENCE_ENDPOINT_LIFECYCLE": (
+        "lifecycle",
+        "inference_endpoint_lifecycle_client",
+    ),
+    "INFERENCE_ENDPOINT_EXECUTION": (
+        "execution",
+        "inference_endpoint_execution_client",
+    ),
+    "INFERENCE_BACKEND_STATS": ("backend_stats", "inference_backend_stats_client"),
+    "INFERENCE_GPU_HEALTH_ENDPOINT": (
+        "gpu_health_observation",
+        "inference_gpu_health_endpoint_client",
+    ),
+    "INFERENCE_GPU_CONTROL_ENDPOINT": (
+        "gpu_control",
+        "inference_gpu_control_endpoint_client",
+    ),
+    "INFERENCE_GPU": ("gpu_authority", "inference_gpu_authority_client"),
+    "INFERENCE_GPU_COLLECTOR": ("gpu_collector", "inference_gpu_collector_client"),
+}
 VIDEO_EXECUTION_ROLE = "video_execution_client"
 IDENTITY_API_CONSUMER_ROLE = "identity_api_consumer"
 NOTIFICATION_PREFERENCES_ROLE = "notification_preferences_client"
@@ -95,6 +130,12 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_jobs_v1.claim_dispatches(jsonb)": "0368_jobs_dispatch_ledger.sql",
     "aap_jobs_v1.finish_dispatch(jsonb)": "0368_jobs_dispatch_ledger.sql",
     "aap_jobs_v1.dispatch_status(uuid)": "0368_jobs_dispatch_ledger.sql",
+    "aap_inference_topology_v1.registry_facts(uuid)": "0369_inference_topology.sql",
+    "aap_inference_backend_endpoint_v1.capture_backend_endpoint_subject(uuid,uuid,text,text)": "0369_inference_backend_endpoint.sql",
+    "aap_inference_backend_endpoint_v1.open_execution_endpoint(text,uuid,uuid,text)": "0369_inference_backend_endpoint.sql",
+    "aap_inference_gpu_v1.gpu_authority_step(text,text)": "0369_inference_gpu.sql",
+    "aap_inference_gpu_caller_v1.gpu_caller_step(text,text)": "0369_inference_gpu.sql",
+    "aap_inference_gpu_collector_v1.gpu_collector_step(text,text)": "0369_inference_gpu.sql",
     "aap_labeling_v1.screenshot_operations_command(jsonb)": "0363_labeling_screenshot_operations.sql",
     "aap_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[])": "0364_labeling_scale_seed_operations.sql",
     "aap_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid)": "0364_labeling_scale_seed_operations.sql",
@@ -990,11 +1031,20 @@ SQL_ARTIFACTS = (
     "0366_audit_fixture_cleanup.sql",
     "0367_labeling_filtering_rendering.sql",
     "0368_jobs_dispatch_ledger.sql",
+    "0369_inference_topology.sql",
+    "0369_inference_seed_ingress.sql",
+    "0369_inference_fixtures.sql",
+    "0369_inference_backend_endpoint.sql",
+    "0369_inference_health.sql",
+    "0369_inference_gpu.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0362_labeling_e2e_fixture_writes.schema.json",
     "0367_labeling_filtering_rendering.schema.json",
     "0368_jobs_dispatch_ledger.schema.json",
+    "0369_inference_topology.schema.json",
+    "0369_inference_backend_endpoint.schema.json",
+    "0369_inference_gpu.schema.json",
     "0363_labeling_screenshot_operations.schema.json",
     "0364_labeling_scale_seed_operations.schema.json",
     "0360_labeling_video_segment_lifecycle.schema.json",
@@ -5209,6 +5259,9 @@ def main(argv: list[str] | None = None) -> int:
         jobs_dispatch_relay_password = secrets.token_hex(24)
         inference_registry_ingress_password = secrets.token_hex(24)
         inference_routing_password = secrets.token_hex(24)
+        inference_owner_passwords = {
+            label: secrets.token_hex(24) for label in INFERENCE_OWNER_PROFILES
+        }
         video_execution_password = secrets.token_hex(24)
         identity_passwords = {
             role: secrets.token_hex(24) for role in IDENTITY_CLIENT_ROLES.values()
@@ -5290,8 +5343,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0368"]:
-            raise RuntimeError("module-data acceptance requires migration head 0368")
+        if heads != ["0369"]:
+            raise RuntimeError("module-data acceptance requires migration head 0369")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         relation_sql_hashes = _read_relation_sql_input_sha256()
         evidence["migrations"]["read_relation_sql_input_sha256"] = relation_sql_hashes
@@ -5669,6 +5722,20 @@ def main(argv: list[str] | None = None) -> int:
                 f"PASSWORD '{inference_routing_password}' "
                 "NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT "
                 "NOREPLICATION NOBYPASSRLS;\n"
+            ),
+        )
+        phase = "create-inference-owner-clients"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql="\n".join(
+                f"CREATE ROLE {role} LOGIN PASSWORD '{inference_owner_passwords[label]}' "
+                "NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;"
+                for label, (_, role) in INFERENCE_OWNER_PROFILES.items()
             ),
         )
         phase = "install-module-grants"
@@ -8949,6 +9016,39 @@ SELECT pg_catalog.jsonb_build_object(
         media_control_secret_key = media_control_storage["secret_key"]
         media_worker_access_key = media_worker_storage["access_key"]
         media_worker_secret_key = media_worker_storage["secret_key"]
+        phase = "install-inference-owner-profiles"
+        inference_owner_grant_sql = (
+            ROOT / "infra/docker/inference-owner-grants.sql"
+        ).read_text(encoding="utf-8")
+        for label, (profile, role) in INFERENCE_OWNER_PROFILES.items():
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=inference_owner_grant_sql,
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "inference_owner": "inference_code",
+                    "client_role": role,
+                    "profile": profile,
+                },
+            )
+            resource_environment[f"AAP_MODULE_DATA_{label}_URL"] = URL.create(
+                "postgresql+asyncpg",
+                username=role,
+                password=inference_owner_passwords[label],
+                host="127.0.0.1",
+                port=port,
+                database=database,
+            ).render_as_string(hide_password=False)
+        evidence["inference_owner_profiles"] = {
+            label: {"profile": profile, "role": role}
+            for label, (profile, role) in INFERENCE_OWNER_PROFILES.items()
+        }
 
         resource_environment.update(
             {

@@ -1,24 +1,37 @@
-"""v0.18.1 · 多阶段预标注 application 核心 (_run_task_pipeline) 单测 (路径 B M1).
+"""Portable multistage prediction pipeline behavior tests.
 
-用假 stage client + monkeypatch 图像加载, 验证:
-- 单阶段: 等价于直接 predict, extra=None (回归路径)。
-- 双阶段: 源框被下游分类结果的 attributes 富集, extra 记录阶段元信息。
+Test-only adapters exercise the shared execution pipeline through its frozen port.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import SimpleNamespace
+import uuid
 
 import pytest
 from PIL import Image
 
-from app.services import prediction_context
-
-from app.services.gpu_arbitration.contracts import (
+from aap_inference.execution_pipeline import (
+    compute_stage_depths,
+    execute_task_pipeline,
+    resolve_input_mode,
+    resolve_pad,
+    stage_totals_snapshot,
+)
+from aap_inference_contract.execution import (
+    ExecutionProvenance,
+    FrozenModelOperation,
+    ModelExecutionObservation,
+    ModelOperationResult,
+    ModelTaskResult,
+    thaw_json,
+)
+from aap_inference.gpu.contracts import (
     GPUArbiterDispatchError,
     GPUArbiterErrorCode,
 )
-from app.application import preannotation_execution as worker_tasks
+from app.services import prediction_context
 
 
 @dataclass
@@ -50,6 +63,119 @@ class _Task:
     dataset_item_id: str | None = None
 
 
+class _FakeExecutionPort:
+    def __init__(self, client):
+        self.client = client
+
+    async def execute(self, request: FrozenModelOperation) -> ModelOperationResult:
+        inputs = [thaw_json(item) for item in request.task_inputs]
+        context = None if request.context is None else thaw_json(request.context)
+        raw_results = await self.client.predict(inputs, context=context)
+        results = tuple(
+            ModelTaskResult(
+                task_id=raw.task_id,
+                result=raw.result,
+                score=raw.score,
+                model_version=raw.model_version,
+                inference_time_ms=raw.inference_time_ms,
+                cache_hit=getattr(raw, "cache_hit", None),
+                model_load_ms=getattr(raw, "model_load_ms", None),
+                meta=raw.meta,
+                mask_input_next=getattr(raw, "mask_input_next", None),
+                diagnostic=getattr(raw, "diagnostic", None),
+            )
+            for raw in raw_results
+        )
+        instance_id = (
+            request.required_instance_id
+            or request.endpoint_registry_id
+            or request.requested_registry_id
+            or uuid.UUID(int=1)
+        )
+        return ModelOperationResult(
+            request_id=request.request_id,
+            operation=request.operation,
+            results=results,
+            provenance=ExecutionProvenance(
+                requested_registry_id=request.requested_registry_id,
+                requested_pool_id=request.requested_pool_id,
+                registry_id=instance_id,
+                pool_id=request.selected_pool_id,
+                instance_id=instance_id,
+                route_scope_id=uuid.UUID(int=2),
+                attempt_id=request.request_id,
+                topology_generation=request.topology_generation,
+                member_id=request.selected_member_id,
+            ),
+            observation=ModelExecutionObservation(
+                backend_id=str(instance_id),
+                operation="predict",
+                outcome="success",
+                elapsed_seconds=0,
+            ),
+            wall_time_ms=0,
+        )
+
+
+async def _run_task_pipeline(
+    task,
+    stages,
+    clients,
+    stage_contexts,
+    *,
+    resolve_url,
+    input_image_path=None,
+    stage_modes=None,
+    upload_crop=None,
+):
+    modes = tuple(stage_modes or (resolve_input_mode(stage) for stage in stages))
+    source_image = None
+    if any(mode == "crop" for mode in modes[1:]):
+        if input_image_path is not None:
+            with Image.open(input_image_path) as image:
+                source_image = image.copy()
+        else:
+            source_image = prediction_context.load_task_image(task)
+
+    crop_publisher = None
+    if upload_crop is not None:
+
+        class _Publisher:
+            def publish(self, _task_id, box_index, jpeg_bytes):
+                return upload_crop(task, box_index, jpeg_bytes)
+
+        crop_publisher = _Publisher()
+
+    result = await execute_task_pipeline(
+        task.id,
+        stages,
+        [_FakeExecutionPort(client) for client in clients],
+        stage_contexts,
+        source_url=resolve_url(task),
+        project_id=None,
+        owner_prefix="test",
+        route_operation="test",
+        stage_modes=modes,
+        source_image=source_image,
+        crop_publisher=crop_publisher,
+    )
+    stats = (
+        None
+        if result.stage_stats is None
+        else {stage: dict(values) for stage, values in result.stage_stats.items()}
+    )
+    return result.results, thaw_json(result.extra), stats
+
+
+worker_tasks = SimpleNamespace(
+    _run_task_pipeline=_run_task_pipeline,
+    _stage_totals_snapshot=stage_totals_snapshot,
+    _resolve_input_mode=resolve_input_mode,
+    _resolve_pad=resolve_pad,
+    _compute_stage_depths=compute_stage_depths,
+)
+
+
 def _bbox(x, y, w, h, cls="car"):
     return {
         "type": "rectanglelabels",
@@ -69,7 +195,10 @@ async def test_single_stage_passthrough():
     )
     assert extra is None
     assert stats is None
-    assert results[0].result is boxes
+    assert thaw_json(results[0].result) == boxes
+    assert isinstance(results[0].result, tuple)
+    with pytest.raises(TypeError):
+        results[0].result[0]["type"] = "polygonlabels"
     # 单阶段不应触碰下游, 只调一次
     assert len(client.calls) == 1
 
@@ -276,7 +405,7 @@ async def test_on_failure_keep_parent_vs_drop_box(monkeypatch):
         [None, None],
         resolve_url=lambda t: "http://x/img.jpg",
     )
-    assert results2[0].result == []  # 框被丢弃
+    assert not results2[0].result
 
 
 @pytest.mark.asyncio
@@ -424,7 +553,7 @@ async def test_geometry_stage_records_gpu_arbiter_failure_without_reraising():
         stage_modes=["crop", "geometry"],
     )
 
-    assert results[0].result == boxes
+    assert thaw_json(results[0].result) == boxes
     assert stats[1]["failed"] == 1
     assert extra["pipeline"]["gpu_arbiter_failures"] == [
         {
@@ -476,7 +605,7 @@ async def test_crop_stage_records_gpu_arbiter_failure_and_keeps_parent(monkeypat
         stage_modes=["crop", "crop"],
     )
 
-    assert results[0].result == boxes
+    assert thaw_json(results[0].result) == boxes
     assert stats[2]["failed"] == 1
     assert extra["pipeline"]["gpu_arbiter_failures"][0] == {
         "error_code": "gpu_arbiter_not_ready",

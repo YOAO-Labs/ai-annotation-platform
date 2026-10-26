@@ -279,9 +279,8 @@ async def _verify_restricted_routing_dsn(dsn: str, expected_database: str) -> No
         await connection.close(timeout=2)
 
 
-@pytest.mark.parametrize("binding", ("embedded", "dsn", "http"))
 async def test_committed_video_job_heartbeats_cancels_and_closes_one_route_scope(
-    test_engine, tmp_path, monkeypatch, binding
+    test_engine, tmp_path, monkeypatch
 ):
     ownership = await assert_owned_test_database(test_engine)
     routing_dsn = os.environ.get("AAP_MODULE_DATA_INFERENCE_ROUTING_URL")
@@ -371,12 +370,6 @@ async def test_committed_video_job_heartbeats_cancels_and_closes_one_route_scope
                 monkeypatch.setattr(settings, "inference_routing_url", "")
                 monkeypatch.setattr(settings, "inference_routing_token", "")
                 monkeypatch.setattr(settings, "inference_routing_token_file", "")
-                monkeypatch.setattr(
-                    settings,
-                    "inference_routing_database_url",
-                    routing_dsn if binding == "dsn" else "",
-                )
-                monkeypatch.setattr(settings, "inference_routing_database_url_file", "")
                 monkeypatch.setattr(settings, "ml_backend_router_mode", "enforce")
                 monkeypatch.setattr(
                     settings, "ml_backend_router_heartbeat_interval_seconds", 1
@@ -386,26 +379,23 @@ async def test_committed_video_job_heartbeats_cancels_and_closes_one_route_scope
 
                 owner_runtime = RoutingRuntime(routing_dsn)
                 assert await owner_runtime.readiness()
-                if binding == "http":
-                    owner_listener, owner_url = _reserve_loopback_listener()
-                    owner_port = owner_listener.getsockname()[1]
-                    owner_listener.close()
-                    owner_token = uuid4().hex
-                    owner_server = PipelineHttpServer(
-                        manager=None,
-                        data=None,
-                        control_token=None,
-                        host="127.0.0.1",
-                        port=owner_port,
-                        routing_manager=owner_runtime.manager,
-                        routing_control_token=owner_token,
-                        scope_retirement_manager=owner_runtime.scope_retirement_manager,
-                    )
-                    await owner_server.start()
-                    monkeypatch.setattr(settings, "inference_routing_url", owner_url)
-                    monkeypatch.setattr(
-                        settings, "inference_routing_token", owner_token
-                    )
+                owner_listener, owner_url = _reserve_loopback_listener()
+                owner_port = owner_listener.getsockname()[1]
+                owner_listener.close()
+                owner_token = uuid4().hex
+                owner_server = PipelineHttpServer(
+                    manager=None,
+                    data=None,
+                    control_token=None,
+                    host="127.0.0.1",
+                    port=owner_port,
+                    routing_manager=owner_runtime.manager,
+                    routing_control_token=owner_token,
+                    scope_retirement_manager=owner_runtime.scope_retirement_manager,
+                )
+                await owner_server.start()
+                monkeypatch.setattr(settings, "inference_routing_url", owner_url)
+                monkeypatch.setattr(settings, "inference_routing_token", owner_token)
                 reconcile = await owner_runtime.execute(
                     make_routing_command(
                         "reconcile",
@@ -526,7 +516,7 @@ async def test_committed_video_job_heartbeats_cancels_and_closes_one_route_scope
                         lambda *_args: replay_command,
                     )
                     with pytest.raises(RoutingUnavailable):
-                        await routing_authority.RoutingAuthority(test_engine).execute(
+                        await routing_authority.RoutingAuthority().execute(
                             "video_acquire", replay_command.body
                         )
                 assert len(backend.calls) == 2

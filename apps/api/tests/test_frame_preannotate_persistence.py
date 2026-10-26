@@ -34,6 +34,65 @@ from tests.test_video_input_ledger_lifecycle import (
 )
 
 
+from aap_inference_contract.execution import (
+    ExecutionProvenance,
+    ModelExecutionObservation,
+    ModelOperationResult,
+    ModelTaskResult,
+    thaw_json,
+)
+
+
+def _install_frame_execution_fake(
+    monkeypatch,
+    predict,
+    *,
+    actual_instance_id=None,
+):
+    class FakePort:
+        async def execute(self, operation):
+            inputs = tuple(thaw_json(item) for item in operation.task_inputs)
+            context = thaw_json(operation.context)
+            responses = await predict(inputs, context)
+            instance_id = actual_instance_id or operation.requested_registry_id
+            return ModelOperationResult(
+                request_id=operation.request_id,
+                operation=operation.operation,
+                results=tuple(
+                    ModelTaskResult(
+                        task_id=getattr(response, "task_id", inputs[index]["id"]),
+                        result=response.result,
+                        score=response.score,
+                        model_version=response.model_version,
+                        inference_time_ms=response.inference_time_ms,
+                        meta=response.meta,
+                    )
+                    for index, response in enumerate(responses)
+                ),
+                provenance=ExecutionProvenance(
+                    requested_registry_id=operation.requested_registry_id,
+                    requested_pool_id=operation.requested_pool_id,
+                    registry_id=instance_id,
+                    pool_id=operation.requested_pool_id,
+                    instance_id=instance_id,
+                    route_scope_id=uuid.uuid4(),
+                    attempt_id=operation.request_id,
+                ),
+                observation=ModelExecutionObservation(
+                    backend_id=str(instance_id),
+                    operation="predict",
+                    outcome="success",
+                    elapsed_seconds=0.0,
+                ),
+                wall_time_ms=0,
+            )
+
+    monkeypatch.setattr(
+        "app.services.inference_model_execution.model_execution_port",
+        lambda *_args, **_kwargs: FakePort(),
+    )
+
+
 @pytest.fixture
 async def frame_world(test_engine):
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
@@ -319,14 +378,9 @@ async def test_frame_persistence_retries_contention_and_rechecks_scope(
             )
         ]
     )
-    client = SimpleNamespace(predict=predict, last_instance_id=None, pool_id=None)
     monkeypatch.setattr(settings, "database_url", test_db_url)
-    monkeypatch.setattr(
-        "app.services.ml_routing.client.RoutedMLBackendClient", lambda *_a, **_k: client
-    )
-    monkeypatch.setattr(
-        "app.services.ml_backend.MLBackendService.pool_id_for_registry",
-        AsyncMock(return_value=None),
+    _install_frame_execution_fake(
+        monkeypatch, predict, actual_instance_id=world.backend_id
     )
     _install_video_gateway(monkeypatch, world)
     monkeypatch.setattr(frame_preannotate, "_bump_progress", lambda *_a: (1, 1))
@@ -479,15 +533,9 @@ async def test_media_owner_busy_defers_before_prediction(
 
     world = frame_world
     predict = AsyncMock()
-    client = SimpleNamespace(predict=predict, last_instance_id=None, pool_id=None)
     monkeypatch.setattr(settings, "database_url", test_db_url)
-    monkeypatch.setattr(
-        "app.services.ml_routing.client.RoutedMLBackendClient",
-        lambda *_args, **_kwargs: client,
-    )
-    monkeypatch.setattr(
-        "app.services.ml_backend.MLBackendService.pool_id_for_registry",
-        AsyncMock(return_value=None),
+    _install_frame_execution_fake(
+        monkeypatch, predict, actual_instance_id=world.backend_id
     )
     gateway = world.gateway
     gateway.ensure_reference = AsyncMock(side_effect=VideoInputFailure("input_busy"))
@@ -537,15 +585,9 @@ async def test_mask_content_write_contention_defers_accepted_frame_result(
             )
         ]
     )
-    client = SimpleNamespace(predict=predict, last_instance_id=None, pool_id=None)
     monkeypatch.setattr(settings, "database_url", test_db_url)
-    monkeypatch.setattr(
-        "app.services.ml_routing.client.RoutedMLBackendClient",
-        lambda *_args, **_kwargs: client,
-    )
-    monkeypatch.setattr(
-        "app.services.ml_backend.MLBackendService.pool_id_for_registry",
-        AsyncMock(return_value=None),
+    _install_frame_execution_fake(
+        monkeypatch, predict, actual_instance_id=world.backend_id
     )
     _install_video_gateway(monkeypatch, world)
     monkeypatch.setattr(frame_preannotate, "_bump_progress", lambda *_a: (1, 1))
@@ -649,8 +691,12 @@ async def test_missing_frame_resources_are_counted_as_failures(
 ):
     world = frame_world
     monkeypatch.setattr(settings, "database_url", test_db_url)
-    client = Mock(side_effect=AssertionError("No inference for missing resources"))
-    monkeypatch.setattr("app.services.ml_routing.client.RoutedMLBackendClient", client)
+    port_factory = Mock(
+        side_effect=AssertionError("No inference for missing resources")
+    )
+    monkeypatch.setattr(
+        "app.services.inference_model_execution.model_execution_port", port_factory
+    )
     _install_video_gateway(monkeypatch, world)
     missing_task = str(uuid.uuid4()) if missing == "task" else str(world.task_id)
     stats = await frame_preannotate._run_segment(
@@ -669,6 +715,6 @@ async def test_missing_frame_resources_are_counted_as_failures(
         celery_root_task_id=None,
     )
     assert stats["failed"] == 0 and stats["frames_done"] == 0
-    client.assert_not_called()
+    port_factory.assert_not_called()
     async with world.maker() as db:
         assert (await db.get(AsyncJob, world.job_id)).status == "failed"

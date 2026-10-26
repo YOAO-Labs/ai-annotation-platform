@@ -3,18 +3,18 @@
   "modules": [
     {
       "facade_module": "app.services.gpu_arbiter_store",
-      "public_module": "app.services.gpu_arbitration.ledger",
+      "public_module": "aap_inference.gpu.ledger",
       "exports": [
         {
-          "module": "app.services.gpu_arbitration.ledger.keys",
+          "module": "aap_inference.gpu.ledger.keys",
           "names": ["GPUArbiterKeys", "gpu_arbiter_keys"]
         },
         {
-          "module": "app.services.gpu_arbitration.ledger.store",
+          "module": "aap_inference.gpu.ledger.store",
           "names": ["GPUArbiterStore"]
         },
         {
-          "module": "app.services.gpu_arbitration.ledger.types",
+          "module": "aap_inference.gpu.ledger.types",
           "names": [
             "GPU_COLD_ADMISSION_OPERATION",
             "GPU_EVICTION_OPERATION",
@@ -44,7 +44,7 @@
           ]
         },
         {
-          "module": "app.services.gpu_arbitration.ledger.validation",
+          "module": "aap_inference.gpu.ledger.validation",
           "names": ["normalize_gpu_backend_max_concurrency"]
         }
       ],
@@ -83,27 +83,27 @@
     },
     {
       "facade_module": "app.services.gpu_admission_signer",
-      "public_module": "app.services.gpu_arbitration.signing",
+      "public_module": "aap_inference.gpu.signing",
       "exports": [
         {
-          "module": "app.services.gpu_arbitration.signing",
+          "module": "aap_inference.gpu.signing",
           "names": ["GPUAdmissionSignerConfigError", "GPUAdmissionTokenSigner"]
         }
       ],
       "consumer_modules": [
-        "app.services.gpu_arbitration.dispatch",
-        "app.services.gpu_arbitration.membership_activation",
-        "app.services.gpu_arbitration.rollout_control",
+        "aap_inference.gpu.dispatch",
+        "aap_inference.gpu.membership_activation",
+        "aap_inference.gpu.rollout_control",
         "scripts.validate_gpu_arbitration"
       ],
       "frozen_symbols": ["GPUAdmissionSignerConfigError", "GPUAdmissionTokenSigner"]
     },
     {
       "facade_module": "app.services.gpu_arbiter_rollout",
-      "public_module": "app.services.gpu_arbitration.rollout_state",
+      "public_module": "aap_inference.gpu.rollout_state",
       "exports": [
         {
-          "module": "app.services.gpu_arbitration.rollout_state",
+          "module": "aap_inference.gpu.rollout_state",
           "names": [
             "GPUArbiterRolloutConflict",
             "GPUArbiterRolloutDecision",
@@ -123,7 +123,7 @@
       ],
       "consumer_modules": [
         "app.api.v1.admin_ml_integrations",
-        "app.services.ml_client",
+        "aap_inference.model_execution",
         "app.workers.ml_health"
       ],
       "frozen_symbols": [
@@ -144,10 +144,10 @@
     },
     {
       "facade_module": "app.services.gpu_collector_database",
-      "public_module": "app.services.gpu_arbitration.collector_database",
+      "public_module": "aap_inference.gpu.collector_database",
       "exports": [
         {
-          "module": "app.services.gpu_arbitration.collector_database",
+          "module": "aap_inference.gpu.collector_database",
           "names": [
             "GPUCollectorDatabase",
             "GPUCollectorDatabaseConfigError",
@@ -168,10 +168,10 @@
     },
     {
       "facade_module": "app.services.gpu_dispatch_authority",
-      "public_module": "app.services.gpu_arbitration.dispatch",
+      "public_module": "aap_inference.gpu.dispatch",
       "exports": [
         {
-          "module": "app.services.gpu_arbitration.dispatch",
+          "module": "aap_inference.gpu.dispatch",
           "names": ["build_gpu_dispatch_context_factory"]
         }
       ],
@@ -186,10 +186,10 @@
     },
     {
       "facade_module": "app.services.gpu_membership_activation",
-      "public_module": "app.services.gpu_arbitration.membership_activation",
+      "public_module": "aap_inference.gpu.membership_activation",
       "exports": [
         {
-          "module": "app.services.gpu_arbitration.membership_activation",
+          "module": "aap_inference.gpu.membership_activation",
           "names": [
             "GPUMembershipPromotionResult",
             "promote_gpu_backend_membership",
@@ -206,10 +206,10 @@
     },
     {
       "facade_module": "app.services.gpu_rollout_control",
-      "public_module": "app.services.gpu_arbitration.rollout_control",
+      "public_module": "aap_inference.gpu.rollout_control",
       "exports": [
         {
-          "module": "app.services.gpu_arbitration.rollout_control",
+          "module": "aap_inference.gpu.rollout_control",
           "names": [
             "GPURolloutControlResult",
             "advance_gpu_backend_rollout_control",
@@ -229,7 +229,7 @@
       "public_module": "app.services.gpu_arbiter",
       "exports": [
         {
-          "module": "app.services.gpu_arbitration.contracts",
+          "module": "aap_inference.gpu.contracts",
           "names": [
             "GPUArbiterDispatchError",
             "GPUArbiterErrorCode",
@@ -247,7 +247,7 @@
           ]
         },
         {
-          "module": "app.services.gpu_arbitration.policy",
+          "module": "aap_inference.gpu.policy",
           "names": [
             "GPUClaimConfigurationError",
             "GPUShadowCandidate",
@@ -263,7 +263,7 @@
           ]
         },
         {
-          "module": "app.services.gpu_arbitration.fences",
+          "module": "aap_inference.gpu.fences",
           "names": [
             "GPUFenceCounter",
             "GPUFenceExhaustedError",
@@ -277,7 +277,7 @@
           ]
         },
         {
-          "module": "app.services.gpu_arbitration.proofs",
+          "module": "aap_inference.gpu.proofs",
           "names": [
             "GPUBusyEvictionRuntimeSubjectError",
             "GPUColdRuntimeSubject",
@@ -310,7 +310,7 @@
           ]
         },
         {
-          "module": "app.services.gpu_arbitration.control_preparation",
+          "module": "aap_inference.gpu.control_preparation",
           "names": [
             "GPULegacyAckBlockedError",
             "GPULegacyAckPreparation",
@@ -321,7 +321,7 @@
           ]
         },
         {
-          "module": "app.services.gpu_arbitration.reconciliation",
+          "module": "aap_inference.gpu.reconciliation",
           "names": [
             "GPUResourceRepairResult",
             "GPUResourceRuntimeObservation",
@@ -332,7 +332,7 @@
           ]
         },
         {
-          "module": "app.services.gpu_arbitration.retirement",
+          "module": "aap_inference.gpu.retirement",
           "names": [
             "GPURetiredLiveProof",
             "GPURetiredProbeResult",
@@ -342,7 +342,7 @@
           ]
         },
         {
-          "module": "app.services.gpu_arbitration.diagnostics",
+          "module": "aap_inference.gpu.diagnostics",
           "names": [
             "build_backend_gpu_config_status",
             "build_resource_summaries",
@@ -461,7 +461,6 @@
             "MockBboxTrackerAdapter",
             "TrackerAdapter",
             "TrackerContext",
-            "TrackerFrameResult",
             "get_tracker_adapter",
             "registered_tracker_models"
           ]
@@ -477,7 +476,6 @@
         "MockBboxTrackerAdapter",
         "TrackerAdapter",
         "TrackerContext",
-        "TrackerFrameResult",
         "get_tracker_adapter",
         "registered_tracker_models"
       ]

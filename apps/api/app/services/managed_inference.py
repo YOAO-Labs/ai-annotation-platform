@@ -4,17 +4,16 @@ from __future__ import annotations
 
 import base64
 import uuid
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any
 
 from fastapi import HTTPException
 
-from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.trained_model import ModelDeployment
 from app.schemas.sample_evaluation import EvaluationProfile
 from app.services import sample_evaluation_engine as engine, trained_models
-from app.services.gpu_arbitration.dispatch import build_gpu_dispatch_context_factory
 from aap_inference.backend_transport import PredictionResult
-from app.services.ml_client import MLBackendClient
-from app.services.ml_routing.client import RoutedMLBackendClient
 from app.services.training_dataset_bridge import content_digest
 from app.services.trained_model_reference_contract import (
     FreezeModelReferenceError,
@@ -53,10 +52,15 @@ async def qualification(db, project, model_id, deployment_id):
             "该框架尚未通过共享样本评估资格检查；模型试用与人工发布仍可使用",
             422,
         )
-    backend = await trained_models.enabled_backend(
-        db, project.id, deployment.registry_id
-    )
-    profile = await MLBackendClient(backend).managed_evaluation_request("profile")
+    await trained_models.enabled_backend(db, project.id, deployment.registry_id)
+    from app.services import inference_backend_control
+
+    try:
+        profile = await inference_backend_control.backend_control_service(
+            db
+        ).managed_evaluation_profile(deployment.registry_id)
+    except inference_backend_control.BackendControlOperationError as exc:
+        raise trained_models.backend_control_http_exception(exc) from exc
     checked = EvaluationProfile.model_validate(profile).model_dump(
         mode="json", by_alias=True
     )
@@ -118,15 +122,42 @@ def verify_inference(spec, row, inference):
         raise ValueError("Inference execution identity differs from the frozen request")
 
 
-async def private_client(db, model_ref):
+@dataclass(frozen=True, slots=True)
+class _BackendControlHandle:
+    registry_id: uuid.UUID
+    session_factory: Callable[[], Any] = field(repr=False)
+
+
+async def backend_control_handle(db, model_ref, *, session_factory):
     # Disabled inference must still permit stop-confirmation of old requests.
-    backend = await db.get(MLBackendRegistry, uuid.UUID(model_ref["registry_id"]))
-    if backend is None:
+    from app.services.ml_backend import MLBackendService
+
+    registry_id = uuid.UUID(model_ref["registry_id"])
+    if await MLBackendService(db).get_registry(registry_id) is None:
         raise RemoteUncertain
-    return MLBackendClient(backend)
+    return _BackendControlHandle(registry_id, session_factory)
+
+
+def _prediction_result(result):
+    from aap_inference_contract.execution import thaw_json
+
+    return PredictionResult(
+        task_id=result.task_id,
+        result=thaw_json(result.result),
+        score=result.score,
+        model_version=result.model_version,
+        inference_time_ms=result.inference_time_ms,
+        cache_hit=result.cache_hit,
+        model_load_ms=result.model_load_ms,
+        meta=None if result.meta is None else thaw_json(result.meta),
+        mask_input_next=result.mask_input_next,
+        diagnostic=None if result.diagnostic is None else thaw_json(result.diagnostic),
+    )
 
 
 def recovered_result(receipt, model_ref):
+    from aap_inference_contract.execution import ModelTaskResult
+
     response = receipt.get("response")
     if (
         receipt.get("response_digest") != content_digest(response)
@@ -138,7 +169,7 @@ def recovered_result(receipt, model_ref):
     item = response["results"][0]
     if not isinstance(item, dict):
         raise ValueError("Completed request evidence is invalid")
-    result = PredictionResult(
+    result = ModelTaskResult(
         task_id=item.get("task"),
         result=item.get("result"),
         score=item.get("score"),
@@ -146,34 +177,40 @@ def recovered_result(receipt, model_ref):
         inference_time_ms=item.get("inference_time_ms"),
         meta=item.get("meta"),
     )
-    trained_models.validate_and_map_results([result], model_ref)
-    return result
+    mapped = trained_models.validate_and_map_results((result,), model_ref)
+    return _prediction_result(mapped[0])
 
 
-async def remote_receipt(client, row, *, seal=False):
+async def remote_receipt(backend_control, row, *, seal=False):
     request = row.request["evaluation"]
-    path = f"requests/{row.request_id}"
-    if seal:
-        return await client.managed_evaluation_request(
-            path + "/seal",
-            payload={
-                key: request[key]
-                for key in (
-                    "binding_digest",
-                    "profile_digest",
-                    "storage_identity",
-                    "issued_at",
-                    "expires_at",
+    from app.services import inference_backend_control
+
+    async with backend_control.session_factory() as db:
+        service = inference_backend_control.backend_control_service(db)
+        try:
+            if seal:
+                receipt = await service.managed_evaluation_seal(
+                    backend_control.registry_id,
+                    request_id=row.request_id,
+                    binding_digest=request["binding_digest"],
+                    profile_digest=request["profile_digest"],
+                    storage_identity=request["storage_identity"],
+                    issued_at=request["issued_at"],
+                    expires_at=request["expires_at"],
                 )
-            },
-        )
-    return await client.managed_evaluation_request(
-        path,
-        params={
-            "binding_digest": request["binding_digest"],
-            "storage_identity": request["storage_identity"],
-        },
-    )
+            else:
+                receipt = await service.managed_evaluation_receipt(
+                    backend_control.registry_id,
+                    row.request_id,
+                    request["binding_digest"],
+                    request["storage_identity"],
+                )
+        except inference_backend_control.BackendControlOperationError as exc:
+            raise trained_models.backend_control_http_exception(exc) from exc
+        await db.commit()
+    if receipt is None:
+        raise RemoteUncertain
+    return receipt
 
 
 def checked_receipt(row, receipt):
@@ -209,22 +246,19 @@ def checked_receipt(row, receipt):
 
 
 async def predict(db, factory, *, project_id, spec, row, png, owner, operation):
-    routed = RoutedMLBackendClient(
-        db,
-        requested_registry=uuid.UUID(spec["model_ref"]["registry_id"]),
-        project_id=project_id,
-        owner=owner,
-        operation=operation,
-        shadow_session_factory=factory,
-        dispatch_context_factory=build_gpu_dispatch_context_factory(factory),
-    )
-    results = await routed.predict(
-        [
+    from aap_inference_contract.execution import FrozenModelOperation
+    from app.services.inference_model_execution import model_execution_port
+
+    registry_id = uuid.UUID(spec["model_ref"]["registry_id"])
+    request = FrozenModelOperation(
+        request_id=uuid.uuid4(),
+        operation="batch_predict",
+        task_inputs=(
             {
                 "id": spec["samples"][row.ordinal]["task_id"],
                 "file_path": "data:image/png;base64," + base64.b64encode(png).decode(),
-            }
-        ],
+            },
+        ),
         context={
             "model_id": f"trained:{spec['model_ref']['model_version_id']}",
             "frozen_model_ref": spec["model_ref"],
@@ -235,6 +269,14 @@ async def predict(db, factory, *, project_id, spec, row, png, owner, operation):
             },
             "sample_evaluation": row.request["evaluation"],
         },
+        project_id=uuid.UUID(str(project_id)),
+        requested_registry_id=registry_id,
+        requested_pool_id=None,
+        endpoint_registry_id=None,
+        required_instance_id=None,
+        route_owner=owner,
+        route_operation=operation,
         max_response_bytes=engine.MAX_RESPONSE_BYTES,
     )
-    return results[0]
+    reply = await model_execution_port(db, session_factory=factory).execute(request)
+    return _prediction_result(reply.results[0])

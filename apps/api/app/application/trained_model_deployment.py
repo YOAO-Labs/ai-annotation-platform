@@ -27,11 +27,11 @@ async def deploy_model(
     await lock_project_manager(db, actor_id, project.id)
     version = await learning.load_version(db, project.id, version_id)
     learning.validate_bindings(project, version.classes, version.bindings)
-    backend = await learning.enabled_backend(db, project.id, registry_id)
+    await learning.enabled_backend(db, project.id, registry_id)
     deployment = await learning.lock_deployment(db, version.id, registry_id)
     if deployment and deployment.status == "ready":
         try:
-            receipt = await backend_io.live_receipt(backend, str(version.id))
+            receipt = await backend_io.live_receipt(db, registry_id, str(version.id))
             learning.check_receipt(version, receipt)
         except HTTPException as exc:
             if exc.status_code != 409:

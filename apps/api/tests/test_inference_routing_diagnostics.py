@@ -1,10 +1,13 @@
 """Actual diagnostic endpoint counts survive loss of optional Redis hints."""
 
 import os
+import socket
 import uuid
 
 import pytest
 
+from aap_inference.pipeline_server import PipelineHttpServer
+from aap_inference.routing_runtime import RoutingRuntime
 from app.config import settings
 from app.services.ml_routing import router
 from app.services.ml_routing.authority import RoutingAuthority
@@ -14,9 +17,7 @@ from tests.labeling_class_query_helpers import assert_owned_test_database
 from tests.test_inference_routing_native import (
     _cleanup,
     _connect,
-    _identity_hash,
     _seed,
-    _step,
 )
 
 pytestmark = [
@@ -37,19 +38,37 @@ class _UnavailableCircuit:
 
 
 @pytest.mark.parametrize("mode", ["off", "observe", "enforce"])
-async def test_runtime_endpoint_retains_uncertain_count_after_redis_reset(
+async def test_runtime_endpoint_retains_active_scope_after_redis_reset(
     test_engine, httpx_client, super_admin, monkeypatch, mode
 ):
     await assert_owned_test_database(test_engine)
-    for name in (
-        "inference_routing_url",
-        "inference_routing_database_url",
-        "inference_routing_database_url_file",
-    ):
-        monkeypatch.setattr(settings, name, "")
-    monkeypatch.setattr(settings, "ml_backend_router_mode", mode)
+    routing_dsn = os.environ.get("AAP_MODULE_DATA_INFERENCE_ROUTING_URL")
+    assert routing_dsn, "module-data verifier must provide the restricted routing LOGIN"
     owner = await _connect(test_engine)
     world = await _seed(owner)
+    owner_runtime = RoutingRuntime(routing_dsn)
+    assert await owner_runtime.readiness()
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = int(listener.getsockname()[1])
+    token = f"routing-owner-{uuid.uuid4().hex}"
+    owner_server = PipelineHttpServer(
+        manager=None,
+        data=None,
+        control_token=None,
+        host="127.0.0.1",
+        port=port,
+        routing_manager=owner_runtime.manager,
+        routing_control_token=token,
+    )
+    await owner_server.start()
+    for name, value in {
+        "inference_routing_url": f"http://127.0.0.1:{port}",
+        "inference_routing_token": token,
+        "inference_routing_token_file": "",
+        "ml_backend_router_mode": mode,
+    }.items():
+        monkeypatch.setattr(settings, name, value)
     before = set(
         await owner.fetchval(
             "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) "
@@ -63,46 +82,12 @@ async def test_runtime_endpoint_retains_uncertain_count_after_redis_reset(
         return RoutingLedger.from_url(settings.redis_url, namespace=namespace)
 
     monkeypatch.setattr(router, "make_ledger_from_settings", factory)
-    authority = RoutingAuthority(test_engine)
+    authority = RoutingAuthority()
     scope = None
     try:
-        # Direct calls must be counted even if the pool's configured routing
-        # mode changes; this fixture has no physically bound backend controller.
         scope = await authority.acquire(
             registry_id=world["registry_id"], owner="diagnostics-acceptance"
         )
-        attempt_id = uuid.uuid4()
-        # This checks persisted admission state, not physical backend execution.
-        async with owner.transaction():
-            began = await _step(
-                owner,
-                "begin_attempt",
-                {
-                    "scope_id": str(scope.id),
-                    "capability": scope.capability,
-                    "attempt_id": str(attempt_id),
-                    "method": "POST",
-                    "path": "/predict",
-                    "transport_identity": {
-                        "identity_sha256": await _identity_hash(
-                            owner, world["registry_id"]
-                        )
-                    },
-                },
-            )
-        assert began["status"] == "ok"
-        await authority.execute(
-            "settle",
-            {
-                "scope_id": str(scope.id),
-                "capability": scope.capability,
-                "attempt_id": str(attempt_id),
-                "kind": "uncertain",
-                "status_code": None,
-                "reason": "request_timeout",
-            },
-        )
-        await authority.close(scope, "cancel")
         key = (
             f"{namespace}:pool:{world['pool_id']}:member:{world['registry_id']}:leases"
         )
@@ -151,6 +136,8 @@ async def test_runtime_endpoint_retains_uncertain_count_after_redis_reset(
         assert source["error"] == "routing_owner_unavailable"
     finally:
         try:
+            if scope is not None:
+                await authority.close(scope, "cancel")
             keys = [key async for key in ledger._redis.scan_iter(f"{namespace}:*")]
             if keys:
                 await ledger._redis.delete(*keys)
@@ -168,4 +155,10 @@ async def test_runtime_endpoint_retains_uncertain_count_after_redis_reset(
             )
             await _cleanup(owner, world)
         finally:
-            await owner.close()
+            try:
+                await owner_server.close()
+            finally:
+                try:
+                    await owner_runtime.close()
+                finally:
+                    await owner.close()

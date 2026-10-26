@@ -23,6 +23,11 @@ from .routing import (
     routing_command_bytes,
     routing_runtime_request_bytes,
     routing_status_request_bytes,
+    RoutingQuiescenceRequest,
+    RoutingQuiescenceResult,
+    decode_routing_quiescence_request,
+    decode_routing_quiescence_result,
+    routing_quiescence_request_bytes,
 )
 from .scope_retirement import (
     SCOPE_RETIREMENT_REPLY_MAX_BYTES,
@@ -211,6 +216,18 @@ class RoutingHttpClient:
         except _AmbiguousRoutingResponse:
             # This is an observation only; unlike command receipts it has no
             # write to recover, so malformed or lost replies fail immediately.
+            raise RoutingUnavailable() from None
+
+    async def quiescence(
+        self,
+        request: RoutingQuiescenceRequest | dict | bytes | str,
+    ) -> RoutingQuiescenceResult:
+        typed_request = decode_routing_quiescence_request(request)
+        body = routing_quiescence_request_bytes(typed_request)
+        try:
+            raw = await self._post("/v1/routes/quiescence", body)
+            return decode_routing_quiescence_result(typed_request, raw)
+        except _AmbiguousRoutingResponse:
             raise RoutingUnavailable() from None
 
     async def retire_scope(

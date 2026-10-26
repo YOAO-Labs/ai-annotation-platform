@@ -17,15 +17,15 @@
 from __future__ import annotations
 
 import secrets
+import uuid
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
 from app.deps import get_db
+from app.services.inference_topology_data import InferenceTopologyData
 
 router = APIRouter()
 
@@ -63,21 +63,23 @@ async def metrics_targets(
     """
     _check_token(authorization)
 
-    rows = await db.execute(select(MLBackend).where(MLBackend.state != "disconnected"))
-    by_target: dict[str, MLBackend] = {}
-    for b in rows.scalars():
-        hostport = _url_to_hostport(b.url)
+    registries = await InferenceTopologyData(db).registry_catalog()
+    by_target: dict[str, tuple[str, uuid.UUID]] = {}
+    for registry in registries:
+        if registry.state == "disconnected":
+            continue
+        hostport = _url_to_hostport(registry.url)
         if not hostport:
             continue
-        by_target.setdefault(hostport, b)
+        by_target.setdefault(hostport, (registry.name, registry.id))
 
     return [
         {
             "targets": [hp],
             "labels": {
-                "service": b.name,
-                "backend_id": str(b.id),
+                "service": name,
+                "backend_id": str(backend_id),
             },
         }
-        for hp, b in by_target.items()
+        for hp, (name, backend_id) in by_target.items()
     ]

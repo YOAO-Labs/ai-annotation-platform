@@ -28,6 +28,17 @@ from aap_assets_video_inputs.evidence import (
     parse_prediction_evidence,
 )
 from aap_assets_video_inputs.execution import VideoInputFailure
+from aap_inference_contract.execution import (
+    ExecutionFailure,
+    ExecutionProvenance,
+    FrozenModelOperation,
+    ModelExecutionError,
+    ModelExecutionObservation,
+    ModelExecutionPort,
+    ModelOperationResult,
+    ModelTaskResult,
+    thaw_json,
+)
 from app.config import settings
 from app.core.security import create_access_token
 from app.deps import get_db
@@ -61,6 +72,82 @@ pytestmark = [
         reason="requires explicitly enabled owned SQL/S3/Celery qualification",
     ),
 ]
+
+
+def _install_video_model_port(monkeypatch, predict, *, backend_id):
+    class FixtureModelExecutionPort:
+        async def execute(
+            self, operation: FrozenModelOperation
+        ) -> ModelOperationResult:
+            inputs = tuple(thaw_json(value) for value in operation.task_inputs)
+            context = (
+                None if operation.context is None else thaw_json(operation.context)
+            )
+            provenance = ExecutionProvenance(
+                requested_registry_id=operation.requested_registry_id,
+                requested_pool_id=operation.requested_pool_id,
+                registry_id=backend_id,
+                pool_id=operation.requested_pool_id,
+                instance_id=backend_id,
+                route_scope_id=uuid4(),
+                attempt_id=operation.request_id,
+            )
+            observation_operation = (
+                "predict"
+                if operation.operation == "batch_predict"
+                else "predict_interactive"
+            )
+            try:
+                responses = await predict(inputs, context)
+            except RuntimeError as error:
+                observation = ModelExecutionObservation(
+                    backend_id=str(backend_id),
+                    operation=observation_operation,
+                    outcome="error",
+                    elapsed_seconds=0.0,
+                )
+                raise ModelExecutionError(
+                    ExecutionFailure(
+                        request_id=operation.request_id,
+                        kind="backend",
+                        code="fixture_backend_failure",
+                        status_code=500,
+                        detail={"message": str(error)},
+                        provenance=provenance,
+                        observation=observation,
+                    )
+                ) from error
+            return ModelOperationResult(
+                request_id=operation.request_id,
+                operation=operation.operation,
+                results=tuple(
+                    ModelTaskResult(
+                        task_id=response.task_id,
+                        result=response.result,
+                        score=response.score,
+                        model_version=response.model_version,
+                        inference_time_ms=response.inference_time_ms,
+                        meta=response.meta,
+                    )
+                    for response in responses
+                ),
+                provenance=provenance,
+                observation=ModelExecutionObservation(
+                    backend_id=str(backend_id),
+                    operation=observation_operation,
+                    outcome="success",
+                    elapsed_seconds=0.0,
+                ),
+                wall_time_ms=0,
+            )
+
+    def port_factory(*_args, **_kwargs) -> ModelExecutionPort:
+        return FixtureModelExecutionPort()
+
+    monkeypatch.setattr(
+        "app.services.inference_model_execution.model_execution_port",
+        port_factory,
+    )
 
 
 def _start_polling_video_worker(runtime, directory):
@@ -337,11 +424,7 @@ async def test_api_video_overwrite_waits_for_original_then_runs_real_celery_fram
                 )
             ]
 
-        client = SimpleNamespace(predict=predict, last_instance_id=None, pool_id=None)
-        monkeypatch.setattr(
-            "app.services.ml_routing.client.RoutedMLBackendClient",
-            lambda *_a, **_kw: client,
-        )
+        _install_video_model_port(monkeypatch, predict, backend_id=backend_id)
         monkeypatch.setattr(settings, "assets_media_url", runtime.origin)
         monkeypatch.setattr(settings, "assets_media_token", runtime.token)
         monkeypatch.setattr(settings, "frame_preannotate_chunk_size", 2)

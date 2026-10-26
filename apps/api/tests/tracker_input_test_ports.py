@@ -10,6 +10,18 @@ from contextlib import asynccontextmanager
 from types import SimpleNamespace
 import uuid
 
+from aap_inference.tracker import TrackerSessionState
+from aap_inference_contract.execution import (
+    ExecutionProvenance,
+    ModelExecutionObservation,
+    ModelOperationResult,
+    ModelTaskResult,
+    thaw_json,
+)
+from app.services.video_tracking.adapters import (
+    TrackerPropagationResult,
+    _response_digest,
+)
 from aap_assets_video_inputs import tracker as t
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import DatasetItem
@@ -22,32 +34,115 @@ _DIGEST = "a" * 64
 _SOURCE_SHA256 = "b" * 64
 
 
-async def yield_tracker_fake_results(ctx, results):
-    """Yield direct fake frames and record the exact fake response observation."""
-    rows = list(results)
-    for result in rows:
-        yield result
-    if ctx.response_digest is not None:
-        from app.services.video_tracking.adapters import _response_digest
-
-        ctx.response_digest.append(
-            _response_digest(
-                {
-                    "result": [
-                        {
-                            "frame_index": result.frame_index,
-                            "geometry": result.geometry,
-                            "confidence": result.confidence,
-                            "outside": result.outside,
-                            "instance_id": result.instance_id,
-                            "primary": result.primary,
-                        }
-                        for result in rows
-                    ],
-                    "meta": {},
-                }
-            )
+def tracker_fake_propagation(ctx, results):
+    """Return immutable fake frames with the same digest and pinned-route facts."""
+    rows = tuple(results)
+    scope = ctx.bound_route
+    provenance = None
+    if (
+        scope is not None
+        and ctx.requested_registry_id is not None
+        and ctx.required_instance_id is not None
+    ):
+        provenance = ExecutionProvenance(
+            requested_registry_id=ctx.requested_registry_id,
+            requested_pool_id=scope.pool_id,
+            registry_id=ctx.required_instance_id,
+            pool_id=scope.pool_id,
+            instance_id=ctx.required_instance_id,
+            route_scope_id=scope.id,
+            attempt_id=uuid.uuid4(),
         )
+    session = None
+    if ctx.session is not None:
+        session = TrackerSessionState(
+            action="continue",
+            token=(
+                ctx.session.token
+                if ctx.session.action == "close" or ctx.session.token is not None
+                else "test-tracker-session-token"
+            ),
+        )
+    return TrackerPropagationResult(
+        frames=rows,
+        session=session,
+        response_digest=_response_digest(
+            {
+                "result": [
+                    {
+                        "frame_index": result.frame_index,
+                        "geometry": thaw_json(result.geometry),
+                        "confidence": result.confidence,
+                        "outside": result.outside,
+                        "instance_id": result.instance_id,
+                        "primary": result.primary,
+                    }
+                    for result in rows
+                ],
+                "meta": {},
+            }
+        ),
+        provenance=provenance,
+    )
+
+
+def install_tracker_execution_fake(monkeypatch, predict_interactive):
+    def port_factory(db, *, bound_route=None):
+        class FakePort:
+            async def execute(self, operation):
+                scope = bound_route
+                instance_id = operation.required_instance_id
+                if scope is None or instance_id is None:
+                    raise AssertionError("tracker fake requires the pinned route")
+                task_data = thaw_json(operation.task_inputs[0])
+                context = thaw_json(operation.context)
+                response = await predict_interactive(
+                    SimpleNamespace(backend_id=instance_id, pool_id=scope.pool_id),
+                    task_data,
+                    context,
+                )
+                meta = response.meta or {}
+                tracker_meta = meta.get("tracker_context") or {}
+                task_result = ModelTaskResult(
+                    task_id=response.task_id,
+                    result=response.result,
+                    score=response.score,
+                    model_version=response.model_version,
+                    inference_time_ms=response.inference_time_ms,
+                    meta=meta,
+                    session_token=tracker_meta.get("token"),
+                )
+                return ModelOperationResult(
+                    request_id=operation.request_id,
+                    operation=operation.operation,
+                    results=(task_result,),
+                    provenance=ExecutionProvenance(
+                        requested_registry_id=operation.requested_registry_id,
+                        requested_pool_id=operation.requested_pool_id,
+                        registry_id=instance_id,
+                        pool_id=scope.pool_id,
+                        instance_id=instance_id,
+                        route_scope_id=scope.id,
+                        attempt_id=operation.request_id,
+                    ),
+                    observation=ModelExecutionObservation(
+                        backend_id=str(instance_id),
+                        operation="predict_interactive",
+                        outcome="success",
+                        elapsed_seconds=0.0,
+                    ),
+                    wall_time_ms=0,
+                    response_digest=_response_digest(
+                        {"result": response.result, "meta": meta}
+                    ),
+                )
+
+        return FakePort()
+
+    monkeypatch.setattr(
+        "app.services.video_tracking.adapters.model_execution_port",
+        port_factory,
+    )
 
 
 def tracker_input_evidence_for(job, task):

@@ -2,14 +2,17 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
+import os
 import uuid
 
+import asyncpg
 import pytest
 from aap_protocol_v2.lifecycle import (
     ManagedLifecycleCapabilities,
     managed_lifecycle_capability_sha256,
 )
 from sqlalchemy import delete, select, text, update
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -17,18 +20,39 @@ from app.db.models.gpu_arbiter_rollout import GPUArbiterRollout
 from app.db.models.gpu_backend_fence import GPUBackendFence
 from app.db.models.gpu_backend_membership import GPUBackendMembership
 from app.db.models.ml_backend_registry import MLBackendRegistry
-from app.services.gpu_arbitration.control_preparation import (
+from aap_inference.gpu.control_preparation import (
     prepare_gpu_backend_rollout_control,
 )
-from app.services.gpu_arbitration.fences import activate_gpu_backend_membership
-from app.services.gpu_arbitration.rollout_state import (
+from aap_inference.gpu.fences import activate_gpu_backend_membership
+from aap_inference.gpu.native import GPUAuthorityPoolData
+from aap_inference.gpu.rollout_state import (
     begin_gpu_arbiter_rollout,
     complete_gpu_arbiter_rollout,
 )
-from app.config import GPUArbiterMode
+from aap_inference.gpu.settings import GPUArbiterMode
 
 
 _RESOURCE = "node-rollout-control/GPU-a"
+
+
+@pytest.fixture
+async def gpu_authority_data() -> AsyncIterator[GPUAuthorityPoolData]:
+    dsn = (
+        make_url(os.environ["AAP_MODULE_DATA_INFERENCE_GPU_URL"])
+        .set(drivername="postgresql")
+        .render_as_string(hide_password=False)
+    )
+    pool = await asyncpg.create_pool(dsn=dsn, min_size=1, max_size=4)
+    try:
+        yield GPUAuthorityPoolData(pool)
+    finally:
+        await pool.close()
+
+
+async def _native_call(
+    authority_data: GPUAuthorityPoolData, operation, *args, **kwargs
+):
+    return await operation(authority_data, *args, **kwargs)
 
 
 def _proof_timestamp(value: datetime) -> str:
@@ -38,6 +62,7 @@ def _proof_timestamp(value: datetime) -> str:
 @pytest.fixture
 async def rollout_control_db(
     test_engine: AsyncEngine,
+    gpu_authority_data: GPUAuthorityPoolData,
 ) -> AsyncIterator[tuple[async_sessionmaker[AsyncSession], uuid.UUID, list[str]]]:
     factory = async_sessionmaker(
         test_engine,
@@ -57,8 +82,9 @@ async def rollout_control_db(
                 extra_params={"max_concurrency": 4},
             )
         )
-    await activate_gpu_backend_membership(
-        factory,
+    await _native_call(
+        gpu_authority_data,
+        activate_gpu_backend_membership,
         backend_id,
         gpu_resource_id=_RESOURCE,
         membership_epoch=1,
@@ -228,11 +254,13 @@ async def _expire_control_intent(
 @pytest.mark.asyncio
 async def test_promotion_persists_reset_then_enforce_intent_and_waits_for_health(
     rollout_control_db,
+    gpu_authority_data: GPUAuthorityPoolData,
 ) -> None:
     factory, backend_id, demotions = rollout_control_db
     await _install_health(factory, backend_id, gate="legacy", control_epoch="1")
-    rollout = await begin_gpu_arbiter_rollout(
-        factory,
+    rollout = await _native_call(
+        gpu_authority_data,
+        begin_gpu_arbiter_rollout,
         _RESOURCE,
         GPUArbiterMode.ENFORCE,
     )
@@ -241,8 +269,9 @@ async def test_promotion_persists_reset_then_enforce_intent_and_waits_for_health
     async def demote(resource_id: str) -> None:
         demotions.append(resource_id)
 
-    reset = await prepare_gpu_backend_rollout_control(
-        factory,
+    reset = await _native_call(
+        gpu_authority_data,
+        prepare_gpu_backend_rollout_control,
         backend_id,
         gpu_resource_id=_RESOURCE,
         membership_epoch=1,
@@ -250,8 +279,9 @@ async def test_promotion_persists_reset_then_enforce_intent_and_waits_for_health
         target_gate="enforce",
         readiness_demoter=demote,
     )
-    replay = await prepare_gpu_backend_rollout_control(
-        factory,
+    replay = await _native_call(
+        gpu_authority_data,
+        prepare_gpu_backend_rollout_control,
         backend_id,
         gpu_resource_id=_RESOURCE,
         membership_epoch=1,
@@ -280,8 +310,9 @@ async def test_promotion_persists_reset_then_enforce_intent_and_waits_for_health
 
     await _expire_control_intent(factory, backend_id)
     await _install_health(factory, backend_id, gate="legacy", control_epoch="2")
-    enforce = await prepare_gpu_backend_rollout_control(
-        factory,
+    enforce = await _native_call(
+        gpu_authority_data,
+        prepare_gpu_backend_rollout_control,
         backend_id,
         gpu_resource_id=_RESOURCE,
         membership_epoch=1,
@@ -297,8 +328,9 @@ async def test_promotion_persists_reset_then_enforce_intent_and_waits_for_health
 
     await _expire_control_intent(factory, backend_id)
     await _install_health(factory, backend_id, gate="enforce", control_epoch="3")
-    acknowledged = await prepare_gpu_backend_rollout_control(
-        factory,
+    acknowledged = await _native_call(
+        gpu_authority_data,
+        prepare_gpu_backend_rollout_control,
         backend_id,
         gpu_resource_id=_RESOURCE,
         membership_epoch=1,
@@ -316,17 +348,25 @@ async def test_promotion_persists_reset_then_enforce_intent_and_waits_for_health
 @pytest.mark.asyncio
 async def test_demotion_allows_resident_pool_and_requires_fresh_legacy_health(
     rollout_control_db,
+    gpu_authority_data: GPUAuthorityPoolData,
 ) -> None:
     factory, backend_id, demotions = rollout_control_db
-    promotion = await begin_gpu_arbiter_rollout(
-        factory,
+    promotion = await _native_call(
+        gpu_authority_data,
+        begin_gpu_arbiter_rollout,
         _RESOURCE,
         GPUArbiterMode.ENFORCE,
     )
     assert promotion.transition_id is not None
-    await complete_gpu_arbiter_rollout(factory, _RESOURCE, promotion.transition_id)
-    demotion = await begin_gpu_arbiter_rollout(
-        factory,
+    await _native_call(
+        gpu_authority_data,
+        complete_gpu_arbiter_rollout,
+        _RESOURCE,
+        promotion.transition_id,
+    )
+    demotion = await _native_call(
+        gpu_authority_data,
+        begin_gpu_arbiter_rollout,
         _RESOURCE,
         GPUArbiterMode.OBSERVE,
     )
@@ -342,8 +382,9 @@ async def test_demotion_allows_resident_pool_and_requires_fresh_legacy_health(
     async def demote_ready(resource_id: str) -> None:
         demotions.append(resource_id)
 
-    issued = await prepare_gpu_backend_rollout_control(
-        factory,
+    issued = await _native_call(
+        gpu_authority_data,
+        prepare_gpu_backend_rollout_control,
         backend_id,
         gpu_resource_id=_RESOURCE,
         membership_epoch=1,
@@ -365,8 +406,9 @@ async def test_demotion_allows_resident_pool_and_requires_fresh_legacy_health(
         control_epoch="2",
         resident=True,
     )
-    acknowledged = await prepare_gpu_backend_rollout_control(
-        factory,
+    acknowledged = await _native_call(
+        gpu_authority_data,
+        prepare_gpu_backend_rollout_control,
         backend_id,
         gpu_resource_id=_RESOURCE,
         membership_epoch=1,

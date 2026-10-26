@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
+import hashlib
 import json
 import os
 import time
 import uuid
 
+import asyncpg
 import pytest
 from aap_protocol_v2.lifecycle import (
     AdmissionScope,
@@ -19,23 +22,23 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from redis.asyncio import Redis
 from sqlalchemy import delete, select, text, update
 from sqlalchemy.exc import DBAPIError
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.config import Settings, settings
+from aap_inference.backend_endpoint import BackendEndpointSnapshot
+from app.config import settings
 from app.db.models.gpu_backend_fence import GPUBackendFence
 from app.db.models.gpu_backend_cancel_intent import GPUBackendCancelIntent
 from app.db.models.gpu_backend_membership import GPUBackendMembership
 from app.db.models.ml_backend_registry import MLBackendRegistry
-from app.services.gpu_arbitration import proofs as gpu_arbiter_service
-from app.services.gpu_arbitration import proofs as gpu_proofs_service
-from app.services.gpu_arbitration.contracts import GPUDispatchRequest
-from app.services.gpu_arbitration.fences import (
-    _record_gpu_backend_token_expiry_in_transaction,
+from aap_inference.gpu import proofs as gpu_proofs_service
+from aap_inference.gpu.contracts import GPUDispatchRequest
+from aap_inference.gpu.fences import (
     activate_gpu_backend_membership,
     record_gpu_backend_token_expiry,
 )
-from app.services.gpu_arbitration.proofs import (
+from aap_inference.gpu.proofs import (
     GPUBusyEvictionRuntimeSubjectError,
     GPUColdRuntimeSubjectError,
     GPUEvictionCancelRuntimeSubjectError,
@@ -49,21 +52,20 @@ from app.services.gpu_arbitration.proofs import (
     prepare_gpu_cold_runtime_generation,
     prepare_gpu_eviction_cancel_runtime_generation,
     prepare_gpu_idle_eviction_runtime_generation,
-    read_gpu_busy_eviction_runtime_subject,
-    read_gpu_cold_runtime_subject,
-    read_gpu_eviction_cancel_runtime_subject,
-    read_gpu_eviction_drain_health,
-    read_gpu_idle_eviction_runtime_subject,
-    read_gpu_resident_runtime_subject,
     record_gpu_resident_runtime_token_expiry,
 )
-from app.services.gpu_arbitration.reconciliation import (
+from aap_inference.gpu.reconciliation import (
     commit_gpu_proof_reset_from_health,
     repair_gpu_resource,
 )
-from app.services.gpu_arbitration.retirement import collect_gpu_backend_tombstone
-from app.services.gpu_arbitration.dispatch import build_gpu_dispatch_context_factory
-from app.services.gpu_arbitration.ledger import (
+from aap_inference.gpu.retirement import collect_gpu_backend_tombstone
+from aap_inference.gpu.dispatch import build_gpu_dispatch_context_factory
+from aap_inference.gpu.collector_database import (
+    GPUCollectorDatabase,
+    validate_gpu_collector_role_boundary,
+)
+from aap_inference.gpu.native import GPUAuthorityPoolData
+from aap_inference.gpu.ledger import (
     GPUAllocation,
     GPUAllocationState,
     GPUArbiterStore,
@@ -71,8 +73,12 @@ from app.services.gpu_arbitration.ledger import (
     GPUProofResetContext,
     GPUReconcileResult,
 )
-from app.services.gpu_arbitration.signing import GPUAdmissionTokenSigner
-
+from aap_inference.gpu.signing import GPUAdmissionTokenSigner
+from aap_inference.gpu.settings import (
+    GPUArbiterMode,
+    GPUAuthoritySettings,
+    GPUResourceSettings,
+)
 
 _RESOURCE_A = "node-proof/GPU-a"
 _RESOURCE_B = "node-proof/GPU-b"
@@ -82,24 +88,271 @@ def _proof_timestamp(value: datetime) -> str:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
-def _resource_config(*resource_ids: str, allocatable_mb: int = 8192) -> Settings:
+def _resource_config(
+    *resource_ids: str,
+    allocatable_mb: int = 8192,
+) -> GPUAuthoritySettings:
     resources = {
-        resource_id: {
-            "node_id": resource_id.split("/", 1)[0],
-            "physical_device_token": resource_id.split("/", 1)[1],
-            "allocatable_mb": allocatable_mb,
-            "mode": "off",
-        }
+        resource_id: GPUResourceSettings(
+            node_id=resource_id.split("/", 1)[0],
+            physical_device_token=resource_id.split("/", 1)[1],
+            allocatable_mb=allocatable_mb,
+            mode=GPUArbiterMode.OFF,
+        )
         for resource_id in resource_ids
     }
-    return Settings(
-        _env_file=None,
-        gpu_arbiter_resources_json=json.dumps(resources),
+    return GPUAuthoritySettings(
+        gpu_arbiter_mode=GPUArbiterMode.OFF,
+        gpu_arbiter_resources=resources,
+        redis_url=settings.redis_url,
     )
 
 
 def _redis_url() -> str:
     return os.environ.get("TEST_REDIS_URL", settings.redis_url)
+
+
+def _gpu_role_url(test_engine: AsyncEngine, env_name: str, role: str) -> str:
+    raw = os.environ.get(env_name)
+    if not raw:
+        pytest.fail("the module-data verifier did not supply its fixture URLs")
+    try:
+        parsed = make_url(raw)
+    except Exception:
+        pytest.fail("the GPU Native role URL is invalid")
+    owner = test_engine.url
+    if (
+        parsed.drivername != "postgresql+asyncpg"
+        or parsed.username != role
+        or parsed.host != "127.0.0.1"
+        or parsed.port != owner.port
+        or parsed.database != owner.database
+    ):
+        pytest.fail("the GPU Native role URL does not match the isolated test DB")
+    return parsed.set(drivername="postgresql").render_as_string(hide_password=False)
+
+
+class _GPUAuthoritySessionProvider:
+    """Keep fixture-owner ORM UOWs separate from authority Native transactions."""
+
+    def __init__(
+        self,
+        sessions: async_sessionmaker[AsyncSession],
+        authority_data: GPUAuthorityPoolData,
+        authority_pool: asyncpg.Pool,
+    ) -> None:
+        self._sessions = sessions
+        self._authority_data = authority_data
+        self._authority_pool = authority_pool
+
+    def __call__(self, *args, **kwargs) -> AsyncSession:
+        return self._sessions(*args, **kwargs)
+
+    def begin(self):
+        return self._sessions.begin()
+
+    @asynccontextmanager
+    async def transaction(self):
+        async with self._authority_data.transaction() as data:
+            yield data
+
+    async def aclose(self) -> None:
+        await self._authority_pool.close()
+
+
+async def _open_gpu_authority_provider(
+    test_engine: AsyncEngine,
+) -> _GPUAuthoritySessionProvider:
+    sessions = async_sessionmaker(
+        test_engine, class_=AsyncSession, expire_on_commit=False
+    )
+    role_url = _gpu_role_url(
+        test_engine,
+        "AAP_MODULE_DATA_INFERENCE_GPU_URL",
+        "inference_gpu_authority_client",
+    )
+    pool = await asyncpg.create_pool(dsn=role_url, min_size=1, max_size=4)
+    provider = _GPUAuthoritySessionProvider(
+        sessions,
+        GPUAuthorityPoolData(pool),
+        pool,
+    )
+    try:
+        async with pool.acquire() as connection:
+            assert await connection.fetchval("SELECT current_user") == (
+                "inference_gpu_authority_client"
+            )
+            assert await connection.fetchval("SELECT session_user") == (
+                "inference_gpu_authority_client"
+            )
+        async with provider.transaction():
+            pass
+    except BaseException:
+        await provider.aclose()
+        raise
+    return provider
+
+
+@pytest.fixture
+async def gpu_authority_provider(
+    test_engine: AsyncEngine,
+) -> AsyncIterator[_GPUAuthoritySessionProvider]:
+    provider = await _open_gpu_authority_provider(test_engine)
+    try:
+        yield provider
+    finally:
+        await provider.aclose()
+
+
+@pytest.fixture
+async def gpu_collector_database(
+    test_engine: AsyncEngine,
+) -> AsyncIterator[GPUCollectorDatabase]:
+    role_url = _gpu_role_url(
+        test_engine,
+        "AAP_MODULE_DATA_INFERENCE_GPU_COLLECTOR_URL",
+        "inference_gpu_collector_client",
+    )
+    pool = await asyncpg.create_pool(dsn=role_url, min_size=1, max_size=4)
+    try:
+        async with pool.acquire() as connection:
+            collector_role = await connection.fetchval("SELECT current_user")
+            assert collector_role == "inference_gpu_collector_client"
+            assert await connection.fetchval("SELECT session_user") == (
+                "inference_gpu_collector_client"
+            )
+        application_role, collector_role = validate_gpu_collector_role_boundary(
+            "inference_gpu_authority_client",
+            collector_role,
+        )
+        database = GPUCollectorDatabase(
+            pool=pool,
+            application_role=application_role,
+            collector_role=collector_role,
+        )
+        async with database.transaction():
+            pass
+        yield database
+    finally:
+        await pool.close()
+
+
+async def _record_token_expiry(
+    provider: _GPUAuthoritySessionProvider,
+    backend_id: uuid.UUID,
+    *,
+    gpu_resource_id: str,
+    membership_epoch: int,
+    token_expires_at: datetime,
+) -> datetime:
+    async with provider.transaction() as data:
+        return await record_gpu_backend_token_expiry(
+            data,
+            backend_id,
+            gpu_resource_id=gpu_resource_id,
+            membership_epoch=membership_epoch,
+            token_expires_at=token_expires_at,
+        )
+
+
+def _native_read_operation(name: str):
+    async def invoke(source: _GPUAuthoritySessionProvider, *args, **kwargs):
+        async with source.transaction() as data:
+            return await getattr(gpu_proofs_service, name)(data, *args, **kwargs)
+
+    return invoke
+
+
+read_gpu_busy_eviction_runtime_subject = _native_read_operation(
+    "read_gpu_busy_eviction_runtime_subject"
+)
+read_gpu_cold_runtime_subject = _native_read_operation("read_gpu_cold_runtime_subject")
+read_gpu_eviction_cancel_runtime_subject = _native_read_operation(
+    "read_gpu_eviction_cancel_runtime_subject"
+)
+read_gpu_eviction_drain_health = _native_read_operation(
+    "read_gpu_eviction_drain_health"
+)
+read_gpu_idle_eviction_runtime_subject = _native_read_operation(
+    "read_gpu_idle_eviction_runtime_subject"
+)
+read_gpu_resident_runtime_subject = _native_read_operation(
+    "read_gpu_resident_runtime_subject"
+)
+
+
+class _ProofEndpointSource:
+    def __init__(self, factory: _GPUAuthoritySessionProvider) -> None:
+        self._factory = factory
+
+    async def open_owned(
+        self,
+        backend_registry_id: uuid.UUID,
+        *,
+        request_id: uuid.UUID,
+        purpose: str,
+        binding=None,
+    ) -> BackendEndpointSnapshot:
+        async with self._factory() as db:
+            backend = await db.get(MLBackendRegistry, backend_registry_id)
+        if backend is None:
+            raise RuntimeError("test backend endpoint is unavailable")
+        return BackendEndpointSnapshot(
+            registry_id=backend.id,
+            request_id=request_id,
+            purpose=purpose,
+            authority=None,
+            endpoint_sha256=hashlib.sha256(backend.url.encode()).hexdigest(),
+            url=backend.url,
+            auth_method=None,
+            auth_token=None,
+            gpu_resource_id=backend.gpu_resource_id,
+            vram_budget_mb=backend.vram_budget_mb,
+            eviction_priority=backend.eviction_priority,
+            extra_params=backend.extra_params,
+        )
+
+    async def readiness(self) -> bool:
+        return True
+
+
+class _UnusedBackendControlTransport:
+    @asynccontextmanager
+    async def control_binding(self, _registry_id, *, request_id, operation):
+        yield None
+
+    async def health_meta(self, *args, **kwargs):
+        raise AssertionError("unexpected backend health transport")
+
+    async def lifecycle_mode(self, *args, **kwargs):
+        raise AssertionError("unexpected backend mode transport")
+
+    async def lifecycle_reset(self, *args, **kwargs):
+        raise AssertionError("unexpected backend reset transport")
+
+    async def lifecycle_drain(self, *args, **kwargs):
+        raise AssertionError("unexpected backend drain transport")
+
+    async def lifecycle_cancel_drain(self, *args, **kwargs):
+        raise AssertionError("unexpected backend cancel transport")
+
+    async def lifecycle_unload(self, *args, **kwargs):
+        raise AssertionError("unexpected backend unload transport")
+
+
+class _ProofDispatchClock:
+    def monotonic(self) -> float:
+        return time.monotonic()
+
+    def time(self) -> float:
+        return time.time()
+
+    async def sleep(self, delay: float) -> None:
+        await asyncio.sleep(delay)
+
+
+async def _refresh_test_health(_backend_id: uuid.UUID, _challenge: str) -> bool:
+    return True
 
 
 async def _clean_redis_namespace(redis_url: str, namespace: str) -> None:
@@ -138,92 +391,96 @@ async def _create_active_backends(
     *,
     resource_id: str,
     budgets: tuple[int, ...],
-) -> tuple[async_sessionmaker[AsyncSession], tuple[uuid.UUID, ...]]:
-    factory = async_sessionmaker(
-        test_engine, class_=AsyncSession, expire_on_commit=False
-    )
+) -> tuple[_GPUAuthoritySessionProvider, tuple[uuid.UUID, ...]]:
+    factory = await _open_gpu_authority_provider(test_engine)
     backend_ids = tuple(uuid.uuid4() for _ in budgets)
-    async with factory.begin() as db:
-        for index, (backend_id, budget) in enumerate(
-            zip(backend_ids, budgets, strict=True)
-        ):
-            db.add(
-                MLBackendRegistry(
-                    id=backend_id,
-                    name=f"gpu-proof-{index}",
-                    url=f"http://gpu-proof-{backend_id}.test",
-                    gpu_resource_id=resource_id,
-                    vram_budget_mb=budget,
-                    eviction_priority=index,
-                    extra_params={"max_concurrency": index + 4},
+    try:
+        async with factory.begin() as db:
+            for index, (backend_id, budget) in enumerate(
+                zip(backend_ids, budgets, strict=True)
+            ):
+                db.add(
+                    MLBackendRegistry(
+                        id=backend_id,
+                        name=f"gpu-proof-{index}",
+                        url=f"http://gpu-proof-{backend_id}.test",
+                        gpu_resource_id=resource_id,
+                        vram_budget_mb=budget,
+                        eviction_priority=index,
+                        extra_params={"max_concurrency": index + 4},
+                    )
                 )
-            )
-    for backend_id in backend_ids:
-        assert (
-            await activate_gpu_backend_membership(
-                factory,
-                backend_id,
-                gpu_resource_id=resource_id,
-                membership_epoch=1,
-            )
-            == "1"
-        )
-    return factory, backend_ids
+        for backend_id in backend_ids:
+            async with factory.transaction() as data:
+                activated = await activate_gpu_backend_membership(
+                    data,
+                    backend_id,
+                    gpu_resource_id=resource_id,
+                    membership_epoch=1,
+                )
+            assert activated == "1"
+        return factory, backend_ids
+    except BaseException:
+        await _cleanup_backends(factory, backend_ids)
+        raise
 
 
 async def _cleanup_backends(
-    factory: async_sessionmaker[AsyncSession], backend_ids: tuple[uuid.UUID, ...]
+    factory: _GPUAuthoritySessionProvider, backend_ids: tuple[uuid.UUID, ...]
 ) -> None:
-    if not backend_ids:
-        return
-    async with factory.begin() as db:
-        await db.execute(
-            update(GPUBackendFence)
-            .where(GPUBackendFence.backend_registry_id.in_(backend_ids))
-            .values(
-                generation_high_water=0,
-                control_epoch_high_water=0,
-                runtime_epoch_high_water=0,
-                token_expiry_high_water=None,
+    try:
+        if not backend_ids:
+            return
+        async with factory.begin() as db:
+            await db.execute(
+                update(GPUBackendFence)
+                .where(GPUBackendFence.backend_registry_id.in_(backend_ids))
+                .values(
+                    generation_high_water=0,
+                    control_epoch_high_water=0,
+                    runtime_epoch_high_water=0,
+                    token_expiry_high_water=None,
+                )
             )
-        )
-        await db.execute(
-            delete(MLBackendRegistry).where(MLBackendRegistry.id.in_(backend_ids))
-        )
-        await db.execute(
-            text(
-                "ALTER TABLE gpu_backend_memberships DISABLE TRIGGER "
-                "trg_validate_gpu_backend_membership"
+            await db.execute(
+                delete(MLBackendRegistry).where(MLBackendRegistry.id.in_(backend_ids))
             )
-        )
-        await db.execute(
-            delete(GPUBackendMembership).where(
-                GPUBackendMembership.backend_registry_id.in_(backend_ids)
+            await db.execute(
+                text(
+                    "ALTER TABLE gpu_backend_memberships DISABLE TRIGGER "
+                    "trg_validate_gpu_backend_membership"
+                )
             )
-        )
-        await db.execute(
-            text(
-                "ALTER TABLE gpu_backend_memberships ENABLE TRIGGER "
-                "trg_validate_gpu_backend_membership"
+            await db.execute(
+                delete(GPUBackendMembership).where(
+                    GPUBackendMembership.backend_registry_id.in_(backend_ids)
+                )
             )
-        )
-        await db.execute(
-            text(
-                "ALTER TABLE gpu_backend_fences DISABLE TRIGGER "
-                "trg_validate_gpu_backend_fence_delete"
+            await db.execute(
+                text(
+                    "ALTER TABLE gpu_backend_memberships ENABLE TRIGGER "
+                    "trg_validate_gpu_backend_membership"
+                )
             )
-        )
-        await db.execute(
-            delete(GPUBackendFence).where(
-                GPUBackendFence.backend_registry_id.in_(backend_ids)
+            await db.execute(
+                text(
+                    "ALTER TABLE gpu_backend_fences DISABLE TRIGGER "
+                    "trg_validate_gpu_backend_fence_delete"
+                )
             )
-        )
-        await db.execute(
-            text(
-                "ALTER TABLE gpu_backend_fences ENABLE TRIGGER "
-                "trg_validate_gpu_backend_fence_delete"
+            await db.execute(
+                delete(GPUBackendFence).where(
+                    GPUBackendFence.backend_registry_id.in_(backend_ids)
+                )
             )
-        )
+            await db.execute(
+                text(
+                    "ALTER TABLE gpu_backend_fences ENABLE TRIGGER "
+                    "trg_validate_gpu_backend_fence_delete"
+                )
+            )
+    finally:
+        await factory.aclose()
 
 
 def _residency(
@@ -286,7 +543,7 @@ def _residency(
 
 
 async def _install_live_health(
-    factory: async_sessionmaker[AsyncSession],
+    factory: _GPUAuthoritySessionProvider,
     backend_ids: tuple[uuid.UUID, ...],
     *,
     resource_id: str,
@@ -337,7 +594,7 @@ async def _install_live_health(
 
 
 async def _membership_domain(
-    factory: async_sessionmaker[AsyncSession], resource_id: str
+    factory: _GPUAuthoritySessionProvider, resource_id: str
 ) -> tuple[GPUBackendDomainMember, ...]:
     async with factory() as db:
         rows = (
@@ -362,7 +619,7 @@ async def _membership_domain(
 
 
 async def _enable_cold_runtime_health(
-    factory: async_sessionmaker[AsyncSession],
+    factory: _GPUAuthoritySessionProvider,
     backend_id: uuid.UUID,
 ) -> None:
     async with factory.begin() as db:
@@ -377,7 +634,7 @@ async def _enable_cold_runtime_health(
 
 
 async def _bootstrap_cold_loading(
-    factory: async_sessionmaker[AsyncSession],
+    factory: _GPUAuthoritySessionProvider,
     store: GPUArbiterStore,
     backend_id: uuid.UUID,
     resource_id: str,
@@ -401,12 +658,11 @@ async def _bootstrap_cold_loading(
             reconciled.status,
             reconciled.reason,
         )
-    async with factory() as db:
-        subject = await read_gpu_cold_runtime_subject(
-            db,
-            backend_id=str(backend_id),
-            gpu_resource_id=resource_id,
-        )
+    subject = await read_gpu_cold_runtime_subject(
+        factory,
+        backend_id=str(backend_id),
+        gpu_resource_id=resource_id,
+    )
     generation = str(subject.generation_high_water + 1)
     lease_id = f"workload:{uuid.uuid4()}"
     owner_id = f"dispatch:{uuid.uuid4()}"
@@ -464,7 +720,7 @@ async def _bootstrap_cold_loading(
 
 
 async def _install_cold_terminal_health(
-    factory: async_sessionmaker[AsyncSession],
+    factory: _GPUAuthoritySessionProvider,
     backend_id: uuid.UUID,
     resource_id: str,
     *,
@@ -544,7 +800,7 @@ async def _install_cold_terminal_health(
 
 
 async def _install_eviction_phase_health(
-    factory: async_sessionmaker[AsyncSession],
+    factory: _GPUAuthoritySessionProvider,
     backend_id: uuid.UUID,
     resource_id: str,
     *,
@@ -618,7 +874,7 @@ async def _install_eviction_phase_health(
 
 
 async def _prepare_selected_idle_eviction(
-    factory: async_sessionmaker[AsyncSession],
+    factory: _GPUAuthoritySessionProvider,
     store: GPUArbiterStore,
     *,
     victim_id: uuid.UUID,
@@ -1223,19 +1479,16 @@ async def test_recovery_rechecks_horizon_after_membership_lock_wait(
         )
 
         async def hold_new_horizon() -> None:
-            async with factory() as db:
-                async with db.begin():
-                    await _record_gpu_backend_token_expiry_in_transaction(
-                        db,
-                        backend_id,
-                        gpu_resource_id=_RESOURCE_A,
-                        membership_epoch=1,
-                        token_expires_at=(
-                            started[backend_id] + timedelta(milliseconds=1)
-                        ),
-                    )
-                    holder_locked.set()
-                    await holder_release.wait()
+            async with factory.transaction() as data:
+                await record_gpu_backend_token_expiry(
+                    data,
+                    backend_id,
+                    gpu_resource_id=_RESOURCE_A,
+                    membership_epoch=1,
+                    token_expires_at=(started[backend_id] + timedelta(milliseconds=1)),
+                )
+                holder_locked.set()
+                await holder_release.wait()
 
         holder_task = asyncio.create_task(hold_new_horizon())
         await asyncio.wait_for(holder_locked.wait(), timeout=1)
@@ -1299,7 +1552,7 @@ async def test_recovery_holds_same_card_locks_through_redis_commit(
         )
         await asyncio.wait_for(store.entered.wait(), timeout=1)
         writer_task = asyncio.create_task(
-            record_gpu_backend_token_expiry(
+            _record_token_expiry(
                 factory,
                 backend_ids[0],
                 gpu_resource_id=_RESOURCE_A,
@@ -1447,6 +1700,7 @@ async def test_domain_change_clears_only_prepared_domain_not_ready(
 async def test_redis_gc_receipt_resumes_db_tombstone_and_orphan_fence_finalize(
     test_engine: AsyncEngine,
     proof_store: GPUArbiterStore,
+    gpu_collector_database: GPUCollectorDatabase,
 ) -> None:
     factory = async_sessionmaker(
         test_engine, class_=AsyncSession, expire_on_commit=False
@@ -1565,7 +1819,7 @@ async def test_redis_gc_receipt_resumes_db_tombstone_and_orphan_fence_finalize(
     assert locked_tombstone is not None
     assert str(locked_tombstone.retirement_id) == retirement_id
     finalized = await collect_gpu_backend_tombstone(
-        factory,
+        gpu_collector_database,
         proof_store,
         backend_id,
         resource_id,
@@ -1840,12 +2094,11 @@ async def test_resident_runtime_subject_allows_nonidle_and_post_horizon_proof(
             backend.health_meta = health_meta
             flag_modified(backend, "health_meta")
 
-        async with factory() as db:
-            subject = await read_gpu_resident_runtime_subject(
-                db,
-                backend_id=str(backend_id),
-                gpu_resource_id=_RESOURCE_A,
-            )
+        subject = await read_gpu_resident_runtime_subject(
+            factory,
+            backend_id=str(backend_id),
+            gpu_resource_id=_RESOURCE_A,
+        )
         assert subject.generation == "1"
         assert subject.control_epoch == "1"
         assert subject.runtime_epoch == "1"
@@ -1863,7 +2116,7 @@ async def test_resident_runtime_subject_allows_nonidle_and_post_horizon_proof(
         # token horizon advance; that condition belongs only to proof recovery.
         async with factory() as db:
             repeated = await read_gpu_resident_runtime_subject(
-                db,
+                factory,
                 backend_id=str(backend_id),
                 gpu_resource_id=_RESOURCE_A,
             )
@@ -1901,7 +2154,7 @@ async def test_cold_runtime_subject_atomically_advances_generation_and_token_hor
 
         async with factory() as db:
             subject = await read_gpu_cold_runtime_subject(
-                db,
+                factory,
                 backend_id=str(backend_id),
                 gpu_resource_id=_RESOURCE_A,
                 expected_challenge=challenge,
@@ -1915,7 +2168,7 @@ async def test_cold_runtime_subject_atomically_advances_generation_and_token_hor
         ):
             async with factory() as db:
                 await read_gpu_cold_runtime_subject(
-                    db,
+                    factory,
                     backend_id=str(backend_id),
                     gpu_resource_id=_RESOURCE_A,
                     expected_challenge="f" * 64,
@@ -1953,7 +2206,7 @@ async def test_cold_runtime_subject_atomically_advances_generation_and_token_hor
         async with factory() as db:
             fence = await db.get(GPUBackendFence, backend_id)
             repeated = await read_gpu_cold_runtime_subject(
-                db,
+                factory,
                 backend_id=str(backend_id),
                 gpu_resource_id=_RESOURCE_A,
             )
@@ -1988,7 +2241,7 @@ async def test_cold_runtime_subject_allows_only_one_concurrent_generation_prepar
 
         async with factory() as db:
             subject = await read_gpu_cold_runtime_subject(
-                db,
+                factory,
                 backend_id=str(backend_id),
                 gpu_resource_id=_RESOURCE_A,
             )
@@ -2044,23 +2297,17 @@ async def test_cold_runtime_subject_allows_only_one_concurrent_generation_prepar
 )
 @pytest.mark.asyncio
 async def test_cold_runtime_subject_rejects_invalid_identity_with_cold_error(
-    test_engine: AsyncEngine,
+    gpu_authority_provider: _GPUAuthoritySessionProvider,
     backend_id: str,
     resource_id: str,
     expected_reason: str,
 ) -> None:
-    factory = async_sessionmaker(
-        test_engine,
-        class_=AsyncSession,
-        expire_on_commit=False,
-    )
-    async with factory() as db:
-        with pytest.raises(GPUColdRuntimeSubjectError, match=expected_reason):
-            await read_gpu_cold_runtime_subject(
-                db,
-                backend_id=backend_id,
-                gpu_resource_id=resource_id,
-            )
+    with pytest.raises(GPUColdRuntimeSubjectError, match=expected_reason):
+        await read_gpu_cold_runtime_subject(
+            gpu_authority_provider,
+            backend_id=backend_id,
+            gpu_resource_id=resource_id,
+        )
 
 
 @pytest.mark.parametrize(
@@ -2111,7 +2358,7 @@ async def test_cold_runtime_subject_rejects_untrusted_state(
                 match=expected_reason,
             ):
                 await read_gpu_cold_runtime_subject(
-                    db,
+                    factory,
                     backend_id=str(backend_id),
                     gpu_resource_id=_RESOURCE_A,
                 )
@@ -2157,7 +2404,7 @@ async def test_resident_runtime_subject_refreshes_preloaded_identity_map(
                 match="registry_claim_mismatch",
             ):
                 await read_gpu_resident_runtime_subject(
-                    stale_db,
+                    factory,
                     backend_id=str(backend_id),
                     gpu_resource_id=_RESOURCE_A,
                 )
@@ -2224,7 +2471,7 @@ async def test_resident_runtime_subject_rejects_untrusted_state(
                 match=expected_reason,
             ):
                 await read_gpu_resident_runtime_subject(
-                    db,
+                    factory,
                     backend_id=str(backend_id),
                     gpu_resource_id=_RESOURCE_A,
                 )
@@ -2251,7 +2498,7 @@ async def test_runtime_token_horizon_revalidates_subject_before_commit(
         )
         async with factory() as db:
             subject = await read_gpu_resident_runtime_subject(
-                db,
+                factory,
                 backend_id=str(backend_id),
                 gpu_resource_id=_RESOURCE_A,
             )
@@ -2316,13 +2563,19 @@ async def test_resident_dispatch_authority_integrates_db_redis_and_signer(
         )
         dispatch = build_gpu_dispatch_context_factory(
             factory,
+            _ProofEndpointSource(factory),
+            _UnusedBackendControlTransport(),
+            config=_resource_config(_RESOURCE_A),
             store_factory=lambda: GPUArbiterStore.from_url(
                 _redis_url(),
                 namespace=proof_store.namespace,
             ),
             signer_factory=lambda: signer,
+            health_refresher=_refresh_test_health,
+            clock=_ProofDispatchClock(),
         )
         request = GPUDispatchRequest(
+            request_id=uuid.uuid4(),
             backend_id=str(backend_id),
             gpu_resource_id=_RESOURCE_A,
             operation="predict",
@@ -2853,13 +3106,19 @@ async def test_cold_dispatch_authority_integrates_generation_intent_and_reservat
         )
         dispatch = build_gpu_dispatch_context_factory(
             factory,
+            _ProofEndpointSource(factory),
+            _UnusedBackendControlTransport(),
+            config=_resource_config(_RESOURCE_A),
             store_factory=lambda: GPUArbiterStore.from_url(
                 _redis_url(),
                 namespace=proof_store.namespace,
             ),
             signer_factory=lambda: signer,
+            health_refresher=_refresh_test_health,
+            clock=_ProofDispatchClock(),
         )
         request = GPUDispatchRequest(
+            request_id=uuid.uuid4(),
             backend_id=str(backend_id),
             gpu_resource_id=_RESOURCE_A,
             operation="predict",
@@ -2916,7 +3175,7 @@ async def test_idle_eviction_subject_advances_generation_and_horizon_atomically(
         )
         async with factory() as db:
             subject = await read_gpu_idle_eviction_runtime_subject(
-                db,
+                factory,
                 backend_id=str(backend_id),
                 gpu_resource_id=_RESOURCE_A,
                 expected_generation="1",
@@ -2933,7 +3192,7 @@ async def test_idle_eviction_subject_advances_generation_and_horizon_atomically(
         ):
             async with factory() as db:
                 await read_gpu_idle_eviction_runtime_subject(
-                    db,
+                    factory,
                     backend_id=str(backend_id),
                     gpu_resource_id=_RESOURCE_A,
                     expected_generation="1",
@@ -2945,7 +3204,7 @@ async def test_idle_eviction_subject_advances_generation_and_horizon_atomically(
         ):
             async with factory() as db:
                 await read_gpu_idle_eviction_runtime_subject(
-                    db,
+                    factory,
                     backend_id=str(backend_id),
                     gpu_resource_id=_RESOURCE_A,
                     expected_generation="2",
@@ -3021,7 +3280,7 @@ async def test_idle_eviction_subject_rejects_nonidle_or_protected_victim(
         ):
             async with factory() as db:
                 await read_gpu_idle_eviction_runtime_subject(
-                    db,
+                    factory,
                     backend_id=str(backend_id),
                     gpu_resource_id=_RESOURCE_A,
                     expected_generation="1",
@@ -3051,7 +3310,7 @@ async def test_busy_eviction_subject_keeps_strict_identity_and_advances_generati
         )
         async with factory() as db:
             quiesced = await read_gpu_busy_eviction_runtime_subject(
-                db,
+                factory,
                 backend_id=str(backend_id),
                 gpu_resource_id=_RESOURCE_A,
                 expected_generation="1",
@@ -3073,7 +3332,7 @@ async def test_busy_eviction_subject_keeps_strict_identity_and_advances_generati
         ):
             async with factory() as db:
                 await read_gpu_idle_eviction_runtime_subject(
-                    db,
+                    factory,
                     backend_id=str(backend_id),
                     gpu_resource_id=_RESOURCE_A,
                     expected_generation="1",
@@ -3082,7 +3341,7 @@ async def test_busy_eviction_subject_keeps_strict_identity_and_advances_generati
 
         async with factory() as db:
             subject = await read_gpu_busy_eviction_runtime_subject(
-                db,
+                factory,
                 backend_id=str(backend_id),
                 gpu_resource_id=_RESOURCE_A,
                 expected_generation="1",
@@ -3111,7 +3370,7 @@ async def test_busy_eviction_subject_keeps_strict_identity_and_advances_generati
         ):
             async with factory() as db:
                 await read_gpu_busy_eviction_runtime_subject(
-                    db,
+                    factory,
                     backend_id=str(backend_id),
                     gpu_resource_id=_RESOURCE_A,
                     expected_generation="1",
@@ -3598,7 +3857,7 @@ async def test_busy_eviction_drain_health_classifies_all_activity_domains_read_o
         )
         async with factory() as db:
             subject = await read_gpu_busy_eviction_runtime_subject(
-                db,
+                factory,
                 backend_id=str(backend_id),
                 gpu_resource_id=_RESOURCE_A,
                 expected_generation="1",
@@ -3635,7 +3894,7 @@ async def test_busy_eviction_drain_health_classifies_all_activity_domains_read_o
             )
             async with factory() as db:
                 classified = await read_gpu_eviction_drain_health(
-                    db,
+                    factory,
                     prepared,
                     challenge=challenge,
                 )
@@ -3661,7 +3920,7 @@ async def test_busy_eviction_drain_health_classifies_all_activity_domains_read_o
         )
         async with factory() as db:
             ready = await read_gpu_eviction_drain_health(
-                db,
+                factory,
                 prepared,
                 challenge=ready_challenge,
             )
@@ -3676,7 +3935,7 @@ async def test_busy_eviction_drain_health_classifies_all_activity_domains_read_o
 
         async with factory() as db:
             stale_challenge = await read_gpu_eviction_drain_health(
-                db,
+                factory,
                 prepared,
                 challenge="f" * 64,
             )
@@ -3697,7 +3956,7 @@ async def test_busy_eviction_drain_health_classifies_all_activity_domains_read_o
         )
         async with factory() as db:
             uncertain = await read_gpu_eviction_drain_health(
-                db,
+                factory,
                 prepared,
                 challenge=invalid_challenge,
             )
@@ -3729,7 +3988,7 @@ async def test_busy_eviction_drain_health_classifies_all_activity_domains_read_o
             flag_modified(backend, "health_meta")
         async with factory() as db:
             pool_uncertain = await read_gpu_eviction_drain_health(
-                db,
+                factory,
                 prepared,
                 challenge=pool_challenge,
             )
@@ -3738,24 +3997,6 @@ async def test_busy_eviction_drain_health_classifies_all_activity_domains_read_o
             "eviction_residency_identity_mismatch",
         )
 
-        def invalid_registry_concurrency(_extra_params):
-            raise gpu_arbiter_service._GPUProofInvalid("registry_concurrency_invalid")
-
-        monkeypatch.setattr(
-            gpu_proofs_service,
-            "_registry_gpu_max_concurrency",
-            invalid_registry_concurrency,
-        )
-        async with factory() as db:
-            corrupt_claim = await read_gpu_eviction_drain_health(
-                db,
-                prepared,
-                challenge=pool_challenge,
-            )
-        assert (corrupt_claim.status, corrupt_claim.reason) == (
-            "uncertain",
-            "registry_concurrency_invalid",
-        )
     finally:
         await _cleanup_backends(factory, backend_ids)
 

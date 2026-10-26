@@ -6,15 +6,17 @@ import asyncio
 import os
 import time
 import uuid
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from aap_inference import extract_capabilities
+from aap_inference.topology import RegistryTopologySnapshot
 from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
 from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.services.inference_health_data import InferenceHealthData
+from app.services.inference_topology_data import InferenceTopologyData
 from app.services.ml_backend import MLBackendService
 from tests.labeling_class_query_helpers import assert_owned_test_database
 
@@ -27,19 +29,26 @@ pytestmark = [
 ]
 _SETUP = {"name": "lock test", "supported_prompts": ["bbox"]}
 
+_UPSERT_LOCK = "aap_inference_topology_v1.lock_member_upsert_rows("
+_REMOVE_LOCK = "aap_inference_topology_v1.remove_member("
+_DRIFT_LOCK = "aap_inference_topology_v1.lock_drift_acceptance_rows("
+_DELETE_LOCK = "aap_inference_topology_v1.delete_registry("
+
 
 class PoolGateSession(AsyncSession):
-    def __init__(self, *args, pool_locked, release_pool, **kwargs):
+    """Pause one session after its Native call acquired the pooled locks."""
+
+    def __init__(self, *args, gate, pool_locked, release_pool, **kwargs):
         super().__init__(*args, **kwargs)
+        self.gate_fragments = tuple(fragment.lower() for fragment in gate)
         self.pool_locked = pool_locked
         self.release_pool = release_pool
         self.gated = False
 
     async def _gate(self, statement):
         source = str(statement).lower()
-        if not self.gated and (
-            ("from ml_backend_service_pools" in source and "for update" in source)
-            or "aap_inference_health_data_v1.pool_row(" in source
+        if not self.gated and any(
+            fragment in source for fragment in self.gate_fragments
         ):
             self.gated = True
             self.pool_locked.set()
@@ -56,26 +65,91 @@ class PoolGateSession(AsyncSession):
         return result
 
 
-async def _seed(test_engine, *, state="active"):
+def _fake_health(monkeypatch):
+    """Answer the coordinator's caller-UOW health client without any network hop."""
+
+    class Client:
+        async def health_meta(self, *, gpu_health_challenge=None):
+            return True, {"compute": {"configured_device": "cpu"}}
+
+        async def setup(self):
+            return _SETUP
+
+    def factory(db):
+        def create(backend):
+            return Client()
+
+        return create
+
+    monkeypatch.setattr(
+        "app.services.inference_backend_control.health_observation_client_factory",
+        factory,
+    )
+
+
+async def _seed(test_engine, monkeypatch, *, state="active"):
+    """Create a connected registry whose singleton pool carries the capability baseline."""
+    _fake_health(monkeypatch)
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     async with maker.begin() as db:
-        backend = await MLBackendService(db).create_registry(
+        service = MLBackendService(db)
+        backend = await service.create_registry(
             "Concurrent topology " + uuid.uuid4().hex,
-            "http://controlled-health.invalid",
+            f"http://controlled-{uuid.uuid4().hex}.invalid",
         )
-        backend.state = "connected"
-        backend.health_meta = {"capabilities": extract_capabilities(_SETUP)}
-        await db.flush()
-        await MLBackendService(db)._reconcile_pool_capability(
-            backend.id, backend.health_meta["capabilities"]
+        assert await service.check_health(backend.id) is True
+        pool_id = await service.pool_id_for_registry(backend.id)
+        if state == "draining":
+            await service.drain_pool_member(pool_id, backend.id)
+        else:
+            assert state == "active"
+        return backend.id, pool_id
+
+
+async def _snapshot(db, registry_id):
+    data = InferenceTopologyData(db)
+    pool = await data.pool_for_registry(registry_id)
+    member = None
+    if pool is not None:
+        member = next(
+            (
+                row
+                for row in await data.pool_members(pool.id)
+                if row.registry_id == registry_id
+            ),
+            None,
         )
-        member = await db.scalar(
-            select(MLBackendPoolMember).where(
-                MLBackendPoolMember.registry_id == backend.id
+    if pool is None or member is None:
+        return RegistryTopologySnapshot(registry_id, None, None, None, None)
+    return RegistryTopologySnapshot(
+        registry_id=registry_id,
+        member_id=member.id,
+        pool_id=pool.id,
+        routing_generation=pool.routing_generation,
+        traffic_state=member.traffic_state,
+    )
+
+
+def _local_authority(monkeypatch, maker, mutate=None):
+    """Stand in for the durable routing owner while preserving the observed topology."""
+
+    class Authority:
+        async def quiescence(self, registry_id):
+            async with maker() as db:
+                snapshot = await _snapshot(db, registry_id)
+            if mutate is not None:
+                await mutate()
+            return SimpleNamespace(
+                status="ok",
+                topology=SimpleNamespace(
+                    member_id=snapshot.member_id,
+                    pool_id=snapshot.pool_id,
+                    routing_generation=snapshot.routing_generation,
+                    traffic_state=snapshot.traffic_state,
+                ),
             )
-        )
-        member.traffic_state = state
-        return backend.id, member.pool_id
+
+    monkeypatch.setattr("app.services.ml_routing.safety.RoutingAuthority", Authority)
 
 
 async def _cleanup(test_engine, registry_id, pool_id):
@@ -115,24 +189,12 @@ async def _blocked_by(test_engine, waiter, holder):
             await asyncio.sleep(0.01)
 
 
-def _fake_health(monkeypatch):
-    async def health(self):
-        return True, {"compute": {"configured_device": "cpu"}}
-
-    async def setup(self):
-        return _SETUP
-
-    monkeypatch.setattr("app.services.ml_client.MLBackendClient.health_meta", health)
-    monkeypatch.setattr("app.services.ml_client.MLBackendClient.setup", setup)
-
-
 @pytest.mark.parametrize("operation", ["remove", "upsert"])
 async def test_health_and_pool_writer_complete_without_deadlock(
     test_engine, monkeypatch, operation
 ):
     await assert_owned_test_database(test_engine)
-    _fake_health(monkeypatch)
-    registry_id, pool_id = await _seed(test_engine)
+    registry_id, pool_id = await _seed(test_engine, monkeypatch)
     pool_locked = asyncio.Event()
     release = asyncio.Event()
     health_started = asyncio.Event()
@@ -140,18 +202,19 @@ async def test_health_and_pool_writer_complete_without_deadlock(
     writer = PoolGateSession(
         bind=test_engine,
         expire_on_commit=False,
+        gate=((_REMOVE_LOCK,) if operation == "remove" else (_UPSERT_LOCK,)),
         pool_locked=pool_locked,
         release_pool=release,
     )
     health = maker()
 
     class ObservedData(InferenceHealthData):
-        async def lock_current_backend(self, registry):
+        async def lock_current_backend(self, registry_id):
             health_started.set()
-            return await super().lock_current_backend(registry)
+            return await super().lock_current_backend(registry_id)
 
     monkeypatch.setattr(
-        "app.services.inference_health_data.InferenceHealthData", ObservedData
+        "app.services.inference_backend_control.InferenceHealthData", ObservedData
     )
     tasks = []
     try:
@@ -159,9 +222,10 @@ async def test_health_and_pool_writer_complete_without_deadlock(
         health_pid = await _timeouts(health)
 
         async def mutate():
+            snapshot = await _snapshot(writer, registry_id)
             if operation == "remove":
                 result = await MLBackendService(writer).remove_pool_member(
-                    pool_id, registry_id
+                    pool_id, registry_id, expected_topology=snapshot
                 )
             else:
                 result = await MLBackendService(writer).add_pool_member(
@@ -210,11 +274,13 @@ async def test_health_and_pool_writer_complete_without_deadlock(
 
 @pytest.mark.parametrize("operation", ["drain", "resume"])
 async def test_member_state_writer_and_upsert_use_one_pool_member_order(
-    test_engine, operation
+    test_engine, monkeypatch, operation
 ):
     await assert_owned_test_database(test_engine)
     registry_id, pool_id = await _seed(
-        test_engine, state="draining" if operation == "resume" else "active"
+        test_engine,
+        monkeypatch,
+        state="draining" if operation == "resume" else "active",
     )
     pool_locked = asyncio.Event()
     release = asyncio.Event()
@@ -222,6 +288,7 @@ async def test_member_state_writer_and_upsert_use_one_pool_member_order(
     writer = PoolGateSession(
         bind=test_engine,
         expire_on_commit=False,
+        gate=(_UPSERT_LOCK,),
         pool_locked=pool_locked,
         release_pool=release,
     )
@@ -278,60 +345,43 @@ async def test_member_state_writer_and_upsert_use_one_pool_member_order(
         await _cleanup(test_engine, registry_id, pool_id)
 
 
-class _ZeroLedger:
-    async def healthcheck(self):
-        pass
-
-    async def member_inflight(self, pool_id, registry_id):
-        return 0
-
-    async def aclose(self):
-        pass
-
-
 @pytest.mark.parametrize("change", ["resume", "recreate", "move", "generation"])
 @pytest.mark.parametrize("operation", ["remove", "delete"])
 async def test_destructive_write_rejects_changed_topology_after_quiescence(
     test_engine, monkeypatch, change, operation
 ):
-    from app.config import settings
     from app.services.ml_routing.contracts import MLBackendQuiescenceError
     from app.services.ml_routing.safety import require_registry_quiescent
     from app.application.ml_registry_deletion import delete_registry
 
     await assert_owned_test_database(test_engine)
-    registry_id, pool_id = await _seed(test_engine, state="draining")
+    registry_id, pool_id = await _seed(test_engine, monkeypatch, state="draining")
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     extra_pools = []
-    monkeypatch.setattr(settings, "ml_backend_router_mode", "enforce")
 
-    class Ledger(_ZeroLedger):
-        changed = False
+    async def mutate():
+        async with maker.begin() as other:
+            service = MLBackendService(other)
+            if change == "resume":
+                await service.resume_pool_member(pool_id, registry_id)
+            elif change == "generation":
+                await service.update_pool(pool_id, name="Changed generation")
+            else:
+                await service.remove_pool_member(
+                    pool_id,
+                    registry_id,
+                    expected_topology=await _snapshot(other, registry_id),
+                )
+                if change == "move":
+                    pool = await service.create_pool("Moved member")
+                    extra_pools.append(pool.id)
+                    target = pool.id
+                else:
+                    target = pool_id
+                await service.add_pool_member(target, registry_id)
+                await service.drain_pool_member(target, registry_id)
 
-        async def member_inflight(self, *args):
-            if not self.changed:
-                self.changed = True
-                async with maker.begin() as other:
-                    service = MLBackendService(other)
-                    if change == "resume":
-                        await service.resume_pool_member(pool_id, registry_id)
-                    elif change == "generation":
-                        await service.update_pool(pool_id, name="Changed generation")
-                    else:
-                        await service.remove_pool_member(pool_id, registry_id)
-                        if change == "move":
-                            pool = await service.create_pool("Moved member")
-                            extra_pools.append(pool.id)
-                            target = pool.id
-                        else:
-                            target = pool_id
-                        await service.add_pool_member(target, registry_id)
-                        await service.drain_pool_member(target, registry_id)
-            return 0
-
-    monkeypatch.setattr(
-        "app.services.ml_routing.safety.make_ledger_from_settings", Ledger
-    )
+    _local_authority(monkeypatch, maker, mutate)
     try:
         async with maker() as caller:
             with pytest.raises(MLBackendQuiescenceError) as caught:
@@ -377,13 +427,12 @@ async def test_delete_and_workspace_binding_writer_fail_fast_instead_of_deadlock
 ):
     from fastapi import HTTPException
     from tests.factory import create_user, create_project
-    from app.config import settings
     from app.db.models.project import Project
     from app.db.models.user import User
     from app.application.ml_registry_deletion import delete_registry
 
     await assert_owned_test_database(test_engine)
-    registry_id, pool_id = await _seed(test_engine, state="draining")
+    registry_id, pool_id = await _seed(test_engine, monkeypatch, state="draining")
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     async with maker.begin() as seed:
         user = await create_user(
@@ -395,10 +444,7 @@ async def test_delete_and_workspace_binding_writer_fail_fast_instead_of_deadlock
         project = await create_project(seed, owner_id=user.id)
         project.ml_backend_pool_id = pool_id
         actor_id, project_id = user.id, project.id
-    monkeypatch.setattr(settings, "ml_backend_router_mode", "enforce")
-    monkeypatch.setattr(
-        "app.services.ml_routing.safety.make_ledger_from_settings", _ZeroLedger
-    )
+    _local_authority(monkeypatch, maker)
     before_binding = asyncio.Event()
     continue_clear = asyncio.Event()
 
@@ -483,18 +529,19 @@ async def test_accept_drift_does_not_lock_other_registry_behind_pool(
     from aap_inference.pool_capability import capability_fingerprint
 
     await assert_owned_test_database(test_engine)
-    _fake_health(monkeypatch)
-    registry_id, pool_id = await _seed(test_engine)
+    registry_id, pool_id = await _seed(test_engine, monkeypatch)
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     async with maker.begin() as seed:
         other = await MLBackendService(seed).create_registry(
             "Other concurrent member", "http://other-health.invalid"
         )
-        other.state = "connected"
-        other.health_meta = {"capabilities": extract_capabilities(_SETUP)}
-        await seed.flush()
+        assert await MLBackendService(seed).check_health(other.id) is True
         other_pool = await MLBackendService(seed).pool_id_for_registry(other.id)
-        await MLBackendService(seed).remove_pool_member(other_pool, other.id)
+        await MLBackendService(seed).remove_pool_member(
+            other_pool,
+            other.id,
+            expected_topology=await _snapshot(seed, other.id),
+        )
         await MLBackendService(seed).add_pool_member(pool_id, other.id)
         target = await seed.scalar(
             select(MLBackendPoolMember).where(
@@ -512,6 +559,7 @@ async def test_accept_drift_does_not_lock_other_registry_behind_pool(
     acceptor = PoolGateSession(
         bind=test_engine,
         expire_on_commit=False,
+        gate=(_DRIFT_LOCK,),
         pool_locked=pool_locked,
         release_pool=release,
     )
@@ -519,12 +567,12 @@ async def test_accept_drift_does_not_lock_other_registry_behind_pool(
     tasks = []
 
     class ObservedData(InferenceHealthData):
-        async def lock_current_backend(self, registry):
+        async def lock_current_backend(self, registry_id):
             health_started.set()
-            return await super().lock_current_backend(registry)
+            return await super().lock_current_backend(registry_id)
 
     monkeypatch.setattr(
-        "app.services.inference_health_data.InferenceHealthData", ObservedData
+        "app.services.inference_backend_control.InferenceHealthData", ObservedData
     )
     try:
         accept_pid = await _timeouts(acceptor)
@@ -586,53 +634,39 @@ async def test_accept_drift_does_not_lock_other_registry_behind_pool(
 async def test_registry_delete_serializes_before_health_member_locks(
     test_engine, monkeypatch
 ):
-    from sqlalchemy import event
-
     await assert_owned_test_database(test_engine)
-    _fake_health(monkeypatch)
-    registry_id, pool_id = await _seed(test_engine)
+    registry_id, pool_id = await _seed(test_engine, monkeypatch)
     member_deleted = asyncio.Event()
     release = asyncio.Event()
     health_started = asyncio.Event()
-    deletion_seen = False
-
-    class DeletingSession(AsyncSession):
-        gated = False
-
-        async def flush(self, *args, **kwargs):
-            await super().flush(*args, **kwargs)
-            if deletion_seen and not self.gated:
-                self.gated = True
-                member_deleted.set()
-                await release.wait()
-
-    writer = DeletingSession(bind=test_engine, expire_on_commit=False)
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    writer = PoolGateSession(
+        bind=test_engine,
+        expire_on_commit=False,
+        gate=(_DELETE_LOCK,),
+        pool_locked=member_deleted,
+        release_pool=release,
+    )
     health = maker()
     tasks = []
 
     class ObservedData(InferenceHealthData):
-        async def lock_current_backend(self, registry):
+        async def lock_current_backend(self, registry_id):
             health_started.set()
-            return await super().lock_current_backend(registry)
+            return await super().lock_current_backend(registry_id)
 
     monkeypatch.setattr(
-        "app.services.inference_health_data.InferenceHealthData", ObservedData
+        "app.services.inference_backend_control.InferenceHealthData", ObservedData
     )
-    connection = await writer.connection()
-
-    def observe(conn, cursor, statement, parameters, context, many):
-        nonlocal deletion_seen
-        if statement.lower().startswith("delete from ml_backend_pool_members"):
-            deletion_seen = True
-
-    event.listen(connection.sync_connection, "after_cursor_execute", observe)
     try:
         writer_pid = await _timeouts(writer)
         health_pid = await _timeouts(health)
+        snapshot = await _snapshot(writer, registry_id)
 
         async def remove():
-            result = await MLBackendService(writer).delete(registry_id)
+            result = await MLBackendService(writer).delete_with_topology(
+                registry_id, expected_topology=snapshot
+            )
             await writer.commit()
             return result
 
@@ -650,14 +684,14 @@ async def test_registry_delete_serializes_before_health_member_locks(
         results = await asyncio.wait_for(
             asyncio.gather(*tasks, return_exceptions=True), 5
         )
-        assert results == [True, False], results
+        assert results[0].deleted is True, results
+        assert results[1] is False, results
     finally:
         release.set()
         for task in tasks:
             if not task.done():
                 task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
-        event.remove(connection.sync_connection, "after_cursor_execute", observe)
         await writer.rollback()
         await health.rollback()
         await writer.close()
@@ -667,7 +701,7 @@ async def test_registry_delete_serializes_before_health_member_locks(
 
 @pytest.mark.parametrize("change", ["delete", "move", "delete_pool"])
 async def test_workspace_enablement_rejects_membership_changed_while_waiting(
-    test_engine, change
+    test_engine, monkeypatch, change
 ):
     from sqlalchemy.exc import DBAPIError
     from tests.factory import create_user, create_project
@@ -678,7 +712,7 @@ async def test_workspace_enablement_rejects_membership_changed_while_waiting(
     from aap_workspace.configuration_postgres import configuration_busy_error
 
     await assert_owned_test_database(test_engine)
-    registry_id, pool_id = await _seed(test_engine, state="draining")
+    registry_id, pool_id = await _seed(test_engine, monkeypatch, state="draining")
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     async with maker.begin() as seed:
         user = await create_user(
@@ -731,9 +765,16 @@ async def test_workspace_enablement_rejects_membership_changed_while_waiting(
         await _blocked_by(test_engine, workspace_pid, writer_pid)
         service = MLBackendService(writer)
         if change == "delete":
-            assert await service.delete(registry_id)
+            deleted = await service.delete_with_topology(
+                registry_id, expected_topology=await _snapshot(writer, registry_id)
+            )
+            assert deleted.deleted is True
         else:
-            assert await service.remove_pool_member(pool_id, registry_id)
+            assert await service.remove_pool_member(
+                pool_id,
+                registry_id,
+                expected_topology=await _snapshot(writer, registry_id),
+            )
             if change == "delete_pool":
                 assert await service.delete_pool(pool_id)
             else:
@@ -781,13 +822,15 @@ async def test_workspace_enablement_rejects_membership_changed_while_waiting(
 
 
 @pytest.mark.parametrize("operation", ["registry_enable", "pool_enable"])
-async def test_project_enablement_locks_project_before_pool(test_engine, operation):
+async def test_project_enablement_locks_project_before_pool(
+    test_engine, monkeypatch, operation
+):
     from tests.factory import create_user, create_project
     from app.db.models.project import Project
     from app.db.models.user import User
 
     await assert_owned_test_database(test_engine)
-    registry_id, pool_id = await _seed(test_engine)
+    registry_id, pool_id = await _seed(test_engine, monkeypatch)
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     async with maker.begin() as seed:
         user = await create_user(
@@ -847,7 +890,7 @@ async def test_project_enablement_locks_project_before_pool(test_engine, operati
 @pytest.mark.parametrize("operation", ["registry_enable", "pool_enable"])
 @pytest.mark.parametrize("remove_pool", [False, True])
 async def test_pool_enablement_revalidates_disabled_pool_after_wait(
-    test_engine, operation, remove_pool
+    test_engine, monkeypatch, operation, remove_pool
 ):
     from fastapi import HTTPException
     from tests.factory import create_user, create_project
@@ -856,7 +899,7 @@ async def test_pool_enablement_revalidates_disabled_pool_after_wait(
     from app.db.models.ml_backend_registry import ProjectMLBackendPool
 
     await assert_owned_test_database(test_engine)
-    registry_id, pool_id = await _seed(test_engine)
+    registry_id, pool_id = await _seed(test_engine, monkeypatch)
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     async with maker.begin() as seed:
         user = await create_user(
@@ -906,7 +949,11 @@ async def test_pool_enablement_revalidates_disabled_pool_after_wait(
 
         tasks.append(asyncio.create_task(enable()))
         await _blocked_by(test_engine, writer_pid, delete_pid)
-        assert await MLBackendService(deleter).remove_pool_member(pool_id, registry_id)
+        assert await MLBackendService(deleter).remove_pool_member(
+            pool_id,
+            registry_id,
+            expected_topology=await _snapshot(deleter, registry_id),
+        )
         if remove_pool:
             assert await MLBackendService(deleter).delete_pool(pool_id)
         await deleter.commit()
@@ -936,7 +983,7 @@ async def test_pool_enablement_revalidates_disabled_pool_after_wait(
 
 
 async def test_empty_pool_delete_retries_busy_project_binding_without_partial_delete(
-    test_engine,
+    test_engine, monkeypatch
 ):
     from fastapi import HTTPException
     from tests.factory import create_user, create_project
@@ -944,10 +991,14 @@ async def test_empty_pool_delete_retries_busy_project_binding_without_partial_de
     from app.db.models.user import User
 
     await assert_owned_test_database(test_engine)
-    registry_id, pool_id = await _seed(test_engine)
+    registry_id, pool_id = await _seed(test_engine, monkeypatch)
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     async with maker.begin() as seed:
-        assert await MLBackendService(seed).remove_pool_member(pool_id, registry_id)
+        assert await MLBackendService(seed).remove_pool_member(
+            pool_id,
+            registry_id,
+            expected_topology=await _snapshot(seed, registry_id),
+        )
         user = await create_user(
             seed,
             "project_admin",

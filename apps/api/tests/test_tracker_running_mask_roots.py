@@ -53,7 +53,7 @@ async def test_materialize_registers_the_root_before_committing_producer_grace(
 
     from app.services import raster_mask_storage as storage
     from app.services.video_tracking import runner
-    from app.services.video_tracking.adapters import TrackerFrameResult
+    from aap_inference.tracker import TrackerFrameResult
 
     rle = {"encoding": "coco_rle", "size": [1, 1], "counts": [0, 1]}
     reference = storage.build_rle_reference(rle)
@@ -99,7 +99,7 @@ async def test_materialize_rolls_back_when_the_tracker_job_stops_owning_output(
 
     from app.services import raster_mask_storage as storage
     from app.services.video_tracking import runner
-    from app.services.video_tracking.adapters import TrackerFrameResult
+    from aap_inference.tracker import TrackerFrameResult
 
     rle = {"encoding": "coco_rle", "size": [1, 1], "counts": [0, 1]}
     reference = storage.build_rle_reference(rle)
@@ -133,7 +133,7 @@ async def test_materialize_retries_root_contention_with_the_same_stored_mask(
 
     from app.services import raster_mask_storage as storage
     from app.services.video_tracking import runner
-    from app.services.video_tracking.adapters import TrackerFrameResult
+    from aap_inference.tracker import TrackerFrameResult
 
     rle = {"encoding": "coco_rle", "size": [1, 1], "counts": [0, 1]}
     reference = storage.build_rle_reference(rle)
@@ -215,7 +215,7 @@ async def test_materialize_republishes_held_rle_after_a_collector_advances_epoch
 
     from app.services import raster_mask_storage as storage
     from app.services.video_tracking import runner
-    from app.services.video_tracking.adapters import TrackerFrameResult
+    from aap_inference.tracker import TrackerFrameResult
 
     rle = {"encoding": "coco_rle", "size": [1, 1], "counts": [0, 1]}
     reference = storage.build_rle_reference(rle)

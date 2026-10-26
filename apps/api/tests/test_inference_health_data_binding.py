@@ -1,4 +1,4 @@
-"""Caller-transaction and ORM compatibility for fixed Native health operations."""
+"""Caller-transaction and credential-free facts for fixed Native health operations."""
 
 from __future__ import annotations
 
@@ -16,8 +16,13 @@ from aap_inference.pool_capability import (
     capability_fingerprint,
 )
 from app.db.models.ml_backend_pool import MLBackendServicePool
+from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.user import User
-from app.services.inference_health_data import InferenceHealthData, _STAGES
+from app.services.inference_health_data import (
+    HealthBackendFact,
+    InferenceHealthData,
+    _STAGES,
+)
 from app.services.ml_backend import MLBackendService
 from tests.labeling_class_query_helpers import assert_owned_test_database
 
@@ -111,17 +116,29 @@ async def test_native_reconciliation_defers_to_original_flush_and_rollback(
             event.remove(test_engine.sync_engine, "before_cursor_execute", observe)
 
 
-async def test_function_only_role_can_read_write_and_stage_without_private_table_access(
-    test_engine,
-):
+async def test_native_facts_writes_and_stage_keep_the_caller_transaction(test_engine):
     await assert_owned_test_database(test_engine)
     maker = async_sessionmaker(test_engine, expire_on_commit=False, autoflush=False)
     async with maker() as db:
         backend, pool, data = await _seed(db)
         registry_id = backend.id
-        await db.execute(text("SET LOCAL ROLE inference_health_data_client"))
-        assert await data.get_backend(registry_id) is backend
-        assert await data.lock_current_backend(registry_id) is backend
+        fact = await data.get_backend(registry_id)
+        assert isinstance(fact, HealthBackendFact)
+        assert fact.id == registry_id
+        assert fact.state == "disconnected"
+        assert fact.is_interactive is False
+        assert fact.gpu_resource_id is None
+        assert fact.last_checked_at is None
+        assert fact.health_meta is None
+        assert len(fact.endpoint_sha256) == 64
+        assert set(fact.endpoint_sha256) <= set("0123456789abcdef")
+        assert not hasattr(fact, "url") and not hasattr(fact, "auth_token")
+        locked = await data.lock_current_backend(registry_id)
+        assert isinstance(locked, HealthBackendFact)
+        assert locked.id == registry_id
+        assert locked.endpoint_sha256 == fact.endpoint_sha256
+        cached = await db.get(MLBackendRegistry, registry_id)
+        assert cached is not backend
         observed = await data.clock_timestamp()
         assert (
             await data.write_health(
@@ -130,9 +147,9 @@ async def test_function_only_role_can_read_write_and_stage_without_private_table
             )
             == 1
         )
-        await data.refresh_backend(backend)
-        assert backend.state == "error" and backend.health_meta is None
-        assert backend.last_checked_at == observed
+        await data.refresh_backend(cached)
+        assert cached.state == "error" and cached.health_meta is None
+        assert cached.last_checked_at == observed
         assert await data.get_backend(uuid.uuid4()) is None
         await reconcile_pool_capability(data, registry_id, _CAPS)
         await data.flush()
@@ -145,18 +162,28 @@ async def test_function_only_role_can_read_write_and_stage_without_private_table
         await db.rollback()
 
 
-async def test_native_reads_keep_identity_and_population_semantics(test_engine):
+async def test_native_fact_reads_leave_caller_orm_values_unpopulated(test_engine):
     await assert_owned_test_database(test_engine)
     maker = async_sessionmaker(test_engine, expire_on_commit=False, autoflush=False)
     async with maker() as db:
-        backend, pool, data = await _seed(db)
-        url = backend.url
-        backend.url = "http://pending.invalid"
-        assert await data.get_backend(backend.id) is backend
-        assert backend.url == "http://pending.invalid"
-        assert await data.lock_current_backend(backend.id) is backend
-        assert backend.url == url
-        assert not db.is_modified(backend)
+        backend, _pool, data = await _seed(db)
+        cached = await db.get(MLBackendRegistry, backend.id)
+        url = cached.url
+        cached.url = "http://pending.invalid"
+        fact = await data.get_backend(backend.id)
+        assert isinstance(fact, HealthBackendFact)
+        assert fact.id == backend.id
+        assert not hasattr(fact, "url") and not hasattr(fact, "auth_token")
+        assert cached.url == "http://pending.invalid"
+        assert await data.lock_current_backend(backend.id) is not cached
+        assert cached.url == "http://pending.invalid"
+        assert (
+            await db.scalar(
+                text("SELECT url FROM ml_backend_registry WHERE id=:id"),
+                {"id": backend.id},
+            )
+        ) == url
+        assert db.is_modified(cached)
         await db.rollback()
 
 

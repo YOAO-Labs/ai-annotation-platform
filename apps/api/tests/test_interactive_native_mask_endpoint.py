@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import numpy as np
@@ -16,7 +17,14 @@ from aap_protocol_v2 import (
 from app.db.models.ml_backend_registry import ProjectMLBackendPool
 from app.db.models.project import Project
 from app.db.models.task import Task
-from aap_inference.backend_transport import PredictionResult
+from aap_inference_contract.backend_control import BackendControlSetupResult
+from aap_inference_contract.execution import (
+    ExecutionProvenance,
+    ModelExecutionObservation,
+    ModelOperationResult,
+    ModelTaskResult,
+    thaw_json,
+)
 from app.services.ai_mask_session import verify_ai_mask_session
 from app.services.ai_mask_receipt import verify_ai_mask_receipt
 from tests.conftest import create_registry_with_pool
@@ -53,7 +61,7 @@ async def _seed(db, owner_id):
     )
     db.add(task)
     await db.flush()
-    return project, backend, task
+    return project, backend, task, pool
 
 
 def _setup(outputs: list[str]) -> dict:
@@ -110,25 +118,73 @@ def _url(project, backend) -> str:
     )
 
 
+def _patch_setup(monkeypatch, setup):
+    async def setup_backend(registry_id):
+        return BackendControlSetupResult(registry_id=registry_id, setup=setup)
+
+    monkeypatch.setattr(
+        "app.api.v1.ml_backends.backend_control_service",
+        lambda _db: SimpleNamespace(setup=setup_backend),
+    )
+
+
+def _patch_execution(monkeypatch, captured, *, pool_id, respond):
+    class FakeExecutionPort:
+        async def execute(self, operation):
+            captured["model_called"] = True
+            task_data = thaw_json(operation.task_inputs[0])
+            context = thaw_json(operation.context) or {}
+            captured["operation"] = operation
+            captured["task_data"] = task_data
+            captured["context"] = context
+            if respond is None:
+                raise AssertionError("native output guard allowed model execution")
+            result = respond(operation, task_data, context)
+            registry_id = operation.requested_registry_id
+            return ModelOperationResult(
+                request_id=operation.request_id,
+                operation=operation.operation,
+                results=(result,),
+                provenance=ExecutionProvenance(
+                    requested_registry_id=operation.requested_registry_id,
+                    requested_pool_id=operation.requested_pool_id,
+                    registry_id=registry_id,
+                    pool_id=pool_id,
+                    instance_id=registry_id,
+                    route_scope_id=uuid.uuid4(),
+                    attempt_id=operation.request_id,
+                    topology_generation=operation.topology_generation,
+                    member_id=operation.selected_member_id,
+                ),
+                observation=ModelExecutionObservation(
+                    backend_id=str(registry_id),
+                    operation="predict_interactive",
+                    outcome="success",
+                    elapsed_seconds=0.001,
+                ),
+                wall_time_ms=1,
+            )
+
+    monkeypatch.setattr(
+        "app.api.v1.ml_backends.model_execution_port",
+        lambda *_args, **_kwargs: FakeExecutionPort(),
+    )
+
+
 async def test_native_endpoint_rejects_when_only_tracker_supports_mask(
     httpx_client, super_admin, db_session, monkeypatch
 ):
     user, token = super_admin
-    project, backend, task = await _seed(db_session, user.id)
+    project, backend, task, pool = await _seed(db_session, user.id)
     await db_session.commit()
-    called = False
 
-    async def fake_setup(self):
-        return _setup(["polygon"])
-
-    async def fake_predict(self, task_data, context, **kwargs):
-        nonlocal called
-        called = True
-        raise AssertionError("backend must not be called")
-
-    monkeypatch.setattr("app.services.ml_client.MLBackendClient.setup", fake_setup)
-    monkeypatch.setattr(
-        "app.services.ml_client.MLBackendClient.predict_interactive", fake_predict
+    captured = {}
+    _patch_setup(monkeypatch, _setup(["polygon"]))
+    _patch_execution(
+        monkeypatch,
+        captured,
+        pool_id=pool.id,
+        respond=None,
     )
     response = await httpx_client.post(
         _url(project, backend),
@@ -145,14 +201,14 @@ async def test_native_endpoint_rejects_when_only_tracker_supports_mask(
     )
     assert response.status_code == 422
     assert response.json()["detail"]["reason"] == "unsupported_output_geometry"
-    assert called is False
+    assert not captured.get("model_called")
 
 
 async def test_mask_prompt_source_requires_annotations_read_scope(
     httpx_client, super_admin, db_session, monkeypatch
 ):
     user, token = super_admin
-    project, backend, task = await _seed(db_session, user.id)
+    project, backend, task, _ = await _seed(db_session, user.id)
     await db_session.commit()
     created = await httpx_client.post(
         "/api/v1/me/api-keys",
@@ -230,23 +286,31 @@ async def test_native_endpoint_normalizes_error_and_empty_contracts(
     expected_reason,
 ):
     user, token = super_admin
-    project, backend, task = await _seed(db_session, user.id)
+    project, backend, task, pool = await _seed(db_session, user.id)
     await db_session.commit()
 
-    async def fake_setup(self):
-        return _setup(["polygon", "mask"])
+    _patch_setup(monkeypatch, _setup(["polygon", "mask"]))
 
-    async def fake_predict(self, task_data, context, **kwargs):
-        assert kwargs["max_response_bytes"] == 16 * 1024 * 1024
-        return PredictionResult(
+    def respond(operation, task_data, _context):
+        assert operation.max_response_bytes == 16 * 1024 * 1024
+        return ModelTaskResult(
             task_id=task_data["id"],
             result=backend_result,
             diagnostic=diagnostic,
+            score=0.73,
+            model_version="native-mask-model",
+            inference_time_ms=17,
+            cache_hit=False,
+            model_load_ms=29,
+            meta={"result_origin": "test"},
         )
 
-    monkeypatch.setattr("app.services.ml_client.MLBackendClient.setup", fake_setup)
-    monkeypatch.setattr(
-        "app.services.ml_client.MLBackendClient.predict_interactive", fake_predict
+    captured = {}
+    _patch_execution(
+        monkeypatch,
+        captured,
+        pool_id=pool.id,
+        respond=respond,
     )
     response = await httpx_client.post(
         _url(project, backend),
@@ -267,30 +331,42 @@ async def test_native_endpoint_normalizes_error_and_empty_contracts(
     else:
         assert response.json()["result"] == []
         assert response.json()["diagnostic"]["reason"] == "empty_mask"
+        assert response.json()["score"] == pytest.approx(0.73)
+        assert response.json()["model_version"] == "native-mask-model"
+        assert response.json()["inference_time_ms"] == 17
+        assert response.json()["cache_hit"] is False
+        assert response.json()["model_load_ms"] == 29
 
 
 async def test_native_endpoint_returns_valid_candidate_with_route_lineage(
     httpx_client, super_admin, db_session, monkeypatch
 ):
     user, token = super_admin
-    project, backend, task = await _seed(db_session, user.id)
+    project, backend, task, pool = await _seed(db_session, user.id)
     await db_session.commit()
 
-    async def fake_setup(self):
-        return _setup(["polygon", "mask"])
+    raw_mask_input = encode_low_res_mask(np.zeros((256, 256), dtype=np.float32))
+    _patch_setup(monkeypatch, _setup(["polygon", "mask"]))
 
-    async def fake_predict(self, task_data, context, **kwargs):
-        raw_mask_input = encode_low_res_mask(np.zeros((256, 256), dtype=np.float32))
-        return PredictionResult(
+    def respond(_operation, task_data, context):
+        return ModelTaskResult(
             task_id=task_data["id"],
-            result=[_candidate(context["prompt_revision"])],
+            result=(_candidate(context["prompt_revision"]),),
+            score=0.86,
             model_version="test-model",
+            inference_time_ms=19,
+            cache_hit=True,
+            model_load_ms=23,
+            meta={"output": "native-mask"},
             mask_input_next=raw_mask_input,
         )
 
-    monkeypatch.setattr("app.services.ml_client.MLBackendClient.setup", fake_setup)
-    monkeypatch.setattr(
-        "app.services.ml_client.MLBackendClient.predict_interactive", fake_predict
+    captured = {}
+    _patch_execution(
+        monkeypatch,
+        captured,
+        pool_id=pool.id,
+        respond=respond,
     )
     response = await httpx_client.post(
         _url(project, backend),
@@ -309,8 +385,13 @@ async def test_native_endpoint_returns_valid_candidate_with_route_lineage(
     payload = response.json()
     assert payload["result"][0]["value"]["rle"]["size"] == [2, 3]
     assert payload["model_version"] == "test-model"
+    assert payload["score"] == pytest.approx(0.86)
+    assert payload["inference_time_ms"] == 19
+    assert payload["cache_hit"] is True
+    assert payload["model_load_ms"] == 23
     assert payload["routing"]["requested_backend_id"] == str(backend.id)
     assert payload["routing"]["backend_instance_id"] == str(backend.id)
+    assert payload["routing"]["backend_pool_id"] == str(pool.id)
     assert payload["routing"]["model_id"] == "native-interactive"
     claims = verify_ai_mask_session(payload["mask_input_next"])
     assert claims["task_id"] == str(task.id)
@@ -336,22 +417,29 @@ async def test_native_endpoint_receipt_counts_positive_and_negative_scribbles(
     httpx_client, super_admin, db_session, monkeypatch
 ):
     user, token = super_admin
-    project, backend, task = await _seed(db_session, user.id)
+    project, backend, task, pool = await _seed(db_session, user.id)
     await db_session.commit()
 
-    async def fake_setup(self):
-        return _setup(["polygon", "mask"])
+    _patch_setup(monkeypatch, _setup(["polygon", "mask"]))
 
-    async def fake_predict(self, task_data, context, **kwargs):
-        return PredictionResult(
+    def respond(_operation, task_data, context):
+        return ModelTaskResult(
             task_id=task_data["id"],
-            result=[_candidate(context["prompt_revision"])],
+            result=(_candidate(context["prompt_revision"]),),
+            score=0.86,
             model_version="test-model",
+            inference_time_ms=19,
+            cache_hit=True,
+            model_load_ms=23,
+            meta={"output": "native-mask"},
         )
 
-    monkeypatch.setattr("app.services.ml_client.MLBackendClient.setup", fake_setup)
-    monkeypatch.setattr(
-        "app.services.ml_client.MLBackendClient.predict_interactive", fake_predict
+    captured = {}
+    _patch_execution(
+        monkeypatch,
+        captured,
+        pool_id=pool.id,
+        respond=respond,
     )
     response = await httpx_client.post(
         _url(project, backend),

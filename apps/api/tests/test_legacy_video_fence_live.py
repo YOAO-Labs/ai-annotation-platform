@@ -23,6 +23,8 @@ import httpx
 import pytest
 from sqlalchemy import text
 
+from aap_inference.pipeline_server import PipelineHttpServer
+from aap_inference.routing_runtime import RoutingRuntime
 from aap_inference_contract.routing import RoutingScopeView
 from aap_inference_contract.scope_retirement import make_scope_retirement_request
 from app.config import settings
@@ -171,7 +173,7 @@ async def _retire_exact_scope(test_engine, scope):
         scope.id,
         scope.capability,
     )
-    authority = RoutingAuthority(test_engine)
+    authority = RoutingAuthority()
     deadline = asyncio.get_running_loop().time() + 360
     while asyncio.get_running_loop().time() < deadline:
         result = await authority.retire_scope(request)
@@ -445,13 +447,7 @@ async def test_owned_local_fence_blocks_stale_video_tracker_redelivery(
     expected_revision = _required("AAP_LEGACY_VIDEO_FENCE_API_SOURCE_REVISION")
     video = await asyncio.to_thread(_video_bytes, tmp_path)
     _artifact_bytes, artifact, artifact_digest = _bbox_artifact()
-
-    # Keep the test-only routing authority on this exact owned PostgreSQL target.
-    monkeypatch.setattr(settings, "inference_routing_url", "")
-    monkeypatch.setattr(settings, "inference_routing_token", "")
-    monkeypatch.setattr(settings, "inference_routing_token_file", "")
-    monkeypatch.setattr(settings, "inference_routing_database_url", "")
-    monkeypatch.setattr(settings, "inference_routing_database_url_file", "")
+    # API routing authority reaches only the restricted owner over HTTP.
 
     peer = owner_s3 = sender = worker = probe_worker = None
     destroy_guide_scope = None
@@ -461,7 +457,36 @@ async def test_owned_local_fence_blocks_stale_video_tracker_redelivery(
     peer_stack = AsyncExitStack()
     task_delivery_id = str(uuid4())
     fixture_queue = f"legacy_video_fence_{secrets.token_hex(10)}"
+    owner_runtime = owner_server = None
     try:
+        routing_dsn = os.environ.get("AAP_MODULE_DATA_INFERENCE_ROUTING_URL")
+        if not routing_dsn:
+            raise LocalFenceRefused("routing_owner_profile_missing")
+        owner_runtime = RoutingRuntime(routing_dsn)
+        if not await owner_runtime.readiness():
+            raise LocalFenceRefused("routing_owner_not_ready")
+        routing_listener, routing_origin = _reserve_port()
+        routing_port = urlsplit(routing_origin).port
+        routing_listener.close()
+        if routing_port is None:
+            raise LocalFenceRefused("routing_owner_port_missing")
+        routing_token = secrets.token_urlsafe(24)
+        owner_server = PipelineHttpServer(
+            manager=None,
+            data=None,
+            control_token=None,
+            host="127.0.0.1",
+            port=routing_port,
+            routing_manager=owner_runtime.manager,
+            routing_control_token=routing_token,
+        )
+        await owner_server.start()
+        for name, value in {
+            "inference_routing_url": routing_origin,
+            "inference_routing_token": routing_token,
+            "inference_routing_token_file": "",
+        }.items():
+            monkeypatch.setattr(settings, name, value)
         async with _video_runtime(test_engine, tmp_path) as media:
             owner_s3 = media.owner
             listener, backend_origin = _reserve_port()
@@ -543,7 +568,7 @@ async def test_owned_local_fence_blocks_stale_video_tracker_redelivery(
                 service = MLBackendService(health_db)
                 if not await service.check_health(world["registry_id"]):
                     raise LocalFenceRefused("owned_backend_health_not_ready")
-            bootstrap = await RoutingAuthority(test_engine).execute(
+            bootstrap = await RoutingAuthority().execute(
                 "reconcile",
                 {
                     "registry_id": str(world["registry_id"]),
@@ -909,6 +934,20 @@ async def test_owned_local_fence_blocks_stale_video_tracker_redelivery(
         except Exception:
             cleanup_errors.append(LocalFenceRefused("backend_peer_cleanup_failed"))
         finally:
+            if owner_server is not None:
+                try:
+                    await owner_server.close()
+                except Exception:
+                    cleanup_errors.append(
+                        LocalFenceRefused("routing_owner_server_cleanup_failed")
+                    )
+            if owner_runtime is not None:
+                try:
+                    await owner_runtime.close()
+                except Exception:
+                    cleanup_errors.append(
+                        LocalFenceRefused("routing_owner_runtime_cleanup_failed")
+                    )
             if s3_probe_client is not None:
                 s3_probe_client.close()
             try:

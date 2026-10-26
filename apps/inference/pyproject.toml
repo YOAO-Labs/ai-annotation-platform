@@ -16,9 +16,9 @@ aap-video-restore = "aap_inference.restore_cli:main"
 probe = ["httpx>=0.28.0"]
 postgres = ["asyncpg>=0.29"]
 client = ["httpx>=0.28.0"]
-runtime = ["asyncpg>=0.29", "httpx>=0.28.0"]
+runtime = ["asyncpg>=0.29", "httpx>=0.28.0", "redis>=5.2.0", "cryptography>=43.0.0", "structlog>=25.5.0", "Pillow>=10.0.0"]
 video-restore = ["asyncpg>=0.29", "httpx>=0.28.0"]
-test = ["pytest>=8.3.0", "pytest-asyncio>=0.24", "httpx>=0.28.0"]
+test = ["pytest>=8.3.0", "pytest-asyncio>=0.24", "httpx>=0.28.0", "Pillow>=10.0.0"]
 
 [tool.uv.sources]
 aap-inference-contract = { path = "../_shared/inference_contract", editable = true }
@@ -40,7 +40,7 @@ cache-keys = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-aap_inference = ["*.json", "sql/*.sql", "sql/*.json"]
+aap_inference = ["*.json", "sql/*.sql", "sql/*.json", "gpu/**/*.lua", "gpu/**/*.json", "gpu/**/*.sql"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

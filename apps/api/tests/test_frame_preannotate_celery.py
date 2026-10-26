@@ -30,9 +30,8 @@ from sqlalchemy import select
 from sqlalchemy.engine import make_url
 
 from tests.test_frame_preannotate_persistence import (
+    _install_frame_execution_fake,
     _install_video_gateway,
-)
-from tests.test_frame_preannotate_persistence import (
     frame_world as frame_world,
 )
 
@@ -90,13 +89,8 @@ async def test_frame_chord_retains_results_across_real_retries(
         ]
 
     infer = AsyncMock(side_effect=predict)
-    client = SimpleNamespace(predict=infer, last_instance_id=None, pool_id=None)
-    monkeypatch.setattr(
-        "app.services.ml_routing.client.RoutedMLBackendClient", lambda *_a, **_k: client
-    )
-    monkeypatch.setattr(
-        "app.services.ml_backend.MLBackendService.pool_id_for_registry",
-        AsyncMock(return_value=None),
+    _install_frame_execution_fake(
+        monkeypatch, infer, actual_instance_id=world.backend_id
     )
     _install_video_gateway(monkeypatch, world)
     monkeypatch.setattr(frame_preannotate.settings, "frame_preannotate_chunk_size", 1)

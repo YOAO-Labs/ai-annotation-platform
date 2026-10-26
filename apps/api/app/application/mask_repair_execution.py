@@ -6,6 +6,15 @@ import uuid
 from typing import Any
 
 from aap_inference import extract_capabilities
+from aap_inference.gpu.contracts import (
+    GPUArbiterErrorCode,
+    gpu_arbiter_failure_record,
+)
+from aap_inference_contract.execution import (
+    FrozenModelOperation,
+    ModelExecutionError,
+    thaw_json,
+)
 from aap_protocol_v2 import MAX_MASK_RESPONSE_BYTES
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,14 +42,17 @@ from app.services.mask_repair import (
     stop_repair_execution_if_cancelled,
     store_repair_result_rle,
 )
+from app.services.inference_backend_control import (
+    BackendControlOperationError,
+    backend_control_service,
+)
 from app.services.ml_backend import MLBackendService
-from app.services.ml_client import MLBackendClient
 from app.services.inference_limits import capability_limits_from_settings
+from app.services.inference_model_execution import model_execution_port
 from app.services.ml_interaction_proxy import (
     normalize_native_mask_response,
     prepare_interactive_context,
 )
-from app.services.ml_routing.client import RoutedMLBackendClient
 from app.services.labeling_prediction_contract import (
     ApplyPredictionResultPort,
     ApplyPredictionResultRequest,
@@ -56,6 +68,55 @@ from app.services.video_tracking.jobs import (
 )
 from app.services.video_tracking.dispatch import VideoTrackerJobDispatcher
 
+_GPU_ERROR_CODES = frozenset(code.value for code in GPUArbiterErrorCode)
+
+
+def _execution_gpu_failure_record(error: BaseException) -> dict[str, Any] | None:
+    cause: BaseException | None = error
+    while cause is not None:
+        record = gpu_arbiter_failure_record(cause)
+        if record is not None:
+            return record
+        cause = cause.__cause__
+    if not isinstance(error, ModelExecutionError):
+        return None
+    failure = error.failure
+    if failure.code not in _GPU_ERROR_CODES:
+        return None
+    detail = thaw_json(failure.detail)
+    message = detail.get("message") if isinstance(detail, dict) else None
+    retry_after_s = None
+    if failure.retry_after is not None:
+        try:
+            retry_after_s = int(failure.retry_after)
+        except (TypeError, ValueError):
+            retry_after_s = None
+    return {
+        "error_code": failure.code,
+        "status_code": failure.status_code,
+        "retry_after_s": retry_after_s,
+        "message": message or failure.code,
+    }
+
+
+def _candidate_failure_result(kind: str, error: BaseException) -> dict[str, Any]:
+    result = {
+        "status": "failed",
+        "kind": kind,
+        "reason": (
+            error.failure.code
+            if isinstance(error, ModelExecutionError)
+            else str(error)[:500]
+        ),
+    }
+    if isinstance(error, ModelExecutionError):
+        result["execution_failure"] = error.failure.to_wire()
+    gpu_failure = _execution_gpu_failure_record(error)
+    if gpu_failure is not None:
+        result["gpu_arbiter_error"] = gpu_failure
+        result["reason"] = gpu_failure["message"]
+    return result
+
 
 async def _run_sam_candidate(
     db: AsyncSession,
@@ -64,7 +125,6 @@ async def _run_sam_candidate(
     batch_id: uuid.UUID,
     actor: IdentityActorStatus,
     job_id: uuid.UUID,
-    dispatch_context_factory,
 ) -> dict[str, Any]:
     task = await get_core_row(db, task_row, uuid.UUID(str(item["task_id"])))
     annotation = await get_core_row(
@@ -90,12 +150,15 @@ async def _run_sam_candidate(
     action = dict(item["action"])
     backend_id = uuid.UUID(str(action["backend_id"]))
     backend_service = MLBackendService(db)
-    backend = await backend_service.get(backend_id)
+    backend = await backend_service.get_registry(backend_id)
     if backend is None or not await backend_service.is_enabled(
         task.project_id, backend_id
     ):
         raise RuntimeError("sam_backend_unavailable")
-    setup = await MLBackendClient(backend).setup()
+    setup_reply = await backend_control_service(db).setup(backend_id)
+    if setup_reply.error is not None:
+        raise BackendControlOperationError(setup_reply.error)
+    setup = setup_reply.setup
     bbox = item.get("region_bbox") or {}
     context, model_id = prepare_interactive_context(
         {
@@ -118,22 +181,34 @@ async def _run_sam_candidate(
         if media_summary is not None and media_summary[0] and media_summary[1]
         else None
     )
-    client = RoutedMLBackendClient(
-        db,
-        backend,
-        project_id=task.project_id,
-        owner=f"worker:mask-repair:{batch_id}:{item['issue_id']}",
-        operation="interactive_predict",
-        dispatch_context_factory=dispatch_context_factory,
+    requested_pool_id = await backend_service.pool_id_for_registry(backend_id)
+    task_data = {"id": str(task.id), "file_path": resolve_task_url(task)}
+    operation = await model_execution_port(db).execute(
+        FrozenModelOperation(
+            request_id=uuid.uuid4(),
+            operation="interactive_predict",
+            task_inputs=(task_data,),
+            context=context,
+            project_id=task.project_id,
+            requested_registry_id=backend_id,
+            requested_pool_id=requested_pool_id,
+            endpoint_registry_id=None,
+            required_instance_id=None,
+            route_owner=f"worker:mask-repair:{batch_id}:{item['issue_id']}",
+            route_operation="interactive_predict",
+            max_response_bytes=MAX_MASK_RESPONSE_BYTES,
+            correlation={
+                "batch_id": str(batch_id),
+                "issue_id": str(item["issue_id"]),
+            },
+        )
     )
-    response = await client.predict_interactive(
-        task_data={"id": str(task.id), "file_path": resolve_task_url(task)},
-        context=context,
-        max_response_bytes=MAX_MASK_RESPONSE_BYTES,
-    )
+    if len(operation.results) != 1 or operation.results[0].task_id != task_data["id"]:
+        raise ValueError("interactive mask prediction returned an unexpected task")
+    response = operation.results[0]
     candidates, diagnostic = normalize_native_mask_response(
-        response.result,
-        getattr(response, "diagnostic", None),
+        thaw_json(response.result),
+        None if response.diagnostic is None else thaw_json(response.diagnostic),
         context=context,
         expected_size=expected_size,
     )
@@ -154,8 +229,8 @@ async def _run_sam_candidate(
             ApplyPredictionResultRequest(
                 task_id=task.id,
                 project_id=task.project_id,
-                ml_backend_id=client.last_instance_id or backend_id,
-                ml_backend_pool_id=client.pool_id,
+                ml_backend_id=operation.provenance.instance_id,
+                ml_backend_pool_id=operation.provenance.pool_id,
                 result=[
                     {
                         "type": "raster_mask",
@@ -167,8 +242,8 @@ async def _run_sam_candidate(
                     }
                 ],
                 score=candidate.get("score"),
-                model_version=getattr(response, "model_version", None),
-                inference_time_ms=getattr(response, "inference_time_ms", None),
+                model_version=response.model_version,
+                inference_time_ms=response.inference_time_ms,
                 source="mask_repair",
                 pipeline_extra={
                     "mask_repair": {
@@ -272,7 +347,6 @@ async def run_mask_repair(
     *,
     session_factory: Any,
     tracker_dispatcher: VideoTrackerJobDispatcher,
-    dispatch_context_factory,
 ) -> None:
     repair_id = uuid.UUID(batch_id)
     async with session_factory() as db:
@@ -392,7 +466,6 @@ async def run_mask_repair(
                         batch_id=repair_id,
                         actor=actor,
                         job_id=async_job_id,
-                        dispatch_context_factory=dispatch_context_factory,
                     )
                 else:
                     candidate_result = await _run_tracker_candidate(
@@ -425,11 +498,7 @@ async def run_mask_repair(
                         batch_id=repair_id,
                         async_job_id=async_job_id,
                         item_index=item_index,
-                        result_value={
-                            "status": "failed",
-                            "kind": item["kind"],
-                            "reason": str(exc)[:500],
-                        },
+                        result_value=_candidate_failure_result(item["kind"], exc),
                     )
                     await journal_db.commit()
                 if not recorded:

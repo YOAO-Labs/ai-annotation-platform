@@ -1612,6 +1612,7 @@ class LocalResources:
                 await connection.exec_driver_sql(_AUDIT_PRIVATE_RUNTIME_ACL)
                 await connection.exec_driver_sql(self.private_runtime_acl("labeling"))
                 await connection.exec_driver_sql(self.private_runtime_acl("workspace"))
+                await connection.exec_driver_sql(self.private_runtime_acl("inference"))
                 notification_result = await connection.execute(
                     text(
                         "SELECT pg_catalog.has_function_privilege("

@@ -980,55 +980,23 @@ async def _build_image_workbench_fixture(
     tasks = await fixture_writes.insert_tasks(tasks)
     await fixture_writes.patch_batch(batch, total_tasks=len(tasks))
 
-    # v0.9.4 phase 3: SAM E2E 用 mock ml_backend (url 不会被真请求, page.route 拦截)
-    # v0.19.0 ADR-0044 · 建全局注册项 + 为本项目启用关联。
-    # v0.23.3 ADR-0050 · 同时建 singleton 服务池, 项目主绑定存 pool id。
-    from app.db.models.ml_backend_pool import (
-        MLBackendPoolMember,
-        MLBackendServicePool,
-    )
-    from app.db.models.ml_backend_registry import (
-        MLBackendRegistry,
-        ProjectMLBackendPool,
-    )
+    from app.services.inference_topology_data import InferenceTopologyData
+    from app.services.ml_backend import MLBackendService
 
-    mock_backend = MLBackendRegistry(
+    inference_data = InferenceTopologyData(db)
+    backend_service = MLBackendService(db)
+    mock_backend = await backend_service.create_registry(
         name=ids.registry_name,
         url=ids.registry_url,
-        state="connected",
         is_interactive=True,
         auth_method="none",
         extra_params={"e2e_mock": True},
-        source="manual",
     )
-    db.add(mock_backend)
-    await db.flush()
-    # singleton pool: legacy_instance_id 指向 mock_backend; enabled 跟随项目启用。
-    mock_pool = MLBackendServicePool(
-        name=mock_backend.name,
-        enabled=True,
-        routing_policy="smooth_weighted_round_robin",
-        legacy_instance_id=mock_backend.id,
-        routing_generation=1,
-    )
-    db.add(mock_pool)
-    await db.flush()
-    db.add(
-        MLBackendPoolMember(
-            pool_id=mock_pool.id,
-            registry_id=mock_backend.id,
-            traffic_state="active",
-            weight=1,
-        )
-    )
-    db.add(
-        ProjectMLBackendPool(
-            project_id=project.id,
-            pool_id=mock_pool.id,
-            enabled=True,
-        )
-    )
-    await db.flush()
+    await inference_data.seed_workbench_health(mock_backend.id)
+    await backend_service.set_enabled(project.id, mock_backend.id, True)
+    mock_pool = await inference_data.pool_for_registry(mock_backend.id)
+    if mock_pool is None:
+        raise RuntimeError("Workbench fixture backend has no service pool")
     register_seed_project_projection(db, project.id)
     project.ai_enabled = True
     project.ml_backend_pool_id = mock_pool.id
@@ -2839,7 +2807,7 @@ async def seed_native_mask_candidate(
     )
 
     from app.db.models.dataset import DatasetItem
-    from app.db.models.ml_backend_pool import MLBackendServicePool
+    from app.services.inference_topology_data import InferenceTopologyData
     from app.services.ai_mask_receipt import issue_ai_mask_receipt
     from app.utils.raster_mask_rle import coco_rle_bbox_norm, encode_coco_rle
 
@@ -2852,7 +2820,7 @@ async def seed_native_mask_candidate(
         raise HTTPException(status_code=404, detail="media fixture not found")
     if project.ml_backend_pool_id is None:
         raise HTTPException(status_code=404, detail="backend pool fixture not found")
-    pool = await db.get(MLBackendServicePool, project.ml_backend_pool_id)
+    pool = await InferenceTopologyData(db).pool_reference(project.ml_backend_pool_id)
     if pool is None or pool.legacy_instance_id is None:
         raise HTTPException(status_code=404, detail="backend fixture not found")
 

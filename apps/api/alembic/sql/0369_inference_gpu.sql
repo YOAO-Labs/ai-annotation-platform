@@ -1,0 +1,1422 @@
+-- Bounded, caller-transaction-owned PostgreSQL authority for inference GPU lifecycle.
+CREATE SCHEMA aap_inference_gpu_v1;
+-- aap-statement-break
+REVOKE ALL ON SCHEMA aap_inference_gpu_v1 FROM PUBLIC;
+-- aap-statement-break
+CREATE SCHEMA aap_inference_gpu_caller_v1;
+-- aap-statement-break
+REVOKE ALL ON SCHEMA aap_inference_gpu_caller_v1 FROM PUBLIC;
+-- aap-statement-break
+CREATE SCHEMA aap_inference_gpu_collector_v1;
+-- aap-statement-break
+REVOKE ALL ON SCHEMA aap_inference_gpu_collector_v1 FROM PUBLIC;
+-- aap-statement-break
+
+CREATE FUNCTION aap_inference_gpu_v1._exact_keys(p_value jsonb, p_keys text[])
+RETURNS boolean
+LANGUAGE sql IMMUTABLE PARALLEL SAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+SET TimeZone = 'UTC'
+SET DateStyle = 'ISO, YMD'
+SET extra_float_digits = 3
+AS $function$
+    SELECT pg_catalog.jsonb_typeof(p_value) = 'object'
+       AND (SELECT COALESCE(pg_catalog.array_agg(k ORDER BY k), ARRAY[]::text[])
+            FROM pg_catalog.jsonb_object_keys(p_value) AS j(k))
+           = (SELECT COALESCE(pg_catalog.array_agg(k ORDER BY k), ARRAY[]::text[])
+              FROM pg_catalog.unnest(p_keys) AS u(k))
+$function$;
+-- aap-statement-break
+CREATE FUNCTION aap_inference_gpu_v1._fail()
+RETURNS void
+LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+SET TimeZone = 'UTC'
+SET DateStyle = 'ISO, YMD'
+SET extra_float_digits = 3
+AS $function$
+BEGIN
+    RAISE EXCEPTION 'invalid bounded GPU Native request' USING ERRCODE = '22023';
+END
+$function$;
+-- aap-statement-break
+CREATE FUNCTION aap_inference_gpu_v1._uuid(p_value jsonb)
+RETURNS uuid
+LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+SET TimeZone = 'UTC'
+SET DateStyle = 'ISO, YMD'
+SET extra_float_digits = 3
+AS $function$
+DECLARE v_text text;
+DECLARE v_uuid uuid;
+BEGIN
+    IF pg_catalog.jsonb_typeof(p_value) IS DISTINCT FROM 'string' THEN
+        PERFORM aap_inference_gpu_v1._fail();
+    END IF;
+    v_text := p_value #>> '{}';
+    BEGIN v_uuid := v_text::uuid;
+    EXCEPTION WHEN invalid_text_representation THEN
+        PERFORM aap_inference_gpu_v1._fail();
+    END;
+    IF v_uuid::text IS DISTINCT FROM v_text THEN
+        PERFORM aap_inference_gpu_v1._fail();
+    END IF;
+    RETURN v_uuid;
+END
+$function$;
+-- aap-statement-break
+CREATE FUNCTION aap_inference_gpu_v1._int(p_value jsonb, p_min bigint, p_max bigint)
+RETURNS bigint
+LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+SET TimeZone = 'UTC'
+SET DateStyle = 'ISO, YMD'
+SET extra_float_digits = 3
+AS $function$
+DECLARE v_text text;
+DECLARE v_int bigint;
+BEGIN
+    IF pg_catalog.jsonb_typeof(p_value) IS DISTINCT FROM 'number' THEN
+        PERFORM aap_inference_gpu_v1._fail();
+    END IF;
+    v_text := p_value::text;
+    IF v_text !~ '^-?(0|[1-9][0-9]*)$' THEN
+        PERFORM aap_inference_gpu_v1._fail();
+    END IF;
+    BEGIN v_int := v_text::bigint;
+    EXCEPTION WHEN numeric_value_out_of_range THEN
+        PERFORM aap_inference_gpu_v1._fail();
+    END;
+    IF v_int < p_min OR v_int > p_max THEN
+        PERFORM aap_inference_gpu_v1._fail();
+    END IF;
+    RETURN v_int;
+END
+$function$;
+-- aap-statement-break
+CREATE FUNCTION aap_inference_gpu_v1._string(p_value jsonb, p_max integer, p_nonempty boolean DEFAULT true)
+RETURNS text
+LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+SET TimeZone = 'UTC'
+SET DateStyle = 'ISO, YMD'
+SET extra_float_digits = 3
+AS $function$
+DECLARE v_text text;
+BEGIN
+    IF pg_catalog.jsonb_typeof(p_value) IS DISTINCT FROM 'string' THEN
+        PERFORM aap_inference_gpu_v1._fail();
+    END IF;
+    v_text := p_value #>> '{}';
+    IF pg_catalog.length(v_text) > p_max
+       OR (p_nonempty AND (v_text = '' OR v_text <> pg_catalog.btrim(v_text))) THEN
+        PERFORM aap_inference_gpu_v1._fail();
+    END IF;
+    RETURN v_text;
+END
+$function$;
+-- aap-statement-break
+CREATE FUNCTION aap_inference_gpu_v1._resource(p_value jsonb)
+RETURNS text
+LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+SET TimeZone = 'UTC'
+SET DateStyle = 'ISO, YMD'
+SET extra_float_digits = 3
+AS $function$
+DECLARE v_text text;
+BEGIN
+    v_text := aap_inference_gpu_v1._string(p_value, 512);
+    IF v_text !~ '^[^[:space:],/]+/(GPU-[A-Za-z0-9][A-Za-z0-9-]*|MIG-(GPU-)?[A-Za-z0-9][A-Za-z0-9._:-]*(/[0-9]+/[0-9]+)?|index:(0|[1-9][0-9]*))$' THEN
+        PERFORM aap_inference_gpu_v1._fail();
+    END IF;
+    RETURN v_text;
+END
+$function$;
+-- aap-statement-break
+CREATE FUNCTION aap_inference_gpu_v1._timestamp(p_value jsonb)
+RETURNS timestamp with time zone
+LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+SET TimeZone = 'UTC'
+SET DateStyle = 'ISO, YMD'
+SET extra_float_digits = 3
+AS $function$
+DECLARE v_text text;
+DECLARE v_time timestamp with time zone;
+BEGIN
+    v_text := aap_inference_gpu_v1._string(p_value, 64);
+    BEGIN v_time := v_text::timestamp with time zone;
+    EXCEPTION WHEN invalid_datetime_format OR datetime_field_overflow THEN
+        PERFORM aap_inference_gpu_v1._fail();
+    END;
+    IF v_text !~ '(Z|[+-][0-9]{2}:[0-9]{2})$' THEN
+        PERFORM aap_inference_gpu_v1._fail();
+    END IF;
+    RETURN v_time;
+END
+$function$;
+-- aap-statement-break
+CREATE FUNCTION aap_inference_gpu_v1._iso(p_value timestamp with time zone)
+RETURNS text
+LANGUAGE sql IMMUTABLE PARALLEL SAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+SET TimeZone = 'UTC'
+SET DateStyle = 'ISO, YMD'
+SET extra_float_digits = 3
+AS $function$
+    SELECT CASE WHEN p_value IS NULL THEN NULL ELSE
+        pg_catalog.to_char(p_value AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') END
+$function$;
+-- aap-statement-break
+CREATE FUNCTION aap_inference_gpu_v1._max_concurrency(p_value jsonb)
+RETURNS integer
+LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+SET TimeZone = 'UTC'
+SET DateStyle = 'ISO, YMD'
+SET extra_float_digits = 3
+AS $function$
+DECLARE v_value jsonb;
+DECLARE v_text text;
+DECLARE v_result integer;
+BEGIN
+    IF pg_catalog.jsonb_typeof(p_value) IS DISTINCT FROM 'object' THEN
+        PERFORM aap_inference_gpu_v1._fail();
+    END IF;
+    v_value := p_value -> 'max_concurrency';
+    IF v_value IS NULL THEN RETURN 4; END IF;
+    IF pg_catalog.jsonb_typeof(v_value) = 'string' THEN
+        v_text := v_value #>> '{}';
+        IF v_text !~ '^[1-9][0-9]{0,4}$' THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+    ELSIF pg_catalog.jsonb_typeof(v_value) = 'number' THEN
+        v_text := v_value::text;
+        IF v_text !~ '^[1-9][0-9]{0,4}$' THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+    ELSE
+        PERFORM aap_inference_gpu_v1._fail();
+    END IF;
+    v_result := v_text::integer;
+    IF v_result > 10000 THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+    RETURN v_result;
+END
+$function$;
+-- aap-statement-break
+CREATE FUNCTION aap_inference_gpu_v1._membership_doc(p_backend uuid, p_resource text)
+RETURNS jsonb
+LANGUAGE sql STABLE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+SET TimeZone = 'UTC'
+SET DateStyle = 'ISO, YMD'
+SET extra_float_digits = 3
+AS $function$
+    SELECT pg_catalog.jsonb_build_object(
+        'backend_registry_id', m.backend_registry_id,
+        'gpu_resource_id', m.gpu_resource_id,
+        'membership_epoch', m.membership_epoch,
+        'state', m.state,
+        'vram_budget_mb', m.vram_budget_mb,
+        'eviction_priority', m.eviction_priority,
+        'max_concurrency', m.max_concurrency,
+        'runtime_epoch_baseline', m.runtime_epoch_baseline
+    )
+    FROM public.gpu_backend_memberships AS m
+    WHERE m.backend_registry_id = p_backend AND m.gpu_resource_id = p_resource
+$function$;
+-- aap-statement-break
+CREATE FUNCTION aap_inference_gpu_v1._fence_doc(p_backend uuid)
+RETURNS jsonb
+LANGUAGE sql STABLE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+SET TimeZone = 'UTC'
+SET DateStyle = 'ISO, YMD'
+SET extra_float_digits = 3
+AS $function$
+    SELECT pg_catalog.jsonb_build_object(
+        'backend_registry_id', f.backend_registry_id,
+        'generation_high_water', f.generation_high_water,
+        'control_epoch_high_water', f.control_epoch_high_water,
+        'runtime_epoch_high_water', f.runtime_epoch_high_water,
+        'token_expires_at', aap_inference_gpu_v1._iso(f.token_expiry_high_water)
+    )
+    FROM public.gpu_backend_fences AS f WHERE f.backend_registry_id = p_backend
+$function$;
+-- aap-statement-break
+CREATE FUNCTION aap_inference_gpu_v1._fence_read_doc(p_backend uuid)
+RETURNS jsonb
+LANGUAGE sql STABLE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+SET TimeZone = 'UTC'
+SET DateStyle = 'ISO, YMD'
+SET extra_float_digits = 3
+AS $function$
+    SELECT pg_catalog.jsonb_build_object(
+        'backend_registry_id', f.backend_registry_id,
+        'generation_high_water', f.generation_high_water,
+        'control_epoch_high_water', f.control_epoch_high_water,
+        'runtime_epoch_high_water', f.runtime_epoch_high_water,
+        'token_expiry_high_water', aap_inference_gpu_v1._iso(f.token_expiry_high_water),
+        'updated_at', aap_inference_gpu_v1._iso(f.updated_at)
+    )
+    FROM public.gpu_backend_fences AS f WHERE f.backend_registry_id = p_backend
+$function$;
+-- aap-statement-break
+CREATE FUNCTION aap_inference_gpu_v1._registry_doc(p_backend uuid)
+RETURNS jsonb
+LANGUAGE sql STABLE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+SET TimeZone = 'UTC'
+SET DateStyle = 'ISO, YMD'
+SET extra_float_digits = 3
+AS $function$
+    SELECT pg_catalog.jsonb_build_object(
+        'id', r.id,
+        'gpu_resource_id', r.gpu_resource_id,
+        'vram_budget_mb', r.vram_budget_mb,
+        'eviction_priority', r.eviction_priority,
+        'extra_params', r.extra_params,
+        'state', r.state,
+        'last_checked_at', aap_inference_gpu_v1._iso(r.last_checked_at),
+        'health_meta', r.health_meta
+    )
+    FROM public.ml_backend_registry AS r WHERE r.id = p_backend
+$function$;
+-- aap-statement-break
+CREATE FUNCTION aap_inference_gpu_v1._lock_resource(p_resource text, p_wait boolean)
+RETURNS boolean
+LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+SET TimeZone = 'UTC'
+SET DateStyle = 'ISO, YMD'
+SET extra_float_digits = 3
+AS $function$
+DECLARE v_acquired boolean;
+DECLARE v_key bigint;
+BEGIN
+    v_key := pg_catalog.hashtextextended('aap:gpu-resource:' || p_resource, 0);
+    IF p_wait THEN
+        PERFORM pg_catalog.pg_advisory_xact_lock(v_key);
+        RETURN true;
+    END IF;
+    SELECT pg_catalog.pg_try_advisory_xact_lock(v_key) INTO v_acquired;
+    RETURN COALESCE(v_acquired, false);
+END
+$function$;
+-- aap-statement-break
+CREATE FUNCTION aap_inference_gpu_v1._domain(p_resource text, p_lock boolean, p_wait boolean)
+RETURNS jsonb
+LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+SET TimeZone = 'UTC'
+SET DateStyle = 'ISO, YMD'
+SET extra_float_digits = 3
+AS $function$
+DECLARE v_now timestamp with time zone := pg_catalog.transaction_timestamp();
+DECLARE v_memberships jsonb;
+DECLARE v_fences jsonb;
+DECLARE v_registries jsonb;
+BEGIN
+    IF p_lock THEN
+        IF NOT aap_inference_gpu_v1._lock_resource(p_resource, p_wait) THEN
+            RETURN pg_catalog.jsonb_build_object('status', 'blocked', 'reason', 'gpu_resource_busy');
+        END IF;
+        PERFORM m.backend_registry_id
+        FROM public.gpu_backend_memberships AS m
+        WHERE m.gpu_resource_id = p_resource
+        ORDER BY m.backend_registry_id
+        FOR UPDATE OF m;
+        PERFORM f.backend_registry_id
+        FROM public.gpu_backend_fences AS f
+        WHERE f.backend_registry_id IN (
+            SELECT m.backend_registry_id FROM public.gpu_backend_memberships AS m
+            WHERE m.gpu_resource_id = p_resource
+        )
+        ORDER BY f.backend_registry_id
+        FOR UPDATE OF f;
+    END IF;
+    SELECT COALESCE(pg_catalog.jsonb_agg(
+        aap_inference_gpu_v1._membership_doc(m.backend_registry_id, m.gpu_resource_id)
+        ORDER BY m.backend_registry_id), '[]'::jsonb)
+      INTO v_memberships
+      FROM public.gpu_backend_memberships AS m WHERE m.gpu_resource_id = p_resource;
+    SELECT COALESCE(pg_catalog.jsonb_agg(aap_inference_gpu_v1._fence_doc(f.backend_registry_id)
+        ORDER BY f.backend_registry_id), '[]'::jsonb)
+      INTO v_fences
+      FROM public.gpu_backend_fences AS f
+     WHERE f.backend_registry_id IN (SELECT m.backend_registry_id
+        FROM public.gpu_backend_memberships AS m WHERE m.gpu_resource_id = p_resource);
+    SELECT COALESCE(pg_catalog.jsonb_agg(aap_inference_gpu_v1._registry_doc(r.id)
+        ORDER BY r.id), '[]'::jsonb)
+      INTO v_registries
+      FROM public.ml_backend_registry AS r
+     WHERE r.id IN (SELECT m.backend_registry_id
+        FROM public.gpu_backend_memberships AS m WHERE m.gpu_resource_id = p_resource);
+    RETURN pg_catalog.jsonb_build_object(
+        'status', 'ok', 'db_now', aap_inference_gpu_v1._iso(v_now),
+        'memberships', v_memberships, 'fences', v_fences, 'registries', v_registries
+    );
+END
+$function$;
+-- aap-statement-break
+CREATE FUNCTION aap_inference_gpu_v1._rollout_snapshot(p_resource text)
+RETURNS jsonb
+LANGUAGE sql STABLE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+SET TimeZone = 'UTC'
+SET DateStyle = 'ISO, YMD'
+SET extra_float_digits = 3
+AS $function$
+    SELECT pg_catalog.jsonb_build_object(
+        'resource_id', r.gpu_resource_id,
+        'state', r.state,
+        'effective_mode', r.effective_mode,
+        'target_mode', r.target_mode,
+        'transition_id', r.transition_id,
+        'last_transition_id', r.last_transition_id,
+        'blocker_reason', r.blocker_reason,
+        'revision', r.revision
+    )
+    FROM public.gpu_arbiter_rollouts AS r WHERE r.gpu_resource_id = p_resource
+$function$;
+-- aap-statement-break
+CREATE FUNCTION aap_inference_gpu_v1._residency_shape(p_value jsonb)
+RETURNS boolean
+LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+SET TimeZone = 'UTC'
+SET DateStyle = 'ISO, YMD'
+SET extra_float_digits = 3
+AS $function$
+DECLARE v_pool record;
+DECLARE v_identity jsonb;
+DECLARE v_member jsonb;
+DECLARE v_text text;
+BEGIN
+    IF NOT aap_inference_gpu_v1._exact_keys(p_value,ARRAY[
+        'state','gpu_loaded','active_requests','builders','borrowers','draining',
+        'evictable','generation','boot_id','lifecycle_gate','control_epoch','pools','identity'
+    ]) THEN RETURN false; END IF;
+    IF pg_catalog.jsonb_typeof(p_value->'state') IS DISTINCT FROM 'string'
+       OR p_value->>'state' NOT IN ('unloaded','loading','resident','draining','unloading','unknown')
+       OR (p_value->'gpu_loaded'<>'null'::jsonb AND pg_catalog.jsonb_typeof(p_value->'gpu_loaded') IS DISTINCT FROM 'boolean')
+       OR pg_catalog.jsonb_typeof(p_value->'draining') IS DISTINCT FROM 'boolean'
+       OR pg_catalog.jsonb_typeof(p_value->'evictable') IS DISTINCT FROM 'boolean'
+       OR pg_catalog.jsonb_typeof(p_value->'lifecycle_gate') IS DISTINCT FROM 'string'
+       OR p_value->>'lifecycle_gate' NOT IN ('legacy','enforce')
+       OR pg_catalog.jsonb_typeof(p_value->'boot_id') IS DISTINCT FROM 'string'
+       OR p_value->>'boot_id'='' OR pg_catalog.length(p_value->>'boot_id')>128 THEN RETURN false; END IF;
+    IF pg_catalog.jsonb_typeof(p_value->'pools') IS DISTINCT FROM 'object'
+       OR pg_catalog.jsonb_object_length(p_value->'pools')=0 THEN RETURN false; END IF;
+    FOREACH v_member IN ARRAY ARRAY[p_value->'active_requests',p_value->'builders',p_value->'borrowers'] LOOP
+        IF pg_catalog.jsonb_typeof(v_member) IS DISTINCT FROM 'number' THEN RETURN false; END IF;
+        v_text:=v_member::text;
+        IF v_text !~ '^(0|[1-9][0-9]*)$' OR v_text::numeric>9223372036854775807 THEN RETURN false; END IF;
+    END LOOP;
+    FOREACH v_member IN ARRAY ARRAY[p_value->'generation',p_value->'control_epoch'] LOOP
+        IF v_member<>'null'::jsonb THEN
+            IF pg_catalog.jsonb_typeof(v_member) IS DISTINCT FROM 'string' THEN RETURN false; END IF;
+            v_text:=v_member#>>'{}';
+            IF v_text !~ '^(0|[1-9][0-9]{0,18})$' OR v_text::numeric>9223372036854775807 THEN RETURN false; END IF;
+        END IF;
+    END LOOP;
+    v_identity:=p_value->'identity';
+    IF v_identity<>'null'::jsonb THEN
+        IF NOT aap_inference_gpu_v1._exact_keys(v_identity,ARRAY['audience','backend_registry_id','gpu_resource_id'])
+           OR pg_catalog.jsonb_typeof(v_identity->'audience') IS DISTINCT FROM 'string'
+           OR pg_catalog.jsonb_typeof(v_identity->'backend_registry_id') IS DISTINCT FROM 'string'
+           OR pg_catalog.jsonb_typeof(v_identity->'gpu_resource_id') IS DISTINCT FROM 'string' THEN RETURN false; END IF;
+        IF v_identity->>'audience'<>'aap-gpu-lifecycle'
+           OR v_identity->>'backend_registry_id'=''
+           OR pg_catalog.length(v_identity->>'backend_registry_id')>128
+           OR v_identity->>'gpu_resource_id'=''
+           OR pg_catalog.length(v_identity->>'gpu_resource_id')>512 THEN RETURN false; END IF;
+    END IF;
+    FOR v_pool IN SELECT key,value FROM pg_catalog.jsonb_each(p_value->'pools') LOOP
+        IF v_pool.key='' OR v_pool.key<>pg_catalog.btrim(v_pool.key)
+           OR NOT aap_inference_gpu_v1._exact_keys(v_pool.value,ARRAY['resident','device','provider'])
+           OR (v_pool.value->'resident'<>'null'::jsonb AND pg_catalog.jsonb_typeof(v_pool.value->'resident') IS DISTINCT FROM 'boolean')
+           OR (v_pool.value->'device'<>'null'::jsonb AND pg_catalog.jsonb_typeof(v_pool.value->'device') IS DISTINCT FROM 'string')
+           OR (v_pool.value->'provider'<>'null'::jsonb AND pg_catalog.jsonb_typeof(v_pool.value->'provider') IS DISTINCT FROM 'string') THEN RETURN false; END IF;
+    END LOOP;
+    IF p_value->'gpu_loaded'='false'::jsonb AND (
+        p_value->>'builders'<>'0' OR p_value->>'borrowers'<>'0'
+        OR EXISTS(SELECT 1 FROM pg_catalog.jsonb_each(p_value->'pools') p(pool_id,pool_value)
+                  WHERE p.pool_value->'resident' IS DISTINCT FROM 'false'::jsonb)
+    ) THEN RETURN false; END IF;
+    IF p_value->'evictable'='true'::jsonb AND (
+        p_value->'generation'='null'::jsonb OR v_identity='null'::jsonb
+        OR p_value->>'lifecycle_gate'<>'enforce'
+    ) THEN RETURN false; END IF;
+    RETURN true;
+END
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_inference_gpu_v1._residency_shape(jsonb) FROM PUBLIC;
+-- aap-statement-break
+CREATE FUNCTION aap_inference_gpu_v1.gpu_authority_policy()
+RETURNS jsonb
+LANGUAGE sql IMMUTABLE PARALLEL SAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+SET TimeZone = 'UTC'
+SET DateStyle = 'ISO, YMD'
+SET extra_float_digits = 3
+AS $function$
+    SELECT pg_catalog.jsonb_build_object(
+        'protocol', 'aap-inference-gpu-native/v1',
+        'native_schema', 'aap_inference_gpu_v1',
+        'functions', pg_catalog.jsonb_build_array(
+            'aap_inference_gpu_v1.gpu_authority_policy()',
+            'aap_inference_gpu_v1.gpu_authority_step(text,text)'
+        ),
+        'actions', pg_catalog.jsonb_build_array(
+            'fence_advance','fence_token_expiry','fence_activate_membership','fence_read',
+            'rollout_read','rollout_read_all','rollout_boundary','rollout_begin','rollout_complete','rollout_block',
+            'runtime_subject','cold_runtime_subject','idle_eviction_subject','busy_eviction_subject','eviction_drain_health',
+            'prepare_cold_generation','prepare_idle_eviction_generation','prepare_eviction_cancel_generation',
+            'record_runtime_token_expiry','cold_terminal_from_health','eviction_cancel_from_health','eviction_phase_from_health',
+            'proof_domain','proof_reset_from_health','reconcile_resource','repair_resource',
+            'prepare_legacy_ack','prepare_rollout_control','membership_candidates','membership_max_concurrency','retired_probe_subject',
+            'retired_probe_commit','shadow_snapshot','resource_runtime_observation'
+        ),
+        'ready', true
+    )
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_inference_gpu_v1.gpu_authority_policy() FROM PUBLIC;
+-- aap-statement-break
+
+CREATE FUNCTION aap_inference_gpu_v1.gpu_authority_step(p_action text, p_arguments text)
+RETURNS jsonb
+LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+SET TimeZone = 'UTC'
+SET DateStyle = 'ISO, YMD'
+SET extra_float_digits = 3
+AS $function$
+DECLARE
+    v_args jsonb;
+    v_result jsonb;
+    v_id uuid;
+    v_id2 uuid;
+    v_resource text;
+    v_now timestamp with time zone;
+    v_time timestamp with time zone;
+    v_token_expiry timestamp with time zone;
+    v_membership public.gpu_backend_memberships%ROWTYPE;
+    v_fence public.gpu_backend_fences%ROWTYPE;
+    v_registry public.ml_backend_registry%ROWTYPE;
+    v_health jsonb;
+    v_residency jsonb;
+    v_probe jsonb;
+    v_subject jsonb;
+    v_expected jsonb;
+    v_proof jsonb;
+    v_memberships jsonb;
+    v_expected_item jsonb;
+    v_previous_id uuid;
+    v_text text;
+    v_state text;
+    v_reason text;
+    v_counter text;
+    v_next bigint;
+    v_generation bigint;
+    v_control bigint;
+    v_runtime bigint;
+    v_budget bigint;
+    v_priority bigint;
+    v_concurrency integer;
+    v_boot text;
+    v_observed_generation text;
+    v_pools jsonb;
+    v_require_idle boolean;
+    v_challenge text;
+    v_transition uuid;
+    v_target text;
+    v_operation text;
+    v_blocker text;
+    v_wait boolean;
+    v_status text;
+    v_rollout public.gpu_arbiter_rollouts%ROWTYPE;
+    v_cancel public.gpu_backend_cancel_intents%ROWTYPE;
+    v_key bigint;
+    v_probe_started timestamp with time zone;
+    v_observed timestamp with time zone;
+    v_deadline bigint;
+    v_fingerprint text;
+    v_domain jsonb;
+    v_registry_exists boolean;
+    v_retirement uuid;
+BEGIN
+    IF p_action IS NULL OR p_action !~ '^[a-z][a-z0-9_]{0,63}$'
+       OR p_arguments IS NULL OR pg_catalog.octet_length(p_arguments) > 1048576 THEN
+        PERFORM aap_inference_gpu_v1._fail();
+    END IF;
+    BEGIN v_args := p_arguments::jsonb;
+    EXCEPTION WHEN invalid_text_representation THEN
+        PERFORM aap_inference_gpu_v1._fail();
+    END;
+    IF pg_catalog.jsonb_typeof(v_args) IS DISTINCT FROM 'object' THEN
+        PERFORM aap_inference_gpu_v1._fail();
+    END IF;
+    v_now := pg_catalog.transaction_timestamp();
+
+    IF p_action = 'fence_advance' THEN
+        IF NOT aap_inference_gpu_v1._exact_keys(v_args, ARRAY['backend_registry_id','counter','gpu_resource_id','membership_epoch','token_expires_at']) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        v_id := aap_inference_gpu_v1._uuid(v_args->'backend_registry_id');
+        v_resource := aap_inference_gpu_v1._resource(v_args->'gpu_resource_id');
+        v_next := aap_inference_gpu_v1._int(v_args->'membership_epoch',1,9223372036854775807);
+        v_counter := aap_inference_gpu_v1._string(v_args->'counter',32);
+        IF v_counter NOT IN ('generation','control_epoch') OR (v_args->'token_expires_at' <> 'null'::jsonb AND pg_catalog.jsonb_typeof(v_args->'token_expires_at') <> 'string') THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        v_token_expiry := CASE WHEN v_args->'token_expires_at' = 'null'::jsonb THEN NULL ELSE aap_inference_gpu_v1._timestamp(v_args->'token_expires_at') END;
+        PERFORM aap_inference_gpu_v1._lock_resource(v_resource,true);
+        SELECT * INTO v_membership FROM public.gpu_backend_memberships m WHERE m.backend_registry_id=v_id AND m.gpu_resource_id=v_resource FOR UPDATE;
+        IF NOT FOUND OR v_membership.state <> 'active' OR v_membership.membership_epoch <> v_next THEN
+            v_result := pg_catalog.jsonb_build_object('status','membership_changed');
+        ELSE
+            SELECT * INTO v_fence FROM public.gpu_backend_fences f WHERE f.backend_registry_id=v_id FOR UPDATE;
+            IF NOT FOUND THEN v_result := pg_catalog.jsonb_build_object('status','fence_missing');
+            ELSIF v_counter='generation' AND v_fence.generation_high_water=9223372036854775807 OR v_counter='control_epoch' AND v_fence.control_epoch_high_water=9223372036854775807 THEN
+                v_result := pg_catalog.jsonb_build_object('status','high_water_exhausted');
+            ELSIF v_counter='generation' THEN
+                UPDATE public.gpu_backend_fences f SET generation_high_water=f.generation_high_water+1,
+                    token_expiry_high_water=CASE WHEN v_token_expiry IS NULL THEN f.token_expiry_high_water ELSE GREATEST(COALESCE(f.token_expiry_high_water,v_token_expiry),v_token_expiry) END,
+                    updated_at=v_now WHERE f.backend_registry_id=v_id RETURNING f.generation_high_water INTO v_next;
+                v_result := pg_catalog.jsonb_build_object('status','advanced','value',v_next);
+            ELSE
+                UPDATE public.gpu_backend_fences f SET control_epoch_high_water=f.control_epoch_high_water+1,
+                    token_expiry_high_water=CASE WHEN v_token_expiry IS NULL THEN f.token_expiry_high_water ELSE GREATEST(COALESCE(f.token_expiry_high_water,v_token_expiry),v_token_expiry) END,
+                    updated_at=v_now WHERE f.backend_registry_id=v_id RETURNING f.control_epoch_high_water INTO v_next;
+                v_result := pg_catalog.jsonb_build_object('status','advanced','value',v_next);
+            END IF;
+        END IF;
+
+    ELSIF p_action = 'fence_token_expiry' THEN
+        IF NOT aap_inference_gpu_v1._exact_keys(v_args, ARRAY['backend_registry_id','gpu_resource_id','membership_epoch','token_expires_at']) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        v_id:=aap_inference_gpu_v1._uuid(v_args->'backend_registry_id'); v_resource:=aap_inference_gpu_v1._resource(v_args->'gpu_resource_id');
+        v_next:=aap_inference_gpu_v1._int(v_args->'membership_epoch',1,9223372036854775807); v_time:=aap_inference_gpu_v1._timestamp(v_args->'token_expires_at');
+        PERFORM aap_inference_gpu_v1._lock_resource(v_resource,true);
+        SELECT * INTO v_membership FROM public.gpu_backend_memberships m WHERE m.backend_registry_id=v_id AND m.gpu_resource_id=v_resource FOR UPDATE;
+        IF NOT FOUND OR v_membership.state <> 'active' OR v_membership.membership_epoch<>v_next THEN v_result:=pg_catalog.jsonb_build_object('status','membership_changed');
+        ELSE
+            SELECT * INTO v_fence FROM public.gpu_backend_fences f WHERE f.backend_registry_id=v_id FOR UPDATE;
+            IF NOT FOUND THEN v_result:=pg_catalog.jsonb_build_object('status','fence_missing');
+            ELSE UPDATE public.gpu_backend_fences f SET token_expiry_high_water=GREATEST(COALESCE(f.token_expiry_high_water,v_time),v_time),updated_at=v_now WHERE f.backend_registry_id=v_id;
+                v_result:=pg_catalog.jsonb_build_object('status','recorded','token_expires_at',aap_inference_gpu_v1._iso(v_time)); END IF;
+        END IF;
+
+    ELSIF p_action = 'fence_activate_membership' THEN
+        IF NOT aap_inference_gpu_v1._exact_keys(v_args, ARRAY['backend_registry_id','gpu_resource_id','membership_epoch']) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        v_id:=aap_inference_gpu_v1._uuid(v_args->'backend_registry_id'); v_resource:=aap_inference_gpu_v1._resource(v_args->'gpu_resource_id');
+        v_next:=aap_inference_gpu_v1._int(v_args->'membership_epoch',1,9223372036854775807);
+        PERFORM aap_inference_gpu_v1._lock_resource(v_resource,true);
+        SELECT * INTO v_membership FROM public.gpu_backend_memberships m WHERE m.backend_registry_id=v_id AND m.gpu_resource_id=v_resource FOR UPDATE;
+        IF NOT FOUND OR v_membership.membership_epoch<>v_next OR v_membership.state NOT IN ('pending','active') THEN v_result:=pg_catalog.jsonb_build_object('status','membership_changed');
+        ELSE SELECT * INTO v_fence FROM public.gpu_backend_fences f WHERE f.backend_registry_id=v_id FOR UPDATE;
+            IF NOT FOUND THEN v_result:=pg_catalog.jsonb_build_object('status','fence_missing');
+            ELSIF v_fence.runtime_epoch_high_water=9223372036854775807 THEN v_result:=pg_catalog.jsonb_build_object('status','high_water_exhausted');
+            ELSE UPDATE public.gpu_backend_fences f SET runtime_epoch_high_water=f.runtime_epoch_high_water+1,updated_at=v_now WHERE f.backend_registry_id=v_id RETURNING f.runtime_epoch_high_water INTO v_next;
+                IF v_membership.state='pending' THEN UPDATE public.gpu_backend_memberships m SET state='active',updated_at=v_now WHERE m.backend_registry_id=v_id AND m.gpu_resource_id=v_resource; END IF;
+                v_result:=pg_catalog.jsonb_build_object('status','activated','runtime_epoch_high_water',v_next); END IF;
+        END IF;
+
+    ELSIF p_action = 'fence_read' THEN
+        IF NOT aap_inference_gpu_v1._exact_keys(v_args, ARRAY['backend_registry_id']) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        v_id:=aap_inference_gpu_v1._uuid(v_args->'backend_registry_id');
+        v_result:=pg_catalog.jsonb_build_object('fence',aap_inference_gpu_v1._fence_read_doc(v_id));
+
+    ELSIF p_action = 'rollout_read' THEN
+        IF NOT aap_inference_gpu_v1._exact_keys(v_args, ARRAY['resource_id']) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        v_resource:=aap_inference_gpu_v1._resource(v_args->'resource_id');
+        v_result:=pg_catalog.jsonb_build_object('snapshot',aap_inference_gpu_v1._rollout_snapshot(v_resource));
+
+    ELSIF p_action = 'rollout_read_all' THEN
+        IF NOT aap_inference_gpu_v1._exact_keys(v_args, ARRAY[]::text[]) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        SELECT COALESCE(pg_catalog.jsonb_agg(aap_inference_gpu_v1._rollout_snapshot(r.gpu_resource_id) ORDER BY r.gpu_resource_id),'[]'::jsonb)
+          INTO v_memberships FROM public.gpu_arbiter_rollouts r;
+        v_result:=pg_catalog.jsonb_build_object('snapshots',v_memberships);
+
+    ELSIF p_action = 'rollout_boundary' THEN
+        IF NOT aap_inference_gpu_v1._exact_keys(v_args, ARRAY[]::text[]) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        SELECT EXISTS(SELECT 1 FROM public.gpu_arbiter_rollouts r WHERE r.state <> 'off') INTO v_wait;
+        v_result:=pg_catalog.jsonb_build_object('active',v_wait);
+
+    ELSIF p_action = 'rollout_begin' THEN
+        IF NOT aap_inference_gpu_v1._exact_keys(v_args, ARRAY['resource_id','target_mode','candidate_transition_id']) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        v_resource:=aap_inference_gpu_v1._resource(v_args->'resource_id'); v_target:=aap_inference_gpu_v1._string(v_args->'target_mode',16);
+        v_transition:=aap_inference_gpu_v1._uuid(v_args->'candidate_transition_id');
+        IF v_target NOT IN ('off','observe','enforce') THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('aap:gpu-resource:'||v_resource,0));
+        SELECT * INTO v_rollout FROM public.gpu_arbiter_rollouts r WHERE r.gpu_resource_id=v_resource FOR UPDATE;
+        IF NOT FOUND THEN
+            IF v_target='enforce' THEN
+                INSERT INTO public.gpu_arbiter_rollouts(gpu_resource_id,state,effective_mode,target_mode,transition_id,transition_started_at,revision,created_at,updated_at)
+                VALUES(v_resource,'promoting','off','enforce',v_transition,v_now,1,v_now,v_now);
+            ELSE
+                INSERT INTO public.gpu_arbiter_rollouts(gpu_resource_id,state,effective_mode,target_mode,revision,created_at,updated_at)
+                VALUES(v_resource,'off','off',v_target,1,v_now,v_now);
+            END IF;
+            v_result:=aap_inference_gpu_v1._rollout_snapshot(v_resource);
+        ELSIF v_rollout.state IN ('promoting','demoting') THEN
+            IF v_rollout.target_mode=v_target THEN v_result:=aap_inference_gpu_v1._rollout_snapshot(v_resource);
+            ELSE v_result:=pg_catalog.jsonb_build_object('outcome','conflict','reason','transition_in_progress'); END IF;
+        ELSIF v_target='enforce' AND v_rollout.state='enforcing' THEN
+            v_result:=aap_inference_gpu_v1._rollout_snapshot(v_resource);
+        ELSIF v_target IN ('off','observe') AND v_rollout.state='off' THEN
+            IF v_rollout.target_mode<>v_target THEN UPDATE public.gpu_arbiter_rollouts SET target_mode=v_target,revision=revision+1,updated_at=v_now WHERE gpu_resource_id=v_resource; END IF;
+            v_result:=aap_inference_gpu_v1._rollout_snapshot(v_resource);
+        ELSIF v_transition=v_rollout.last_transition_id THEN
+            v_result:=pg_catalog.jsonb_build_object('outcome','conflict','reason','transition_id_reused');
+        ELSIF v_target='enforce' AND v_rollout.effective_mode='off' THEN
+            UPDATE public.gpu_arbiter_rollouts SET state='promoting',target_mode='enforce',transition_id=v_transition,transition_started_at=v_now,blocker_reason=NULL,revision=revision+1,updated_at=v_now WHERE gpu_resource_id=v_resource;
+            v_result:=aap_inference_gpu_v1._rollout_snapshot(v_resource);
+        ELSIF v_target IN ('off','observe') AND v_rollout.effective_mode='enforce' THEN
+            UPDATE public.gpu_arbiter_rollouts SET state='demoting',target_mode=v_target,transition_id=v_transition,transition_started_at=v_now,blocker_reason=NULL,revision=revision+1,updated_at=v_now WHERE gpu_resource_id=v_resource;
+            v_result:=aap_inference_gpu_v1._rollout_snapshot(v_resource);
+        ELSE v_result:=pg_catalog.jsonb_build_object('outcome','unavailable'); END IF;
+
+    ELSIF p_action = 'rollout_complete' THEN
+        IF NOT aap_inference_gpu_v1._exact_keys(v_args, ARRAY['resource_id','transition_id']) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        v_resource:=aap_inference_gpu_v1._resource(v_args->'resource_id'); v_transition:=aap_inference_gpu_v1._uuid(v_args->'transition_id');
+        PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('aap:gpu-resource:'||v_resource,0));
+        SELECT * INTO v_rollout FROM public.gpu_arbiter_rollouts r WHERE r.gpu_resource_id=v_resource FOR UPDATE;
+        IF NOT FOUND THEN v_result:=pg_catalog.jsonb_build_object('outcome','conflict','reason','transition_missing');
+        ELSIF v_rollout.transition_id IS NULL AND v_rollout.last_transition_id=v_transition THEN v_result:=aap_inference_gpu_v1._rollout_snapshot(v_resource);
+        ELSIF v_rollout.transition_id<>v_transition THEN v_result:=pg_catalog.jsonb_build_object('outcome','conflict','reason','transition_changed');
+        ELSIF v_rollout.state='promoting' THEN
+            UPDATE public.gpu_arbiter_rollouts SET state='enforcing',effective_mode='enforce',transition_id=NULL,transition_started_at=NULL,last_transition_id=v_transition,blocker_reason=NULL,revision=revision+1,updated_at=v_now WHERE gpu_resource_id=v_resource;
+            v_result:=aap_inference_gpu_v1._rollout_snapshot(v_resource);
+        ELSIF v_rollout.state='demoting' THEN
+            UPDATE public.gpu_arbiter_rollouts SET state='off',effective_mode='off',transition_id=NULL,transition_started_at=NULL,last_transition_id=v_transition,blocker_reason=NULL,revision=revision+1,updated_at=v_now WHERE gpu_resource_id=v_resource;
+            v_result:=aap_inference_gpu_v1._rollout_snapshot(v_resource);
+        ELSE v_result:=pg_catalog.jsonb_build_object('outcome','conflict','reason','transition_not_completable'); END IF;
+
+    ELSIF p_action = 'rollout_block' THEN
+        IF NOT aap_inference_gpu_v1._exact_keys(v_args, ARRAY['resource_id','transition_id','reason']) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        v_resource:=aap_inference_gpu_v1._resource(v_args->'resource_id'); v_transition:=aap_inference_gpu_v1._uuid(v_args->'transition_id'); v_reason:=aap_inference_gpu_v1._string(v_args->'reason',256);
+        PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('aap:gpu-resource:'||v_resource,0));
+        SELECT * INTO v_rollout FROM public.gpu_arbiter_rollouts r WHERE r.gpu_resource_id=v_resource FOR UPDATE;
+        IF NOT FOUND OR v_rollout.transition_id<>v_transition THEN v_result:=pg_catalog.jsonb_build_object('outcome','conflict','reason','transition_changed');
+        ELSIF v_rollout.state='blocked' AND v_rollout.blocker_reason=v_reason THEN v_result:=aap_inference_gpu_v1._rollout_snapshot(v_resource);
+        ELSE UPDATE public.gpu_arbiter_rollouts SET state='blocked',blocker_reason=v_reason,revision=revision+1,updated_at=v_now WHERE gpu_resource_id=v_resource;
+            v_result:=aap_inference_gpu_v1._rollout_snapshot(v_resource); END IF;
+
+    ELSIF p_action IN ('runtime_subject','cold_runtime_subject','idle_eviction_subject','busy_eviction_subject') THEN
+        IF p_action='runtime_subject' THEN
+            IF NOT aap_inference_gpu_v1._exact_keys(v_args,ARRAY['backend_registry_id','gpu_resource_id']) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        ELSIF p_action='cold_runtime_subject' THEN
+            IF NOT aap_inference_gpu_v1._exact_keys(v_args,ARRAY['backend_registry_id','gpu_resource_id','expected_challenge']) OR (v_args->'expected_challenge'<>'null'::jsonb AND pg_catalog.jsonb_typeof(v_args->'expected_challenge')<>'string') THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        ELSE
+            IF NOT aap_inference_gpu_v1._exact_keys(v_args,ARRAY['backend_registry_id','gpu_resource_id','expected_generation','challenge']) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        END IF;
+        v_id:=aap_inference_gpu_v1._uuid(v_args->'backend_registry_id'); v_resource:=aap_inference_gpu_v1._resource(v_args->'gpu_resource_id');
+        IF p_action IN ('idle_eviction_subject','busy_eviction_subject') THEN
+            v_expected:=v_args->'expected_generation';
+            IF pg_catalog.jsonb_typeof(v_expected)<>'string' OR v_expected#>>'{}' !~ '^[1-9][0-9]{0,18}$' OR (v_expected#>>'{}')::numeric>9223372036854775807 THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+            v_challenge:=aap_inference_gpu_v1._string(v_args->'challenge',64);
+            IF v_challenge !~ '^[0-9a-f]{64}$' THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        ELSE v_expected:=v_args->'expected_challenge'; IF v_expected<>'null'::jsonb THEN v_challenge:=aap_inference_gpu_v1._string(v_expected,64); IF v_challenge !~ '^[0-9a-f]{64}$' THEN PERFORM aap_inference_gpu_v1._fail(); END IF; END IF; END IF;
+        IF NOT aap_inference_gpu_v1._lock_resource(v_resource,true) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        SELECT * INTO v_membership FROM public.gpu_backend_memberships m WHERE m.backend_registry_id=v_id AND m.gpu_resource_id=v_resource FOR UPDATE;
+        IF NOT FOUND OR v_membership.state<>'active' THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','membership_not_active');
+        ELSE
+            SELECT * INTO v_fence FROM public.gpu_backend_fences f WHERE f.backend_registry_id=v_id FOR UPDATE;
+            SELECT * INTO v_registry FROM public.ml_backend_registry r WHERE r.id=v_id;
+            IF NOT FOUND OR v_registry.id IS NULL OR v_fence.backend_registry_id IS NULL THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','runtime_subject_missing');
+            ELSE
+                v_health:=v_registry.health_meta; v_probe:=v_health->'gpu_arbiter_probe'; v_residency:=v_health->'residency'; v_now:=pg_catalog.transaction_timestamp();
+                v_reason:=NULL;
+                IF v_registry.state<>'connected' OR v_registry.gpu_resource_id IS DISTINCT FROM v_resource OR v_registry.vram_budget_mb IS DISTINCT FROM v_membership.vram_budget_mb OR v_registry.eviction_priority IS DISTINCT FROM v_membership.eviction_priority OR aap_inference_gpu_v1._max_concurrency(v_registry.extra_params)<>v_membership.max_concurrency THEN v_reason:='registry_claim_mismatch';
+                ELSIF v_fence.runtime_epoch_high_water<=v_membership.runtime_epoch_baseline THEN v_reason:='active_runtime_epoch_invalid';
+                ELSIF v_fence.token_expiry_high_water IS NULL THEN v_reason:='token_horizon_missing';
+                ELSIF v_registry.last_checked_at IS NULL OR v_registry.last_checked_at>v_now OR v_registry.last_checked_at<v_now-interval '5 minutes' THEN v_reason:='probe_expired';
+                ELSIF pg_catalog.jsonb_typeof(v_probe)<>'object' OR pg_catalog.jsonb_typeof(v_residency)<>'object' THEN v_reason:='health_unavailable';
+                ELSIF v_probe->>'backend_registry_id'<>v_id::text OR v_probe->>'gpu_resource_id'<>v_resource OR v_probe->>'membership_epoch'<>v_membership.membership_epoch::text OR v_probe->>'membership_state'<>'active' OR v_probe->>'observed_at' IS NULL THEN v_reason:='probe_membership_mismatch';
+                ELSIF (v_registry.last_checked_at IS DISTINCT FROM (v_probe->>'observed_at')::timestamptz) THEN v_reason:='probe_registry_clock_mismatch';
+                ELSIF v_residency->>'lifecycle_gate'<>'enforce' OR v_residency->>'boot_id' IS NULL OR v_residency->>'control_epoch' IS NULL THEN v_reason:='runtime_not_ready';
+                ELSIF p_action='runtime_subject' AND (v_residency->>'state'<>'resident' OR v_residency->>'gpu_loaded'<>'true' OR v_residency->>'draining'<>'false' OR v_residency->>'generation' IS NULL OR (v_residency->>'control_epoch')::bigint<>v_fence.control_epoch_high_water OR (v_residency->>'generation')::bigint>v_fence.generation_high_water) THEN v_reason:='resident_runtime_not_ready';
+                ELSIF p_action='cold_runtime_subject' AND (v_residency->>'gpu_loaded'<>'false' OR v_residency->>'state' NOT IN ('unloaded','resident') OR v_residency->>'draining'<>'false' OR v_residency->>'evictable'<>'false' OR COALESCE((v_residency->>'active_requests')::bigint,1)<>0 OR COALESCE((v_residency->>'builders')::bigint,1)<>0 OR COALESCE((v_residency->>'borrowers')::bigint,1)<>0 OR (v_residency->>'control_epoch')::bigint<>v_fence.control_epoch_high_water OR (v_residency->>'generation' IS NOT NULL AND (v_residency->>'generation')::bigint>v_fence.generation_high_water)) THEN v_reason:='cold_runtime_not_ready';
+                ELSIF p_action IN ('idle_eviction_subject','busy_eviction_subject') AND (v_residency->>'state'<>'resident' OR v_residency->>'gpu_loaded'<>'true' OR v_residency->>'evictable'<>'true' OR v_residency->>'generation' IS DISTINCT FROM v_expected#>>'{}' OR v_probe->>'challenge' IS DISTINCT FROM v_challenge OR (v_residency->>'control_epoch')::bigint<>v_fence.control_epoch_high_water OR (v_residency->>'generation')::bigint>v_fence.generation_high_water OR (p_action='idle_eviction_subject' AND (COALESCE((v_residency->>'active_requests')::bigint,1)<>0 OR COALESCE((v_residency->>'builders')::bigint,1)<>0 OR COALESCE((v_residency->>'borrowers')::bigint,1)<>0))) THEN v_reason:=CASE WHEN p_action='idle_eviction_subject' THEN 'idle_eviction_runtime_not_ready' ELSE 'busy_eviction_runtime_not_ready' END;
+                ELSIF p_action='cold_runtime_subject' AND v_expected<>'null'::jsonb AND v_probe->>'challenge' IS DISTINCT FROM v_challenge THEN v_reason:='cold_runtime_challenge_mismatch';
+                END IF;
+                IF v_reason IS NOT NULL THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason',v_reason);
+                ELSE
+                    v_budget:=v_membership.vram_budget_mb; v_priority:=v_membership.eviction_priority; v_concurrency:=v_membership.max_concurrency;
+                    v_boot:=v_residency->>'boot_id'; v_control:=v_fence.control_epoch_high_water; v_runtime:=v_fence.runtime_epoch_high_water;
+                    SELECT COALESCE(pg_catalog.jsonb_agg(k ORDER BY k),'[]'::jsonb) INTO v_pools FROM pg_catalog.jsonb_object_keys(v_residency->'pools') AS p(k);
+                    IF p_action='runtime_subject' THEN
+                        v_subject:=pg_catalog.jsonb_build_object('backend_registry_id',v_id,'gpu_resource_id',v_resource,'membership_epoch',v_membership.membership_epoch,'budget_mb',v_budget,'eviction_priority',v_priority,'max_concurrency',v_concurrency,'boot_id',v_boot,'generation',v_residency->>'generation','control_epoch',v_residency->>'control_epoch','runtime_epoch',v_runtime::text,'db_now',aap_inference_gpu_v1._iso(v_now));
+                    ELSIF p_action='cold_runtime_subject' THEN
+                        v_subject:=pg_catalog.jsonb_build_object('backend_registry_id',v_id,'gpu_resource_id',v_resource,'membership_epoch',v_membership.membership_epoch,'budget_mb',v_budget,'eviction_priority',v_priority,'max_concurrency',v_concurrency,'boot_id',v_boot,'observed_generation',v_residency->>'generation','generation_high_water',v_fence.generation_high_water,'control_epoch',v_residency->>'control_epoch','runtime_epoch',v_runtime::text,'db_now',aap_inference_gpu_v1._iso(v_now));
+                    ELSE
+                        v_subject:=pg_catalog.jsonb_build_object('backend_registry_id',v_id,'gpu_resource_id',v_resource,'membership_epoch',v_membership.membership_epoch,'budget_mb',v_budget,'eviction_priority',v_priority,'max_concurrency',v_concurrency,'boot_id',v_boot,'generation',v_residency->>'generation','generation_high_water',v_fence.generation_high_water,'pool_ids',v_pools,'control_epoch',v_residency->>'control_epoch','runtime_epoch',v_runtime::text,'challenge',v_challenge,'require_idle',p_action='idle_eviction_subject','db_now',aap_inference_gpu_v1._iso(v_now));
+                    END IF;
+                    v_proof:=pg_catalog.jsonb_build_object('membership',aap_inference_gpu_v1._membership_doc(v_id,v_resource),'fence',aap_inference_gpu_v1._fence_doc(v_id),'registry',aap_inference_gpu_v1._registry_doc(v_id),'db_now',aap_inference_gpu_v1._iso(v_now));
+                    v_result:=pg_catalog.jsonb_build_object('status','ready','subject',v_subject,'proof',v_proof);
+                END IF;
+            END IF;
+        END IF;
+
+    ELSIF p_action IN ('proof_domain','reconcile_resource','repair_resource','proof_reset_from_health') THEN
+        IF p_action='proof_domain' THEN
+            IF NOT aap_inference_gpu_v1._exact_keys(v_args,ARRAY['resource_id','wait_for_lock']) OR pg_catalog.jsonb_typeof(v_args->'wait_for_lock')<>'boolean' THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        ELSIF p_action='reconcile_resource' THEN
+            IF NOT aap_inference_gpu_v1._exact_keys(v_args,ARRAY['resource_id','allocatable_mb']) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+            PERFORM aap_inference_gpu_v1._int(v_args->'allocatable_mb',1,2147483647);
+        ELSIF p_action='repair_resource' THEN
+            IF NOT aap_inference_gpu_v1._exact_keys(v_args,ARRAY['resource_id','allocatable_mb','force_proof_reset','readiness_blocker']) OR pg_catalog.jsonb_typeof(v_args->'force_proof_reset')<>'boolean' OR (v_args->'readiness_blocker'<>'null'::jsonb AND pg_catalog.jsonb_typeof(v_args->'readiness_blocker')<>'string') THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+            PERFORM aap_inference_gpu_v1._int(v_args->'allocatable_mb',1,2147483647);
+            IF v_args->'readiness_blocker'<>'null'::jsonb THEN PERFORM aap_inference_gpu_v1._string(v_args->'readiness_blocker',256); END IF;
+        ELSE
+            IF NOT aap_inference_gpu_v1._exact_keys(v_args,ARRAY['resource_id','expected_backend_memberships','wait_for_lock']) OR pg_catalog.jsonb_typeof(v_args->'expected_backend_memberships')<>'array' OR pg_catalog.jsonb_typeof(v_args->'wait_for_lock')<>'boolean' THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+            v_previous_id:=NULL;
+            FOR v_expected_item IN SELECT value FROM pg_catalog.jsonb_array_elements(v_args->'expected_backend_memberships') LOOP
+                IF NOT aap_inference_gpu_v1._exact_keys(v_expected_item,ARRAY['backend_id','membership_epoch','state']) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+                v_id:=aap_inference_gpu_v1._uuid(v_expected_item->'backend_id');
+                IF v_previous_id IS NOT NULL AND v_id<=v_previous_id THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+                v_previous_id:=v_id;
+                v_text:=aap_inference_gpu_v1._string(v_expected_item->'membership_epoch',19);
+                IF v_text !~ '^[1-9][0-9]{0,18}$' THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+                IF v_text::numeric>9223372036854775807 THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+                v_state:=aap_inference_gpu_v1._string(v_expected_item->'state',16);
+                IF v_state NOT IN ('pending','active','retiring') THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+            END LOOP;
+        END IF;
+        v_resource:=aap_inference_gpu_v1._resource(v_args->'resource_id');
+        v_wait:=CASE WHEN p_action='proof_domain' OR p_action='proof_reset_from_health' THEN (v_args->>'wait_for_lock')::boolean ELSE true END;
+        v_result:=aap_inference_gpu_v1._domain(v_resource,true,v_wait);
+        IF p_action='proof_reset_from_health' AND v_result->>'status'='ok' THEN
+            SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('backend_id',m.backend_registry_id,'membership_epoch',m.membership_epoch::text,'state',m.state) ORDER BY m.backend_registry_id),'[]'::jsonb)
+              INTO v_memberships FROM public.gpu_backend_memberships m WHERE m.gpu_resource_id=v_resource;
+            IF v_memberships IS DISTINCT FROM v_args->'expected_backend_memberships' THEN v_result:=pg_catalog.jsonb_set(v_result,'{status}','"domain_changed"'::jsonb); ELSE v_result:=pg_catalog.jsonb_set(v_result,'{status}','"matched"'::jsonb); END IF;
+        END IF;
+
+    ELSIF p_action = 'resource_runtime_observation' THEN
+        IF NOT aap_inference_gpu_v1._exact_keys(v_args,ARRAY['resource_id']) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        v_resource:=aap_inference_gpu_v1._resource(v_args->'resource_id');
+        SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('backend_id',m.backend_registry_id,'membership_epoch',m.membership_epoch,'state',m.state) ORDER BY m.backend_registry_id),'[]'::jsonb)
+          INTO v_memberships FROM public.gpu_backend_memberships m WHERE m.gpu_resource_id=v_resource;
+        v_result:=pg_catalog.jsonb_build_object('status','ok','memberships',v_memberships);
+
+    ELSIF p_action = 'membership_candidates' THEN
+        IF NOT aap_inference_gpu_v1._exact_keys(v_args,ARRAY['gpu_resource_id','states']) OR pg_catalog.jsonb_typeof(v_args->'states')<>'array' THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        v_resource:=aap_inference_gpu_v1._resource(v_args->'gpu_resource_id');
+        IF v_args->'states' NOT IN ('["pending"]'::jsonb,'["pending","active"]'::jsonb,'["retiring"]'::jsonb) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('backend_id',m.backend_registry_id,'membership_epoch',m.membership_epoch,'state',m.state) ORDER BY m.backend_registry_id),'[]'::jsonb)
+          INTO v_memberships FROM public.gpu_backend_memberships m WHERE m.gpu_resource_id=v_resource AND m.state=ANY(ARRAY(SELECT jsonb_array_elements_text(v_args->'states')));
+        v_result:=pg_catalog.jsonb_build_object('candidates',v_memberships);
+
+    ELSIF p_action = 'membership_max_concurrency' THEN
+        IF NOT aap_inference_gpu_v1._exact_keys(v_args,ARRAY['backend_registry_id']) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        v_id:=aap_inference_gpu_v1._uuid(v_args->'backend_registry_id');
+        SELECT m.max_concurrency INTO v_concurrency FROM public.gpu_backend_memberships m
+         WHERE m.backend_registry_id=v_id AND m.state IN ('pending','active');
+        v_result:=pg_catalog.jsonb_build_object('max_concurrency',v_concurrency);
+
+    ELSIF p_action = 'shadow_snapshot' THEN
+        IF NOT aap_inference_gpu_v1._exact_keys(v_args,ARRAY['resource_id','backend_id'])
+           OR (v_args->'resource_id'<>'null'::jsonb AND pg_catalog.jsonb_typeof(v_args->'resource_id')<>'string')
+           OR (v_args->'backend_id'<>'null'::jsonb AND pg_catalog.jsonb_typeof(v_args->'backend_id')<>'string')
+           OR (v_args->'resource_id'<>'null'::jsonb AND v_args->'backend_id'<>'null'::jsonb) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        IF v_args->'resource_id'='null'::jsonb THEN v_resource:=NULL; ELSE v_resource:=aap_inference_gpu_v1._resource(v_args->'resource_id'); END IF;
+        IF v_args->'backend_id'='null'::jsonb THEN v_id:=NULL; ELSE v_id:=aap_inference_gpu_v1._uuid(v_args->'backend_id'); END IF;
+        SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('backend_id',r.id,'gpu_resource_id',r.gpu_resource_id,'vram_budget_mb',r.vram_budget_mb,'eviction_priority',r.eviction_priority,'extra_params',r.extra_params,'state',r.state,'last_checked_at',aap_inference_gpu_v1._iso(r.last_checked_at),'health_meta',r.health_meta) ORDER BY r.id),'[]'::jsonb)
+          INTO v_memberships FROM public.ml_backend_registry r WHERE (v_resource IS NULL OR r.gpu_resource_id=v_resource) AND (v_id IS NULL OR r.id=v_id);
+        v_result:=pg_catalog.jsonb_build_object('backends',v_memberships);
+
+    ELSIF p_action = 'prepare_cold_generation' OR p_action='prepare_idle_eviction_generation' THEN
+        IF NOT aap_inference_gpu_v1._exact_keys(v_args,ARRAY['expected_subject','token_expires_at']) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        v_expected:=v_args->'expected_subject'; v_time:=aap_inference_gpu_v1._timestamp(v_args->'token_expires_at');
+        IF p_action='prepare_cold_generation' THEN
+            IF NOT aap_inference_gpu_v1._exact_keys(v_expected,ARRAY['backend_registry_id','gpu_resource_id','membership_epoch','budget_mb','eviction_priority','max_concurrency','boot_id','observed_generation','generation_high_water','control_epoch','runtime_epoch','db_now']) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        ELSE
+            IF NOT aap_inference_gpu_v1._exact_keys(v_expected,ARRAY['backend_registry_id','gpu_resource_id','membership_epoch','budget_mb','eviction_priority','max_concurrency','boot_id','generation','generation_high_water','pool_ids','control_epoch','runtime_epoch','challenge','require_idle','db_now']) OR pg_catalog.jsonb_typeof(v_expected->'pool_ids')<>'array' OR pg_catalog.jsonb_typeof(v_expected->'require_idle')<>'boolean' THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        END IF;
+        v_id:=aap_inference_gpu_v1._uuid(v_expected->'backend_registry_id');
+        v_resource:=aap_inference_gpu_v1._resource(v_expected->'gpu_resource_id');
+        v_next:=aap_inference_gpu_v1._int(v_expected->'membership_epoch',1,9223372036854775807);
+        PERFORM aap_inference_gpu_v1._int(v_expected->'budget_mb',1,2147483647);
+        PERFORM aap_inference_gpu_v1._int(v_expected->'eviction_priority',-2147483648,2147483647);
+        PERFORM aap_inference_gpu_v1._int(v_expected->'max_concurrency',1,10000);
+        v_boot:=aap_inference_gpu_v1._string(v_expected->'boot_id',128);
+        PERFORM aap_inference_gpu_v1._timestamp(v_expected->'db_now');
+        IF p_action='prepare_cold_generation' THEN
+            PERFORM aap_inference_gpu_v1._int(v_expected->'generation_high_water',0,9223372036854775807);
+            v_control:=aap_inference_gpu_v1._string(v_expected->'control_epoch',19)::bigint;
+            v_runtime:=aap_inference_gpu_v1._string(v_expected->'runtime_epoch',19)::bigint;
+            IF v_expected->>'control_epoch' !~ '^[1-9][0-9]{0,18}$' OR v_expected->>'runtime_epoch' !~ '^[1-9][0-9]{0,18}$' OR v_control>9223372036854775807 OR v_runtime>9223372036854775807 OR (v_expected->'observed_generation'<>'null'::jsonb AND (pg_catalog.jsonb_typeof(v_expected->'observed_generation')<>'string' OR v_expected->>'observed_generation' !~ '^[1-9][0-9]{0,18}$' OR (v_expected->>'observed_generation')::numeric>9223372036854775807)) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        ELSE
+            PERFORM aap_inference_gpu_v1._int(v_expected->'generation_high_water',0,9223372036854775807);
+            IF aap_inference_gpu_v1._string(v_expected->'generation',19) !~ '^[1-9][0-9]{0,18}$' OR (v_expected->>'generation')::numeric>9223372036854775807 OR aap_inference_gpu_v1._string(v_expected->'control_epoch',19) !~ '^[1-9][0-9]{0,18}$' OR (v_expected->>'control_epoch')::numeric>9223372036854775807 OR aap_inference_gpu_v1._string(v_expected->'runtime_epoch',19) !~ '^[1-9][0-9]{0,18}$' OR (v_expected->>'runtime_epoch')::numeric>9223372036854775807 OR aap_inference_gpu_v1._string(v_expected->'challenge',64) !~ '^[0-9a-f]{64}$' THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+            IF EXISTS(SELECT 1 FROM pg_catalog.jsonb_array_elements(v_expected->'pool_ids') x(value) WHERE pg_catalog.jsonb_typeof(x.value)<>'string' OR x.value#>>'{}'='' OR x.value#>>'{}'<>pg_catalog.btrim(x.value#>>'{}')) OR v_expected->'pool_ids' IS DISTINCT FROM (SELECT COALESCE(pg_catalog.jsonb_agg(x.value#>>'{}' ORDER BY x.value#>>'{}'),'[]'::jsonb) FROM pg_catalog.jsonb_array_elements(v_expected->'pool_ids') x(value)) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        END IF;
+        v_id:=aap_inference_gpu_v1._uuid(v_expected->'backend_registry_id'); v_resource:=aap_inference_gpu_v1._resource(v_expected->'gpu_resource_id');
+        PERFORM aap_inference_gpu_v1._lock_resource(v_resource,true);
+        SELECT * INTO v_membership FROM public.gpu_backend_memberships m WHERE m.backend_registry_id=v_id AND m.gpu_resource_id=v_resource FOR UPDATE;
+        SELECT * INTO v_fence FROM public.gpu_backend_fences f WHERE f.backend_registry_id=v_id FOR UPDATE;
+        SELECT * INTO v_registry FROM public.ml_backend_registry r WHERE r.id=v_id;
+        v_now:=pg_catalog.transaction_timestamp();
+        IF v_membership.backend_registry_id IS NULL OR v_membership.state<>'active' OR v_fence.backend_registry_id IS NULL OR v_registry.id IS NULL THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','runtime_subject_missing');
+        ELSE
+            v_health:=v_registry.health_meta; v_residency:=v_health->'residency';
+            IF v_time<=v_now OR v_fence.generation_high_water=9223372036854775807 OR v_fence.generation_high_water<>aap_inference_gpu_v1._int(v_expected->'generation_high_water',0,9223372036854775807) OR v_fence.control_epoch_high_water::text<>v_expected->>'control_epoch' OR v_fence.runtime_epoch_high_water::text<>v_expected->>'runtime_epoch' OR v_membership.membership_epoch<>aap_inference_gpu_v1._int(v_expected->'membership_epoch',1,9223372036854775807) OR v_membership.vram_budget_mb<>aap_inference_gpu_v1._int(v_expected->'budget_mb',1,2147483647) OR v_membership.eviction_priority<>aap_inference_gpu_v1._int(v_expected->'eviction_priority',-2147483648,2147483647) OR v_membership.max_concurrency<>aap_inference_gpu_v1._int(v_expected->'max_concurrency',1,10000) OR v_residency->>'boot_id' IS DISTINCT FROM v_expected->>'boot_id' OR v_registry.state<>'connected' OR v_registry.gpu_resource_id<>v_resource OR v_registry.vram_budget_mb<>v_membership.vram_budget_mb OR v_registry.eviction_priority<>v_membership.eviction_priority OR aap_inference_gpu_v1._max_concurrency(v_registry.extra_params)<>v_membership.max_concurrency OR pg_catalog.jsonb_typeof(v_residency)<>'object' OR v_registry.last_checked_at IS NULL OR v_registry.last_checked_at>v_now OR v_registry.last_checked_at<v_now-interval '3 minutes' THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','runtime_subject_changed');
+            ELSIF p_action='prepare_cold_generation' AND v_expected->'observed_generation' IS DISTINCT FROM COALESCE(v_residency->'generation','null'::jsonb) THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','runtime_subject_changed');
+            ELSIF p_action='prepare_idle_eviction_generation' AND (v_expected->>'generation' IS DISTINCT FROM v_residency->>'generation' OR v_expected->'pool_ids' IS DISTINCT FROM (SELECT COALESCE(pg_catalog.jsonb_agg(k ORDER BY k),'[]'::jsonb) FROM pg_catalog.jsonb_object_keys(v_residency->'pools') p(k)) OR v_expected->>'control_epoch' IS DISTINCT FROM v_residency->>'control_epoch') THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','runtime_subject_changed');
+            ELSE
+                v_generation:=v_fence.generation_high_water+1;
+                UPDATE public.gpu_backend_fences f SET generation_high_water=v_generation,token_expiry_high_water=GREATEST(COALESCE(f.token_expiry_high_water,v_time),v_time),updated_at=v_now WHERE f.backend_registry_id=v_id;
+                IF p_action='prepare_cold_generation' THEN
+                    v_result:=pg_catalog.jsonb_build_object('status','prepared','preparation',pg_catalog.jsonb_build_object('backend_registry_id',v_id,'gpu_resource_id',v_resource,'membership_epoch',v_membership.membership_epoch,'budget_mb',v_membership.vram_budget_mb,'eviction_priority',v_membership.eviction_priority,'max_concurrency',v_membership.max_concurrency,'boot_id',v_residency->>'boot_id','observed_generation',v_residency->>'generation','generation',v_generation::text,'control_epoch',v_residency->>'control_epoch','runtime_epoch',v_fence.runtime_epoch_high_water::text,'token_expires_at',aap_inference_gpu_v1._iso(v_time),'db_now',aap_inference_gpu_v1._iso(v_now)));
+                ELSE
+                    v_result:=pg_catalog.jsonb_build_object('status','prepared','preparation',pg_catalog.jsonb_build_object('backend_registry_id',v_id,'gpu_resource_id',v_resource,'membership_epoch',v_membership.membership_epoch,'budget_mb',v_membership.vram_budget_mb,'eviction_priority',v_membership.eviction_priority,'max_concurrency',v_membership.max_concurrency,'boot_id',v_residency->>'boot_id','source_generation',v_residency->>'generation','generation',v_generation::text,'pool_ids',v_expected->'pool_ids','control_epoch',v_residency->>'control_epoch','runtime_epoch',v_fence.runtime_epoch_high_water::text,'token_expires_at',aap_inference_gpu_v1._iso(v_time),'require_idle',v_expected->'require_idle','db_now',aap_inference_gpu_v1._iso(v_now)));
+                END IF;
+            END IF;
+        END IF;
+
+    ELSIF p_action='record_runtime_token_expiry' THEN
+        IF NOT aap_inference_gpu_v1._exact_keys(v_args,ARRAY['expected_subject','token_expires_at']) OR NOT aap_inference_gpu_v1._exact_keys(v_args->'expected_subject',ARRAY['backend_registry_id','gpu_resource_id','membership_epoch','budget_mb','eviction_priority','max_concurrency','boot_id','generation','control_epoch','runtime_epoch','db_now']) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        v_expected:=v_args->'expected_subject'; v_id:=aap_inference_gpu_v1._uuid(v_expected->'backend_registry_id'); v_resource:=aap_inference_gpu_v1._resource(v_expected->'gpu_resource_id');
+        v_next:=aap_inference_gpu_v1._int(v_expected->'membership_epoch',1,9223372036854775807); v_budget:=aap_inference_gpu_v1._int(v_expected->'budget_mb',1,2147483647); v_priority:=aap_inference_gpu_v1._int(v_expected->'eviction_priority',-2147483648,2147483647); v_concurrency:=aap_inference_gpu_v1._int(v_expected->'max_concurrency',1,10000); v_boot:=aap_inference_gpu_v1._string(v_expected->'boot_id',128); v_time:=aap_inference_gpu_v1._timestamp(v_args->'token_expires_at'); PERFORM aap_inference_gpu_v1._timestamp(v_expected->'db_now');
+        v_text:=aap_inference_gpu_v1._string(v_expected->'generation',19); IF v_text !~ '^[1-9][0-9]{0,18}$' THEN PERFORM aap_inference_gpu_v1._fail(); END IF; IF v_text::numeric>9223372036854775807 THEN PERFORM aap_inference_gpu_v1._fail(); END IF; v_generation:=v_text::bigint;
+        v_text:=aap_inference_gpu_v1._string(v_expected->'control_epoch',19); IF v_text !~ '^[1-9][0-9]{0,18}$' THEN PERFORM aap_inference_gpu_v1._fail(); END IF; IF v_text::numeric>9223372036854775807 THEN PERFORM aap_inference_gpu_v1._fail(); END IF; v_control:=v_text::bigint;
+        v_text:=aap_inference_gpu_v1._string(v_expected->'runtime_epoch',19); IF v_text !~ '^[1-9][0-9]{0,18}$' THEN PERFORM aap_inference_gpu_v1._fail(); END IF; IF v_text::numeric>9223372036854775807 THEN PERFORM aap_inference_gpu_v1._fail(); END IF; v_runtime:=v_text::bigint;
+        PERFORM aap_inference_gpu_v1._lock_resource(v_resource,true);
+        SELECT * INTO v_membership FROM public.gpu_backend_memberships m WHERE m.backend_registry_id=v_id AND m.gpu_resource_id=v_resource FOR UPDATE;
+        SELECT * INTO v_fence FROM public.gpu_backend_fences f WHERE f.backend_registry_id=v_id FOR UPDATE;
+        SELECT * INTO v_registry FROM public.ml_backend_registry r WHERE r.id=v_id;
+        v_residency:=v_registry.health_meta->'residency'; v_now:=pg_catalog.transaction_timestamp();
+        IF v_membership.backend_registry_id IS NULL OR v_membership.state<>'active' OR v_fence.backend_registry_id IS NULL OR v_registry.id IS NULL OR v_time<=v_now OR v_membership.membership_epoch<>v_next OR v_membership.vram_budget_mb<>v_budget OR v_membership.eviction_priority<>v_priority OR v_membership.max_concurrency<>v_concurrency OR v_registry.state<>'connected' OR v_registry.gpu_resource_id IS DISTINCT FROM v_resource OR v_registry.vram_budget_mb IS DISTINCT FROM v_budget OR v_registry.eviction_priority IS DISTINCT FROM v_priority OR aap_inference_gpu_v1._max_concurrency(v_registry.extra_params)<>v_concurrency OR v_fence.generation_high_water<v_generation OR v_fence.control_epoch_high_water<>v_control OR v_fence.runtime_epoch_high_water<>v_runtime OR NOT aap_inference_gpu_v1._residency_shape(v_residency) OR v_residency->>'state'<>'resident' OR v_residency->>'gpu_loaded'<>'true' OR v_residency->>'draining'<>'false' OR v_residency->>'lifecycle_gate'<>'enforce' OR v_residency->>'generation' IS DISTINCT FROM v_expected->>'generation' OR v_residency->>'control_epoch' IS DISTINCT FROM v_expected->>'control_epoch' OR v_residency->>'boot_id' IS DISTINCT FROM v_boot OR v_residency #>> '{identity,backend_registry_id}' IS DISTINCT FROM v_id::text OR v_residency #>> '{identity,gpu_resource_id}' IS DISTINCT FROM v_resource OR EXISTS(SELECT 1 FROM pg_catalog.jsonb_each(v_residency->'pools') p(pool_id,pool_value) WHERE p.pool_value->'resident'='null'::jsonb) OR NOT EXISTS(SELECT 1 FROM pg_catalog.jsonb_each(v_residency->'pools') p(pool_id,pool_value) WHERE p.pool_value->'resident'='true'::jsonb) THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','runtime_subject_changed');
+        ELSE UPDATE public.gpu_backend_fences f SET token_expiry_high_water=GREATEST(COALESCE(f.token_expiry_high_water,v_time),v_time),updated_at=v_now WHERE f.backend_registry_id=v_id;
+            v_result:=pg_catalog.jsonb_build_object('status','recorded','token_expires_at',aap_inference_gpu_v1._iso(v_time)); END IF;
+
+    ELSIF p_action='prepare_eviction_cancel_generation' THEN
+        IF v_args->>'phase'='recover' THEN
+            IF NOT aap_inference_gpu_v1._exact_keys(v_args,ARRAY['phase','backend_registry_id','gpu_resource_id','owner_id']) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+            v_id:=aap_inference_gpu_v1._uuid(v_args->'backend_registry_id'); v_resource:=aap_inference_gpu_v1._resource(v_args->'gpu_resource_id'); v_reason:=aap_inference_gpu_v1._string(v_args->'owner_id',256);
+            PERFORM aap_inference_gpu_v1._lock_resource(v_resource,true);
+            SELECT * INTO v_membership FROM public.gpu_backend_memberships m WHERE m.backend_registry_id=v_id AND m.gpu_resource_id=v_resource FOR UPDATE;
+            SELECT * INTO v_fence FROM public.gpu_backend_fences f WHERE f.backend_registry_id=v_id FOR UPDATE;
+            SELECT * INTO v_registry FROM public.ml_backend_registry r WHERE r.id=v_id;
+            SELECT * INTO v_cancel FROM public.gpu_backend_cancel_intents c WHERE c.backend_registry_id=v_id FOR UPDATE;
+            IF v_cancel.backend_registry_id IS NULL OR v_cancel.owner_id IS DISTINCT FROM v_reason OR v_cancel.gpu_resource_id IS DISTINCT FROM v_resource OR v_membership.backend_registry_id IS NULL OR v_membership.state<>'active' OR v_membership.membership_epoch<>v_cancel.membership_epoch OR v_fence.backend_registry_id IS NULL OR v_fence.generation_high_water<>v_cancel.generation OR v_fence.control_epoch_high_water<>v_cancel.control_epoch OR v_fence.runtime_epoch_high_water<>v_cancel.runtime_epoch OR v_fence.token_expiry_high_water<v_cancel.token_expires_at OR v_registry.id IS NULL OR v_registry.state<>'connected' OR v_registry.gpu_resource_id IS DISTINCT FROM v_resource OR v_registry.vram_budget_mb IS DISTINCT FROM v_membership.vram_budget_mb OR v_registry.eviction_priority IS DISTINCT FROM v_membership.eviction_priority OR aap_inference_gpu_v1._max_concurrency(v_registry.extra_params)<>v_membership.max_concurrency OR v_cancel.token_expires_at<=v_now THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','cancel_intent_missing');
+            ELSE v_result:=pg_catalog.jsonb_build_object('status','prepared','preparation',pg_catalog.jsonb_build_object('backend_registry_id',v_id,'gpu_resource_id',v_resource,'membership_epoch',v_cancel.membership_epoch,'budget_mb',v_membership.vram_budget_mb,'eviction_priority',v_membership.eviction_priority,'max_concurrency',v_membership.max_concurrency,'boot_id',v_cancel.boot_id,'source_generation',v_cancel.source_generation::text,'drain_generation',v_cancel.drain_generation::text,'generation',v_cancel.generation::text,'pool_ids',v_cancel.pool_ids,'control_epoch',v_cancel.control_epoch::text,'runtime_epoch',v_cancel.runtime_epoch::text,'owner_id',v_cancel.owner_id,'operation',v_cancel.operation,'owner_hard_deadline_ms',v_cancel.owner_hard_deadline_ms,'drain_token_expires_at',aap_inference_gpu_v1._iso(v_cancel.drain_token_expires_at),'token_expires_at',aap_inference_gpu_v1._iso(v_cancel.token_expires_at),'jti',v_cancel.jti,'idempotent',true,'db_now',aap_inference_gpu_v1._iso(v_now))); END IF;
+        ELSIF v_args->>'phase'='prepare' THEN
+            IF NOT aap_inference_gpu_v1._exact_keys(v_args,ARRAY['phase','expected_subject','owner_id','owner_hard_deadline_ms','token_expires_at']) OR NOT aap_inference_gpu_v1._exact_keys(v_args->'expected_subject',ARRAY['backend_registry_id','gpu_resource_id','membership_epoch','budget_mb','eviction_priority','max_concurrency','boot_id','source_generation','generation','pool_ids','control_epoch','runtime_epoch','token_expires_at','require_idle','db_now']) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+            v_expected:=v_args->'expected_subject'; v_id:=aap_inference_gpu_v1._uuid(v_expected->'backend_registry_id'); v_resource:=aap_inference_gpu_v1._resource(v_expected->'gpu_resource_id'); v_reason:=aap_inference_gpu_v1._string(v_args->'owner_id',256); v_next:=aap_inference_gpu_v1._int(v_args->'owner_hard_deadline_ms',1,253402300799999); v_time:=aap_inference_gpu_v1._timestamp(v_args->'token_expires_at'); v_token_expiry:=aap_inference_gpu_v1._timestamp(v_expected->'token_expires_at');
+            IF pg_catalog.jsonb_typeof(v_expected->'require_idle')<>'boolean' OR pg_catalog.jsonb_typeof(v_expected->'pool_ids')<>'array' OR pg_catalog.jsonb_array_length(v_expected->'pool_ids')=0 THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+            PERFORM aap_inference_gpu_v1._int(v_expected->'membership_epoch',1,9223372036854775807);
+            PERFORM aap_inference_gpu_v1._int(v_expected->'budget_mb',1,2147483647);
+            PERFORM aap_inference_gpu_v1._int(v_expected->'eviction_priority',-2147483648,2147483647);
+            PERFORM aap_inference_gpu_v1._int(v_expected->'max_concurrency',1,10000);
+            PERFORM aap_inference_gpu_v1._string(v_expected->'boot_id',128);
+            PERFORM aap_inference_gpu_v1._timestamp(v_expected->'db_now');
+            IF aap_inference_gpu_v1._string(v_expected->'source_generation',19) !~ '^[1-9][0-9]{0,18}$' OR (v_expected->>'source_generation')::numeric>9223372036854775807 OR aap_inference_gpu_v1._string(v_expected->'generation',19) !~ '^[1-9][0-9]{0,18}$' OR (v_expected->>'generation')::numeric>9223372036854775807 OR aap_inference_gpu_v1._string(v_expected->'control_epoch',19) !~ '^[1-9][0-9]{0,18}$' OR (v_expected->>'control_epoch')::numeric>9223372036854775807 OR aap_inference_gpu_v1._string(v_expected->'runtime_epoch',19) !~ '^[1-9][0-9]{0,18}$' OR (v_expected->>'runtime_epoch')::numeric>9223372036854775807 THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+            IF EXISTS(SELECT 1 FROM pg_catalog.jsonb_array_elements(v_expected->'pool_ids') x(value) WHERE pg_catalog.jsonb_typeof(x.value)<>'string' OR x.value#>>'{}'='' OR x.value#>>'{}'<>pg_catalog.btrim(x.value#>>'{}')) OR v_expected->'pool_ids' IS DISTINCT FROM (SELECT COALESCE(pg_catalog.jsonb_agg(x.value#>>'{}' ORDER BY x.value#>>'{}'),'[]'::jsonb) FROM pg_catalog.jsonb_array_elements(v_expected->'pool_ids') x(value)) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+            IF (v_expected->>'require_idle')::boolean THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','busy_cancel_required');
+            ELSE
+                PERFORM aap_inference_gpu_v1._lock_resource(v_resource,true);
+                SELECT * INTO v_membership FROM public.gpu_backend_memberships m WHERE m.backend_registry_id=v_id AND m.gpu_resource_id=v_resource FOR UPDATE;
+                SELECT * INTO v_fence FROM public.gpu_backend_fences f WHERE f.backend_registry_id=v_id FOR UPDATE;
+                SELECT * INTO v_registry FROM public.ml_backend_registry r WHERE r.id=v_id;
+                SELECT * INTO v_cancel FROM public.gpu_backend_cancel_intents c WHERE c.backend_registry_id=v_id FOR UPDATE;
+                v_now:=pg_catalog.transaction_timestamp();
+                IF v_membership.backend_registry_id IS NULL OR v_membership.state<>'active' OR v_membership.membership_epoch<>aap_inference_gpu_v1._int(v_expected->'membership_epoch',1,9223372036854775807) OR v_fence.backend_registry_id IS NULL OR v_registry.id IS NULL OR v_time<=v_now OR v_next<=floor(extract(epoch from v_now)*1000)::bigint OR v_time>pg_catalog.to_timestamp(v_next::double precision/1000) OR v_fence.control_epoch_high_water::text IS DISTINCT FROM v_expected->>'control_epoch' OR v_fence.runtime_epoch_high_water::text IS DISTINCT FROM v_expected->>'runtime_epoch' OR v_membership.vram_budget_mb<>aap_inference_gpu_v1._int(v_expected->'budget_mb',1,2147483647) OR v_membership.eviction_priority<>aap_inference_gpu_v1._int(v_expected->'eviction_priority',-2147483648,2147483647) OR v_membership.max_concurrency<>aap_inference_gpu_v1._int(v_expected->'max_concurrency',1,10000) OR v_registry.state<>'connected' OR v_registry.gpu_resource_id IS DISTINCT FROM v_resource OR v_registry.vram_budget_mb IS DISTINCT FROM v_membership.vram_budget_mb OR v_registry.eviction_priority IS DISTINCT FROM v_membership.eviction_priority OR aap_inference_gpu_v1._max_concurrency(v_registry.extra_params)<>v_membership.max_concurrency OR v_registry.health_meta->'residency'->>'boot_id' IS DISTINCT FROM v_expected->>'boot_id' THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','cancel_intent_conflict');
+                ELSIF v_cancel.backend_registry_id IS NOT NULL THEN
+                    IF v_cancel.gpu_resource_id IS DISTINCT FROM v_resource OR v_cancel.membership_epoch<>v_membership.membership_epoch OR v_cancel.boot_id IS DISTINCT FROM v_expected->>'boot_id' OR v_cancel.control_epoch::text IS DISTINCT FROM v_expected->>'control_epoch' OR v_cancel.runtime_epoch::text IS DISTINCT FROM v_expected->>'runtime_epoch' OR v_cancel.source_generation<>(v_expected->>'source_generation')::bigint OR v_cancel.drain_generation<>(v_expected->>'generation')::bigint OR v_cancel.owner_id IS DISTINCT FROM v_reason OR v_cancel.operation<>'evict' OR v_cancel.owner_hard_deadline_ms<>v_next OR v_cancel.drain_token_expires_at IS DISTINCT FROM v_token_expiry OR v_cancel.token_expires_at IS DISTINCT FROM v_time OR v_cancel.pool_ids IS DISTINCT FROM v_expected->'pool_ids' OR v_fence.generation_high_water<>v_cancel.generation OR v_fence.token_expiry_high_water IS NULL OR v_fence.token_expiry_high_water<v_cancel.token_expires_at OR v_cancel.subject_fingerprint IS DISTINCT FROM pg_catalog.encode(public.digest(pg_catalog.convert_to(v_expected::text,'UTF8'),'sha256'),'hex') THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','cancel_intent_conflict');
+                    ELSE v_status:='true'; END IF;
+                ELSE
+                    IF v_fence.generation_high_water=9223372036854775807 OR v_fence.generation_high_water<>(v_expected->>'generation')::bigint OR v_token_expiry<=v_now OR v_fence.token_expiry_high_water IS DISTINCT FROM v_token_expiry OR v_time<=v_token_expiry THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','cancel_intent_token_horizon_invalid');
+                    ELSE
+                        v_generation:=v_fence.generation_high_water+1; v_control:=v_fence.control_epoch_high_water; v_runtime:=v_fence.runtime_epoch_high_water; v_id2:=public.gen_random_uuid();
+                        INSERT INTO public.gpu_backend_cancel_intents(backend_registry_id,gpu_resource_id,membership_epoch,boot_id,control_epoch,runtime_epoch,source_generation,drain_generation,generation,owner_id,operation,owner_hard_deadline_ms,drain_token_expires_at,token_expires_at,jti,pool_ids,subject_fingerprint)
+                        VALUES(v_id,v_resource,v_membership.membership_epoch,v_expected->>'boot_id',v_control,v_runtime,(v_expected->>'source_generation')::bigint,(v_expected->>'generation')::bigint,v_generation,v_reason,'evict',v_next,v_token_expiry,v_time,'transition:'||v_id2::text,v_expected->'pool_ids',pg_catalog.encode(public.digest(pg_catalog.convert_to(v_expected::text,'UTF8'),'sha256'),'hex'));
+                        UPDATE public.gpu_backend_fences f SET generation_high_water=v_generation,token_expiry_high_water=GREATEST(COALESCE(f.token_expiry_high_water,v_time),v_time),updated_at=v_now WHERE f.backend_registry_id=v_id;
+                        SELECT * INTO v_cancel FROM public.gpu_backend_cancel_intents c WHERE c.backend_registry_id=v_id;
+                        v_status:='false';
+                    END IF;
+                END IF;
+                IF v_result IS NULL THEN
+                    v_result:=pg_catalog.jsonb_build_object('status','prepared','preparation',pg_catalog.jsonb_build_object('backend_registry_id',v_id,'gpu_resource_id',v_resource,'membership_epoch',v_cancel.membership_epoch,'budget_mb',v_membership.vram_budget_mb,'eviction_priority',v_membership.eviction_priority,'max_concurrency',v_membership.max_concurrency,'boot_id',v_cancel.boot_id,'source_generation',v_cancel.source_generation::text,'drain_generation',v_cancel.drain_generation::text,'generation',v_cancel.generation::text,'pool_ids',v_cancel.pool_ids,'control_epoch',v_cancel.control_epoch::text,'runtime_epoch',v_cancel.runtime_epoch::text,'owner_id',v_cancel.owner_id,'operation',v_cancel.operation,'owner_hard_deadline_ms',v_cancel.owner_hard_deadline_ms,'drain_token_expires_at',aap_inference_gpu_v1._iso(v_cancel.drain_token_expires_at),'token_expires_at',aap_inference_gpu_v1._iso(v_cancel.token_expires_at),'jti',v_cancel.jti,'idempotent',v_status='true','db_now',aap_inference_gpu_v1._iso(v_now)));
+                END IF;
+            END IF;
+        ELSE
+            PERFORM aap_inference_gpu_v1._fail();
+        END IF;
+
+    ELSIF p_action IN ('eviction_drain_health','cold_terminal_from_health','eviction_cancel_from_health','eviction_phase_from_health') THEN
+        IF p_action='eviction_drain_health' THEN
+            IF NOT aap_inference_gpu_v1._exact_keys(v_args,ARRAY['expected_subject','challenge']) OR pg_catalog.jsonb_typeof(v_args->'challenge')<>'string' THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        ELSIF p_action='cold_terminal_from_health' THEN
+            IF NOT aap_inference_gpu_v1._exact_keys(v_args,ARRAY['expected_subject','challenge']) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        ELSIF p_action='eviction_phase_from_health' THEN
+            IF NOT aap_inference_gpu_v1._exact_keys(v_args,ARRAY['expected_subject','phase','challenge']) OR aap_inference_gpu_v1._string(v_args->'phase',16) NOT IN ('drain','unload') THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        ELSE
+            IF NOT aap_inference_gpu_v1._exact_keys(v_args,ARRAY['expected_subject','ack_confirmed','challenge']) OR pg_catalog.jsonb_typeof(v_args->'ack_confirmed')<>'boolean' THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        END IF;
+        v_expected:=v_args->'expected_subject';
+        IF p_action='cold_terminal_from_health' THEN
+            IF NOT aap_inference_gpu_v1._exact_keys(v_expected,ARRAY['backend_registry_id','gpu_resource_id','membership_epoch','budget_mb','eviction_priority','max_concurrency','boot_id','observed_generation','generation','control_epoch','runtime_epoch','token_expires_at','db_now']) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        ELSIF p_action='eviction_cancel_from_health' THEN
+            IF NOT aap_inference_gpu_v1._exact_keys(v_expected,ARRAY['backend_registry_id','gpu_resource_id','membership_epoch','budget_mb','eviction_priority','max_concurrency','boot_id','source_generation','drain_generation','generation','pool_ids','control_epoch','runtime_epoch','owner_id','operation','owner_hard_deadline_ms','drain_token_expires_at','token_expires_at','jti','idempotent','db_now']) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        ELSE
+            IF NOT aap_inference_gpu_v1._exact_keys(v_expected,ARRAY['backend_registry_id','gpu_resource_id','membership_epoch','budget_mb','eviction_priority','max_concurrency','boot_id','source_generation','generation','pool_ids','control_epoch','runtime_epoch','token_expires_at','require_idle','db_now']) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        END IF;
+        PERFORM aap_inference_gpu_v1._int(v_expected->'membership_epoch',1,9223372036854775807);
+        PERFORM aap_inference_gpu_v1._int(v_expected->'budget_mb',1,2147483647);
+        PERFORM aap_inference_gpu_v1._int(v_expected->'eviction_priority',-2147483648,2147483647);
+        PERFORM aap_inference_gpu_v1._int(v_expected->'max_concurrency',1,10000);
+        PERFORM aap_inference_gpu_v1._string(v_expected->'boot_id',128);
+        PERFORM aap_inference_gpu_v1._timestamp(v_expected->'token_expires_at');
+        PERFORM aap_inference_gpu_v1._timestamp(v_expected->'db_now');
+        IF aap_inference_gpu_v1._string(v_expected->'generation',19) !~ '^[1-9][0-9]{0,18}$' OR (v_expected->>'generation')::numeric>9223372036854775807 OR aap_inference_gpu_v1._string(v_expected->'control_epoch',19) !~ '^[1-9][0-9]{0,18}$' OR (v_expected->>'control_epoch')::numeric>9223372036854775807 OR aap_inference_gpu_v1._string(v_expected->'runtime_epoch',19) !~ '^[1-9][0-9]{0,18}$' OR (v_expected->>'runtime_epoch')::numeric>9223372036854775807 THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        IF p_action='cold_terminal_from_health' THEN
+            IF v_expected->'observed_generation'<>'null'::jsonb AND (pg_catalog.jsonb_typeof(v_expected->'observed_generation')<>'string' OR v_expected->>'observed_generation' !~ '^[1-9][0-9]{0,18}$' OR (v_expected->>'observed_generation')::numeric>9223372036854775807) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        ELSE
+            PERFORM aap_inference_gpu_v1._string(v_expected->'source_generation',19);
+            IF v_expected->>'source_generation' !~ '^[1-9][0-9]{0,18}$' OR (v_expected->>'source_generation')::numeric>9223372036854775807 OR pg_catalog.jsonb_typeof(v_expected->'pool_ids')<>'array' OR pg_catalog.jsonb_array_length(v_expected->'pool_ids')=0 OR EXISTS(SELECT 1 FROM pg_catalog.jsonb_array_elements(v_expected->'pool_ids') x(value) WHERE pg_catalog.jsonb_typeof(x.value)<>'string' OR x.value#>>'{}'='' OR x.value#>>'{}'<>pg_catalog.btrim(x.value#>>'{}')) OR v_expected->'pool_ids' IS DISTINCT FROM (SELECT COALESCE(pg_catalog.jsonb_agg(x.value#>>'{}' ORDER BY x.value#>>'{}'),'[]'::jsonb) FROM pg_catalog.jsonb_array_elements(v_expected->'pool_ids') x(value)) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+            IF p_action='eviction_cancel_from_health' THEN
+                PERFORM aap_inference_gpu_v1._string(v_expected->'drain_generation',19);
+                PERFORM aap_inference_gpu_v1._string(v_expected->'owner_id',256);
+                PERFORM aap_inference_gpu_v1._string(v_expected->'jti',256);
+                PERFORM aap_inference_gpu_v1._timestamp(v_expected->'drain_token_expires_at');
+                PERFORM aap_inference_gpu_v1._int(v_expected->'owner_hard_deadline_ms',1,9223372036854775807);
+                IF v_expected->>'operation'<>'evict' OR pg_catalog.jsonb_typeof(v_expected->'idempotent')<>'boolean' OR v_expected->>'drain_generation' !~ '^[1-9][0-9]{0,18}$' OR (v_expected->>'drain_generation')::numeric>9223372036854775807 THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+            ELSE
+                IF pg_catalog.jsonb_typeof(v_expected->'require_idle')<>'boolean' THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+            END IF;
+        END IF;
+        v_expected:=v_args->'expected_subject';
+        IF v_args->'challenge'='null'::jsonb THEN
+            IF p_action='eviction_drain_health' THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+            v_challenge:=NULL;
+        ELSE
+            v_challenge:=aap_inference_gpu_v1._string(v_args->'challenge',64);
+            IF v_challenge !~ '^[0-9a-f]{64}$' THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        END IF;
+        v_id:=aap_inference_gpu_v1._uuid(v_expected->'backend_registry_id'); v_resource:=aap_inference_gpu_v1._resource(v_expected->'gpu_resource_id');
+        PERFORM aap_inference_gpu_v1._lock_resource(v_resource,true);
+        SELECT * INTO v_membership FROM public.gpu_backend_memberships m WHERE m.backend_registry_id=v_id AND m.gpu_resource_id=v_resource FOR UPDATE;
+        SELECT * INTO v_fence FROM public.gpu_backend_fences f WHERE f.backend_registry_id=v_id FOR UPDATE;
+        SELECT * INTO v_registry FROM public.ml_backend_registry r WHERE r.id=v_id;
+        IF p_action='eviction_cancel_from_health' THEN
+            SELECT * INTO v_cancel FROM public.gpu_backend_cancel_intents c WHERE c.backend_registry_id=v_id FOR UPDATE;
+        END IF;
+        v_now:=pg_catalog.transaction_timestamp();
+        IF v_membership.backend_registry_id IS NULL OR v_membership.state<>'active' OR v_fence.backend_registry_id IS NULL OR v_registry.id IS NULL OR v_membership.membership_epoch<>aap_inference_gpu_v1._int(v_expected->'membership_epoch',1,9223372036854775807) THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','runtime_subject_missing');
+        ELSIF v_fence.generation_high_water<>(v_expected->>'generation')::bigint OR v_fence.control_epoch_high_water::text IS DISTINCT FROM v_expected->>'control_epoch' OR v_fence.runtime_epoch_high_water::text IS DISTINCT FROM v_expected->>'runtime_epoch' OR v_membership.vram_budget_mb<>aap_inference_gpu_v1._int(v_expected->'budget_mb',1,2147483647) OR v_membership.eviction_priority<>aap_inference_gpu_v1._int(v_expected->'eviction_priority',-2147483648,2147483647) OR v_membership.max_concurrency<>aap_inference_gpu_v1._int(v_expected->'max_concurrency',1,10000) OR aap_inference_gpu_v1._timestamp(v_expected->'token_expires_at')<=v_now OR v_registry.state<>'connected' OR v_registry.gpu_resource_id IS DISTINCT FROM v_resource OR v_registry.vram_budget_mb IS DISTINCT FROM v_membership.vram_budget_mb OR v_registry.eviction_priority IS DISTINCT FROM v_membership.eviction_priority OR aap_inference_gpu_v1._max_concurrency(v_registry.extra_params)<>v_membership.max_concurrency THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','runtime_subject_changed');
+        ELSIF p_action='eviction_cancel_from_health' AND (v_cancel.backend_registry_id IS NULL OR v_cancel.gpu_resource_id IS DISTINCT FROM v_resource OR v_cancel.membership_epoch<>v_membership.membership_epoch OR v_cancel.generation<>(v_expected->>'generation')::bigint OR v_cancel.drain_generation<>(v_expected->>'drain_generation')::bigint OR v_cancel.source_generation<>(v_expected->>'source_generation')::bigint OR v_cancel.owner_id IS DISTINCT FROM v_expected->>'owner_id' OR v_cancel.operation IS DISTINCT FROM v_expected->>'operation' OR v_cancel.owner_hard_deadline_ms<>aap_inference_gpu_v1._int(v_expected->'owner_hard_deadline_ms',1,9223372036854775807) OR v_cancel.jti IS DISTINCT FROM v_expected->>'jti' OR v_cancel.pool_ids IS DISTINCT FROM v_expected->'pool_ids' OR v_cancel.drain_token_expires_at IS DISTINCT FROM aap_inference_gpu_v1._timestamp(v_expected->'drain_token_expires_at') OR v_cancel.token_expires_at IS DISTINCT FROM aap_inference_gpu_v1._timestamp(v_expected->'token_expires_at')) THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','cancel_intent_identity_changed');
+        ELSE
+            v_proof:=pg_catalog.jsonb_build_object('membership',aap_inference_gpu_v1._membership_doc(v_id,v_resource),'fence',aap_inference_gpu_v1._fence_doc(v_id),'registry',aap_inference_gpu_v1._registry_doc(v_id),'db_now',aap_inference_gpu_v1._iso(v_now));
+            v_result:=pg_catalog.jsonb_build_object('status','ready','subject',v_proof);
+        END IF;
+
+    ELSIF p_action='prepare_legacy_ack' OR p_action='prepare_rollout_control' THEN
+        IF p_action='prepare_legacy_ack' THEN
+            IF NOT aap_inference_gpu_v1._exact_keys(v_args,ARRAY['backend_registry_id','gpu_resource_id','membership_epoch','token_ttl_seconds','evidence_ttl_seconds']) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        ELSE
+            IF NOT aap_inference_gpu_v1._exact_keys(v_args,ARRAY['backend_registry_id','gpu_resource_id','membership_epoch','transition_id','target_gate','token_ttl_seconds','evidence_ttl_seconds']) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        END IF;
+        v_id:=aap_inference_gpu_v1._uuid(v_args->'backend_registry_id'); v_resource:=aap_inference_gpu_v1._resource(v_args->'gpu_resource_id'); v_next:=aap_inference_gpu_v1._int(v_args->'membership_epoch',1,9223372036854775807); v_budget:=aap_inference_gpu_v1._int(v_args->'token_ttl_seconds',1,300);
+        IF pg_catalog.jsonb_typeof(v_args->'evidence_ttl_seconds')<>'number' OR (v_args->>'evidence_ttl_seconds')::numeric<=0 OR (v_args->>'evidence_ttl_seconds')::numeric>300 THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        IF p_action='prepare_rollout_control' THEN v_transition:=aap_inference_gpu_v1._uuid(v_args->'transition_id'); v_target:=aap_inference_gpu_v1._string(v_args->'target_gate',16); IF v_target NOT IN ('legacy','enforce') THEN PERFORM aap_inference_gpu_v1._fail(); END IF; END IF;
+        PERFORM aap_inference_gpu_v1._lock_resource(v_resource,true);
+        SELECT * INTO v_membership FROM public.gpu_backend_memberships m WHERE m.backend_registry_id=v_id AND m.gpu_resource_id=v_resource FOR UPDATE;
+        SELECT * INTO v_fence FROM public.gpu_backend_fences f WHERE f.backend_registry_id=v_id FOR UPDATE;
+        SELECT * INTO v_registry FROM public.ml_backend_registry r WHERE r.id=v_id;
+        v_now:=pg_catalog.transaction_timestamp();
+        IF v_membership.backend_registry_id IS NULL OR v_membership.membership_epoch<>v_next OR v_membership.state NOT IN ('pending','active') OR v_fence.backend_registry_id IS NULL OR v_registry.id IS NULL THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','membership_changed');
+        ELSIF v_registry.gpu_resource_id<>v_resource OR v_registry.state<>'connected' OR v_registry.vram_budget_mb<>v_membership.vram_budget_mb OR v_registry.eviction_priority<>v_membership.eviction_priority OR aap_inference_gpu_v1._max_concurrency(v_registry.extra_params)<>v_membership.max_concurrency THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','registry_claim_mismatch');
+        ELSIF p_action='prepare_rollout_control' AND NOT EXISTS(SELECT 1 FROM public.gpu_arbiter_rollouts r WHERE r.gpu_resource_id=v_resource AND r.transition_id=v_transition AND ((v_target='enforce' AND r.state='promoting') OR (v_target='legacy' AND r.state='demoting'))) THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','rollout_transition_changed');
+        ELSE
+            v_health:=v_registry.health_meta; v_residency:=v_health->'residency'; v_probe:=v_health->'gpu_arbiter_probe';
+            v_operation:=CASE WHEN p_action='prepare_legacy_ack' THEN 'reset' WHEN v_target='enforce' THEN 'mode_enforce' ELSE 'mode_legacy' END;
+            IF pg_catalog.jsonb_typeof(v_health)<>'object' OR pg_catalog.jsonb_typeof(v_probe)<>'object' OR NOT aap_inference_gpu_v1._residency_shape(v_residency) OR v_probe->>'protocol_version'<>'1' OR v_probe->>'challenge' !~ '^[0-9a-f]{64}$' OR v_probe->>'backend_registry_id'<>v_id::text OR v_probe->>'gpu_resource_id'<>v_resource OR v_probe->>'membership_epoch'<>v_membership.membership_epoch::text OR v_probe->>'membership_state' NOT IN ('pending','active') OR (v_membership.state='active' AND v_probe->>'membership_state'<>'active') OR (v_residency->'identity'<>'null'::jsonb AND v_residency->'identity' IS DISTINCT FROM pg_catalog.jsonb_build_object('audience','aap-gpu-lifecycle','backend_registry_id',v_id::text,'gpu_resource_id',v_resource)) OR v_residency->>'control_epoch' IS NULL OR (v_fence.control_epoch_high_water::text IS DISTINCT FROM v_residency->>'control_epoch' AND (v_residency->>'control_epoch')::numeric>v_fence.control_epoch_high_water) OR v_registry.last_checked_at IS NULL OR v_registry.last_checked_at>v_now OR v_now-v_registry.last_checked_at>make_interval(secs=>(v_args->>'evidence_ttl_seconds')::double precision) OR v_probe->>'observed_at' IS NULL OR v_registry.last_checked_at IS DISTINCT FROM (v_probe->>'observed_at')::timestamp with time zone THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','legacy_ack_runtime_unavailable');
+            ELSIF p_action='prepare_legacy_ack' AND v_membership.state='active' AND v_residency->>'lifecycle_gate'='legacy' AND v_residency->>'control_epoch'=v_fence.control_epoch_high_water::text THEN
+                v_result:=pg_catalog.jsonb_build_object('status','ok','preparation',pg_catalog.jsonb_build_object('action','acknowledged','backend_id',v_id,'resource_id',v_resource,'membership_epoch',v_membership.membership_epoch,'boot_id',v_residency->>'boot_id','runtime_epoch',v_fence.runtime_epoch_high_water::text,'control_epoch',v_fence.control_epoch_high_water::text,'token_expires_at',NULL,'proof_ready',true));
+            ELSIF p_action='prepare_rollout_control' AND v_membership.state='active' AND v_residency->>'lifecycle_gate'=v_target AND v_residency->>'control_epoch'=v_fence.control_epoch_high_water::text THEN
+                v_time:=COALESCE(v_fence.rollout_control_token_expires_at,v_now);
+                v_result:=pg_catalog.jsonb_build_object('status','ok','preparation',pg_catalog.jsonb_build_object('action','acknowledged','operation',v_operation,'target_gate',v_target,'backend_id',v_id,'resource_id',v_resource,'membership_epoch',v_membership.membership_epoch,'transition_id',v_transition,'boot_id',v_residency->>'boot_id','control_epoch',v_fence.control_epoch_high_water::text,'token_expires_at',aap_inference_gpu_v1._iso(v_time),'reason','fresh_health_matches_target'));
+            ELSIF p_action='prepare_rollout_control' AND v_fence.rollout_control_operation=v_operation AND v_fence.rollout_control_transition_id=v_transition AND v_fence.rollout_control_epoch=v_fence.control_epoch_high_water AND v_fence.rollout_control_membership_epoch=v_membership.membership_epoch AND v_fence.rollout_control_boot_id=v_residency->>'boot_id' AND v_fence.rollout_control_token_expires_at IS NOT NULL THEN
+                v_control:=v_fence.rollout_control_epoch; v_time:=v_fence.rollout_control_token_expires_at;
+                IF v_time<=v_now THEN
+                    v_result:=pg_catalog.jsonb_build_object('status','ok','preparation',pg_catalog.jsonb_build_object('action','awaiting_health','operation',v_operation,'target_gate',v_target,'backend_id',v_id,'resource_id',v_resource,'membership_epoch',v_membership.membership_epoch,'transition_id',v_transition,'boot_id',v_residency->>'boot_id','control_epoch',v_control::text,'token_expires_at',aap_inference_gpu_v1._iso(v_time),'reason','rollout_control_awaiting_fresh_health'));
+                ELSE
+                    v_result:=pg_catalog.jsonb_build_object('status','ok','preparation',pg_catalog.jsonb_build_object('action','issue','operation',v_operation,'target_gate',v_target,'backend_id',v_id,'resource_id',v_resource,'membership_epoch',v_membership.membership_epoch,'transition_id',v_transition,'boot_id',v_residency->>'boot_id','control_epoch',v_control::text,'token_expires_at',aap_inference_gpu_v1._iso(v_time),'reason','rollout_control_prepared'));
+                END IF;
+            ELSIF v_fence.control_epoch_high_water=9223372036854775807 OR (v_membership.state='pending' AND v_fence.runtime_epoch_high_water=9223372036854775807) THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','high_water_exhausted');
+            ELSE
+                IF v_membership.state='pending' THEN
+                    PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('aap:gpu-membership-promotion',0));
+                    UPDATE public.gpu_backend_fences f SET runtime_epoch_high_water=f.runtime_epoch_high_water+1 WHERE f.backend_registry_id=v_id RETURNING f.runtime_epoch_high_water INTO v_runtime;
+                    UPDATE public.gpu_backend_memberships m SET state='active',updated_at=v_now WHERE m.backend_registry_id=v_id AND m.gpu_resource_id=v_resource;
+                ELSE v_runtime:=v_fence.runtime_epoch_high_water; END IF;
+                v_control:=v_fence.control_epoch_high_water+1; v_time:=v_now+make_interval(secs=>v_budget);
+                UPDATE public.gpu_backend_fences f SET control_epoch_high_water=v_control,token_expiry_high_water=GREATEST(COALESCE(f.token_expiry_high_water,v_time),v_time),rollout_control_operation=CASE WHEN p_action='prepare_rollout_control' THEN v_operation ELSE f.rollout_control_operation END,rollout_control_transition_id=CASE WHEN p_action='prepare_rollout_control' THEN v_transition ELSE f.rollout_control_transition_id END,rollout_control_epoch=CASE WHEN p_action='prepare_rollout_control' THEN v_control ELSE f.rollout_control_epoch END,rollout_control_membership_epoch=CASE WHEN p_action='prepare_rollout_control' THEN v_membership.membership_epoch ELSE f.rollout_control_membership_epoch END,rollout_control_boot_id=CASE WHEN p_action='prepare_rollout_control' THEN v_residency->>'boot_id' ELSE f.rollout_control_boot_id END,rollout_control_token_expires_at=CASE WHEN p_action='prepare_rollout_control' THEN v_time ELSE f.rollout_control_token_expires_at END,updated_at=v_now WHERE f.backend_registry_id=v_id;
+                IF p_action='prepare_legacy_ack' THEN
+                    v_result:=pg_catalog.jsonb_build_object('status','ok','preparation',pg_catalog.jsonb_build_object('action','issue','backend_id',v_id,'resource_id',v_resource,'membership_epoch',v_membership.membership_epoch,'boot_id',v_residency->>'boot_id','runtime_epoch',v_runtime::text,'control_epoch',v_control::text,'token_expires_at',aap_inference_gpu_v1._iso(v_time),'proof_ready',true));
+                ELSE
+                    v_result:=pg_catalog.jsonb_build_object('status','ok','preparation',pg_catalog.jsonb_build_object('action','issue','operation',v_operation,'target_gate',v_target,'backend_id',v_id,'resource_id',v_resource,'membership_epoch',v_membership.membership_epoch,'transition_id',v_transition,'boot_id',v_residency->>'boot_id','control_epoch',v_control::text,'token_expires_at',aap_inference_gpu_v1._iso(v_time),'reason','rollout_control_prepared'));
+                END IF;
+            END IF;
+        END IF;
+
+    ELSIF p_action='retired_probe_subject' THEN
+        IF NOT aap_inference_gpu_v1._exact_keys(v_args,ARRAY['backend_id','resource_id','membership_epoch']) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        v_id:=aap_inference_gpu_v1._uuid(v_args->'backend_id'); v_resource:=aap_inference_gpu_v1._resource(v_args->'resource_id'); v_next:=aap_inference_gpu_v1._int(v_args->'membership_epoch',1,9223372036854775807);
+        PERFORM aap_inference_gpu_v1._lock_resource(v_resource,true);
+        SELECT * INTO v_membership FROM public.gpu_backend_memberships m WHERE m.backend_registry_id=v_id AND m.gpu_resource_id=v_resource FOR UPDATE;
+        SELECT * INTO v_fence FROM public.gpu_backend_fences f WHERE f.backend_registry_id=v_id FOR UPDATE;
+        SELECT * INTO v_registry FROM public.ml_backend_registry r WHERE r.id=v_id;
+        IF v_membership.backend_registry_id IS NULL OR v_membership.state<>'retiring' OR v_membership.membership_epoch<>v_next OR v_fence.backend_registry_id IS NULL OR v_fence.generation_high_water IS DISTINCT FROM v_membership.retired_generation_high_water OR v_fence.control_epoch_high_water IS DISTINCT FROM v_membership.retired_control_epoch_high_water THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','retired_membership_changed');
+        ELSE
+            v_now:=pg_catalog.transaction_timestamp();
+            IF v_membership.retired_token_expiry_high_water IS NOT NULL AND v_now<=v_membership.retired_token_expiry_high_water THEN v_reason:='waiting_token_horizon';
+            ELSIF v_registry.id IS NULL THEN v_reason:='registry_missing';
+            ELSE v_reason:='ready'; END IF;
+            IF v_reason='ready' THEN v_challenge:=encode(public.gen_random_bytes(32),'hex'); v_probe_started:=pg_catalog.clock_timestamp();
+                v_result:=pg_catalog.jsonb_build_object('status','ready','reason','','subject',pg_catalog.jsonb_build_object('challenge',v_challenge,'probe_started_at',aap_inference_gpu_v1._iso(v_probe_started)));
+            ELSE v_result:=pg_catalog.jsonb_build_object('status','blocked','reason',v_reason,'subject',NULL); END IF;
+        END IF;
+
+    ELSIF p_action='retired_probe_commit' THEN
+        IF NOT aap_inference_gpu_v1._exact_keys(v_args,ARRAY['backend_id','resource_id','membership_epoch','challenge','probe_started_at','endpoint_sha256','residency']) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        v_id:=aap_inference_gpu_v1._uuid(v_args->'backend_id'); v_resource:=aap_inference_gpu_v1._resource(v_args->'resource_id'); v_next:=aap_inference_gpu_v1._int(v_args->'membership_epoch',1,9223372036854775807); v_challenge:=aap_inference_gpu_v1._string(v_args->'challenge',64); v_probe_started:=aap_inference_gpu_v1._timestamp(v_args->'probe_started_at'); v_fingerprint:=aap_inference_gpu_v1._string(v_args->'endpoint_sha256',64); v_residency:=v_args->'residency';
+        IF v_challenge !~ '^[0-9a-f]{64}$' OR v_fingerprint !~ '^[0-9a-f]{64}$' OR NOT aap_inference_gpu_v1._residency_shape(v_residency) THEN PERFORM aap_inference_gpu_v1._fail(); END IF;
+        PERFORM aap_inference_gpu_v1._lock_resource(v_resource,true);
+        SELECT * INTO v_membership FROM public.gpu_backend_memberships m WHERE m.backend_registry_id=v_id AND m.gpu_resource_id=v_resource FOR UPDATE;
+        SELECT * INTO v_fence FROM public.gpu_backend_fences f WHERE f.backend_registry_id=v_id FOR UPDATE;
+        SELECT * INTO v_registry FROM public.ml_backend_registry r WHERE r.id=v_id;
+        v_now:=pg_catalog.clock_timestamp(); v_observed:=v_now;
+        IF v_membership.backend_registry_id IS NULL OR v_membership.state<>'retiring' OR v_membership.membership_epoch<>v_next OR v_fence.backend_registry_id IS NULL OR v_registry.id IS NULL OR v_fence.generation_high_water IS DISTINCT FROM v_membership.retired_generation_high_water OR v_fence.control_epoch_high_water IS DISTINCT FROM v_membership.retired_control_epoch_high_water OR v_membership.retired_token_expiry_high_water IS NOT NULL AND v_now<=v_membership.retired_token_expiry_high_water OR v_probe_started>=v_observed OR v_observed-v_probe_started>interval '5 minutes' THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','retired_membership_changed');
+        ELSIF v_residency->>'state' NOT IN ('unloaded','resident') OR v_residency->>'gpu_loaded'<>'false' OR v_residency->>'draining'<>'false' OR v_residency->>'evictable'<>'false' OR (v_residency->>'active_requests')::bigint<>0 OR (v_residency->>'builders')::bigint<>0 OR (v_residency->>'borrowers')::bigint<>0 OR v_residency->'identity'='null'::jsonb OR v_residency #>> '{identity,audience}' IS DISTINCT FROM 'aap-gpu-lifecycle' OR v_residency #>> '{identity,backend_registry_id}' IS DISTINCT FROM v_id::text OR v_residency #>> '{identity,gpu_resource_id}' IS DISTINCT FROM v_resource OR (v_residency->>'generation' IS NOT NULL AND (v_membership.retired_generation_high_water IS NULL OR (v_residency->>'generation')::bigint>v_membership.retired_generation_high_water)) OR (v_residency->>'control_epoch' IS NOT NULL AND (v_membership.retired_control_epoch_high_water IS NULL OR (v_residency->>'control_epoch')::bigint>v_membership.retired_control_epoch_high_water)) OR EXISTS(SELECT 1 FROM pg_catalog.jsonb_each(v_residency->'pools') p(pool_id,pool_value) WHERE p.pool_value->>'resident' IS DISTINCT FROM 'false') THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','retired_residency_not_unloaded');
+        ELSE
+            v_deadline:=floor(extract(epoch FROM (v_observed+interval '3 minutes'))*1000)::bigint;
+            v_fingerprint:=encode(public.digest(pg_catalog.jsonb_build_object('backend_id',v_id,'resource_id',v_resource,'membership_epoch',v_next,'retirement_id',v_membership.retirement_id,'challenge',v_challenge,'probe_started_at',aap_inference_gpu_v1._iso(v_probe_started),'observed_at',aap_inference_gpu_v1._iso(v_observed),'evidence_deadline_ms',v_deadline,'endpoint_sha256',v_args->>'endpoint_sha256','residency',v_residency)::text,'sha256'),'hex');
+            UPDATE public.gpu_backend_memberships m SET retired_health_state='connected',retired_health_meta=v_residency,retired_health_checked_at=v_observed,updated_at=v_observed WHERE m.backend_registry_id=v_id AND m.gpu_resource_id=v_resource;
+            v_result:=pg_catalog.jsonb_build_object('status','live_unloaded','reason','','proof',pg_catalog.jsonb_build_object('observed_at',aap_inference_gpu_v1._iso(v_observed),'evidence_deadline_ms',v_deadline,'evidence_fingerprint',v_fingerprint,'residency',v_residency));
+        END IF;
+
+    ELSE
+        PERFORM aap_inference_gpu_v1._fail();
+    END IF;
+
+    v_result:=pg_catalog.jsonb_build_object('protocol','aap-inference-gpu-native/v1','action',p_action,'result',v_result);
+    IF pg_catalog.octet_length(v_result::text)>4194304 THEN
+        RAISE EXCEPTION 'GPU Native response exceeds bounded size' USING ERRCODE='22023';
+    END IF;
+    RETURN v_result;
+END
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_inference_gpu_v1.gpu_authority_step(text,text) FROM PUBLIC;
+-- aap-statement-break
+CREATE FUNCTION aap_inference_gpu_caller_v1.gpu_caller_policy()
+RETURNS jsonb
+LANGUAGE sql IMMUTABLE PARALLEL SAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+SET TimeZone = 'UTC'
+SET DateStyle = 'ISO, YMD'
+SET extra_float_digits = 3
+AS $function$
+    SELECT pg_catalog.jsonb_build_object(
+        'protocol', 'aap-inference-gpu-caller-native/v1',
+        'native_schema', 'aap_inference_gpu_caller_v1',
+        'functions', pg_catalog.jsonb_build_array(
+            'aap_inference_gpu_caller_v1.gpu_caller_policy()',
+            'aap_inference_gpu_caller_v1.gpu_caller_step(text,text)'
+        ),
+        'actions', pg_catalog.jsonb_build_array(
+            'fence_advance','fence_token_expiry','fence_activate_membership','fence_read',
+            'rollout_read','rollout_read_all','rollout_boundary','rollout_begin',
+            'rollout_complete','rollout_block','prepare_legacy_ack','prepare_rollout_control',
+            'membership_candidates','membership_max_concurrency'
+        ),
+        'ready', true
+    )
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_inference_gpu_caller_v1.gpu_caller_policy() FROM PUBLIC;
+-- aap-statement-break
+CREATE FUNCTION aap_inference_gpu_caller_v1.gpu_caller_step(p_action text, p_arguments text)
+RETURNS jsonb
+LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+SET TimeZone = 'UTC'
+SET DateStyle = 'ISO, YMD'
+SET extra_float_digits = 3
+AS $function$
+DECLARE
+    v_authority jsonb;
+    v_reply jsonb;
+BEGIN
+    IF p_action IS NULL
+       OR p_action NOT IN (
+           'fence_advance','fence_token_expiry','fence_activate_membership','fence_read',
+           'rollout_read','rollout_read_all','rollout_boundary','rollout_begin',
+           'rollout_complete','rollout_block','prepare_legacy_ack','prepare_rollout_control',
+           'membership_candidates','membership_max_concurrency'
+       )
+       OR p_arguments IS NULL
+       OR pg_catalog.octet_length(p_arguments) > 1048576 THEN
+        RAISE EXCEPTION 'invalid bounded GPU caller request' USING ERRCODE='22023';
+    END IF;
+    v_authority := aap_inference_gpu_v1.gpu_authority_step(p_action, p_arguments);
+    IF pg_catalog.jsonb_typeof(v_authority) IS DISTINCT FROM 'object'
+       OR v_authority->>'protocol' IS DISTINCT FROM 'aap-inference-gpu-native/v1'
+       OR v_authority->>'action' IS DISTINCT FROM p_action
+       OR pg_catalog.jsonb_typeof(v_authority->'result') IS DISTINCT FROM 'object' THEN
+        RAISE EXCEPTION 'invalid GPU caller authority response' USING ERRCODE='22023';
+    END IF;
+    v_reply := pg_catalog.jsonb_build_object(
+        'protocol', 'aap-inference-gpu-caller-native/v1',
+        'action', p_action,
+        'result', v_authority->'result'
+    );
+    IF pg_catalog.octet_length(v_reply::text) > 4194304 THEN
+        RAISE EXCEPTION 'GPU caller Native response exceeds bounded size' USING ERRCODE='22023';
+    END IF;
+    RETURN v_reply;
+END
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_inference_gpu_caller_v1.gpu_caller_step(text,text) FROM PUBLIC;
+-- aap-statement-break
+CREATE FUNCTION aap_inference_gpu_collector_v1.gpu_collector_policy()
+RETURNS jsonb
+LANGUAGE sql IMMUTABLE PARALLEL SAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+SET TimeZone = 'UTC'
+SET DateStyle = 'ISO, YMD'
+SET extra_float_digits = 3
+AS $function$
+    SELECT pg_catalog.jsonb_build_object(
+        'protocol', 'aap-inference-gpu-collector-native/v1',
+        'native_schema', 'aap_inference_gpu_collector_v1',
+        'functions', pg_catalog.jsonb_build_array(
+            'aap_inference_gpu_collector_v1.gpu_collector_policy()',
+            'aap_inference_gpu_collector_v1.gpu_collector_step(text,text)'
+        ),
+        'actions', pg_catalog.jsonb_build_array('collect_tombstone'),
+        'ready', true
+    )
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_inference_gpu_collector_v1.gpu_collector_policy() FROM PUBLIC;
+-- aap-statement-break
+
+CREATE FUNCTION aap_inference_gpu_collector_v1.gpu_collector_step(p_action text, p_arguments text)
+RETURNS jsonb
+LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+SET TimeZone = 'UTC'
+SET DateStyle = 'ISO, YMD'
+SET extra_float_digits = 3
+AS $function$
+DECLARE
+    v_args jsonb;
+    v_proof jsonb;
+    v_residency jsonb;
+    v_result jsonb;
+    v_id uuid;
+    v_resource text;
+    v_epoch bigint;
+    v_retirement uuid;
+    v_membership public.gpu_backend_memberships%ROWTYPE;
+    v_fence public.gpu_backend_fences%ROWTYPE;
+    v_registry_exists boolean;
+    v_domain jsonb;
+    v_probe_started timestamp with time zone;
+    v_observed timestamp with time zone;
+    v_now timestamp with time zone;
+    v_deadline bigint;
+    v_expected_deadline bigint;
+    v_fingerprint text;
+    v_collection_id text;
+    v_receipt jsonb;
+    v_receipt_fingerprint text;
+BEGIN
+    IF p_action IS DISTINCT FROM 'collect_tombstone'
+       OR p_arguments IS NULL OR pg_catalog.octet_length(p_arguments)>1048576 THEN
+        RAISE EXCEPTION 'invalid bounded GPU collector request' USING ERRCODE='22023';
+    END IF;
+    BEGIN v_args:=p_arguments::jsonb;
+    EXCEPTION WHEN invalid_text_representation THEN RAISE EXCEPTION 'invalid bounded GPU collector request' USING ERRCODE='22023'; END;
+    IF pg_catalog.jsonb_typeof(v_args)<>'object' THEN RAISE EXCEPTION 'invalid bounded GPU collector request' USING ERRCODE='22023'; END IF;
+    v_now:=pg_catalog.transaction_timestamp();
+
+    IF v_args->>'phase'='prepare' THEN
+        IF NOT aap_inference_gpu_v1._exact_keys(v_args,ARRAY['phase','backend_id','resource_id','membership_epoch','proof'])
+           OR (v_args->'proof'<>'null'::jsonb AND NOT aap_inference_gpu_v1._exact_keys(v_args->'proof',ARRAY['challenge','probe_started_at','observed_at','evidence_deadline_ms','evidence_fingerprint','endpoint_sha256','residency'])) THEN
+            RAISE EXCEPTION 'invalid bounded GPU collector request' USING ERRCODE='22023';
+        END IF;
+        v_id:=aap_inference_gpu_v1._uuid(v_args->'backend_id');
+        v_resource:=aap_inference_gpu_v1._resource(v_args->'resource_id');
+        v_epoch:=aap_inference_gpu_v1._int(v_args->'membership_epoch',1,9223372036854775807);
+        IF v_args->'proof'<>'null'::jsonb THEN
+            v_proof:=v_args->'proof';
+            IF pg_catalog.jsonb_typeof(v_proof->'residency')<>'object' THEN RAISE EXCEPTION 'invalid bounded GPU collector request' USING ERRCODE='22023'; END IF;
+            IF aap_inference_gpu_v1._string(v_proof->'challenge',64) !~ '^[0-9a-f]{64}$'
+               OR aap_inference_gpu_v1._string(v_proof->'evidence_fingerprint',64) !~ '^[0-9a-f]{64}$'
+               OR aap_inference_gpu_v1._string(v_proof->'endpoint_sha256',64) !~ '^[0-9a-f]{64}$' THEN
+                RAISE EXCEPTION 'invalid bounded GPU collector request' USING ERRCODE='22023';
+            END IF;
+            PERFORM aap_inference_gpu_v1._int(v_proof->'evidence_deadline_ms',1,9223372036854775807);
+            v_probe_started:=aap_inference_gpu_v1._timestamp(v_proof->'probe_started_at');
+            v_observed:=aap_inference_gpu_v1._timestamp(v_proof->'observed_at');
+            v_residency:=v_proof->'residency';
+            IF NOT aap_inference_gpu_v1._residency_shape(v_residency) THEN
+                RAISE EXCEPTION 'invalid bounded GPU collector request' USING ERRCODE='22023';
+            END IF;
+            v_proof:=NULL;
+        END IF;
+
+        PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('aap:gpu-resource:'||v_resource,0));
+        SELECT * INTO v_membership FROM public.gpu_backend_memberships m
+         WHERE m.backend_registry_id=v_id AND m.gpu_resource_id=v_resource FOR UPDATE;
+        IF NOT FOUND THEN v_result:=pg_catalog.jsonb_build_object('status','already_absent');
+        ELSIF v_membership.state<>'retiring' OR v_membership.membership_epoch<>v_epoch OR v_membership.retirement_id IS NULL THEN
+            v_result:=pg_catalog.jsonb_build_object('status','stale','reason','membership_changed');
+        ELSE
+            SELECT * INTO v_fence FROM public.gpu_backend_fences f WHERE f.backend_registry_id=v_id FOR UPDATE;
+            IF NOT FOUND THEN v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','fence_missing');
+            ELSIF v_membership.retired_token_expiry_high_water IS NOT NULL AND v_now<=v_membership.retired_token_expiry_high_water THEN
+                v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','waiting_token_horizon');
+            ELSE
+                SELECT EXISTS(SELECT 1 FROM public.ml_backend_registry r WHERE r.id=v_id) INTO v_registry_exists;
+                SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
+                    'backend_id',m.backend_registry_id,'membership_epoch',m.membership_epoch,'state',m.state
+                ) ORDER BY m.backend_registry_id),'[]'::jsonb)
+                INTO v_domain FROM public.gpu_backend_memberships m WHERE m.gpu_resource_id=v_resource;
+                IF v_proof IS NULL THEN
+                    v_result:=pg_catalog.jsonb_build_object('status','receipt_required','backend_memberships',v_domain,'retirement_id',v_membership.retirement_id,'registry_exists',v_registry_exists);
+                ELSE
+                    v_now:=pg_catalog.clock_timestamp();
+                    v_deadline:=floor(extract(epoch FROM v_observed)*1000)::bigint+180000;
+                    v_expected_deadline:=aap_inference_gpu_v1._int(v_proof->'evidence_deadline_ms',1,9223372036854775807);
+                    IF v_observed<=v_probe_started OR v_observed>v_now OR v_now-v_observed>interval '3 minutes'
+                       OR v_expected_deadline<>v_deadline
+                       OR floor(extract(epoch FROM v_now)*1000)::bigint>=v_expected_deadline THEN
+                        v_result:=pg_catalog.jsonb_build_object('status','stale','reason','live_proof_expired');
+                    ELSIF v_residency->>'state' NOT IN ('unloaded','resident')
+                       OR v_residency->'gpu_loaded' IS DISTINCT FROM 'false'::jsonb
+                       OR v_residency->'draining' IS DISTINCT FROM 'false'::jsonb
+                       OR v_residency->'evictable' IS DISTINCT FROM 'false'::jsonb
+                       OR (v_residency->>'active_requests')::bigint<>0
+                       OR (v_residency->>'builders')::bigint<>0
+                       OR (v_residency->>'borrowers')::bigint<>0
+                       OR v_residency->'identity' IS DISTINCT FROM pg_catalog.jsonb_build_object(
+                           'audience','aap-gpu-lifecycle',
+                           'backend_registry_id',v_id::text,
+                           'gpu_resource_id',v_resource
+                       )
+                       OR (v_residency->>'generation' IS NOT NULL AND (v_residency->>'generation')::bigint>v_fence.generation_high_water)
+                       OR (v_residency->>'control_epoch' IS NOT NULL AND (v_residency->>'control_epoch')::bigint>v_fence.control_epoch_high_water)
+                       OR EXISTS(SELECT 1 FROM pg_catalog.jsonb_each(v_residency->'pools') p(pool_id,pool_value) WHERE p.pool_value->'resident' IS DISTINCT FROM 'false'::jsonb) THEN
+                        v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','live_proof_not_unloaded');
+                    ELSE
+                        v_fingerprint:=pg_catalog.encode(public.digest(pg_catalog.jsonb_build_object(
+                            'backend_id',v_id,'resource_id',v_resource,'membership_epoch',v_epoch,
+                            'retirement_id',v_membership.retirement_id,'challenge',v_proof->>'challenge',
+                            'probe_started_at',aap_inference_gpu_v1._iso(v_probe_started),
+                            'observed_at',aap_inference_gpu_v1._iso(v_observed),
+                            'evidence_deadline_ms',v_expected_deadline,
+                            'endpoint_sha256',v_proof->>'endpoint_sha256','residency',v_residency
+                        )::text,'sha256'),'hex');
+                        IF v_fingerprint IS DISTINCT FROM v_proof->>'evidence_fingerprint' THEN
+                            v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','live_proof_fingerprint_mismatch');
+                        ELSE
+                            v_collection_id:=pg_catalog.encode(public.digest(pg_catalog.convert_to(
+                                v_fingerprint||':'||v_id::text||':'||v_epoch::text||':'||v_membership.retirement_id::text,'UTF8'
+                            ),'sha256'),'hex');
+                            v_result:=pg_catalog.jsonb_build_object(
+                                'status','proof_valid','backend_memberships',v_domain,
+                                'retirement_id',v_membership.retirement_id,'registry_exists',v_registry_exists,
+                                'vram_budget_mb',v_membership.vram_budget_mb,'collection_id',v_collection_id
+                            );
+                        END IF;
+                    END IF;
+                END IF;
+            END IF;
+        END IF;
+
+
+    ELSIF v_args->>'phase'='commit' THEN
+        IF NOT aap_inference_gpu_v1._exact_keys(v_args,ARRAY['phase','backend_id','resource_id','membership_epoch','retirement_id','receipt_fingerprint','registry_exists'])
+           OR pg_catalog.jsonb_typeof(v_args->'registry_exists')<>'boolean' THEN
+            RAISE EXCEPTION 'invalid bounded GPU collector request' USING ERRCODE='22023';
+        END IF;
+        v_id:=aap_inference_gpu_v1._uuid(v_args->'backend_id');
+        v_resource:=aap_inference_gpu_v1._resource(v_args->'resource_id');
+        v_epoch:=aap_inference_gpu_v1._int(v_args->'membership_epoch',1,9223372036854775807);
+        v_retirement:=aap_inference_gpu_v1._uuid(v_args->'retirement_id');
+        v_receipt_fingerprint:=aap_inference_gpu_v1._string(v_args->'receipt_fingerprint',64);
+        IF v_receipt_fingerprint !~ '^[0-9a-f]{64}$' THEN RAISE EXCEPTION 'invalid bounded GPU collector request' USING ERRCODE='22023'; END IF;
+        PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('aap:gpu-resource:'||v_resource,0));
+        SELECT * INTO v_membership FROM public.gpu_backend_memberships m
+         WHERE m.backend_registry_id=v_id AND m.gpu_resource_id=v_resource FOR UPDATE;
+        IF NOT FOUND OR v_membership.state<>'retiring' OR v_membership.membership_epoch<>v_epoch OR v_membership.retirement_id<>v_retirement THEN
+            v_result:=pg_catalog.jsonb_build_object('status','stale','reason','membership_changed');
+        ELSE
+            SELECT * INTO v_fence FROM public.gpu_backend_fences f WHERE f.backend_registry_id=v_id FOR UPDATE;
+            SELECT EXISTS(SELECT 1 FROM public.ml_backend_registry r WHERE r.id=v_id) INTO v_registry_exists;
+            v_now:=pg_catalog.clock_timestamp();
+            IF v_fence.backend_registry_id IS NULL OR (v_membership.retired_token_expiry_high_water IS NOT NULL AND v_now<=v_membership.retired_token_expiry_high_water) THEN
+                v_result:=pg_catalog.jsonb_build_object('status','blocked','reason','token_horizon_not_elapsed');
+            ELSIF v_registry_exists IS DISTINCT FROM (v_args->>'registry_exists')::boolean THEN
+                v_result:=pg_catalog.jsonb_build_object('status','stale','reason','registry_presence_changed');
+            ELSE
+                v_receipt:=pg_catalog.jsonb_build_object(
+                    'backend_id',v_id,'resource_id',v_resource,'membership_epoch',v_epoch,
+                    'retirement_id',v_retirement,'fingerprint',v_receipt_fingerprint
+                );
+                PERFORM pg_catalog.set_config('app.gpu_tombstone_gc_receipt',v_receipt::text,true);
+                DELETE FROM public.gpu_backend_memberships m WHERE m.backend_registry_id=v_id AND m.gpu_resource_id=v_resource;
+                IF NOT v_registry_exists THEN
+                    DELETE FROM public.gpu_backend_fences f WHERE f.backend_registry_id=v_id;
+                END IF;
+                v_result:=pg_catalog.jsonb_build_object('status','collected');
+            END IF;
+        END IF;
+    ELSE
+        RAISE EXCEPTION 'invalid bounded GPU collector request' USING ERRCODE='22023';
+    END IF;
+
+    v_result:=pg_catalog.jsonb_build_object('protocol','aap-inference-gpu-collector-native/v1','action',p_action,'result',v_result);
+    IF pg_catalog.octet_length(v_result::text)>4194304 THEN RAISE EXCEPTION 'GPU collector response exceeds bounded size' USING ERRCODE='22023'; END IF;
+    RETURN v_result;
+END
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_inference_gpu_collector_v1.gpu_collector_step(text,text) FROM PUBLIC;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_inference_gpu_v1._exact_keys(jsonb,text[]) FROM PUBLIC;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_inference_gpu_v1._fail() FROM PUBLIC;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_inference_gpu_v1._uuid(jsonb) FROM PUBLIC;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_inference_gpu_v1._int(jsonb,bigint,bigint) FROM PUBLIC;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_inference_gpu_v1._string(jsonb,integer,boolean) FROM PUBLIC;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_inference_gpu_v1._resource(jsonb) FROM PUBLIC;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_inference_gpu_v1._timestamp(jsonb) FROM PUBLIC;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_inference_gpu_v1._iso(timestamp with time zone) FROM PUBLIC;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_inference_gpu_v1._max_concurrency(jsonb) FROM PUBLIC;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_inference_gpu_v1._membership_doc(uuid,text) FROM PUBLIC;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_inference_gpu_v1._fence_doc(uuid) FROM PUBLIC;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_inference_gpu_v1._fence_read_doc(uuid) FROM PUBLIC;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_inference_gpu_v1._registry_doc(uuid) FROM PUBLIC;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_inference_gpu_v1._lock_resource(text,boolean) FROM PUBLIC;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_inference_gpu_v1._domain(text,boolean,boolean) FROM PUBLIC;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_inference_gpu_v1._rollout_snapshot(text) FROM PUBLIC;
+-- aap-statement-break

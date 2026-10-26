@@ -4,7 +4,7 @@ audience: [dev, ops]
 type: reference
 since: v0.9.0
 status: stable
-last_reviewed: 2026-10-26
+last_reviewed: 2026-10-27
 ---
 
 # 环境变量参考
@@ -149,11 +149,11 @@ last_reviewed: 2026-10-26
 |---|---|---|
 | `GPU_ARBITER_MODE` | `off` | 全局 desired mode 是逐卡 desired mode 的上限，默认 off。 observe 在真实派发点记录非权威 would-* 决策，不拒绝、排队或驱逐请求。 enforce 仍需 Redis 账本和 lifecycle gate 握手，未就绪时 effective 保持 off。 |
 | `GPU_ARBITER_ROLLOUT_ENABLED` | `false` | P6 持久 rollout 总门。保持 false 时 worker 不执行 enforce repair，effective enforce 永远不会打开；启用后 health repair 只在 Backend gate 与 Redis ready 证明成立后 提交逐资源 enforcing，GPU 派发对过渡态或数据库不可用在 Backend HTTP 前阻断。 |
-| `GPU_ARBITER_COLLECTOR_DATABASE_URL_FILE` | `—` | 宿主机文件路径；文件内仅一行独立 collector 的 postgresql+asyncpg URL。 该文件只挂载到 gpu.control 单并发控制 worker。普通应用角色必须无 membership/fence DELETE。 off/observe 或尚未启用 rollout 时留空；生产 enforce 前必须完成角色隔离并设置 0400 权限。 |
+| `GPU_ARBITER_COLLECTOR_DATABASE_URL_FILE` | `—` | Host file containing the dedicated collector function-only DSN. Mount only into the Inference owner, never API/Celery or model backends. The combined owner runtime requires this profile even on a CPU-only installation. |
 | `GPU_ARBITER_RESOURCES_JSON` | `{}` | resource key 必须等于 node_id/physical_device_token；优先使用 GPU/MIG UUID。 只有部署明确固定索引映射时才使用 index:N。allocatable_mb 已扣除系统与安全余量。 例: {"gpu-node-a/GPU-xxx":{"node_id":"gpu-node-a","physical_device_token":"GPU-xxx","allocatable_mb":22000,"mode":"observe"}} |
 | `GPU_ARBITER_ADMISSION_TIMEOUT_SECONDS` | `30` | 仅供 enforce authority 的 backend/card slow-path FIFO，独立于推理、build 与 drain timeout。 ticket 使用固定期限且不因轮询续期；驱逐会在期限内预留终态清理窗口；取值 1..3600 秒，off/observe 不入队。 backend/card 超时分别返回 gpu_backend_concurrency_saturated/gpu_capacity_unavailable，均为 503 + Retry-After。 |
 | `GPU_ARBITER_RESIDENCY_COOLDOWN_SECONDS` | `30` | 新 residency 的最短保护窗口；只接受 1..3600 秒。未到期 victim 会在 exact card ticket 上按 admission deadline 与固定 ticket TTL 有界等待且不续期；预算耗尽返回 503 + Retry-After， 超时或取消会精确清理票据。 |
-| `GPU_LIFECYCLE_SIGNING_KEYS_FILE` | `—` | Platform signer private seeds stay in a root-readable file, never in an env value. Strict JSON: {"kid":"unpadded-base64url-raw-32-byte-Ed25519-private-seed"}. Leave both values empty while arbitration is off/observe. The file is read lazily only by enforce authority/promotion, and must not be mounted into GPU backends. |
+| `GPU_LIFECYCLE_SIGNING_KEYS_FILE` | `—` | Platform signer private seeds stay in a root-readable file, never in an env value. Strict JSON: {"kid":"unpadded-base64url-raw-32-byte-Ed25519-private-seed"}. The Inference owner reads it lazily for enforce authority/promotion. Never mount it into the API, ordinary workers or GPU backends. |
 | `GPU_LIFECYCLE_ACTIVE_SIGNING_KID` | `—` | Select one exact kid from the private key file after backend public-key rollout. |
 
 ## ADR-0050 · ML Backend service-pool routing ledger
@@ -867,80 +867,131 @@ last_reviewed: 2026-10-26
 | `LABELING_RUNTIME_VIDEO_WRITER_CONTROL_TOKEN_FILE` | `—` | — |
 | `LABELING_RUNTIME_VIDEO_WRITER_MASK_CONTENT_TOKEN_FILE` | `—` | — |
 
-## Named pipelines: empty selectors borrow the API transaction; select DSN or HTTP.
+## API/worker Inference HTTP clients. Stored backend secrets stay in the owner.
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `INFERENCE_PIPELINES_URL` | `—` | — |
+| `INFERENCE_PIPELINES_URL` | `—` | Saved pipeline operations may still borrow the caller's transaction when URL is empty. |
 | `INFERENCE_PIPELINES_TOKEN` | `—` | — |
 | `INFERENCE_PIPELINES_TOKEN_FILE` | `—` | — |
-| `INFERENCE_PIPELINES_DATABASE_URL` | `—` | — |
-| `INFERENCE_PIPELINES_DATABASE_URL_FILE` | `—` | — |
 | `INFERENCE_PIPELINES_TIMEOUT_SECONDS` | `30` | — |
-| `INFERENCE_HOST` | `127.0.0.1` | Standalone Inference runtime; only its own two-function LOGIN and private bearer. |
-| `INFERENCE_PORT` | `8768` | — |
-| `INFERENCE_MAX_CONCURRENCY` | `8` | — |
-| `INFERENCE_CONTROL_TOKEN` | `—` | — |
-| `INFERENCE_CONTROL_TOKEN_FILE` | `—` | — |
-| `INFERENCE_RUNTIME_PIPELINES_DATABASE_URL_FILE` | `—` | Host paths mapped to the container's read-only secret files. |
-| `INFERENCE_RUNTIME_CONTROL_TOKEN_FILE` | `—` | — |
-
-## Workspace backend setup probe: empty selectors borrow the caller transaction.
-
-| 变量 | 默认值 | 说明 |
-|---|---|---|
-| `INFERENCE_BACKEND_PROBE_URL` | `—` | Select URL or DSN, never both; explicit provider failure has no fallback. |
+| `INFERENCE_BACKEND_PROBE_URL` | `—` | — |
 | `INFERENCE_BACKEND_PROBE_TOKEN` | `—` | — |
 | `INFERENCE_BACKEND_PROBE_TOKEN_FILE` | `—` | — |
-| `INFERENCE_BACKEND_PROBE_DATABASE_URL` | `—` | — |
-| `INFERENCE_BACKEND_PROBE_DATABASE_URL_FILE` | `—` | — |
 | `INFERENCE_BACKEND_PROBE_TIMEOUT_SECONDS` | `30` | — |
-| `INFERENCE_BACKEND_PROBE_CONTROL_TOKEN` | `—` | Standalone Inference probe uses the same DATABASE_URL selectors and its own bearer. Never reuse the pipeline bearer; the two routes reject each other's token. |
-| `INFERENCE_BACKEND_PROBE_CONTROL_TOKEN_FILE` | `—` | — |
-| `INFERENCE_RUNTIME_BACKEND_PROBE_DATABASE_URL_FILE` | `—` | — |
-| `INFERENCE_RUNTIME_BACKEND_PROBE_CONTROL_TOKEN_FILE` | `—` | — |
-
-## Complete health/setup observation: the original caller still applies/commits health.
-
-| 变量 | 默认值 | 说明 |
-|---|---|---|
-| `INFERENCE_HEALTH_OBSERVATION_URL` | `—` | Empty selectors embed Inference; select URL or provider-only DSN, never both. |
+| `INFERENCE_HEALTH_OBSERVATION_URL` | `—` | — |
 | `INFERENCE_HEALTH_OBSERVATION_TOKEN` | `—` | — |
 | `INFERENCE_HEALTH_OBSERVATION_TOKEN_FILE` | `—` | — |
-| `INFERENCE_HEALTH_OBSERVATION_DATABASE_URL` | `—` | — |
-| `INFERENCE_HEALTH_OBSERVATION_DATABASE_URL_FILE` | `—` | — |
 | `INFERENCE_HEALTH_OBSERVATION_TIMEOUT_SECONDS` | `90` | — |
-| `INFERENCE_RUNTIME_HEALTH_OBSERVATION_DATABASE_URL_FILE` | `—` | The standalone runtime uses the same DATABASE_URL and TOKEN selectors. Use a different bearer from the pipeline and Workspace setup-probe routes. |
-| `INFERENCE_RUNTIME_HEALTH_OBSERVATION_TOKEN_FILE` | `—` | — |
-
-## Startup Registry environment synchronization: select the entire command owner.
-
-| 变量 | 默认值 | 说明 |
-|---|---|---|
-| `INFERENCE_REGISTRY_INGRESS_URL` | `—` | Empty selectors borrow the startup transaction; URL and dedicated DSN are exclusive. |
+| `INFERENCE_REGISTRY_INGRESS_URL` | `—` | — |
 | `INFERENCE_REGISTRY_INGRESS_TOKEN` | `—` | — |
 | `INFERENCE_REGISTRY_INGRESS_TOKEN_FILE` | `—` | — |
-| `INFERENCE_REGISTRY_INGRESS_DATABASE_URL` | `—` | — |
-| `INFERENCE_REGISTRY_INGRESS_DATABASE_URL_FILE` | `—` | — |
 | `INFERENCE_REGISTRY_INGRESS_TIMEOUT_SECONDS` | `90` | — |
+| `INFERENCE_ROUTING_URL` | `—` | — |
+| `INFERENCE_ROUTING_TOKEN` | `—` | — |
+| `INFERENCE_ROUTING_TOKEN_FILE` | `—` | — |
+| `INFERENCE_ROUTING_TIMEOUT_SECONDS` | `30` | — |
+| `INFERENCE_MODEL_EXECUTION_URL` | `—` | — |
+| `INFERENCE_MODEL_EXECUTION_TOKEN` | `—` | — |
+| `INFERENCE_MODEL_EXECUTION_TOKEN_FILE` | `—` | — |
+| `INFERENCE_BACKEND_CONTROL_URL` | `—` | — |
+| `INFERENCE_BACKEND_CONTROL_TOKEN` | `—` | — |
+| `INFERENCE_BACKEND_CONTROL_TOKEN_FILE` | `—` | — |
+| `INFERENCE_GPU_URL` | `—` | — |
+| `INFERENCE_GPU_TOKEN` | `—` | — |
+| `INFERENCE_GPU_TOKEN_FILE` | `—` | — |
 
-## Durable routing owner. Empty selectors use independent transactions on the API engine.
+## Owner process only: python -m aap_inference. Each DSN has its own closed profile.
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `INFERENCE_ROUTING_URL` | `—` | URL and DATABASE_URL(_FILE) are exclusive; HTTP never falls back to local ownership. |
-| `INFERENCE_ROUTING_TOKEN` | `—` | — |
-| `INFERENCE_ROUTING_TOKEN_FILE` | `—` | — |
+| `INFERENCE_HOST` | `127.0.0.1` | Select a nonempty direct value OR its _FILE. Never pass these DSNs to API/Celery. |
+| `INFERENCE_PORT` | `8768` | — |
+| `INFERENCE_MAX_CONCURRENCY` | `8` | — |
+| `INFERENCE_REQUIRED_CAPABILITIES` | `pipelines,backend_probe,health_observation,registry_ingress,routing,execution,backend_control,gpu` | — |
+| `INFERENCE_ROUTING_HEALTH_MAX_AGE_SECONDS` | `90` | — |
+| `INFERENCE_ROUTING_LEASE_TTL_SECONDS` | `120` | — |
+| `INFERENCE_CONTROL_TOKEN` | `—` | — |
+| `INFERENCE_CONTROL_TOKEN_FILE` | `—` | — |
+| `INFERENCE_BACKEND_PROBE_CONTROL_TOKEN` | `—` | — |
+| `INFERENCE_BACKEND_PROBE_CONTROL_TOKEN_FILE` | `—` | — |
+| `INFERENCE_PIPELINES_DATABASE_URL` | `—` | — |
+| `INFERENCE_PIPELINES_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_BACKEND_PROBE_DATABASE_URL` | `—` | — |
+| `INFERENCE_BACKEND_PROBE_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_HEALTH_OBSERVATION_DATABASE_URL` | `—` | — |
+| `INFERENCE_HEALTH_OBSERVATION_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_HEALTH_DATA_DATABASE_URL` | `—` | — |
+| `INFERENCE_HEALTH_DATA_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_REGISTRY_INGRESS_DATABASE_URL` | `—` | — |
+| `INFERENCE_REGISTRY_INGRESS_DATABASE_URL_FILE` | `—` | — |
 | `INFERENCE_ROUTING_DATABASE_URL` | `—` | — |
 | `INFERENCE_ROUTING_DATABASE_URL_FILE` | `—` | — |
-| `INFERENCE_ROUTING_TIMEOUT_SECONDS` | `30` | — |
-| `INFERENCE_ROUTING_HEALTH_MAX_AGE_SECONDS` | `90` | Independent owner runtime admission settings (seconds). |
-| `INFERENCE_ROUTING_LEASE_TTL_SECONDS` | `120` | — |
-| `AAP_ROUTE_CONTROL_TOKEN` | `—` | Backend process route controller: configure the same bearer stored in Registry. Direct value and _FILE are exclusive. Configured backends start unbound. |
+| `INFERENCE_GPU_DATABASE_URL` | `—` | — |
+| `INFERENCE_GPU_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_GPU_REDIS_URL` | `—` | — |
+| `INFERENCE_GPU_REDIS_URL_FILE` | `—` | — |
+| `INFERENCE_BACKEND_STATS_DATABASE_URL` | `—` | — |
+| `INFERENCE_BACKEND_STATS_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_BACKEND_ENDPOINT_SETUP_DATABASE_URL` | `—` | — |
+| `INFERENCE_BACKEND_ENDPOINT_SETUP_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_BACKEND_ENDPOINT_HEALTH_OBSERVATION_DATABASE_URL` | `—` | — |
+| `INFERENCE_BACKEND_ENDPOINT_HEALTH_OBSERVATION_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_BACKEND_ENDPOINT_CATALOG_FALLBACK_DATABASE_URL` | `—` | — |
+| `INFERENCE_BACKEND_ENDPOINT_CATALOG_FALLBACK_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_BACKEND_ENDPOINT_STATS_DATABASE_URL` | `—` | — |
+| `INFERENCE_BACKEND_ENDPOINT_STATS_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_BACKEND_ENDPOINT_BACKEND_READ_DATABASE_URL` | `—` | — |
+| `INFERENCE_BACKEND_ENDPOINT_BACKEND_READ_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_BACKEND_ENDPOINT_LIFECYCLE_DATABASE_URL` | `—` | — |
+| `INFERENCE_BACKEND_ENDPOINT_LIFECYCLE_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_BACKEND_ENDPOINT_EXECUTION_DATABASE_URL` | `—` | — |
+| `INFERENCE_BACKEND_ENDPOINT_EXECUTION_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_GPU_ENDPOINT_HEALTH_OBSERVATION_DATABASE_URL` | `—` | — |
+| `INFERENCE_GPU_ENDPOINT_HEALTH_OBSERVATION_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_GPU_ENDPOINT_GPU_CONTROL_DATABASE_URL` | `—` | — |
+| `INFERENCE_GPU_ENDPOINT_GPU_CONTROL_DATABASE_URL_FILE` | `—` | — |
+
+## Host files mounted only into docker-compose.inference.yml's owner container.
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `INFERENCE_RUNTIME_PIPELINES_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_RUNTIME_CONTROL_TOKEN_FILE` | `—` | — |
+| `INFERENCE_RUNTIME_BACKEND_PROBE_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_RUNTIME_BACKEND_PROBE_CONTROL_TOKEN_FILE` | `—` | — |
+| `INFERENCE_RUNTIME_HEALTH_OBSERVATION_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_RUNTIME_HEALTH_OBSERVATION_TOKEN_FILE` | `—` | — |
+| `INFERENCE_RUNTIME_HEALTH_DATA_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_RUNTIME_REGISTRY_INGRESS_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_RUNTIME_REGISTRY_INGRESS_TOKEN_FILE` | `—` | — |
+| `INFERENCE_RUNTIME_ROUTING_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_RUNTIME_ROUTING_TOKEN_FILE` | `—` | — |
+| `INFERENCE_RUNTIME_MODEL_EXECUTION_TOKEN_FILE` | `—` | — |
+| `INFERENCE_RUNTIME_BACKEND_CONTROL_TOKEN_FILE` | `—` | — |
+| `INFERENCE_RUNTIME_GPU_TOKEN_FILE` | `—` | — |
+| `INFERENCE_RUNTIME_BACKEND_STATS_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_RUNTIME_GPU_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_RUNTIME_GPU_REDIS_URL_FILE` | `—` | — |
+| `INFERENCE_RUNTIME_GPU_SIGNING_KEYS_FILE` | `—` | — |
+| `INFERENCE_RUNTIME_GPU_COLLECTOR_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_RUNTIME_BACKEND_ENDPOINT_SETUP_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_RUNTIME_BACKEND_ENDPOINT_HEALTH_OBSERVATION_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_RUNTIME_BACKEND_ENDPOINT_CATALOG_FALLBACK_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_RUNTIME_BACKEND_ENDPOINT_STATS_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_RUNTIME_BACKEND_ENDPOINT_BACKEND_READ_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_RUNTIME_BACKEND_ENDPOINT_LIFECYCLE_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_RUNTIME_BACKEND_ENDPOINT_EXECUTION_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_RUNTIME_GPU_ENDPOINT_HEALTH_OBSERVATION_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_RUNTIME_GPU_ENDPOINT_GPU_CONTROL_DATABASE_URL_FILE` | `—` | — |
+
+## Model process route controller; use the Registry's configured bearer.
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `AAP_ROUTE_CONTROL_TOKEN` | `—` | — |
 | `AAP_ROUTE_CONTROL_TOKEN_FILE` | `—` | — |
 | `AAP_ROUTE_REGISTRY_ID` | `—` | — |
-| `INFERENCE_RUNTIME_REGISTRY_INGRESS_DATABASE_URL_FILE` | `—` | Standalone runtime and Compose use a function-only LOGIN and a distinct bearer. |
-| `INFERENCE_RUNTIME_REGISTRY_INGRESS_TOKEN_FILE` | `—` | — |
 
 ## Audit 独立维护与归档读取（可选，不改变默认运行拓扑）
 

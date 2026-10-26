@@ -2,7 +2,7 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-27
 ---
 
 # 后端分层
@@ -117,8 +117,7 @@ writer lease 后处理；原始 bytes 始终保留，包括不确定提交产生
 
 ```text
 services/
-├── gpu_arbitration/  # 契约、策略、ledger、proof、fence 与 orchestration
-├── ml_routing/       # 服务池路由：SWRR、route-lease ledger、router
+├── ml_routing/       # 持久路由 owner 的调用方适配、安全检查和读模型
 ├── video_tracking/   # adapter、job 与 runner
 ├── exporting/       # 导出服务、打包和格式实现
 └── data_management/  # schema、查询 primitive 和高层服务
@@ -385,9 +384,9 @@ Mask QC 与点云质检问题的人工状态转移分别由 `services/mask_qc/se
 
 主动学习执行写入由 `services.active_learning` 持有：`claim_attempt`、`record_heartbeat`、`record_inference_dispatch`、`record_candidate_inflight`、`record_candidate_success`、`mark_lost`、`release_claim`、`record_dispatched` 与 `record_maintenance` 负责 Round、Attempt、Candidate 账本。Worker 仍负责权威与当前尝试／claim 围栏、预算和冻结请求检查、模型／媒体 I/O、Celery 调度、原提交窗口、进度与取消／收据协调；命令不查询、不提交。失联字段与 claim 释放分开，保持 worker 在通用作业失败前释放、信号协调在通知后释放的既有顺序；不与样本评估合并为共享执行状态机。
 
-`gpu_arbitration` 内部按职责分层：`contracts`（dispatch 请求/grant/错误与失败记录）和 `policy`（mode/claim/shadow 决策）是 cycle-safe 叶模块；`fences`、`proofs`、`control_preparation`、`reconciliation`、`retirement`、`diagnostics` 依次构建在低层之上；`dispatch`、`membership_activation`、`rollout_control` 是允许依赖 `ml_client` 的高层编排模块。API `ml_client` 保留 `contracts`、`policy`、`rollout_state` 的 GPU 权威装配；HTTP、预测结果、挑战常量、流预算和上游错误映射由 `aap_inference.backend_transport` 持有。动态超时、dispatch context、指标和公开 HTTP 错误工厂由 API 显式注入，核心不导入 API／ORM／配置模块。此本地回调尚不是 GPU 跨语言协议。
+`aap_inference.gpu` 持有 GPU 策略、Redis 账本、签名、proof、fence、调和、退役及管理编排。独立 owner 内的 `BackendGPUDispatchContextFactory` 保留 off／observe／enforce、显式 CPU 例外和实际 one-shot grant 结果。普通 API／worker 仅使用独立 HTTP client，以及原 caller UOW 中有限的 GPU 管理 Native 能力；不持有 GPU 私钥或私有权威连接。`aap_inference.backend_transport` 执行模型 HTTP、流预算和上游错误映射，调用方按返回的实际 transport observation 记录指标。
 
-`ml_routing` 实现服务池请求路由（ADR-0050）：`contracts`（pool/instance 双 ID、route lease、outcome/rejection、error code）是纯数据叶模块；能力规范化、canonical 指纹与 diff 由独立包 `aap_inference.pool_capability` 持有；`policy`（smooth weighted round robin 纯核）无副作用；`ledger`（Redis acquire/heartbeat/finish/cancel 原子 Lua + 被动熔断，namespace `ml-router:v1`）独立于 `gpu_arbitration` ledger；`router`（`MLBackendRouter` 编排 DB 拓扑 + ledger，off/observe 返回 legacy instance、enforce fail-closed）、`safety`（卸载、成员移除和 registry 删除共用的 quiescence 校验）、`diagnostics`（topology/runtime-snapshot 读模型）、`metrics`（Prometheus）是高层模块。`safety` 只有在 router enforce、成员精确 draining、账本可读且清理过期 lease 后 exact inflight=0 时放行，未知状态失败关闭。`router` 不发 HTTP；选中实例后单向交给 `MLBackendClient`。GPU 仲裁不导入 `ml_routing`；路由选择完成后单向调用实例 client。
+`ml_routing` 是持久路由的 API 适配层：纯类型保留 pool／instance 双 ID，`MLBackendRouter` 选择 owner scope 并交给 `model_execution_port(db, *, bound_route=None)`；`RoutingAuthority` 调用明确配置的远程 owner，不在普通 API 借用宽连接执行私有路由。Native 持有 scope、attempt、control 与回执；Redis circuit 仅提供诊断提示。`safety` 通过绑定 registry 的真实 quiescence 能力确认卸载、成员移除和删除安全；未知状态失败关闭，不从宽泛 runtime 读数猜测零在途。模型实际 HTTP 前，Inference 打开原 caller 快照并使用新鲜短路由 issuer；既有 tracker scope 保留而不新建替代路由。
 
 `diagnostics.build_topology` / `build_runtime_snapshot` 返回 typed Pydantic 模型（`app.schemas.ml_routing.TopologyResponse` / `RuntimeSnapshotResponse`），OpenAPI snapshot 与前端 generated TS 类型一致。topology 按 `super_admin` 标志做服务端角色裁剪：Project Admin 的 `routing_policy` 为 `"unknown"`、member 的 `weight` / `state` / `last_checked_at` / `gpu_resource_id` 为 `None`；这不是前端隐藏，是响应体内的真值。runtime-snapshot 带 freshness 信封（`observed_at` / `partial` / `partial_reason` / `sources[]`），单个来源失败不抹掉其它可信数据（ADR-0051）。前端在 `apps/web/src/pages/ModelMarket/runtimeTopology.ts` 用纯函数把两个读模型按稳定 ID 合并为页面 view model，保留 unknown / stale / partial，不做业务真值猜测；路由可用性、池健康与 drain 安全判定仍由后端合同给出，view-model 只负责显示。
 

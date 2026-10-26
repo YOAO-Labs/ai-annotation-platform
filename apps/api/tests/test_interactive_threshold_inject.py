@@ -9,14 +9,21 @@ v0.9.2 曾让平台把 project 级 box_threshold / text_threshold 注入 context
 from __future__ import annotations
 
 import uuid
-from unittest.mock import patch
+from types import SimpleNamespace
 
 import pytest
 
 from app.db.models.ml_backend_registry import ProjectMLBackendPool
 from app.db.models.project import Project
 from app.db.models.task import Task
-from aap_inference.backend_transport import PredictionResult
+from aap_inference_contract.backend_control import BackendControlSetupResult
+from aap_inference_contract.execution import (
+    ExecutionProvenance,
+    ModelExecutionObservation,
+    ModelOperationResult,
+    ModelTaskResult,
+    thaw_json,
+)
 from tests.conftest import create_registry_with_pool
 
 
@@ -57,56 +64,81 @@ async def _seed(db, owner_id, *, box=0.4, text=0.3):
     )
     db.add(task)
     await db.flush()
-    return proj, backend, task
+    return proj, backend, task, pool
 
 
 @pytest.fixture
-def patched_client():
-    """Mock MLBackendClient.predict_interactive 抓取调用上下文。"""
+def patched_client(monkeypatch):
+    """Capture immutable route operations and emulate an interactive model reply."""
     captured: dict = {}
+    setup_payload = {
+        "models": [
+            {
+                "id": "interactive",
+                "task": "interactive_seg",
+                "is_interactive": True,
+                "supported_prompts": ["point", "interactive_box", "text"],
+                "supported_inputs": ["full_image", "point_prompt", "bbox_prompt"],
+                "supported_geometric_outputs": ["polygon"],
+            }
+        ]
+    }
 
-    async def fake_setup(self):
-        return {
-            "models": [
-                {
-                    "id": "interactive",
-                    "task": "interactive_seg",
-                    "is_interactive": True,
-                    "supported_prompts": ["point", "interactive_box", "text"],
-                    "supported_inputs": [
-                        "full_image",
-                        "point_prompt",
-                        "bbox_prompt",
-                    ],
-                    "supported_geometric_outputs": ["polygon"],
-                }
-            ]
-        }
+    async def fake_setup(registry_id):
+        return BackendControlSetupResult(registry_id=registry_id, setup=setup_payload)
 
-    async def fake_predict_interactive(self, task_data, context):
-        captured["task_data"] = task_data
-        captured["context"] = context
-        return PredictionResult(
-            task_id=task_data["id"],
-            result=[],
-            score=None,
-            model_version="mock",
-            inference_time_ms=1,
-            cache_hit=False,
-            model_load_ms=123,
-        )
+    monkeypatch.setattr(
+        "app.api.v1.ml_backends.backend_control_service",
+        lambda _db: SimpleNamespace(setup=fake_setup),
+    )
 
-    with (
-        patch(
-            "app.services.ml_client.MLBackendClient.predict_interactive",
-            new=fake_predict_interactive,
-        ),
-        patch(
-            "app.services.ml_client.MLBackendClient.setup",
-            new=fake_setup,
-        ),
-    ):
-        yield captured
+    class FakeExecutionPort:
+        async def execute(self, operation):
+            task_data = thaw_json(operation.task_inputs[0])
+            captured["operation"] = operation
+            captured["task_data"] = task_data
+            captured["context"] = thaw_json(operation.context)
+            registry_id = operation.requested_registry_id
+            return ModelOperationResult(
+                request_id=operation.request_id,
+                operation=operation.operation,
+                results=(
+                    ModelTaskResult(
+                        task_id=task_data["id"],
+                        result=(),
+                        score=None,
+                        model_version="mock",
+                        inference_time_ms=1,
+                        cache_hit=False,
+                        model_load_ms=123,
+                        meta={"source": "interactive-test"},
+                    ),
+                ),
+                provenance=ExecutionProvenance(
+                    requested_registry_id=operation.requested_registry_id,
+                    requested_pool_id=operation.requested_pool_id,
+                    registry_id=registry_id,
+                    pool_id=captured["pool_id"],
+                    instance_id=registry_id,
+                    route_scope_id=uuid.uuid4(),
+                    attempt_id=operation.request_id,
+                    topology_generation=operation.topology_generation,
+                    member_id=operation.selected_member_id,
+                ),
+                observation=ModelExecutionObservation(
+                    backend_id=str(registry_id),
+                    operation="predict_interactive",
+                    outcome="success",
+                    elapsed_seconds=0.001,
+                ),
+                wall_time_ms=1,
+            )
+
+    monkeypatch.setattr(
+        "app.api.v1.ml_backends.model_execution_port",
+        lambda *_args, **_kwargs: FakeExecutionPort(),
+    )
+    return captured
 
 
 async def test_text_prompt_does_not_inject_project_thresholds(
@@ -114,7 +146,8 @@ async def test_text_prompt_does_not_inject_project_thresholds(
 ):
     """自 59dfffa 起平台不再注入项目级阈值; 客户端未给阈值时 context 里就没有。"""
     user, token = super_admin
-    proj, backend, task = await _seed(db_session, user.id, box=0.42, text=0.18)
+    proj, backend, task, pool = await _seed(db_session, user.id, box=0.42, text=0.18)
+    patched_client["pool_id"] = pool.id
     await db_session.commit()
 
     resp = await httpx_client.post(
@@ -134,7 +167,8 @@ async def test_text_prompt_respects_explicit_client_thresholds(
 ):
     """客户端显式传值则尊重客户端，不被 project 默认覆盖。"""
     user, token = super_admin
-    proj, backend, task = await _seed(db_session, user.id, box=0.5, text=0.5)
+    proj, backend, task, pool = await _seed(db_session, user.id, box=0.5, text=0.5)
+    patched_client["pool_id"] = pool.id
     await db_session.commit()
 
     resp = await httpx_client.post(
@@ -161,7 +195,8 @@ async def test_point_prompt_does_not_inject_thresholds(
 ):
     """point/bbox 不走 DINO，不应注入阈值（避免污染缓存键 / 协议噪声）。"""
     user, token = super_admin
-    proj, backend, task = await _seed(db_session, user.id)
+    proj, backend, task, pool = await _seed(db_session, user.id)
+    patched_client["pool_id"] = pool.id
     await db_session.commit()
 
     resp = await httpx_client.post(
@@ -178,4 +213,7 @@ async def test_point_prompt_does_not_inject_thresholds(
     assert "text_threshold" not in ctx
     data = resp.json()
     assert data["cache_hit"] is False
+    assert data["score"] is None
+    assert data["model_version"] == "mock"
+    assert data["inference_time_ms"] == 1
     assert data["model_load_ms"] == 123

@@ -46,13 +46,8 @@ async def test_startup_uses_restricted_registry_image_survives_restart_and_has_n
     before_receipts = await _receipt_ids(owner)
     registry_ids = []
     trace = []
-    for name in ("database_url", "database_url_file", "token_file"):
+    for name in ("url", "token", "token_file"):
         monkeypatch.setattr(settings, "inference_registry_ingress_" + name, "")
-
-    async def forbidden_borrowed(urls):
-        pytest.fail("the selected Registry process must not fall back")
-
-    monkeypatch.setattr(env, "_sync_borrowed", forbidden_borrowed)
     try:
         async with _registry_container(
             ingress_dsn(test_engine.url), "isolated-registry-ingress-control"

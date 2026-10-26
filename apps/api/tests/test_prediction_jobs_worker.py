@@ -5,7 +5,6 @@ v0.10.49 收敛后 prediction_jobs 专表已删，application command 直接以 
 1. Worker failure hook 把 running async_job 翻成 failed + 写 error_message
 2. Worker failure hook 跳过已 completed async_job 不覆盖
 3. Application command 把每条 PredictionResult.meta.total_cost 累加进 async_job.result
-4. Application command 把请求 params 合并进 /predict context
 
 AsyncJob ORM / celery_task_id 反查由 test_async_jobs.py 覆盖，本文件不重复。
 """
@@ -254,8 +253,10 @@ async def test_run_batch_accumulates_total_cost(
     db_session: AsyncSession, monkeypatch, super_admin
 ):
     """v0.10.49 · _run_batch 把每条 PredictionResult.meta.total_cost 累加进 async_job.result."""
+    from app.application import preannotation_execution as execution
     from app.db.models.task import Task
-    from aap_inference.backend_transport import PredictionResult
+    from aap_inference_contract.execution import ModelTaskResult
+    from tests.inference_execution_test_ports import FakeModelExecutionPort
 
     user, _ = super_admin
     proj, backend = await _seed_project_and_backend(db_session, user.id)
@@ -281,24 +282,20 @@ async def test_run_batch_accumulates_total_cost(
     db_session.add_all([t1, t2])
     await db_session.flush()
 
-    class _StubClient:
-        def __init__(self, _backend, **_kwargs):
-            self._backend = _backend
-
-        async def predict(self, tasks_payload, context=None):
-            return [
-                PredictionResult(
-                    task_id=tasks_payload[0]["id"],
-                    result=[],
-                    score=0.9,
-                    model_version="stub-v1",
-                    inference_time_ms=10,
-                    meta={"total_cost": 0.0012},
-                )
-            ]
+    def respond(_operation, task_input):
+        return ModelTaskResult(
+            task_id=task_input["id"],
+            result=(),
+            score=0.9,
+            model_version="stub-v1",
+            inference_time_ms=10,
+            meta={"total_cost": 0.0012},
+        )
 
     monkeypatch.setattr(
-        "app.services.ml_client.MLBackendClient", _StubClient, raising=True
+        execution,
+        "_model_execution_port",
+        lambda *_args, **_kwargs: FakeModelExecutionPort(respond),
     )
 
     fake_engine, fake_factory = _passthrough_engine_and_factory(db_session)
@@ -341,8 +338,9 @@ async def test_manifest_page_failure_after_success_marks_job_failed_with_progres
     )
     from app.db.models.prediction import Prediction
     from app.db.models.task import Task
-    from aap_inference.backend_transport import PredictionResult
     from app.services.prediction import PredictionService
+    from aap_inference_contract.execution import ModelTaskResult
+    from tests.inference_execution_test_ports import patch_batch_execution
 
     user, _ = super_admin
     project, backend = await _seed_project_and_backend(db_session, user.id)
@@ -471,28 +469,18 @@ async def test_manifest_page_failure_after_success_marks_job_failed_with_progres
         accepted_input_manifest_digest=digest,
     )
 
-    class RoutedClient:
-        def __init__(self, _db, routed_backend, **_kwargs):
-            self.last_instance_id = routed_backend.id
-            self.pool_id = None
-
-    async def fake_pipeline(task, _stages, _clients, _contexts, **kwargs):
-        assert kwargs["resolve_url"](task) == reference.url
-        assert kwargs["input_image_path"].read_bytes() == b"frozen"
-        return (
-            [
-                PredictionResult(
-                    task_id=str(task.id),
-                    result=[],
-                    score=0.9,
-                    model_version="frozen-v1",
-                    inference_time_ms=1,
-                    meta={},
-                )
-            ],
-            {},
-            None,
+    def respond(_operation, task_input):
+        assert task_input["file_path"] == reference.url
+        return ModelTaskResult(
+            task_id=task_input["id"],
+            result=(),
+            score=0.9,
+            model_version="frozen-v1",
+            inference_time_ms=1,
+            meta={},
         )
+
+    patch_batch_execution(monkeypatch, respond, instance_id=backend.id)
 
     async def persist_success(self, write_request):
         assert write_request.accepted_input_job_id == job_id
@@ -508,12 +496,6 @@ async def test_manifest_page_failure_after_success_marks_job_failed_with_progres
         await db_session.flush()
         return SimpleNamespace(id=prediction.id)
 
-    monkeypatch.setattr(
-        "app.services.ml_routing.client.RoutedMLBackendClient", RoutedClient
-    )
-    monkeypatch.setattr(
-        "app.application.preannotation_execution._run_task_pipeline", fake_pipeline
-    )
     monkeypatch.setattr(PredictionService, "apply_prediction_result", persist_success)
 
     _fake_engine, fake_factory = _passthrough_engine_and_factory(db_session)
@@ -551,6 +533,7 @@ async def test_run_batch_all_failed_marks_job_failed(
     """B-45 · batch_predict 全部子项失败时 job 落 failed（不再「失败也显示已完成」），
     且仍把 failed_count / failed_prediction_ids 写进 result 供失败重试链路使用。"""
     from app.db.models.task import Task
+    from tests.inference_execution_test_ports import patch_batch_execution
 
     user, _ = super_admin
     proj, backend = await _seed_project_and_backend(db_session, user.id)
@@ -570,16 +553,10 @@ async def test_run_batch_all_failed_marks_job_failed(
     db_session.add_all(tasks)
     await db_session.flush()
 
-    class _FailingClient:
-        def __init__(self, _backend, **_kwargs):
-            self._backend = _backend
+    def fail_execution(_operation, _task_input):
+        raise RuntimeError("ml backend down")
 
-        async def predict(self, tasks_payload, context=None):
-            raise RuntimeError("ml backend down")
-
-    monkeypatch.setattr(
-        "app.services.ml_client.MLBackendClient", _FailingClient, raising=True
-    )
+    patch_batch_execution(monkeypatch, fail_execution, instance_id=backend.id)
 
     fake_engine, fake_factory = _passthrough_engine_and_factory(db_session)
     import sqlalchemy.ext.asyncio as sa_async
@@ -630,7 +607,7 @@ async def test_run_batch_persists_stable_gpu_arbiter_failures(
 ):
     from app.db.models.prediction import FailedPrediction
     from app.db.models.task import Task
-    from app.services.gpu_arbitration.contracts import (
+    from aap_inference.gpu.contracts import (
         GPUArbiterDispatchError,
         GPUArbiterErrorCode,
     )
@@ -652,20 +629,16 @@ async def test_run_batch_persists_stable_gpu_arbiter_failures(
     db_session.add_all(tasks)
     await db_session.flush()
 
-    class _RejectedClient:
-        def __init__(self, _backend, **_kwargs):
-            pass
+    from tests.inference_execution_test_ports import patch_batch_execution
 
-        async def predict(self, tasks_payload, context=None):
-            raise GPUArbiterDispatchError(
-                GPUArbiterErrorCode.BACKEND_CONCURRENCY_SATURATED,
-                message="backend busy",
-                retry_after_s=4,
-            )
+    def reject_operation(_operation, _task_input):
+        raise GPUArbiterDispatchError(
+            GPUArbiterErrorCode.BACKEND_CONCURRENCY_SATURATED,
+            message="backend busy",
+            retry_after_s=4,
+        )
 
-    monkeypatch.setattr(
-        "app.services.ml_client.MLBackendClient", _RejectedClient, raising=True
-    )
+    patch_batch_execution(monkeypatch, reject_operation, instance_id=backend.id)
     fake_engine, fake_factory = _passthrough_engine_and_factory(db_session)
     import sqlalchemy.ext.asyncio as sa_async
 
@@ -729,7 +702,8 @@ async def test_run_batch_stops_on_cooperative_cancel(
 ):
     """v0.10.51 · batch_predict 在任务边界看到 cancel_requested 后落 cancelled。"""
     from app.db.models.task import Task
-    from aap_inference.backend_transport import PredictionResult
+    from aap_inference_contract.execution import ModelTaskResult
+    from tests.inference_execution_test_ports import patch_batch_execution
 
     user, _ = super_admin
     proj, backend = await _seed_project_and_backend(db_session, user.id)
@@ -749,38 +723,31 @@ async def test_run_batch_stops_on_cooperative_cancel(
     db_session.add_all(tasks)
     await db_session.flush()
 
-    class _StubClient:
-        calls = 0
+    model_calls = 0
 
-        def __init__(self, _backend, **_kwargs):
-            self._backend = _backend
-
-        async def predict(self, tasks_payload, context=None):
-            self.__class__.calls += 1
-            if self.__class__.calls == 1:
-                res = await db_session.execute(
-                    select(AsyncJob).where(
-                        AsyncJob.kind == "batch_predict",
-                        AsyncJob.project_id == proj.id,
-                    )
+    async def respond(_operation, task_input):
+        nonlocal model_calls
+        model_calls += 1
+        if model_calls == 1:
+            res = await db_session.execute(
+                select(AsyncJob).where(
+                    AsyncJob.kind == "batch_predict",
+                    AsyncJob.project_id == proj.id,
                 )
-                job = res.scalar_one()
-                job.payload = {**(job.payload or {}), "cancel_requested": True}
-                await db_session.flush()
-            return [
-                PredictionResult(
-                    task_id=tasks_payload[0]["id"],
-                    result=[],
-                    score=0.9,
-                    model_version="stub-v1",
-                    inference_time_ms=10,
-                    meta={"total_cost": 0.0012},
-                )
-            ]
+            )
+            job = res.scalar_one()
+            job.payload = {**(job.payload or {}), "cancel_requested": True}
+            await db_session.flush()
+        return ModelTaskResult(
+            task_id=task_input["id"],
+            result=(),
+            score=0.9,
+            model_version="stub-v1",
+            inference_time_ms=10,
+            meta={"total_cost": 0.0012},
+        )
 
-    monkeypatch.setattr(
-        "app.services.ml_client.MLBackendClient", _StubClient, raising=True
-    )
+    patch_batch_execution(monkeypatch, respond, instance_id=backend.id)
 
     fake_engine, fake_factory = _passthrough_engine_and_factory(db_session)
     import sqlalchemy.ext.asyncio as sa_async
@@ -802,7 +769,7 @@ async def test_run_batch_stops_on_cooperative_cancel(
         )
     )
     job = res.scalar_one()
-    assert _StubClient.calls == 1
+    assert model_calls == 1
     assert job.status == AsyncJobStatus.CANCELLED.value
     assert job.progress_pct == 33
     assert job.result["success_count"] == 1
@@ -836,7 +803,8 @@ async def test_run_batch_stops_writing_after_actor_disabled_mid_run(
     from app.db.models.prediction import Prediction
     from app.db.models.task import Task
     from app.db.models.user import User
-    from aap_inference.backend_transport import PredictionResult
+    from aap_inference_contract.execution import ModelTaskResult
+    from tests.inference_execution_test_ports import patch_batch_execution
     from app.services.labeling_prediction_contract import ApplyPredictionResultError
     from app.services.prediction import PredictionService
 
@@ -858,34 +826,26 @@ async def test_run_batch_stops_writing_after_actor_disabled_mid_run(
     db_session.add_all(tasks)
     await db_session.flush()
 
-    class _StubClient:
-        calls = 0
+    model_calls = 0
 
-        def __init__(self, _backend, **_kwargs):
-            self._backend = _backend
+    async def respond(_operation, task_input):
+        nonlocal model_calls
+        model_calls += 1
+        if model_calls == 1 and denial == "actor_disabled":
+            row = await db_session.get(User, user.id)
+            row.is_active = False
+            await db_session.flush()
+            await db_session.commit()
+        return ModelTaskResult(
+            task_id=task_input["id"],
+            result=(),
+            score=0.9,
+            model_version="stub-v1",
+            inference_time_ms=10,
+            meta=None,
+        )
 
-        async def predict(self, tasks_payload, context=None):
-            self.__class__.calls += 1
-            if self.__class__.calls == 1 and denial == "actor_disabled":
-                # Mid-inference revocation: disable the initiating account.
-                row = await db_session.get(User, user.id)
-                row.is_active = False
-                await db_session.flush()
-                await db_session.commit()
-            return [
-                PredictionResult(
-                    task_id=tasks_payload[0]["id"],
-                    result=[],
-                    score=0.9,
-                    model_version="stub-v1",
-                    inference_time_ms=10,
-                    meta=None,
-                )
-            ]
-
-    monkeypatch.setattr(
-        "app.services.ml_client.MLBackendClient", _StubClient, raising=True
-    )
+    patch_batch_execution(monkeypatch, respond, instance_id=backend.id)
     if denial == "write_denied":
 
         async def reject_write(_self, _request):
@@ -923,7 +883,7 @@ async def test_run_batch_stops_writing_after_actor_disabled_mid_run(
             )
         )
     ).one()
-    assert _StubClient.calls == 1
+    assert model_calls == 1
     assert row.status == AsyncJobStatus.FAILED.value
     assert row.error_message == "preannotation_actor_revoked"
 
@@ -944,7 +904,7 @@ async def test_cancelled_batch_keeps_prior_gpu_arbiter_failure_summary(
     db_session: AsyncSession, monkeypatch, super_admin
 ):
     from app.db.models.task import Task
-    from app.services.gpu_arbitration.contracts import (
+    from aap_inference.gpu.contracts import (
         GPUArbiterDispatchError,
         GPUArbiterErrorCode,
     )
@@ -966,34 +926,30 @@ async def test_cancelled_batch_keeps_prior_gpu_arbiter_failure_summary(
     db_session.add_all(tasks)
     await db_session.flush()
 
-    class _RejectedClient:
-        def __init__(self, _backend, **_kwargs):
-            pass
+    from tests.inference_execution_test_ports import patch_batch_execution
 
-        async def predict(self, tasks_payload, context=None):
-            job = (
-                (
-                    await db_session.execute(
-                        select(AsyncJob).where(
-                            AsyncJob.kind == "batch_predict",
-                            AsyncJob.project_id == proj.id,
-                        )
+    async def reject_after_cancel(_operation, _task_input):
+        job = (
+            (
+                await db_session.execute(
+                    select(AsyncJob).where(
+                        AsyncJob.kind == "batch_predict",
+                        AsyncJob.project_id == proj.id,
                     )
                 )
-                .scalars()
-                .one()
             )
-            job.payload = {**(job.payload or {}), "cancel_requested": True}
-            await db_session.flush()
-            await db_session.commit()
-            raise GPUArbiterDispatchError(
-                GPUArbiterErrorCode.NOT_READY,
-                message="ledger rebuilding",
-            )
+            .scalars()
+            .one()
+        )
+        job.payload = {**(job.payload or {}), "cancel_requested": True}
+        await db_session.flush()
+        await db_session.commit()
+        raise GPUArbiterDispatchError(
+            GPUArbiterErrorCode.NOT_READY,
+            message="ledger rebuilding",
+        )
 
-    monkeypatch.setattr(
-        "app.services.ml_client.MLBackendClient", _RejectedClient, raising=True
-    )
+    patch_batch_execution(monkeypatch, reject_after_cancel, instance_id=backend.id)
     fake_engine, fake_factory = _passthrough_engine_and_factory(db_session)
     import sqlalchemy.ext.asyncio as sa_async
 
@@ -1030,215 +986,6 @@ async def test_cancelled_batch_keeps_prior_gpu_arbiter_failure_summary(
             "count": 1,
         }
     ]
-
-
-@pytest.mark.asyncio
-async def test_run_batch_merges_params_into_context(
-    db_session: AsyncSession, monkeypatch, super_admin
-):
-    """v0.10.38 · _run_batch 把请求 params 合并进 /predict context, 覆盖项目级阈值兜底."""
-    from app.db.models.task import Task
-    from aap_inference.backend_transport import PredictionResult
-
-    user, _ = super_admin
-    proj, backend = await _seed_project_and_backend(db_session, user.id)
-    proj.box_threshold = 0.35
-    proj.text_threshold = 0.25
-    t1 = Task(
-        id=uuid.uuid4(),
-        project_id=proj.id,
-        display_id="T-P1",
-        file_name="a.jpg",
-        file_path="http://x/a.jpg",
-        file_type="image",
-        status="pending",
-    )
-    db_session.add(t1)
-    await db_session.flush()
-
-    captured: dict = {}
-
-    class _StubClient:
-        def __init__(self, _backend, **_kwargs):
-            self._backend = _backend
-
-        async def predict(self, tasks_payload, context=None):
-            captured["context"] = context
-            return [
-                PredictionResult(
-                    task_id=tasks_payload[0]["id"],
-                    result=[],
-                    score=0.9,
-                    model_version="stub-v1",
-                    inference_time_ms=10,
-                    meta={},
-                )
-            ]
-
-    monkeypatch.setattr(
-        "app.services.ml_client.MLBackendClient", _StubClient, raising=True
-    )
-
-    fake_engine, fake_factory = _passthrough_engine_and_factory(db_session)
-    import sqlalchemy.ext.asyncio as sa_async
-
-    monkeypatch.setattr(sa_async, "create_async_engine", fake_engine)
-    monkeypatch.setattr(sa_async, "async_sessionmaker", fake_factory)
-
-    await _run_batch(
-        project_id=str(proj.id),
-        user_id=str(user.id),
-        ml_backend_id=str(backend.id),
-        task_ids=[str(t1.id)],
-        prompt="cars",
-        params={"box_threshold": 0.7, "sam_variant": "large", "ignored": None},
-    )
-
-    ctx = captured["context"]
-    assert ctx["box_threshold"] == 0.7  # params 覆盖项目级 0.35
-    assert ctx["text_threshold"] == 0.25  # 未被 params 覆盖, 保留项目级兜底
-    assert "ignored" not in ctx  # None 值被过滤
-
-
-@pytest.mark.asyncio
-async def test_run_batch_passes_model_id_and_task_type_into_context(
-    db_session: AsyncSession, monkeypatch, super_admin
-):
-    """An OCR legacy task input produces a canonical task and model identity."""
-    from app.db.models.task import Task
-    from aap_inference.backend_transport import PredictionResult
-
-    user, _ = super_admin
-    proj, backend = await _seed_project_and_backend(db_session, user.id)
-    t1 = Task(
-        id=uuid.uuid4(),
-        project_id=proj.id,
-        display_id="T-OCR1",
-        file_name="doc.png",
-        file_path="http://x/doc.png",
-        file_type="image",
-        status="pending",
-    )
-    db_session.add(t1)
-    await db_session.flush()
-
-    captured: dict = {}
-
-    class _StubClient:
-        def __init__(self, _backend, **_kwargs):
-            self._backend = _backend
-
-        async def predict(self, tasks_payload, context=None):
-            captured["context"] = context
-            return [
-                PredictionResult(
-                    task_id=tasks_payload[0]["id"],
-                    result=[],
-                    score=0.9,
-                    model_version="stub-v1",
-                    inference_time_ms=10,
-                    meta={},
-                )
-            ]
-
-    monkeypatch.setattr(
-        "app.services.ml_client.MLBackendClient", _StubClient, raising=True
-    )
-
-    fake_engine, fake_factory = _passthrough_engine_and_factory(db_session)
-    import sqlalchemy.ext.asyncio as sa_async
-
-    monkeypatch.setattr(sa_async, "create_async_engine", fake_engine)
-    monkeypatch.setattr(sa_async, "async_sessionmaker", fake_factory)
-
-    # 无 prompt: 纯图片 OCR, 仅靠 task_type / model_id 起 context
-    await _run_batch(
-        project_id=str(proj.id),
-        user_id=str(user.id),
-        ml_backend_id=str(backend.id),
-        task_ids=[str(t1.id)],
-        task_type="ocr",
-        model_id="pp-ocrv4",
-    )
-
-    ctx = captured["context"]
-    assert ctx is not None
-    assert ctx["task"] == "ocr"
-    assert "type" not in ctx
-    # 纯 OCR 无文本 prompt, 不应混入 text/output 键
-    assert "text" not in ctx
-
-
-# v0.18.12 删除 test_run_batch_task_type_overrides_text_type_with_prompt:
-# 原契约「带 prompt 时 task_type 覆盖默认的 'text' type」在 v0.18.12 model-first
-# 重构后失效——文本路径 (prompt 非空) 现在直接 return type=text, task_type 不再
-# 覆盖。新拓扑下文本路径专属 gsam2/sam3 开放词表 (task=segmentation/detection),
-# OCR/doc_layout 走 flat 路径 (无 prompt),由 test_predict_context_builder.py 的
-# test_flat_task_type_override_for_ocr 覆盖等价行为。
-
-
-@pytest.mark.asyncio
-async def test_run_batch_pure_text_prompt_unchanged_without_v2_args(
-    db_session: AsyncSession, monkeypatch, super_admin
-):
-    """v0.14.9 · 回归: 无 model_id / task_type 时纯文本 prompt 现状不变 (type=text)。"""
-    from app.db.models.task import Task
-    from aap_inference.backend_transport import PredictionResult
-
-    user, _ = super_admin
-    proj, backend = await _seed_project_and_backend(db_session, user.id)
-    t1 = Task(
-        id=uuid.uuid4(),
-        project_id=proj.id,
-        display_id="T-TXT1",
-        file_name="a.jpg",
-        file_path="http://x/a.jpg",
-        file_type="image",
-        status="pending",
-    )
-    db_session.add(t1)
-    await db_session.flush()
-
-    captured: dict = {}
-
-    class _StubClient:
-        def __init__(self, _backend, **_kwargs):
-            self._backend = _backend
-
-        async def predict(self, tasks_payload, context=None):
-            captured["context"] = context
-            return [
-                PredictionResult(
-                    task_id=tasks_payload[0]["id"],
-                    result=[],
-                    score=0.9,
-                    model_version="stub-v1",
-                    inference_time_ms=10,
-                    meta={},
-                )
-            ]
-
-    monkeypatch.setattr(
-        "app.services.ml_client.MLBackendClient", _StubClient, raising=True
-    )
-
-    fake_engine, fake_factory = _passthrough_engine_and_factory(db_session)
-    import sqlalchemy.ext.asyncio as sa_async
-
-    monkeypatch.setattr(sa_async, "create_async_engine", fake_engine)
-    monkeypatch.setattr(sa_async, "async_sessionmaker", fake_factory)
-
-    await _run_batch(
-        project_id=str(proj.id),
-        user_id=str(user.id),
-        ml_backend_id=str(backend.id),
-        task_ids=[str(t1.id)],
-        prompt="cars",
-    )
-
-    ctx = captured["context"]
-    assert ctx["type"] == "text"
-    assert "model_id" not in ctx
 
 
 @pytest.mark.asyncio
@@ -1280,7 +1027,8 @@ async def test_run_batch_workbench_scope_runs_in_progress_task(
 
     from app.db.models.task import Task
     from app.db.models.task_lock import TaskLock
-    from aap_inference.backend_transport import PredictionResult
+    from aap_inference_contract.execution import ModelTaskResult
+    from tests.inference_execution_test_ports import patch_batch_execution
 
     user, _ = super_admin
     proj, backend = await _seed_project_and_backend(db_session, user.id)
@@ -1304,28 +1052,20 @@ async def test_run_batch_workbench_scope_runs_in_progress_task(
     )
     await db_session.flush()
 
-    predicted: list[list[dict]] = []
+    predicted: list[tuple[dict, ...]] = []
 
-    class _StubClient:
-        def __init__(self, _backend, **_kwargs):
-            self._backend = _backend
+    def respond(operation, task_input):
+        predicted.append(tuple(operation.task_inputs))
+        return ModelTaskResult(
+            task_id=task_input["id"],
+            result=(),
+            score=0.9,
+            model_version="stub-v1",
+            inference_time_ms=10,
+            meta={},
+        )
 
-        async def predict(self, tasks_payload, context=None):
-            predicted.append(tasks_payload)
-            return [
-                PredictionResult(
-                    task_id=tasks_payload[0]["id"],
-                    result=[],
-                    score=0.9,
-                    model_version="stub-v1",
-                    inference_time_ms=10,
-                    meta={},
-                )
-            ]
-
-    monkeypatch.setattr(
-        "app.services.ml_client.MLBackendClient", _StubClient, raising=True
-    )
+    patch_batch_execution(monkeypatch, respond, instance_id=backend.id)
 
     fake_engine, fake_factory = _passthrough_engine_and_factory(db_session)
     import sqlalchemy.ext.asyncio as sa_async

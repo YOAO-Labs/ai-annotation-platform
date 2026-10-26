@@ -29,7 +29,6 @@ from app.schemas.dashboard import (
     BackendCostBreakdown,
 )
 from app.db.models.project_member import ProjectMember
-from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
 from app.services.dashboard_stats import (
     _class_distribution,
     _first_pass_yield,
@@ -104,12 +103,11 @@ async def admin_dashboard(
     ml_total = 0
     ml_connected = 0
     try:
-        from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
+        from app.services.inference_topology_data import InferenceTopologyData
 
-        ml_result = await db.execute(select(MLBackend))
-        ml_backends = ml_result.scalars().all()
+        ml_backends = await InferenceTopologyData(db).registry_catalog()
         ml_total = len(ml_backends)
-        ml_connected = sum(1 for m in ml_backends if m.state == "connected")
+        ml_connected = sum(1 for backend in ml_backends if backend.state == "connected")
     except Exception:
         pass
 
@@ -976,7 +974,6 @@ async def prediction_cost_stats(
             await db.execute(
                 select(
                     prediction_row.ml_backend_id,
-                    MLBackend.name,
                     func.count(prediction_row.id),
                     func.coalesce(func.sum(prediction_meta_row.total_cost), 0.0),
                     func.avg(prediction_meta_row.inference_time_ms),
@@ -986,11 +983,20 @@ async def prediction_cost_stats(
                     prediction_meta_row,
                     prediction_meta_row.prediction_id == prediction_row.id,
                 )
-                .outerjoin(MLBackend, MLBackend.id == prediction_row.ml_backend_id)
                 .where(prediction_row.created_at >= cutoff)
-                .group_by(prediction_row.ml_backend_id, MLBackend.name)
+                .group_by(prediction_row.ml_backend_id)
             )
         ).all()
+
+        from app.services.inference_topology_data import InferenceTopologyData
+
+        registry_ids = sorted({bid for bid, *_ in rows if bid is not None}, key=str)
+        backend_names: dict[uuid.UUID, str] = {}
+        topology_data = InferenceTopologyData(db)
+        for start in range(0, len(registry_ids), 500):
+            backend_names.update(
+                await topology_data.registry_names(registry_ids[start : start + 500])
+            )
 
         # 失败按 backend
         failed_by_backend_rows = (
@@ -1008,13 +1014,13 @@ async def prediction_cost_stats(
         by_backend = [
             BackendCostBreakdown(
                 backend_id=bid,
-                backend_name=name,
+                backend_name=backend_names.get(bid) if bid is not None else None,
                 predictions=int(cnt),
                 failures=failed_by_backend.get(bid, 0),
                 total_cost=float(cost or 0.0),
                 avg_inference_time_ms=(float(avg_ms) if avg_ms is not None else None),
             )
-            for bid, name, cnt, cost, avg_ms in rows
+            for bid, cnt, cost, avg_ms in rows
         ]
 
         total = int(main.total or 0)

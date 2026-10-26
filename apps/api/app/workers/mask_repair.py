@@ -9,7 +9,6 @@ from app.application.mask_repair_execution import (
     run_mask_repair_rollback as execute_mask_repair_rollback,
 )
 from app.config import settings
-from app.services.gpu_arbitration.dispatch import build_gpu_dispatch_context_factory
 from app.services.jobs_queue import build_video_tracker_job_dispatcher
 from app.workers.celery_app import celery_app
 
@@ -26,14 +25,12 @@ async def _run_mask_repair(
         class_=AsyncSession,
         expire_on_commit=False,
     )
-    dispatch_context_factory = build_gpu_dispatch_context_factory(session_factory)
     try:
         await execute_mask_repair(
             batch_id,
             celery_task_id,
             session_factory=session_factory,
             tracker_dispatcher=tracker_dispatcher,
-            dispatch_context_factory=dispatch_context_factory,
         )
     finally:
         await engine.dispose()

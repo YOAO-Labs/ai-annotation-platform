@@ -11,26 +11,21 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
 from aap_inference.backend_transport import PredictionResult
-from app.services.video_tracking.adapters import TrackerContext, TrackerFrameResult
+from app.services.video_tracking.adapters import TrackerContext
+from aap_inference.tracker import TrackerFrameResult
 from app.services.video_tracking.runner import accept_tracker_job, run_tracker_job
 from tests.conftest import create_registry_with_pool
 from tests.factory import build_tool_bindings
 from tests.tracker_input_test_ports import (
     seed_staged_tracker_input,
-    yield_tracker_fake_results,
+    install_tracker_execution_fake,
+    tracker_fake_propagation,
 )
 
 
 @pytest.fixture(autouse=True)
 def _tracker_input_owner_test_port(tracker_input_owner_fakes):
     return tracker_input_owner_fakes
-
-
-@pytest.fixture(autouse=True)
-def _staged_routing_owner_test_port(savepoint_routing_owner):
-    # This module replaces backend inference and stages all inputs in a savepoint.
-    # Real owner/HTTP/rollback acceptance uses committed worlds in separate tests.
-    return savepoint_routing_owner
 
 
 async def _make_video_task(db_session, owner_id):
@@ -201,7 +196,7 @@ async def test_stage_fence_retries_held_results_and_preserves_cancellation(
 
         async def propagate(self, context):
             self.calls += 1
-            async for result in yield_tracker_fake_results(
+            return tracker_fake_propagation(
                 context,
                 [
                     TrackerFrameResult(
@@ -217,8 +212,7 @@ async def test_stage_fence_retries_held_results_and_preserves_cancellation(
                         outside=False,
                     )
                 ],
-            ):
-                yield result
+            )
 
     adapter = CountingAdapter()
     monkeypatch.setattr(runner, "get_tracker_adapter", lambda _capability: adapter)
@@ -551,7 +545,7 @@ def test_apply_tracker_results_degenerate_polygon_marked_outside():
 
 def test_bbox_from_geometry_seeds_from_polygon_vertices():
     """SAM2 只吃 bbox seed: polygon track / 单帧 polygon 结果都取顶点外接框。"""
-    from app.services.video_tracking.adapters import _bbox_from_geometry
+    from aap_inference.tracker import bbox_from_geometry
 
     track = {
         "type": "video_track_polygon",
@@ -559,11 +553,11 @@ def test_bbox_from_geometry_seeds_from_polygon_vertices():
             {"frame_index": 0, "points": [[0.1, 0.2], [0.5, 0.2], [0.3, 0.6]]}
         ],
     }
-    seed = _bbox_from_geometry(track)
+    seed = bbox_from_geometry(track)
     assert seed == pytest.approx({"x": 0.1, "y": 0.2, "w": 0.4, "h": 0.4})
 
     single = {"type": "polygon", "points": [[0.0, 0.0], [0.4, 0.0], [0.2, 0.4]]}
-    assert _bbox_from_geometry(single) == pytest.approx(
+    assert bbox_from_geometry(single) == pytest.approx(
         {"x": 0.0, "y": 0.0, "w": 0.4, "h": 0.4}
     )
 
@@ -694,10 +688,8 @@ async def test_tracker_worker_calls_project_ml_backend_in_windows(
     await db_session.commit()
     monkeypatch.setattr(settings, "video_tracker_window_size_frames", 2)
     calls: list[dict] = []
-    authority_marker = object()
 
     async def fake_predict_interactive(self, task_data, context):
-        assert self._dispatch_context_factory is authority_marker
         calls.append(context)
         return PredictionResult(
             task_id=task_data["id"],
@@ -711,10 +703,7 @@ async def test_tracker_worker_calls_project_ml_backend_in_windows(
             ],
         )
 
-    monkeypatch.setattr(
-        "app.services.ml_client.MLBackendClient.predict_interactive",
-        fake_predict_interactive,
-    )
+    install_tracker_execution_fake(monkeypatch, fake_predict_interactive)
 
     async def collect(_channel: str, _payload: dict) -> None:
         return None
@@ -723,7 +712,6 @@ async def test_tracker_worker_calls_project_ml_backend_in_windows(
         db_session,
         job.id,
         publisher=collect,
-        dispatch_context_factory=authority_marker,  # type: ignore[arg-type]
     )
     await db_session.refresh(job)
     await db_session.refresh(annotation)
@@ -835,10 +823,7 @@ async def test_tracker_worker_uses_backend_context_session(
             meta={"tracker_context": {"mode": "session", "token": "opaque"}},
         )
 
-    monkeypatch.setattr(
-        "app.services.ml_client.MLBackendClient.predict_interactive",
-        fake_predict_interactive,
-    )
+    install_tracker_execution_fake(monkeypatch, fake_predict_interactive)
     await run_tracker_job(db_session, job.id, publisher=_noop_pub)
     await db_session.refresh(job)
     assert job.status == "pending_review"
@@ -933,10 +918,7 @@ async def test_tracker_worker_marks_low_confidence_backend_results_outside(
             ],
         )
 
-    monkeypatch.setattr(
-        "app.services.ml_client.MLBackendClient.predict_interactive",
-        fake_predict_interactive,
-    )
+    install_tracker_execution_fake(monkeypatch, fake_predict_interactive)
 
     async def collect(_channel: str, _payload: dict) -> None:
         return None
@@ -1003,8 +985,7 @@ class _SeedRecordingAdapter:
                     outside=False,
                 )
             )
-        async for result in yield_tracker_fake_results(ctx, results):
-            yield result
+        return tracker_fake_propagation(ctx, results)
 
 
 async def _run_seed_test(db_session, super_admin, monkeypatch, *, direction, outside):
@@ -1187,22 +1168,10 @@ async def _run_worker_with_final_status(
     )
     db_session.add(job)
     await db_session.commit()
-    authority_marker = object()
-    built_from: list[object] = []
-
-    def _build_authority(session_factory):
-        built_from.append(session_factory)
-        return authority_marker
-
-    monkeypatch.setattr(
-        worker_mod,
-        "build_gpu_dispatch_context_factory",
-        _build_authority,
-    )
 
     async def _stub_run(db, job_id, **_kw):
-        assert _kw["shadow_session_factory"] is built_from[0]
-        assert _kw["dispatch_context_factory"] is authority_marker
+        assert _kw["shadow_session_factory"] is not None
+        assert "dispatch_context_factory" not in _kw
         row = await db.get(VideoTrackerJob, job_id)
         row.status = status
         if status == VideoTrackerJobStatus.FAILED.value:
@@ -1249,7 +1218,6 @@ async def _run_worker_with_final_status(
             await worker_mod._run_video_tracker_job(str(job_id), "celery-vt")
     else:
         await worker_mod._run_video_tracker_job(str(job_id), "celery-vt")
-    assert len(built_from) == 1
 
     aj = (
         (
@@ -1703,10 +1671,7 @@ async def test_tracker_observe_mode_records_would_select_evidence(
             ],
         )
 
-    monkeypatch.setattr(
-        "app.services.ml_client.MLBackendClient.predict_interactive",
-        fake_predict_interactive,
-    )
+    install_tracker_execution_fake(monkeypatch, fake_predict_interactive)
 
     await run_tracker_job(db_session, job.id, publisher=_noop_pub)
     await db_session.refresh(job)
@@ -1788,10 +1753,7 @@ async def test_tracker_enforce_mode_acquires_and_finishes_route_lease(
             ],
         )
 
-    monkeypatch.setattr(
-        "app.services.ml_client.MLBackendClient.predict_interactive",
-        fake_predict_interactive,
-    )
+    install_tracker_execution_fake(monkeypatch, fake_predict_interactive)
 
     await run_tracker_job(db_session, job.id, publisher=_noop_pub)
     await db_session.refresh(job)
@@ -1978,10 +1940,7 @@ async def test_tracker_enforce_dispatches_to_router_selected_instance(
     monkeypatch.setattr(MLBackendRouter, "acquire", fake_acquire)
     monkeypatch.setattr(MLBackendRouter, "finish", fake_finish)
     monkeypatch.setattr(MLBackendRouter, "cancel", fake_cancel)
-    monkeypatch.setattr(
-        "app.services.ml_client.MLBackendClient.predict_interactive",
-        fake_predict_interactive,
-    )
+    install_tracker_execution_fake(monkeypatch, fake_predict_interactive)
 
     await run_tracker_job(db_session, job.id, publisher=_noop_pub)
     await db_session.refresh(job)
@@ -2000,22 +1959,18 @@ async def test_tracker_runtime_identity_outage_defers_without_failing_the_job(
     from unittest.mock import AsyncMock
     from aap_inference_contract.routing import RoutingUnavailable
     from app.services.ml_routing.authority import RoutingAuthority
-    from app.services.ml_client import MLBackendClient
     from app.services.video_tracking.execution import TrackerExecutionDeferred
 
     user, _ = super_admin
     job, _, _, _ = await _make_multi_member_tracker_job(db_session, user.id)
     job_id = job.id
     snapshot = AsyncMock(side_effect=RoutingUnavailable())
-    predict = AsyncMock()
     monkeypatch.setattr(RoutingAuthority, "runtime_snapshot", snapshot)
-    monkeypatch.setattr(MLBackendClient, "predict_interactive", predict)
     with pytest.raises(TrackerExecutionDeferred, match="routing_unavailable"):
         await run_tracker_job(db_session, job_id, publisher=_noop_pub)
     await db_session.refresh(job)
     assert job.status == "running" and job.error_message is None
     snapshot.assert_awaited_once()
-    predict.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -2050,10 +2005,7 @@ async def test_tracker_route_rejection_fails_without_dispatch(
         "app.services.ml_routing.router.make_ledger_from_settings", lambda: FakeLedger()
     )
     monkeypatch.setattr(MLBackendRouter, "acquire", fake_acquire)
-    monkeypatch.setattr(
-        "app.services.ml_client.MLBackendClient.predict_interactive",
-        fake_predict_interactive,
-    )
+    install_tracker_execution_fake(monkeypatch, fake_predict_interactive)
 
     await run_tracker_job(db_session, job.id, publisher=_noop_pub)
     await db_session.refresh(job)

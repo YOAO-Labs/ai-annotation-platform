@@ -19,29 +19,23 @@ pytestmark = [
 ]
 
 
-@pytest.mark.parametrize("binding", ("embedded", "dsn", "http"))
-async def test_api_selected_retirement_source_uses_the_actual_backend(
-    test_engine, tmp_path, monkeypatch, binding
+@pytest.mark.parametrize("lost_ack", [False, True])
+async def test_api_uses_remote_owner_for_live_scope_retirement(
+    test_engine, tmp_path, monkeypatch, lost_ack
 ):
     def authority(owner_url, owner_token):
         for name, value in {
-            "inference_routing_url": owner_url if binding == "http" else "",
-            "inference_routing_token": owner_token if binding == "http" else "",
+            "inference_routing_url": owner_url,
+            "inference_routing_token": owner_token,
             "inference_routing_token_file": "",
-            "inference_routing_database_url": (
-                os.environ["AAP_MODULE_DATA_INFERENCE_ROUTING_URL"]
-                if binding == "dsn"
-                else ""
-            ),
-            "inference_routing_database_url_file": "",
         }.items():
             monkeypatch.setattr(settings, name, value)
-        return RoutingAuthority(test_engine)
+        return RoutingAuthority()
 
     await _exercise(
         test_engine,
         tmp_path,
         "handler",
-        True,
+        lost_ack,
         retirement_authority_factory=authority,
     )

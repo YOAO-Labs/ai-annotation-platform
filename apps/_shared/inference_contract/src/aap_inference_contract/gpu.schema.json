@@ -1,0 +1,180 @@
+{
+  "protocol": "aap-inference-gpu-authority/v1",
+  "native": {
+    "schema": "aap_inference_gpu_v1",
+    "policy_function": "aap_inference_gpu_v1.gpu_authority_policy()",
+    "step_function": "aap_inference_gpu_v1.gpu_authority_step(text,text)",
+    "actions": [
+      "fence_advance",
+      "fence_token_expiry",
+      "fence_activate_membership",
+      "fence_read",
+      "rollout_read",
+      "rollout_read_all",
+      "rollout_boundary",
+      "rollout_begin",
+      "rollout_complete",
+      "rollout_block",
+      "runtime_subject",
+      "cold_runtime_subject",
+      "idle_eviction_subject",
+      "busy_eviction_subject",
+      "eviction_drain_health",
+      "prepare_cold_generation",
+      "prepare_idle_eviction_generation",
+      "prepare_eviction_cancel_generation",
+      "record_runtime_token_expiry",
+      "cold_terminal_from_health",
+      "eviction_cancel_from_health",
+      "eviction_phase_from_health",
+      "proof_domain",
+      "proof_reset_from_health",
+      "reconcile_resource",
+      "repair_resource",
+      "prepare_legacy_ack",
+      "prepare_rollout_control",
+      "membership_candidates",
+      "membership_max_concurrency",
+      "retired_probe_subject",
+      "retired_probe_commit",
+      "shadow_snapshot",
+      "resource_runtime_observation"
+    ]
+  },
+  "caller_native": {
+    "schema": "aap_inference_gpu_caller_v1",
+    "protocol": "aap-inference-gpu-caller-native/v1",
+    "policy_function": "aap_inference_gpu_caller_v1.gpu_caller_policy()",
+    "step_function": "aap_inference_gpu_caller_v1.gpu_caller_step(text,text)",
+    "actions": [
+      "fence_advance",
+      "fence_token_expiry",
+      "fence_activate_membership",
+      "fence_read",
+      "rollout_read",
+      "rollout_read_all",
+      "rollout_boundary",
+      "rollout_begin",
+      "rollout_complete",
+      "rollout_block",
+      "prepare_legacy_ack",
+      "prepare_rollout_control",
+      "membership_candidates",
+      "membership_max_concurrency"
+    ],
+    "bounds": { "request_bytes": 1048576, "response_bytes": 4194304 },
+    "transaction": "Borrows the caller's active workflow UOW; exposes no private GPU authority proof, dispatch, repair, reconciliation, endpoint, signing, or collector actions."
+  },
+  "dispatch_http": {
+    "protocol": "aap-inference-gpu-dispatch/v1",
+    "acquire": {
+      "method": "POST",
+      "path": "/internal/inference/gpu/v1/dispatch/acquire",
+      "request": {
+        "request_id": "outer request UUID for owner correlation",
+        "backend_id": "non-empty registry UUID string",
+        "gpu_resource_id": "non-empty physical resource identifier",
+        "operation": ["predict", "predict_interactive", "warmup", "reload", "unload"],
+        "scope": ["predict", "warmup", "reload"]
+      },
+      "reply": {
+        "session_id": "32-byte URL-safe one-shot session capability",
+        "generation": "canonical positive int64 decimal string",
+        "admission_token": "private GPU admission token"
+      }
+    },
+    "settle": {
+      "method": "POST",
+      "path": "/internal/inference/gpu/v1/dispatch/settle",
+      "request": {
+        "session_id": "one-shot session capability",
+        "outcome": ["response_received", "not_sent", "uncertain"],
+        "status_code": "required only for response_received",
+        "reason": "request_aborted or response_not_reported for uncertain"
+      },
+      "reply": { "settled": "false when the session is already unknown/expired" }
+    },
+    "session_semantics": "In-memory owner-process context only; expiry/shutdown settles as uncertain, never stopped. No durable result/stop ledger."
+  },
+  "admin_http": {
+    "protocol": "aap-inference-gpu-admin/v1",
+    "operations": {
+      "activate_memberships": {
+        "method": "POST",
+        "path": "/internal/inference/gpu/v1/admin/activate-memberships",
+        "request": { "resource_id": "physical GPU resource", "pending_only": "boolean" },
+        "reply": { "results": "ordered per-membership promotion/legacy-ack status" }
+      },
+      "rollout_control": {
+        "method": "POST",
+        "path": "/internal/inference/gpu/v1/admin/rollout-control",
+        "request": {
+          "resource_id": "physical GPU resource",
+          "transition_id": "UUID",
+          "target_gate": ["legacy", "enforce"]
+        },
+        "reply": { "results": "ordered per-membership durable control status" }
+      },
+      "observe_resource": {
+        "method": "POST",
+        "path": "/internal/inference/gpu/v1/admin/observe-resource",
+        "request": {
+          "resource_id": "physical GPU resource",
+          "allocatable_mb": "optional exact runtime config"
+        },
+        "reply": "GPUResourceRuntimeObservationReply"
+      },
+      "repair_resource": {
+        "method": "POST",
+        "path": "/internal/inference/gpu/v1/admin/repair-resource",
+        "request": {
+          "resource_id": "physical GPU resource",
+          "allocatable_mb": "optional exact runtime config; may be null only for a fail-closed readiness blocker, then owner derives stored card capacity",
+          "force_proof_reset": "boolean",
+          "readiness_blocker": "optional string"
+        },
+        "reply": "GPUResourceRepairReply"
+      },
+      "probe_retired_membership": {
+        "method": "POST",
+        "path": "/internal/inference/gpu/v1/admin/probe-retired-membership",
+        "request": {
+          "backend_id": "registry UUID",
+          "resource_id": "physical GPU resource",
+          "membership_epoch": "positive int64"
+        },
+        "reply": { "reason": "stable proof status", "proof_available": "boolean" }
+      },
+      "collect_tombstone": {
+        "method": "POST",
+        "path": "/internal/inference/gpu/v1/admin/collect-tombstone",
+        "request": {
+          "backend_id": "registry UUID",
+          "resource_id": "physical GPU resource",
+          "membership_epoch": "positive int64"
+        },
+        "reply": {
+          "status": ["collected", "blocked", "stale", "error"],
+          "reason": "stable collector status"
+        }
+      },
+      "diagnostics": {
+        "method": "POST",
+        "path": "/internal/inference/gpu/v1/admin/diagnostics",
+        "request": { "resource_id": "optional physical GPU resource" },
+        "reply": {
+          "resources": "configured resource status summaries",
+          "diagnostics": "typed configuration diagnostics",
+          "backends": "per-backend GPU config status",
+          "rollouts": "typed rollout dispatch readiness projections"
+        }
+      }
+    }
+  },
+  "collector_native": {
+    "schema": "aap_inference_gpu_collector_v1",
+    "policy_function": "aap_inference_gpu_collector_v1.gpu_collector_policy()",
+    "step_function": "aap_inference_gpu_collector_v1.gpu_collector_step(text,text)",
+    "actions": ["collect_tombstone"]
+  }
+}

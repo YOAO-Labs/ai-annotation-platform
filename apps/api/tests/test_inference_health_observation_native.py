@@ -26,8 +26,12 @@ _OPEN = f"{_SCHEMA}.open_health_observation_subject"
 _SEAL = f"{_SCHEMA}.seal_health_observation"
 _VERIFY = f"{_SCHEMA}.verify_health_observation"
 _KEY_TABLE = f"{_SCHEMA}.observation_secret"
+_ENDPOINT_SCHEMA = "aap_inference_backend_endpoint_v1"
+_ENDPOINT_CAPTURE = f"{_ENDPOINT_SCHEMA}.capture_backend_endpoint_subject"
+_ENDPOINT_PROTOCOL = "aap-inference-backend-endpoint/v1"
 _ORIGIN_ROLE = "inference_health_origin_client"
 _PROVIDER_ROLE = "inference_health_observation_client"
+_API_ROLE = "legacy_runtime"
 _FUNCTIONS = (
     f"{_SCHEMA}.health_observation_policy()",
     f"{_SCHEMA}.capture_health_observation_subject(uuid,uuid,text,text,double precision)",
@@ -68,6 +72,70 @@ async def _connect(test_engine, *, role: str | None = None):
         await connection.execute(f"SET ROLE {role}")
         assert await connection.fetchval("SELECT current_user") == role
     return connection
+
+
+async def _seed_backend(owner, registry_id, url, token, extra_params) -> None:
+    """Seed the registered endpoint through the real owner connection."""
+    await owner.execute(
+        "INSERT INTO public.ml_backend_registry "
+        "(id,name,url,state,auth_method,auth_token,extra_params) "
+        "VALUES ($1,$2,$3,'disconnected','token',$4,CAST($5 AS jsonb))",
+        registry_id,
+        f"Health observation {registry_id}",
+        url,
+        token,
+        json.dumps(extra_params),
+    )
+
+
+async def _rotate_backend(owner, registry_id, token) -> None:
+    await owner.execute(
+        "UPDATE public.ml_backend_registry SET auth_token=$2 WHERE id=$1",
+        registry_id,
+        token,
+    )
+
+
+async def _delete_backend(owner, registry_id) -> None:
+    await owner.execute(
+        "DELETE FROM public.ml_backend_registry WHERE id=$1", registry_id
+    )
+
+
+async def _endpoint_capture(connection, registry_id, request_id) -> str:
+    raw = await connection.fetchval(
+        f"SELECT {_ENDPOINT_CAPTURE}($1::uuid,$2::uuid,$3::text,$4::text)",
+        registry_id,
+        request_id,
+        "health_observation",
+        None,
+    )
+    assert type(raw) is str
+    captured = json.loads(raw)
+    assert captured["status"] == "ok"
+    assert type(captured["subject"]) is str
+    return captured["subject"]
+
+
+def _endpoint_envelope(registry_id, request_id, subject) -> dict:
+    return {
+        "schema": _ENDPOINT_PROTOCOL,
+        "request_id": str(request_id),
+        "registry_id": str(registry_id),
+        "purpose": "health_observation",
+        "authority": None,
+        "subject": subject,
+    }
+
+
+def _observation_backend(registry_id, endpoint_subject) -> str:
+    return json.dumps(
+        {"id": str(registry_id), "endpoint_subject": endpoint_subject},
+        ensure_ascii=True,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
 
 
 async def _capture(
@@ -171,39 +239,73 @@ async def test_health_observation_round_trip_is_bound_to_origin_and_keeps_raw_te
     test_engine,
 ):
     await assert_owned_test_database(test_engine)
+    owner = await _connect(test_engine)
+    api = await _connect(test_engine, role=_API_ROLE)
     origin = await _connect(test_engine, role=_ORIGIN_ROLE)
     other_origin = await _connect(test_engine, role=_ORIGIN_ROLE)
     provider = await _connect(test_engine, role=_PROVIDER_ROLE)
-    other_transaction = other_origin.transaction()
-    other_started = False
     registry_id = uuid.uuid4()
     request_id = uuid.uuid4()
+    stale_request_id = uuid.uuid4()
+    url = f"https://health-observation-{registry_id.hex}.example.test/prefix"
     auth_token = f"health-observation-secret-{uuid.uuid4().hex}"
-    backend_json = json.dumps(
-        {
-            "id": str(registry_id),
-            "url": "https://health-observation.example.test/prefix",
-            "auth_method": "token",
-            "auth_token": auth_token,
-            "gpu_resource_id": None,
-            "vram_budget_mb": None,
-            "extra_params": ["unused", {"max_concurrency": 5}],
-        },
-        ensure_ascii=False,
-        separators=(",", ":"),
-    )
+    rotated_token = f"health-observation-rotated-{uuid.uuid4().hex}"
     challenge = "0123456789abcdef" * 4
-    # No registry row is seeded: snapshot capture must use only caller-loaded values.
-    # These are deliberately non-standard JSON number tokens. They must survive
-    # Native TEXT transport so the legacy response decoder keeps its original phase.
+    # The raw observation text keeps non-standard JSON number tokens; Native
+    # transport must return the exact text so the legacy decoder keeps its phase.
     observation_json = (
         ' { "kind":"observed", "meta":{"sample":NaN}, "setup":Infinity }\n'
     )
-    transaction = origin.transaction()
-    started = False
+    api_transaction = None
+    api_started = False
+    origin_transaction = None
+    origin_started = False
+    other_transaction = None
+    other_started = False
     try:
-        await transaction.start()
-        started = True
+        await _seed_backend(owner, registry_id, url, auth_token, {"max_concurrency": 5})
+
+        # Endpoint capture belongs to the ordinary API caller transaction, which
+        # must stay live only while the observation owner opens the snapshot.
+        api_transaction = api.transaction()
+        await api_transaction.start()
+        api_started = True
+        stale_endpoint = await _endpoint_capture(api, registry_id, stale_request_id)
+        await api_transaction.rollback()
+        api_started = False
+
+        origin_transaction = origin.transaction()
+        await origin_transaction.start()
+        origin_started = True
+        stale_subject = await _capture(
+            origin,
+            registry_id,
+            stale_request_id,
+            _observation_backend(
+                registry_id,
+                _endpoint_envelope(registry_id, stale_request_id, stale_endpoint),
+            ),
+            challenge=challenge,
+        )
+        # A rolled-back endpoint capture can never be opened from the still-live
+        # observation origin transaction.
+        await _assert_invalid(
+            provider,
+            f"SELECT {_OPEN}($1::text,$2::uuid,$3::uuid)",
+            stale_subject,
+            registry_id,
+            stale_request_id,
+            message="invalid health observation endpoint",
+        )
+
+        api_transaction = api.transaction()
+        await api_transaction.start()
+        api_started = True
+        endpoint_subject = await _endpoint_capture(api, registry_id, request_id)
+        backend_json = _observation_backend(
+            registry_id,
+            _endpoint_envelope(registry_id, request_id, endpoint_subject),
+        )
         subject = await _capture(
             origin,
             registry_id,
@@ -213,20 +315,33 @@ async def test_health_observation_round_trip_is_bound_to_origin_and_keeps_raw_te
             timeout=-2.5,
         )
         assert subject.startswith("v1.")
-        assert "health-observation.example.test" not in subject
+        assert url not in subject
         assert auth_token not in subject
+        assert endpoint_subject not in subject
+
+        # Rotation after capture must not change the sealed endpoint snapshot.
+        await _rotate_backend(owner, registry_id, rotated_token)
+
         opened = json.loads(await _open(provider, subject, registry_id, request_id))
-        assert opened == {
-            "backend_json": backend_json,
-            "gpu_health_challenge": challenge,
-            "timeout_seconds": -2.5,
+        assert opened["gpu_health_challenge"] == challenge
+        assert opened["timeout_seconds"] == -2.5
+        assert json.loads(opened["backend_json"]) == {
+            "id": str(registry_id),
+            "url": url,
+            "auth_method": "token",
+            "auth_token": auth_token,
+            "gpu_resource_id": None,
+            "vram_budget_mb": None,
+            "extra_params": {"max_concurrency": 5},
         }
 
         evidence = await _seal(
             provider, subject, registry_id, request_id, observation_json
         )
         assert evidence.startswith("v1.")
-        assert "NaN" not in evidence
+        assert url not in evidence
+        assert auth_token not in evidence
+        assert observation_json not in evidence
         assert await _verify(origin, subject, registry_id, request_id, evidence) == (
             observation_json
         )
@@ -268,6 +383,7 @@ async def test_health_observation_round_trip_is_bound_to_origin_and_keeps_raw_te
 
         # A second still-open transaction cannot consume this response even while
         # the real origin transaction remains active.
+        other_transaction = other_origin.transaction()
         await other_transaction.start()
         other_started = True
         await _assert_invalid_in_transaction(
@@ -282,8 +398,8 @@ async def test_health_observation_round_trip_is_bound_to_origin_and_keeps_raw_te
         await other_transaction.rollback()
         other_started = False
 
-        await transaction.commit()
-        started = False
+        await origin_transaction.commit()
+        origin_started = False
 
         await _assert_invalid(
             provider,
@@ -305,11 +421,16 @@ async def test_health_observation_round_trip_is_bound_to_origin_and_keeps_raw_te
     finally:
         if other_started:
             await other_transaction.rollback()
-        if started:
-            await transaction.rollback()
+        if origin_started:
+            await origin_transaction.rollback()
+        if api_started:
+            await api_transaction.rollback()
+        await _delete_backend(owner, registry_id)
         await provider.close()
         await other_origin.close()
         await origin.close()
+        await api.close()
+        await owner.close()
 
 
 async def test_health_observation_rejects_invalid_snapshot_and_nonfinite_timeout(
@@ -320,22 +441,16 @@ async def test_health_observation_rejects_invalid_snapshot_and_nonfinite_timeout
     provider = await _connect(test_engine, role=_PROVIDER_ROLE)
     registry_id = uuid.uuid4()
     request_id = uuid.uuid4()
-    valid_backend = json.dumps(
-        {
-            "id": str(registry_id),
-            "url": "https://health-observation.example.test",
-            "auth_method": "token",
-            "auth_token": "secret",
-            "gpu_resource_id": "gpu-a",
-            "vram_budget_mb": 4096,
-            "extra_params": {"max_concurrency": 4},
-        },
-        separators=(",", ":"),
+    endpoint_subject = "v1.AAAA"
+    envelope = _endpoint_envelope(registry_id, request_id, endpoint_subject)
+    valid_backend = _observation_backend(registry_id, envelope)
+    capture = (
+        f"SELECT {_CAPTURE}($1::uuid,$2::uuid,$3::text,$4::text,$5::double precision)"
     )
     try:
         await _assert_invalid(
             origin,
-            f"SELECT {_CAPTURE}($1::uuid,$2::uuid,$3::text,$4::text,$5::double precision)",
+            capture,
             None,
             request_id,
             valid_backend,
@@ -345,10 +460,98 @@ async def test_health_observation_rejects_invalid_snapshot_and_nonfinite_timeout
         )
         await _assert_invalid(
             origin,
-            f"SELECT {_CAPTURE}($1::uuid,$2::uuid,$3::text,$4::text,$5::double precision)",
+            capture,
             registry_id,
             request_id,
-            '{"id":"different"}',
+            json.dumps(
+                {
+                    "id": str(registry_id),
+                    "url": "https://health-observation.example.test",
+                    "auth_method": "token",
+                    "auth_token": "secret",
+                    "gpu_resource_id": None,
+                    "vram_budget_mb": None,
+                    "extra_params": {"max_concurrency": 4},
+                },
+                separators=(",", ":"),
+            ),
+            None,
+            2.0,
+            message="invalid health observation subject",
+        )
+        await _assert_invalid(
+            origin,
+            capture,
+            registry_id,
+            request_id,
+            _observation_backend(
+                registry_id,
+                _endpoint_envelope(registry_id, uuid.uuid4(), endpoint_subject),
+            ),
+            None,
+            2.0,
+            message="invalid health observation subject",
+        )
+        await _assert_invalid(
+            origin,
+            capture,
+            registry_id,
+            request_id,
+            _observation_backend(registry_id, {**envelope, "purpose": "setup"}),
+            None,
+            2.0,
+            message="invalid health observation subject",
+        )
+        await _assert_invalid(
+            origin,
+            capture,
+            registry_id,
+            request_id,
+            _observation_backend(
+                registry_id,
+                {
+                    **envelope,
+                    "authority": {
+                        "kind": "scope",
+                        "scope_id": str(uuid.uuid4()),
+                        "control_id": None,
+                        "attempt_id": str(request_id),
+                    },
+                },
+            ),
+            None,
+            2.0,
+            message="invalid health observation subject",
+        )
+        await _assert_invalid(
+            origin,
+            capture,
+            registry_id,
+            request_id,
+            _observation_backend(registry_id, {**envelope, "subject": "opaque"}),
+            None,
+            2.0,
+            message="invalid health observation subject",
+        )
+        await _assert_invalid(
+            origin,
+            capture,
+            registry_id,
+            request_id,
+            _observation_backend(registry_id, {**envelope, "unexpected": "field"}),
+            None,
+            2.0,
+            message="invalid health observation subject",
+        )
+        await _assert_invalid(
+            origin,
+            capture,
+            registry_id,
+            request_id,
+            json.dumps(
+                {"id": str(registry_id), "endpoint_subject": endpoint_subject},
+                separators=(",", ":"),
+            ),
             None,
             2.0,
             message="invalid health observation subject",
@@ -363,7 +566,7 @@ async def test_health_observation_rejects_invalid_snapshot_and_nonfinite_timeout
         )
         await _assert_invalid(
             origin,
-            f"SELECT {_CAPTURE}($1::uuid,$2::uuid,$3::text,$4::text,$5::double precision)",
+            capture,
             registry_id,
             request_id,
             valid_backend,
@@ -373,7 +576,7 @@ async def test_health_observation_rejects_invalid_snapshot_and_nonfinite_timeout
         )
         await _assert_invalid(
             origin,
-            f"SELECT {_CAPTURE}($1::uuid,$2::uuid,$3::text,$4::text,$5::double precision)",
+            capture,
             registry_id,
             request_id,
             valid_backend,
@@ -383,7 +586,7 @@ async def test_health_observation_rejects_invalid_snapshot_and_nonfinite_timeout
         )
         await _assert_invalid(
             origin,
-            f"SELECT {_CAPTURE}($1::uuid,$2::uuid,$3::text,$4::text,$5::double precision)",
+            capture,
             registry_id,
             request_id,
             valid_backend,

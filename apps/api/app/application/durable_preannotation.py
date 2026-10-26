@@ -346,6 +346,7 @@ async def run_durable_batch(
     """Resume captured raw/prepared bodies; count only atomic native outcomes."""
     from aap_preannotation_results.contract import BatchResultFailure
     from aap_assets_mask_content.contract import MaskContentFailure
+    from aap_inference.gpu.contracts import gpu_arbiter_failure_record
     from app.services import prediction_progress
     from app.services.async_job_notify import notify_job_terminal
     from app.services.batch_result_masks import normalize_batch_prediction_masks
@@ -514,15 +515,12 @@ async def run_durable_batch(
                 break
             error_code = getattr(exc, "code", None) or type(exc).__name__
             current_failure = (
-                failure_context(member) if failure_context is not None else {}
+                failure_context(member, exc) if failure_context is not None else {}
             )
             # An inference exception can happen after route selection. Captured
             # results instead retain the original executed instance on replay.
             if result is None or not result.raw_complete:
                 context = {**context, **current_failure}
-            from app.services.gpu_arbitration.contracts import (
-                gpu_arbiter_failure_record,
-            )
 
             gpu_error = gpu_arbiter_failure_record(exc)
             if gpu_error is not None:

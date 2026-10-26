@@ -2,30 +2,31 @@
 
 import asyncio
 import os
-from pathlib import Path
 import sys
 import time
 import uuid
+from pathlib import Path
 
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
-from fastapi import HTTPException
+import asyncpg
 import httpx
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
+from aap_inference.backend_transport import BackendTransportError
+from aap_inference.gpu.contracts import GPUDispatchGrant
+from aap_inference.gpu.endpoint_source import GPUOwnedBackendEndpointSource
+from aap_inference.owner_transport import BackendTransportGPUControlAdapter
 from aap_inference.routing_runtime import RoutingRuntime
 from aap_inference_contract.routing import make_routing_command
 from aap_protocol_v2.lifecycle import (
     AdmissionScope,
     AdmissionTokenClaims,
+    GPU_ADMISSION_TOKEN_HEADER,
+    GPU_GENERATION_HEADER,
     LifecycleModeRequest,
     sign_admission_token,
 )
-from app.config import GPUArbiterMode, settings
-from app.db.models.ml_backend_registry import MLBackendRegistry
-from app.services.gpu_arbitration.contracts import GPUDispatchGrant
-from app.services.ml_client import MLBackendClient
 from tests.labeling_class_query_helpers import assert_owned_test_database
 from tests.test_inference_routing_native import _cleanup, _connect
 from tests.test_inference_routing_owner_integration import _available_port, _seed_world
@@ -41,7 +42,6 @@ pytestmark = [
 
 async def test_gpu_unload_composes_native_route_and_real_gpu_signature_without_pool_drain(
     test_engine,
-    monkeypatch,
     tmp_path,
 ):
     await assert_owned_test_database(test_engine)
@@ -81,6 +81,7 @@ async def test_gpu_unload_composes_native_route_and_real_gpu_signature_without_p
         )
     )
     runtime = None
+    endpoint_pools: list[asyncpg.Pool] = []
     base = f"http://127.0.0.1:{port}"
 
     def token(scope, *, generation=None, private_key=key):
@@ -133,37 +134,91 @@ async def test_gpu_unload_composes_native_route_and_real_gpu_signature_without_p
                 )
             )
             assert reply.result.phase == "completed"
-            for name, value in {
-                "inference_routing_url": "",
-                "inference_routing_database_url": dsn,
-                "inference_routing_database_url_file": "",
-                "gpu_arbiter_mode": GPUArbiterMode.OFF,
-                "gpu_arbiter_rollout_enabled": False,
-            }.items():
-                monkeypatch.setattr(settings, name, value)
-            factory = async_sessionmaker(test_engine, expire_on_commit=False)
-            async with factory() as db:
-                backend = await db.get(MLBackendRegistry, registry_id)
-            # Detached control rows must use their explicit current-checkout session source.
-            client = MLBackendClient(backend, shadow_session_factory=factory)
-            mode = await client.lifecycle_mode(
-                LifecycleModeRequest(gate="enforce", control_epoch="1"),
-                admission_token=token(AdmissionScope.MODE),
+            await owner.execute(
+                "UPDATE public.ml_backend_registry SET gpu_resource_id=$2,"
+                "vram_budget_mb=1024 WHERE id=$1",
+                registry_id,
+                "fixture/GPU-1",
             )
-            assert mode.gate.value == "enforce"
-            warm = GPUDispatchGrant("1", token(AdmissionScope.WARMUP, generation="1"))
-            # Exercise the actual routing HTTP boundary with an explicit GPU fixture grant.
-            # GPU arbiter admission/cleanup is verified separately, never inferred here.
-            async with client._http_client(dispatch_grant=warm, timeout=5) as http:
-                response = await http.post(
-                    base + "/warmup", headers=client._headers(warm)
+            endpoint_pools.append(
+                await asyncpg.create_pool(
+                    dsn=os.environ[
+                        "AAP_MODULE_DATA_INFERENCE_GPU_HEALTH_ENDPOINT_URL"
+                    ].replace("postgresql+asyncpg://", "postgresql://", 1)
                 )
-                response.raise_for_status()
+            )
+            endpoint_pools.append(
+                await asyncpg.create_pool(
+                    dsn=os.environ[
+                        "AAP_MODULE_DATA_INFERENCE_GPU_CONTROL_ENDPOINT_URL"
+                    ].replace("postgresql+asyncpg://", "postgresql://", 1)
+                )
+            )
+            endpoint_source = GPUOwnedBackendEndpointSource(
+                {
+                    "health_observation": endpoint_pools[0],
+                    "gpu_control": endpoint_pools[1],
+                }
+            )
+            adapter = BackendTransportGPUControlAdapter(runtime)
+            mode_request_id = uuid.uuid4()
+            async with adapter.control_binding(
+                registry_id,
+                request_id=mode_request_id,
+                operation="mode",
+            ) as binding:
+                endpoint = await endpoint_source.open_owned(
+                    registry_id,
+                    request_id=mode_request_id,
+                    purpose="gpu_control",
+                    binding=binding,
+                )
+                mode = await adapter.lifecycle_mode(
+                    endpoint,
+                    LifecycleModeRequest(gate="enforce", control_epoch="1"),
+                    admission_token=token(AdmissionScope.MODE),
+                    request_id=mode_request_id,
+                    timeout_seconds=5,
+                )
+            assert mode.gate.value == "enforce"
+            # This signed fixture exercises backend/Native routing only; it does not
+            # claim a real GPU-arbiter admission or hardware capacity.
+            warm_token = token(AdmissionScope.WARMUP, generation="1")
+            response = await probe.post(
+                base + "/warmup",
+                headers={
+                    "Authorization": f"Bearer {route_token}",
+                    GPU_GENERATION_HEADER: "1",
+                    GPU_ADMISSION_TOKEN_HEADER: warm_token,
+                },
+            )
+            response.raise_for_status()
             assert (await probe.get(base + "/health")).json()["residency"][
                 "gpu_loaded"
             ] is True
-            drain = GPUDispatchGrant("2", token(AdmissionScope.DRAIN, generation="2"))
-            assert (await client.lifecycle_drain(drain)).generation == "2"
+            drain = GPUDispatchGrant(
+                "2",
+                token(AdmissionScope.DRAIN, generation="2"),
+            )
+            drain_request_id = uuid.uuid4()
+            async with adapter.control_binding(
+                registry_id,
+                request_id=drain_request_id,
+                operation="drain",
+            ) as binding:
+                endpoint = await endpoint_source.open_owned(
+                    registry_id,
+                    request_id=drain_request_id,
+                    purpose="gpu_control",
+                    binding=binding,
+                )
+                drain_reply = await adapter.lifecycle_drain(
+                    endpoint,
+                    drain,
+                    request_id=drain_request_id,
+                    timeout_seconds=5,
+                )
+            assert drain_reply.generation == "2"
             bad = GPUDispatchGrant(
                 "2",
                 token(
@@ -172,8 +227,25 @@ async def test_gpu_unload_composes_native_route_and_real_gpu_signature_without_p
                     private_key=Ed25519PrivateKey.generate(),
                 ),
             )
-            with pytest.raises(HTTPException) as caught:
-                await client.lifecycle_unload(bad)
+            bad_unload_request_id = uuid.uuid4()
+            async with adapter.control_binding(
+                registry_id,
+                request_id=bad_unload_request_id,
+                operation="unload",
+            ) as binding:
+                endpoint = await endpoint_source.open_owned(
+                    registry_id,
+                    request_id=bad_unload_request_id,
+                    purpose="gpu_control",
+                    binding=binding,
+                )
+                with pytest.raises(BackendTransportError) as caught:
+                    await adapter.lifecycle_unload(
+                        endpoint,
+                        bad,
+                        request_id=bad_unload_request_id,
+                        timeout_seconds=5,
+                    )
             assert caught.value.status_code in {401, 403}
             assert bad.outcome.kind == "response_received"
             state = (await probe.get(base + "/health")).json()
@@ -181,8 +253,29 @@ async def test_gpu_unload_composes_native_route_and_real_gpu_signature_without_p
                 state["successful_unloads"] == 0
                 and state["residency"]["gpu_loaded"] is True
             )
-            unload = GPUDispatchGrant("2", token(AdmissionScope.UNLOAD, generation="2"))
-            assert (await client.lifecycle_unload(unload)).unloaded is True
+            unload = GPUDispatchGrant(
+                "2",
+                token(AdmissionScope.UNLOAD, generation="2"),
+            )
+            unload_request_id = uuid.uuid4()
+            async with adapter.control_binding(
+                registry_id,
+                request_id=unload_request_id,
+                operation="unload",
+            ) as binding:
+                endpoint = await endpoint_source.open_owned(
+                    registry_id,
+                    request_id=unload_request_id,
+                    purpose="gpu_control",
+                    binding=binding,
+                )
+                unload_reply = await adapter.lifecycle_unload(
+                    endpoint,
+                    unload,
+                    request_id=unload_request_id,
+                    timeout_seconds=5,
+                )
+            assert unload_reply.unloaded is True
             state = (await probe.get(base + "/health")).json()
             assert (
                 state["successful_unloads"] == 1
@@ -226,6 +319,8 @@ async def test_gpu_unload_composes_native_route_and_real_gpu_signature_without_p
                 process.kill()
                 await process.wait()
         log.close()
+        for pool in endpoint_pools:
+            await pool.close()
         if runtime is not None:
             await runtime.close()
         try:

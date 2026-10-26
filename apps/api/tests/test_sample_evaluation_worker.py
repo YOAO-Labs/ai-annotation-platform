@@ -251,16 +251,21 @@ async def test_completed_receipt_is_recovered_without_routed_inference_or_new_gr
             ]
         }
         await db.commit()
-    private = SimpleNamespace(
-        managed_evaluation_request=AsyncMock(
+    backend_control = object()
+    monkeypatch.setattr(
+        worker, "backend_control_handle", AsyncMock(return_value=backend_control)
+    )
+    monkeypatch.setattr(
+        worker,
+        "remote_receipt",
+        AsyncMock(
             return_value={
                 "state": "completed",
                 "response": response,
                 "response_digest": content_digest(response),
             }
-        )
+        ),
     )
-    monkeypatch.setattr(worker, "private_client", AsyncMock(return_value=private))
     new_grant = Mock(side_effect=AssertionError("Receipt must not ask for a new grant"))
     monkeypatch.setattr(worker.managed, "build_gpu_dispatch_context_factory", new_grant)
     recovered = await worker.obtain_result(

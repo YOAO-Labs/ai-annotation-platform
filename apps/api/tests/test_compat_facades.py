@@ -191,7 +191,6 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
                 "MockBboxTrackerAdapter",
                 "TrackerAdapter",
                 "TrackerContext",
-                "TrackerFrameResult",
                 "get_tracker_adapter",
                 "registered_tracker_models",
             ),
@@ -371,19 +370,19 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
     ),
     FacadeSpec(
         facade_module="app.services.gpu_arbiter_store",
-        public_module="app.services.gpu_arbitration.ledger",
+        public_module="aap_inference.gpu.ledger",
         exports=(
             _exports(
-                "app.services.gpu_arbitration.ledger.keys",
+                "aap_inference.gpu.ledger.keys",
                 "GPUArbiterKeys",
                 "gpu_arbiter_keys",
             ),
             _exports(
-                "app.services.gpu_arbitration.ledger.store",
+                "aap_inference.gpu.ledger.store",
                 "GPUArbiterStore",
             ),
             _exports(
-                "app.services.gpu_arbitration.ledger.types",
+                "aap_inference.gpu.ledger.types",
                 "GPU_COLD_ADMISSION_OPERATION",
                 "GPU_EVICTION_OPERATION",
                 "GPUAdmissionResult",
@@ -411,7 +410,7 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
                 "GPUTransitionResult",
             ),
             _exports(
-                "app.services.gpu_arbitration.ledger.validation",
+                "aap_inference.gpu.ledger.validation",
                 "normalize_gpu_backend_max_concurrency",
             ),
         ),
@@ -422,27 +421,27 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
     ),
     FacadeSpec(
         facade_module="app.services.gpu_admission_signer",
-        public_module="app.services.gpu_arbitration.signing",
+        public_module="aap_inference.gpu.signing",
         exports=(
             _exports(
-                "app.services.gpu_arbitration.signing",
+                "aap_inference.gpu.signing",
                 "GPUAdmissionSignerConfigError",
                 "GPUAdmissionTokenSigner",
             ),
         ),
         consumer_modules=(
-            "app.services.gpu_arbitration.dispatch",
-            "app.services.gpu_arbitration.membership_activation",
-            "app.services.gpu_arbitration.rollout_control",
+            "aap_inference.gpu.dispatch",
+            "aap_inference.gpu.membership_activation",
+            "aap_inference.gpu.rollout_control",
             "scripts.validate_gpu_arbitration",
         ),
     ),
     FacadeSpec(
         facade_module="app.services.gpu_arbiter_rollout",
-        public_module="app.services.gpu_arbitration.rollout_state",
+        public_module="aap_inference.gpu.rollout_state",
         exports=(
             _exports(
-                "app.services.gpu_arbitration.rollout_state",
+                "aap_inference.gpu.rollout_state",
                 "GPUArbiterRolloutConflict",
                 "GPUArbiterRolloutDecision",
                 "GPUArbiterRolloutSnapshot",
@@ -460,16 +459,16 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
         ),
         consumer_modules=(
             "app.api.v1.admin_ml_integrations",
-            "app.services.ml_client",
+            "aap_inference.model_execution",
             "app.workers.ml_health",
         ),
     ),
     FacadeSpec(
         facade_module="app.services.gpu_collector_database",
-        public_module="app.services.gpu_arbitration.collector_database",
+        public_module="aap_inference.gpu.collector_database",
         exports=(
             _exports(
-                "app.services.gpu_arbitration.collector_database",
+                "aap_inference.gpu.collector_database",
                 "GPUCollectorDatabase",
                 "GPUCollectorDatabaseConfigError",
                 "load_gpu_collector_database_url",
@@ -481,10 +480,10 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
     ),
     FacadeSpec(
         facade_module="app.services.gpu_dispatch_authority",
-        public_module="app.services.gpu_arbitration.dispatch",
+        public_module="aap_inference.gpu.dispatch",
         exports=(
             _exports(
-                "app.services.gpu_arbitration.dispatch",
+                "aap_inference.gpu.dispatch",
                 "build_gpu_dispatch_context_factory",
             ),
         ),
@@ -498,10 +497,10 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
     ),
     FacadeSpec(
         facade_module="app.services.gpu_membership_activation",
-        public_module="app.services.gpu_arbitration.membership_activation",
+        public_module="aap_inference.gpu.membership_activation",
         exports=(
             _exports(
-                "app.services.gpu_arbitration.membership_activation",
+                "aap_inference.gpu.membership_activation",
                 "GPUMembershipPromotionResult",
                 "promote_gpu_backend_membership",
                 "promote_gpu_resource_memberships",
@@ -511,10 +510,10 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
     ),
     FacadeSpec(
         facade_module="app.services.gpu_rollout_control",
-        public_module="app.services.gpu_arbitration.rollout_control",
+        public_module="aap_inference.gpu.rollout_control",
         exports=(
             _exports(
-                "app.services.gpu_arbitration.rollout_control",
+                "aap_inference.gpu.rollout_control",
                 "GPURolloutControlResult",
                 "advance_gpu_backend_rollout_control",
                 "advance_gpu_resource_rollout_control",
@@ -527,7 +526,7 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
         public_module="app.services.gpu_arbiter",
         exports=(
             _exports(
-                "app.services.gpu_arbitration.contracts",
+                "aap_inference.gpu.contracts",
                 "GPUArbiterDispatchError",
                 "GPUArbiterErrorCode",
                 "GPUDispatchContextFactory",
@@ -543,7 +542,7 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
                 "summarize_gpu_arbiter_failures",
             ),
             _exports(
-                "app.services.gpu_arbitration.policy",
+                "aap_inference.gpu.policy",
                 "GPUClaimConfigurationError",
                 "GPUShadowCandidate",
                 "GPUShadowDecision",
@@ -557,7 +556,7 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
                 "validate_gpu_claim",
             ),
             _exports(
-                "app.services.gpu_arbitration.fences",
+                "aap_inference.gpu.fences",
                 "GPUFenceCounter",
                 "GPUFenceExhaustedError",
                 "GPUFenceMembershipError",
@@ -569,7 +568,7 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
                 "record_gpu_backend_token_expiry",
             ),
             _exports(
-                "app.services.gpu_arbitration.proofs",
+                "aap_inference.gpu.proofs",
                 "GPUBusyEvictionRuntimeSubjectError",
                 "GPUColdRuntimeSubject",
                 "GPUColdRuntimeSubjectError",
@@ -600,7 +599,7 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
                 "record_gpu_resident_runtime_token_expiry",
             ),
             _exports(
-                "app.services.gpu_arbitration.control_preparation",
+                "aap_inference.gpu.control_preparation",
                 "GPULegacyAckBlockedError",
                 "GPULegacyAckPreparation",
                 "GPURolloutControlBlockedError",
@@ -609,7 +608,7 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
                 "prepare_gpu_backend_rollout_control",
             ),
             _exports(
-                "app.services.gpu_arbitration.reconciliation",
+                "aap_inference.gpu.reconciliation",
                 "GPUResourceRepairResult",
                 "GPUResourceRuntimeObservation",
                 "commit_gpu_proof_reset_from_health",
@@ -618,7 +617,7 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
                 "repair_gpu_resource",
             ),
             _exports(
-                "app.services.gpu_arbitration.retirement",
+                "aap_inference.gpu.retirement",
                 "GPURetiredLiveProof",
                 "GPURetiredProbeResult",
                 "GPUTombstoneCollectionResult",
@@ -626,7 +625,7 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
                 "probe_retired_gpu_membership",
             ),
             _exports(
-                "app.services.gpu_arbitration.diagnostics",
+                "aap_inference.gpu.diagnostics",
                 "build_backend_gpu_config_status",
                 "build_resource_summaries",
                 "claimed_budget_by_resource",

@@ -9,8 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.deps import (
     get_db,
     get_current_user,
-    get_gpu_dispatch_context_factory,
-    get_gpu_shadow_session_factory,
     require_scopes,
 )
 from app.db.models.annotation import Annotation
@@ -69,10 +67,6 @@ from app.services.audit import AuditAction, AuditService, audit_origin_from_requ
 from app.services.annotation_conversion import (
     AnnotationConversionError,
     AnnotationConversionService,
-)
-from app.services.gpu_arbitration.contracts import (
-    GPUDispatchContextFactory,
-    GPUShadowSessionFactory,
 )
 from app.services.ml_backend import MLBackendService
 from app.services.pipeline_validation import check_capability_violations
@@ -469,12 +463,6 @@ async def secondary_inference(
     data: SecondaryInferenceRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    shadow_session_factory: GPUShadowSessionFactory = Depends(
-        get_gpu_shadow_session_factory
-    ),
-    dispatch_context_factory: GPUDispatchContextFactory = Depends(
-        get_gpu_dispatch_context_factory
-    ),
     current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write_strict),
 ):
@@ -514,7 +502,7 @@ async def secondary_inference(
         )
 
     ml_svc = MLBackendService(db)
-    backend = await ml_svc.get(data.ml_backend_id)
+    backend = await ml_svc.get_registry(data.ml_backend_id)
     if not backend or not await ml_svc.is_enabled(task.project_id, data.ml_backend_id):
         raise HTTPException(status_code=404, detail="ML Backend not found")
 
@@ -565,21 +553,17 @@ async def secondary_inference(
         prompt=data.prompt,
         class_filter=data.class_filter,
         pad=data.pad,
-        shadow_session_factory=shadow_session_factory,
-        dispatch_context_factory=dispatch_context_factory,
     )
     write_port: SecondaryInferenceWritePort = _AnnotationSecondaryInferenceSqlAdapter(
         db,
         task=task,
         annotation=annotation,
         actor=current_user,
-        ml_service=ml_svc,
     )
     try:
         return await write_port.apply_secondary_inference(
             write_scope=write_scope,
             result=inference_result,
-            ml_backend_id=data.ml_backend_id,
             write_target=data.write_target,
             audit_origin=audit_origin_from_request(request),
         )

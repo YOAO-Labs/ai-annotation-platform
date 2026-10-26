@@ -1407,4 +1407,131 @@ BEGIN
     END LOOP;
 END;
 $labeling_private_acl$;
+DO $inference_private_acl$
+DECLARE
+    v_runtime name := current_setting('aap.application_role');
+    v_runtime_oid oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=v_runtime);
+    v_relation record;
+    v_columns text;
+    v_function record;
+    v_signature text;
+    v_public text[] := ARRAY[
+        'aap_inference_topology_v1.topology_policy()',
+        'aap_inference_topology_v1.registry_facts(uuid)',
+        'aap_inference_topology_v1.registry_url_owner(text)',
+        'aap_inference_topology_v1.registry_catalog()',
+        'aap_inference_topology_v1.registry_names(uuid[])',
+        'aap_inference_topology_v1.registry_reference(uuid)',
+        'aap_inference_topology_v1.pool_reference(uuid)',
+        'aap_inference_topology_v1.pool_for_registry(uuid)',
+        'aap_inference_topology_v1.pool_catalog()',
+        'aap_inference_topology_v1.pool_members(uuid)',
+        'aap_inference_topology_v1.project_backend_catalog(uuid)',
+        'aap_inference_topology_v1.project_backend_facts(uuid[])',
+        'aap_inference_topology_v1.enabled_project_ids(uuid[])',
+        'aap_inference_topology_v1.project_pool_catalog(uuid)',
+        'aap_inference_topology_v1.project_assoc_for_registry(uuid,uuid)',
+        'aap_inference_topology_v1.project_interactive_backend(uuid)',
+        'aap_inference_topology_v1.create_manual_registry(uuid,text)',
+        'aap_inference_topology_v1.singleton_pool(uuid)',
+        'aap_inference_topology_v1.create_singleton_pool(uuid,uuid,text,text,text)',
+        'aap_inference_topology_v1.create_singleton_member(uuid,uuid,uuid)',
+        'aap_inference_topology_v1.patch_registry(uuid,text)',
+        'aap_inference_topology_v1.validate_registry_delete(uuid)',
+        'aap_inference_topology_v1.delete_registry(uuid,text)',
+        'aap_inference_topology_v1.create_pool(uuid,text)',
+        'aap_inference_topology_v1.patch_pool(uuid,text)',
+        'aap_inference_topology_v1.lock_empty_pool(uuid)',
+        'aap_inference_topology_v1.delete_empty_pool(uuid)',
+        'aap_inference_topology_v1.lock_member_upsert_rows(uuid,uuid)',
+        'aap_inference_topology_v1.upsert_member(uuid,uuid,integer,text)',
+        'aap_inference_topology_v1.remove_member(uuid,uuid,text)',
+        'aap_inference_topology_v1.drain_member(uuid,uuid)',
+        'aap_inference_topology_v1.resume_member(uuid,uuid)',
+        'aap_inference_topology_v1.drift_review_rows(uuid,uuid)',
+        'aap_inference_topology_v1.lock_drift_acceptance_rows(uuid,uuid)',
+        'aap_inference_topology_v1.accept_drift(uuid,uuid,text,boolean,text)',
+        'aap_inference_topology_v1.set_project_registry_enablement(uuid,uuid,boolean,text)',
+        'aap_inference_topology_v1.set_project_pool_enablement(uuid,uuid,boolean,text)',
+        'aap_inference_topology_v1.delete_project_associations(uuid)',
+        'aap_inference_topology_v1.seed_registry_by_url(text)',
+        'aap_inference_topology_v1.create_seed_registry(uuid,text,text,text)',
+        'aap_inference_backend_endpoint_v1.backend_endpoint_policy()',
+        'aap_inference_backend_endpoint_v1.capture_backend_endpoint_subject(uuid,uuid,text,text)',
+        'aap_inference_backend_endpoint_v1.controlled_model_credential_policy(uuid)',
+        'aap_inference_backend_endpoint_v1.health_backend_row(uuid,boolean)',
+        'aap_inference_backend_endpoint_v1.catalog_endpoint_rows()',
+        'aap_inference_backend_endpoint_v1.stats_endpoint_rows()',
+        'aap_inference_backend_endpoint_v1.observation_registration_labels(text[])',
+        'aap_inference_gpu_caller_v1.gpu_caller_policy()',
+        'aap_inference_gpu_caller_v1.gpu_caller_step(text,text)'
+    ];
+BEGIN
+    IF current_database()<>current_setting('aap.expected_database')
+       OR v_runtime_oid IS NULL OR v_runtime=current_user
+       OR EXISTS (SELECT FROM pg_catalog.pg_roles WHERE oid=v_runtime_oid
+                  AND (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls)) THEN
+        RAISE EXCEPTION 'Invalid Inference caller runtime';
+    END IF;
+    FOR v_relation IN
+        SELECT c.oid,n.nspname,c.relname,c.relowner FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+        WHERE (n.nspname='public' AND c.relname IN (
+            'ml_backend_registry','ml_backend_service_pools','ml_backend_pool_members',
+            'project_ml_backend_pool','gpu_backend_fences','gpu_backend_memberships',
+            'gpu_arbiter_rollouts','gpu_backend_cancel_intents'
+        )) OR (n.nspname IN ('aap_inference_backend_endpoint_v1','aap_inference_gpu_v1',
+                            'aap_inference_gpu_collector_v1') AND c.relkind IN ('r','p','v','m','f'))
+    LOOP
+        IF pg_catalog.pg_has_role(v_runtime_oid,v_relation.relowner,'MEMBER') THEN
+            RAISE EXCEPTION 'Runtime inherits private Inference ownership';
+        END IF;
+        EXECUTE pg_catalog.format('REVOKE ALL ON TABLE %I.%I FROM %I, PUBLIC',
+            v_relation.nspname,v_relation.relname,v_runtime);
+        SELECT pg_catalog.string_agg(pg_catalog.quote_ident(attname),',' ORDER BY attnum)
+        INTO v_columns FROM pg_catalog.pg_attribute
+        WHERE attrelid=v_relation.oid AND attnum>0 AND NOT attisdropped;
+        IF v_columns IS NOT NULL THEN
+            EXECUTE pg_catalog.format('REVOKE ALL (%s) ON TABLE %I.%I FROM %I, PUBLIC',
+                v_columns,v_relation.nspname,v_relation.relname,v_runtime);
+        END IF;
+        IF pg_catalog.has_table_privilege(v_runtime_oid,v_relation.oid,
+                'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+           OR pg_catalog.has_any_column_privilege(v_runtime_oid,v_relation.oid,
+                'SELECT,INSERT,UPDATE,REFERENCES') THEN
+            RAISE EXCEPTION 'Runtime retains private Inference relation access';
+        END IF;
+    END LOOP;
+    FOR v_function IN
+        SELECT p.oid::pg_catalog.regprocedure AS signature
+        FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+        WHERE n.nspname IN ('aap_inference_topology_v1','aap_inference_backend_endpoint_v1',
+                            'aap_inference_gpu_v1','aap_inference_gpu_caller_v1',
+                            'aap_inference_gpu_collector_v1')
+           OR (n.nspname='aap_inference_backend_probe_v1' AND p.proname='open_backend_probe_subject')
+           OR (n.nspname='aap_inference_health_observation_v1' AND p.proname='open_health_observation_subject')
+           OR (n.nspname='aap_inference_health_data_v1' AND p.proname='backend_row')
+           OR (n.nspname='aap_inference_registry_ingress_v1' AND p.proname IN (
+               'registry_by_url','registry_candidates','create_registry','apply_observation',
+               'disconnect_env_registry','sync_result','record_sync_result'
+           ))
+    LOOP
+        EXECUTE pg_catalog.format('REVOKE ALL ON FUNCTION %s FROM %I, PUBLIC',
+            v_function.signature,v_runtime);
+    END LOOP;
+    FOREACH v_signature IN ARRAY v_public LOOP
+        IF pg_catalog.to_regprocedure(v_signature) IS NULL THEN
+            RAISE EXCEPTION 'Missing public Inference capability: %',v_signature;
+        END IF;
+        EXECUTE pg_catalog.format('GRANT USAGE ON SCHEMA %I TO %I',
+            pg_catalog.split_part(v_signature,'.',1),v_runtime);
+        EXECUTE pg_catalog.format('GRANT EXECUTE ON FUNCTION %s TO %I',v_signature,v_runtime);
+    END LOOP;
+    IF pg_catalog.lower(current_database()) ~ '(_test|_e2e)$' THEN
+        EXECUTE pg_catalog.format(
+            'GRANT EXECUTE ON FUNCTION aap_inference_topology_v1.seed_workbench_health(uuid) TO %I',
+            v_runtime);
+    END IF;
+END;
+$inference_private_acl$;
 COMMIT;

@@ -3,11 +3,23 @@
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 
 import pytest
 
 from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.services.ml_backend import MLBackendService
+
+
+def _patch_gpu_authority(monkeypatch) -> None:
+    class Authority:
+        async def get_diagnostics(self):
+            return SimpleNamespace(result={"backends": []})
+
+    monkeypatch.setattr(
+        "app.api.v1.admin_ml_integrations.gpu_authority_client",
+        lambda: Authority(),
+    )
 
 
 async def _make_backend(db, *, name="b", url="http://h:8000"):
@@ -40,12 +52,15 @@ async def test_list_all_requires_admin(httpx_client, annotator):
 
 
 @pytest.mark.asyncio
-async def test_list_all_lists_registry_rows(httpx_client, db_session, super_admin):
+async def test_list_all_lists_registry_rows(
+    httpx_client, db_session, super_admin, monkeypatch
+):
     """v0.19.0 ADR-0044 · url 全局唯一, /all 直接列全局注册表所有行 (不再按 source project 去重)。"""
     _, token = super_admin
     await _make_backend(db_session, url="http://shared:8000", name="A")
     await _make_backend(db_session, url="http://other:8000", name="C")
     await db_session.commit()
+    _patch_gpu_authority(monkeypatch)
 
     res = await httpx_client.get(
         "/api/v1/admin/ml-integrations/all",

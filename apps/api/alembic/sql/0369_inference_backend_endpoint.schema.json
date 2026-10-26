@@ -1,0 +1,254 @@
+{
+  "$id": "aap-inference-backend-endpoint-native/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Inference purpose-bound backend endpoint capability",
+  "$comment": "Capture seals the exact endpoint snapshot in the caller transaction; stateful capture validates the existing route/control capability and transport identity, discarding any route hash locator. Read openers require an in-progress origin transaction and preserve pending endpoint values; mutation openers require an unused attempt and still-live scope/control plus current endpoint. The owner issues its own fresh transport subject before begin. Credential-free readers never export auth_token.",
+  "$defs": {},
+  "type": "object",
+  "function_defaults": {
+    "parallel": "UNSAFE",
+    "security_definer": true,
+    "search_path": ["pg_catalog", "pg_temp"],
+    "time_zone": "UTC",
+    "date_style": "ISO, YMD",
+    "extra_float_digits": 3
+  },
+  "tables": [
+    {
+      "name": "aap_inference_backend_endpoint_v1.endpoint_secret",
+      "columns": [
+        { "name": "singleton", "type": "boolean", "nullable": false, "check": "singleton" },
+        { "name": "secret", "type": "bytea", "nullable": false, "check": "octet_length(secret)=32" }
+      ],
+      "primary_key": ["singleton"],
+      "rows": "Exactly one cryptographic secret is created with this payload; table access is revoked from PUBLIC and function-only clients."
+    }
+  ],
+  "functions": [
+    {
+      "signature": "aap_inference_backend_endpoint_v1.backend_endpoint_policy()",
+      "language": "sql",
+      "volatility": "STABLE",
+      "returns": { "kind": "jsonb" },
+      "semantics": "Exact native policy, fixed function inventory and endpoint-secret readiness."
+    },
+    {
+      "signature": "aap_inference_backend_endpoint_v1.controlled_model_credential_policy(uuid)",
+      "language": "sql",
+      "volatility": "STABLE",
+      "arguments": [{ "name": "p_registry_id", "type": "uuid", "nullable": false }],
+      "returns": { "kind": "jsonb", "properties": ["auth_method", "auth_token_length_valid"] },
+      "semantics": "Return only the stored auth method and exact bearer-length policy fact for controlled-model admission; never return auth_token."
+    },
+    {
+      "signature": "aap_inference_backend_endpoint_v1.capture_backend_endpoint_subject(uuid,uuid,text,text)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_registry_id", "type": "uuid", "nullable": false },
+        { "name": "p_request_id", "type": "uuid", "nullable": false },
+        { "name": "p_purpose", "type": "text", "nullable": false },
+        { "name": "p_binding_json", "type": "text", "nullable": true }
+      ],
+      "returns": {
+        "kind": "jsonb",
+        "shape": { "status": "ok|rejected", "subject": "opaque encrypted exact endpoint snapshot" }
+      },
+      "semantics": "Capture exact endpoint JSON in the caller-owned transaction. Read purposes require null authority; stateful purposes validate the live scope/control and exact transport identity with the existing routing capture_transport_subject, discarding its subject. Never expose the endpoint record or capability."
+    },
+    {
+      "signature": "aap_inference_backend_endpoint_v1.open_health_observation_endpoint(text,uuid,uuid,text)",
+      "language": "sql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_subject", "type": "text", "nullable": false },
+        { "name": "p_registry_id", "type": "uuid", "nullable": false },
+        { "name": "p_request_id", "type": "uuid", "nullable": false },
+        { "name": "p_authority_json", "type": "text", "nullable": true }
+      ],
+      "returns": { "kind": "text", "format": "aap-inference-backend-endpoint-snapshot/v1 JSON" },
+      "semantics": "Open only health_observation subjects with no route authority; require origin transaction in progress and preserve exact pending endpoint snapshot without comparing committed registry state."
+    },
+    {
+      "signature": "aap_inference_backend_endpoint_v1.open_setup_endpoint(text,uuid,uuid,text)",
+      "language": "sql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_subject", "type": "text", "nullable": false },
+        { "name": "p_registry_id", "type": "uuid", "nullable": false },
+        { "name": "p_request_id", "type": "uuid", "nullable": false },
+        { "name": "p_authority_json", "type": "text", "nullable": true }
+      ],
+      "returns": { "kind": "text", "format": "aap-inference-backend-endpoint-snapshot/v1 JSON" },
+      "semantics": "Open only setup subjects with no route authority; require origin transaction in progress and preserve exact pending endpoint snapshot without comparing committed registry state."
+    },
+    {
+      "signature": "aap_inference_backend_endpoint_v1.open_catalog_fallback_endpoint(text,uuid,uuid,text)",
+      "language": "sql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_subject", "type": "text", "nullable": false },
+        { "name": "p_registry_id", "type": "uuid", "nullable": false },
+        { "name": "p_request_id", "type": "uuid", "nullable": false },
+        { "name": "p_authority_json", "type": "text", "nullable": true }
+      ],
+      "returns": { "kind": "text", "format": "aap-inference-backend-endpoint-snapshot/v1 JSON" },
+      "semantics": "Open only catalog-fallback subjects with no route authority; require origin transaction in progress and preserve exact pending endpoint snapshot without comparing committed registry state."
+    },
+    {
+      "signature": "aap_inference_backend_endpoint_v1.open_stats_endpoint(text,uuid,uuid,text)",
+      "language": "sql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_subject", "type": "text", "nullable": false },
+        { "name": "p_registry_id", "type": "uuid", "nullable": false },
+        { "name": "p_request_id", "type": "uuid", "nullable": false },
+        { "name": "p_authority_json", "type": "text", "nullable": true }
+      ],
+      "returns": { "kind": "text", "format": "aap-inference-backend-endpoint-snapshot/v1 JSON" },
+      "semantics": "Open only stats subjects with no route authority; require origin transaction in progress and preserve exact pending endpoint snapshot without comparing committed registry state."
+    },
+    {
+      "signature": "aap_inference_backend_endpoint_v1.open_backend_read_endpoint(text,uuid,uuid,text)",
+      "language": "sql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_subject", "type": "text", "nullable": false },
+        { "name": "p_registry_id", "type": "uuid", "nullable": false },
+        { "name": "p_request_id", "type": "uuid", "nullable": false },
+        { "name": "p_authority_json", "type": "text", "nullable": true }
+      ],
+      "returns": { "kind": "text", "format": "aap-inference-backend-endpoint-snapshot/v1 JSON" },
+      "semantics": "Open only backend_read subjects with no route authority; require origin transaction in progress and preserve exact pending endpoint snapshot without comparing committed registry state."
+    },
+    {
+      "signature": "aap_inference_backend_endpoint_v1.open_lifecycle_endpoint(text,uuid,uuid,text)",
+      "language": "sql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_subject", "type": "text", "nullable": false },
+        { "name": "p_registry_id", "type": "uuid", "nullable": false },
+        { "name": "p_request_id", "type": "uuid", "nullable": false },
+        { "name": "p_authority_json", "type": "text", "nullable": true }
+      ],
+      "returns": { "kind": "text", "format": "aap-inference-backend-endpoint-snapshot/v1 JSON" },
+      "semantics": "Open lifecycle subjects only with the exact live unload/reload control, current endpoint, and unused request attempt before owner begin; preserve the API caller's pre-I/O commit boundary."
+    },
+    {
+      "signature": "aap_inference_backend_endpoint_v1.open_execution_endpoint(text,uuid,uuid,text)",
+      "language": "sql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_subject", "type": "text", "nullable": false },
+        { "name": "p_registry_id", "type": "uuid", "nullable": false },
+        { "name": "p_request_id", "type": "uuid", "nullable": false },
+        { "name": "p_authority_json", "type": "text", "nullable": true }
+      ],
+      "returns": { "kind": "text", "format": "aap-inference-backend-endpoint-snapshot/v1 JSON" },
+      "semantics": "Open execution subjects only with the exact live route scope, current endpoint, and unused request attempt before owner begin."
+    },
+    {
+      "signature": "aap_inference_backend_endpoint_v1.open_gpu_control_endpoint(text,uuid,uuid,text)",
+      "language": "sql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_subject", "type": "text", "nullable": false },
+        { "name": "p_registry_id", "type": "uuid", "nullable": false },
+        { "name": "p_request_id", "type": "uuid", "nullable": false },
+        { "name": "p_authority_json", "type": "text", "nullable": true }
+      ],
+      "returns": { "kind": "text", "format": "aap-inference-backend-endpoint-snapshot/v1 JSON" },
+      "semantics": "Open GPU-control subjects only with the exact live control, current endpoint, and unused request attempt before owner begin."
+    },
+    {
+      "signature": "aap_inference_backend_endpoint_v1.health_backend_row(uuid,boolean)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_registry_id", "type": "uuid", "nullable": false },
+        { "name": "p_for_update", "type": "boolean", "nullable": false }
+      ],
+      "returns": {
+        "kind": "jsonb",
+        "properties": [
+          "id",
+          "state",
+          "is_interactive",
+          "gpu_resource_id",
+          "last_checked_at",
+          "health_meta",
+          "endpoint_sha256"
+        ]
+      },
+      "semantics": "Caller-UOW read/lock for existing health reconciliation. It returns only a digest of the exact endpoint record, never auth_token."
+    },
+    {
+      "signature": "aap_inference_backend_endpoint_v1.stats_endpoint_rows()",
+      "language": "sql",
+      "volatility": "STABLE",
+      "returns": {
+        "kind": "setof jsonb",
+        "properties": [
+          "registry_id",
+          "name",
+          "url",
+          "state",
+          "source",
+          "is_interactive",
+          "health_meta",
+          "created_at"
+        ]
+      },
+      "semantics": "Connected and non-disconnected health/stat selection in created order; no endpoint configuration, credential, or auth grouping key is returned."
+    },
+    {
+      "signature": "aap_inference_backend_endpoint_v1.catalog_endpoint_rows()",
+      "language": "sql",
+      "volatility": "STABLE",
+      "returns": {
+        "kind": "setof jsonb",
+        "properties": [
+          "registry_id",
+          "name",
+          "url",
+          "state",
+          "source",
+          "is_interactive",
+          "health_meta"
+        ]
+      },
+      "semantics": "Non-disconnected catalog selection in created order; no endpoint configuration or credential is returned."
+    },
+    {
+      "signature": "aap_inference_backend_endpoint_v1.observation_registration_labels(text[])",
+      "language": "sql",
+      "volatility": "STABLE",
+      "arguments": [{ "name": "p_urls", "type": "text[]", "nullable": true }],
+      "returns": {
+        "kind": "table",
+        "columns": [
+          { "name": "url", "type": "text", "nullable": false },
+          { "name": "source", "type": "text", "nullable": false }
+        ]
+      },
+      "semantics": "Return only registered observation labels matching caller-provided exact URLs; never materialize credentials."
+    }
+  ],
+  "x-postgresql-functions": [
+    "aap_inference_backend_endpoint_v1.backend_endpoint_policy()",
+    "aap_inference_backend_endpoint_v1.controlled_model_credential_policy(uuid)",
+    "aap_inference_backend_endpoint_v1.capture_backend_endpoint_subject(uuid,uuid,text,text)",
+    "aap_inference_backend_endpoint_v1.open_health_observation_endpoint(text,uuid,uuid,text)",
+    "aap_inference_backend_endpoint_v1.open_setup_endpoint(text,uuid,uuid,text)",
+    "aap_inference_backend_endpoint_v1.open_catalog_fallback_endpoint(text,uuid,uuid,text)",
+    "aap_inference_backend_endpoint_v1.open_stats_endpoint(text,uuid,uuid,text)",
+    "aap_inference_backend_endpoint_v1.open_backend_read_endpoint(text,uuid,uuid,text)",
+    "aap_inference_backend_endpoint_v1.open_lifecycle_endpoint(text,uuid,uuid,text)",
+    "aap_inference_backend_endpoint_v1.open_execution_endpoint(text,uuid,uuid,text)",
+    "aap_inference_backend_endpoint_v1.open_gpu_control_endpoint(text,uuid,uuid,text)",
+    "aap_inference_backend_endpoint_v1.health_backend_row(uuid,boolean)",
+    "aap_inference_backend_endpoint_v1.stats_endpoint_rows()",
+    "aap_inference_backend_endpoint_v1.catalog_endpoint_rows()",
+    "aap_inference_backend_endpoint_v1.observation_registration_labels(text[])"
+  ]
+}

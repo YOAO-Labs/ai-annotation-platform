@@ -12,8 +12,9 @@ from dataclasses import dataclass
 
 import pytest
 from PIL import Image
+from aap_inference_contract.execution import ModelTaskResult
 
-from app.services.prediction_roi import (
+from aap_inference.roi import (
     collect_geometry_shapes,
     compose_transforms,
     crop_inputs_from_boxes,
@@ -210,6 +211,36 @@ def test_merge_preserves_existing_attributes():
     classify = [_FakeResult("0", [{"score": 0.9, "attributes": {"color": "blue"}}])]
     merge_classify_attributes(boxes, classify)
     assert boxes[0]["attributes"] == {"existing": "keep", "color": "blue"}
+
+
+def test_merge_classification_from_frozen_model_results():
+    boxes = [_bbox(0, 0, 10, 10)]
+    result = ModelTaskResult(
+        task_id="0",
+        result=({"score": 0.9, "attributes": {"color": "blue"}},),
+    )
+
+    assert merge_classify_attributes(boxes, [result]) == 1
+    assert boxes[0]["attributes"] == {"color": "blue"}
+
+
+def test_collect_geometry_shapes_from_frozen_model_results():
+    result = ModelTaskResult(
+        task_id="task-1",
+        result=(
+            {
+                "type": "polygonlabels",
+                "value": {"points": [[1, 1], [2, 2], [3, 1]]},
+                "parent_box_idx": 0,
+            },
+        ),
+    )
+
+    shapes = collect_geometry_shapes([result], [_bbox(0, 0, 10, 10)])
+    assert shapes[0]["parent_box_idx"] == 0
+    prompts = geometry_prompts_from_boxes(shapes)
+    assert prompts.skipped_geometry == 0
+    assert prompts.prompts[0]["box"] == pytest.approx([0.01, 0.01, 0.03, 0.02])
 
 
 def test_merge_ignores_out_of_range_or_empty():

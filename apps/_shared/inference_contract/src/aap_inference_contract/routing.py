@@ -28,6 +28,8 @@ ROUTING_RESULT_PROTOCOL = "aap-inference-routing-result/v1"
 ROUTING_STATUS_PROTOCOL = "aap-inference-routing-status/v1"
 ROUTING_RUNTIME_PROTOCOL = "aap-inference-routing-runtime/v1"
 ROUTING_RUNTIME_RESULT_PROTOCOL = "aap-inference-routing-runtime-result/v1"
+ROUTING_QUIESCENCE_PROTOCOL = "aap-inference-routing-quiescence/v1"
+ROUTING_QUIESCENCE_RESULT_PROTOCOL = "aap-inference-routing-quiescence-result/v1"
 ROUTING_NATIVE_POLICY_SCHEMA = "aap-inference-routing-native/v1"
 ROUTING_DATA_PROTOCOL = "aap-inference-routing-data/v1"
 ROUTING_REQUEST_MAX_BYTES = 1024 * 1024
@@ -478,6 +480,91 @@ class RoutingRuntimeResult(_RoutingModel):
         return self
 
 
+class RoutingQuiescenceRequest(_RoutingModel):
+    schema_: Literal["aap-inference-routing-quiescence/v1"] = Field(alias="schema")
+    request_id: uuid.UUID
+    registry_id: uuid.UUID
+
+
+class RoutingQuiescenceTopology(_RoutingModel):
+    registry_id: uuid.UUID
+    member_id: uuid.UUID | None
+    pool_id: uuid.UUID | None
+    routing_generation: StrictInt | None
+    traffic_state: Literal["active", "draining", "disabled"] | None
+
+    @model_validator(mode="after")
+    def consistent_member_topology(self) -> RoutingQuiescenceTopology:
+        if self.member_id is None:
+            if any(
+                value is not None
+                for value in (
+                    self.pool_id,
+                    self.routing_generation,
+                    self.traffic_state,
+                )
+            ):
+                raise ValueError("Routing quiescence topology has partial membership")
+        elif (
+            self.pool_id is None
+            or self.routing_generation is None
+            or self.routing_generation < 1
+            or self.traffic_state is None
+        ):
+            raise ValueError("Routing quiescence topology has partial membership")
+        return self
+
+
+class RoutingQuiescenceResult(_RoutingModel):
+    schema_: Literal["aap-inference-routing-quiescence-result/v1"] = Field(
+        alias="schema"
+    )
+    request_id: uuid.UUID
+    registry_id: uuid.UUID
+    status: Literal["ok", "rejected"]
+    reason: (
+        Literal[
+            "pool_unavailable",
+            "management_busy",
+            "member_not_draining",
+            "member_not_quiescent",
+            "continuity_unverified",
+            "generation_mismatch",
+            "backend_not_ready",
+        ]
+        | None
+    )
+    control_id: uuid.UUID | None
+    topology: RoutingQuiescenceTopology | None
+    active_scopes: StrictInt | None
+    uncertain_scopes: StrictInt | None
+    continuity: Literal["unverified", "ready"] | None
+
+    @model_validator(mode="after")
+    def status_matches_facts(self) -> RoutingQuiescenceResult:
+        if self.status == "ok":
+            if (
+                self.reason is not None
+                or self.control_id is not None
+                or self.topology is None
+                or self.topology.registry_id != self.registry_id
+                or self.active_scopes != 0
+                or self.uncertain_scopes != 0
+                or self.continuity != "ready"
+            ):
+                raise ValueError("Invalid successful routing quiescence result")
+        elif (
+            self.reason is None
+            or self.topology is not None
+            or self.active_scopes is not None
+            or self.uncertain_scopes is not None
+            or self.continuity is not None
+            or (self.control_id is not None and self.reason != "management_busy")
+        ):
+            raise ValueError("Invalid rejected routing quiescence result")
+        return self
+
+
 class RoutingScopeView(_RoutingModel):
     id: uuid.UUID
     pool_id: uuid.UUID | None
@@ -665,6 +752,8 @@ _STATUS_REQUEST_ADAPTER = TypeAdapter(RoutingStatusRequest)
 _RESULT_ADAPTER = TypeAdapter(RoutingResult)
 _RUNTIME_REQUEST_ADAPTER = TypeAdapter(RoutingRuntimeRequest)
 _RUNTIME_RESULT_ADAPTER = TypeAdapter(RoutingRuntimeResult)
+_QUIESCENCE_REQUEST_ADAPTER = TypeAdapter(RoutingQuiescenceRequest)
+_QUIESCENCE_RESULT_ADAPTER = TypeAdapter(RoutingQuiescenceResult)
 
 
 def _validate_digest(value: str) -> None:
@@ -715,6 +804,22 @@ def _runtime_request_wire(request: RoutingRuntimeRequest) -> dict[str, Any]:
 
 
 def _runtime_result_wire(result: RoutingRuntimeResult) -> dict[str, Any]:
+    return result.model_dump(mode="json", by_alias=True)
+
+
+def _quiescence_request_wire(
+    request: RoutingQuiescenceRequest,
+) -> dict[str, Any]:
+    return {
+        "schema": request.schema_,
+        "request_id": str(request.request_id),
+        "registry_id": str(request.registry_id),
+    }
+
+
+def _quiescence_result_wire(
+    result: RoutingQuiescenceResult,
+) -> dict[str, Any]:
     return result.model_dump(mode="json", by_alias=True)
 
 
@@ -1031,6 +1136,128 @@ def decode_routing_runtime_result(
     return result
 
 
+def _decode_quiescence_request(value: object) -> RoutingQuiescenceRequest:
+    try:
+        input_value = (
+            _quiescence_request_wire(value)
+            if type(value) is RoutingQuiescenceRequest
+            else value
+        )
+    except (AttributeError, TypeError, ValueError):
+        raise RoutingUnavailable() from None
+    encoded, parsed = _json_input(input_value, max_bytes=ROUTING_REQUEST_MAX_BYTES)
+    try:
+        request = _QUIESCENCE_REQUEST_ADAPTER.validate_json(encoded)
+    except _JSON_ERRORS:
+        raise RoutingUnavailable() from None
+    if not all(
+        _canonical_wire_uuid(parsed.get(field))
+        for field in ("request_id", "registry_id")
+    ):
+        raise RoutingUnavailable()
+    return request
+
+
+def decode_routing_quiescence_request(data: object) -> RoutingQuiescenceRequest:
+    """Decode a bounded, closed routing quiescence request."""
+    return _decode_quiescence_request(data)
+
+
+def make_routing_quiescence_request(
+    registry_id: uuid.UUID | str,
+    *,
+    request_id: uuid.UUID | None = None,
+) -> RoutingQuiescenceRequest:
+    if request_id is not None and type(request_id) is not uuid.UUID:
+        raise RoutingUnavailable()
+    return _decode_quiescence_request(
+        {
+            "schema": ROUTING_QUIESCENCE_PROTOCOL,
+            "request_id": request_id if request_id is not None else uuid.uuid4(),
+            "registry_id": registry_id,
+        }
+    )
+
+
+def routing_quiescence_request_bytes(request: object) -> bytes:
+    """Encode a bounded routing quiescence request."""
+    typed = _decode_quiescence_request(request)
+    encoded = json.dumps(
+        _quiescence_request_wire(typed),
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    if len(encoded) > ROUTING_REQUEST_MAX_BYTES:
+        raise RoutingUnavailable()
+    return encoded
+
+
+def _decode_quiescence_result(value: object) -> RoutingQuiescenceResult:
+    try:
+        input_value = (
+            _quiescence_result_wire(value)
+            if type(value) is RoutingQuiescenceResult
+            else value
+        )
+    except (AttributeError, TypeError, ValueError):
+        raise RoutingUnavailable() from None
+    encoded, parsed = _json_input(input_value, max_bytes=ROUTING_REPLY_MAX_BYTES)
+    try:
+        result = _QUIESCENCE_RESULT_ADAPTER.validate_json(encoded)
+    except _JSON_ERRORS:
+        raise RoutingUnavailable() from None
+    if (
+        not _canonical_wire_uuid(parsed.get("request_id"))
+        or not _canonical_wire_uuid(parsed.get("registry_id"))
+        or (
+            parsed.get("control_id") is not None
+            and not _canonical_wire_uuid(parsed.get("control_id"))
+        )
+        or (
+            type(parsed.get("topology")) is dict
+            and any(
+                value is not None and not _canonical_wire_uuid(value)
+                for field in ("registry_id", "member_id", "pool_id")
+                for value in (parsed["topology"].get(field),)
+            )
+        )
+    ):
+        raise RoutingUnavailable()
+    return result
+
+
+def routing_quiescence_result_bytes(result: object) -> bytes:
+    """Encode a validated routing quiescence observation."""
+    typed = _decode_quiescence_result(result)
+    encoded = json.dumps(
+        _quiescence_result_wire(typed),
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    if len(encoded) > ROUTING_REPLY_MAX_BYTES:
+        raise RoutingUnavailable()
+    return encoded
+
+
+def decode_routing_quiescence_result(
+    request: RoutingQuiescenceRequest | object,
+    data: object,
+) -> RoutingQuiescenceResult:
+    """Decode and bind a quiescence observation to its registry and request."""
+    typed_request = _decode_quiescence_request(request)
+    result = _decode_quiescence_result(data)
+    if (
+        result.request_id != typed_request.request_id
+        or result.registry_id != typed_request.registry_id
+    ):
+        raise RoutingUnavailable()
+    return result
+
+
 def routing_native_policy_ready(value: str | bytes | dict) -> bool:
     """Require the exact two-function, nineteen-action Native routing policy."""
     try:
@@ -1084,6 +1311,16 @@ __all__ = [
     "ROUTING_RESULT_PROTOCOL",
     "ROUTING_RUNTIME_PROTOCOL",
     "ROUTING_RUNTIME_RESULT_PROTOCOL",
+    "ROUTING_QUIESCENCE_PROTOCOL",
+    "ROUTING_QUIESCENCE_RESULT_PROTOCOL",
+    "RoutingQuiescenceRequest",
+    "RoutingQuiescenceResult",
+    "RoutingQuiescenceTopology",
+    "decode_routing_quiescence_request",
+    "decode_routing_quiescence_result",
+    "make_routing_quiescence_request",
+    "routing_quiescence_request_bytes",
+    "routing_quiescence_result_bytes",
     "ROUTING_STATUS_PROTOCOL",
     "RoutingAttemptView",
     "RoutingBeginControlResult",

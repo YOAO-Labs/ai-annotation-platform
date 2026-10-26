@@ -9,23 +9,70 @@ from sqlalchemy import delete, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from app.config import GPUArbiterMode, Settings
-from app.db.models.gpu_arbiter_rollout import GPUArbiterRollout
-from app.services.gpu_arbitration.rollout_state import (
+from aap_inference.gpu.rollout_state import (
     GPUArbiterRolloutConflict,
     GPUArbiterRolloutSnapshot,
-    begin_gpu_arbiter_rollout,
-    block_gpu_arbiter_rollout,
     classify_gpu_arbiter_rollout,
-    complete_gpu_arbiter_rollout,
     gpu_rollout_boundary_active,
-    read_gpu_arbiter_rollout,
-    read_gpu_arbiter_rollouts,
 )
+from aap_inference.gpu.settings import GPUArbiterMode, GPUAuthoritySettings
+from app.db.models.gpu_arbiter_rollout import GPUArbiterRollout
+from app.services.inference_gpu_data import open_gpu_authority_data
+from aap_inference_contract.gpu import GPUAdminRolloutSnapshot
 
 
 def _resource_id() -> str:
     return f"node-rollout/GPU-{uuid.uuid4()}"
+
+
+async def _begin_rollout(
+    factory: async_sessionmaker[AsyncSession],
+    resource_id: str,
+    target_mode: GPUArbiterMode,
+) -> GPUAdminRolloutSnapshot:
+    async with open_gpu_authority_data(factory) as data:
+        return await data.begin_rollout(resource_id, target_mode.value)
+
+
+async def _complete_rollout(
+    factory: async_sessionmaker[AsyncSession],
+    resource_id: str,
+    transition_id: uuid.UUID,
+) -> GPUAdminRolloutSnapshot:
+    async with open_gpu_authority_data(factory) as data:
+        return await data.complete_rollout(resource_id, transition_id)
+
+
+async def _block_rollout(
+    factory: async_sessionmaker[AsyncSession],
+    resource_id: str,
+    transition_id: uuid.UUID,
+    reason: str,
+) -> GPUAdminRolloutSnapshot:
+    async with open_gpu_authority_data(factory) as data:
+        return await data.block_rollout(resource_id, transition_id, reason)
+
+
+async def _read_rollout(
+    factory: async_sessionmaker[AsyncSession],
+    resource_id: str,
+) -> GPUAdminRolloutSnapshot | None:
+    async with open_gpu_authority_data(factory) as data:
+        return await data.read_rollout(resource_id)
+
+
+async def _read_rollouts(
+    factory: async_sessionmaker[AsyncSession],
+) -> tuple[GPUAdminRolloutSnapshot, ...]:
+    async with open_gpu_authority_data(factory) as data:
+        return await data.read_rollouts()
+
+
+async def _rollout_boundary(
+    factory: async_sessionmaker[AsyncSession],
+) -> bool:
+    async with open_gpu_authority_data(factory) as data:
+        return await data.rollout_boundary()
 
 
 @pytest.fixture
@@ -194,43 +241,33 @@ async def test_rollout_transition_is_durable_idempotent_and_reversible(
     resource_id = _resource_id()
     cleanup_gpu_rollouts(resource_id)
 
-    promotion = await begin_gpu_arbiter_rollout(
-        factory, resource_id, GPUArbiterMode.ENFORCE
-    )
-    replay = await begin_gpu_arbiter_rollout(
-        factory, resource_id, GPUArbiterMode.ENFORCE
-    )
+    promotion = await _begin_rollout(factory, resource_id, GPUArbiterMode.ENFORCE)
+    replay = await _begin_rollout(factory, resource_id, GPUArbiterMode.ENFORCE)
     assert promotion.state == "promoting"
-    assert promotion.effective_mode is GPUArbiterMode.OFF
+    assert promotion.effective_mode == GPUArbiterMode.OFF.value
     assert promotion.transition_id is not None
     assert replay == promotion
 
-    enforcing = await complete_gpu_arbiter_rollout(
-        factory, resource_id, promotion.transition_id
-    )
-    settled_replay = await complete_gpu_arbiter_rollout(
+    enforcing = await _complete_rollout(factory, resource_id, promotion.transition_id)
+    settled_replay = await _complete_rollout(
         factory, resource_id, promotion.transition_id
     )
     assert enforcing.state == "enforcing"
-    assert enforcing.effective_mode is GPUArbiterMode.ENFORCE
+    assert enforcing.effective_mode == GPUArbiterMode.ENFORCE.value
     assert enforcing.last_transition_id == promotion.transition_id
     assert settled_replay == enforcing
-    listed = await read_gpu_arbiter_rollouts(factory)
+    listed = await _read_rollouts(factory)
     assert enforcing in listed
 
-    demotion = await begin_gpu_arbiter_rollout(
-        factory, resource_id, GPUArbiterMode.OBSERVE
-    )
+    demotion = await _begin_rollout(factory, resource_id, GPUArbiterMode.OBSERVE)
     assert demotion.state == "demoting"
-    assert demotion.effective_mode is GPUArbiterMode.ENFORCE
+    assert demotion.effective_mode == GPUArbiterMode.ENFORCE.value
     assert demotion.transition_id is not None
 
-    off = await complete_gpu_arbiter_rollout(
-        factory, resource_id, demotion.transition_id
-    )
+    off = await _complete_rollout(factory, resource_id, demotion.transition_id)
     assert off.state == "off"
-    assert off.effective_mode is GPUArbiterMode.OFF
-    assert off.target_mode is GPUArbiterMode.OBSERVE
+    assert off.effective_mode == GPUArbiterMode.OFF.value
+    assert off.target_mode == GPUArbiterMode.OBSERVE.value
     assert off.last_transition_id == demotion.transition_id
 
 
@@ -246,10 +283,9 @@ async def test_rollout_concurrent_begin_returns_one_transition(
     cleanup_gpu_rollouts(resource_id)
 
     first, second = await asyncio.gather(
-        begin_gpu_arbiter_rollout(factory, resource_id, GPUArbiterMode.ENFORCE),
-        begin_gpu_arbiter_rollout(factory, resource_id, GPUArbiterMode.ENFORCE),
+        _begin_rollout(factory, resource_id, GPUArbiterMode.ENFORCE),
+        _begin_rollout(factory, resource_id, GPUArbiterMode.ENFORCE),
     )
-
     assert first == second
     assert first.transition_id is not None
 
@@ -264,18 +300,16 @@ async def test_rollout_blocker_is_exact_and_requires_explicit_recovery(
     )
     resource_id = _resource_id()
     cleanup_gpu_rollouts(resource_id)
-    promotion = await begin_gpu_arbiter_rollout(
-        factory, resource_id, GPUArbiterMode.ENFORCE
-    )
+    promotion = await _begin_rollout(factory, resource_id, GPUArbiterMode.ENFORCE)
     assert promotion.transition_id is not None
 
-    blocked = await block_gpu_arbiter_rollout(
+    blocked = await _block_rollout(
         factory,
         resource_id,
         promotion.transition_id,
         "backend_mode_ack_unavailable",
     )
-    replay = await block_gpu_arbiter_rollout(
+    replay = await _block_rollout(
         factory,
         resource_id,
         promotion.transition_id,
@@ -285,17 +319,13 @@ async def test_rollout_blocker_is_exact_and_requires_explicit_recovery(
     assert replay == blocked
 
     with pytest.raises(GPUArbiterRolloutConflict):
-        await complete_gpu_arbiter_rollout(
-            factory, resource_id, promotion.transition_id
-        )
+        await _complete_rollout(factory, resource_id, promotion.transition_id)
     with pytest.raises(GPUArbiterRolloutConflict):
-        await block_gpu_arbiter_rollout(
+        await _block_rollout(
             factory, resource_id, promotion.transition_id, "different_reason"
         )
 
-    recovery = await begin_gpu_arbiter_rollout(
-        factory, resource_id, GPUArbiterMode.ENFORCE
-    )
+    recovery = await _begin_rollout(factory, resource_id, GPUArbiterMode.ENFORCE)
     assert recovery.state == "promoting"
     assert recovery.transition_id not in {None, promotion.transition_id}
 
@@ -310,7 +340,7 @@ async def test_rollout_database_trigger_rejects_raw_skip_and_delete(
     )
     resource_id = _resource_id()
     cleanup_gpu_rollouts(resource_id)
-    await begin_gpu_arbiter_rollout(factory, resource_id, GPUArbiterMode.OFF)
+    await _begin_rollout(factory, resource_id, GPUArbiterMode.OFF)
 
     async with factory.begin() as db:
         with pytest.raises(IntegrityError):
@@ -335,7 +365,7 @@ async def test_rollout_database_trigger_rejects_raw_skip_and_delete(
             )
         await db.rollback()
 
-    assert (await read_gpu_arbiter_rollout(factory, resource_id)) is not None
+    assert (await _read_rollout(factory, resource_id)) is not None
 
 
 @pytest.mark.asyncio
@@ -346,13 +376,22 @@ async def test_rollout_global_boundary_includes_transitions_and_enforcing(
     factory = async_sessionmaker(
         test_engine, class_=AsyncSession, expire_on_commit=False
     )
-    disabled = Settings(_env_file=None, gpu_arbiter_rollout_enabled=False)
-    enabled = Settings(_env_file=None, gpu_arbiter_rollout_enabled=True)
+    disabled = GPUAuthoritySettings(
+        gpu_arbiter_mode=GPUArbiterMode.OFF,
+        gpu_arbiter_rollout_enabled=False,
+    )
 
-    assert not await gpu_rollout_boundary_active(factory, config=disabled)
+    class UnusedNativeData:
+        async def step(self, action, arguments):
+            raise AssertionError(f"disabled rollout unexpectedly called {action}")
+
+    assert not await gpu_rollout_boundary_active(
+        UnusedNativeData(),
+        config=disabled,
+    )
     # Other tests may leave durable rows, so assert the local transition makes
     # the boundary active instead of requiring a globally empty table.
     resource_id = _resource_id()
     cleanup_gpu_rollouts(resource_id)
-    await begin_gpu_arbiter_rollout(factory, resource_id, GPUArbiterMode.ENFORCE)
-    assert await gpu_rollout_boundary_active(factory, config=enabled)
+    await _begin_rollout(factory, resource_id, GPUArbiterMode.ENFORCE)
+    assert await _rollout_boundary(factory)

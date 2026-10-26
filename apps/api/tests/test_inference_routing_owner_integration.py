@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
-from collections import Counter
 import contextlib
 import json
 import os
 import socket
+import sys
 import uuid
+from collections import Counter
+from pathlib import Path
 
 import asyncpg
 from fastapi import FastAPI
@@ -22,6 +24,7 @@ from aap_inference.routing_backend_control import BackendRoutingControl
 from aap_inference.routing_runtime import RoutingRuntime
 from aap_inference_contract.routing import (
     make_routing_command,
+    make_routing_quiescence_request,
     make_routing_runtime_request,
     RoutingRejectedResult,
     RoutingUnavailable,
@@ -108,6 +111,105 @@ async def _stop_uvicorn(server, task, listener) -> None:
             await asyncio.wait_for(task, timeout=5)
     if listener is not None:
         listener.close()
+
+
+async def _stop_process(process) -> None:
+    if process.returncode is None:
+        try:
+            process.terminate()
+        except ProcessLookupError:
+            pass
+    try:
+        await asyncio.wait_for(process.wait(), timeout=10)
+    except asyncio.TimeoutError:
+        process.kill()
+        await process.wait()
+
+
+async def _start_model_execution_owner(tmp_path, routing_dsn: str):
+    from app.config import settings
+
+    role_sources = {
+        "INFERENCE_BACKEND_ENDPOINT_EXECUTION_DATABASE_URL": (
+            "AAP_MODULE_DATA_INFERENCE_ENDPOINT_EXECUTION_URL"
+        ),
+        "INFERENCE_GPU_DATABASE_URL": "AAP_MODULE_DATA_INFERENCE_GPU_URL",
+        "INFERENCE_GPU_ENDPOINT_HEALTH_OBSERVATION_DATABASE_URL": (
+            "AAP_MODULE_DATA_INFERENCE_GPU_HEALTH_ENDPOINT_URL"
+        ),
+        "INFERENCE_GPU_ENDPOINT_GPU_CONTROL_DATABASE_URL": (
+            "AAP_MODULE_DATA_INFERENCE_GPU_CONTROL_ENDPOINT_URL"
+        ),
+        "INFERENCE_HEALTH_DATA_DATABASE_URL": (
+            "AAP_MODULE_DATA_INFERENCE_HEALTH_DATA_URL"
+        ),
+    }
+    if any(not os.environ.get(name) for name in role_sources.values()):
+        raise AssertionError(
+            "module-data verifier is missing Inference execution role URLs"
+        )
+    if not settings.redis_url:
+        raise AssertionError("test-owned Redis URL is required by the execution owner")
+
+    port = _available_port()
+    execution_token = f"execution-owner-{uuid.uuid4().hex}"
+    environment = {
+        name: os.environ[name]
+        for name in ("PATH", "LANG", "LC_ALL", "TMPDIR")
+        if name in os.environ
+    }
+    python_path = [path for path in sys.path if path]
+    if python_path:
+        environment["PYTHONPATH"] = os.pathsep.join(python_path)
+    environment.update(
+        {
+            **{
+                runtime_name: os.environ[role_name]
+                for runtime_name, role_name in role_sources.items()
+            },
+            "INFERENCE_ROUTING_DATABASE_URL": routing_dsn,
+            "INFERENCE_ROUTING_TOKEN": f"execution-routing-{uuid.uuid4().hex}",
+            "INFERENCE_MODEL_EXECUTION_TOKEN": execution_token,
+            "INFERENCE_GPU_REDIS_URL": settings.redis_url,
+            "INFERENCE_HOST": "127.0.0.1",
+            "INFERENCE_PORT": str(port),
+            "GPU_ARBITER_MODE": "off",
+            "GPU_ARBITER_RESOURCES_JSON": "{}",
+        }
+    )
+    log_path = tmp_path / "model-execution-owner.log"
+    process = None
+    try:
+        with log_path.open("xb") as log_file:
+            process = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-m",
+                "aap_inference",
+                cwd=Path(__file__).resolve().parents[3],
+                env=environment,
+                stdout=log_file,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+        base_url = f"http://127.0.0.1:{port}"
+        async with httpx.AsyncClient(trust_env=False, timeout=2) as client:
+            async with asyncio.timeout(30):
+                while True:
+                    if process.returncode is not None:
+                        raise AssertionError(
+                            "model execution owner exited before readiness"
+                        )
+                    try:
+                        response = await client.get(f"{base_url}/health")
+                        if response.status_code == 200:
+                            break
+                    except httpx.HTTPError:
+                        pass
+                    await asyncio.sleep(0.025)
+        return process, base_url, execution_token
+    except BaseException:
+        if process is not None:
+            await _stop_process(process)
+        raise
 
 
 class _OwnerHttpProxy:
@@ -230,7 +332,12 @@ async def _seed_world(
             backend_url,
             backend_token,
             json.dumps(extra_params),
-            json.dumps({"capabilities": {"model_version": "routing-owner-test"}}),
+            json.dumps(
+                {
+                    "compute": {"configured_device": "cpu"},
+                    "capabilities": {"model_version": "routing-owner-test"},
+                }
+            ),
         )
         await owner.execute(
             """INSERT INTO public.ml_backend_service_pools (
@@ -350,7 +457,7 @@ def _command(receipt_ids: list[uuid.UUID], operation: str, body: dict):
 
 
 async def test_routing_owner_real_database_http_and_captured_transaction(
-    test_engine, monkeypatch
+    test_engine, monkeypatch, tmp_path
 ):
     ownership = await assert_owned_test_database(test_engine)
     routing_dsn = os.environ.get("AAP_MODULE_DATA_INFERENCE_ROUTING_URL")
@@ -389,6 +496,7 @@ async def test_routing_owner_real_database_http_and_captured_transaction(
     borrowed_transaction = None
     backend_server = backend_task = backend_listener = None
     owner_runtime = owner_server = proxy = None
+    execution_process = None
     native_trace = []
 
     try:
@@ -492,6 +600,11 @@ async def test_routing_owner_real_database_http_and_captured_transaction(
         routing_client = RoutingHttpClient(
             proxy_url, route_owner_token, timeout_seconds=20
         )
+        quiescence = await routing_client.quiescence(
+            make_routing_quiescence_request(world["registry_id"])
+        )
+        assert quiescence.status == "rejected"
+        assert quiescence.reason == "member_not_draining"
 
         reconcile = _command(
             receipt_ids,
@@ -819,18 +932,24 @@ async def test_routing_owner_real_database_http_and_captured_transaction(
         )
         assert isinstance(late.result, RoutingRejectedResult)
 
-        # The API's real transport uses this same owner without committing the
-        # caller's already-flushed business update.
-        from app.config import settings, GPUArbiterMode
-        from app.db.models.ml_backend_registry import MLBackendRegistry
-        from app.services.ml_client import MLBackendClient
+        # The canonical API gateway uses the remote execution provider and routing
+        # owner while preserving this caller's uncommitted business update.
+        from app.config import GPUArbiterMode, settings
+        from app.services.inference_model_execution import model_execution_port
+        from aap_inference_contract.execution import FrozenModelOperation
 
+        (
+            execution_process,
+            execution_url,
+            execution_token,
+        ) = await _start_model_execution_owner(tmp_path, routing_dsn)
         for name, value in {
             "inference_routing_url": proxy_url,
             "inference_routing_token": route_owner_token,
             "inference_routing_token_file": "",
-            "inference_routing_database_url": "",
-            "inference_routing_database_url_file": "",
+            "inference_model_execution_url": execution_url,
+            "inference_model_execution_token": execution_token,
+            "inference_model_execution_token_file": "",
             "gpu_arbiter_mode": GPUArbiterMode.OFF,
             "gpu_arbiter_rollout_enabled": False,
         }.items():
@@ -843,13 +962,29 @@ async def test_routing_owner_real_database_http_and_captured_transaction(
         try:
             async with async_sessionmaker(test_engine, expire_on_commit=False)() as db:
                 user = await db.get(User, user_id)
-                backend = await db.get(MLBackendRegistry, world["registry_id"])
-                user.name = "uncommitted real API transport change"
+                user.name = "uncommitted real API gateway change"
                 await db.flush()
-                result = await MLBackendClient(backend).predict(
-                    [{"id": "api-one", "data": {}}]
+                request = FrozenModelOperation(
+                    request_id=uuid.uuid4(),
+                    operation="batch_predict",
+                    task_inputs=({"id": "api-one", "data": {}},),
+                    context=None,
+                    project_id=None,
+                    requested_registry_id=world["registry_id"],
+                    requested_pool_id=None,
+                    endpoint_registry_id=None,
+                    required_instance_id=world["registry_id"],
+                    route_owner="api:routing-owner-integration",
+                    route_operation="batch_predict",
                 )
-                assert len(result) == 1 and result[0].task_id == "api-one"
+                before_backend_calls = len(backend_calls)
+                result = await model_execution_port(db).execute(request)
+                assert len(result.results) == 1
+                assert result.results[0].task_id == "api-one"
+                assert result.provenance.registry_id == world["registry_id"]
+                assert result.provenance.attempt_id == request.request_id
+                assert result.provenance.route_scope_id is not None
+                assert len(backend_calls) == before_backend_calls + 1
                 assert (
                     await owner.fetchval(
                         "SELECT name FROM public.users WHERE id=$1", user_id
@@ -886,6 +1021,8 @@ async def test_routing_owner_real_database_http_and_captured_transaction(
                             await borrowed_transaction.rollback()
                 finally:
                     await borrowed.close()
+            if execution_process is not None:
+                await _stop_process(execution_process)
             if proxy is not None:
                 await proxy.close()
             if owner_server is not None:

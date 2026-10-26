@@ -14,47 +14,18 @@ gpu_info / cache / pool 等运维敏感信息, 让普通用户安全消费。
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
-import httpx
 from aap_inference import extract_capabilities
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
-from app.db.models.ml_backend_registry import MLBackendRegistry
+from app.services.inference_backend_control import (
+    BackendControlOperationContextFactory,
+    BackendControlService,
+)
 from app.services.inference_limits import capability_limits_from_settings
 
 logger = logging.getLogger(__name__)
-
-
-def _observe_urls() -> list[str]:
-    """env 配置的观测 URL (去重保序). 留空时回退 ml_backend_default_url。"""
-    urls = list(settings.ml_backend_observe_urls or [])
-    if not urls and settings.ml_backend_default_url:
-        urls = [settings.ml_backend_default_url]
-    seen: set[str] = set()
-    out: list[str] = []
-    for u in urls:
-        key = u.rstrip("/")
-        if key and key not in seen:
-            seen.add(key)
-            out.append(key)
-    return out
-
-
-async def _probe_setup(client: httpx.AsyncClient, base: str) -> dict | None:
-    """轻量探测 /setup, 失败返回 None (不抛, 上游按缺数据处理)。"""
-    try:
-        resp = await client.get(f"{base}/setup")
-        if resp.status_code == 200:
-            return resp.json()
-    except (httpx.TimeoutException, httpx.RequestError):
-        return None
-    except Exception:  # noqa: BLE001 — 响应非 JSON 等
-        return None
-    return None
 
 
 def _shape_models(caps: dict | None) -> list[dict]:
@@ -111,71 +82,47 @@ def _shape_models(caps: dict | None) -> list[dict]:
     return out
 
 
-async def load_capability_instances(db: AsyncSession) -> list[dict]:
-    """读全局注册表 ml_backend_registry → 平台已知 backend 实例清单。
-
-    每行优先读 health_meta.capabilities 快照, 缺失时并发 live 探测 /setup。
-    source 取注册行的 source ('manual' | 'env')。
-    """
-    # v0.19.0 ADR-0044 · 过滤掉 disconnected 行(env reconcile 自动置 disconnected
-    # 的注册项 / 长期不可达的 manual 行),与 workers/ml_health.py 的探测口径一致;
-    # 避免「能力目录」露出已下线 backend 的旧 health_meta 快照 (v0.19.4 的 GPU/批量
-    # 徽标会跟着展示已下线 backend 的设备能力, 误导用户)。
-    result = await db.execute(
-        select(MLBackendRegistry).where(MLBackendRegistry.state != "disconnected")
+async def load_capability_instances(
+    db: AsyncSession,
+    *,
+    operation_context_factory: BackendControlOperationContextFactory,
+) -> list[dict]:
+    """Build the public capability catalog from sanitized facts and owner setup."""
+    control = BackendControlService(
+        db, operation_context_factory=operation_context_factory
     )
-    backends = list(result.scalars().all())
+    backends = await control.catalog_rows()
     if not backends:
         return []
 
-    # 第一遍: 从 health_meta 快照拿 models; 记录需要 live 探测的行。
-    snapshots: list[dict | None] = []
-    needs_probe: list[int] = []
-    for idx, b in enumerate(backends):
-        caps: dict | None = None
-        if b.health_meta and isinstance(b.health_meta, dict):
-            caps = b.health_meta.get("capabilities")
-        if _shape_models(caps):
-            snapshots.append(caps)
-        else:
-            snapshots.append(None)
-            needs_probe.append(idx)
-
-    # 第二遍: 并发 live 探测 (只对快照缺 models 的行)。
-    if needs_probe:
-        timeout = httpx.Timeout(float(settings.ml_health_timeout))
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            setups = await asyncio.gather(
-                *[
-                    _probe_setup(client, backends[i].url.rstrip("/"))
-                    for i in needs_probe
-                ]
-            )
-        for i, setup in zip(needs_probe, setups):
-            snapshots[i] = (
+    instances: list[dict] = []
+    for backend in backends:
+        health_meta = backend.health_meta
+        caps = (
+            health_meta.get("capabilities") if isinstance(health_meta, dict) else None
+        )
+        if not _shape_models(caps):
+            setup_result = await control.setup(backend.registry_id)
+            setup = setup_result.setup
+            caps = (
                 extract_capabilities(setup, limits=capability_limits_from_settings())
                 if setup
                 else None
             )
-
-    instances: list[dict] = []
-    for b, caps in zip(backends, snapshots):
         models = _shape_models(caps)
         if not models:
-            # 探测失败 / 协议 v1 backend 合成单 model 也失败 → 静默 skip。
             logger.debug(
                 "instances: skip backend %s (no models in snapshot or live probe)",
-                b.name,
+                backend.name,
             )
             continue
         instances.append(
             {
-                "backend_id": str(b.id),
-                "state": b.state,
-                "source": b.source,
-                "name": b.name,
+                "backend_id": str(backend.registry_id),
+                "state": backend.state,
+                "source": backend.source,
+                "name": backend.name,
                 "infra": (caps or {}).get("infra") or "unknown",
-                # v0.14.14: backend 自报是否支持 POST /warmup (协议 §4.4).
                 "warmup_endpoint": bool((caps or {}).get("warmup_endpoint", False)),
                 "models": models,
             }

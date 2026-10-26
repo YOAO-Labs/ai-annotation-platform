@@ -272,8 +272,12 @@ def _passthrough_session_factory(db_session: AsyncSession):
 async def test_retry_worker_tracks_success_in_async_jobs(
     db_session, super_admin, monkeypatch, controlled
 ):
-    from aap_inference.backend_transport import PredictionResult
+    from aap_inference_contract.execution import ModelTaskResult
     from app.workers import predictions_retry as retry_worker
+    from tests.inference_execution_test_ports import (
+        patch_retry_execution,
+        pipeline_output,
+    )
 
     user, _ = super_admin
     proj = await _seed_project(db_session, user.id)
@@ -301,24 +305,22 @@ async def test_retry_worker_tracks_success_in_async_jobs(
         lambda received_task: f"http://minio.test/{received_task.file_path}",
     )
 
-    async def fake_predict(self, tasks_payload, context=None):
-        return [
-            PredictionResult(
-                task_id=tasks_payload[0]["id"],
-                result=[],
-                score=0.95,
-                model_version="retry-v1",
-                inference_time_ms=12,
-                meta={"retry_receipt": "preserved"},
-            )
-        ]
+    async def fake_execute(task_id, _stages, _ports, _contexts, **_kwargs):
+        return pipeline_output(
+            [
+                ModelTaskResult(
+                    task_id=str(task_id),
+                    result=(),
+                    score=0.95,
+                    model_version="retry-v1",
+                    inference_time_ms=12,
+                    meta={"retry_receipt": "preserved"},
+                )
+            ],
+            instance_id=backend.id,
+        )
 
-    monkeypatch.setattr(
-        "app.services.ml_routing.client.RoutedMLBackendClient.predict"
-        if controlled
-        else "app.services.ml_client.MLBackendClient.predict",
-        fake_predict,
-    )
+    patch_retry_execution(monkeypatch, fake_execute)
 
     result = await retry_worker._do_retry_with_factory(
         session_factory, str(fp.id), str(user.id)
@@ -377,9 +379,13 @@ async def test_retry_uses_retained_input_version_and_verifies_before_write(
     from contextlib import asynccontextmanager
     from types import SimpleNamespace
 
-    from aap_inference.backend_transport import PredictionResult
+    from aap_inference_contract.execution import ModelTaskResult
     from app.services.prediction import PredictionService
     from app.workers import predictions_retry as retry_worker
+    from tests.inference_execution_test_ports import (
+        patch_retry_execution,
+        pipeline_output,
+    )
 
     user, _ = super_admin
     project = await _seed_project(db_session, user.id)
@@ -434,18 +440,23 @@ async def test_retry_uses_retained_input_version_and_verifies_before_write(
     async def fake_gateway(**_kwargs):
         yield Gateway()
 
-    async def fake_predict(_client, inputs, context=None):
-        events.append(("predict", inputs[0]["file_path"]))
-        return [
-            PredictionResult(
-                task_id=inputs[0]["id"],
-                result=[],
-                score=0.95,
-                model_version="retry-v1",
-                inference_time_ms=12,
-                meta={"retry_receipt": "preserved"},
-            )
-        ]
+    async def fake_execute(task_id, _stages, _ports, _contexts, **kwargs):
+        events.append(("predict", kwargs["source_url"]))
+        return pipeline_output(
+            [
+                ModelTaskResult(
+                    task_id=str(task_id),
+                    result=(),
+                    score=0.95,
+                    model_version="retry-v1",
+                    inference_time_ms=12,
+                    meta={"retry_receipt": "preserved"},
+                )
+            ],
+            instance_id=backend.id,
+        )
+
+    patch_retry_execution(monkeypatch, fake_execute)
 
     original_apply = PredictionService.apply_prediction_result_bundle
 
@@ -468,7 +479,6 @@ async def test_retry_uses_retained_input_version_and_verifies_before_write(
         "app.services.accepted_inputs.lock_input_source", lock_frozen_source
     )
     monkeypatch.setattr("app.services.accepted_inputs.input_gateway", fake_gateway)
-    monkeypatch.setattr("app.services.ml_client.MLBackendClient.predict", fake_predict)
     monkeypatch.setattr(PredictionService, "apply_prediction_result_bundle", fake_apply)
     monkeypatch.setattr(
         "app.services.storage.resolve_task_url",
@@ -565,6 +575,10 @@ async def test_permanent_frozen_retry_failure_uses_job_and_counter_path(
         events.append("predict")
         pytest.fail("an expired frozen input must not fall back to Task.file_path")
 
+    from tests.inference_execution_test_ports import patch_retry_execution
+
+    patch_retry_execution(monkeypatch, unexpected_predict)
+
     async def lock_frozen_source(*_args, **_kwargs):
         return SimpleNamespace(job_id=origin_job_id)
 
@@ -572,9 +586,6 @@ async def test_permanent_frozen_retry_failure_uses_job_and_counter_path(
         "app.services.accepted_inputs.lock_input_source", lock_frozen_source
     )
     monkeypatch.setattr("app.services.accepted_inputs.input_gateway", fake_gateway)
-    monkeypatch.setattr(
-        "app.services.ml_client.MLBackendClient.predict", unexpected_predict
-    )
     monkeypatch.setattr(
         "app.services.storage.resolve_task_url",
         lambda _task: pytest.fail(
@@ -625,10 +636,12 @@ async def test_retry_worker_tracks_backend_failure_in_async_jobs(
     )
     await db_session.commit()
 
-    async def fake_predict(self, tasks_payload):
+    from tests.inference_execution_test_ports import patch_retry_execution
+
+    async def fake_execute(*_args, **_kwargs):
         raise RuntimeError("backend down")
 
-    monkeypatch.setattr("app.services.ml_client.MLBackendClient.predict", fake_predict)
+    patch_retry_execution(monkeypatch, fake_execute)
 
     result = await retry_worker._do_retry_with_factory(
         _passthrough_session_factory(db_session), str(fp.id), str(user.id)
@@ -672,11 +685,12 @@ async def test_retry_worker_tracks_backend_failure_in_async_jobs(
 async def test_retry_worker_preserves_gpu_arbiter_failure_in_job_and_source(
     db_session, super_admin, monkeypatch
 ):
-    from app.services.gpu_arbitration.contracts import (
+    from aap_inference.gpu.contracts import (
         GPUArbiterDispatchError,
         GPUArbiterErrorCode,
     )
     from app.workers import predictions_retry as retry_worker
+    from tests.inference_execution_test_ports import patch_retry_execution
 
     user, _ = super_admin
     proj = await _seed_project(db_session, user.id)
@@ -692,14 +706,14 @@ async def test_retry_worker_preserves_gpu_arbiter_failure_in_job_and_source(
     )
     await db_session.commit()
 
-    async def fake_predict(self, tasks_payload):
+    async def fake_execute(*_args, **_kwargs):
         raise GPUArbiterDispatchError(
             GPUArbiterErrorCode.DRAIN_TIMEOUT,
             message="victim still busy",
             retry_after_s=6,
         )
 
-    monkeypatch.setattr("app.services.ml_client.MLBackendClient.predict", fake_predict)
+    patch_retry_execution(monkeypatch, fake_execute)
 
     result = await retry_worker._do_retry_with_factory(
         _passthrough_session_factory(db_session), str(fp.id), str(user.id)

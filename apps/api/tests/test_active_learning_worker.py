@@ -150,7 +150,9 @@ async def test_timeout_debit_is_retained_on_retry_and_original_identity_never_re
     claim_id = await worker.claim(world.factory, world.attempt.id, "first")
     round, row, png = await prepared(world, claim_id)
     original = copy.deepcopy(row.request)
-    monkeypatch.setattr(managed, "private_client", AsyncMock(return_value=object()))
+    monkeypatch.setattr(
+        managed, "backend_control_handle", AsyncMock(return_value=object())
+    )
     monkeypatch.setattr(
         managed,
         "remote_receipt",
@@ -197,7 +199,9 @@ async def test_completed_receipt_recovers_without_dispatch_or_new_budget(
 ):
     claim_id = await worker.claim(world.factory, world.attempt.id, "completed")
     round, row, png = await prepared(world, claim_id)
-    monkeypatch.setattr(managed, "private_client", AsyncMock(return_value=object()))
+    monkeypatch.setattr(
+        managed, "backend_control_handle", AsyncMock(return_value=object())
+    )
     monkeypatch.setattr(
         managed,
         "remote_receipt",
@@ -230,7 +234,9 @@ async def test_cancel_busy_receipt_stays_nonterminal_and_revocation_still_seals(
         owner = await db.get(User, world.owner.id)
         owner.is_active = False
         await db.commit()
-    monkeypatch.setattr(managed, "private_client", AsyncMock(return_value=object()))
+    monkeypatch.setattr(
+        managed, "backend_control_handle", AsyncMock(return_value=object())
+    )
     remote = AsyncMock(
         side_effect=HTTPException(409, detail={"reason": "evaluation_request_busy"})
     )
@@ -272,7 +278,9 @@ async def test_prepost_budget_is_hard_cap_and_original_expiry_cannot_dispatch(
 async def test_execute_publishes_only_verified_complete_evidence(world, monkeypatch):
     frozen_spec = copy.deepcopy(world.round.spec)
     frozen_digest = world.round.spec_digest
-    monkeypatch.setattr(managed, "private_client", AsyncMock(return_value=object()))
+    monkeypatch.setattr(
+        managed, "backend_control_handle", AsyncMock(return_value=object())
+    )
     monkeypatch.setattr(
         managed,
         "remote_receipt",

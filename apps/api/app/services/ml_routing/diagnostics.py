@@ -6,14 +6,14 @@ optional circuit hints; neither observation authorizes lifecycle management.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aap_inference_contract.topology import to_record
 from app.config import settings
-from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
-from app.db.models.ml_backend_registry import MLBackendRegistry
+from app.services.inference_topology_data import InferenceTopologyData
 from app.schemas.ml_routing import (
     PoolAvailabilityStatus,
     RuntimeMemberSnapshot,
@@ -104,31 +104,26 @@ async def build_topology(db: AsyncSession, *, super_admin: bool) -> TopologyResp
     Super Admin gets routing_policy/capability_fingerprint/legacy_instance_id
     plus member weight/state/last_checked_at/gpu_resource_id.
     """
-    pools_q = await db.execute(
-        select(MLBackendServicePool).order_by(MLBackendServicePool.created_at.desc())
+    topology = InferenceTopologyData(db)
+    pools = sorted(
+        await topology.pool_catalog(), key=lambda pool: pool.created_at, reverse=True
     )
-    pools = list(pools_q.scalars().all())
     observed_at = datetime.now(UTC)
     max_age = timedelta(seconds=settings.ml_backend_router_health_max_age_seconds)
     pool_entries: list[TopologyPoolEntry] = []
     for pool in pools:
-        members_q = await db.execute(
-            select(MLBackendPoolMember, MLBackendRegistry)
-            .join(
-                MLBackendRegistry,
-                MLBackendRegistry.id == MLBackendPoolMember.registry_id,
-            )
-            .where(MLBackendPoolMember.pool_id == pool.id)
-            .order_by(MLBackendRegistry.name)
+        member_rows = sorted(
+            await topology.pool_members(pool.id),
+            key=lambda member: member.registry.name,
         )
-        member_rows = members_q.all()
         member_models: list[TopologyMemberInstance] = []
         # (traffic_state, registry_connected) tuples for status derivation.
         member_states: list[tuple[str, bool, bool, bool]] = []
         singleton_without_fingerprint = (
             pool.capability_fingerprint is None and len(member_rows) == 1
         )
-        for member, registry in member_rows:
+        for member in member_rows:
+            registry = member.registry
             connected = registry.state == "connected"
             health_fresh = (
                 registry.last_checked_at is not None
@@ -136,10 +131,11 @@ async def build_topology(db: AsyncSession, *, super_admin: bool) -> TopologyResp
             )
             caps = (registry.health_meta or {}).get("capabilities")
             fingerprint_ok = bool(
-                isinstance(caps, dict)
+                isinstance(caps, Mapping)
                 and (
                     singleton_without_fingerprint
-                    or capability_fingerprint(caps) == pool.capability_fingerprint
+                    or capability_fingerprint(to_record(caps))
+                    == pool.capability_fingerprint
                 )
             )
             member_states.append(
@@ -192,30 +188,22 @@ async def build_runtime_snapshot(
     observed_at = datetime.now(UTC)
     max_age = timedelta(seconds=settings.ml_backend_router_health_max_age_seconds)
 
-    pools_q = await db.execute(select(MLBackendServicePool))
-    pools = list(pools_q.scalars().all())
+    topology = InferenceTopologyData(db)
+    pools = await topology.pool_catalog()
     pool_snapshots: list[RuntimePoolSnapshot] = []
 
     from .authority import RoutingAuthority
 
     member_groups = {}
     for pool in pools:
-        rows = await db.execute(
-            select(MLBackendPoolMember, MLBackendRegistry)
-            .join(
-                MLBackendRegistry,
-                MLBackendRegistry.id == MLBackendPoolMember.registry_id,
-            )
-            .where(MLBackendPoolMember.pool_id == pool.id)
-        )
-        member_groups[pool.id] = list(rows.all())
+        member_groups[pool.id] = await topology.pool_members(pool.id)
     registry_ids = sorted(
-        {registry.id for rows in member_groups.values() for _, registry in rows}
+        {member.registry.id for members in member_groups.values() for member in members}
     )
     execution_rows = {}
     routing_error = None
     routing_observed_at = observed_at
-    authority = RoutingAuthority(db.bind)
+    authority = RoutingAuthority()
     try:
         for offset in range(0, len(registry_ids), 512):
             reply = await authority.runtime_snapshot(
@@ -239,7 +227,8 @@ async def build_runtime_snapshot(
 
     for pool in pools:
         member_snapshots: list[RuntimeMemberSnapshot] = []
-        for member, registry in member_groups[pool.id]:
+        for member in member_groups[pool.id]:
+            registry = member.registry
             health_fresh = (
                 registry.last_checked_at is not None
                 and registry.last_checked_at >= observed_at - max_age

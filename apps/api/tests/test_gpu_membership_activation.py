@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+import hashlib
+import os
 import uuid
 
+import asyncpg
 import pytest
 from aap_protocol_v2.lifecycle import (
     AdmissionScope,
@@ -21,15 +25,181 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from app.db.models.gpu_backend_fence import GPUBackendFence
 from app.db.models.gpu_backend_membership import GPUBackendMembership
 from app.db.models.ml_backend_registry import MLBackendRegistry
-from app.services.gpu_arbitration.fences import (
+from aap_inference.backend_endpoint import (
+    BackendEndpointBinding,
+    BackendEndpointSnapshot,
+)
+from aap_inference_contract.backend_endpoint import BackendEndpointAuthority
+from aap_inference.gpu.fences import (
     activate_gpu_backend_membership,
     advance_gpu_backend_fence,
 )
-from app.services.gpu_arbitration.membership_activation import (
+from aap_inference.gpu.membership_activation import (
     promote_gpu_backend_membership,
     promote_gpu_resource_memberships,
 )
-from app.services.gpu_arbitration.signing import GPUAdmissionTokenSigner
+from aap_inference.gpu.native import GPUAuthorityPoolData
+from aap_inference.gpu.signing import GPUAdmissionTokenSigner
+from sqlalchemy.engine import make_url
+
+
+class _TestOwnedEndpointSource:
+    def __init__(self, factory: async_sessionmaker[AsyncSession]) -> None:
+        self._factory = factory
+
+    async def open_owned(
+        self,
+        backend_registry_id: uuid.UUID,
+        *,
+        request_id: uuid.UUID,
+        purpose: str,
+        binding=None,
+    ) -> BackendEndpointSnapshot:
+        if purpose == "gpu_control" and binding is None:
+            raise RuntimeError("GPU control requires a live test binding")
+        authority = (
+            None
+            if binding is None
+            else BackendEndpointAuthority(
+                kind=binding.kind,
+                scope_id=binding.scope_id,
+                control_id=binding.control_id,
+                attempt_id=binding.attempt_id,
+            )
+        )
+        async with self._factory() as db:
+            backend = await db.get(MLBackendRegistry, backend_registry_id)
+        if backend is None:
+            raise RuntimeError("test backend endpoint is unavailable")
+        return BackendEndpointSnapshot(
+            registry_id=backend.id,
+            request_id=request_id,
+            purpose=purpose,
+            authority=authority,
+            endpoint_sha256=hashlib.sha256(backend.url.encode()).hexdigest(),
+            url=backend.url,
+            auth_method=None,
+            auth_token=None,
+            gpu_resource_id=backend.gpu_resource_id,
+            vram_budget_mb=backend.vram_budget_mb,
+            eviction_priority=backend.eviction_priority,
+            extra_params=backend.extra_params,
+        )
+
+    async def readiness(self) -> bool:
+        return True
+
+
+class _TestBackendControlTransport:
+    def __init__(self, factory: async_sessionmaker[AsyncSession]) -> None:
+        self._factory = factory
+        self.mode_handler = None
+
+    async def control_binding(self, _backend_id, *, request_id, operation):
+        yield BackendEndpointBinding(
+            kind="control",
+            scope_id=None,
+            control_id=uuid.uuid4(),
+            attempt_id=request_id,
+            capability="0" * 64,
+        )
+
+    async def lifecycle_mode(
+        self,
+        endpoint: BackendEndpointSnapshot,
+        request,
+        admission_token: str,
+        *,
+        request_id: uuid.UUID,
+        timeout_seconds: float,
+    ) -> LifecycleModeResponse:
+        if self.mode_handler is not None:
+            return await self.mode_handler(endpoint, request, admission_token)
+        async with self._factory() as db:
+            backend = await db.get(MLBackendRegistry, endpoint.registry_id)
+        assert backend is not None
+        boot_id = backend.health_meta["residency"]["boot_id"]
+        return _ack(
+            endpoint.registry_id,
+            endpoint.gpu_resource_id,
+            boot_id=boot_id,
+            control_epoch=request.control_epoch,
+        )
+
+
+@dataclass
+class _PromotionHarness:
+    factory: async_sessionmaker[AsyncSession]
+    backend_ids: list[uuid.UUID]
+    authority_data: GPUAuthorityPoolData
+    endpoint_source: _TestOwnedEndpointSource
+    backend_transport: _TestBackendControlTransport
+
+    def __iter__(self):
+        yield self.factory
+        yield self.backend_ids
+
+
+def _set_mode_handler(harness: _PromotionHarness, response_handler) -> None:
+    async def handle(endpoint, request, admission_token):
+        async with harness.factory() as db:
+            backend = await db.get(MLBackendRegistry, endpoint.registry_id)
+        assert backend is not None
+        client = response_handler(backend)
+        return await client.lifecycle_mode(
+            request,
+            admission_token=admission_token,
+        )
+
+    harness.backend_transport.mode_handler = handle
+
+
+async def _promote_backend(
+    harness: _PromotionHarness,
+    signer: GPUAdmissionTokenSigner,
+    backend_id: uuid.UUID,
+    *,
+    gpu_resource_id: str,
+    membership_epoch: int,
+    readiness_demoter=None,
+    mode_timeout_seconds: float = 8.0,
+    mode_response_handler=None,
+):
+    if mode_response_handler is not None:
+        _set_mode_handler(harness, mode_response_handler)
+    return await promote_gpu_backend_membership(
+        harness.authority_data,
+        signer,
+        harness.endpoint_source,
+        harness.backend_transport,
+        backend_id,
+        gpu_resource_id=gpu_resource_id,
+        membership_epoch=membership_epoch,
+        mode_timeout_seconds=mode_timeout_seconds,
+        readiness_demoter=readiness_demoter,
+    )
+
+
+async def _promote_resource(
+    harness: _PromotionHarness,
+    gpu_resource_id: str,
+    *,
+    signer_factory,
+    readiness_demoter=None,
+    pending_only: bool = False,
+    mode_response_handler=None,
+):
+    if mode_response_handler is not None:
+        _set_mode_handler(harness, mode_response_handler)
+    return await promote_gpu_resource_memberships(
+        harness.authority_data,
+        gpu_resource_id,
+        signer_factory=signer_factory,
+        endpoint_source=harness.endpoint_source,
+        backend_transport=harness.backend_transport,
+        readiness_demoter=readiness_demoter,
+        pending_only=pending_only,
+    )
 
 
 _RESOURCE_A = "node-promotion/GPU-a"
@@ -228,17 +398,29 @@ async def _cleanup_backends(
 @pytest.fixture
 async def promotion_db(
     test_engine: AsyncEngine,
-) -> AsyncIterator[tuple[async_sessionmaker[AsyncSession], list[uuid.UUID]]]:
+) -> AsyncIterator[_PromotionHarness]:
     factory = async_sessionmaker(
         test_engine,
         class_=AsyncSession,
         expire_on_commit=False,
     )
+    pool = await asyncpg.create_pool(
+        dsn=make_url(os.environ["AAP_MODULE_DATA_INFERENCE_GPU_URL"])
+        .set(drivername="postgresql")
+        .render_as_string(hide_password=False)
+    )
     backend_ids: list[uuid.UUID] = []
     try:
-        yield factory, backend_ids
+        yield _PromotionHarness(
+            factory=factory,
+            backend_ids=backend_ids,
+            authority_data=GPUAuthorityPoolData(pool),
+            endpoint_source=_TestOwnedEndpointSource(factory),
+            backend_transport=_TestBackendControlTransport(factory),
+        )
     finally:
         await _cleanup_backends(factory, backend_ids)
+        await pool.close()
 
 
 def _signer() -> tuple[GPUAdmissionTokenSigner, Ed25519PrivateKey]:
@@ -281,11 +463,9 @@ def _ack(
     )
 
 
-@pytest.mark.parametrize("default_client", [False, True])
+@pytest.mark.asyncio
 async def test_pending_membership_atomically_activates_and_receives_signed_ack(
     promotion_db,
-    monkeypatch,
-    default_client,
 ) -> None:
     factory, backend_ids = promotion_db
     backend_id = await _create_pending_backend(factory)
@@ -294,11 +474,8 @@ async def test_pending_membership_atomically_activates_and_receives_signed_ack(
     requests: list[tuple[object, object]] = []
 
     class Client:
-        def __init__(
-            self, backend: MLBackendRegistry, *, shadow_session_factory=None
-        ) -> None:
-            assert shadow_session_factory is (factory if default_client else None)
-            self.backend = backend
+        def __init__(self, backend: MLBackendRegistry) -> None:
+            assert backend.id == backend_id
 
         async def lifecycle_mode(self, request, *, admission_token):
             claims = verify_admission_token(
@@ -313,18 +490,14 @@ async def test_pending_membership_atomically_activates_and_receives_signed_ack(
                 control_epoch=request.control_epoch,
             )
 
-    if default_client:
-        monkeypatch.setattr(
-            "app.services.gpu_arbitration.membership_activation.MLBackendClient", Client
-        )
-    result = await promote_gpu_backend_membership(
-        factory,
+    result = await _promote_backend(
+        promotion_db,
         signer,
         backend_id,
         gpu_resource_id=_RESOURCE_A,
         membership_epoch=1,
         readiness_demoter=_demote_ready,
-        client_factory=None if default_client else Client,
+        mode_response_handler=Client,
     )
 
     assert result.status == "promoted"
@@ -395,14 +568,14 @@ async def test_ready_is_revoked_before_mode_http_after_epoch_advance(
             )
 
     promotion_task = asyncio.create_task(
-        promote_gpu_backend_membership(
-            factory,
+        _promote_backend(
+            promotion_db,
             signer,
             backend_id,
             gpu_resource_id=_RESOURCE_A,
             membership_epoch=1,
             readiness_demoter=demote_ready,
-            client_factory=Client,
+            mode_response_handler=Client,
         )
     )
     try:
@@ -442,12 +615,12 @@ async def test_signer_failure_keeps_pending_and_skips_mode_http(promotion_db) ->
     async def demote_ready(resource_id: str) -> None:
         demotions.append(resource_id)
 
-    results = await promote_gpu_resource_memberships(
-        factory,
+    results = await _promote_resource(
+        promotion_db,
         _RESOURCE_A,
         signer_factory=unavailable_signer,
         readiness_demoter=demote_ready,
-        client_factory=unexpected_client,
+        mode_response_handler=unexpected_client,
     )
 
     assert [(item.status, item.reason) for item in results] == [
@@ -475,14 +648,14 @@ async def test_pending_only_resource_promotion_skips_active_members(
     backend_id = await _create_pending_backend(factory)
     backend_ids.append(backend_id)
     await activate_gpu_backend_membership(
-        factory,
+        promotion_db.authority_data,
         backend_id,
         gpu_resource_id=_RESOURCE_A,
         membership_epoch=1,
     )
 
-    results = await promote_gpu_resource_memberships(
-        factory,
+    results = await _promote_resource(
+        promotion_db,
         _RESOURCE_A,
         signer_factory=lambda: pytest.fail("active member must not load signer"),
         pending_only=True,
@@ -504,27 +677,29 @@ async def test_mode_failure_does_not_roll_back_durable_activation(promotion_db) 
         async def lifecycle_mode(self, request, *, admission_token):  # noqa: ARG002
             raise RuntimeError("backend unavailable")
 
-    result = await promote_gpu_backend_membership(
-        factory,
+    result = await _promote_backend(
+        promotion_db,
         signer,
         backend_id,
         gpu_resource_id=_RESOURCE_A,
         membership_epoch=1,
         readiness_demoter=_demote_ready,
-        client_factory=FailingClient,
+        mode_response_handler=FailingClient,
     )
 
     assert result.status == "active_unacked"
     assert result.reason == "mode_ack_failed"
 
-    stale_retry = await promote_gpu_backend_membership(
-        factory,
+    stale_retry = await _promote_backend(
+        promotion_db,
         signer,
         backend_id,
         gpu_resource_id=_RESOURCE_A,
         membership_epoch=1,
         readiness_demoter=_demote_ready,
-        client_factory=lambda _backend: pytest.fail("stale proof must not retry HTTP"),
+        mode_response_handler=lambda _backend: pytest.fail(
+            "stale proof must not retry HTTP"
+        ),
     )
     assert stale_retry.status == "blocked"
     assert stale_retry.reason == "probe_membership_mismatch"
@@ -561,14 +736,14 @@ async def test_invalid_ack_leaves_membership_active_unacked(promotion_db) -> Non
                 control_epoch=request.control_epoch,
             )
 
-    result = await promote_gpu_backend_membership(
-        factory,
+    result = await _promote_backend(
+        promotion_db,
         signer,
         backend_id,
         gpu_resource_id=_RESOURCE_A,
         membership_epoch=1,
         readiness_demoter=_demote_ready,
-        client_factory=WrongBootClient,
+        mode_response_handler=WrongBootClient,
     )
 
     assert result.status == "active_unacked"
@@ -612,14 +787,14 @@ async def test_invalid_pending_proof_never_activates(
     async def demote_ready(resource_id: str) -> None:
         demotions.append(resource_id)
 
-    result = await promote_gpu_backend_membership(
-        factory,
+    result = await _promote_backend(
+        promotion_db,
         signer,
         backend_id,
         gpu_resource_id=_RESOURCE_A,
         membership_epoch=1,
         readiness_demoter=demote_ready,
-        client_factory=lambda _backend: pytest.fail("unexpected mode HTTP"),
+        mode_response_handler=lambda _backend: pytest.fail("unexpected mode HTTP"),
     )
 
     assert result.status == "blocked"
@@ -650,14 +825,14 @@ async def test_control_epoch_overflow_rolls_back_activation(promotion_db) -> Non
         )
     signer, _private_key = _signer()
 
-    result = await promote_gpu_backend_membership(
-        factory,
+    result = await _promote_backend(
+        promotion_db,
         signer,
         backend_id,
         gpu_resource_id=_RESOURCE_A,
         membership_epoch=1,
         readiness_demoter=_demote_ready,
-        client_factory=lambda _backend: pytest.fail("unexpected mode HTTP"),
+        mode_response_handler=lambda _backend: pytest.fail("unexpected mode HTTP"),
     )
 
     assert result.status == "unavailable"
@@ -682,12 +857,12 @@ async def test_same_card_duplicate_boot_ids_block_both_members(promotion_db) -> 
     backend_ids.extend((first, second))
     signer, _private_key = _signer()
 
-    results = await promote_gpu_resource_memberships(
-        factory,
+    results = await _promote_resource(
+        promotion_db,
         _RESOURCE_A,
         signer_factory=lambda: signer,
         readiness_demoter=_demote_ready,
-        client_factory=lambda _backend: pytest.fail("unexpected mode HTTP"),
+        mode_response_handler=lambda _backend: pytest.fail("unexpected mode HTTP"),
     )
 
     assert len(results) == 2
@@ -736,14 +911,14 @@ async def test_cross_card_boot_alias_blocks_even_with_invalid_peer_capability(
     async def demote_ready(resource_id: str) -> None:
         demotions.append(resource_id)
 
-    result = await promote_gpu_backend_membership(
-        factory,
+    result = await _promote_backend(
+        promotion_db,
         signer,
         target,
         gpu_resource_id=_RESOURCE_A,
         membership_epoch=1,
         readiness_demoter=demote_ready,
-        client_factory=lambda _backend: pytest.fail("unexpected mode HTTP"),
+        mode_response_handler=lambda _backend: pytest.fail("unexpected mode HTTP"),
     )
 
     assert result.status == "blocked"
@@ -804,14 +979,14 @@ async def test_canonical_endpoint_alias_blocks_cross_card_activation(
     backend_ids.extend((target, peer))
     signer, _private_key = _signer()
 
-    result = await promote_gpu_backend_membership(
-        factory,
+    result = await _promote_backend(
+        promotion_db,
         signer,
         target,
         gpu_resource_id=_RESOURCE_A,
         membership_epoch=1,
         readiness_demoter=_demote_ready,
-        client_factory=lambda _backend: pytest.fail("unexpected mode HTTP"),
+        mode_response_handler=lambda _backend: pytest.fail("unexpected mode HTTP"),
     )
 
     assert result.status == "blocked"
@@ -851,23 +1026,23 @@ async def test_busy_card_lock_does_not_hold_global_promotion_barrier(
             )
 
     try:
-        blocked = await promote_gpu_backend_membership(
-            factory,
+        blocked = await _promote_backend(
+            promotion_db,
             signer,
             blocked_backend,
             gpu_resource_id=_RESOURCE_A,
             membership_epoch=1,
             readiness_demoter=_demote_ready,
-            client_factory=lambda _backend: pytest.fail("unexpected mode HTTP"),
+            mode_response_handler=lambda _backend: pytest.fail("unexpected mode HTTP"),
         )
-        promoted = await promote_gpu_backend_membership(
-            factory,
+        promoted = await _promote_backend(
+            promotion_db,
             signer,
             healthy_backend,
             gpu_resource_id=_RESOURCE_B,
             membership_epoch=1,
             readiness_demoter=_demote_ready,
-            client_factory=Client,
+            mode_response_handler=Client,
         )
     finally:
         await transaction.rollback()
@@ -907,14 +1082,14 @@ async def test_concurrent_cards_retry_short_global_promotion_contention(
     results = await asyncio.wait_for(
         asyncio.gather(
             *(
-                promote_gpu_backend_membership(
-                    factory,
+                _promote_backend(
+                    promotion_db,
                     signer,
                     backend_id,
                     gpu_resource_id=resource_id,
                     membership_epoch=1,
                     readiness_demoter=_demote_ready,
-                    client_factory=Client,
+                    mode_response_handler=Client,
                 )
                 for backend_id, resource_id in zip(backends, resources, strict=True)
             )
@@ -943,14 +1118,14 @@ async def test_multi_resource_writer_and_promotion_do_not_deadlock(
         await release_promotion.wait()
 
     promotion_task = asyncio.create_task(
-        promote_gpu_backend_membership(
-            factory,
+        _promote_backend(
+            promotion_db,
             signer,
             target_backend,
             gpu_resource_id=_RESOURCE_B,
             membership_epoch=1,
             readiness_demoter=pause_before_global,
-            client_factory=lambda _backend: Client(),
+            mode_response_handler=lambda _backend: Client(),
         )
     )
     await asyncio.wait_for(promotion_has_resource.wait(), timeout=2)
@@ -1159,7 +1334,7 @@ async def test_active_unacked_member_recovers_with_larger_control_epoch(
     backend_ids.append(backend_id)
     assert (
         await activate_gpu_backend_membership(
-            factory,
+            promotion_db.authority_data,
             backend_id,
             gpu_resource_id=_RESOURCE_A,
             membership_epoch=1,
@@ -1168,7 +1343,7 @@ async def test_active_unacked_member_recovers_with_larger_control_epoch(
     )
     assert (
         await advance_gpu_backend_fence(
-            factory,
+            promotion_db.authority_data,
             backend_id,
             "control_epoch",
             gpu_resource_id=_RESOURCE_A,
@@ -1197,14 +1372,14 @@ async def test_active_unacked_member_recovers_with_larger_control_epoch(
                 control_epoch=request.control_epoch,
             )
 
-    result = await promote_gpu_backend_membership(
-        factory,
+    result = await _promote_backend(
+        promotion_db,
         signer,
         backend_id,
         gpu_resource_id=_RESOURCE_A,
         membership_epoch=1,
         readiness_demoter=_demote_ready,
-        client_factory=Client,
+        mode_response_handler=Client,
     )
 
     assert result.status == "promoted"
@@ -1220,13 +1395,13 @@ async def test_fresh_active_ack_is_observed_without_another_mode_call(
     backend_id = await _create_pending_backend(factory)
     backend_ids.append(backend_id)
     await activate_gpu_backend_membership(
-        factory,
+        promotion_db.authority_data,
         backend_id,
         gpu_resource_id=_RESOURCE_A,
         membership_epoch=1,
     )
     await advance_gpu_backend_fence(
-        factory,
+        promotion_db.authority_data,
         backend_id,
         "control_epoch",
         gpu_resource_id=_RESOURCE_A,
@@ -1243,14 +1418,14 @@ async def test_fresh_active_ack_is_observed_without_another_mode_call(
     )
     signer, _private_key = _signer()
 
-    result = await promote_gpu_backend_membership(
-        factory,
+    result = await _promote_backend(
+        promotion_db,
         signer,
         backend_id,
         gpu_resource_id=_RESOURCE_A,
         membership_epoch=1,
         readiness_demoter=_demote_ready,
-        client_factory=lambda _backend: pytest.fail("unexpected mode HTTP"),
+        mode_response_handler=lambda _backend: pytest.fail("unexpected mode HTTP"),
     )
 
     assert result.status == "acknowledged"
@@ -1267,13 +1442,13 @@ async def test_pre_horizon_active_ack_requires_proof_reset(promotion_db) -> None
     backend_id = await _create_pending_backend(factory)
     backend_ids.append(backend_id)
     await activate_gpu_backend_membership(
-        factory,
+        promotion_db.authority_data,
         backend_id,
         gpu_resource_id=_RESOURCE_A,
         membership_epoch=1,
     )
     await advance_gpu_backend_fence(
-        factory,
+        promotion_db.authority_data,
         backend_id,
         "control_epoch",
         gpu_resource_id=_RESOURCE_A,
@@ -1290,14 +1465,14 @@ async def test_pre_horizon_active_ack_requires_proof_reset(promotion_db) -> None
     )
     signer, _private_key = _signer()
 
-    result = await promote_gpu_backend_membership(
-        factory,
+    result = await _promote_backend(
+        promotion_db,
         signer,
         backend_id,
         gpu_resource_id=_RESOURCE_A,
         membership_epoch=1,
         readiness_demoter=_demote_ready,
-        client_factory=lambda _backend: pytest.fail("unexpected mode HTTP"),
+        mode_response_handler=lambda _backend: pytest.fail("unexpected mode HTTP"),
     )
 
     assert result.status == "acknowledged"
@@ -1309,7 +1484,7 @@ async def test_stale_bound_ack_recovers_with_new_control_epoch(promotion_db) -> 
     backend_id = await _create_pending_backend(factory)
     backend_ids.append(backend_id)
     await activate_gpu_backend_membership(
-        factory,
+        promotion_db.authority_data,
         backend_id,
         gpu_resource_id=_RESOURCE_A,
         membership_epoch=1,
@@ -1317,7 +1492,7 @@ async def test_stale_bound_ack_recovers_with_new_control_epoch(promotion_db) -> 
     expired = datetime.now(UTC) - timedelta(seconds=10)
     assert (
         await advance_gpu_backend_fence(
-            factory,
+            promotion_db.authority_data,
             backend_id,
             "control_epoch",
             gpu_resource_id=_RESOURCE_A,
@@ -1328,7 +1503,7 @@ async def test_stale_bound_ack_recovers_with_new_control_epoch(promotion_db) -> 
     )
     assert (
         await advance_gpu_backend_fence(
-            factory,
+            promotion_db.authority_data,
             backend_id,
             "control_epoch",
             gpu_resource_id=_RESOURCE_A,
@@ -1359,14 +1534,14 @@ async def test_stale_bound_ack_recovers_with_new_control_epoch(promotion_db) -> 
                 control_epoch=request.control_epoch,
             )
 
-    result = await promote_gpu_backend_membership(
-        factory,
+    result = await _promote_backend(
+        promotion_db,
         signer,
         backend_id,
         gpu_resource_id=_RESOURCE_A,
         membership_epoch=1,
         readiness_demoter=_demote_ready,
-        client_factory=Client,
+        mode_response_handler=Client,
     )
 
     assert result.status == "promoted"

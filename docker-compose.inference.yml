@@ -8,11 +8,76 @@ services:
       INFERENCE_HOST: 0.0.0.0
       INFERENCE_PORT: 8768
       INFERENCE_MAX_CONCURRENCY: ${INFERENCE_MAX_CONCURRENCY:-8}
+      INFERENCE_REQUIRED_CAPABILITIES: pipelines,backend_probe,health_observation,registry_ingress,routing,execution,backend_control,gpu
+      INFERENCE_ROUTING_HEALTH_MAX_AGE_SECONDS: ${INFERENCE_ROUTING_HEALTH_MAX_AGE_SECONDS:-90}
+      INFERENCE_ROUTING_LEASE_TTL_SECONDS: ${INFERENCE_ROUTING_LEASE_TTL_SECONDS:-120}
+      GPU_ARBITER_MODE: ${GPU_ARBITER_MODE:-off}
+      GPU_ARBITER_ROLLOUT_ENABLED: ${GPU_ARBITER_ROLLOUT_ENABLED:-false}
+      GPU_ARBITER_RESOURCES_JSON: ${GPU_ARBITER_RESOURCES_JSON:-}
+      GPU_ARBITER_ADMISSION_TIMEOUT_SECONDS: ${GPU_ARBITER_ADMISSION_TIMEOUT_SECONDS:-30}
+      GPU_ARBITER_RESIDENCY_COOLDOWN_SECONDS: ${GPU_ARBITER_RESIDENCY_COOLDOWN_SECONDS:-30}
+      GPU_LIFECYCLE_ACTIVE_SIGNING_KID: ${GPU_LIFECYCLE_ACTIVE_SIGNING_KID:-}
+      ML_HEALTH_TIMEOUT: ${ML_HEALTH_TIMEOUT:-10}
+      ML_PREDICT_TIMEOUT: ${ML_PREDICT_TIMEOUT:-100}
+      VIDEO_TRACKER_WINDOW_SIZE_FRAMES: ${VIDEO_TRACKER_WINDOW_SIZE_FRAMES:-300}
+      VIDEO_TRACKER_SAM3_WINDOW_SIZE_FRAMES: ${VIDEO_TRACKER_SAM3_WINDOW_SIZE_FRAMES:-16}
       INFERENCE_PIPELINES_DATABASE_URL_FILE: /run/secrets/inference_pipelines_database_url
       INFERENCE_CONTROL_TOKEN_FILE: /run/secrets/inference_control_token
+      INFERENCE_BACKEND_PROBE_DATABASE_URL_FILE: /run/secrets/inference_backend_probe_database_url
+      INFERENCE_BACKEND_PROBE_CONTROL_TOKEN_FILE: /run/secrets/inference_backend_probe_control_token
+      INFERENCE_HEALTH_OBSERVATION_DATABASE_URL_FILE: /run/secrets/inference_health_observation_database_url
+      INFERENCE_HEALTH_OBSERVATION_TOKEN_FILE: /run/secrets/inference_health_observation_token
+      INFERENCE_REGISTRY_INGRESS_DATABASE_URL_FILE: /run/secrets/inference_registry_ingress_database_url
+      INFERENCE_REGISTRY_INGRESS_TOKEN_FILE: /run/secrets/inference_registry_ingress_token
+      INFERENCE_ROUTING_DATABASE_URL_FILE: /run/secrets/inference_routing_database_url
+      INFERENCE_ROUTING_TOKEN_FILE: /run/secrets/inference_routing_token
+      INFERENCE_MODEL_EXECUTION_TOKEN_FILE: /run/secrets/inference_model_execution_token
+      INFERENCE_BACKEND_CONTROL_TOKEN_FILE: /run/secrets/inference_backend_control_token
+      INFERENCE_GPU_TOKEN_FILE: /run/secrets/inference_gpu_token
+      INFERENCE_HEALTH_DATA_DATABASE_URL_FILE: /run/secrets/inference_health_data_database_url
+      INFERENCE_BACKEND_STATS_DATABASE_URL_FILE: /run/secrets/inference_backend_stats_database_url
+      INFERENCE_GPU_DATABASE_URL_FILE: /run/secrets/inference_gpu_database_url
+      INFERENCE_GPU_REDIS_URL_FILE: /run/secrets/inference_gpu_redis_url
+      GPU_LIFECYCLE_SIGNING_KEYS_FILE: /run/secrets/gpu_lifecycle_signing_keys
+      GPU_ARBITER_COLLECTOR_DATABASE_URL_FILE: /run/secrets/gpu_arbiter_collector_database_url
+      INFERENCE_BACKEND_ENDPOINT_SETUP_DATABASE_URL_FILE: /run/secrets/inference_backend_endpoint_setup_database_url
+      INFERENCE_BACKEND_ENDPOINT_HEALTH_OBSERVATION_DATABASE_URL_FILE: /run/secrets/inference_backend_endpoint_health_observation_database_url
+      INFERENCE_BACKEND_ENDPOINT_CATALOG_FALLBACK_DATABASE_URL_FILE: /run/secrets/inference_backend_endpoint_catalog_fallback_database_url
+      INFERENCE_BACKEND_ENDPOINT_STATS_DATABASE_URL_FILE: /run/secrets/inference_backend_endpoint_stats_database_url
+      INFERENCE_BACKEND_ENDPOINT_BACKEND_READ_DATABASE_URL_FILE: /run/secrets/inference_backend_endpoint_backend_read_database_url
+      INFERENCE_BACKEND_ENDPOINT_LIFECYCLE_DATABASE_URL_FILE: /run/secrets/inference_backend_endpoint_lifecycle_database_url
+      INFERENCE_BACKEND_ENDPOINT_EXECUTION_DATABASE_URL_FILE: /run/secrets/inference_backend_endpoint_execution_database_url
+      INFERENCE_GPU_ENDPOINT_HEALTH_OBSERVATION_DATABASE_URL_FILE: /run/secrets/inference_gpu_endpoint_health_observation_database_url
+      INFERENCE_GPU_ENDPOINT_GPU_CONTROL_DATABASE_URL_FILE: /run/secrets/inference_gpu_endpoint_gpu_control_database_url
     secrets:
       - inference_pipelines_database_url
       - inference_control_token
+      - inference_backend_probe_database_url
+      - inference_backend_probe_control_token
+      - inference_health_observation_database_url
+      - inference_health_observation_token
+      - inference_registry_ingress_database_url
+      - inference_registry_ingress_token
+      - inference_routing_database_url
+      - inference_routing_token
+      - inference_model_execution_token
+      - inference_backend_control_token
+      - inference_gpu_token
+      - inference_health_data_database_url
+      - inference_backend_stats_database_url
+      - inference_gpu_database_url
+      - inference_gpu_redis_url
+      - gpu_lifecycle_signing_keys
+      - gpu_arbiter_collector_database_url
+      - inference_backend_endpoint_setup_database_url
+      - inference_backend_endpoint_health_observation_database_url
+      - inference_backend_endpoint_catalog_fallback_database_url
+      - inference_backend_endpoint_stats_database_url
+      - inference_backend_endpoint_backend_read_database_url
+      - inference_backend_endpoint_lifecycle_database_url
+      - inference_backend_endpoint_execution_database_url
+      - inference_gpu_endpoint_health_observation_database_url
+      - inference_gpu_endpoint_gpu_control_database_url
     ports:
       - "127.0.0.1:8768:8768"
     read_only: true
@@ -26,6 +91,58 @@ services:
 
 secrets:
   inference_pipelines_database_url:
-    file: ${INFERENCE_RUNTIME_PIPELINES_DATABASE_URL_FILE:?Set Inference pipeline function-only DSN file}
+    file: ${INFERENCE_RUNTIME_PIPELINES_DATABASE_URL_FILE:?Set the owner-only inference_pipelines_database_url secret file}
   inference_control_token:
-    file: ${INFERENCE_RUNTIME_CONTROL_TOKEN_FILE:?Set Inference private bearer file}
+    file: ${INFERENCE_RUNTIME_CONTROL_TOKEN_FILE:?Set the owner-only inference_control_token secret file}
+  inference_backend_probe_database_url:
+    file: ${INFERENCE_RUNTIME_BACKEND_PROBE_DATABASE_URL_FILE:?Set the owner-only inference_backend_probe_database_url secret file}
+  inference_backend_probe_control_token:
+    file: ${INFERENCE_RUNTIME_BACKEND_PROBE_CONTROL_TOKEN_FILE:?Set the owner-only inference_backend_probe_control_token secret file}
+  inference_health_observation_database_url:
+    file: ${INFERENCE_RUNTIME_HEALTH_OBSERVATION_DATABASE_URL_FILE:?Set the owner-only inference_health_observation_database_url secret file}
+  inference_health_observation_token:
+    file: ${INFERENCE_RUNTIME_HEALTH_OBSERVATION_TOKEN_FILE:?Set the owner-only inference_health_observation_token secret file}
+  inference_registry_ingress_database_url:
+    file: ${INFERENCE_RUNTIME_REGISTRY_INGRESS_DATABASE_URL_FILE:?Set the owner-only inference_registry_ingress_database_url secret file}
+  inference_registry_ingress_token:
+    file: ${INFERENCE_RUNTIME_REGISTRY_INGRESS_TOKEN_FILE:?Set the owner-only inference_registry_ingress_token secret file}
+  inference_routing_database_url:
+    file: ${INFERENCE_RUNTIME_ROUTING_DATABASE_URL_FILE:?Set the owner-only inference_routing_database_url secret file}
+  inference_routing_token:
+    file: ${INFERENCE_RUNTIME_ROUTING_TOKEN_FILE:?Set the owner-only inference_routing_token secret file}
+  inference_model_execution_token:
+    file: ${INFERENCE_RUNTIME_MODEL_EXECUTION_TOKEN_FILE:?Set the owner-only inference_model_execution_token secret file}
+  inference_backend_control_token:
+    file: ${INFERENCE_RUNTIME_BACKEND_CONTROL_TOKEN_FILE:?Set the owner-only inference_backend_control_token secret file}
+  inference_gpu_token:
+    file: ${INFERENCE_RUNTIME_GPU_TOKEN_FILE:?Set the owner-only inference_gpu_token secret file}
+  inference_health_data_database_url:
+    file: ${INFERENCE_RUNTIME_HEALTH_DATA_DATABASE_URL_FILE:?Set the owner-only inference_health_data_database_url secret file}
+  inference_backend_stats_database_url:
+    file: ${INFERENCE_RUNTIME_BACKEND_STATS_DATABASE_URL_FILE:?Set the owner-only inference_backend_stats_database_url secret file}
+  inference_gpu_database_url:
+    file: ${INFERENCE_RUNTIME_GPU_DATABASE_URL_FILE:?Set the owner-only inference_gpu_database_url secret file}
+  inference_gpu_redis_url:
+    file: ${INFERENCE_RUNTIME_GPU_REDIS_URL_FILE:?Set the owner-only inference_gpu_redis_url secret file}
+  gpu_lifecycle_signing_keys:
+    file: ${INFERENCE_RUNTIME_GPU_SIGNING_KEYS_FILE:?Set the owner-only gpu_lifecycle_signing_keys secret file}
+  gpu_arbiter_collector_database_url:
+    file: ${INFERENCE_RUNTIME_GPU_COLLECTOR_DATABASE_URL_FILE:?Set the owner-only gpu_arbiter_collector_database_url secret file}
+  inference_backend_endpoint_setup_database_url:
+    file: ${INFERENCE_RUNTIME_BACKEND_ENDPOINT_SETUP_DATABASE_URL_FILE:?Set the owner-only inference_backend_endpoint_setup_database_url secret file}
+  inference_backend_endpoint_health_observation_database_url:
+    file: ${INFERENCE_RUNTIME_BACKEND_ENDPOINT_HEALTH_OBSERVATION_DATABASE_URL_FILE:?Set the owner-only inference_backend_endpoint_health_observation_database_url secret file}
+  inference_backend_endpoint_catalog_fallback_database_url:
+    file: ${INFERENCE_RUNTIME_BACKEND_ENDPOINT_CATALOG_FALLBACK_DATABASE_URL_FILE:?Set the owner-only inference_backend_endpoint_catalog_fallback_database_url secret file}
+  inference_backend_endpoint_stats_database_url:
+    file: ${INFERENCE_RUNTIME_BACKEND_ENDPOINT_STATS_DATABASE_URL_FILE:?Set the owner-only inference_backend_endpoint_stats_database_url secret file}
+  inference_backend_endpoint_backend_read_database_url:
+    file: ${INFERENCE_RUNTIME_BACKEND_ENDPOINT_BACKEND_READ_DATABASE_URL_FILE:?Set the owner-only inference_backend_endpoint_backend_read_database_url secret file}
+  inference_backend_endpoint_lifecycle_database_url:
+    file: ${INFERENCE_RUNTIME_BACKEND_ENDPOINT_LIFECYCLE_DATABASE_URL_FILE:?Set the owner-only inference_backend_endpoint_lifecycle_database_url secret file}
+  inference_backend_endpoint_execution_database_url:
+    file: ${INFERENCE_RUNTIME_BACKEND_ENDPOINT_EXECUTION_DATABASE_URL_FILE:?Set the owner-only inference_backend_endpoint_execution_database_url secret file}
+  inference_gpu_endpoint_health_observation_database_url:
+    file: ${INFERENCE_RUNTIME_GPU_ENDPOINT_HEALTH_OBSERVATION_DATABASE_URL_FILE:?Set the owner-only inference_gpu_endpoint_health_observation_database_url secret file}
+  inference_gpu_endpoint_gpu_control_database_url:
+    file: ${INFERENCE_RUNTIME_GPU_ENDPOINT_GPU_CONTROL_DATABASE_URL_FILE:?Set the owner-only inference_gpu_endpoint_gpu_control_database_url secret file}

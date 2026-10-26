@@ -150,8 +150,6 @@ async def test_installed_entrypoint_replays_after_restart_and_api_never_falls_ba
             "inference_routing_url": url,
             "inference_routing_token": token,
             "inference_routing_token_file": "",
-            "inference_routing_database_url": "",
-            "inference_routing_database_url_file": "",
             "inference_routing_timeout_seconds": 1,
         }.items():
             monkeypatch.setattr(settings, name, value)
@@ -162,7 +160,7 @@ async def test_installed_entrypoint_replays_after_restart_and_api_never_falls_ba
             scope.registry_id,
         )
         with pytest.raises(RoutingUnavailable):
-            await RoutingAuthority(test_engine).acquire(registry_id=scope.registry_id)
+            await RoutingAuthority().acquire(registry_id=scope.registry_id)
         assert (
             await owner.fetchval(
                 "SELECT count(*) FROM aap_inference_routing_v1.scopes WHERE registry_id=$1",

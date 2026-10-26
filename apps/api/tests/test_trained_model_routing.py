@@ -1,15 +1,13 @@
 """Controlled routing never selects another physical model instance."""
 
 import uuid
-from contextlib import asynccontextmanager
-from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
 
-from app.services.ml_routing.client import RoutedMLBackendClient
-from app.services.ml_routing.contracts import RejectionReason, RouterMode, RoutingError
+from aap_inference_contract.execution import ModelTaskResult
+from app.services import trained_models
+from app.services.ml_routing.contracts import RejectionReason, RouterMode
 from app.services.ml_routing.router import MLBackendRouter
 from app.services.trained_model_reference_contract import FreezeModelReferenceError
 from tests.factory import create_project
@@ -79,100 +77,65 @@ async def test_target_filter_does_not_create_a_fake_singleton_fingerprint_exempt
     )
 
 
-@pytest.mark.parametrize(
-    "mode", [RouterMode.OFF, RouterMode.OBSERVE, RouterMode.ENFORCE]
-)
-async def test_controlled_route_cannot_enter_the_unpooled_legacy_fallback(
-    db_session, super_admin, mode, monkeypatch
-):
+async def test_controlled_route_rejects_unpooled_registry(db_session, super_admin):
     user, _ = super_admin
     project = await create_project(db_session, owner_id=user.id)
-    client = RoutedMLBackendClient(
-        db_session,
-        uuid.uuid4(),
-        project_id=project.id,
-        owner="test",
-        operation="predict",
-        mode=mode,
-    )
-    monkeypatch.setattr(client, "_pool", AsyncMock(return_value=None))
-    with pytest.raises(RoutingError):
-        async with client._routed_transport(
-            required_instance_id=client.requested_registry_id
-        ):
-            pytest.fail("Unpooled controlled request must never receive a transport")
+    with pytest.raises(HTTPException) as error:
+        await trained_models.assert_routable_backend(
+            db_session, project.id, uuid.uuid4()
+        )
+    assert error.value.status_code == 409
 
 
-@pytest.mark.parametrize("returned_ids", [["other"], [], ["wanted", "wanted"]])
-async def test_controlled_response_must_match_requested_task_identities(
-    monkeypatch, returned_ids
-):
-    from app.services import trained_models
-
-    target = uuid.uuid4()
+def test_controlled_result_mapping_preserves_task_identity_and_immutability():
     ref = {
         "model_version_id": str(uuid.uuid4()),
         "sha256": "a" * 64,
         "classes_digest": "b" * 64,
+        "classes": ["car"],
+        "bindings": ["vehicle"],
     }
-    client = RoutedMLBackendClient(
-        None, target, project_id=uuid.uuid4(), owner="test", operation="predict"
-    )
-    reference_port = SimpleNamespace(validate=AsyncMock(return_value=target))
-    monkeypatch.setattr(
-        trained_models,
-        "bind_frozen_model_reference",
-        lambda _db: reference_port,
-    )
-
-    @asynccontextmanager
-    async def transport(**kwargs):
-        assert kwargs == {"required_instance_id": target}
-        yield SimpleNamespace(
-            predict=AsyncMock(
-                return_value=[SimpleNamespace(task_id=value) for value in returned_ids]
-            )
-        )
-
-    monkeypatch.setattr(client, "_routed_transport", transport)
-    with pytest.raises(ValueError, match="task identities"):
-        await client.predict(
-            [{"id": "wanted"}],
-            context={
-                "model_id": "trained:" + ref["model_version_id"],
-                "frozen_model_ref": ref,
+    result = ModelTaskResult(
+        task_id="wanted",
+        result=(
+            {
+                "type": "rectanglelabels",
+                "native_class_index": 0,
+                "score": 0.8,
+                "value": {
+                    "x": 1,
+                    "y": 2,
+                    "width": 3,
+                    "height": 4,
+                    "rectanglelabels": ["car"],
+                },
             },
-        )
-
-
-async def test_frozen_reference_forbidden_error_keeps_http_projection(monkeypatch):
-    from app.services import trained_models
-
-    target = uuid.uuid4()
-    client = RoutedMLBackendClient(
-        None, target, project_id=uuid.uuid4(), owner="test", operation="predict"
+        ),
+        meta={
+            "trained_model": {
+                key: ref[key]
+                for key in ("model_version_id", "sha256", "classes_digest")
+            }
+        },
     )
+    mapped = trained_models.validate_and_map_results((result,), ref)[0]
+
+    assert mapped.task_id == "wanted"
+    assert result.result[0]["value"]["rectanglelabels"] == ("car",)
+    assert mapped.result[0]["value"]["rectanglelabels"] == ("vehicle",)
+    assert mapped.model_version == f"trained:{ref['model_version_id']}"
+
+
+def test_frozen_reference_forbidden_error_keeps_http_projection():
     error = FreezeModelReferenceError(
         "project_access_changed",
         "permission changed",
         status_code=403,
         detail={"reason": "permission_changed"},
     )
-    reference_port = SimpleNamespace(validate=AsyncMock(side_effect=error))
-    monkeypatch.setattr(
-        trained_models,
-        "bind_frozen_model_reference",
-        lambda _db: reference_port,
-    )
 
     with pytest.raises(HTTPException) as failure:
-        await client.predict(
-            [{"id": "wanted"}],
-            context={
-                "model_id": "trained:version",
-                "frozen_model_ref": {"model_version_id": "version"},
-            },
-        )
+        trained_models.raise_frozen_model_reference_error(error)
 
     assert failure.value.status_code == 403
     assert failure.value.detail == {"reason": "permission_changed"}

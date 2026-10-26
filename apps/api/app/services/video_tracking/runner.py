@@ -26,10 +26,16 @@ from aap_preannotation_results.video_window_checkpoint import (
 )
 from sqlalchemy import inspect
 from sqlalchemy.exc import InvalidRequestError, SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm.util import identity_key
 from training_contract.observability import redact_text
 
+from aap_inference.tracker import TrackerFrameResult, TrackerSessionState
+from aap_inference_contract.execution import ModelExecutionError, thaw_json
+from aap_inference.gpu.contracts import (
+    GPUArbiterErrorCode,
+    gpu_arbiter_failure_record,
+)
 from aap_assets_video_inputs import tracker as tracker_inputs
 from aap_assets_video_inputs.tracker import TrackerFailure
 from app.config import settings
@@ -58,11 +64,6 @@ from aap_labeling.video_control_contract import (
 )
 from app.services.annotation_evidence import record_annotation_actors_for_tasks
 from app.services.annotation_propagation import _new_track_id
-from app.services.gpu_arbitration.contracts import (
-    GPUDispatchContextFactory,
-    GPUShadowSessionFactory,
-    gpu_arbiter_failure_record,
-)
 from app.services.ml_backend import MLBackendService
 from app.services.ml_routing.contracts import (
     RejectionReason,
@@ -81,12 +82,7 @@ from app.services.raster_mask_storage import (
 from app.services.mask_qc.service import load_mask_qc_issue
 from app.services.mask_qc.topology import rle_and, rle_replace_region, rle_xor
 from app.services.video_collaboration import segment_work_bounds_for_task
-from app.services.video_tracking.adapters import (
-    TrackerContext,
-    TrackerFrameResult,
-    TrackerSession,
-    get_tracker_adapter,
-)
+from app.services.video_tracking.adapters import TrackerContext, get_tracker_adapter
 from app.services.video_tracking.tracker_mask_roots import (
     TrackerMaskRootOwnerChanged,
     retain_tracker_output_mask,
@@ -137,6 +133,36 @@ log = logging.getLogger(__name__)
 
 TrackerEventPublisher = Callable[[str, dict], Awaitable[None]]
 MAX_TRACKER_STAGED_BYTES = 64 * 1024 * 1024
+
+_GPU_ERROR_CODES = frozenset(code.value for code in GPUArbiterErrorCode)
+
+
+def _gpu_failure_record(error: Exception) -> dict | None:
+    cause = error
+    while cause is not None:
+        record = gpu_arbiter_failure_record(cause)
+        if record is not None:
+            return record
+        cause = cause.__cause__
+    if not isinstance(error, ModelExecutionError):
+        return None
+    failure = error.failure
+    if failure.code not in _GPU_ERROR_CODES:
+        return None
+    detail = thaw_json(failure.detail)
+    message = detail.get("message") if isinstance(detail, dict) else None
+    retry_after_s = None
+    if failure.retry_after is not None:
+        try:
+            retry_after_s = int(failure.retry_after)
+        except (TypeError, ValueError):
+            retry_after_s = None
+    return {
+        "error_code": failure.code,
+        "status_code": failure.status_code,
+        "retry_after_s": retry_after_s,
+        "message": message or failure.code,
+    }
 
 
 @dataclass(frozen=True)
@@ -1134,7 +1160,7 @@ def _serialize_results(results: list[TrackerFrameResult]) -> list[dict]:
     for result in results:
         row = {
             "frame_index": result.frame_index,
-            "geometry": result.geometry,
+            "geometry": thaw_json(result.geometry),
             "confidence": result.confidence,
             "outside": result.outside,
             "instance_id": result.instance_id,
@@ -3244,8 +3270,7 @@ async def run_tracker_job(
     job_id: uuid.UUID,
     *,
     publisher: TrackerEventPublisher = publish_tracker_event,
-    shadow_session_factory: GPUShadowSessionFactory | None = None,
-    dispatch_context_factory: GPUDispatchContextFactory | None = None,
+    shadow_session_factory: async_sessionmaker[AsyncSession] | None = None,
     failure_recorder: Callable[[dict], None] | None = None,
     tracker_input_ready=None,
     celery_task_id: str | None = None,
@@ -3282,7 +3307,6 @@ async def run_tracker_job(
                     job_id,
                     publisher=publisher,
                     shadow_session_factory=shadow_session_factory,
-                    dispatch_context_factory=dispatch_context_factory,
                     failure_recorder=failure_recorder,
                     tracker_input_ready=tracker_input_ready,
                     celery_task_id=celery_task_id,
@@ -3332,8 +3356,7 @@ async def _run_tracker_job_claimed(
     job_id: uuid.UUID,
     *,
     publisher: TrackerEventPublisher = publish_tracker_event,
-    shadow_session_factory: GPUShadowSessionFactory | None = None,
-    dispatch_context_factory: GPUDispatchContextFactory | None = None,
+    shadow_session_factory: async_sessionmaker[AsyncSession] | None = None,
     failure_recorder: Callable[[dict], None] | None = None,
     tracker_input_ready=None,
     celery_task_id: str | None = None,
@@ -3672,6 +3695,35 @@ async def _run_tracker_job_claimed(
                 backend.id,
                 settings.ml_backend_router_mode,
             )
+        if backend is not None and (
+            tracker_lease is None or tracker_lease.scope is None
+        ):
+            raise TrackerExecutionDeferred("routing_unavailable")
+        tracker_bound_route = tracker_lease.scope if tracker_lease is not None else None
+        tracker_instance_id = (
+            uuid.UUID(str(backend.id)) if backend is not None else None
+        )
+        tracker_execution_context = {
+            "db": db,
+            "bound_route": tracker_bound_route,
+            "requested_registry_id": tracker_instance_id,
+            "required_instance_id": tracker_instance_id,
+        }
+
+        def validate_pinned_provenance(propagation) -> None:
+            if tracker_instance_id is None:
+                return
+            provenance = propagation.provenance
+            if (
+                tracker_bound_route is None
+                or provenance is None
+                or provenance.registry_id != tracker_instance_id
+                or provenance.instance_id != tracker_instance_id
+                or provenance.route_scope_id != tracker_bound_route.id
+                or provenance.pool_id != tracker_bound_route.pool_id
+            ):
+                raise TrackerExecutionDeferred("checkpoint_backend_identity_changed")
+
         runtime_snapshot = None
         if (
             tracker_router is not None
@@ -3826,7 +3878,7 @@ async def _run_tracker_job_claimed(
             for index, window in enumerate(track_windows)
             if window.context_span.mode == "session"
         }
-        active_session: TrackerSession | None = None
+        active_session: TrackerSessionState | None = None
         active_session_span: tuple[int, int, str] | None = None
         active_session_span_digest: str | None = None
 
@@ -3859,8 +3911,6 @@ async def _run_tracker_job_claimed(
             nonlocal active_session, active_session_span, active_session_span_digest
             if active_session is None or active_session_span is None:
                 return
-            if backend is not None:
-                await db.refresh(backend)
             close_ctx = TrackerContext(
                 job_id=tracker_job_id,
                 task_id=tracker_task_id,
@@ -3873,16 +3923,18 @@ async def _run_tracker_job_claimed(
                 prompt=accepted_prompt,
                 source_geometry=last_geometry,
                 task_data=task_data,
-                ml_backend=backend,
-                shadow_session_factory=shadow_session_factory,
-                dispatch_context_factory=dispatch_context_factory,
+                **tracker_execution_context,
                 sam_variant=accepted_prompt.get("sam_variant"),
                 session=replace(active_session, action="close"),
                 model_id=frozen_plan.backend_compatibility[0].model_id,
                 outside_threshold=outside_threshold,
+                correlation={
+                    "phase": "session_close",
+                    "span_digest": active_session_span_digest,
+                },
             )
-            async for _ in adapter.propagate(close_ctx):
-                pass
+            close_result = await adapter.propagate(close_ctx)
+            validate_pinned_provenance(close_result)
             completed_span = active_session_span_digest
             active_session = None
             active_session_span = None
@@ -3964,9 +4016,6 @@ async def _run_tracker_job_claimed(
                     return await finalize_cancelled_tracker()
                 task_data["file_path"] = tracker_input_reference.url
                 attempt = await window_journal.begin(discovery_window)
-                if backend is not None:
-                    await db.refresh(backend)
-                observed_response = []
                 discovery_ctx = TrackerContext(
                     job_id=tracker_job_id,
                     task_id=tracker_task_id,
@@ -3979,19 +4028,22 @@ async def _run_tracker_job_claimed(
                     prompt=accepted_prompt,
                     source_geometry={},
                     task_data=task_data,
-                    ml_backend=backend,
-                    shadow_session_factory=shadow_session_factory,
-                    dispatch_context_factory=dispatch_context_factory,
+                    **tracker_execution_context,
                     text=discovery_text,
                     exemplars=accepted_prompt.get("exemplars"),
                     output_geometry=output_geometry,
-                    response_digest=observed_response,
                     model_id=frozen_plan.backend_compatibility[1].model_id,
                     outside_threshold=outside_threshold,
+                    correlation={
+                        "phase": "discovery",
+                        "window_ordinal": discovery_window.ordinal,
+                    },
                 )
                 discovery_adapter = get_tracker_adapter("sam3_video")
+                discovery_result = await discovery_adapter.propagate(discovery_ctx)
+                validate_pinned_provenance(discovery_result)
                 discovery_results = []
-                async for result in discovery_adapter.propagate(discovery_ctx):
+                for result in discovery_result.frames:
                     try:
                         discovery_results.append(
                             await _materialize_tracker_mask_result(
@@ -4004,12 +4056,12 @@ async def _run_tracker_job_claimed(
                         )
                     except TrackerMaskWriteCancelled:
                         return await finalize_cancelled_tracker()
-                if len(observed_response) != 1:
+                if not discovery_result.response_digest:
                     raise TrackerExecutionDeferred("response_identity_unavailable")
                 discovery_payload = make_video_window_checkpoint_payload(
                     plan=frozen_plan,
                     window_ordinal=discovery_window.ordinal,
-                    raw_response_digest=observed_response[0],
+                    raw_response_digest=discovery_result.response_digest,
                     frame_results=_serialize_results(discovery_results),
                     continuation=None,
                 )
@@ -4062,7 +4114,8 @@ async def _run_tracker_job_claimed(
             if active_session is not None and span_key != active_session_span:
                 await close_active_session()
             if span_key is not None and active_session is None:
-                active_session = TrackerSession(
+                active_session = TrackerSessionState(
+                    action="start",
                     span_start_frame=span[0],
                     span_end_frame=span[1],
                 )
@@ -4097,9 +4150,6 @@ async def _run_tracker_job_claimed(
             else:
                 window_seeds = None
             attempt = await window_journal.begin(window)
-            if backend is not None:
-                await db.refresh(backend)
-            observed_response = []
             ctx = TrackerContext(
                 job_id=tracker_job_id,
                 task_id=tracker_task_id,
@@ -4112,9 +4162,7 @@ async def _run_tracker_job_claimed(
                 prompt=accepted_prompt,
                 source_geometry=last_geometry,
                 task_data=task_data,
-                ml_backend=backend,
-                shadow_session_factory=shadow_session_factory,
-                dispatch_context_factory=dispatch_context_factory,
+                **tracker_execution_context,
                 sam_variant=accepted_prompt.get("sam_variant"),  # v0.10.36
                 # v0.21.19 · text-driven 追踪的 text/exemplars 从 prompt JSONB 读出透传。
                 text=accepted_prompt.get("text"),
@@ -4124,14 +4172,26 @@ async def _run_tracker_job_claimed(
                 # v0.21.27 · U-pvs-1 · 种子窗原始种子 / 后续窗多实例续种 (见上)。
                 seeds=window_seeds,
                 session=active_session,
-                response_digest=observed_response,
                 model_id=frozen_plan.backend_compatibility[0].model_id,
                 outside_threshold=outside_threshold,
+                correlation={
+                    "phase": "track",
+                    "window_ordinal": window.ordinal,
+                    "context_span_digest": window.context_span.span_digest,
+                },
             )
             # v0.21.28 · B-mx · 逐窗缓冲结果; 窗末对 text-multiplex 做跨窗 IoU 关联 (remap
             # 窗内 obj_id → 全局 instance_id) 后再并入 results。非 multiplex 时缓冲即透传。
             window_results: list[TrackerFrameResult] = []
-            async for result in adapter.propagate(ctx):
+            propagation = await adapter.propagate(ctx)
+            validate_pinned_provenance(propagation)
+            if active_session is not None:
+                if propagation.session is None:
+                    raise TrackerExecutionDeferred("tracker_context_lost")
+                active_session = propagation.session
+            if not propagation.response_digest:
+                raise TrackerExecutionDeferred("response_identity_unavailable")
+            for result in propagation.frames:
                 if heartbeat_failed:
                     raise RuntimeError("tracker route lease heartbeat failed")
                 if is_correction and result.frame_index == execution.correction_frame:
@@ -4249,12 +4309,10 @@ async def _run_tracker_job_claimed(
                         last_geom_by_instance[result.instance_id] = result.geometry
                     if result.instance_id is None or result.primary:
                         last_geometry = result.geometry
-            if len(observed_response) != 1:
-                raise TrackerExecutionDeferred("response_identity_unavailable")
             payload = make_video_window_checkpoint_payload(
                 plan=frozen_plan,
                 window_ordinal=window.ordinal,
-                raw_response_digest=observed_response[0],
+                raw_response_digest=propagation.response_digest,
                 frame_results=_serialize_results(window_results),
                 continuation=current_continuation(),
                 predecessor_checkpoint=window_journal.predecessor(window),
@@ -4309,7 +4367,7 @@ async def _run_tracker_job_claimed(
             type(exc).__name__,
             safe_message,
         )
-        gpu_arbiter_error = gpu_arbiter_failure_record(exc)
+        gpu_arbiter_error = _gpu_failure_record(exc)
         if gpu_arbiter_error is not None and failure_recorder is not None:
             failure_recorder(gpu_arbiter_error)
         message = (

@@ -15,15 +15,26 @@ require_project_owner；会新建或修改全局注册行的端点只允许 supe
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 
 from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBackendPool
 from app.db.models.project import Project
-from app.services.gpu_arbitration.contracts import (
+from aap_inference.gpu.contracts import (
     GPUArbiterDispatchError,
     GPUArbiterErrorCode,
 )
+
 from tests.conftest import create_registry_with_pool
 from tests.factory import create_membership
+
+
+def _patch_control(monkeypatch, **methods):
+    control = SimpleNamespace(**methods)
+    monkeypatch.setattr(
+        "app.api.v1.ml_backends.backend_control_service",
+        lambda _db: control,
+    )
+    return control
 
 
 async def _seed_project(db, owner_id) -> Project:
@@ -195,25 +206,24 @@ async def test_unload_denied_for_owning_project_admin(
 async def test_unload_allowed_for_super_admin(
     httpx_client, super_admin, db_session, monkeypatch
 ):
-    """super_admin 通过鉴权闸 (service 已 mock, backend HTTP 不打真网) → 200。"""
     owner, admin_token = super_admin
     proj = await _seed_project(db_session, owner.id)
     backend = await _seed_backend(db_session, proj.id)
     await db_session.commit()
 
-    async def _fake_unload(self, registry_id, *, expected_topology):
+    async def unload(registry_id, *, expected_topology):
         assert registry_id == backend.id
         assert expected_topology is None
         return {"ok": True, "unloaded": True, "loaded": False}
 
-    async def _allow_quiescent(*_args, **_kwargs):
+    async def allow_quiescent(*_args, **_kwargs):
         return None
 
     monkeypatch.setattr(
         "app.services.ml_routing.safety.require_registry_quiescent",
-        _allow_quiescent,
+        allow_quiescent,
     )
-    monkeypatch.setattr("app.services.ml_backend.MLBackendService.unload", _fake_unload)
+    _patch_control(monkeypatch, unload=unload)
     resp = await httpx_client.post(
         f"/api/v1/projects/{proj.id}/ml-backends/{backend.id}/unload",
         headers={"Authorization": f"Bearer {admin_token}"},
@@ -246,12 +256,11 @@ async def test_reload_allowed_for_super_admin(
     backend = await _seed_backend(db_session, proj.id)
     await db_session.commit()
 
-    async def _fake_reload(
-        self, registry_id, sam_variant=None, dino_variant=None, modality=None
-    ):
+    async def reload(registry_id, **_kwargs):
+        assert registry_id == backend.id
         return {"ok": True, "reloaded": True}
 
-    monkeypatch.setattr("app.services.ml_backend.MLBackendService.reload", _fake_reload)
+    _patch_control(monkeypatch, reload=reload)
     resp = await httpx_client.post(
         f"/api/v1/projects/{proj.id}/ml-backends/{backend.id}/reload",
         headers={"Authorization": f"Bearer {admin_token}"},
@@ -274,18 +283,19 @@ async def test_residency_routes_preserve_gpu_arbiter_error_contract(
             retry_after_s=7,
         )
 
-    async def _allow_quiescent(*_args, **_kwargs):
+    async def allow_quiescent(*_args, **_kwargs):
         return None
 
     monkeypatch.setattr(
         "app.services.ml_routing.safety.require_registry_quiescent",
-        _allow_quiescent,
+        allow_quiescent,
     )
-    for method in ("unload", "reload", "warmup"):
-        monkeypatch.setattr(
-            f"app.services.ml_backend.MLBackendService.{method}",
-            _reject,
-        )
+    _patch_control(
+        monkeypatch,
+        unload=_reject,
+        reload=_reject,
+        warmup=_reject,
+    )
 
     for operation in ("unload", "reload", "warmup"):
         response = await httpx_client.post(
@@ -340,10 +350,12 @@ async def test_warmup_allowed_for_owning_project_admin(
     backend = await _seed_backend(db_session, proj.id)
     await db_session.commit()
 
-    async def _fake_warmup(self, registry_id, body):
+    async def warmup(registry_id, body):
+        assert registry_id == backend.id
+        assert body == {}
         return {"ok": True, "cache_hit": False}
 
-    monkeypatch.setattr("app.services.ml_backend.MLBackendService.warmup", _fake_warmup)
+    _patch_control(monkeypatch, warmup=warmup)
     resp = await httpx_client.post(
         f"/api/v1/projects/{proj.id}/ml-backends/{backend.id}/warmup",
         json={},

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -20,23 +21,14 @@ from sqlalchemy.ext.asyncio import (
 
 from app.config import GPUArbiterMode, settings
 from app.db.models.async_job import AsyncJob, AsyncJobStatus
-from app.db.models.gpu_arbiter_rollout import GPUArbiterRollout
 from app.db.models.gpu_backend_fence import GPUBackendFence
 from app.db.models.ml_backend_pool import MLBackendServicePool
 from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBackendPool
 from app.db.models.project import Project
 from app.db.models.user import User
-from app.services.gpu_arbitration.contracts import (
+from aap_inference.gpu.contracts import (
     GPUArbiterDispatchError,
     GPUArbiterErrorCode,
-)
-from app.services.gpu_arbitration.reconciliation import (
-    GPUResourceRuntimeObservation,
-)
-from app.services.gpu_arbitration.rollout_state import (
-    begin_gpu_arbiter_rollout,
-    block_gpu_arbiter_rollout,
-    complete_gpu_arbiter_rollout,
 )
 from app.services.ml_backend import MLBackendService
 from app.services.ml_routing.contracts import RoutingCandidate, TrafficState
@@ -106,55 +98,144 @@ def _configure_gpu(
     return resource_id
 
 
-@pytest.fixture
-async def cleanup_gpu_rollout_rows(
-    test_engine: AsyncEngine,
-    db_session: AsyncSession,
+def _gpu_diagnostic(code, level, *, resource_id=None, backend_id=None):
+    return {
+        "code": code,
+        "level": level,
+        "message": code,
+        "resource_id": resource_id,
+        "backend_id": backend_id,
+    }
+
+
+def _gpu_config(
+    *,
+    status="ok",
+    desired_mode="off",
+    effective_mode="off",
+    diagnostics=(),
+    rollout_enabled=False,
+    rollout_state="disabled",
+    rollout_revision=None,
+    resource_claimed_budget_mb=None,
+    allocatable_mb=None,
 ):
-    resource_ids: list[str] = []
-    yield resource_ids.append
-    if not resource_ids:
-        return
-    await db_session.rollback()
-    async with test_engine.begin() as db:
-        await db.execute(
-            text(
-                "ALTER TABLE gpu_arbiter_rollouts DISABLE TRIGGER "
-                "trg_validate_gpu_arbiter_rollout"
-            )
-        )
-        await db.execute(
-            delete(GPUArbiterRollout).where(
-                GPUArbiterRollout.gpu_resource_id.in_(resource_ids)
-            )
-        )
-        await db.execute(
-            text(
-                "ALTER TABLE gpu_arbiter_rollouts ENABLE TRIGGER "
-                "trg_validate_gpu_arbiter_rollout"
-            )
-        )
+    return {
+        "status": status,
+        "desired_mode": desired_mode,
+        "effective_mode": effective_mode,
+        "rollout_enabled": rollout_enabled,
+        "rollout_state": rollout_state,
+        "rollout_revision": rollout_revision,
+        "rollout_blocker_reason": None,
+        "allocatable_mb": allocatable_mb,
+        "resource_claimed_budget_mb": resource_claimed_budget_mb,
+        "diagnostics": list(diagnostics),
+    }
 
 
-def _runtime_observation(*, ready: bool) -> GPUResourceRuntimeObservation:
-    return GPUResourceRuntimeObservation(
-        status="ready" if ready else "not_ready",
-        reason="" if ready else "backend_gate_unconfirmed",
-        ready=ready,
-        ledger_revision=7,
-        ledger_incarnation="runtime-incarnation",
-        reconcile_deadline_ms=0,
-        committed_mb=0,
-        backend_count=1,
-        active_backend_count=1,
-        membership_state_counts={"pending": 0, "active": 1, "retiring": 0},
-        allocation_state_counts={},
-        lease_count=0,
-        card_queue_count=0,
-        backend_queue_count=0,
-        transition_present=False,
-        durable_domain_matches=True,
+def _gpu_resource(
+    resource_id,
+    *,
+    allocatable_mb=20000,
+    desired_mode="observe",
+    effective_mode="observe",
+    claimed_budget_mb=0,
+    claimed_backend_count=0,
+    diagnostics=(),
+):
+    return {
+        "gpu_resource_id": resource_id,
+        "node_id": "node-a",
+        "physical_device_token": "GPU-0",
+        "allocatable_mb": allocatable_mb,
+        "configured_mode": desired_mode,
+        "desired_mode": desired_mode,
+        "effective_mode": effective_mode,
+        "claimed_budget_mb": claimed_budget_mb,
+        "claimed_backend_count": claimed_backend_count,
+        "status": "ok",
+        "diagnostics": list(diagnostics),
+    }
+
+
+def _gpu_rollout(
+    resource_id,
+    *,
+    state="disabled",
+    effective_mode="off",
+    target_mode=None,
+    dispatch_blocked=False,
+    revision=None,
+):
+    return {
+        "resource_id": resource_id,
+        "state": state,
+        "effective_mode": effective_mode,
+        "target_mode": target_mode,
+        "dispatch_blocked": dispatch_blocked,
+        "blocked_reason": None,
+        "transition_id": None,
+        "last_transition_id": None,
+        "revision": revision,
+    }
+
+
+def _gpu_admin_authority(
+    monkeypatch,
+    *,
+    resources=(),
+    rollouts=(),
+    diagnostics=(),
+    backends=(),
+    runtime=None,
+):
+    runtime = runtime or {
+        "status": "ready",
+        "reason": "",
+        "ready": True,
+        "ledger_revision": 7,
+        "ledger_incarnation": "runtime-incarnation",
+        "reconcile_deadline_ms": 0,
+        "committed_mb": 0,
+        "backend_count": 1,
+        "active_backend_count": 1,
+        "membership_state_counts": {"pending": 0, "active": 1, "retiring": 0},
+        "allocation_state_counts": {},
+        "lease_count": 0,
+        "card_queue_count": 0,
+        "backend_queue_count": 0,
+        "transition_present": False,
+        "durable_domain_matches": True,
+    }
+    result = {
+        "resources": list(resources),
+        "rollouts": list(rollouts),
+        "diagnostics": list(diagnostics),
+        "backends": list(backends),
+    }
+
+    class RuntimeReply:
+        def model_dump(self, **_kwargs):
+            return runtime
+
+    class Authority:
+        async def get_diagnostics(self):
+            return SimpleNamespace(result=result)
+
+        async def observe_resource(self, resource_id, *, allocatable_mb):
+            assert any(
+                item["gpu_resource_id"] == resource_id for item in result["resources"]
+            )
+            assert allocatable_mb > 0
+            return RuntimeReply()
+
+    authority = Authority()
+    monkeypatch.setattr(
+        "app.api.v1.admin_ml_integrations.gpu_authority_client",
+        lambda: authority,
     )
+    return authority
 
 
 # ── admin 全局 CRUD ──────────────────────────────────────────────────────
@@ -502,12 +583,45 @@ async def test_gpu_resources_reports_per_card_oversubscription_warning(
         backend.vram_budget_mb = 12000
     await db_session.commit()
 
-    def fail_if_called(*args, **kwargs):  # noqa: ARG001
-        raise AssertionError("observe resource endpoint must not read arbiter Redis")
-
-    monkeypatch.setattr(
-        "app.api.v1.admin_ml_integrations.GPUArbiterStore.from_url",
-        fail_if_called,
+    diagnostic = _gpu_diagnostic(
+        "gpu_resource_oversubscribed", "warning", resource_id=resource_id
+    )
+    _gpu_admin_authority(
+        monkeypatch,
+        resources=[
+            _gpu_resource(
+                resource_id,
+                allocatable_mb=20000,
+                desired_mode="observe",
+                effective_mode="observe",
+                claimed_budget_mb=24000,
+                claimed_backend_count=2,
+                diagnostics=[diagnostic],
+            )
+        ],
+        rollouts=[_gpu_rollout(resource_id)],
+        runtime={
+            "status": "disabled",
+            "reason": "gpu_arbiter_disabled",
+            "ready": False,
+            "ledger_revision": None,
+            "ledger_incarnation": None,
+            "reconcile_deadline_ms": None,
+            "committed_mb": None,
+            "backend_count": 2,
+            "active_backend_count": 0,
+            "membership_state_counts": {
+                "pending": 2,
+                "active": 0,
+                "retiring": 0,
+            },
+            "allocation_state_counts": {},
+            "lease_count": None,
+            "card_queue_count": None,
+            "backend_queue_count": None,
+            "transition_present": None,
+            "durable_domain_matches": None,
+        },
     )
 
     res = await httpx_client.get(
@@ -561,6 +675,67 @@ async def test_enforce_desired_mode_reports_disabled_rollout_latch(
     backend.vram_budget_mb = 10000
     await db_session.commit()
 
+    diagnostic = _gpu_diagnostic(
+        "gpu_rollout_disabled", "blocker", resource_id=resource_id
+    )
+    _gpu_admin_authority(
+        monkeypatch,
+        resources=[
+            _gpu_resource(
+                resource_id,
+                desired_mode="enforce",
+                effective_mode="off",
+                claimed_budget_mb=10000,
+                claimed_backend_count=1,
+                diagnostics=[diagnostic],
+            )
+        ],
+        rollouts=[
+            _gpu_rollout(
+                resource_id,
+                state="disabled",
+                effective_mode="off",
+                target_mode="enforce",
+                dispatch_blocked=True,
+            )
+        ],
+        backends=[
+            {
+                "backend_id": str(backend.id),
+                "gpu_config": _gpu_config(
+                    status="blocker",
+                    desired_mode="enforce",
+                    effective_mode="off",
+                    diagnostics=[diagnostic],
+                    resource_claimed_budget_mb=10000,
+                    allocatable_mb=22000,
+                ),
+            }
+        ],
+        runtime={
+            "status": "disabled",
+            "reason": "gpu_arbiter_disabled",
+            "ready": False,
+            "ledger_revision": None,
+            "ledger_incarnation": None,
+            "reconcile_deadline_ms": None,
+            "committed_mb": None,
+            "backend_count": 1,
+            "active_backend_count": 0,
+            "membership_state_counts": {
+                "pending": 1,
+                "active": 0,
+                "retiring": 0,
+            },
+            "allocation_state_counts": {},
+            "lease_count": None,
+            "card_queue_count": None,
+            "backend_queue_count": None,
+            "transition_present": None,
+            "durable_domain_matches": None,
+        },
+    )
+
     resources = await httpx_client.get(
         "/api/v1/admin/ml-integrations/gpu-resources",
         headers={"Authorization": f"Bearer {token}"},
@@ -604,13 +779,11 @@ async def test_enforce_desired_mode_reports_disabled_rollout_latch(
         ("enforcing", False, False, "off", "gpu_rollout_active_while_disabled"),
     ),
 )
-async def test_gpu_resources_reports_durable_rollout_and_runtime_truth(
+async def test_gpu_resources_projects_rollout_and_runtime_facts(
     httpx_client,
     db_session,
-    test_engine,
     super_admin,
     monkeypatch,
-    cleanup_gpu_rollout_rows,
     rollout_state: str,
     rollout_enabled: bool,
     runtime_ready: bool,
@@ -623,56 +796,84 @@ async def test_gpu_resources_reports_durable_rollout_and_runtime_truth(
         global_mode=GPUArbiterMode.ENFORCE,
         resource_mode="enforce",
     )
-    monkeypatch.setattr(
-        settings,
-        "gpu_arbiter_rollout_enabled",
-        rollout_enabled,
-    )
+    monkeypatch.setattr(settings, "gpu_arbiter_rollout_enabled", rollout_enabled)
     backend = await _seed_registry(db_session, name=f"rollout-{rollout_state}")
     backend.gpu_resource_id = resource_id
     backend.vram_budget_mb = 10000
     await db_session.commit()
 
-    factory = async_sessionmaker(
-        test_engine,
-        class_=AsyncSession,
-        expire_on_commit=False,
+    diagnostics = (
+        [
+            _gpu_diagnostic(
+                expected_code,
+                "blocker",
+                resource_id=resource_id,
+                backend_id=backend.id,
+            )
+        ]
+        if expected_code is not None
+        else []
     )
-    cleanup_gpu_rollout_rows(resource_id)
-    promotion = await begin_gpu_arbiter_rollout(
-        factory,
-        resource_id,
-        GPUArbiterMode.ENFORCE,
-    )
-    assert promotion.transition_id is not None
-    if rollout_state == "enforcing":
-        await complete_gpu_arbiter_rollout(
-            factory,
-            resource_id,
-            promotion.transition_id,
-        )
-    else:
-        await block_gpu_arbiter_rollout(
-            factory,
-            resource_id,
-            promotion.transition_id,
-            "backend_gate_unconfirmed",
-        )
-
-    class FakeStore:
-        async def aclose(self) -> None:
-            return None
-
-    async def observe(*_args, **_kwargs):
-        return _runtime_observation(ready=runtime_ready)
-
-    monkeypatch.setattr(
-        "app.api.v1.admin_ml_integrations.GPUArbiterStore.from_url",
-        lambda *_args, **_kwargs: FakeStore(),
-    )
-    monkeypatch.setattr(
-        "app.api.v1.admin_ml_integrations.observe_gpu_resource_runtime",
-        observe,
+    _gpu_admin_authority(
+        monkeypatch,
+        resources=[
+            _gpu_resource(
+                resource_id,
+                desired_mode="enforce",
+                effective_mode=expected_effective,
+                claimed_budget_mb=10000,
+                claimed_backend_count=1,
+                diagnostics=diagnostics,
+            )
+        ],
+        rollouts=[
+            _gpu_rollout(
+                resource_id,
+                state=rollout_state,
+                effective_mode=expected_effective,
+                target_mode="enforce",
+                dispatch_blocked=not runtime_ready,
+                revision=7,
+            )
+        ],
+        backends=[
+            {
+                "backend_id": str(backend.id),
+                "gpu_config": _gpu_config(
+                    status="blocker" if expected_code else "ok",
+                    desired_mode="enforce",
+                    effective_mode=expected_effective,
+                    diagnostics=diagnostics,
+                    rollout_enabled=rollout_enabled,
+                    rollout_state=rollout_state,
+                    rollout_revision=7,
+                    resource_claimed_budget_mb=10000,
+                    allocatable_mb=22000,
+                ),
+            }
+        ],
+        runtime={
+            "status": "ready" if runtime_ready else "not_ready",
+            "reason": "" if runtime_ready else "backend_gate_unconfirmed",
+            "ready": runtime_ready,
+            "ledger_revision": 7,
+            "ledger_incarnation": "runtime-incarnation",
+            "reconcile_deadline_ms": 0,
+            "committed_mb": 0,
+            "backend_count": 1,
+            "active_backend_count": 1,
+            "membership_state_counts": {
+                "pending": 0,
+                "active": 1,
+                "retiring": 0,
+            },
+            "allocation_state_counts": {},
+            "lease_count": 0,
+            "card_queue_count": 0,
+            "backend_queue_count": 0,
+            "transition_present": False,
+            "durable_domain_matches": True,
+        },
     )
 
     resources = await httpx_client.get(
@@ -731,11 +932,69 @@ async def test_global_list_exposes_missing_claim_and_identity_blockers(
         "gpu_info": {"device_uuid": "GPU-other"},
         "compute": {"configured_device": "cuda"},
     }
-    await _seed_registry(db_session, name="unknown-device")
+    unknown = await _seed_registry(db_session, name="unknown-device")
     explicit_cpu = await _seed_registry(db_session, name="cpu-only")
     explicit_cpu.health_meta = {"compute": {"configured_device": "cpu"}}
     await db_session.commit()
 
+    _gpu_admin_authority(
+        monkeypatch,
+        backends=[
+            {
+                "backend_id": str(unclaimed.id),
+                "gpu_config": _gpu_config(
+                    status="blocker",
+                    desired_mode="observe",
+                    effective_mode="observe",
+                    diagnostics=[
+                        _gpu_diagnostic(
+                            "gpu_claim_missing", "blocker", backend_id=unclaimed.id
+                        )
+                    ],
+                ),
+            },
+            {
+                "backend_id": str(mismatch.id),
+                "gpu_config": _gpu_config(
+                    status="blocker",
+                    desired_mode="observe",
+                    effective_mode="observe",
+                    diagnostics=[
+                        _gpu_diagnostic(
+                            "gpu_identity_mismatch",
+                            "blocker",
+                            resource_id=resource_id,
+                            backend_id=mismatch.id,
+                        )
+                    ],
+                ),
+            },
+            {
+                "backend_id": str(unknown.id),
+                "gpu_config": _gpu_config(
+                    status="blocker",
+                    desired_mode="observe",
+                    effective_mode="observe",
+                    diagnostics=[
+                        _gpu_diagnostic(
+                            "gpu_claim_unknown", "blocker", backend_id=unknown.id
+                        )
+                    ],
+                ),
+            },
+            {
+                "backend_id": str(explicit_cpu.id),
+                "gpu_config": _gpu_config(
+                    status="info",
+                    diagnostics=[
+                        _gpu_diagnostic(
+                            "explicit_cpu_backend", "info", backend_id=explicit_cpu.id
+                        )
+                    ],
+                ),
+            },
+        ],
+    )
     res = await httpx_client.get(
         "/api/v1/admin/ml-integrations/all",
         headers={"Authorization": f"Bearer {token}"},
@@ -766,7 +1025,7 @@ async def test_global_list_exposes_missing_claim_and_identity_blockers(
 
 
 async def test_global_list_does_not_trust_stale_cpu_health_snapshot(
-    httpx_client, db_session, super_admin
+    httpx_client, db_session, super_admin, monkeypatch
 ):
     _, token = super_admin
     backend = await _seed_registry(db_session, name="stale-cpu")
@@ -774,6 +1033,22 @@ async def test_global_list_does_not_trust_stale_cpu_health_snapshot(
     backend.last_checked_at = datetime.now(UTC) - timedelta(minutes=4)
     await db_session.commit()
 
+    _gpu_admin_authority(
+        monkeypatch,
+        backends=[
+            {
+                "backend_id": str(backend.id),
+                "gpu_config": _gpu_config(
+                    status="blocker",
+                    diagnostics=[
+                        _gpu_diagnostic(
+                            "gpu_claim_unknown", "blocker", backend_id=backend.id
+                        )
+                    ],
+                ),
+            }
+        ],
+    )
     res = await httpx_client.get(
         "/api/v1/admin/ml-integrations/all",
         headers={"Authorization": f"Bearer {token}"},
@@ -791,6 +1066,10 @@ async def test_gpu_resources_surfaces_invalid_env_config_without_startup_failure
     _, token = super_admin
     monkeypatch.setattr(settings, "gpu_arbiter_resources_json", "{not-json")
 
+    _gpu_admin_authority(
+        monkeypatch,
+        diagnostics=[_gpu_diagnostic("gpu_resources_config_invalid", "blocker")],
+    )
     res = await httpx_client.get(
         "/api/v1/admin/ml-integrations/gpu-resources",
         headers={"Authorization": f"Bearer {token}"},
@@ -804,7 +1083,7 @@ async def test_gpu_resources_surfaces_invalid_env_config_without_startup_failure
 
 
 async def test_global_list_keeps_malformed_legacy_residency_observable(
-    httpx_client, db_session, super_admin
+    httpx_client, db_session, super_admin, monkeypatch
 ):
     _, token = super_admin
     backend = await _seed_registry(db_session, name="malformed-residency")
@@ -815,6 +1094,22 @@ async def test_global_list_keeps_malformed_legacy_residency_observable(
     }
     await db_session.commit()
 
+    _gpu_admin_authority(
+        monkeypatch,
+        backends=[
+            {
+                "backend_id": str(backend.id),
+                "gpu_config": _gpu_config(
+                    status="blocker",
+                    diagnostics=[
+                        _gpu_diagnostic(
+                            "gpu_claim_unknown", "blocker", backend_id=backend.id
+                        )
+                    ],
+                ),
+            }
+        ],
+    )
     res = await httpx_client.get(
         "/api/v1/admin/ml-integrations/all",
         headers={"Authorization": f"Bearer {token}"},
@@ -866,8 +1161,11 @@ async def test_delete_registry_clears_all_matching_primary_bindings_only(
     )
 
     assert response.status_code == 204
-    assert await MLBackendService(db_session).get(backend.id) is None
-    assert await MLBackendService(db_session).get(unrelated_backend.id) is not None
+    assert await MLBackendService(db_session).get_registry(backend.id) is None
+    assert (
+        await MLBackendService(db_session).get_registry(unrelated_backend.id)
+        is not None
+    )
     rows = (
         await db_session.execute(
             select(Project.id, Project.ml_backend_pool_id).where(
@@ -905,7 +1203,7 @@ async def test_delete_missing_registry_preserves_unrelated_binding(
     )
 
     assert response.status_code == 404
-    assert await MLBackendService(db_session).get(backend.id) is not None
+    assert await MLBackendService(db_session).get_registry(backend.id) is not None
     assert (
         await db_session.scalar(
             select(Project.ml_backend_pool_id).where(Project.id == project.id)
@@ -936,7 +1234,7 @@ async def test_delete_gpu_fenced_registry_preserves_primary_binding(
     assert response.json()["detail"]["error_code"] == (
         "gpu_backend_retirement_required"
     )
-    assert await MLBackendService(db_session).get(backend.id) is not None
+    assert await MLBackendService(db_session).get_registry(backend.id) is not None
     assert (
         await db_session.scalar(
             select(Project.ml_backend_pool_id).where(Project.id == project.id)
@@ -970,7 +1268,7 @@ async def test_delete_registry_with_running_prediction_preserves_binding(
     )
 
     assert response.status_code == 409
-    assert await MLBackendService(db_session).get(backend.id) is not None
+    assert await MLBackendService(db_session).get_registry(backend.id) is not None
     assert (
         await db_session.scalar(
             select(Project.ml_backend_pool_id).where(Project.id == project.id)
@@ -1019,7 +1317,7 @@ async def test_delete_registry_requires_member_draining(
 
     assert response.status_code == 409
     assert response.json()["detail"]["error_code"] == "ml_backend_member_draining"
-    assert await MLBackendService(db_session).get(backend.id) is not None
+    assert await MLBackendService(db_session).get_registry(backend.id) is not None
     assert (
         await db_session.scalar(
             select(Project.ml_backend_pool_id).where(Project.id == project.id)
@@ -1069,7 +1367,7 @@ async def test_delete_registry_rejects_live_redis_route_lease(
         assert response.json()["detail"]["error_code"] == (
             "ml_backend_member_not_quiescent"
         )
-        assert await MLBackendService(db_session).get(backend.id) is not None
+        assert await MLBackendService(db_session).get_registry(backend.id) is not None
         assert (
             await db_session.scalar(
                 select(Project.ml_backend_pool_id).where(Project.id == project.id)
@@ -1121,7 +1419,7 @@ async def test_delete_registry_rechecks_revoked_super_admin_authority(
     )
 
     assert response.status_code == expected_status
-    assert await MLBackendService(db_session).get(backend.id) is not None
+    assert await MLBackendService(db_session).get_registry(backend.id) is not None
     assert (
         await db_session.scalar(
             select(Project.ml_backend_pool_id).where(Project.id == project.id)
@@ -1257,14 +1555,17 @@ async def test_registry_unload_preserves_gpu_arbiter_error_contract(
     backend = await _seed_registry(db_session, name="arbiter-reject")
     await _drain_registry_member(db_session, backend.id, monkeypatch)
 
-    async def _reject(_self, _registry_id: uuid.UUID):
+    async def _reject(_registry_id: uuid.UUID, *, expected_topology=None):
         raise GPUArbiterDispatchError(
             GPUArbiterErrorCode.BACKEND_CONCURRENCY_SATURATED,
             message="lease full",
             retry_after_s=7,
         )
 
-    monkeypatch.setattr(MLBackendService, "unload", _reject)
+    monkeypatch.setattr(
+        "app.api.v1.admin_ml_integrations.backend_control_service",
+        lambda _db: SimpleNamespace(unload=_reject),
+    )
     response = await httpx_client.post(
         f"/api/v1/admin/ml-integrations/registry/{backend.id}/unload",
         headers={"Authorization": f"Bearer {token}"},

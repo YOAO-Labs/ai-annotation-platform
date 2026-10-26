@@ -145,17 +145,11 @@ async def test_pool_id_for_registry_returns_none_for_unknown(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("config", [None, "{}"])
 async def test_predict_frame_route_records_dual_id(
-    httpx_client, db_session, super_admin, config
+    httpx_client, db_session, super_admin, monkeypatch, config
 ) -> None:
-    """The /predict-frame route records both pool + instance on the persisted Prediction.
-
-    This is the integration test for the call-path wiring: the route resolves the pool
-    via MLBackendService.pool_id_for_registry and passes it to ApplyPredictionResult.
-    Mocks the backend HTTP call so we exercise only the persistence path.
-    """
-    from unittest.mock import AsyncMock, patch
-
-    from tests.factory import create_task
+    """The /predict-frame route records both pool + instance on the persisted Prediction."""
+    from aap_inference_contract.execution import ModelTaskResult
+    from tests.inference_execution_test_ports import FakeModelExecutionPort
 
     user, token = super_admin
     proj = await create_project(db_session, owner_id=user.id, type_key="video-track")
@@ -171,43 +165,38 @@ async def test_predict_frame_route_records_dual_id(
     task = await create_task(db_session, project_id=proj.id)
     await db_session.flush()
 
-    # Mock the MLBackendClient.predict to return a canned result without hitting HTTP.
-    fake_result = AsyncMock()
-    fake_result.result = [{"type": "rectangle", "points": [0.1, 0.1, 0.5, 0.5]}]
-    fake_result.score = 0.9
-    fake_result.model_version = "v1"
-    fake_result.inference_time_ms = 10
+    execution_port = FakeModelExecutionPort(
+        lambda _operation, task_input: ModelTaskResult(
+            task_id=task_input["id"],
+            result=({"type": "rectangle", "points": [0.1, 0.1, 0.5, 0.5]},),
+            score=0.9,
+            model_version="v1",
+            inference_time_ms=10,
+        ),
+        instance_id=backend.id,
+        pool_id=pool.id,
+    )
+    monkeypatch.setattr(
+        "app.api.v1.ml_backends.model_execution_port",
+        lambda *_args, **_kwargs: execution_port,
+    )
+    monkeypatch.setattr(
+        "app.api.v1.ml_backends.StorageService.upload_crop_bytes",
+        lambda *_args: "http://storage.test/frame.jpg",
+    )
 
-    with (
-        patch(
-            "app.services.ml_client.MLBackendClient.predict",
-            new=AsyncMock(return_value=[fake_result]),
-        ),
-        patch(
-            "app.api.v1.ml_backends.StorageService.upload_crop_bytes",
-            return_value="http://storage.test/frame.jpg",
-        ),
-    ):
-        # predict-frame takes a multipart upload; build a tiny JPEG.
-        resp = await httpx_client.post(
-            f"/api/v1/projects/{proj.id}/ml-backends/{backend.id}/predict-frame",
-            headers={"Authorization": f"Bearer {token}"},
-            files={
-                "frame": (
-                    "f.jpg",
-                    _tiny_jpeg(),
-                    "image/jpeg",
-                )
-            },
-            data={
-                "task_id": str(task.id),
-                "frame_index": "0",
-                **({"config": config} if config is not None else {}),
-            },
-        )
+    resp = await httpx_client.post(
+        f"/api/v1/projects/{proj.id}/ml-backends/{backend.id}/predict-frame",
+        headers={"Authorization": f"Bearer {token}"},
+        files={"frame": ("f.jpg", _tiny_jpeg(), "image/jpeg")},
+        data={
+            "task_id": str(task.id),
+            "frame_index": "0",
+            **({"config": config} if config is not None else {}),
+        },
+    )
     assert resp.status_code == 200, resp.text
 
-    # The persisted Prediction must carry both the instance and the pool.
     stmt = select(Prediction).where(Prediction.task_id == task.id)
     pred = (await db_session.execute(stmt)).scalar_one()
     assert pred.ml_backend_id == backend.id

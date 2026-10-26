@@ -3,26 +3,30 @@
 from __future__ import annotations
 
 import json
+import uuid
 
 import httpx
 import pytest
-import uuid
 
 from aap_inference_contract.routing import (
     ROUTING_RESULT_PROTOCOL,
+    ROUTING_QUIESCENCE_RESULT_PROTOCOL,
     ROUTING_RUNTIME_RESULT_PROTOCOL,
     RoutingResult,
     RoutingUnavailable,
     RoutingVideoExecutionProof,
     decode_routing_command,
     decode_routing_runtime_request,
+    decode_routing_quiescence_request,
     decode_routing_status_request,
     make_routing_command,
+    make_routing_quiescence_request,
     make_routing_status_request,
     make_routing_runtime_request,
     routing_command_sha256,
     routing_result_bytes,
     routing_runtime_result_bytes,
+    routing_quiescence_result_bytes,
 )
 from aap_inference_contract.routing_client import RoutingHttpClient
 from aap_inference_contract.scope_retirement import (
@@ -430,6 +434,63 @@ async def test_runtime_lost_reply_is_not_retried_or_treated_as_a_command(
 
     with pytest.raises(RoutingUnavailable):
         await client.runtime(request)
+
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_quiescence_uses_one_bound_read_only_owner_request(monkeypatch):
+    request = make_routing_quiescence_request(_REGISTRY_ID, request_id=_REQUEST_ID)
+    calls = []
+
+    async def handle(http_request: httpx.Request) -> httpx.Response:
+        calls.append(http_request)
+        assert http_request.url.path == "/base/v1/routes/quiescence"
+        assert http_request.headers["authorization"] == "Bearer private-token"
+        assert decode_routing_quiescence_request(await http_request.aread()) == request
+        result = {
+            "schema": ROUTING_QUIESCENCE_RESULT_PROTOCOL,
+            "request_id": str(_REQUEST_ID),
+            "registry_id": str(_REGISTRY_ID),
+            "status": "rejected",
+            "reason": "member_not_quiescent",
+            "control_id": None,
+            "topology": None,
+            "active_scopes": None,
+            "uncertain_scopes": None,
+            "continuity": None,
+        }
+        return httpx.Response(
+            200,
+            content=routing_quiescence_result_bytes(result),
+            headers={"content-type": "application/json"},
+        )
+
+    _install_mock_transport(monkeypatch, httpx.MockTransport(handle))
+    client = RoutingHttpClient("http://routing-owner.local/base", "private-token")
+
+    result = await client.quiescence(request)
+
+    assert result.reason == "member_not_quiescent"
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_quiescence_lost_reply_fails_closed_without_retry(monkeypatch):
+    request = make_routing_quiescence_request(_REGISTRY_ID, request_id=_REQUEST_ID)
+    calls = 0
+
+    async def lose_reply(http_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        assert http_request.url.path == "/v1/routes/quiescence"
+        raise httpx.ReadError("quiescence reply lost", request=http_request)
+
+    _install_mock_transport(monkeypatch, httpx.MockTransport(lose_reply))
+    client = RoutingHttpClient("http://routing-owner.local", "private-token")
+
+    with pytest.raises(RoutingUnavailable):
+        await client.quiescence(request)
 
     assert calls == 1
 

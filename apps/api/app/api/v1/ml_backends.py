@@ -5,8 +5,15 @@ import json
 import time
 import uuid
 
-import httpx
 from aap_inference import extract_capabilities, resolve_model_task
+from aap_inference.gpu.contracts import GPUArbiterDispatchError
+from aap_inference.gpu.policy import GPUClaimConfigurationError
+from aap_inference_contract.execution import (
+    FrozenModelOperation,
+    ModelExecutionError,
+    thaw_json,
+)
+from aap_inference_contract.topology import to_record
 from aap_protocol_v2 import (
     MAX_MASK_RESPONSE_BYTES,
     CocoRlePayload,
@@ -20,8 +27,6 @@ from app.deps import (
     assert_request_scopes,
     get_current_user,
     get_db,
-    get_gpu_dispatch_context_factory,
-    get_gpu_shadow_session_factory,
     project_access_for_path,
     require_roles,
     require_project_capability,
@@ -29,8 +34,6 @@ from app.deps import (
     require_project_owner,
 )
 from app.db.enums import UserRole
-from app.db.models.ml_backend_pool import MLBackendServicePool
-from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.dataset import DatasetItem
 from app.db.models.user import User
 from app.db.models.task import Task
@@ -52,25 +55,22 @@ from app.schemas.ml_backend import (
     ProjectMLBackendPoolList,
     ProjectMLBackendPoolEnablement,
 )
-from app.services.gpu_arbitration.contracts import (
-    GPUArbiterDispatchError,
-    GPUDispatchContextFactory,
-    GPUShadowSessionFactory,
-)
-from app.services.gpu_arbitration.policy import GPUClaimConfigurationError
 from app.services.ml_backend import (
     GPUBackendManagedMutationBlocked,
     MLBackendService,
     MLBackendURLConflict,
 )
-from app.services import ml_client as ml_client_module
+from app.services.inference_backend_control import (
+    BackendControlOperationError,
+    backend_control_service,
+)
+from app.services.inference_model_execution import model_execution_port
 from app.services.project_access import get_workspace_project
 from app.services.inference_limits import capability_limits_from_settings
 from app.services.ml_interaction_proxy import (
     normalize_native_mask_response,
     prepare_interactive_context,
 )
-from app.services.ml_routing.client import RoutedMLBackendClient
 from app.services.labeling_prediction_contract import (
     ApplyPredictionResultPort,
     ApplyPredictionResultRequest,
@@ -306,10 +306,74 @@ async def _read_capped_frame(
     return data
 
 
-def _out(backend: MLBackendRegistry, project_id: uuid.UUID) -> MLBackendOut:
-    """把全局注册行序列化为 MLBackendOut, 注入「本项目」id (表该项目启用了此 backend)。"""
-    return MLBackendOut.model_validate(backend, from_attributes=True).model_copy(
-        update={"project_id": project_id}
+def _out(backend, project_id: uuid.UUID | None = None) -> MLBackendOut:
+    record = to_record(backend)
+    if project_id is not None:
+        record["project_id"] = str(project_id)
+    return MLBackendOut.model_validate(record)
+
+
+async def _execute_model_operation(
+    db: AsyncSession,
+    *,
+    project_id: uuid.UUID,
+    backend_id: uuid.UUID,
+    operation: str,
+    route_owner: str,
+    route_operation: str,
+    task_input: dict,
+    context: dict | None = None,
+    max_response_bytes: int | None = None,
+):
+    request = FrozenModelOperation(
+        request_id=uuid.uuid4(),
+        operation=operation,
+        task_inputs=(task_input,),
+        context=context,
+        project_id=project_id,
+        requested_registry_id=backend_id,
+        requested_pool_id=None,
+        endpoint_registry_id=None,
+        required_instance_id=None,
+        route_owner=route_owner,
+        route_operation=route_operation,
+        max_response_bytes=max_response_bytes,
+    )
+    try:
+        return await model_execution_port(db).execute(request)
+    except ModelExecutionError as exc:
+        failure = exc.failure
+        headers = (
+            {"Retry-After": failure.retry_after}
+            if failure.retry_after is not None
+            else None
+        )
+        raise HTTPException(
+            status_code=failure.status_code or 502,
+            detail=thaw_json(failure.detail),
+            headers=headers,
+        ) from exc
+
+
+def _gpu_dispatch_http_error(error: GPUArbiterDispatchError) -> HTTPException:
+    return HTTPException(
+        status_code=error.status_code,
+        detail=error.detail,
+        headers=error.headers or None,
+    )
+
+
+def _control_http_error(error: BackendControlOperationError) -> HTTPException:
+    failure = error.failure
+    headers = (
+        {"Retry-After": failure.retry_after}
+        if failure.retry_after is not None
+        else None
+    )
+    return HTTPException(
+        status_code=failure.status_code or 502,
+        detail=failure.detail or failure.code,
+        headers=headers,
     )
 
 
@@ -373,7 +437,9 @@ async def create_ml_backend(
         },
     )
     await db.commit()
-    await db.refresh(backend)
+    backend = await svc.get_registry(backend.id)
+    if backend is None:
+        raise HTTPException(status_code=404, detail="ML Backend not found")
     return _out(backend, project_id)
 
 
@@ -412,9 +478,9 @@ async def list_available_ml_backends(
     rows = await svc.list_available_for_project(project_id)
     items = [
         ProjectMLBackendItem(
-            backend=MLBackendOut.model_validate(reg, from_attributes=True),
+            backend=_out(reg),
             enabled=bool(assoc and assoc.enabled),
-            default_variants=assoc.default_variants if assoc else None,
+            default_variants=to_record(assoc.default_variants) if assoc else None,
         )
         for reg, assoc in rows
     ]
@@ -439,7 +505,7 @@ async def set_ml_backend_enablement(
     全局 backend 必须存在 (不在此创建全局项; 注册全局项走 admin 端点)。
     """
     svc = MLBackendService(db)
-    backend = await svc.get(backend_id)
+    backend = await svc.get_registry(backend_id)
     if backend is None:
         raise HTTPException(status_code=404, detail="ML Backend not found")
     overrides = {
@@ -464,12 +530,18 @@ async def set_ml_backend_enablement(
         },
     )
     await db.commit()
-    await db.refresh(backend)
-    await db.refresh(assoc)
+    backend = await svc.get_registry(backend_id)
+    assoc = await svc.get_assoc(project_id, backend_id)
+    if backend is None or assoc is None:
+        raise HTTPException(status_code=404, detail="ML Backend not found")
     return ProjectMLBackendItem(
-        backend=MLBackendOut.model_validate(backend, from_attributes=True),
+        backend=_out(backend),
         enabled=assoc.enabled,
-        default_variants=assoc.default_variants,
+        default_variants=(
+            to_record(assoc.default_variants)
+            if assoc.default_variants is not None
+            else None
+        ),
     )
 
 
@@ -485,7 +557,7 @@ async def get_ml_backend(
 ):
     _assert_ml_backend_read(access)
     svc = MLBackendService(db)
-    backend = await svc.get(backend_id)
+    backend = await svc.get_registry(backend_id)
     if not backend or not await svc.is_enabled(project_id, backend_id):
         raise HTTPException(status_code=404, detail="ML Backend not found")
     return _out(backend, project_id)
@@ -552,7 +624,9 @@ async def update_ml_backend(
         detail={"project_id": str(project_id), "fields": list(updates.keys())},
     )
     await db.commit()
-    await db.refresh(backend)
+    backend = await svc.get_registry(backend_id)
+    if backend is None:
+        raise HTTPException(status_code=404, detail="ML Backend not found")
     return _out(backend, project_id)
 
 
@@ -594,12 +668,6 @@ async def unload_ml_backend(
     backend_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    shadow_session_factory: GPUShadowSessionFactory = Depends(
-        get_gpu_shadow_session_factory
-    ),
-    dispatch_context_factory: GPUDispatchContextFactory = Depends(
-        get_gpu_dispatch_context_factory
-    ),
     current_user: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ) -> MLBackendUnloadResponse:
     """B-28+ · 触发 backend 卸载模型释放显存. backend 未实现 /unload 时返回 502.
@@ -612,22 +680,22 @@ async def unload_ml_backend(
     from app.services.ml_routing.contracts import MLBackendQuiescenceError
     from app.services.ml_routing.safety import require_registry_quiescent
 
-    svc = MLBackendService(
-        db,
-        shadow_session_factory=shadow_session_factory,
-        dispatch_context_factory=dispatch_context_factory,
-    )
+    control = backend_control_service(db)
     try:
         topology = await require_registry_quiescent(db, backend_id)
-        result = await svc.unload(backend_id, expected_topology=topology)
+        result = await control.unload(backend_id, expected_topology=topology)
     except MLBackendQuiescenceError as exc:
         raise HTTPException(
             status_code=503 if exc.unavailable else 409, detail=exc.as_detail()
         ) from exc
-    except GPUArbiterDispatchError:
-        raise
+    except GPUArbiterDispatchError as exc:
+        raise _gpu_dispatch_http_error(exc) from exc
+    except BackendControlOperationError as exc:
+        raise _control_http_error(exc) from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"backend unload failed: {exc}")
+        raise HTTPException(
+            status_code=502, detail=f"backend unload failed: {exc}"
+        ) from exc
     if result is None:
         raise HTTPException(status_code=404, detail="ML Backend not found")
     await AuditService.log(
@@ -651,12 +719,6 @@ async def reload_ml_backend(
     request: Request,
     body: MLBackendReloadRequest | None = None,
     db: AsyncSession = Depends(get_db),
-    shadow_session_factory: GPUShadowSessionFactory = Depends(
-        get_gpu_shadow_session_factory
-    ),
-    dispatch_context_factory: GPUDispatchContextFactory = Depends(
-        get_gpu_dispatch_context_factory
-    ),
     current_user: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
     """B-28+ · 触发 backend 重新加载模型. 已加载则 noop.
@@ -669,16 +731,12 @@ async def reload_ml_backend(
     (对齐 super_admin only 的「运行时观测」面板)。"""
     from app.services.ml_routing.contracts import MLBackendQuiescenceError
 
-    svc = MLBackendService(
-        db,
-        shadow_session_factory=shadow_session_factory,
-        dispatch_context_factory=dispatch_context_factory,
-    )
+    control = backend_control_service(db)
     sam_variant = body.sam_variant if body else None
     dino_variant = body.dino_variant if body else None
     modality = body.modality if body else None
     try:
-        result = await svc.reload(
+        result = await control.reload(
             backend_id,
             sam_variant=sam_variant,
             dino_variant=dino_variant,
@@ -688,10 +746,14 @@ async def reload_ml_backend(
         raise HTTPException(
             status_code=503 if exc.unavailable else 409, detail=exc.as_detail()
         ) from exc
-    except GPUArbiterDispatchError:
-        raise
+    except GPUArbiterDispatchError as exc:
+        raise _gpu_dispatch_http_error(exc) from exc
+    except BackendControlOperationError as exc:
+        raise _control_http_error(exc) from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"backend reload failed: {exc}")
+        raise HTTPException(
+            status_code=502, detail=f"backend reload failed: {exc}"
+        ) from exc
     if result is None:
         raise HTTPException(status_code=404, detail="ML Backend not found")
     await AuditService.log(
@@ -723,12 +785,6 @@ async def warmup_ml_backend(
     request: Request,
     body: dict | None = None,
     db: AsyncSession = Depends(get_db),
-    shadow_session_factory: GPUShadowSessionFactory = Depends(
-        get_gpu_shadow_session_factory
-    ),
-    dispatch_context_factory: GPUDispatchContextFactory = Depends(
-        get_gpu_dispatch_context_factory
-    ),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """v0.14.14 协议 §4.4 · 转发 POST /warmup 到 backend.
@@ -743,31 +799,17 @@ async def warmup_ml_backend(
     上其他项目常驻的模型, 属可接受代价 —— 它是本项目用模型的必要前提, 且 backend 侧有
     max_concurrency / idle 淘汰兜底。只有会直接驱逐/换掉他人在用权重的 unload/reload 才收口
     到平台管理员。"""
-    svc = MLBackendService(
-        db,
-        shadow_session_factory=shadow_session_factory,
-        dispatch_context_factory=dispatch_context_factory,
-    )
-    backend = await svc.get(backend_id)
+    svc = MLBackendService(db)
+    backend = await svc.get_registry(backend_id)
     if not backend or not await svc.is_enabled(project_id, backend_id):
         raise HTTPException(status_code=404, detail="ML Backend not found")
+    control = backend_control_service(db)
     try:
-        result = await svc.warmup(backend_id, body or {})
-    except GPUArbiterDispatchError:
-        raise
-    except httpx.HTTPStatusError as exc:
-        # 透传 backend 上游的业务错误 (4xx 变体非法 / 5xx OOM / weight missing).
-        status = exc.response.status_code
-        detail = exc.response.text or f"backend warmup HTTP {status}"
-        headers = {}
-        retry_after = exc.response.headers.get("Retry-After")
-        if retry_after:
-            headers["Retry-After"] = retry_after
-        raise HTTPException(
-            status_code=status,
-            detail=detail,
-            headers=headers or None,
-        ) from exc
+        result = await control.warmup(backend_id, body or {})
+    except GPUArbiterDispatchError as exc:
+        raise _gpu_dispatch_http_error(exc) from exc
+    except BackendControlOperationError as exc:
+        raise _control_http_error(exc) from exc
     except Exception as exc:
         raise HTTPException(
             status_code=502, detail=f"backend warmup failed: {exc}"
@@ -791,30 +833,25 @@ async def warmup_ml_backend(
     return result
 
 
-async def _fetch_setup_cached(backend, backend_id: uuid.UUID) -> dict:
-    """v0.10.1 · 探 backend /setup, 命中 30s TTL 进程内缓存则直接返回.
-
-    v0.14.9 · 抽出供 /setup 与 /capabilities 端点共用同一缓存链路; backend /setup
-    不可达时抛 502 (与原 /setup 端点行为一致).
-    """
+async def _fetch_setup_cached(db: AsyncSession, backend_id: uuid.UUID) -> dict:
+    """Fetch credential-free setup facts through the control facade with a short TTL."""
     now = time.monotonic()
     cached = _setup_cache.get(backend_id)
     if cached is not None and (now - cached[0]) < _SETUP_CACHE_TTL_SECONDS:
         return cached[1]
 
-    client = ml_client_module.MLBackendClient(backend)
-    try:
-        data = await client.setup()
-    except Exception as exc:  # httpx.HTTPError 或 timeout
+    result = await backend_control_service(db).setup(backend_id)
+    if result.setup is None:
+        reason = result.error.code if result.error is not None else "unknown failure"
         raise HTTPException(
-            status_code=502, detail=f"backend /setup unreachable: {exc}"
+            status_code=502, detail=f"backend /setup unreachable: {reason}"
         )
-    _setup_cache[backend_id] = (now, data)
-    return data
+    _setup_cache[backend_id] = (now, result.setup)
+    return result.setup
 
 
 async def _prepare_safe_interactive_context(
-    backend: MLBackendRegistry,
+    db: AsyncSession,
     backend_id: uuid.UUID,
     context: dict,
     *,
@@ -839,7 +876,7 @@ async def _prepare_safe_interactive_context(
     ) or context.get("type") in {"point", "interactive_box", "mask", "scribble"}
     if not uses_mask_contract:
         return dict(context), None
-    setup = await _fetch_setup_cached(backend, backend_id)
+    setup = await _fetch_setup_cached(db, backend_id)
     capabilities = extract_capabilities(setup, limits=capability_limits_from_settings())
     return prepare_interactive_context(
         context,
@@ -880,7 +917,7 @@ def _interactive_response(
     *,
     context: dict,
     expected_size: tuple[int, int] | None,
-    client: RoutedMLBackendClient,
+    provenance,
     requested_backend_id: uuid.UUID,
     model_id: str | None,
     task_id: uuid.UUID,
@@ -890,8 +927,8 @@ def _interactive_response(
     decode_started = time.monotonic()
     try:
         normalized, diagnostic = normalize_native_mask_response(
-            result.result,
-            getattr(result, "diagnostic", None),
+            thaw_json(result.result),
+            None if result.diagnostic is None else thaw_json(result.diagnostic),
             context=context,
             expected_size=expected_size,
         )
@@ -911,10 +948,10 @@ def _interactive_response(
     )
     routing = {
         "requested_backend_id": str(requested_backend_id),
-        "backend_pool_id": str(client.pool_id) if client.pool_id else None,
-        "backend_instance_id": (
-            str(client.last_instance_id) if client.last_instance_id else None
+        "backend_pool_id": (
+            str(provenance.pool_id) if provenance.pool_id is not None else None
         ),
+        "backend_instance_id": str(provenance.instance_id),
         "model_id": model_id,
     }
     accept_receipts: dict[str, str] = {}
@@ -1092,11 +1129,11 @@ async def get_ml_backend_setup(
     """
     _assert_ml_backend_read(access)
     svc = MLBackendService(db)
-    backend = await svc.get(backend_id)
+    backend = await svc.get_registry(backend_id)
     if not backend or not await svc.is_enabled(project_id, backend_id):
         raise HTTPException(status_code=404, detail="ML Backend not found")
 
-    return await _fetch_setup_cached(backend, backend_id)
+    return await _fetch_setup_cached(db, backend_id)
 
 
 @router.get(
@@ -1116,11 +1153,11 @@ async def get_ml_backend_capabilities(
     """
     _assert_ml_backend_read(access)
     svc = MLBackendService(db)
-    backend = await svc.get(backend_id)
+    backend = await svc.get_registry(backend_id)
     if not backend or not await svc.is_enabled(project_id, backend_id):
         raise HTTPException(status_code=404, detail="ML Backend not found")
 
-    setup = await _fetch_setup_cached(backend, backend_id)
+    setup = await _fetch_setup_cached(db, backend_id)
     return extract_capabilities(setup, limits=capability_limits_from_settings()) or {}
 
 
@@ -1140,12 +1177,12 @@ async def refresh_ml_backend_capabilities(
     权限同 /health (managers); 用于 backend 升级/换模型后主动拉新能力。
     """
     svc = MLBackendService(db)
-    backend = await svc.get(backend_id)
+    backend = await svc.get_registry(backend_id)
     if not backend or not await svc.is_enabled(project_id, backend_id):
         raise HTTPException(status_code=404, detail="ML Backend not found")
 
     _setup_cache.pop(backend_id, None)
-    setup = await _fetch_setup_cached(backend, backend_id)
+    setup = await _fetch_setup_cached(db, backend_id)
     return extract_capabilities(setup, limits=capability_limits_from_settings()) or {}
 
 
@@ -1161,11 +1198,14 @@ async def check_health(
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = MLBackendService(db)
-    backend = await svc.get(backend_id)
+    backend = await svc.get_registry(backend_id)
     if not backend or not await svc.is_enabled(project_id, backend_id):
         raise HTTPException(status_code=404, detail="ML Backend not found")
-    healthy = await svc.check_health(backend_id)
+    healthy = await backend_control_service(db).check_health(backend_id)
     await db.commit()
+    backend = await svc.get_registry(backend_id)
+    if backend is None:
+        raise HTTPException(status_code=404, detail="ML Backend not found")
     return MLBackendHealthResponse(
         status="ok" if healthy else "error",
         backend_id=backend.id,
@@ -1205,38 +1245,33 @@ async def predict_test(
     backend_id: uuid.UUID,
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    shadow_session_factory: GPUShadowSessionFactory = Depends(
-        get_gpu_shadow_session_factory
-    ),
-    dispatch_context_factory: GPUDispatchContextFactory = Depends(
-        get_gpu_dispatch_context_factory
-    ),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = MLBackendService(db)
-    backend = await svc.get(backend_id)
+    backend = await svc.get_registry(backend_id)
     if not backend or not await svc.is_enabled(project_id, backend_id):
         raise HTTPException(status_code=404, detail="ML Backend not found")
 
     task = await _get_task_in_project(db, task_id, project_id)
     await db.commit()
 
-    client = RoutedMLBackendClient(
+    execution = await _execute_model_operation(
         db,
-        backend,
         project_id=project_id,
-        owner=f"api:predict-test:{task.id}",
-        operation="predict_test",
-        shadow_session_factory=shadow_session_factory,
-        dispatch_context_factory=dispatch_context_factory,
-    )
-    results = await client.predict(
-        [{"id": str(task.id), "file_path": _resolve_task_url(task)}]
+        backend_id=backend_id,
+        operation="batch_predict",
+        route_owner=f"api:predict-test:{task.id}",
+        route_operation="predict_test",
+        task_input={"id": str(task.id), "file_path": _resolve_task_url(task)},
     )
     return {
         "results": [
-            {"task_id": r.task_id, "result": r.result, "score": r.score}
-            for r in results
+            {
+                "task_id": result.task_id,
+                "result": thaw_json(result.result),
+                "score": result.score,
+            }
+            for result in execution.results
         ]
     }
 
@@ -1252,16 +1287,10 @@ async def interactive_annotating(
     body: InteractiveRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    shadow_session_factory: GPUShadowSessionFactory = Depends(
-        get_gpu_shadow_session_factory
-    ),
-    dispatch_context_factory: GPUDispatchContextFactory = Depends(
-        get_gpu_dispatch_context_factory
-    ),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = MLBackendService(db)
-    backend = await svc.get(backend_id)
+    backend = await svc.get_registry(backend_id)
     if not backend or not await svc.is_enabled(project_id, backend_id):
         raise HTTPException(status_code=404, detail="ML Backend not found")
     if not backend.is_interactive:
@@ -1287,7 +1316,7 @@ async def interactive_annotating(
         frame_index=None,
     )
     context, model_id = await _prepare_safe_interactive_context(
-        backend,
+        db,
         backend_id,
         resolved_context,
         task_id=task.id,
@@ -1300,30 +1329,26 @@ async def interactive_annotating(
     )
     await db.commit()
 
-    client = RoutedMLBackendClient(
-        db,
-        backend,
-        project_id=project_id,
-        owner=f"api:interactive:{task.id}",
-        operation="interactive_predict",
-        shadow_session_factory=shadow_session_factory,
-        dispatch_context_factory=dispatch_context_factory,
-    )
-    predict_kwargs = (
-        {"max_response_bytes": MAX_MASK_RESPONSE_BYTES}
-        if context.get("output_geometry") == "mask"
-        else {}
+    max_response_bytes = (
+        MAX_MASK_RESPONSE_BYTES if context.get("output_geometry") == "mask" else None
     )
     metric_operation = mask_ai_operation(context)
     metric_prompt = mask_ai_prompt_family(context)
     metric_geometry = str(context.get("output_geometry") or "unknown")
     inference_started = time.monotonic()
     try:
-        result = await client.predict_interactive(
-            task_data={"id": str(task.id), "file_path": _resolve_task_url(task)},
+        execution = await _execute_model_operation(
+            db,
+            project_id=project_id,
+            backend_id=backend_id,
+            operation="interactive_predict",
+            route_owner=f"api:interactive:{task.id}",
+            route_operation="interactive_predict",
+            task_input={"id": str(task.id), "file_path": _resolve_task_url(task)},
             context=context,
-            **predict_kwargs,
+            max_response_bytes=max_response_bytes,
         )
+        result = execution.results[0]
     except Exception:
         observe_mask_ai_phase(
             operation=metric_operation,
@@ -1353,7 +1378,7 @@ async def interactive_annotating(
             result,
             context=context,
             expected_size=expected_size,
-            client=client,
+            provenance=execution.provenance,
             requested_backend_id=backend_id,
             model_id=model_id,
             task_id=task.id,
@@ -1402,12 +1427,6 @@ async def predict_frame(
     frame_index: int = Form(...),
     config: str = Form("{}"),
     db: AsyncSession = Depends(get_db),
-    shadow_session_factory: GPUShadowSessionFactory = Depends(
-        get_gpu_shadow_session_factory
-    ),
-    dispatch_context_factory: GPUDispatchContextFactory = Depends(
-        get_gpu_dispatch_context_factory
-    ),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """v0.21.4 · 对客户端传入的「视频当前帧」JPEG 跑图像 backend, 落单帧 ``video_bbox`` 候选。
@@ -1420,11 +1439,11 @@ async def predict_frame(
 
     与批量预标 (整段视频投 signed URL 走 worker) 是两条路: 本路同步、单帧、client 供图。
     """
-    from app.services.prediction_context import build_predict_context
+    from aap_inference.execution_context import build_predict_context
     from app.services.labeling_write_scope import capture_labeling_write_scope
 
     svc = MLBackendService(db)
-    backend = await svc.get(backend_id)
+    backend = await svc.get_registry(backend_id)
     if not backend or not await svc.is_enabled(project_id, backend_id):
         raise HTTPException(status_code=404, detail="ML Backend not found")
 
@@ -1499,23 +1518,23 @@ async def predict_frame(
     )
     await db.commit()
 
-    client = RoutedMLBackendClient(
+    execution = await _execute_model_operation(
         db,
-        backend,
         project_id=project_id,
-        owner=f"api:predict-frame:{task.id}:{frame_index}",
-        operation="frame_predict",
-        shadow_session_factory=shadow_session_factory,
-        dispatch_context_factory=dispatch_context_factory,
+        backend_id=backend_id,
+        operation="batch_predict",
+        route_owner=f"api:predict-frame:{task.id}:{frame_index}",
+        route_operation="frame_predict",
+        task_input={"id": str(task.id), "file_path": frame_url},
+        context=context,
     )
-    results = await client.predict(
-        [{"id": str(task.id), "file_path": frame_url}], context=context
-    )
+    results = execution.results
 
     raw_shapes: list[dict] = []
     for r in results:
-        if isinstance(r.result, list):
-            raw_shapes.extend(r.result)
+        shape_result = thaw_json(r.result)
+        if isinstance(shape_result, list):
+            raw_shapes.extend(shape_result)
     video_shapes = to_video_bbox_result(raw_shapes, frame_index)
 
     score = next((r.score for r in results if r.score is not None), None)
@@ -1527,10 +1546,10 @@ async def predict_frame(
         ApplyPredictionResultRequest(
             task_id=task.id,
             project_id=project_id,
-            ml_backend_id=client.last_instance_id or backend_id,
+            ml_backend_id=execution.provenance.instance_id,
             result=video_shapes,
             score=score,
-            ml_backend_pool_id=client.pool_id,
+            ml_backend_pool_id=execution.provenance.pool_id,
             write_scope=write_scope,
         )
     )
@@ -1556,12 +1575,6 @@ async def interactive_annotating_frame(
     frame_index: int = Form(...),
     context: str = Form("{}", max_length=MAX_INTERACTIVE_CONTEXT_BODY_BYTES),
     db: AsyncSession = Depends(get_db),
-    shadow_session_factory: GPUShadowSessionFactory = Depends(
-        get_gpu_shadow_session_factory
-    ),
-    dispatch_context_factory: GPUDispatchContextFactory = Depends(
-        get_gpu_dispatch_context_factory
-    ),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """视频当前帧的**交互式** SAM 提示 (point / interactive_box / exemplar)。
@@ -1580,7 +1593,7 @@ async def interactive_annotating_frame(
     ``mask_input_next`` 原样回传, 支撑同一帧多次点击的 low-res logits 回灌精修。
     """
     svc = MLBackendService(db)
-    backend = await svc.get(backend_id)
+    backend = await svc.get_registry(backend_id)
     if not backend or not await svc.is_enabled(project_id, backend_id):
         raise HTTPException(status_code=404, detail="ML Backend not found")
     if not backend.is_interactive:
@@ -1619,7 +1632,7 @@ async def interactive_annotating_frame(
         frame_index=frame_index,
     )
     ctx, model_id = await _prepare_safe_interactive_context(
-        backend,
+        db,
         backend_id,
         ctx,
         task_id=task.id,
@@ -1671,27 +1684,23 @@ async def interactive_annotating_frame(
 
     # 与 interactive_annotating 一致: 不注入项目级 DINO 阈值 (那是 gsam2 专属, 塞给 sam3
     # 等后端会出错); 推理参数由前端按 /setup.params 渲染后随 context 透传。
-    client = RoutedMLBackendClient(
-        db,
-        backend,
-        project_id=project_id,
-        owner=f"api:interactive-frame:{task.id}:{frame_index}",
-        operation="interactive_frame_predict",
-        shadow_session_factory=shadow_session_factory,
-        dispatch_context_factory=dispatch_context_factory,
-    )
-    predict_kwargs = (
-        {"max_response_bytes": MAX_MASK_RESPONSE_BYTES}
-        if ctx.get("output_geometry") == "mask"
-        else {}
+    max_response_bytes = (
+        MAX_MASK_RESPONSE_BYTES if ctx.get("output_geometry") == "mask" else None
     )
     inference_started = time.monotonic()
     try:
-        result = await client.predict_interactive(
-            task_data={"id": str(task.id), "file_path": frame_url},
+        execution = await _execute_model_operation(
+            db,
+            project_id=project_id,
+            backend_id=backend_id,
+            operation="interactive_predict",
+            route_owner=f"api:interactive-frame:{task.id}:{frame_index}",
+            route_operation="interactive_frame_predict",
+            task_input={"id": str(task.id), "file_path": frame_url},
             context=ctx,
-            **predict_kwargs,
+            max_response_bytes=max_response_bytes,
         )
+        result = execution.results[0]
     except Exception:
         observe_mask_ai_phase(
             operation=metric_operation,
@@ -1721,7 +1730,7 @@ async def interactive_annotating_frame(
             result,
             context=ctx,
             expected_size=expected_size,
-            client=client,
+            provenance=execution.provenance,
             requested_backend_id=backend_id,
             model_id=model_id,
             task_id=task.id,
@@ -1778,21 +1787,23 @@ async def list_project_ml_backend_pools(
     """
     svc = MLBackendService(db)
     rows = await svc.list_pools_available_for_project(project_id)
-    items = [
-        ProjectMLBackendPoolItem(
-            pool=MLBackendPoolSummary(
-                id=pool.id,
-                name=pool.name,
-                enabled=pool.enabled,
-                legacy_instance_id=pool.legacy_instance_id,
-                member_count=member_count,
-                routing_generation=pool.routing_generation,
-            ),
-            enabled=assoc.enabled if assoc else False,
-            default_variants=assoc.default_variants if assoc else None,
+    items = []
+    for pool, member_count, assoc in rows:
+        pool_data = to_record(pool)
+        items.append(
+            ProjectMLBackendPoolItem(
+                pool=MLBackendPoolSummary(
+                    id=pool_data["id"],
+                    name=pool_data["name"],
+                    enabled=pool_data["enabled"],
+                    legacy_instance_id=pool_data["legacy_instance_id"],
+                    member_count=member_count,
+                    routing_generation=pool_data["routing_generation"],
+                ),
+                enabled=assoc.enabled if assoc else False,
+                default_variants=(to_record(assoc.default_variants) if assoc else None),
+            )
         )
-        for pool, member_count, assoc in rows
-    ]
     return ProjectMLBackendPoolList(items=items)
 
 
@@ -1814,7 +1825,7 @@ async def set_project_ml_backend_pool_enablement(
     pool 必须存在且 enabled (disabled / 空 / 无 capability fingerprint 的 pool 不可启用)。
     """
     svc = MLBackendService(db)
-    pool = await db.get(MLBackendServicePool, pool_id)
+    pool = await svc.get_pool(pool_id)
     if pool is None:
         raise HTTPException(status_code=404, detail="service pool not found")
     if data.enabled and (not pool.enabled or pool.legacy_instance_id is None):
@@ -1834,7 +1845,6 @@ async def set_project_ml_backend_pool_enablement(
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    member_count = await _pool_member_count(db, pool_id)
     await AuditService.log(
         db,
         actor=current_user,
@@ -1846,30 +1856,23 @@ async def set_project_ml_backend_pool_enablement(
         detail={"project_id": str(project_id), "enabled": data.enabled},
     )
     await db.commit()
-    await db.refresh(pool)
-    await db.refresh(assoc)
+    rows = await svc.list_pools_available_for_project(project_id)
+    fresh = next((row for row in rows if row[0].id == pool_id), None)
+    if fresh is None:
+        raise HTTPException(status_code=404, detail="service pool not found")
+    pool, assoc, member_count = fresh
+    pool_data = to_record(pool)
     return ProjectMLBackendPoolItem(
         pool=MLBackendPoolSummary(
-            id=pool.id,
-            name=pool.name,
-            enabled=pool.enabled,
-            legacy_instance_id=pool.legacy_instance_id,
+            id=pool_data["id"],
+            name=pool_data["name"],
+            enabled=pool_data["enabled"],
+            legacy_instance_id=pool_data["legacy_instance_id"],
             member_count=member_count,
-            routing_generation=pool.routing_generation,
+            routing_generation=pool_data["routing_generation"],
         ),
-        enabled=assoc.enabled,
-        default_variants=assoc.default_variants,
+        enabled=assoc.enabled if assoc else False,
+        default_variants=(
+            to_record(assoc.default_variants) if assoc is not None else None
+        ),
     )
-
-
-async def _pool_member_count(db: AsyncSession, pool_id: uuid.UUID) -> int:
-    from sqlalchemy import func, select as _select
-
-    from app.db.models.ml_backend_pool import MLBackendPoolMember
-
-    result = await db.execute(
-        _select(func.count(MLBackendPoolMember.id)).where(
-            MLBackendPoolMember.pool_id == pool_id
-        )
-    )
-    return int(result.scalar() or 0)

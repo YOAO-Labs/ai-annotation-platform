@@ -1,11 +1,14 @@
 """Routing admission must coexist with the caller's pending prediction references."""
 
 import os
+import socket
 import uuid
 from contextlib import AsyncExitStack
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from aap_inference.pipeline_server import PipelineHttpServer
+from aap_inference.routing_runtime import RoutingRuntime
 
 from app.config import settings
 from app.db.models.prediction import Prediction
@@ -28,14 +31,32 @@ async def test_admission_keeps_pending_prediction_and_outer_rollback(
     test_engine, monkeypatch, connection_bound
 ):
     await assert_owned_test_database(test_engine)
-    for name in (
-        "inference_routing_url",
-        "inference_routing_database_url",
-        "inference_routing_database_url_file",
-    ):
-        monkeypatch.setattr(settings, name, "")
+    routing_dsn = os.environ.get("AAP_MODULE_DATA_INFERENCE_ROUTING_URL")
+    assert routing_dsn, "module-data verifier must provide the restricted routing LOGIN"
     owner = await _connect(test_engine)
     world = await _seed(owner)
+    owner_runtime = RoutingRuntime(routing_dsn)
+    assert await owner_runtime.readiness()
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = int(listener.getsockname()[1])
+    token = f"routing-owner-{uuid.uuid4().hex}"
+    owner_server = PipelineHttpServer(
+        manager=None,
+        data=None,
+        control_token=None,
+        host="127.0.0.1",
+        port=port,
+        routing_manager=owner_runtime.manager,
+        routing_control_token=token,
+    )
+    await owner_server.start()
+    for name, value in {
+        "inference_routing_url": f"http://127.0.0.1:{port}",
+        "inference_routing_token": token,
+        "inference_routing_token_file": "",
+    }.items():
+        monkeypatch.setattr(settings, name, value)
     before_receipts = set(
         await owner.fetchval(
             "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) FROM aap_inference_routing_v1.command_receipts"
@@ -77,7 +98,7 @@ async def test_admission_keeps_pending_prediction_and_outer_rollback(
                 )
                 == 0
             )
-            authority = RoutingAuthority(db.bind)
+            authority = RoutingAuthority()
             scope = await authority.acquire(registry_id=world["registry_id"])
             assert scope.registry_id == world["registry_id"]
             assert (
@@ -107,4 +128,10 @@ async def test_admission_keeps_pending_prediction_and_outer_rollback(
             )
             await _cleanup(owner, world)
         finally:
-            await owner.close()
+            try:
+                await owner_server.close()
+            finally:
+                try:
+                    await owner_runtime.close()
+                finally:
+                    await owner.close()
