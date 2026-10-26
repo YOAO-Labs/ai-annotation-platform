@@ -26,7 +26,12 @@ from app.services import video_derivative_originals as originals
 from app.services import video_derivatives as core
 from app.services import video_frame_service as service
 from tests.factory import make_user_dict
-from tests.video_derivative_fixtures import owned_metadata, owned_output, saved_url
+from tests.video_derivative_fixtures import (
+    owned_metadata,
+    owned_output,
+    saved_url,
+    video_authority,
+)
 
 
 @pytest.fixture
@@ -244,6 +249,37 @@ async def test_each_prepare_releases_item_before_next_slot_and_physical_delivery
             output.metadata_output_id == state.generation_id for output in pending
         )
     await _item_update_available(state)
+
+
+@pytest.mark.parametrize("kind", ["frame", "chunk"])
+async def test_overlapping_reads_reuse_a_committed_slot_instead_of_reporting_busy(
+    committed_video, kind
+):
+    """Chunk, frame and prefetch reads for one video must coexist.
+
+    The first reader keeps its transaction open, as a slow delivery does. A
+    second actual connection must still reuse the committed slot rather than
+    failing with content_busy / storage_original_busy on the Item row.
+    """
+    state = committed_video
+    async with state.factory() as setup:
+        item = await setup.get(DatasetItem, state.item_id)
+        authority = await video_authority(setup, item)
+        ready_id = (await owned_output(setup, item, kind)).id
+        generation = await core.row(setup, Output, state.generation_id)
+        spec = (
+            core.frame_spec(generation, 0, 512, "webp")
+            if kind == "frame"
+            else core.chunk_spec(generation, 0)
+        )
+    async with state.factory() as first, state.factory() as second:
+        opened = await core.prepare(first, state.item_id, authority, kind, spec=spec)
+        assert (opened[0].id, opened[1]) == (ready_id, False)
+        overlapping = await core.prepare(
+            second, state.item_id, authority, kind, spec=spec
+        )
+        assert (overlapping[0].id, overlapping[1]) == (ready_id, False)
+        await first.rollback()
 
 
 async def _change_batch_fence(state, change):

@@ -11,7 +11,8 @@ import binascii
 
 from fastapi import HTTPException
 from pydantic import ValidationError
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
+from sqlalchemy.exc import IntegrityError
 
 from app.config import settings
 from app.db.models.dataset import (
@@ -26,6 +27,12 @@ from app.services import video_derivative_originals as originals
 from app.services import video_derivative_storage as physical
 from app.services import storage_access
 from app.services.content_snapshot import ContentError
+
+
+# Allocation is the only writer a reader can contend with. Readers reuse a
+# committed attempt without any write lock, so this bound applies exactly to
+# the slot row a concurrent allocator (or publisher) owns for a short window.
+ALLOCATION_LOCK_TIMEOUT = "1s"
 
 
 def now():
@@ -227,7 +234,26 @@ def chunk_spec(output, chunk_id):
     }
 
 
-async def _slot(db, item, kind, spec, *, lock=False, create=False):
+async def _waiting_scalar(db, statement, timeout):
+    """Acquire an owned row with the repository's bounded lock-timeout rule.
+
+    `SET LOCAL` scopes the bound to this transaction; a failed wait aborts the
+    transaction instead of leaving a shortened timeout for later statements.
+    """
+    previous = await db.scalar(text("SHOW lock_timeout"))
+    await db.execute(
+        text("SELECT set_config('lock_timeout', :timeout, true)"),
+        {"timeout": timeout},
+    )
+    value = await db.scalar(statement)
+    await db.execute(
+        text("SELECT set_config('lock_timeout', :timeout, true)"),
+        {"timeout": previous},
+    )
+    return value
+
+
+async def _slot(db, item, kind, spec, *, lock=False, create=False, wait=False):
     if kind == "metadata":
         return item
     model = VideoFrameCache if kind == "frame" else VideoChunk
@@ -244,8 +270,12 @@ async def _slot(db, item, kind, spec, *, lock=False, create=False):
         reject()
     stmt = select(model).where(*predicates).execution_options(populate_existing=True)
     if lock:
-        stmt = stmt.with_for_update(read=not create, nowait=True)
-    slot = await db.scalar(stmt)
+        stmt = stmt.with_for_update(read=not create, nowait=not wait)
+    slot = (
+        await _waiting_scalar(db, stmt, ALLOCATION_LOCK_TIMEOUT)
+        if wait
+        else await db.scalar(stmt)
+    )
     if slot is None and create:
         values = {"dataset_item_id": item.id, "status": "pending"}
         if kind == "frame":
@@ -262,19 +292,89 @@ async def _slot(db, item, kind, spec, *, lock=False, create=False):
                 )
             )
         slot = model(**values)
-        db.add(slot)
-        await db.flush()
+        try:
+            # A concurrent allocator may commit the unique slot while this
+            # transaction waits on the index. Keep the caller's transaction
+            # usable and adopt the committed winner instead of failing a read.
+            async with db.begin_nested():
+                db.add(slot)
+                await db.flush()
+        except IntegrityError as exc:
+            if (
+                getattr(exc.orig, "sqlstate", None) != "23505"
+                and getattr(exc.orig, "pgcode", None) != "23505"
+            ):
+                raise
+            slot = (
+                await _waiting_scalar(db, stmt, ALLOCATION_LOCK_TIMEOUT)
+                if wait
+                else await db.scalar(stmt)
+            )
+            if slot is None:
+                raise
     return slot
 
 
+async def _current_attempt(db, item_id, source, kind, spec):
+    """Return a committed current attempt without taking any write lock.
+
+    Overlapping reads of one item issue chunk, frame and prefetch requests for
+    the same video, so a shared Item lock must be enough to serve them. Only
+    allocation is a writer, and it re-reads the slot under its own lock.
+    """
+    if kind not in {"frame", "chunk"} or not isinstance(spec, dict):
+        return None
+    keys = ("frame_index", "width", "format") if kind == "frame" else ("chunk_id",)
+    if not all(key in spec for key in keys):
+        return None
+    item = await row(db, DatasetItem, item_id, lock=True)
+    if item is None or item.file_type != "video":
+        return None
+    generation = await metadata(db, item, source, lock=True)
+    expected = (
+        frame_spec(generation, spec["frame_index"], spec["width"], spec["format"])
+        if kind == "frame"
+        else chunk_spec(generation, spec["chunk_id"])
+    )
+    if spec != expected:
+        return None
+    slot = await _slot(db, item, kind, expected)
+    if slot is None or slot.output_id is None:
+        return None
+    current = await row(db, Output, slot.output_id)
+    if (
+        current is not None
+        and current.original_ref == originals.receipt(source)
+        and current.spec == expected
+        and current.metadata_output_id == generation.id
+    ):
+        if current.state == "ready":
+            return current, False
+        if current.state == "building" and (
+            current.lease_token is None or current.lease_expires_at > now()
+        ):
+            return current, current.lease_token is None
+    return None
+
+
 async def prepare(db, item_id, authority, kind, *, spec=None, force=False):
-    """Allocate metadata only; the caller commits and dispatches after success."""
+    """Allocate metadata only; the caller commits and dispatches after success.
+
+    A read for an already committed attempt never takes the Item or slot write
+    lock, so chunk, frame and prefetch requests for one video coexist. Metadata
+    allocation keeps the exclusive Item lock because it rewrites the active and
+    building pointers.
+    """
     from app.services import video_derivative_objects as objects
 
     source = await originals.check(db, authority, lock=True)
     if source.item_id != item_id:
         reject("content_binding_changed")
-    item = await row(db, DatasetItem, item_id, lock=True, write=True)
+    if not force:
+        reused = await _current_attempt(db, item_id, source, kind, spec)
+        if reused is not None:
+            return reused
+    item = await row(db, DatasetItem, item_id, lock=True, write=kind == "metadata")
     if item is None or item.file_type != "video":
         reject("video_not_found", 404)
     metadata_output = None
@@ -298,7 +398,7 @@ async def prepare(db, item_id, authority, kind, *, spec=None, force=False):
     if spec is not None and spec != expected_spec:
         reject("video_derivative_spec_changed")
     spec = expected_spec
-    slot = await _slot(db, item, kind, spec, lock=True, create=True)
+    slot = await _slot(db, item, kind, spec, lock=True, create=True, wait=True)
     current_id = (
         (item.video_building_output_id or item.video_output_id)
         if kind == "metadata"
