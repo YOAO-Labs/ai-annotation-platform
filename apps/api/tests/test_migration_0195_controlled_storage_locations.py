@@ -7,9 +7,10 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from sqlalchemy import select, text
 
-from app.db.models.dataset_asset import StorageBinding, StorageLocation
+from app.db.models.dataset_asset import StorageLocation
 from app.db.models.storage_connection import StorageConnection
 from app.services.storage_location import connector_location_id
+from tests.migration_helpers import bind, historical_schema, load
 
 
 async def test_connector_registry_backfill_roundtrip_and_parent_cleanup(
@@ -66,35 +67,35 @@ async def test_connector_registry_backfill_roundtrip_and_parent_cleanup(
     )
 
 
-async def test_referenced_filesystem_location_refuses_downgrade(
-    db_session, monkeypatch
-):
-    location = StorageLocation(
-        id=uuid.uuid4(), name="referenced-directory", kind="filesystem", config={}
-    )
-    db_session.add(location)
-    await db_session.flush()
-    db_session.add(
-        StorageBinding(
-            purpose="datasets", location_id=location.id, bucket="unused", generation=1
-        )
-    )
-    await db_session.flush()
-    spec = importlib.util.spec_from_file_location(
-        "migration_0195",
-        Path(__file__).parents[1]
-        / "alembic/versions/0195_controlled_storage_locations.py",
-    )
-    migration = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(migration)
+async def test_referenced_filesystem_location_refuses_downgrade(test_engine):
+    async with historical_schema(test_engine, "0195") as (_schema, engine):
+        async with engine.begin() as connection:
+            location_id = uuid.uuid4()
+            await connection.execute(
+                text(
+                    "INSERT INTO storage_locations (id,name,kind,config) "
+                    "VALUES (:id,'referenced-directory','filesystem','{}'::jsonb)"
+                ),
+                {"id": location_id},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO storage_bindings (purpose,location_id,bucket,generation) "
+                    "VALUES ('datasets',:id,'unused',1)"
+                ),
+                {"id": location_id},
+            )
 
-    def refuse(sync):
-        monkeypatch.setattr(
-            migration, "op", Operations(MigrationContext.configure(sync.connection()))
-        )
-        with pytest.raises(RuntimeError, match="Retain referenced storage locations"):
-            migration.downgrade()
-        assert sync.scalar(text("SELECT count(*) FROM storage_location_probes")) == 0
-        assert sync.scalar(text("SELECT count(*) FROM storage_bindings")) == 1
+            def refuse(sync):
+                module = bind(load("0195_controlled_storage_locations.py"), sync)
+                with pytest.raises(
+                    RuntimeError, match="Retain referenced storage locations"
+                ):
+                    module.downgrade()
+                assert (
+                    sync.scalar(text("SELECT count(*) FROM storage_location_probes"))
+                    == 0
+                )
+                assert sync.scalar(text("SELECT count(*) FROM storage_bindings")) == 1
 
-    await db_session.run_sync(refuse)
+            await connection.run_sync(refuse)

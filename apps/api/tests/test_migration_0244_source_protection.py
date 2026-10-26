@@ -10,7 +10,6 @@ from sqlalchemy import text
 
 from app.schemas.dataset_source import SourceExternalProtectionUpdate
 from app.services import dataset_source_protection as protection
-from tests.migration_helpers import without_later_migrations
 from tests.test_dataset_content import content_world as content_world
 
 
@@ -35,16 +34,18 @@ async def test_existing_source_roundtrip_remains_unrecorded(
         monkeypatch.setattr(
             migration, "op", Operations(MigrationContext.configure(sync.connection()))
         )
-        with without_later_migrations(sync, monkeypatch, "0244"):
-            migration.downgrade()
-            migration.upgrade()
-            row = sync.execute(
-                text(
-                    "SELECT external_protection_revision,external_protection FROM dataset_sources WHERE id=:id"
-                ),
-                {"id": source_id},
-            ).one()
-            assert row == (0, None)
+        # Later migrations do not own these columns. Rolling the shared schema
+        # back would be blocked by facts other tests legitimately retain, so
+        # round-trip only this revision's own objects.
+        migration.downgrade()
+        migration.upgrade()
+        row = sync.execute(
+            text(
+                "SELECT external_protection_revision,external_protection FROM dataset_sources WHERE id=:id"
+            ),
+            {"id": source_id},
+        ).one()
+        assert row == (0, None)
 
     await db_session.run_sync(verify)
 

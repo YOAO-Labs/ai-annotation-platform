@@ -8,7 +8,7 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from sqlalchemy import text
 
-from tests.migration_helpers import without_later_migrations
+from tests.migration_helpers import bind, historical_schema, load, relation
 from tests.test_dataset_content import content_world as content_world
 from app.services.dataset_references import register_entry
 
@@ -23,25 +23,21 @@ def module():
     return migration
 
 
-async def test_empty_policy_schema_roundtrip(db_session, monkeypatch):
-    migration = module()
+async def test_empty_policy_schema_roundtrip(test_engine):
+    async with historical_schema(test_engine, "0200") as (schema, engine):
+        async with engine.begin() as connection:
 
-    def verify(sync):
-        monkeypatch.setattr(
-            migration, "op", Operations(MigrationContext.configure(sync.connection()))
-        )
-        with without_later_migrations(sync, monkeypatch, "0200"):
-            migration.downgrade()
-            assert (
-                sync.scalar(text("SELECT to_regclass('dataset_source_items')")) is None
-            )
-            migration.upgrade()
-        assert (
-            sync.scalar(text("SELECT to_regclass('dataset_source_previews')"))
-            is not None
-        )
+            def verify(sync):
+                module = bind(load("0200_directory_policies.py"), sync)
+                module.downgrade()
+                assert relation(sync, schema, "dataset_source_items") is None
+                module.upgrade()
+                assert (
+                    relation(sync, schema, "dataset_source_previews")
+                    == "dataset_source_previews"
+                )
 
-    await db_session.run_sync(verify)
+            await connection.run_sync(verify)
 
 
 @pytest.mark.parametrize(
@@ -108,26 +104,27 @@ async def test_existing_references_backfill_and_prevent_downgrade(
         sync.execute(
             text("ALTER TABLE dataset_source_items ENABLE TRIGGER source_head_guard")
         )
-        with without_later_migrations(sync, monkeypatch, "0200"):
-            # Reproduce the pre-upgrade state, retaining the legacy Reference/Asset.
-            sync.execute(text("DELETE FROM dataset_source_items"))
+        # Later migrations are additive for these objects. Rolling the shared
+        # schema back would be blocked by facts other tests legitimately retain,
+        # so round-trip only this revision's own objects.
+        sync.execute(text("DELETE FROM dataset_source_items"))
+        migration.downgrade()
+        migration.upgrade()
+        row = sync.execute(
+            text(
+                "SELECT content_sha256,ownership_mode,owns_item FROM dataset_source_items WHERE source_id=CAST(:id AS uuid)"
+            ),
+            {"id": source_id},
+        ).one()
+        assert row == (result["sha256"], "reference", True)
+        row = sync.execute(
+            text(
+                "SELECT ownership_mode,cache_policy,unregistered_at FROM dataset_sources WHERE id=CAST(:id AS uuid)"
+            ),
+            {"id": source_id},
+        ).one()
+        assert row == ("reference", "none", None)
+        with pytest.raises(RuntimeError, match="Retain directory"):
             migration.downgrade()
-            migration.upgrade()
-            row = sync.execute(
-                text(
-                    "SELECT content_sha256,ownership_mode,owns_item FROM dataset_source_items WHERE source_id=CAST(:id AS uuid)"
-                ),
-                {"id": source_id},
-            ).one()
-            assert row == (result["sha256"], "reference", True)
-            row = sync.execute(
-                text(
-                    "SELECT ownership_mode,cache_policy,unregistered_at FROM dataset_sources WHERE id=CAST(:id AS uuid)"
-                ),
-                {"id": source_id},
-            ).one()
-            assert row == ("reference", "none", None)
-            with pytest.raises(RuntimeError, match="Retain directory"):
-                migration.downgrade()
 
     await db_session.run_sync(verify)

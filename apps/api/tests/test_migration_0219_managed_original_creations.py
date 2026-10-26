@@ -48,9 +48,12 @@ async def test_empty_creation_schema_roundtrip_and_exact_columns(creation_db):
                     "managed_original_creations", schema=owned_schema
                 )
             } == set(Creation.__table__.columns.keys()) - {
+                # scope columns arrive in 0230; staging_ref in 0250, so the
+                # fixture's writer-compatible augmentation cannot round-trip.
                 "owner_kind",
                 "project_id",
                 "task_id",
+                "staging_ref",
             }
             assert not schema.get_foreign_keys(
                 "managed_original_creations", schema=owned_schema
@@ -67,7 +70,7 @@ async def test_empty_creation_schema_roundtrip_and_exact_columns(creation_db):
                 for column in inspect(sync).get_columns(
                     "managed_original_creations", schema=owned_schema
                 )
-            } == set(Creation.__table__.columns.keys())
+            } == set(Creation.__table__.columns.keys()) - {"staging_ref"}
 
         await connection.run_sync(check)
 

@@ -8,7 +8,7 @@ from sqlalchemy import text
 
 from app.schemas.dataset_source import SourceSyncScheduleUpdate
 from app.services.dataset_source_sync import configure
-from tests.migration_helpers import without_later_migrations
+from tests.migration_helpers import bind, historical_schema, load, relation
 from tests.test_dataset_content import content_world as content_world
 
 
@@ -23,25 +23,21 @@ def module():
     return migration
 
 
-async def test_empty_schedule_schema_roundtrip(db_session, monkeypatch):
-    migration = module()
+async def test_empty_schedule_schema_roundtrip(test_engine):
+    async with historical_schema(test_engine, "0202") as (schema, engine):
+        async with engine.begin() as connection:
 
-    def verify(sync):
-        monkeypatch.setattr(
-            migration, "op", Operations(MigrationContext.configure(sync.connection()))
-        )
-        with without_later_migrations(sync, monkeypatch, "0202"):
-            migration.downgrade()
-            assert (
-                sync.scalar(text("SELECT to_regclass('dataset_source_sync_schedules')"))
-                is None
-            )
-            migration.upgrade()
-            assert sync.scalar(
-                text("SELECT to_regclass('dataset_source_sync_schedules')")
-            )
+            def verify(sync):
+                module = bind(load("0202_dataset_source_sync_schedules.py"), sync)
+                module.downgrade()
+                assert relation(sync, schema, "dataset_source_sync_schedules") is None
+                module.upgrade()
+                assert (
+                    relation(sync, schema, "dataset_source_sync_schedules")
+                    == "dataset_source_sync_schedules"
+                )
 
-    await db_session.run_sync(verify)
+            await connection.run_sync(verify)
 
 
 async def test_schedule_history_blocks_destructive_rollback(

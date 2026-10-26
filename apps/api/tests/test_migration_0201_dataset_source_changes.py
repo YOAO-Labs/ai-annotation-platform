@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import text
 
 from app.services.dataset_registration import start_preflight
-from tests.migration_helpers import without_later_migrations
+from tests.migration_helpers import bind, historical_schema, load, relation
 from tests.test_dataset_content import content_world as content_world
 
 
@@ -21,23 +21,21 @@ def module():
     return migration
 
 
-async def test_empty_comparison_schema_roundtrip(db_session, monkeypatch):
-    migration = module()
+async def test_empty_comparison_schema_roundtrip(test_engine):
+    async with historical_schema(test_engine, "0201") as (schema, engine):
+        async with engine.begin() as connection:
 
-    def verify(sync):
-        monkeypatch.setattr(
-            migration, "op", Operations(MigrationContext.configure(sync.connection()))
-        )
-        with without_later_migrations(sync, monkeypatch, "0201"):
-            migration.downgrade()
-            assert (
-                sync.scalar(text("SELECT to_regclass('dataset_source_changes')"))
-                is None
-            )
-            migration.upgrade()
-            assert sync.scalar(text("SELECT to_regclass('dataset_source_changes')"))
+            def verify(sync):
+                module = bind(load("0201_dataset_source_changes.py"), sync)
+                module.downgrade()
+                assert relation(sync, schema, "dataset_source_changes") is None
+                module.upgrade()
+                assert (
+                    relation(sync, schema, "dataset_source_changes")
+                    == "dataset_source_changes"
+                )
 
-    await db_session.run_sync(verify)
+            await connection.run_sync(verify)
 
 
 async def test_comparison_evidence_blocks_destructive_rollback(

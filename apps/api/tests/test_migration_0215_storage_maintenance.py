@@ -13,7 +13,7 @@ from app.db.models.storage_maintenance import (
     StorageMaintenanceGate as Gate,
     StorageOperation,
 )
-from tests.test_storage_maintenance_impact import location
+from tests.migration_helpers import bind, historical_schema, load, relation
 
 
 def migration(sync, monkeypatch):
@@ -28,33 +28,42 @@ def migration(sync, monkeypatch):
 
 
 async def test_unused_schema_roundtrip_seeds_external_locations_without_business_fk(
-    db_session, monkeypatch
+    test_engine,
 ):
-    where = await location(db_session)
+    async with historical_schema(test_engine, "0215") as (schema, engine):
+        async with engine.begin() as connection:
+            location_id = uuid.uuid4()
+            await connection.execute(
+                text(
+                    "INSERT INTO storage_locations (id,name,kind,config) "
+                    "VALUES (:id,:name,'filesystem','{}'::jsonb)"
+                ),
+                {"id": location_id, "name": "maintenance-" + uuid.uuid4().hex},
+            )
 
-    def verify(sync):
-        module = migration(sync, monkeypatch)
-        module.downgrade()
-        assert sync.scalar(text("SELECT to_regclass('storage_operations')")) is None
-        module.upgrade()
-        assert sync.execute(
-            text(
-                "SELECT state,revision,changed_at FROM storage_maintenance_gates WHERE location_id=:id"
-            ),
-            {"id": where.id},
-        ).one() == ("active", 1, None)
-        schema = inspect(sync.connection())
-        assert not any(
-            fk["referred_table"] == "storage_locations"
-            for fk in schema.get_foreign_keys("storage_maintenance_gates")
-        )
-        assert any(
-            fk["referred_table"] == "storage_maintenance_gates"
-            and fk["options"].get("ondelete") == "RESTRICT"
-            for fk in schema.get_foreign_keys("storage_operations")
-        )
+            def verify(sync):
+                module = bind(load("0215_storage_maintenance.py"), sync)
+                module.downgrade()
+                assert relation(sync, schema, "storage_operations") is None
+                module.upgrade()
+                assert sync.execute(
+                    text(
+                        "SELECT state,revision,changed_at FROM storage_maintenance_gates WHERE location_id=:id"
+                    ),
+                    {"id": location_id},
+                ).one() == ("active", 1, None)
+                actual = inspect(sync)
+                assert not any(
+                    fk["referred_table"] == "storage_locations"
+                    for fk in actual.get_foreign_keys("storage_maintenance_gates")
+                )
+                assert any(
+                    fk["referred_table"] == "storage_maintenance_gates"
+                    and fk["options"].get("ondelete") == "RESTRICT"
+                    for fk in actual.get_foreign_keys("storage_operations")
+                )
 
-    await db_session.run_sync(verify)
+            await connection.run_sync(verify)
 
 
 @pytest.mark.parametrize("history", ["draining", "resumed", "receipt"])

@@ -5,7 +5,8 @@ import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from sqlalchemy import text
-from tests.migration_helpers import without_later_migrations
+
+from tests.migration_helpers import bind, historical_schema, load, relation
 
 spec = importlib.util.spec_from_file_location(
     "migration_0194",
@@ -16,30 +17,19 @@ spec.loader.exec_module(migration)
 
 
 @pytest.mark.asyncio
-async def test_unused_identity_schema_roundtrip(test_engine, monkeypatch):
-    async with test_engine.connect() as connection:
-        transaction = await connection.begin()
-        try:
+async def test_unused_identity_schema_roundtrip(test_engine):
+    async with historical_schema(test_engine, "0194") as (schema, engine):
+        async with engine.begin() as connection:
 
             def roundtrip(sync):
-                with without_later_migrations(sync, monkeypatch, "0194"):
-                    monkeypatch.setattr(
-                        migration, "op", Operations(MigrationContext.configure(sync))
-                    )
-                    migration.downgrade()
-                    assert (
-                        sync.scalar(text("SELECT to_regclass('public.dataset_assets')"))
-                        is None
-                    )
-                    migration.upgrade()
-                    assert (
-                        sync.scalar(text("SELECT to_regclass('public.dataset_assets')"))
-                        == "dataset_assets"
-                    )
+                module = bind(load("0194_dataset_asset_identity.py"), sync)
+                assert module.down_revision == "0193"
+                module.downgrade()
+                assert relation(sync, schema, "dataset_assets") is None
+                module.upgrade()
+                assert relation(sync, schema, "dataset_assets") == "dataset_assets"
 
             await connection.run_sync(roundtrip)
-        finally:
-            await transaction.rollback()
 
 
 @pytest.mark.asyncio

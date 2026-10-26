@@ -10,17 +10,52 @@ import uuid
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 import pytest
-from sqlalchemy import inspect, text, update
+from sqlalchemy import DateTime, Integer, String, func, inspect, text, update
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DataError, DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.config import settings
-from app.db.models.bug_attachment_upload import BugAttachmentUpload
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.managed_original_retirement import managed_storage_identity
 
 CREATED = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+
+class _HistoricalBase(DeclarativeBase):
+    pass
+
+
+class BugAttachmentUpload(_HistoricalBase):
+    """The isolated schema carries the 0225 shape, not the current ORM.
+
+    ``object_version_id`` arrives in 0245, so the application model cannot write
+    to this historical table; this mapping mirrors the migration it exercises.
+    """
+
+    __tablename__ = "bug_attachment_uploads"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    owner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    storage_ref: Mapped[dict] = mapped_column(JSONB(none_as_null=True), nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(10), nullable=False)
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    state: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="pending", server_default="pending"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    bound_report_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
 
 
 def migration(connection):
@@ -32,6 +67,13 @@ def migration(connection):
     spec.loader.exec_module(module)
     module.op = Operations(MigrationContext.configure(connection))
     return module
+
+
+def assert_historical_columns(sync):
+    actual = {
+        column["name"] for column in inspect(sync).get_columns("bug_attachment_uploads")
+    }
+    assert actual == set(BugAttachmentUpload.__table__.columns.keys())
 
 
 @pytest.fixture
@@ -46,6 +88,7 @@ async def owned_db(test_engine):
     try:
         async with engine.begin() as connection:
             await connection.run_sync(lambda sync: migration(sync).upgrade())
+            await connection.run_sync(assert_historical_columns)
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
             yield db
     finally:

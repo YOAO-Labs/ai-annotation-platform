@@ -3,8 +3,7 @@ from pathlib import Path
 
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from tests.migration_helpers import without_later_migrations
-from sqlalchemy import text
+from tests.migration_helpers import bind, historical_schema, load, relation
 import pytest
 
 from tests.test_dataset_content import content_world as content_world
@@ -22,26 +21,21 @@ def migration_module():
     return migration
 
 
-async def test_empty_registration_schema_roundtrip(db_session, monkeypatch):
-    migration = migration_module()
+async def test_empty_registration_schema_roundtrip(test_engine):
+    async with historical_schema(test_engine, "0199") as (schema, engine):
+        async with engine.begin() as connection:
 
-    def roundtrip(sync):
-        monkeypatch.setattr(
-            migration, "op", Operations(MigrationContext.configure(sync.connection()))
-        )
-        with without_later_migrations(sync, monkeypatch, "0199"):
-            migration.downgrade()
-            assert (
-                sync.scalar(text("SELECT to_regclass('dataset_registration_runs')"))
-                is None
-            )
-            migration.upgrade()
-            assert (
-                sync.scalar(text("SELECT to_regclass('dataset_registration_entries')"))
-                is not None
-            )
+            def roundtrip(sync):
+                module = bind(load("0199_dataset_registration_jobs.py"), sync)
+                module.downgrade()
+                assert relation(sync, schema, "dataset_registration_runs") is None
+                module.upgrade()
+                assert (
+                    relation(sync, schema, "dataset_registration_entries")
+                    == "dataset_registration_entries"
+                )
 
-    await db_session.run_sync(roundtrip)
+            await connection.run_sync(roundtrip)
 
 
 async def test_registration_checkpoint_refuses_destructive_downgrade(
