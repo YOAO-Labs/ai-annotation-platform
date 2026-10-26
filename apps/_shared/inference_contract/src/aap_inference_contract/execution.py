@@ -15,6 +15,7 @@ from .backend_endpoint import (
     BackendEndpointAuthority,
     BackendEndpointBinding,
     BackendEndpointSubject,
+    decode_backend_endpoint_subject,
 )
 
 MODEL_EXECUTION_PROTOCOL = "aap-inference-model-execution/v1"
@@ -391,7 +392,7 @@ class FrozenModelOperation:
             raise ValueError("Invalid model execution request")
         subject = value["endpoint_subject"]
         if subject is not None:
-            subject = BackendEndpointSubject.model_validate(subject)
+            subject = decode_backend_endpoint_subject(subject)
         return cls(
             protocol=value["protocol"],
             request_id=_uuid(value["request_id"]),
