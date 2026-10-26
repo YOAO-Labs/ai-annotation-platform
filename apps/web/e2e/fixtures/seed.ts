@@ -349,6 +349,8 @@ export function ownedNamespaceFor(testInfo?: TestInfo): string {
 export class SeedAPI {
   /** Namespaces built by this test via `owned()`; cleaned up in teardown. */
   private ownedNamespaces: string[] = [];
+  /** Pages this test bound through `injectToken`; retired before cleanup. */
+  private boundPages = new Set<Page>();
 
   constructor(
     private request: APIRequestContext,
@@ -582,6 +584,26 @@ export class SeedAPI {
       await this.cleanupOwned(namespace);
     }
     this.ownedNamespaces.length = 0;
+  }
+
+  /**
+   * Close the pages this instance bound through `injectToken`, before their
+   * owned namespaces are deleted. A page left on a video workbench keeps
+   * admitting source/derivative reads (chunk uploads, frame prefetch) for the
+   * whole bounded cleanup drain, which ends in
+   * `e2e_seed_video_operation_unsettled`; no new work is admitted once its own
+   * pages are gone. Only these exact pages are retired — unknown contexts,
+   * pages the fixture never saw and API-only tests stay untouched — and
+   * `cleanupOwned()` during a test never closes a live page. Close failures
+   * propagate to the caller.
+   */
+  async retireOwnedPages(): Promise<void> {
+    const pages = [...this.boundPages];
+    this.boundPages.clear();
+    for (const page of pages) {
+      if (page.isClosed()) continue;
+      await page.close();
+    }
   }
 
   /** Build the multi-project employee-role acceptance fixture for this test's namespace. */
@@ -885,6 +907,11 @@ export class SeedAPI {
 
   /** 直接拿 JWT 注入 localStorage（跳过 UI 登录，加快非 auth spec）。 */
   async injectToken(page: Page, email: string, baseURL?: string): Promise<void> {
+    // Binding point for this fixture's own browser work: an attached workbench
+    // keeps issuing video reads (chunk uploads, frame prefetch), so teardown
+    // has to retire exactly this page before deleting its namespaces. Record it
+    // first so a half-injected page is retired too.
+    this.boundPages.add(page);
     const res = await this.seedLogin(email);
     if (!res.ok()) throw new Error(`seed/login failed: ${res.status()} ${await res.text()}`);
     const body = (await res.json()) as { access_token: string; user: unknown };
@@ -1008,6 +1035,21 @@ export const test = base.extend<Fixtures>({
     // playwright fixture 的 use 不是 React Hook
     // eslint-disable-next-line react-hooks/rules-of-hooks
     await use(api);
+    // Only the pages this fixture bound are retired, after Playwright captured
+    // the finish-time failure screenshot and while the trace is still recording,
+    // so a failed body keeps its screenshot, trace and errors. The close must
+    // precede the owned-cleanup request: a live workbench keeps admitting video
+    // reads and turns cleanup into `e2e_seed_video_operation_unsettled`.
+    try {
+      await api.retireOwnedPages();
+    } catch (error) {
+      try {
+        await api.cleanupOwnedFixtures();
+      } catch (cleanupError) {
+        throw new AggregateError([error, cleanupError], "Seed fixture teardown failed");
+      }
+      throw error;
+    }
     // Deterministic per-test cleanup for every owned namespace the test built.
     await api.cleanupOwnedFixtures();
   },
