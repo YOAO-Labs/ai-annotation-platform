@@ -1361,6 +1361,7 @@ export function useVideoPlaybackController({
   useEffect(() => {
     const taskId = manifest?.task_id ?? null;
     if (!taskId || lastResetTaskIdRef.current === taskId) return;
+    const previousTaskId = lastResetTaskIdRef.current;
     lastResetTaskIdRef.current = taskId;
     setFrameIndex(0);
     setIsPlaying(false);
@@ -1391,7 +1392,9 @@ export function useVideoPlaybackController({
       setBookmarks([]);
       setJumpHistory(emptyVideoJumpHistory());
     }
-    onSelectRef.current?.(null, { source: "task-reset" });
+    // 首次拿到本题 manifest 只初始化播放态: 候选/标注行可能先于 manifest 就绪, 用户此时选中的
+    // 对象属于当前题, 迟到的初始化不能把它清掉。只有真正换题(上一题播放态已建立)才按生命周期复位。
+    if (previousTaskId !== null) onSelectRef.current?.(null, { source: "task-reset" });
   }, [manifest?.task_id, maxFrame, setFrameIndex]);
 
   // ---- sessionStorage 持久化 ----

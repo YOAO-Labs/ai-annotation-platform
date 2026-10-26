@@ -61,6 +61,7 @@ async function prepare(page: Page, request: APIRequestContext, seed: SeedAPI) {
     return {
       predictionId: prediction.id,
       id: `pred-${prediction.id}-${prediction.result[0].shape_index}`,
+      cls: label,
     };
   });
   await seed.advanceTask({ taskId, toStatus: "pending", annotatorEmail: data.annotator_email });
@@ -71,6 +72,18 @@ async function prepare(page: Page, request: APIRequestContext, seed: SeedAPI) {
   return { ...data, taskId, taskDisplayId: task.display_id as string, headers, candidates };
 }
 
+/** Consumer-visible selection surface: the floating info card of the selected object. */
+function selectionCard(page: Page) {
+  return page
+    .locator("[data-floating-panel]")
+    .filter({ has: page.getByText("选中对象", { exact: true }) });
+}
+
+/** A selected AI candidate is the only selection whose card owns the prediction actions. */
+function predictionCard(page: Page) {
+  return selectionCard(page).filter({ has: page.getByRole("group", { name: "预测操作" }) });
+}
+
 test("A/D 按持久结果在当前帧前进，失败可重试，真实 422 补选只接受一次", async ({
   page,
   request,
@@ -79,16 +92,15 @@ test("A/D 按持久结果在当前帧前进，失败可重试，真实 422 补�
   const data = await prepare(page, request, seed);
   const [first, second, otherFrame] = data.candidates;
   const firstRow = page.getByTestId(`box-list-item-${first.id}`);
-  const secondRow = page.getByTestId(`box-list-item-${second.id}`);
   await firstRow.click();
-  await expect(firstRow).toHaveClass(/!border-brand/);
+  await expect(predictionCard(page)).toContainText(first.cls);
   // Native select type-ahead owns single letter keys even while a candidate is selected.
   const batchSelect = page
     .getByRole("combobox")
     .filter({ has: page.getByRole("option", { name: /全部批次/ }) });
   await batchSelect.press("a");
   await batchSelect.press("d");
-  await expect(firstRow).toHaveClass(/!border-brand/);
+  await expect(predictionCard(page)).toContainText(first.cls);
   // The selected-object floating card can cover the list row. Selection already remains
   // active, so only return focus to the workbench before dispatching the global hotkey.
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
@@ -100,7 +112,7 @@ test("A/D 按持久结果在当前帧前进，失败可重试，真实 422 补�
   await page.keyboard.press("a");
   expect((await accepted).status()).toBe(200);
   await expect(firstRow).toHaveCount(0);
-  await expect(secondRow).toHaveClass(/!border-brand/);
+  await expect(predictionCard(page)).toContainText(second.cls);
 
   // Explicit failure injection; successful paths below use the real API.
   const rejectURL = `**/predictions/${second.predictionId}/reject?*`;
@@ -116,7 +128,7 @@ test("A/D 按持久结果在当前帧前进，失败可重试，真实 422 补�
   );
   await page.keyboard.press("d");
   await expect(page.getByText("忽略失败", { exact: true })).toBeVisible();
-  await expect(secondRow).toHaveClass(/!border-brand/);
+  await expect(predictionCard(page)).toContainText(second.cls);
   const rejected = page.waitForResponse(
     (r) =>
       r.url().includes(`/predictions/${second.predictionId}/reject`) &&
@@ -142,7 +154,7 @@ test("A/D 按持久结果在当前帧前进，失败可重试，真实 422 补�
   );
   await page.keyboard.press("a");
   expect((await unmapped).status()).toBe(422);
-  await expect(otherRow).toHaveClass(/!border-brand/);
+  await expect(predictionCard(page)).toContainText(otherFrame.cls);
   const picker = page.getByTestId("class-picker-popover");
   await expect(picker).toBeVisible();
   const retried = page.waitForResponse(
@@ -187,7 +199,7 @@ test("延迟响应期间重复按键只有一项写入，切题后旧响应不�
   const newSelection = await seed.createTaskAnnotation(targetId, data.admin_email, {
     annotation_type: "video_bbox",
     tool_unit_id: "bbox",
-    class_name: "car",
+    class_name: "person",
     geometry: { type: "video_bbox", frame_index: 0, x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
   });
   const targetResponse = await request.get(`${API_BASE}/api/v1/tasks/${targetId}`, {
@@ -214,7 +226,9 @@ test("延迟响应期间重复按键只有一项写入，切题后旧响应不�
   await page.keyboard.down("a");
   await page.keyboard.up("a");
   await page.keyboard.press("a");
-  await expect(page.getByTestId(`box-list-item-${candidate.id}`)).toHaveClass(/!border-brand/);
+  // The single pending write keeps the candidate selected: its card still owns the prediction
+  // actions, so repeated keys cannot start a second decision or advance the selection.
+  await expect(predictionCard(page)).toContainText(candidate.cls);
   expect(calls).toBe(1);
   // SPA navigation keeps the owner mounted while its task changes.
   const queue = page.getByRole("tabpanel", { name: "任务队列", exact: true });
@@ -229,7 +243,8 @@ test("延迟响应期间重复按键只有一项写入，切题后旧响应不�
   await expect(page).toHaveURL(new RegExp(`task=${targetId}`));
   const newRow = page.getByTestId(`box-list-item-${newSelection.id}`);
   await newRow.click();
-  await expect(newRow).toHaveClass(/!border-brand/);
+  const targetCard = selectionCard(page);
+  await expect(targetCard).toContainText("person");
   const oldDecision = page.waitForResponse(
     (r) =>
       r.url().includes(`/predictions/${candidate.predictionId}/accept`) &&
@@ -238,6 +253,19 @@ test("延迟响应期间重复按键只有一项写入，切题后旧响应不�
   release();
   expect((await oldDecision).status()).toBe(200);
   expect(calls).toBe(1);
-  await expect(newRow).toHaveClass(/!border-brand/);
+  // The old task's late receipt may only land in its own task: the current selection and the
+  // current task's persisted annotations stay untouched.
+  await expect(targetCard).toContainText("person");
+  const targetAnnotations = await request.get(`${API_BASE}/api/v1/tasks/${targetId}/annotations`, {
+    headers: data.headers,
+  });
+  expect(targetAnnotations.ok()).toBe(true);
+  const persistedTarget = (await targetAnnotations.json()) as {
+    id: string;
+    class_name: string;
+  }[];
+  expect(persistedTarget).toEqual([
+    expect.objectContaining({ id: newSelection.id, class_name: "person" }),
+  ]);
   await expect(page.getByTestId(`box-list-item-${candidate.id}`)).toHaveCount(0);
 });
