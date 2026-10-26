@@ -19,6 +19,7 @@ from app.services import storage_location as locations, storage_access
 from app.services import dataset_source_access as access
 from app.services.dataset_content import key_authority
 from app.services.filesystem_storage import FilesystemStorageError
+from app.services.site_agents import SiteAgentError
 
 CHECK_SECONDS = 60
 DISPATCH_SECONDS = 90
@@ -40,6 +41,16 @@ BLOCKING = {
     "storage_maintenance_changed",
     "storage_maintenance_busy",
     "storage_operation_unsettled",
+    "agent_revoked",
+    "agent_unpaired",
+    "agent_unauthorized",
+    "credential_expired",
+    "credential_revision_changed",
+    "agent_protocol_incompatible",
+    "agent_identity_mismatch",
+    "agent_root_revision_changed",
+    "root_revision_changed",
+    "agent_location_changed",
 }
 
 
@@ -438,22 +449,29 @@ async def process(db, source_id, revision, token, node):
     # Idle/review observations are committed before any broker publication.
     if operation:
         await db.commit()
-        result = await locations.perform_probe(
-            db,
-            location,
-            f"worker:{node}",
-            None,
-            maintenance_revision=row.snapshot.get("maintenance_revision", 1),
-        )
+        try:
+            result = await locations.perform_probe(
+                db,
+                location,
+                f"worker:{node}",
+                None,
+                maintenance_revision=row.snapshot.get("maintenance_revision", 1),
+            )
+        except SiteAgentError as exc:
+            failure = FilesystemStorageError(exc.code)
+            if getattr(exc, "storage_operation_unsettled", False):
+                storage_access.mark_unsettled(failure)
+            raise failure from None
         location, source, row, actor = await fenced(
             db, source_id, revision, token, node
         )
+        probe_node = locations.probe_node_id(location, f"worker:{node}")
         await locations.store_probe(
-            db, location, f"worker:{node}", result, await scans.now(db)
+            db, location, probe_node, result, await scans.now(db)
         )
         stored = await db.get(
             StorageLocationProbe,
-            (location.id, f"worker:{node}"),
+            (location.id, probe_node),
             populate_existing=True,
         )
         if not stored.result["ok"]:

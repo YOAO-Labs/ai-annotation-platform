@@ -151,7 +151,7 @@ async def validate_context(
     if (
         location is None
         or not location.enabled
-        or location.kind not in {"filesystem", "s3", "sftp"}
+        or location.kind not in {"filesystem", "s3", "sftp", "agent"}
     ):
         raise fs.FilesystemStorageError("location_unavailable")
     await storage_access.check(
@@ -164,7 +164,7 @@ async def validate_context(
         ),
         lock=True,
     )
-    if location.kind in {"s3", "sftp"}:
+    if location.kind in {"s3", "sftp", "agent"}:
         configured = await reference_storage.configuration(db, location)
         if (
             snapshot
@@ -213,9 +213,9 @@ async def create_source(db, payload, actor, *, api_key_id=None):
     from app.services.dataset_lifecycle import require_writable
 
     await require_writable(db, payload.dataset_id, lock=True)
-    if location.kind in {"filesystem", "sftp"}:
+    if location.kind in {"filesystem", "sftp", "agent"}:
         fs.relative_path(payload.relative_path)
-        if location.kind == "sftp":
+        if location.kind in {"sftp", "agent"}:
             await reference_storage.configuration(db, location)
     else:
         from app.services.sources.s3_reference import directory_prefix
@@ -347,7 +347,9 @@ async def start_scan(db, source_id, actor, *, api_key_id=None):
     if anchor is None:
         raise HTTPException(409, "Worker root identity is not verified")
     probe = await db.get(
-        StorageLocationProbe, (location.id, node), populate_existing=True
+        StorageLocationProbe,
+        (location.id, locations.probe_node_id(location, node)),
+        populate_existing=True,
     )
     run = DatasetScanRun(
         source_id=source.id,
@@ -470,6 +472,9 @@ async def signal_interrupted(db, job, *, cancelled):
 
 
 async def claim(db, run_id, task_id, node_id):
+    from app.services.content_snapshot import ContentError
+    from app.services.site_agents import SiteAgentError
+
     location, source, run, job = await run_context(db, run_id)
     if (
         job is None
@@ -490,7 +495,12 @@ async def claim(db, run_id, task_id, node_id):
         if node_id != source.config["node_id"]:
             raise fs.FilesystemStorageError("wrong_execution_node")
         await locations.require_scan_node(db, location, f"worker:{node_id}")
-    except (fs.FilesystemStorageError, HTTPException) as exc:
+    except (
+        fs.FilesystemStorageError,
+        HTTPException,
+        ContentError,
+        SiteAgentError,
+    ) as exc:
         await finish(
             db,
             run,
@@ -500,7 +510,16 @@ async def claim(db, run_id, task_id, node_id):
         )
         return None
     source.generation += 1
-    run.snapshot = {**run.snapshot, "scan_host_id": fs.host_identity()}
+    if location.kind == "agent":
+        probe = await db.get(
+            StorageLocationProbe,
+            (location.id, locations.probe_node_id(location, f"worker:{node_id}")),
+            populate_existing=True,
+        )
+        host_id = probe.result.get("host_id") if probe is not None else None
+    else:
+        host_id = fs.host_identity()
+    run.snapshot = {**run.snapshot, "scan_host_id": host_id}
     run.generation = source.generation
     run.lease_token = uuid.uuid4()
     run.lease_expires_at = await now(db) + timedelta(seconds=LEASE_SECONDS)
@@ -513,10 +532,11 @@ async def claim(db, run_id, task_id, node_id):
 
 def failure_code(exc, fallback):
     from app.services.content_snapshot import ContentError
+    from app.services.site_agents import SiteAgentError
 
     if getattr(exc, "storage_operation_unsettled", False):
         return "storage_operation_unsettled"
-    if isinstance(exc, (fs.FilesystemStorageError, ContentError)):
+    if isinstance(exc, (fs.FilesystemStorageError, ContentError, SiteAgentError)):
         return exc.code
     if isinstance(exc, HTTPException):
         if isinstance(exc.detail, dict) and "code" in exc.detail:
@@ -608,6 +628,16 @@ async def next_directory(db, run_id, task_id, fence):
         "identity": entry.observed.get("identity")
         or (source.root_identity if not entry.relative_path else None),
     }
+    if location.kind == "agent":
+        work["agent_fence"] = {
+            "source_id": str(source.id),
+            "run_id": str(run.id),
+            "job_id": str(job.id),
+            "task_id": task_id,
+            "generation": run.generation,
+            "lease_token": str(run.lease_token),
+            "user_id": str(job.user_id),
+        }
 
     work["_fault_observation"] = await scan_fault_observation(
         db, location, source, run, job, work

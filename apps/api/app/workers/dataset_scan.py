@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.config import settings
 from app.db.models.dataset_source import DatasetScanRun, DatasetSource
 from app.db.models.async_job import AsyncJob
+from app.db.models.dataset_asset import StorageLocation
 from app.services import dataset_scans as svc
 from app.services import filesystem_storage as fs, storage_access, storage_fault_events
 from app.workers.celery_app import celery_app
@@ -78,9 +79,11 @@ async def execute_scan(run_id, task_id, node_id):
             if fence is None:
                 return
             observation = None
+            receipt = None
             try:
                 while True:
                     observation = None
+                    receipt = None
                     work = await svc.next_directory(db, run_id, task_id, fence)
                     if work is not None:
                         observation = work.get("_fault_observation")
@@ -89,7 +92,31 @@ async def execute_scan(run_id, task_id, node_id):
                         return
                     if work.get("transition"):
                         continue
-                    if work.get("kind") == "s3":
+                    if work.get("kind") == "agent":
+                        from app.services import agent_transport
+
+                        location = await db.get(
+                            StorageLocation, work["location_id"], populate_existing=True
+                        )
+                        if location is None:
+                            raise fs.FilesystemStorageError("location_unavailable")
+                        receipt = await agent_transport.exchange(
+                            db,
+                            location,
+                            "scan",
+                            {
+                                "relative_path": "",
+                                "path": work["path"],
+                                "expected_anchor": work["anchor"],
+                                "expected_identity": work["identity"],
+                            },
+                            fence=work["agent_fence"],
+                            purpose="scan",
+                            node_id=node_id,
+                            expected_revision=work["maintenance_revision"],
+                        )
+                        manifest = receipt.result["result"]
+                    elif work.get("kind") == "s3":
                         manifest = await storage_access.run(
                             db,
                             work["location_id"],
@@ -123,10 +150,14 @@ async def execute_scan(run_id, task_id, node_id):
                     await svc.apply_directory(
                         db, run_id, task_id, fence, work, manifest
                     )
+                    if receipt is not None:
+                        await agent_transport.acknowledge(db, receipt, accepted=True)
                     await db.commit()
+                    receipt = None
                     await storage_fault_events.recover(db, observation)
             except svc.LostScanLease:
                 await db.rollback()
+                await retire_agent_receipt(db, receipt, "scan_attempt_superseded")
             except Exception as exc:
                 await db.rollback()
                 code = svc.failure_code(
@@ -135,6 +166,7 @@ async def execute_scan(run_id, task_id, node_id):
                     if isinstance(exc, TimeoutError)
                     else "scan_interrupted",
                 )
+                await retire_agent_receipt(db, receipt, code)
                 await svc.fail_attempt(
                     db,
                     run_id,
@@ -149,3 +181,21 @@ async def execute_scan(run_id, task_id, node_id):
         pass  # Deleted/retired contracts cannot be revived by a queued message.
     finally:
         await engine.dispose()
+
+
+async def retire_agent_receipt(db, receipt, code):
+    """Keep a closed transport result from becoming a second business attempt."""
+    if receipt is None:
+        return
+    try:
+        from app.services import agent_transport
+
+        # Rollback expires ORM attributes, including the physical-close evidence.
+        await db.refresh(receipt)
+        if receipt.closed is not True:
+            return
+        await agent_transport.acknowledge(db, receipt, accepted=False, code=code)
+        await db.commit()
+    except Exception:
+        # The owner failure remains primary; the receipt retains its durable state.
+        await db.rollback()
