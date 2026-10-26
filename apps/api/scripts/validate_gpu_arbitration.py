@@ -52,7 +52,7 @@ from aap_inference.gpu.contracts import GPUArbiterDispatchError, GPUDispatchRequ
 from aap_inference.gpu.ledger import GPUArbiterStore, GPUArbiterStoreError
 from aap_inference.gpu.settings import GPUArbiterMode, GPUAuthoritySettings
 from aap_inference.gpu.signing import GPUAdmissionTokenSigner
-from aap_workspace.configuration import secret_source
+from aap_workspace.config import secret_source
 from app.observability.metrics import observe_ml_backend
 from app.utils.gpu_resource import validate_gpu_resource_id
 

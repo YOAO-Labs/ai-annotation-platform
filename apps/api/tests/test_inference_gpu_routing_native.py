@@ -16,9 +16,16 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from aap_inference.backend_transport import BackendTransportError
 from aap_inference.gpu.contracts import GPUDispatchGrant
 from aap_inference.gpu.endpoint_source import GPUOwnedBackendEndpointSource
-from aap_inference.owner_transport import BackendTransportGPUControlAdapter
+from aap_inference.owner_transport import (
+    BackendTransportGPUControlAdapter,
+    _transport_identity,
+)
 from aap_inference.routing_runtime import RoutingRuntime
-from aap_inference_contract.routing import make_routing_command
+from aap_inference_contract.routing import (
+    RoutingBeginResult,
+    RoutingScopeView,
+    make_routing_command,
+)
 from aap_protocol_v2.lifecycle import (
     AdmissionScope,
     AdmissionTokenClaims,
@@ -184,15 +191,84 @@ async def test_gpu_unload_composes_native_route_and_real_gpu_signature_without_p
             # This signed fixture exercises backend/Native routing only; it does not
             # claim a real GPU-arbiter admission or hardware capacity.
             warm_token = token(AdmissionScope.WARMUP, generation="1")
-            response = await probe.post(
-                base + "/warmup",
-                headers={
-                    "Authorization": f"Bearer {route_token}",
-                    GPU_GENERATION_HEADER: "1",
-                    GPU_ADMISSION_TOKEN_HEADER: warm_token,
-                },
-            )
-            response.raise_for_status()
+            warm_scope = (
+                await runtime.execute(
+                    make_routing_command(
+                        "acquire",
+                        {
+                            "pool_id": None,
+                            "registry_id": str(registry_id),
+                            "project_id": None,
+                            "mode": "direct",
+                            "required_instance_id": str(registry_id),
+                            "owner": "fixture-warmup",
+                            "operation": "warmup",
+                        },
+                    )
+                )
+            ).result
+            assert isinstance(warm_scope, RoutingScopeView)
+            warm_attempt = uuid.uuid4()
+            warm_succeeded = False
+            try:
+                async with runtime.transport_subject_issuer(
+                    parent_kind="scope",
+                    parent_id=warm_scope.id,
+                    capability=warm_scope.capability,
+                    attempt_id=warm_attempt,
+                    transport_identity=_transport_identity(endpoint),
+                ) as subject:
+                    begun = (
+                        await runtime.execute(
+                            make_routing_command(
+                                "begin",
+                                {
+                                    "scope_id": str(warm_scope.id),
+                                    "capability": warm_scope.capability,
+                                    "attempt_id": str(warm_attempt),
+                                    "method": "POST",
+                                    "path": "/warmup",
+                                    "transport_subject": subject,
+                                },
+                            )
+                        )
+                    ).result
+                assert isinstance(begun, RoutingBeginResult)
+                response = await probe.post(
+                    base + "/warmup",
+                    headers={
+                        **begun.headers,
+                        "Authorization": f"Bearer {route_token}",
+                        GPU_GENERATION_HEADER: "1",
+                        GPU_ADMISSION_TOKEN_HEADER: warm_token,
+                    },
+                )
+                await runtime.execute(
+                    make_routing_command(
+                        "settle",
+                        {
+                            "scope_id": str(warm_scope.id),
+                            "capability": warm_scope.capability,
+                            "attempt_id": str(warm_attempt),
+                            "kind": "response",
+                            "status_code": response.status_code,
+                            "reason": None,
+                        },
+                    )
+                )
+                response.raise_for_status()
+                warm_succeeded = True
+            finally:
+                await runtime.execute(
+                    make_routing_command(
+                        "close",
+                        {
+                            "scope_id": str(warm_scope.id),
+                            "capability": warm_scope.capability,
+                            "outcome": "success" if warm_succeeded else "error",
+                        },
+                    )
+                )
             assert (await probe.get(base + "/health")).json()["residency"][
                 "gpu_loaded"
             ] is True

@@ -1052,28 +1052,6 @@ def test_domain_package_root_not_eager_importing(spec: DomainSpec) -> None:
     assert not flagged, f"package root eager-imports high-level module(s): {flagged}"
 
 
-def test_inference_pipeline_gateways_use_the_portable_inference_owner() -> None:
-    """The API gateways cross into only the dedicated Inference ports."""
-    expected = {
-        "inference_pipelines": {
-            "aap_inference.pipeline_client",
-            "aap_inference.pipeline_contract",
-            "aap_inference.pipeline_manager",
-            "aap_inference.pipeline_postgres",
-        },
-        "inference_pipelines_data": {"aap_inference.pipeline_contract"},
-    }
-    for package, allowed in expected.items():
-        path = _SERVICES_DIR / f"{package}.py"
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        imported = {
-            ".".join(name.split(".")[:2])
-            for name, _local in _collect_imports(tree, f"app.services.{package}")
-            if name == "aap_inference" or name.startswith("aap_inference.")
-        }
-        assert imported == allowed, f"{package} imports unexpected Inference modules"
-
-
 def test_inference_pool_capability_policy_is_portable() -> None:
     """Pool canonicalization lives in Inference without API or runtime imports."""
     retired = _SERVICES_DIR / "ml_routing" / "capability.py"

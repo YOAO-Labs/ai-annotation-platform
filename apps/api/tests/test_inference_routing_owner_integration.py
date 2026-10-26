@@ -591,7 +591,7 @@ async def test_routing_owner_real_database_http_and_captured_transaction(
             control_token=None,
             host="127.0.0.1",
             port=owner_port,
-            routing_manager=owner_runtime.manager,
+            routing_manager=owner_runtime,
             routing_control_token=route_owner_token,
         )
         await owner_server.start()
@@ -799,6 +799,85 @@ async def test_routing_owner_real_database_http_and_captured_transaction(
         assert closed.result.closed is True
         assert closed.result.state == "finished"
 
+        # The canonical API gateway uses the remote execution provider and routing
+        # owner while preserving this caller's uncommitted business update.
+        from app.config import GPUArbiterMode, settings
+        from app.services.inference_model_execution import model_execution_port
+        from aap_inference_contract.execution import FrozenModelOperation
+
+        (
+            execution_process,
+            execution_url,
+            execution_token,
+        ) = await _start_model_execution_owner(tmp_path, routing_dsn)
+        for name, value in {
+            "inference_routing_url": proxy_url,
+            "inference_routing_token": route_owner_token,
+            "inference_routing_token_file": "",
+            "inference_model_execution_url": execution_url,
+            "inference_model_execution_token": execution_token,
+            "inference_model_execution_token_file": "",
+            "gpu_arbiter_mode": GPUArbiterMode.OFF,
+            "gpu_arbiter_rollout_enabled": False,
+        }.items():
+            monkeypatch.setattr(settings, name, value)
+        before_api_receipts = set(
+            await owner.fetchval(
+                "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) FROM aap_inference_routing_v1.command_receipts"
+            )
+        )
+        try:
+            async with async_sessionmaker(test_engine, expire_on_commit=False)() as db:
+                user = await db.get(User, user_id)
+                user.name = "uncommitted real API gateway change"
+                await db.flush()
+                request = FrozenModelOperation(
+                    request_id=uuid.uuid4(),
+                    operation="batch_predict",
+                    task_inputs=(
+                        {
+                            "id": "api-one",
+                            "file_path": "https://fixture.invalid/api-one.jpg",
+                            "data": {},
+                        },
+                    ),
+                    context=None,
+                    project_id=None,
+                    requested_registry_id=world["registry_id"],
+                    requested_pool_id=None,
+                    endpoint_registry_id=None,
+                    required_instance_id=world["registry_id"],
+                    route_owner="api:routing-owner-integration",
+                    route_operation="batch_predict",
+                )
+                before_backend_calls = len(backend_calls)
+                result = await model_execution_port(db).execute(request)
+                assert len(result.results) == 1
+                assert result.results[0].task_id == "api-one"
+                assert result.provenance.registry_id == world["registry_id"]
+                assert result.provenance.attempt_id == request.request_id
+                assert result.provenance.route_scope_id is not None
+                assert len(backend_calls) == before_backend_calls + 1
+                assert (
+                    await owner.fetchval(
+                        "SELECT name FROM public.users WHERE id=$1", user_id
+                    )
+                    == baseline_user_name
+                )
+                await db.rollback()
+            assert (
+                await owner.fetchval(
+                    "SELECT name FROM public.users WHERE id=$1", user_id
+                )
+                == baseline_user_name
+            )
+        finally:
+            after_api_receipts = set(
+                await owner.fetchval(
+                    "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) FROM aap_inference_routing_v1.command_receipts"
+                )
+            )
+            receipt_ids.extend(after_api_receipts - before_api_receipts)
         # An unknown destructive response retains its hold. Recovery reuses that
         # exact control ID and waits for actual backend work, not database zero.
         await owner.execute(
@@ -932,79 +1011,6 @@ async def test_routing_owner_real_database_http_and_captured_transaction(
         )
         assert isinstance(late.result, RoutingRejectedResult)
 
-        # The canonical API gateway uses the remote execution provider and routing
-        # owner while preserving this caller's uncommitted business update.
-        from app.config import GPUArbiterMode, settings
-        from app.services.inference_model_execution import model_execution_port
-        from aap_inference_contract.execution import FrozenModelOperation
-
-        (
-            execution_process,
-            execution_url,
-            execution_token,
-        ) = await _start_model_execution_owner(tmp_path, routing_dsn)
-        for name, value in {
-            "inference_routing_url": proxy_url,
-            "inference_routing_token": route_owner_token,
-            "inference_routing_token_file": "",
-            "inference_model_execution_url": execution_url,
-            "inference_model_execution_token": execution_token,
-            "inference_model_execution_token_file": "",
-            "gpu_arbiter_mode": GPUArbiterMode.OFF,
-            "gpu_arbiter_rollout_enabled": False,
-        }.items():
-            monkeypatch.setattr(settings, name, value)
-        before_api_receipts = set(
-            await owner.fetchval(
-                "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) FROM aap_inference_routing_v1.command_receipts"
-            )
-        )
-        try:
-            async with async_sessionmaker(test_engine, expire_on_commit=False)() as db:
-                user = await db.get(User, user_id)
-                user.name = "uncommitted real API gateway change"
-                await db.flush()
-                request = FrozenModelOperation(
-                    request_id=uuid.uuid4(),
-                    operation="batch_predict",
-                    task_inputs=({"id": "api-one", "data": {}},),
-                    context=None,
-                    project_id=None,
-                    requested_registry_id=world["registry_id"],
-                    requested_pool_id=None,
-                    endpoint_registry_id=None,
-                    required_instance_id=world["registry_id"],
-                    route_owner="api:routing-owner-integration",
-                    route_operation="batch_predict",
-                )
-                before_backend_calls = len(backend_calls)
-                result = await model_execution_port(db).execute(request)
-                assert len(result.results) == 1
-                assert result.results[0].task_id == "api-one"
-                assert result.provenance.registry_id == world["registry_id"]
-                assert result.provenance.attempt_id == request.request_id
-                assert result.provenance.route_scope_id is not None
-                assert len(backend_calls) == before_backend_calls + 1
-                assert (
-                    await owner.fetchval(
-                        "SELECT name FROM public.users WHERE id=$1", user_id
-                    )
-                    == baseline_user_name
-                )
-                await db.rollback()
-            assert (
-                await owner.fetchval(
-                    "SELECT name FROM public.users WHERE id=$1", user_id
-                )
-                == baseline_user_name
-            )
-        finally:
-            after_api_receipts = set(
-                await owner.fetchval(
-                    "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) FROM aap_inference_routing_v1.command_receipts"
-                )
-            )
-            receipt_ids.extend(after_api_receipts - before_api_receipts)
         assert proxy.errors == []
     except RoutingUnavailable as error:
         raise AssertionError(

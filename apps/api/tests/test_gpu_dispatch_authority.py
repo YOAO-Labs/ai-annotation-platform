@@ -3713,6 +3713,7 @@ async def test_eviction_heartbeat_fails_at_hard_deadline() -> None:
     await authority_module._heartbeat_runtime_lease(
         store,  # type: ignore[arg-type]
         _subject(),
+        _DispatchTestClock(),
         lease_id="workload:test",
         owner_id="dispatch:test",
         heartbeat_ttl_ms=15_000,
@@ -4700,7 +4701,7 @@ async def test_phase_health_failure_converges_unknown_and_stops_eviction(
     )
     if lost_unload_responses:
 
-        class LostUnloadResponseClient:
+        class LostUnloadResponseClient(_dispatch_test_transport.client_factory):
             def __init__(self, endpoint: BackendEndpointSnapshot) -> None:
                 self.backend_id = endpoint.registry_id
 
