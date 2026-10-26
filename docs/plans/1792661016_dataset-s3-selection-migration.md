@@ -2,6 +2,36 @@
 
 > 状态：源端清单、已保存定位目录及初次复制分项已验证；B3已补齐当前九用途的27类定位目录。E09-B17已接通配置源清单后台任务，E07-B4／E09-B18已交付应用初次复制、持久检查点、续跑及选择重试。E07-B5已交付后续清单增量批次、准确版本映射复用及跨批次证据保留；B6已交付耐久迁移窗口、登记访问排空及绑定任务的受控源只读。B7-A已交付受控本机MinIO原生写入封闭，105项不同检查及非空真实源演练通过；B7-B已完成窗口绑定与最终清单／增量封存，234项不同检查和真实HTTP／独立Worker／非空源链路通过。锁定双候选本地比较已完成并保留一项实际差异；完整选型、生产迁移、切换与退役仍待各自条件，完整E07活动，不分配发布版本。
 
+## E07-B7-C 定稿：已封存映射发布与原件实际读取
+
+2026-10-26，基于干净`cf0837b88`继续原始S03／S04／S05及AC05–AC07。最小直接替换Binding不能改变历史地址，直接换客户端又会先被旧A Gate拒绝，且可能读B的latest；因此本片发布已封存逐对象映射并接通全部现有托管原件读取接缝。原Task／Item／Asset／TaskOriginal、保存定位、创建回执、冻结original receipt／manifest及其摘要保持；新分配Binding不在本片切换。九用途其他冻结包／派生物的只读路由、原子用途切换、新写入回滚与生产退役沿原稿后续实施，不用原件完成替代。
+
+```text
+Journal held + sealed Finalization / Copy
+                ↓ actual observation + materialized full evidence
+       immutable Publication / exact Route rows
+                ↓ logical locator + saved SHA / size
+OriginalSource / business authorization → PhysicalReadPlan
+                ↓ exact target Gate / durable Permit
+        HEAD(version) → GET(version + IfMatch) → full SHA → HEAD(version)
+```
+
+新增Publication与Route两表及0263：Publication ID固定为Finalization ID，保存最终窗口／Copy／token／evidence／源和目标、映射摘要／数量、状态和修订；一个逻辑来源最多一项active或withdrawing发布。Route固定准确源object ID、完整endpoint／bucket／原始key／可空source VersionId、独立SHA／大小、源ETag／is_latest，以及目标准确key、非null VersionId／ETag／内容摘要和原创建nonce／plan UUID。保持两端版本分别记录；行不可修改或删除，发布身份／摘要不可改写，有历史时禁止破坏性降级。
+
+可信本地运维复用`finalize_storage_migration.py`，新增`publish-reads / status-reads / withdraw-reads`，继续使用私有config/state、actor-id和finalization-id；发布的expected-revision指Finalization修订，撤回指Publication修订。preflight短事务取得已sealed全量Copy固定输入，事务外重新物化baseline／全部delta及最终证据，Journal内前后真实观测原生封闭，最后短CAS同时写映射及活动发布。直接复用当前清单内已完整verify的全部历史S3版本；previous-only／history-only、retain、rebuild和marker保持原事实，不冒充可读副本，不要求全历史unknown清零。映射按100,000行既有预算，在数据库事务内分批插入；不增加公开API、后台服务、配置变量或证明JSON导入。
+
+Publication独立保留逐对象回执和Copy责任；未撤回前普通Finalization.invalidate拒绝，原有Window／Journal封闭继续保持。显式撤回先提交withdrawing，阻止新映射I/O，再等待实际`migration_read_<publication UUID hex>`许可全部真实收尾，才提交withdrawn；不按TTL清除，不自动开放A写入、不删除目标或原源。原记录与映射继续保留，撤回后不原地重新激活同一发布；后续新窗口/最终核验建立新发布。未知应答用同身份续做，不能换ID绕过。
+
+OriginalSource保留全部逻辑字段，并附独立不可变read_route事实；旧A的maintenance_revision不塞入B修订。解析先冻结原Gate修订，完整逻辑定位和SHA／大小已知后，只有原直读准入或精确active映射及B当前可读才返回。未匹配时沿原拒绝行为，不回退猜测；绑定位置禁用、物理漂移或目标停止均拒绝。原件原本是内容身份读取，旧创建VersionId不突然变成读取前提：按完整逻辑地址及保存SHA／大小选准确映射；多份同内容版本按is_latest优先、source_object_id稳定排序。显式版本合同的其他历史消费者留待按该源版本接入，不能全局SHA或同key猜测。
+
+新增纯PhysicalReadPlan，分别给出实际location_id／maintenance_revision、带目标准确VersionId和目标ETag的ObjectSpec，以及route许可purpose；不伪装SDK端点或回包。`read_options`在实际Permit下取得B当前凭据、复核发布及物理身份，并保留现有原件保护；`recheck_read_route`在读取前后核对活动发布、修订及B配置／Gate，错误沿已有关闭／取消责任收尾。业务授权与逻辑receipt复核原样保留。reader的两次HEAD、条件探测和GET都固定同一个目标版本，并完整核SHA／大小；B出现foreign latest或marker也不改读版本。
+
+本片超过8文件，准确写入范围为新model／0263／发布服务及DB检查，最终核验／Copy必要guard，新映射纯核心及检查，原件reader／original_sources／auxiliary_originals与检查，以及现有12个存储读取接缝：dataset_content、original_binary、dataset_references、prediction_originals、video_prediction_originals、image_pyramid_originals、video_derivative_originals、point_cloud_quality/originals、training_dataset_originals、active_learning_originals、sample_evaluation_originals和export_media_transfer。后者仅调整计划、实际Permit／spec和路由复核，不改业务算法、会话或审核。根树负责CLI／定向检查、独立真实验收脚本和现有README／DEV／用户／架构／运维／CHANGELOG及执行队列；没有产品布局或依赖、共享环境配置、后端镜像及发布版本变化。
+
+实现合同：发布服务提供preflight_publish、publish、status、begin_withdrawal、finish_withdrawal、require_unpublished、frozen_copy及lookup；纯核心`build_read_mapping(values, *, window_id, window_revision)`返回schema、完整evidence、排序entries及mapping_sha256。OriginalSource追加默认None的read_route；`original_sources.read_plan(source)`纯返回计划，`read_options(db, source, *, read_timeout=30)`签名保持，`recheck_read_route(db, source)`无route时不增加I/O。12处调用用plan实际位置／修订／spec及plan.purpose(original_label)，原业务source保持；所有实际读取按原预算及取消规则收尾。
+
+修改代理使用此定稿提交的独立HEAD工作树、互斥路径和正常提交。验证只覆盖本片：映射实际物化与摘要、DB权限／CAS／不可变历史／撤回真实排空、reader固定版本、原件与既有消费者存储兼容回归；独立非空源完成真实HTTP／Worker复制、封存和发布后，源保持stopped并实际不可达，B存在同key新版本／marker仍读准确旧字节，Task／Item／Asset及冻结内容身份不变。真实浏览器验证原件显示／下载、当前授权拒绝和恢复；不把12类完整业务资格或其他所有producer测试变成前置。保留人工3100／8100、原数据／对象／源文件，仅应用测试过的0263并在实际空闲后刷新所属Worker，不重建镜像；按精确owner清理一次性环境和原始产物，正常提交并记录Outcome。
+
 ## E07-B7-B 定稿：窗口绑定与最终清单／增量封存
 
 2026-10-26，基于干净`18869a560`，沿原始S04／AC04–AC05及§7第4–6步继续实施。原生封闭已实际成立，但应用任务还没有与它建立可信绑定；本片交付受信任本地运维命令、耐久最终核验记录及现有控制台的只读结果。复用B6窗口与B5后继任务，不给API或Worker增加Docker／root凭据，不接受HTTP上传JSON证明，不新建常驻服务。
