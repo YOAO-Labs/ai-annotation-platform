@@ -213,3 +213,17 @@ A3 复用存储页面和居中 Modal，新增 `apps/web/src/components/storage/S
 - A3／B：新增 `scripts/verify_site_agent.py` 和直接纯测试；真实隔离 HTTPS 双 Agent 完成配对、扫描、登记、读取／Range，注入断网重启、旧租约、重复提交、撤权、副本变化和预算优先级，逐项对应 AC01–09。
 - Web 变更按既有约定做 token lint、组件测试、真实明暗／宽窄截图及交互、请求、控制台检查。A1 无 Web 变更不重复既有 UI 验收。
 - 随实际实现更新 `docs-site/ops/deploy/site-agents.md`、部署索引／网络安全、`dev/concepts/storage-connections.md`、API／用户指南、README／DEV 与 CHANGELOG。未实现的中心接入明确标注；整项完成追加 Outcome，不把组件测试写成 Epic 已验收。
+
+## Outcome — E06-A1 独立组件
+
+2026-10-26，原稿按当前基线晋升 `f172c9e40`；安全只读原语 `bc83b149c`、严格协议 `479218226`、独立出站 Agent `67cf29360` 已提交。此处只收口 A1 工程步骤，E06-A 和整项 E06 均未完成，原始故事与 AC01–09 保持。
+
+已交付：标准库共享根读取与完整 SHA stage；固定版本／白名单消息；单实例耐久本地日志，分开本地完成、received 和 applied；独立身份与根修订核对、HTTPS／CA、拒绝重定向、分块 ACK、租约发送期限、有限带宽／空间／重试、drain 与本地配置检查。当前客户端串行执行，关闭未决即使被拒绝也保留，目录结果超过协议上限记录明确失败。
+
+当前组件共 471 项测试通过：共享文件系统 68、协议 354、Agent 最终 49。主树合并检查曾一次运行 467 项，随后仅对有实际改动的 Agent 运行最终 49 项，不重复计算旧用例。真实本机 TLS 对端验证丢 ACK 后重新打开耐久日志仍发送原 stage、证书与重定向拒绝、握手中到期后不发送请求；这些是协议组件证据，不是完整隔离网络或平台接入验收。
+
+三个本地 wheel 在独立虚拟环境安装及 CLI／导入 smoke 通过，未安装 FastAPI／SQLAlchemy；Ruff 0.15.22 check／format、提交钩子与 diff 检查通过。文档片段／208 页 frontmatter／freshness 检查及完整文档构建通过（37.01 秒）。正式说明见 [Agent 部署范围](../../docs-site/ops/deploy/site-agents.md)与[独立包 README](../../apps/storage-agent/README.md)。Dockerfile／systemd 文件是部署骨架，本轮未构建镜像或启用服务。
+
+人工 Web3100、API8100 返回 200，DB／Redis／MinIO／Celery 均健康；没有迁移、重启或修改已有 API／Worker。1626 个文档生成文件、测试目录、wheel 中间文件、临时虚拟环境及两棵已集成隔离树清理；未创建测试数据库／对象桶。只保留 0600 的边界与结果摘要 `/tmp/aap-e06-a1-summary-s3zb6umf.json`。
+
+下一步 A2 直接接通中心独立身份／配对、传输命令、已有扫描／登记／内容快照和撤销。随后 A3／B 完成管理界面、真实隔离双站点、Range、恢复与有限副本路由。原子业务 ACK、关闭对账、中心到期鉴权尚待 A2 实现，不能用当前组件通过替代。没有新增生产站点、回滚专项或无关训练门槛。
