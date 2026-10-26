@@ -431,23 +431,18 @@ async def _fresh(db, authority, source, guard):
         current = await check(owned, authority, lock=True)
         if receipt(current) != receipt(source):
             _reject("content_binding_changed", 409)
+        await original_sources.recheck_read_route(owned, source)
         if guard is not None:
             await guard()
         clock(authority)
     # The owned read-only transaction closes before any physical operation.
 
 
-async def _capture(source, admission, **read_options):
+async def _capture(plan, admission, **read_options):
     timeout = settings.image_pyramid_job_timeout_seconds
     pending = asyncio.create_task(
         reader.capture(
-            reader.ObjectSpec(
-                source.endpoint_url,
-                source.bucket,
-                source.object_key,
-                source.sha256,
-                source.size_bytes,
-            ),
+            plan.spec,
             max_bytes=settings.image_pyramid_max_source_bytes,
             timeout_seconds=timeout,
             transport_timeout_seconds=min(30, timeout),
@@ -481,12 +476,13 @@ async def media(db, authority, source, *, guard=None):
     """Yield a verified file while retaining admission through native/close work."""
     receipt(source)
     await _fresh(db, authority, source, guard)
+    plan = original_sources.read_plan(source)
     async with _session(db) as owned:
         permit = await storage_access.acquire(
             owned,
-            source.location_id,
-            "image_pyramid_original",
-            expected_revision=source.maintenance_revision,
+            plan.location_id,
+            plan.purpose("image_pyramid_original"),
+            expected_revision=plan.maintenance_revision,
         )
     async with permit:
         stage, failure = None, None
@@ -494,7 +490,7 @@ async def media(db, authority, source, *, guard=None):
         try:
             await _fresh(db, authority, source, guard)
             read_options = await original_sources.read_options(db, source)
-            stage = await _capture(source, admission, **read_options)
+            stage = await _capture(plan, admission, **read_options)
             yield stage
         except BaseException as exc:
             failure = exc

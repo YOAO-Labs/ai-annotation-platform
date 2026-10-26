@@ -383,6 +383,7 @@ async def _managed_snapshot(
 ):
     from app.services import managed_original_reader as reader, original_sources
 
+    plan = original_sources.read_plan(source)
     stage = None
     try:
         purpose = (
@@ -392,22 +393,17 @@ async def _managed_snapshot(
         ) + source.content_id.hex
         async with await storage_access.acquire(
             db,
-            source.location_id,
-            purpose,
-            expected_revision=source.maintenance_revision,
+            plan.location_id,
+            plan.purpose(purpose),
+            expected_revision=plan.maintenance_revision,
             node_id=node_id,
         ):
             await validate()
+            await original_sources.recheck_read_route(db, source)
             await db.commit()
             check_clock()
             stage = await reader.capture(
-                reader.ObjectSpec(
-                    source.endpoint_url,
-                    source.bucket,
-                    source.object_key,
-                    source.sha256,
-                    source.size_bytes,
-                ),
+                plan.spec,
                 max_bytes=snapshots.MAX_BYTES,
                 timeout_seconds=snapshots.COPY_SECONDS,
                 **(
@@ -416,6 +412,7 @@ async def _managed_snapshot(
                     )
                 ),
             )
+            await original_sources.recheck_read_route(db, source)
         result = await snapshots.adopt_stage(stage, inspect_quality=quality)
         stage = None  # The image snapshot now owns the exact staged file and slot.
         return result

@@ -376,7 +376,7 @@ class SourceInput:
 async def open_snapshot(db, task_id, expected, *, guard, purpose, node_id):
     """Return an image plus a source permit; caller transfers image ownership."""
 
-    async def fresh():
+    async def fresh(read_source=None):
         async with AsyncSession(
             bind=storage_access.engine(db), expire_on_commit=False, autoflush=False
         ) as owned:
@@ -384,9 +384,13 @@ async def open_snapshot(db, task_id, expected, *, guard, purpose, node_id):
             source = await resolve(owned, task_id, lock=True)
             if source_receipt(source) != expected:
                 raise ContentError("content_binding_changed")
+            await original_sources.recheck_read_route(
+                owned, read_source if read_source is not None else source
+            )
             return source
 
     source = await settled(fresh())
+    plan = original_sources.read_plan(source)
 
     async def acquire():
         async with AsyncSession(
@@ -394,16 +398,16 @@ async def open_snapshot(db, task_id, expected, *, guard, purpose, node_id):
         ) as owned:
             return await storage_access.acquire(
                 owned,
-                source.location_id,
-                purpose,
-                expected_revision=source.maintenance_revision,
+                plan.location_id,
+                plan.purpose(purpose),
+                expected_revision=plan.maintenance_revision,
                 node_id=node_id,
             )
 
     permit = stage = snapshot = failure = None
     try:
         permit = await settled(acquire(), late=close_permit)
-        await settled(fresh())
+        await settled(fresh(source))
         read_options = await settled(
             original_sources.read_options(db, source, read_timeout=15)
         )
@@ -417,13 +421,7 @@ async def open_snapshot(db, task_id, expected, *, guard, purpose, node_id):
                 copy_context().run,
                 partial(
                     reader._capture,
-                    reader.ObjectSpec(
-                        source.endpoint_url,
-                        source.bucket,
-                        source.object_key,
-                        source.sha256,
-                        source.size_bytes,
-                    ),
+                    plan.spec,
                     images.MAX_BYTES,
                     COPY_SECONDS,
                     time.monotonic() + COPY_SECONDS,
@@ -458,7 +456,7 @@ async def open_snapshot(db, task_id, expected, *, guard, purpose, node_id):
         snapshot = await settled(
             images.adopt_stage(consumed), late=lambda value: physical_close(value.close)
         )
-        await settled(fresh())
+        await settled(fresh(source))
         return SourceInput(snapshot, permit)
     except BaseException as exc:
         failure = exc

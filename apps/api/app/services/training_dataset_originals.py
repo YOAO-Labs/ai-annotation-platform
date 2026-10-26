@@ -244,6 +244,7 @@ async def recheck(db, authority, source, *, commit=False, guard=None):
     )
     if current != source:
         raise ContentError("content_binding_changed")
+    await original_sources.recheck_read_route(db, source)
     if commit:
         await db.commit()
     clock(authority)
@@ -315,11 +316,12 @@ async def media(db, authority, sample, *, guard=None):
     source = await pin(db, authority.project_id, sample, lock=True)
     await db.commit()
     clock(authority)
+    plan = original_sources.read_plan(source)
     permit = await storage_access.acquire(
         db,
-        source.location_id,
-        "training_dataset_original",
-        expected_revision=source.maintenance_revision,
+        plan.location_id,
+        plan.purpose("training_dataset_original"),
+        expected_revision=plan.maintenance_revision,
     )
     async with permit:
         stage, failure = None, None
@@ -327,13 +329,7 @@ async def media(db, authority, sample, *, guard=None):
         try:
             await recheck(db, authority, source, commit=True, guard=guard)
             stage = await reader.capture(
-                reader.ObjectSpec(
-                    source.endpoint_url,
-                    source.bucket,
-                    source.object_key,
-                    source.sha256,
-                    source.size_bytes,
-                ),
+                plan.spec,
                 max_bytes=MAX_BYTES,
                 timeout_seconds=120,
                 transport_timeout_seconds=30,

@@ -13,7 +13,6 @@ from fastapi import HTTPException
 from app.services import original_content_access as access
 from app.services import original_sources, storage_access
 from app.services.content_snapshot import ContentError
-from app.services.managed_original_reader import ObjectSpec
 
 
 @dataclass(frozen=True)
@@ -130,6 +129,7 @@ async def recheck_original(db, context):
         raise HTTPException(403, {"code": "api_key_authority_revoked"})
     if current != context.source:
         raise ContentError("content_binding_changed")
+    await original_sources.recheck_read_route(db, context.source)
     await db.commit()
     access.check_clock(context.proof, key)
 
@@ -181,6 +181,7 @@ async def capture_authorized(db, context, capture):
     from app.services.original_binary_response import close_stage
 
     source = context.source
+    plan = original_sources.read_plan(source)
 
     stage = None
     try:
@@ -191,19 +192,13 @@ async def capture_authorized(db, context, capture):
         ) + source.content_id.hex
         async with await storage_access.acquire(
             db,
-            source.location_id,
-            purpose,
-            expected_revision=source.maintenance_revision,
+            plan.location_id,
+            plan.purpose(purpose),
+            expected_revision=plan.maintenance_revision,
         ):
             await recheck_original(db, context)
             stage = await capture(
-                ObjectSpec(
-                    source.endpoint_url,
-                    source.bucket,
-                    source.object_key,
-                    source.sha256,
-                    source.size_bytes,
-                ),
+                plan.spec,
                 **(await original_sources.read_options(db, source)),
             )
         await recheck_original(db, context)

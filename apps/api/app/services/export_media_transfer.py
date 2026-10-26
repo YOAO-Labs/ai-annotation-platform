@@ -231,8 +231,10 @@ async def _fresh(
         _spec(current, maximum=physical.object_limit(snapshot))
         if expected is not None and current != expected:
             reject()
+        await original_sources.recheck_read_route(owned, current)
+        plan = original_sources.read_plan(current)
         await storage_access.check(
-            owned, current.location_id, expected_revision=current.maintenance_revision
+            owned, plan.location_id, expected_revision=plan.maintenance_revision
         )
         if output_revision is not None:
             await storage_access.check(
@@ -254,13 +256,15 @@ async def _settle(permit):
     await _close_async(permit._settle())
 
 
-async def _acquire(db, snapshot, location_id, *, expected_revision=None):
+async def _acquire(
+    db, snapshot, location_id, *, expected_revision=None, operation_purpose=None
+):
     async def acquire():
         async with _session(db) as owned:
             return await storage_access.acquire(
                 owned,
                 location_id,
-                purpose(snapshot),
+                operation_purpose or purpose(snapshot),
                 expected_revision=expected_revision,
             )
 
@@ -268,12 +272,17 @@ async def _acquire(db, snapshot, location_id, *, expected_revision=None):
 
 
 async def _capture(
-    source, admission, *, maximum=physical.MAX_OBJECT_BYTES, client_context=None
+    source,
+    admission,
+    *,
+    maximum=physical.MAX_OBJECT_BYTES,
+    client_context=None,
+    read_spec=None,
 ):
     stop = threading.Event()
     pending = _submit(
         reader._capture,
-        _spec(source, maximum=maximum),
+        read_spec if read_spec is not None else _spec(source, maximum=maximum),
         maximum,
         COPY_SECONDS,
         time.monotonic() + COPY_SECONDS,
@@ -313,6 +322,7 @@ async def copy_source(
     source = await _async(_fresh(db, snapshot, binding, resolve_source, guard))
     if expected != {"sha256": source.sha256, "size_bytes": source.size_bytes}:
         reject()
+    plan = original_sources.read_plan(source)
     permits, admission, stage, failure, result = [], None, None, None, None
     recorder = None
     try:
@@ -320,8 +330,9 @@ async def copy_source(
             await _acquire(
                 db,
                 snapshot,
-                source.location_id,
-                expected_revision=source.maintenance_revision,
+                plan.location_id,
+                expected_revision=plan.maintenance_revision,
+                operation_purpose=plan.purpose(purpose(snapshot)),
             )
         )
         await _async(
@@ -330,7 +341,11 @@ async def copy_source(
         admission = Admission()
         read_options = await _async(original_sources.read_options(db, source))
         stage = await _capture(
-            source, admission, maximum=physical.object_limit(record), **read_options
+            source,
+            admission,
+            maximum=physical.object_limit(record),
+            read_spec=plan.spec,
+            **read_options,
         )
         if stage.sha256 != source.sha256 or stage.size != source.size_bytes:
             reject()

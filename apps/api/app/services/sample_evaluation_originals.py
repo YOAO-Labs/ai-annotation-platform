@@ -96,6 +96,7 @@ async def recheck_source(db, authority, source):
     )
     if current != source:
         raise ContentError("content_binding_changed")
+    await original_sources.recheck_read_route(db, source)
     await db.commit()
     access.check_clock(authority.proof, authority.key)
 
@@ -161,11 +162,12 @@ async def current_media(db, authority, snapshot):
         source = await freeze_source(db, authority, snapshot)
         if source.size_bytes > engine.MAX_RAW_BYTES:
             raise ContentError("content_too_large", 413)
+        plan = original_sources.read_plan(source)
         permit = await storage_access.acquire(
             db,
-            source.location_id,
-            "evaluation_original_read",
-            expected_revision=source.maintenance_revision,
+            plan.location_id,
+            plan.purpose("evaluation_original_read"),
+            expected_revision=plan.maintenance_revision,
         )
     except ContentError as exc:
         if getattr(exc, "storage_operation_unsettled", False):
@@ -183,13 +185,7 @@ async def current_media(db, authority, snapshot):
             await recheck_source(db, authority, source)
             try:
                 stage = await reader.capture(
-                    reader.ObjectSpec(
-                        source.endpoint_url,
-                        source.bucket,
-                        source.object_key,
-                        source.sha256,
-                        source.size_bytes,
-                    ),
+                    plan.spec,
                     max_bytes=engine.MAX_RAW_BYTES,
                     timeout_seconds=COPY_SECONDS,
                     admission=_slots,

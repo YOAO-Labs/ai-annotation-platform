@@ -385,6 +385,7 @@ async def recheck(db, context, source, convention, *, commit=True):
     )
     if current != source or await axis(db, current, lock=True) != convention:
         raise ContentError("content_binding_changed")
+    await original_sources.recheck_read_route(db, source)
     if commit:
         await db.commit()
     access.check_clock(context.authority.proof, context.authority.key)
@@ -413,11 +414,12 @@ def parse_points(stage, convention):
 
 
 async def read_points(db, context, source, convention):
+    plan = original_sources.read_plan(source)
     permit = await storage_access.acquire(
         db,
-        source.location_id,
-        "point_cloud_quality_original",
-        expected_revision=source.maintenance_revision,
+        plan.location_id,
+        plan.purpose("point_cloud_quality_original"),
+        expected_revision=plan.maintenance_revision,
     )
     async with permit:
         stage, failure, unavailable, points = None, None, None, None
@@ -425,13 +427,7 @@ async def read_points(db, context, source, convention):
             await recheck(db, context, source, convention)
             try:
                 stage = await reader.capture(
-                    reader.ObjectSpec(
-                        source.endpoint_url,
-                        source.bucket,
-                        source.object_key,
-                        source.sha256,
-                        source.size_bytes,
-                    ),
+                    plan.spec,
                     max_bytes=MAX_BYTES,
                     timeout_seconds=120,
                     admission=_slots,

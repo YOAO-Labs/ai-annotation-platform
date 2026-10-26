@@ -474,20 +474,14 @@ class SourceInput:
         await self.aclose(failure)
 
 
-async def _capture(source, admission, **read_options):
+async def _capture(plan, admission, **read_options):
     stop = threading.Event()
     pending = asyncio.get_running_loop().run_in_executor(
         None,
         copy_context().run,
         partial(
             reader._capture,
-            reader.ObjectSpec(
-                source.endpoint_url,
-                source.bucket,
-                source.object_key,
-                source.sha256,
-                source.size_bytes,
-            ),
+            plan.spec,
             MAX_BYTES,
             COPY_SECONDS,
             time.monotonic() + COPY_SECONDS,
@@ -524,16 +518,20 @@ async def open_snapshot(
         _reject("prediction_video_guard_required")
     expected = normalize_binding(expected)
 
-    async def fresh():
+    async def fresh(read_source=None):
         async with _session(db) as owned:
             await guard(owned)
             source = await resolve(owned, task_id, lock=True)
             # Canonical JSON equality also distinguishes booleans from integers.
             if common.encoded(source_receipt(source)) != common.encoded(expected):
                 raise ContentError("content_binding_changed")
+            await original_sources.recheck_read_route(
+                owned, read_source if read_source is not None else source
+            )
             return source
 
     source = await common.settled(fresh())
+    plan = original_sources.read_plan(source)
     admission = _Admission()
     owner = SourceInput(None, None, None, admission)
     try:
@@ -542,23 +540,23 @@ async def open_snapshot(
             async with _session(db) as owned:
                 return await storage_access.acquire(
                     owned,
-                    source.location_id,
-                    purpose,
-                    expected_revision=source.maintenance_revision,
+                    plan.location_id,
+                    plan.purpose(purpose),
+                    expected_revision=plan.maintenance_revision,
                     node_id=node_id,
                 )
 
         owner.permit = await common.settled(acquire(), late=common.close_permit)
-        await common.settled(fresh())
+        await common.settled(fresh(source))
         read_options = await common.settled(original_sources.read_options(db, source))
-        owner.stage = await _capture(source, admission, **read_options)
+        owner.stage = await _capture(plan, admission, **read_options)
         if owner.stage.sha256 != source.sha256 or owner.stage.size != source.size_bytes:
             raise ContentError("source_changed")
-        await common.settled(fresh())
+        await common.settled(fresh(source))
         owner._probe = normalize_probe(
             await common.physical(video_probe.inspect, owner.stage.file)
         )
-        await common.settled(fresh())
+        await common.settled(fresh(source))
         return owner
     except BaseException as failure:
         try:

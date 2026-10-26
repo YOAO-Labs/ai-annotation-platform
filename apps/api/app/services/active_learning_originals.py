@@ -200,6 +200,7 @@ async def recheck(db, authority, source, *, commit=True, guard=None):
     )
     if current != source:
         raise ContentError("content_binding_changed")
+    await original_sources.recheck_read_route(db, source)
     from app.services.managed_original_reclaim_fence import protect_source
 
     await protect_source(db, current)
@@ -246,24 +247,19 @@ def normalize(stage, snapshot):
 @asynccontextmanager
 async def input_image(db, authority, snapshot, *, guard=None):
     source = await freeze(db, authority, snapshot, guard=guard)
+    plan = original_sources.read_plan(source)
     permit = await storage_access.acquire(
         db,
-        source.location_id,
-        "active_learning_original",
-        expected_revision=source.maintenance_revision,
+        plan.location_id,
+        plan.purpose("active_learning_original"),
+        expected_revision=plan.maintenance_revision,
     )
     async with permit:
         stage, failure = None, None
         try:
             await recheck(db, authority, source, guard=guard)
             stage = await reader.capture(
-                reader.ObjectSpec(
-                    source.endpoint_url,
-                    source.bucket,
-                    source.object_key,
-                    source.sha256,
-                    source.size_bytes,
-                ),
+                plan.spec,
                 max_bytes=detection.MAX_RAW_BYTES,
                 timeout_seconds=120,
                 admission=_slots,

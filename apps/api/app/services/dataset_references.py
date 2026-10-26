@@ -532,29 +532,30 @@ async def prepare_copy(
     if existing:
         try:
             canonical = await sources.resolve_item(db, existing.id)
-            options = await sources.read_options(db, canonical)
-            if not options:
-                # This existing dedup read used the process-owned A client.
-                target = await sources.read_target(db, canonical)
-                options = {"client_context": target.client}
+            plan = sources.read_plan(canonical)
             async with await storage_access.acquire(
                 db,
-                canonical.location_id,
-                "directory_copy_dedup",
-                expected_revision=canonical.maintenance_revision,
+                plan.location_id,
+                plan.purpose("directory_copy_dedup"),
+                expected_revision=plan.maintenance_revision,
             ):
+                await sources.recheck_read_route(db, canonical)
+                options = await sources.read_options(db, canonical)
+                if not options:
+                    # Keep the saved legacy owner's operation-local client.
+                    target = await sources.read_target(db, canonical)
+                    options = {"client_context": target.client}
                 stored = await reader.capture(
-                    reader.ObjectSpec(
-                        canonical.endpoint_url,
-                        canonical.bucket,
-                        canonical.object_key,
-                        canonical.sha256,
-                        canonical.size_bytes,
-                    ),
+                    plan.spec,
                     max_bytes=snapshot.size,
                     timeout_seconds=60,
                     **options,
                 )
+                try:
+                    await sources.recheck_read_route(db, canonical)
+                except BaseException:
+                    stored.close()
+                    raise
             if stored.sha256 != snapshot.sha256 or stored.size != snapshot.size:
                 stored.close()
                 raise snapshots.ContentError("reference_content_changed")
