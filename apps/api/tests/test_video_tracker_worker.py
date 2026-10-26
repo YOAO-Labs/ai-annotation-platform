@@ -1938,9 +1938,9 @@ async def test_tracker_enforce_mode_acquires_and_finishes_route_lease(
     assert [call["mode"] for call in routing["acquire"]] == ["enforce"]
     assert routing["acquire"][0]["owner"] == f"tracker:{job.id}"
     assert routing["acquire"][0]["pool_id"] == pool.id
-    assert [
-        (scope.registry_id, outcome) for scope, outcome in routing["close"]
-    ] == [(backend.id, "success")]
+    assert [(scope.registry_id, outcome) for scope, outcome in routing["close"]] == [
+        (backend.id, "success")
+    ]
 
 
 async def _make_multi_member_tracker_job(db_session, user_id):
@@ -2134,8 +2134,7 @@ async def test_tracker_enforce_dispatches_to_router_selected_instance(
     assert runtime_snapshots == [(selected_id,)]
     assert legacy_id != selected_id
     assert job.status == VideoTrackerJobStatus.PENDING_REVIEW.value, job.error_message
-    assert used_backend_ids == [str(selected_id)]
-    assert job.status == VideoTrackerJobStatus.PENDING_REVIEW.value
+    assert [str(value) for value in used_backend_ids] == [str(selected_id)]
     assert finished == [(selected_id, RouteOutcome.SUCCESS)]
     assert cancelled == []
 
