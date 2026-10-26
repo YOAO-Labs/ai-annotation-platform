@@ -12,6 +12,21 @@ import { MemoryRouter, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const socketLifecycle = vi.hoisted(() => ({ mounts: 0, unmounts: 0 }));
+vi.mock("@/pages/Dashboard/DashboardPage", () => ({
+  DashboardPage: () => <div data-testid="project-admin-dashboard" />,
+}));
+vi.mock("@/pages/Dashboard/AdminDashboard", () => ({
+  AdminDashboard: () => <div data-testid="admin-overview" />,
+}));
+vi.mock("@/pages/Dashboard/AdminProjectsDashboard", () => ({
+  AdminProjectsDashboard: () => <div data-testid="super-admin-dashboard" />,
+}));
+vi.mock("@/pages/Dashboard/ViewerDashboard", () => ({
+  ViewerDashboard: () => <div data-testid="viewer-dashboard" />,
+}));
+vi.mock("@/pages/Dashboard/EmployeeDashboard", () => ({
+  EmployeeDashboard: () => <div data-testid="employee-dashboard" />,
+}));
 
 vi.mock("@/hooks/useNotificationSocket", async () => {
   const { useEffect: useProbeEffect } = await import("react");
@@ -123,6 +138,35 @@ beforeEach(() => {
   socketLifecycle.mounts = 0;
   socketLifecycle.unmounts = 0;
   useAuthStore.getState().setAuth("fixture-token", user);
+});
+
+describe("dashboard navigation preserves the notification session", () => {
+  it.each([
+    ["super_admin", "super-admin-dashboard"],
+    ["project_admin", "project-admin-dashboard"],
+    ["employee", "employee-dashboard"],
+    ["viewer", "viewer-dashboard"],
+  ] as const)("按 %s 角色加载仪表盘且不重挂通知连接", async (role, testId) => {
+    useAuthStore.getState().setAuth("fixture-token", { ...user, role });
+    mountApp("/dashboard", [{ label: "workbench", to: "/projects/p1/annotate" }]);
+    expect(screen.getByTestId("shell-topbar")).toBeInTheDocument();
+    expect(await screen.findByTestId(testId)).toBeInTheDocument();
+    expect(socketLifecycle.mounts).toBe(1);
+    expect(socketLifecycle.unmounts).toBe(0);
+
+    fireEvent.click(screen.getByTestId("jump-workbench"));
+    expect(await screen.findByTestId("workbench-page")).toBeInTheDocument();
+    expect(socketLifecycle.mounts).toBe(1);
+    expect(socketLifecycle.unmounts).toBe(0);
+  });
+
+  it("超级管理员可直接加载平台概览", async () => {
+    useAuthStore.getState().setAuth("fixture-token", { ...user, role: "super_admin" });
+    mountApp("/overview");
+    expect(await screen.findByTestId("admin-overview")).toBeInTheDocument();
+    expect(socketLifecycle.mounts).toBe(1);
+    expect(socketLifecycle.unmounts).toBe(0);
+  });
 });
 
 describe("notification socket application lifetime", () => {
