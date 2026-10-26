@@ -1068,6 +1068,7 @@
 | GET | `/{run_id}/attempts/{attempt_id}/evaluation` |
 | POST | `/{run_id}/cancel` |
 | POST | `/{run_id}/resume` |
+| GET | `/{run_id}/attempts/{attempt_id}/artifacts/{name}/content` |
 | GET | `/{run_id}/attempts/{attempt_id}/artifacts/{name}/download` |
 | DELETE | `/{run_id}` |
 
@@ -1133,4 +1134,4 @@
 
 ---
 
-_共 101 模块 / 666 路由_
+_共 101 模块 / 667 路由_

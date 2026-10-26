@@ -171,11 +171,29 @@ export function ProjectTrainingPanel({
       if (kind === "download" && attemptId && filename) {
         const result = await trainingRunsApi.download(projectId, run.id, attemptId, filename);
         if (!ownsView(view)) return false;
+        let objectUrl: string | undefined;
+        if (result.requires_authentication) {
+          const blob = await trainingRunsApi.downloadContent(
+            projectId,
+            run.id,
+            attemptId,
+            filename,
+          );
+          if (!ownsView(view)) return false;
+          objectUrl = URL.createObjectURL(blob);
+        }
         const link = document.createElement("a");
-        link.href = result.url;
+        link.href = objectUrl ?? result.url;
         link.download = filename;
         link.rel = "noopener";
-        link.click();
+        try {
+          link.click();
+        } finally {
+          if (objectUrl) {
+            const downloaded = objectUrl;
+            setTimeout(() => URL.revokeObjectURL(downloaded), 0);
+          }
+        }
         return false;
       } else if (kind === "cancel") await trainingRunsApi.cancel(projectId, run.id);
       else if (kind === "resume") {

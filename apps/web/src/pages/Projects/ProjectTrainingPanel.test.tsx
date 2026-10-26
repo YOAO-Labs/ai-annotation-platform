@@ -27,6 +27,7 @@ vi.mock("@/api/trainingRuns", () => ({
     resume: vi.fn(),
     remove: vi.fn(),
     download: vi.fn(),
+    downloadContent: vi.fn(),
   },
 }));
 const clients: QueryClient[] = [];
@@ -118,6 +119,7 @@ afterEach(() => {
   clients.splice(0).forEach((client) => client.clear());
   useAuthStore.getState().logout();
   localStorage.clear();
+  vi.unstubAllGlobals();
 });
 describe("managed project training", () => {
   it.each(["detect", "segment"])(
@@ -505,6 +507,101 @@ describe("managed project training", () => {
     await act(async () =>
       resolve({ url: "https://storage/redacted", sha256: "safe", size_bytes: 4 }),
     );
+    expect(click).not.toHaveBeenCalled();
+    click.mockRestore();
+  });
+
+  it("downloads authenticated redacted content and releases its Blob URL", async () => {
+    const failed = { ...run, status: "failed" };
+    vi.mocked(trainingRunsApi.get).mockResolvedValue({
+      run: failed as never,
+      attempts: [
+        {
+          id: "attempt",
+          ordinal: 1,
+          status: "failed",
+          artifacts: { "train.log": { role: "log" } },
+        } as never,
+      ],
+    });
+    vi.mocked(trainingRunsApi.download).mockResolvedValue({
+      url: "/projects/project/training-runs/run/attempts/attempt/artifacts/train.log/content",
+      requires_authentication: true,
+      sha256: "redacted",
+      size_bytes: 4,
+    });
+    const blob = new Blob(["safe"]);
+    vi.mocked(trainingRunsApi.downloadContent).mockResolvedValue(blob);
+    const create = vi.fn(() => "blob:redacted");
+    const revoke = vi.fn();
+    vi.stubGlobal(
+      "URL",
+      class extends URL {
+        static createObjectURL = create;
+        static revokeObjectURL = revoke;
+      },
+    );
+    const clicked: string[] = [];
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      clicked.push(this.href);
+    });
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByRole("tab", { name: "产物与记录" }));
+    await user.click(screen.getByRole("button", { name: /下载脱敏训练日志/ }));
+    await waitFor(() => expect(revoke).toHaveBeenCalledWith("blob:redacted"));
+    expect(trainingRunsApi.downloadContent).toHaveBeenCalledWith(
+      "project",
+      "run",
+      "attempt",
+      "train.log",
+    );
+    expect(create).toHaveBeenCalledWith(blob);
+    expect(clicked).toEqual(["blob:redacted"]);
+    click.mockRestore();
+  });
+
+  it("ignores authenticated log bytes received after the account changes", async () => {
+    const failed = { ...run, status: "failed" };
+    vi.mocked(trainingRunsApi.get).mockResolvedValue({
+      run: failed as never,
+      attempts: [
+        {
+          id: "attempt",
+          ordinal: 1,
+          status: "failed",
+          artifacts: { "train.log": { role: "log" } },
+        } as never,
+      ],
+    });
+    vi.mocked(trainingRunsApi.download).mockResolvedValue({
+      url: "/authenticated-content",
+      requires_authentication: true,
+      sha256: "redacted",
+      size_bytes: 4,
+    });
+    let resolve!: (blob: Blob) => void;
+    vi.mocked(trainingRunsApi.downloadContent).mockImplementation(
+      () => new Promise((yes) => (resolve = yes)),
+    );
+    const create = vi.fn();
+    vi.stubGlobal(
+      "URL",
+      class extends URL {
+        static createObjectURL = create;
+      },
+    );
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByRole("tab", { name: "产物与记录" }));
+    await user.click(screen.getByRole("button", { name: /下载脱敏训练日志/ }));
+    await waitFor(() => expect(trainingRunsApi.downloadContent).toHaveBeenCalledOnce());
+    await act(async () => useAuthStore.getState().setToken("token-b"));
+    await act(async () => resolve(new Blob(["safe"])));
+    expect(create).not.toHaveBeenCalled();
     expect(click).not.toHaveBeenCalled();
     click.mockRestore();
   });

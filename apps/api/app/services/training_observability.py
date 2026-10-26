@@ -232,11 +232,17 @@ async def cleanup(db):
     return counts
 
 
-def redacted_log(run, attempt, name, artifact, *, transport=None):
+def read_redacted_log(run, attempt, name, artifact, *, transport=None):
+    """Verify one saved log completely before returning bounded redacted bytes."""
     transport = storage if transport is None else transport
     owner = training.attempt_storage_owner(run, attempt, artifact["key"])
     expected = training.artifact_key(owner, attempt.id, name)
-    if artifact["key"] != expected or artifact["size_bytes"] > LOG_BYTES:
+    if (
+        artifact["key"] != expected
+        or artifact.get("role") != "log"
+        or type(artifact.get("size_bytes")) is not int
+        or not 0 <= artifact["size_bytes"] <= LOG_BYTES
+    ):
         raise HTTPException(
             status_code=409, detail="历史日志超出脱敏下载上限或归属不符"
         )
@@ -248,7 +254,8 @@ def redacted_log(run, attempt, name, artifact, *, transport=None):
     try:
         metadata = response.get("Metadata", {})
         if (
-            response["ContentLength"] != artifact["size_bytes"]
+            type(response.get("ContentLength")) is not int
+            or response["ContentLength"] != artifact["size_bytes"]
             or metadata.get("attempt-id") != str(attempt.id)
             or metadata.get("sha256") != artifact["sha256"]
         ):
@@ -276,7 +283,20 @@ def redacted_log(run, attempt, name, artifact, *, transport=None):
         ) from exc
     finally:
         storage_access.close_registered(response["Body"])
-    output_sha = hashlib.sha256(output).hexdigest()
+    return {
+        "content": bytes(output),
+        "sha256": hashlib.sha256(output).hexdigest(),
+        "size_bytes": len(output),
+        "source_sha256": artifact["sha256"],
+        "redaction_revision": REDACTION_REVISION,
+    }
+
+
+def redacted_log(run, attempt, name, artifact, *, transport=None):
+    transport = storage if transport is None else transport
+    owner = training.attempt_storage_owner(run, attempt, artifact["key"])
+    result = read_redacted_log(run, attempt, name, artifact, transport=transport)
+    output, output_sha = result["content"], result["sha256"]
     key = training.artifact_key(
         owner, attempt.id, f"redacted-logs/{name}.{output_sha}.log"
     )
@@ -322,10 +342,7 @@ def redacted_log(run, attempt, name, artifact, *, transport=None):
         observation.complete()
     return {
         "key": key,
-        "sha256": output_sha,
-        "size_bytes": len(output),
-        "source_sha256": artifact["sha256"],
-        "redaction_revision": REDACTION_REVISION,
+        **{key: value for key, value in result.items() if key != "content"},
     }
 
 

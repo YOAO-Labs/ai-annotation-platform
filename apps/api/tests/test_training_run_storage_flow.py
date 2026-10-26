@@ -465,7 +465,14 @@ async def test_api_artifact_download_uses_the_saved_run_bucket(owned, monkeypatc
     assert result["url"]
     assert {call[1] for call in owned.client.calls} == {owned.bucket}
     signed = [c for c in owned.client.calls if c[0] == "sign-get_object"]
-    assert len(signed) == 1 and signed[0][2].startswith(owned.run.storage_ref["prefix"])
+    if log:
+        assert result["requires_authentication"] is True
+        assert result["url"].endswith("/artifacts/train.log/content")
+        assert not signed and all(call[0] != "put" for call in owned.client.calls)
+    else:
+        assert len(signed) == 1 and signed[0][2].startswith(
+            owned.run.storage_ref["prefix"]
+        )
 
 
 async def test_run_creation_allocates_before_its_first_attempt(owned, monkeypatch):

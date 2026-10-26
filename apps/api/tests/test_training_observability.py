@@ -625,7 +625,7 @@ async def test_optional_summary_identity_is_verified_without_blocking_failed_com
 
 
 @pytest.mark.parametrize("corrupt", [False, True])
-async def test_derived_log_download_serializes_deletion_and_observation_cascade(
+async def test_log_download_serializes_deletion_and_observation_cascade(
     test_engine, monkeypatch, corrupt
 ):
     import asyncio
@@ -759,8 +759,9 @@ async def test_derived_log_download_serializes_deletion_and_observation_cascade(
             assert not writes and not signs
         else:
             assert result["source_sha256"] == artifact["sha256"]
-            assert signs == [writes[0]["Key"]] and "/redacted-logs/" in signs[0]
-            assert b"private" not in writes[0]["Body"]
+            assert result["requires_authentication"] is True
+            assert result["url"].endswith("/artifacts/train.log/content")
+            assert not writes and not signs
         assert deletions == [f"projects/{project.id}/runs/{run.id}/"]
         async with maker() as verify:
             for model, _ in observations.STREAMS.values():

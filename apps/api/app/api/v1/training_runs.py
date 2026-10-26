@@ -2,8 +2,10 @@
 
 import secrets
 import uuid
+from copy import deepcopy
 from datetime import timedelta
 from typing import Literal
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from sqlalchemy import or_, func, select
@@ -42,6 +44,7 @@ from app.services import training_runs as service
 from app.services import training_recipes as recipes
 from app.services import training_observability as observations
 from app.services import training_initialization as initialization
+from app.services import storage_access
 from app.services.training_list_filters import (
     ISODate,
     created_date_bounds,
@@ -524,6 +527,105 @@ async def resume_run(
     return run
 
 
+def _log_download_http_error(exc):
+    failure = HTTPException(
+        status_code=exc.status_code,
+        detail={"code": exc.code, "message": str(exc)},
+    )
+    if getattr(exc, "storage_operation_unsettled", False):
+        storage_access.mark_unsettled(failure)
+    return failure
+
+
+async def _download_artifact_context(db, project, user, run_id, attempt_id, name):
+    await lock_owner(db, user, project)
+    run = await db.scalar(
+        select(TrainingRun)
+        .where(TrainingRun.id == run_id, TrainingRun.project_id == project.id)
+        .with_for_update(read=True)
+        .execution_options(populate_existing=True)
+    )
+    if run is None:
+        raise HTTPException(status_code=404, detail="训练实验不存在")
+    attempt = await db.get(
+        TrainingAttempt,
+        attempt_id,
+        populate_existing=True,
+        with_for_update={"read": True},
+    )
+    artifact = (
+        (attempt.artifacts or {}).get(name)
+        if attempt and attempt.run_id == run.id
+        else None
+    )
+    if not artifact or attempt.status not in service.TERMINAL:
+        raise HTTPException(status_code=404, detail="训练产物不存在或尚未校验完成")
+    try:
+        owner = service.attempt_storage_owner(run, attempt, artifact["key"])
+    except TrainingDatasetError as exc:
+        if artifact.get("role") == "log":
+            raise _log_download_http_error(exc) from exc
+        raise
+    return run, attempt, deepcopy(artifact), owner
+
+
+async def _read_log_download(db, project, user, run_id, attempt_id, name, context):
+    run, attempt, artifact, owner = context
+    if artifact["role"] != "log":
+        raise HTTPException(status_code=404, detail="该产物不是训练日志")
+    frozen = deepcopy((owner.ref, attempt.status, artifact))
+    try:
+        result = await service.storage_io.read(
+            db,
+            owner,
+            "training_artifact_download",
+            lambda transport: observations.read_redacted_log(
+                run, attempt, name, artifact, transport=transport
+            ),
+            object_key=artifact["key"],
+            sha256=artifact["sha256"],
+            size_bytes=artifact["size_bytes"],
+        )
+    except TrainingDatasetError as exc:
+        raise _log_download_http_error(exc) from exc
+    _, latest_attempt, latest_artifact, latest_owner = await _download_artifact_context(
+        db, project, user, run_id, attempt_id, name
+    )
+    if (latest_owner.ref, latest_attempt.status, latest_artifact) != frozen:
+        raise HTTPException(status_code=409, detail="训练日志归属或校验信息已变化")
+    return result
+
+
+@router.get(
+    "/{run_id}/attempts/{attempt_id}/artifacts/{name}/content",
+    response_class=Response,
+    responses={200: {"content": {"text/plain": {}}}},
+)
+async def download_log_content(
+    run_id: uuid.UUID,
+    attempt_id: uuid.UUID,
+    name: str,
+    project: Project = Depends(require_project_owner),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    context = await _download_artifact_context(
+        db, project, user, run_id, attempt_id, name
+    )
+    result = await _read_log_download(
+        db, project, user, run_id, attempt_id, name, context
+    )
+    return Response(
+        content=result["content"],
+        media_type="text/plain; charset=utf-8",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(name, safe='')}",
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @router.get("/{run_id}/attempts/{attempt_id}/artifacts/{name}/download")
 async def download_artifact(
     run_id: uuid.UUID,
@@ -533,53 +635,22 @@ async def download_artifact(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    await lock_owner(db, user, project)
-    run = await db.scalar(
-        select(TrainingRun)
-        .where(TrainingRun.id == run_id, TrainingRun.project_id == project.id)
-        .with_for_update(read=True)
+    context = await _download_artifact_context(
+        db, project, user, run_id, attempt_id, name
     )
-    if run is None:
-        raise HTTPException(status_code=404, detail="训练实验不存在")
-    attempt = await db.get(TrainingAttempt, attempt_id)
-    artifact = (
-        (attempt.artifacts or {}).get(name)
-        if attempt and attempt.run_id == run.id
-        else None
-    )
-    if not artifact or attempt.status not in service.TERMINAL:
-        raise HTTPException(status_code=404, detail="训练产物不存在或尚未校验完成")
-    owner = service.attempt_storage_owner(run, attempt, artifact["key"])
+    _, _, artifact, owner = context
     if artifact["role"] == "log":
-
-        def redacted_download(transport):
-            derived = observations.redacted_log(
-                run, attempt, name, artifact, transport=transport
-            )
-            return {
-                **{key: value for key, value in derived.items() if key != "key"},
-                "url": transport.generate_download_url(
-                    derived["key"],
-                    expires_in=600,
-                    bucket=owner.bucket,
-                    download_name=name,
-                    align=False,
-                ),
-            }
-
-        return await service.storage_io.run(
-            db,
-            owner,
-            "training_artifact_download",
-            redacted_download,
-            accounting=observations.write_accounting.recorder(
-                db,
-                owner,
-                run.id,
-                producer="training_redacted_logs",
-                purpose="other_platform",
-            ),
+        result = await _read_log_download(
+            db, project, user, run_id, attempt_id, name, context
         )
+        return {
+            **{key: value for key, value in result.items() if key != "content"},
+            "url": (
+                f"/projects/{project.id}/training-runs/{run_id}/attempts/{attempt_id}"
+                f"/artifacts/{quote(name, safe='')}/content"
+            ),
+            "requires_authentication": True,
+        }
 
     def download(transport):
         if not transport.verify_upload(artifact["key"], bucket=owner.bucket):

@@ -301,6 +301,25 @@ def test_redacted_log_derived_write_uses_same_rooted_owner(run_owned):
     assert {call[1] for call in world.client.calls} == {world.bucket}
 
 
+def test_redacted_log_content_only_reads_the_saved_rooted_owner(run_owned):
+    world = run_owned
+    world.run.storage_ref = rooted(world.run.storage_ref, "run-b")
+    receipt = artifact(world, "stdout.log", "log", b"password=private\n")
+    saved = deepcopy((world.run.storage_ref, receipt))
+    result = observations.read_redacted_log(
+        world.run,
+        world.attempt,
+        "stdout.log",
+        receipt,
+        transport=transport(world.client),
+    )
+    assert b"private" not in result["content"]
+    assert result["sha256"] == hashlib.sha256(result["content"]).hexdigest()
+    assert result["size_bytes"] == len(result["content"])
+    assert world.client.calls == [("get", world.bucket, receipt["key"])]
+    assert (world.run.storage_ref, receipt) == saved
+
+
 @pytest.mark.parametrize("fails", [False, True])
 async def test_durable_cleanup_deletes_saved_prefix_and_retains_intent_on_failure(
     run_owned, dispatch, fails
