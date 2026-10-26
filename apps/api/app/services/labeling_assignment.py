@@ -21,7 +21,8 @@ from app.schemas.labeling_assignment import (
     DataManagerTaskAssignmentResponse,
 )
 from app.services.identity_contracts import IdentityActorFacts
-from app.services.batch import BatchService, execute_batch_control
+from app.services.batch import BatchService
+from app.services.labeling_batch_control_data import execute_batch_control
 from app.services.scheduler import (
     effective_task_assignee_id,
     effective_task_reviewer_id,

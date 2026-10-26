@@ -12,7 +12,7 @@ from aap_labeling.batch_control_contract import (
     DetachPredictionParents,
 )
 from app.db.models.annotation import Annotation
-from app.services.batch import execute_batch_control
+from app.services.labeling_batch_control_data import execute_batch_control
 
 
 def _tracked_annotation_ids(
