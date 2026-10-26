@@ -5,7 +5,7 @@ import uuid
 import time
 
 from fastapi import HTTPException
-from sqlalchemy import BigInteger, cast, func, insert, literal, select
+from sqlalchemy import BigInteger, cast, func, inspect, insert, literal, select
 
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset_source import (
@@ -89,7 +89,7 @@ async def validate(db, location, source, run):
 
 
 async def request_authority(db, actor, api_key_id, proof, source=None):
-    await scans.require_actor(db, actor.id, source)
+    actor = await scans.require_actor(db, inspect(actor).identity[0], source)
     if await key_authority(db, actor, api_key_id, "datasets:write") != proof:
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
 

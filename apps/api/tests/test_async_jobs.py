@@ -7,12 +7,16 @@
 """
 
 from __future__ import annotations
+from copy import deepcopy
+from types import SimpleNamespace
+import uuid
+
 
 import pytest
 from sqlalchemy import select
 
 from app.db.models.notification import Notification
-from app.db.models.async_job import AsyncJobStatus
+from app.db.models.async_job import AsyncJob, AsyncJobStatus
 from app.db.models.prediction import FailedPrediction
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
@@ -412,23 +416,33 @@ class TestAsyncJobsAPI:
     async def test_retry_failed_batch_predict_items_queues_recorded_failures(
         self, httpx_client, db_session, project_admin, monkeypatch
     ):
+        from app.workers.tasks import batch_predict
+        from tests.test_batch_predict_idempotency import _seed
+
         user, token = project_admin
-        project = Project(
-            display_id="PROJ-AJ-RETRY",
-            name="Retry Project",
-            type_label="Image Classification",
-            type_key="image_classification",
-            owner_id=user.id,
+        project, backend, _batch, tasks = await _seed(db_session, user.id)
+        monkeypatch.setattr(
+            batch_predict,
+            "apply_async",
+            lambda **kwargs: SimpleNamespace(id=kwargs["task_id"]),
         )
-        db_session.add(project)
-        await db_session.flush()
+        submitted = await httpx_client.post(
+            f"/api/v1/projects/{project.id}/preannotate",
+            headers=_bearer(token),
+            json={"ml_backend_id": str(backend.id), "task_ids": [str(tasks[0].id)]},
+        )
+        assert submitted.status_code == 200, submitted.text
+        aj = await db_session.get(AsyncJob, uuid.UUID(submitted.json()["job_id"]))
+        original_input = deepcopy(aj.payload["prediction_authority"]["tasks"][0])
 
         retryable = FailedPrediction(
             project_id=project.id,
-            task_id=None,
-            ml_backend_id=None,
+            task_id=tasks[0].id,
+            ml_backend_id=backend.id,
+            execution_snapshot_id=aj.execution_snapshot_id,
             error_type="TimeoutError",
             message="timeout",
+            extra={"original_input": original_input},
         )
         skipped = FailedPrediction(
             project_id=project.id,
@@ -441,12 +455,6 @@ class TestAsyncJobsAPI:
         db_session.add_all([retryable, skipped])
         await db_session.flush()
 
-        aj = await async_job_svc.create_job(
-            db_session,
-            kind="batch_predict",
-            user_id=user.id,
-            project_id=project.id,
-        )
         await async_job_svc.mark_complete(
             db_session,
             aj.id,
@@ -474,6 +482,15 @@ class TestAsyncJobsAPI:
         assert r.json()["queued"] == 1
         assert r.json()["skipped"] == 1
         assert queued == [(str(retryable.id), str(user.id))]
+        await db_session.refresh(retryable)
+        retry_job = await db_session.get(
+            AsyncJob, uuid.UUID(retryable.extra["retry_job_id"])
+        )
+        assert retry_job.execution_snapshot_id == aj.execution_snapshot_id
+        assert (
+            retry_job.payload["prediction_authority"]["tasks"][0]["original"]
+            == (original_input["original"])
+        )
 
         repeated = await httpx_client.post(
             f"/api/v1/async-jobs/{aj.id}/retry-failed", headers=_bearer(token)

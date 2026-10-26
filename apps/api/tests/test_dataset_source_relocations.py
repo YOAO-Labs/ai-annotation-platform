@@ -163,6 +163,8 @@ async def test_multiple_same_sha_choices_require_explicit_choice_and_returning_p
 async def test_managed_relocation_moves_only_preview_and_retains_original_ownership(
     db_session, content_world, object_store
 ):
+    from app.db.models.dataset_source import DatasetSourcePreview
+    from app.db.models.thumbnail_output import ThumbnailOutput
     from app.services.storage import storage_service
 
     db, world = db_session, content_world
@@ -170,7 +172,10 @@ async def test_managed_relocation_moves_only_preview_and_retains_original_owners
     await db.commit()
     old = await register_entry(db, world[6].id, world[7].path_digest, world[2])
     original_keys = {k for k in object_store if k[0] == storage_service.datasets_bucket}
-    preview_keys = set(object_store) - original_keys
+    previous_preview = await db.get(
+        DatasetSourcePreview, (world[5].id, world[7].path_digest)
+    )
+    previous_output_id = previous_preview.thumbnail_output_id
     world, run, before, target, payload = await moved_candidate(db, world)
     result = await revisions.accept(
         db, run.id, target["path_digest"], payload, world[2], relocate=True
@@ -179,9 +184,16 @@ async def test_managed_relocation_moves_only_preview_and_retains_original_owners
     assert original_keys == {
         k for k in object_store if k[0] == storage_service.datasets_bucket
     }
-    assert not preview_keys.intersection(object_store)
     head = await db.get(DatasetSourceItem, (world[5].id, target["path_digest"]))
     assert head.owns_item
+    preview = await db.get(DatasetSourcePreview, (world[5].id, target["path_digest"]))
+    assert preview.state == "ready" and preview.asset_id == head.asset_id
+    assert preview.thumbnail_output_id != previous_output_id
+    previous_output = await db.get(
+        ThumbnailOutput, previous_output_id, populate_existing=True
+    )
+    assert previous_output.state == "retiring"
+    assert previous_output.retired_at is not None
 
 
 async def test_old_preflight_cannot_move_an_advanced_head(db_session, content_world):

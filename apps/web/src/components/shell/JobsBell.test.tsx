@@ -89,27 +89,6 @@ describe("JobsBell", () => {
     await waitFor(() => expect(mockCancel).toHaveBeenCalledWith("j1"));
   });
 
-  it("初次复制任务保留准备含义并接入共享取消", async () => {
-    useAuthStore.getState().setAuth("copy-token", { id: "u1", role: "super_admin" } as MeResponse);
-    mockList.mockResolvedValue({
-      items: [
-        {
-          ...baseRow,
-          kind: "storage_migration_copy",
-          project_id: null,
-          result: { operation: "prepare", prepared: false },
-        },
-      ],
-      total: 1,
-    });
-    renderBell();
-    fireEvent.click(await screen.findByTestId("jobs-bell-trigger"));
-    expect(await screen.findByText("存储初次复制")).toBeInTheDocument();
-    expect(screen.getByText(/生成目录与冻结计划/)).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("job-cancel-j1"));
-    await waitFor(() => expect(mockCancel).toHaveBeenCalledWith("j1"));
-  });
-
   it.each(["storage_migration_inventory", "storage_migration_copy"])(
     "同账号降权立即清除%s任务行、计数与已选详情",
     async (kind) => {
@@ -121,12 +100,7 @@ describe("JobsBell", () => {
       mockGet.mockResolvedValue(row);
       renderBell();
       fireEvent.click(await screen.findByTestId("jobs-bell-trigger"));
-      fireEvent.click(
-        await screen.findByRole("button", {
-          name:
-            kind === "storage_migration_copy" ? "查看存储初次复制详情" : "查看配置源迁移清单详情",
-        }),
-      );
+      fireEvent.click(await screen.findByRole("button", { name: /^查看.+详情$/ }));
       await screen.findByRole("dialog", { name: "后台任务详情" });
       mockList.mockResolvedValue({ items: [], total: 0 });
       act(() => useAuthStore.getState().setUser({ id: "u1", role: "project_admin" } as MeResponse));

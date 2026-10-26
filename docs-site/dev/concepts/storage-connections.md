@@ -419,11 +419,13 @@ DatasetSourceItem 是来源/路径的当前头；DatasetSourceRevision 保存不
 
 完整预检的 observation_changed 可明确接受为同 Item/Asset 的新 SourceRevision，继承 owns_item，不改业务身份、原 Reference、标注及 metadata。读取先验证原始绑定，再按同 Source/Item/Asset 选最新接纳观测；不按当前路径头或 SHA 搜索样本，不在失败时回退旧凭据。返回上下文包含选中修订 ID，I/O 后切换证据会被发现。资格锚点变化保持阻断。无需 schema 迁移；回退入口后仍需保留已接纳账本与其严格读取。见 [ADR0103](/dev/adr/0103-explicit-same-content-revalidation)。
 
+托管复制的同内容重新核验与定位迁移不分配或上传新原件，也不依赖当前原件目标的写入能力；仍执行来源快照、当前授权和前驱核对。只有接纳不同内容的新修订才强制分配独立原件。
+
 ### 显式定位迁移
 
 同来源完整预检的 not_seen→added 配对必须由人选择、核验同 SHA 后接纳。SourceRevision 的前驱可以跨路径，路径内编号独立；acceptance_order 由数据库序列给出接纳顺序。跨路径前驱必须保留永久 Item/Asset/SHA 与所有权。原 Reference 不变，resolver 按同业务资产的最新接纳顺序取实际路径，不按时间或路径内编号猜测。
 
-退役旧 SourceItem 与建立新头、目标 RegistrationEntry 消费、审计同事务提交；原差异保持冻结。旧预览精确键在提交后清理，新路径按当前策略生成派生物。旧路径回归是新增候选。迁移0204保留原账本事实，已有移动历史时拒绝降级到旧定位读取。见 [ADR0104](/dev/adr/0104-explicit-source-relocations)。
+退役旧 SourceItem 与建立新头、目标 RegistrationEntry 消费、审计同事务提交；原差异保持冻结。旧预览退出当前读取，按保存归属和实际清理证据回收，新路径按当前策略生成派生物；退休记录不等同于物理字节已删除。旧路径回归是新增候选。迁移0204保留原账本事实，已有移动历史时拒绝降级到旧定位读取。见 [ADR0104](/dev/adr/0104-explicit-source-relocations)。
 
 周期计划显式持久化 `new_file_policy=manual|pure_additions` 与有效 IANA 显示时区（默认 manual/UTC）。纯新增策略固定在扫描快照并传给预检；整轮只含新增/相同且无错误才以真实 worker 节点走既有 additions_only 确认。任何其他差异整轮留在门禁，策略中途打开不会接管人工轮次。确认嵌套 I/O 后复核计划 revision/token、原账号与 Key proof，自动正式登记仅在原授权完全相符时由协调器恢复；人工正式登记仅观察。0205降级前须暂停自动计划。固定分钟间隔不表达日历定时，时区仅控制显示。见 [ADR0105](/dev/adr/0105-opt-in-pure-addition-sync)。
 

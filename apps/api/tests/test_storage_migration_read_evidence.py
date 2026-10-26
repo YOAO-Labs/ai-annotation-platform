@@ -5,7 +5,7 @@ import unittest
 
 from app.services import storage_migration_copy as core
 from app.services import storage_migration_read_evidence as evidence
-import test_storage_migration_finalization_evidence as fixtures
+from tests import test_storage_migration_finalization_evidence as fixtures
 
 
 class MappingTests(unittest.TestCase):

@@ -690,7 +690,12 @@ test("effective gate and required manifest stay identical in every mode and even
       spawnSync(process.execPath, [script, ...argv], {
         cwd,
         encoding: "utf8",
-        env: { ...process.env, ...env },
+        env: {
+          ...process.env,
+          // Report artifacts must not become paths in subsequent fixture commits.
+          E2E_SHADOW_PATH: join(cwd, ".git", "e2e-shadow.json"),
+          ...env,
+        },
       }).stdout,
     );
   const ids = (value) => JSON.parse(value).include.map(({ suite }) => suite);

@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.tasks._shared import storage_service
+from app.services.storage import storage_service
 from app.db.models.project import Project
 from app.db.models.task import Task
 

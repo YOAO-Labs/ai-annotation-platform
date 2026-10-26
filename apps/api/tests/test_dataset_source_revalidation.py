@@ -110,22 +110,63 @@ async def test_revalidation_restores_original_task_and_preserves_labels(
     ).status_code == 409
 
 
+@pytest.mark.parametrize("operation", ["revalidate", "relocate"])
 async def test_copy_revalidation_preserves_ownership_without_new_original(
-    db_session, content_world, object_store
+    db_session, content_world, object_store, monkeypatch, operation
 ):
+    from app.db.models.managed_original_creation import ManagedOriginalCreation
+    from app.services.storage import storage_service
+    from tests.fakes.managed_creation_storage import client_error
+
     db, world = db_session, content_world
     world[5].ownership_mode = "managed_copy"
     await db.commit()
     old = await register_entry(db, world[6].id, world[7].path_digest, world[2])
-    keys = set(object_store)
-    world, run, change, payload = await candidate(db, world, "red")
+    item = await db.get(DatasetItem, old["item_id"])
+    original_path = item.file_path
+    asset_id = await db.scalar(
+        select(DatasetAsset.id).where(DatasetAsset.dataset_item_id == item.id)
+    )
+    originals = select(ManagedOriginalCreation.id).where(
+        ManagedOriginalCreation.dataset_id == world[3].id
+    )
+    original_ids = set(await db.scalars(originals))
+    stored = dict(object_store)
+    if operation == "relocate":
+        from tests.test_dataset_source_relocations import moved_candidate
+
+        world, run, _, change, payload = await moved_candidate(db, world)
+    else:
+        world, run, change, payload = await candidate(db, world, "red")
+
+    def reject_original_write(**_kwargs):
+        raise client_error("AccessDenied", 403, "PutObject")
+
+    monkeypatch.setattr(storage_service.client, "put_object", reject_original_write)
+    monkeypatch.setattr(
+        storage_service.client, "create_multipart_upload", reject_original_write
+    )
     result = await revisions.accept(
-        db, run.id, change["path_digest"], payload, world[2], revalidate=True
+        db,
+        run.id,
+        change["path_digest"],
+        payload,
+        world[2],
+        **{operation: True},
     )
     assert result["item_id"] == old["item_id"] and not result["created"]
     head = await db.get(DatasetSourceItem, (world[5].id, change["path_digest"]))
     assert head.owns_item
-    assert set(object_store) == keys
+    assert dict(object_store) == stored
+    assert set(await db.scalars(originals)) == original_ids
+    await db.refresh(item)
+    assert item.file_path == original_path
+    assert (
+        await db.scalar(
+            select(DatasetAsset.id).where(DatasetAsset.dataset_item_id == item.id)
+        )
+        == asset_id
+    )
     assert await db.scalar(select(func.count()).select_from(DatasetItem)) == 1
 
 

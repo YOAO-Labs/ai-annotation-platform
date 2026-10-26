@@ -33,18 +33,19 @@ async def start(db, world):
 
 
 async def drain(db, run, task_id, fence):
+    run_id = run.id
     for _ in range(20):
-        work = await svc.next_entry(db, run.id, task_id, fence)
+        work = await svc.next_entry(db, run_id, task_id, fence)
         await db.commit()
         if work is None:
             return
         try:
-            await worker.process_one(db, run.id, task_id, fence, work)
+            await worker.process_one(db, run_id, task_id, fence, work)
         except (snapshots.ContentError, fs.FilesystemStorageError) as exc:
             await db.rollback()
             await svc.record(
                 db,
-                run.id,
+                run_id,
                 task_id,
                 fence,
                 work["path_digest"],
@@ -469,6 +470,7 @@ async def test_confirmation_capacity_failure_preserves_ready_files(
     monkeypatch.setattr(snapshots, "capture", busy)
     with pytest.raises(snapshots.ContentError, match="snapshot_capacity_exceeded"):
         await svc.confirm(db_session, run.id, content_world[2])
+    await db_session.refresh(run)
     assert run.counts["ready_count"] == 1 and run.counts["error_count"] == 0
 
 

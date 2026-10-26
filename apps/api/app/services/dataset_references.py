@@ -110,6 +110,7 @@ async def register_entry(
     if final.observation != observation:
         final.close()
         raise snapshots.ContentError("reference_content_changed")
+    revalidate = bool(revision_context and revision_context.get("revalidate"))
     prepared_copy = None
     prepared_preview = None
     try:
@@ -127,7 +128,7 @@ async def register_entry(
             unlocked_source.dataset_id,
             unlocked_source.ownership_mode,
         )
-        if unlocked_source.ownership_mode == "managed_copy":
+        if unlocked_source.ownership_mode == "managed_copy" and not revalidate:
             dataset = await scans.require_dataset_write(
                 db, unlocked_source, snapshot=initial_scan.snapshot, lock=False
             )
@@ -235,7 +236,6 @@ async def register_entry(
                 "sha256": mapping.content_sha256,
             }
         else:
-            revalidate = bool(revision_context and revision_context.get("revalidate"))
             if revalidate:
                 previous = await db.get(
                     DatasetSourceRevision,

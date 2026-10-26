@@ -210,8 +210,13 @@ async def test_decode_is_offloop_and_cannot_close_file_before_thread_ends(
         assert not operation.done()
     finally:
         release.set()
-    with pytest.raises(asyncio.CancelledError):
+    expected_error = (
+        asyncio.CancelledError if finish == "cancel" else service.ContentError
+    )
+    with pytest.raises(expected_error) as error:
         await operation
+    if finish == "timeout":
+        assert error.value.code == "content_read_timeout"
     assert value.file.closed and releases == ["binary-slot"]
 
 

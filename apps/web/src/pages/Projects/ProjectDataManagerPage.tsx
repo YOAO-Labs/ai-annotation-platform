@@ -508,7 +508,7 @@ function TaskDataManagerPage({
     () => typeof window !== "undefined" && localStorage.getItem("dm-analytics-open") === "1",
   );
   const [viewsRailOpen, setViewsRailOpen] = useState(true);
-  const urlHydratedRef = useRef(false);
+  const [urlHydrated, setUrlHydrated] = useState(false);
   const lastWrittenUrlRef = useRef<string | null>(null);
   const pendingViewKeyRef = useRef<string | null>(null);
   const mountedRef = useRef(false);
@@ -575,7 +575,7 @@ function TaskDataManagerPage({
     if (pendingViewKeyRef.current === selectedKey) return;
     const requestedKey = requestedDataManagerViewKey(currentUrl);
     if (requestedKey !== selectedKey) {
-      urlHydratedRef.current = false;
+      setUrlHydrated(false);
       setSelectedKey(requestedKey);
     }
   }, [currentUrl.lens, currentUrl.view, searchParams, selectedKey]);
@@ -585,7 +585,7 @@ function TaskDataManagerPage({
     if (!selectedView) {
       const firstKey = resolveDataManagerViewKey(selectedKey, views);
       if (!firstKey) return;
-      urlHydratedRef.current = false;
+      setUrlHydrated(false);
       setSelectedKey(firstKey);
       setSearchParams(
         updateDataManagerUrl(searchParams, {
@@ -609,7 +609,7 @@ function TaskDataManagerPage({
     if (lastWrittenUrlRef.current === searchParams.toString()) {
       lastWrittenUrlRef.current = null;
       if (pendingViewKeyRef.current !== selectedKey) {
-        urlHydratedRef.current = true;
+        setUrlHydrated(true);
         return;
       }
       pendingViewKeyRef.current = null;
@@ -659,7 +659,7 @@ function TaskDataManagerPage({
             columns_json: nextColumns,
           }),
     );
-    urlHydratedRef.current = true;
+    setUrlHydrated(true);
     skipUrlSyncRef.current = true;
     setPage(0);
   }, [
@@ -685,7 +685,7 @@ function TaskDataManagerPage({
       selected: null,
       selectedTasks: null,
     });
-    urlHydratedRef.current = false;
+    setUrlHydrated(false);
     pendingViewKeyRef.current = key;
     lastWrittenUrlRef.current = next.toString();
     setSelectedTaskIds([]);
@@ -770,7 +770,7 @@ function TaskDataManagerPage({
   const queryReady = Boolean(
     selectedView &&
     schemaQ.data &&
-    urlHydratedRef.current &&
+    urlHydrated &&
     expressionValid &&
     sort.length &&
     sort.every((item) => schemaQ.data.sort_fields.some((field) => field.value === item.field)),
@@ -829,7 +829,7 @@ function TaskDataManagerPage({
 
   const selectionFilterSignatureRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!urlHydratedRef.current) return;
+    if (!urlHydrated) return;
     if (selectionFilterSignatureRef.current === null) {
       selectionFilterSignatureRef.current = currentSignature;
       return;
@@ -838,14 +838,14 @@ function TaskDataManagerPage({
       selectionFilterSignatureRef.current = currentSignature;
       setSelectedTask(null);
     }
-  }, [currentSignature]);
+  }, [currentSignature, urlHydrated]);
 
   const taskSelectionSignature = useMemo(
     () => JSON.stringify({ view: selectedKey, filter_json: filterJson }),
     [filterJson, selectedKey],
   );
   useEffect(() => {
-    if (!urlHydratedRef.current) return;
+    if (!urlHydrated) return;
     if (taskSelectionSignatureRef.current === null) {
       taskSelectionSignatureRef.current = taskSelectionSignature;
       return;
@@ -854,7 +854,7 @@ function TaskDataManagerPage({
       taskSelectionSignatureRef.current = taskSelectionSignature;
       setSelectedTaskIds([]);
     }
-  }, [taskSelectionSignature]);
+  }, [taskSelectionSignature, urlHydrated]);
 
   const effectiveSelectedTaskIds = useMemo(
     () => (taskSelectionSignatureRef.current === taskSelectionSignature ? selectedTaskIds : []),
@@ -862,7 +862,7 @@ function TaskDataManagerPage({
   );
 
   useEffect(() => {
-    if (!urlHydratedRef.current || skipUrlSyncRef.current || !filterReady) {
+    if (!urlHydrated || skipUrlSyncRef.current || !filterReady) {
       skipUrlSyncRef.current = false;
       return;
     }
@@ -894,6 +894,7 @@ function TaskDataManagerPage({
     sort,
     filterReady,
     layout,
+    urlHydrated,
   ]);
 
   useEffect(() => {

@@ -33,7 +33,7 @@ from app.services.storage import StorageService, storage_service
 from app.services.training_dataset_bridge import TrainingDatasetError
 from app.workers import active_learning as round_worker
 from app.workers import sample_evaluations as evaluation_worker
-from tests.test_storage_usage_accounting import accounting_factory as accounting_factory
+from tests.test_managed_original_creation import creation_db as creation_db
 
 
 class Objects:
@@ -222,16 +222,16 @@ def test_evaluation_upload_rejects_unproven_ownership_before_io(world, invalid):
 
 
 async def test_evaluation_cached_reads_still_verify_saved_bytes(
-    world, monkeypatch, db_session
+    world, monkeypatch, storage_db
 ):
     report, artifact = published_report(world)
     monkeypatch.setattr(evaluations, "sample_rows", AsyncMock(return_value=[]))
     monkeypatch.setattr(evaluations, "verify_report", lambda value, *_args: value)
-    assert await evaluations.read_report(db_session, world.run, world.attempt) == report
+    assert await evaluations.read_report(storage_db, world.run, world.attempt) == report
     world.client.objects["new-current-bucket", artifact["key"]] = b"current trap"
     world.client.objects[world.bucket, artifact["key"]] = b"changed retained bytes"
     with pytest.raises(HTTPException) as error:
-        await evaluations.read_report(db_session, world.run, world.attempt)
+        await evaluations.read_report(storage_db, world.run, world.attempt)
     assert error.value.status_code == 409
     assert world.client.calls == [("get", world.bucket, artifact["key"])] * 2
 
@@ -252,11 +252,11 @@ async def test_evaluation_reads_refuse_before_io(world, monkeypatch, invalid):
 
 
 async def test_late_candidate_cleanup_carries_owner_after_run_is_deleted(
-    world, test_engine
+    world, storage_db
 ):
     _report, artifact = published_report(world)
     db = SimpleNamespace(
-        bind=test_engine,
+        bind=storage_db.bind,
         scalar=AsyncMock(return_value=None),
         get=AsyncMock(return_value=None),
         commit=AsyncMock(),
@@ -356,15 +356,17 @@ async def test_candidate_cleanup_preserves_committed_report_after_lost_ack(world
 
 
 async def test_evaluation_cleanup_uses_saved_prefix_outside_business_transaction(
-    world, monkeypatch, test_engine
+    world, monkeypatch, storage_db
 ):
     _report, artifact = published_report(world)
     foreign_key = "another-owner/retained.json"
     world.client.objects[world.bucket, foreign_key] = b"unrelated"
     world.run.deletion_requested_at = evaluations.now()
     db = SimpleNamespace(
-        bind=test_engine,
-        scalar=AsyncMock(return_value=world.run), commit=AsyncMock(), delete=AsyncMock()
+        bind=storage_db.bind,
+        scalar=AsyncMock(return_value=world.run),
+        commit=AsyncMock(),
+        delete=AsyncMock(),
     )
     monkeypatch.setattr(active_learning_pool, "guard_source", AsyncMock())
     delete_objects = world.client.delete_objects
@@ -471,11 +473,8 @@ async def test_unknown_owner_does_not_block_confirmed_evaluation_stop(
 
 
 @pytest.fixture
-async def storage_db(accounting_factory):
-    # Independent accounting commits stay inside the established disposable
-    # accounting schema, while admission and owner metadata use the real DB.
-    async with accounting_factory() as db:
-        yield db
+async def storage_db(creation_db):
+    return creation_db
 
 
 def png_context(world, monkeypatch, db):

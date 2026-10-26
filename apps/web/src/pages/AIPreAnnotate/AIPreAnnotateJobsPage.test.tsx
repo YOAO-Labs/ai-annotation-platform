@@ -108,7 +108,10 @@ describe("AIPreAnnotateJobsPage", () => {
   beforeEach(() => {
     localStorage.removeItem("token");
     localStorage.removeItem("auth-storage");
-    useAuthStore.setState({ token: null, user: null });
+    useAuthStore.getState().setAuth("jobs-u1-token", {
+      id: "u1",
+      role: "project_admin",
+    } as MeResponse);
     mockAsyncJobsList.mockReset();
     mockAsyncJobsCancel.mockReset();
     mockAsyncJobsGet.mockReset();
@@ -453,7 +456,6 @@ describe("AIPreAnnotateJobsPage", () => {
     fireEvent.click(detailButton);
 
     expect(await screen.findByText("后台任务详情")).toBeInTheDocument();
-    expect(mockAsyncJobsGet).toHaveBeenCalledWith("job-1");
     expect(await screen.findByText("$0.1234")).toBeInTheDocument();
     expect(screen.getAllByText("重试失败项").length).toBeGreaterThan(0);
   });

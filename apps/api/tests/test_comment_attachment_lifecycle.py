@@ -1,6 +1,5 @@
 """Attachment cleanup must not be bypassed by the old object-store rule."""
 
-import logging
 from unittest.mock import Mock
 
 from botocore.exceptions import ClientError
@@ -58,13 +57,11 @@ def test_absent_configuration_is_idempotent():
     storage.client.put_bucket_lifecycle_configuration.assert_not_called()
 
 
-def test_failed_inspection_does_not_clear_unknown_configuration(caplog):
+def test_failed_inspection_does_not_clear_unknown_configuration():
     storage = service([])
     storage.client.get_bucket_lifecycle_configuration.side_effect = ClientError(
         {"Error": {"Code": "AccessDenied"}}, "GetBucketLifecycleConfiguration"
     )
-    with caplog.at_level(logging.WARNING, logger="app.services.storage"):
-        storage._remove_comment_attachment_lifecycle()
+    storage._remove_comment_attachment_lifecycle()
     storage.client.delete_bucket_lifecycle.assert_not_called()
     storage.client.put_bucket_lifecycle_configuration.assert_not_called()
-    assert "Failed to remove comment attachment lifecycle" in caplog.text

@@ -25,6 +25,7 @@ from app.db.models.prediction import Prediction
 from app.db.models.async_job import AsyncJob
 from app.services.batch import BatchService
 from tests.conftest import create_registry_with_pool
+from tests.test_managed_prediction_requests import managed_task
 
 
 def _bearer(token: str) -> dict[str, str]:
@@ -146,6 +147,7 @@ async def _seed(db: AsyncSession, owner_id: uuid.UUID):
     db.add(batch)
     await db.flush()
 
+    owner = SimpleNamespace(id=owner_id)
     tasks = []
     for i in range(3):
         t = Task(
@@ -159,6 +161,8 @@ async def _seed(db: AsyncSession, owner_id: uuid.UUID):
             status="pending",
         )
         db.add(t)
+        await db.flush()
+        await managed_task(db, proj, owner, task=t)
         tasks.append(t)
     await db.commit()
     return proj, backend, batch, tasks
