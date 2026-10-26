@@ -71,7 +71,9 @@ Data Manager schema 发布 `dataset.dataset_id` 条件，支持 UUID 的 `eq`、
 
 每个 item 增加 `availability`：state（verified/missing/changed/preview_only/unavailable/unverified）、reason_code、observed_at、preview_available、脱敏 source_id/source_name/location_id 和 allowed_actions。动作值为 read_original/read_preview/manage_source/view_location；来源信息和管理动作只提供给当前获授权的来源管理者。旧托管 file_url 继续原合同，不能凭其存在推断已核验。
 
-分类来自已保存的内容/位置绑定、接纳记录和**完整预检**差异，不同步探测或逐张读取原图。变化待确认和完整扫描未见保留原身份；预览与原图独立。verified 仅指已保存的核验观测，实际读取与编辑必须经过既有严格读取层；不能用该字段绕过任务权限。停用/注销来源、停用位置或禁用缓存策略会阻止预览动作。
+Agent 引用样本的 `availability.agent_status` 提供当前获授权的站点／Agent 名称、状态、最后心跳和观测时间；来源不可用原因通过 `reason_code` 区分。离线时列表、搜索和分类计数保持可用，原图显示 unavailable 或 preview_only，已有预览与完整缓存记录独立保留。完整缓存存在时仍可尝试原图读取，由既有读取层核对内容及当前权限。
+
+分类来自已保存的内容/位置绑定、接纳记录、Agent 心跳和身份状态及**完整预检**差异，不同步探测或逐张读取原图。变化待确认和完整扫描未见保留原身份；预览与原图独立。verified 仅指已保存的核验观测，实际读取与编辑必须经过既有严格读取层；不能用该字段绕过任务权限。停用/注销来源、停用位置或禁用缓存策略会阻止预览动作。
 
 ## Scene 选项与样本范围
 

@@ -223,3 +223,9 @@ SFTP 复用逐目录检查点、取消恢复及末次目录清单核对，每目
 扫描响应包含固定的 source_revision。历史列表按创建时间倒序；`complete=true&limit=1` 按完成时间取最近完整扫描，独立于默认历史页；`active_only=true` 查询来源的活动扫描，即使它是恢复的较早轮次。来源级 active-registration 返回至多一个 pending/running 预检或登记，避免以最新扫描推断后台状态。
 
 扫描、预检、差异和接纳修订账本不随短期 AsyncJob 清理，不自动按时间压缩或删除。当前只提供分页查询与每来源单活动扫描、单活动登记、单周期计划的约束，没有租户级计划数量上限；调度每轮最多100个到期计划，单扫描继续遵守50000条观测等固定预算。not_seen 没有自动等待期或删除倒计时，只保留候选，不能因持续未见而推断物理删除。
+
+## Agent 来源连接状态
+
+已获授权的 Agent 来源返回可空 `agent_status`：`state`、`reason_code`、`site_name`、`agent_name`、`last_seen` 和 `measured_at`。状态区分 online／offline／revoked／pending／expired／degraded／unavailable；degraded 的原因区分暂停派发和绑定根修订变化。状态只读取当前数据库事实，不调用远端 I/O，来源列表按页批量查询。凭据和宿主路径不进入此字段。
+
+心跳超过六十秒为离线。离线不改写历史扫描、接纳记录或样本身份；样本元数据、预览及完整缓存状态分别保留。具体读取仍按当前权限和完整内容校验决定，不能凭连接状态获得授权。

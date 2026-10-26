@@ -398,7 +398,7 @@ def wait_until(call, predicate, *, seconds=90):
     raise ValueError("observation_timeout")
 
 
-def verify(owner, image):
+def verify(owner, image, *, scenario="basic"):
     from PIL import Image
     from worktree_env import load_identity, topology
 
@@ -424,7 +424,13 @@ def verify(owner, image):
         json.loads(run(["docker", "image", "inspect", image]).stdout)[0]["Id"] == image,
         "cached_image_required",
     )
-    summary = {"scope": "one isolated Linux site", "steps": [], "e06_complete": False}
+    require(scenario in {"basic", "recovery"}, "unknown_site_agent_scenario")
+    summary = {
+        "scope": "one isolated Linux site",
+        "scenario": scenario,
+        "steps": [],
+        "e06_complete": False,
+    }
 
     def record(name, value=True):
         summary["steps"].append({"name": name, "value": value})
@@ -633,7 +639,14 @@ def verify(owner, image):
         pairing = http.call(
             "POST",
             "/api/v1/site-agents/sites/" + site["id"] + "/agents",
-            {"name": "Owned Linux Agent"},
+            {
+                "name": "Owned Linux Agent",
+                **(
+                    {"limits": {"bandwidth_bytes_per_second": 64 * 1024}}
+                    if scenario == "recovery"
+                    else {}
+                ),
+            },
             expected=201,
         )
         private_json(
@@ -737,6 +750,7 @@ def verify(owner, image):
                 "relative_path": "dataset",
                 "node_id": node,
                 "cache_policy": "none",
+                **({"include_globs": ["*.png"]} if scenario == "recovery" else {}),
             },
             expected=201,
         )
@@ -791,6 +805,25 @@ def verify(owner, image):
             "remote_registration_failed",
         )
         record("explicit_registration_without_original_copy", registration["counts"])
+        if scenario == "recovery":
+            from site_agent_recovery import Recovery
+
+            Recovery(
+                owner=owner,
+                http=http,
+                agent=agent,
+                network=site_net,
+                site_dir=site_dir,
+                source_root=source,
+                source=source_row,
+                dataset=dataset,
+                location=location,
+                files=files,
+                record=record,
+            ).run()
+            summary["passed"] = True
+            private_json(owner.state / "summary.json", summary)
+            return summary
         entries = http.call("GET", "/api/v1/dataset-scans/" + scan["id"] + "/entries")[
             "items"
         ]
@@ -888,6 +921,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state", type=Path)
     parser.add_argument("--runtime-image")
+    parser.add_argument("--scenario", choices=("basic", "recovery"), default="basic")
     parser.add_argument("--cleanup", action="store_true")
     parser.add_argument("--seed")
     parser.add_argument("--seed-output", type=Path)
@@ -903,7 +937,7 @@ def main():
         owner.cleanup()
         return 0
     try:
-        verify(owner, args.runtime_image)
+        verify(owner, args.runtime_image, scenario=args.scenario)
     except BaseException as exc:
         for item in owner.value["resources"]:
             if (

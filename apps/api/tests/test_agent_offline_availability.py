@@ -220,6 +220,70 @@ async def test_ready_same_content_cache_is_still_readable_with_offline_agent(
             assert image.file.read() == world.data and image.sha256 == world.sha
         finally:
             image.close()
+        from app.services.training_dataset_sources import training_reference_snapshot
+
+        sample = {
+            "source_key": world.task.file_path,
+            "dataset_item_id": str(world.item_id),
+            "task_id": str(world.task.id),
+            "dataset_id": str(world.dataset_id),
+        }
+        async with world.factory() as db:
+            image, identity, _ = await training_reference_snapshot(
+                db, sample, world.actor, freeze_lineage=True
+            )
+            try:
+                assert image.file.read() == world.data
+                assert identity["sha256"] == world.sha
+            finally:
+                image.close()
+    finally:
+        async with world.factory() as db:
+            await db.execute(
+                delete(AgentCredential).where(AgentCredential.agent_id == agent_id)
+            )
+            await db.execute(
+                delete(AgentRegistration).where(AgentRegistration.id == agent_id)
+            )
+            await db.execute(delete(Site).where(Site.id == site_id))
+            await db.commit()
+
+
+async def test_offline_uncached_original_blocks_freeze_without_dispatch(
+    referenced_cache, monkeypatch
+):
+    from app.services.dataset_references import reference_context
+    from app.services.training_dataset_bridge import TrainingDatasetError
+    from app.services.training_dataset_sources import training_reference_snapshot
+
+    world = referenced_cache
+    async with world.factory() as db:
+        context = await reference_context(db, world.item_id, world.manager)
+        location = await db.get(StorageLocation, world.location_id)
+        agent, _, site = await attach_agent(db, location, world.manager)
+        agent.last_seen = None
+        location.config = {**location.config, "agent_anchor": context["origin_anchor"]}
+        agent_id, site_id = agent.id, site.id
+        await db.commit()
+
+    async def no_source_io(*args, **kwargs):
+        pytest.fail("An offline source cannot dispatch freeze reads")
+
+    monkeypatch.setattr(agent_transport, "exchange", no_source_io)
+    sample = {
+        "source_key": world.task.file_path,
+        "dataset_item_id": str(world.item_id),
+        "task_id": str(world.task.id),
+        "dataset_id": str(world.dataset_id),
+    }
+    try:
+        async with world.factory() as db:
+            with pytest.raises(TrainingDatasetError) as error:
+                await training_reference_snapshot(
+                    db, sample, world.actor, freeze_lineage=True
+                )
+            assert error.value.code == "reference_media_unavailable"
+            assert error.value.__cause__.code == "agent_offline"
     finally:
         async with world.factory() as db:
             await db.execute(

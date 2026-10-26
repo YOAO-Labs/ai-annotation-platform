@@ -1158,6 +1158,73 @@
         "title": "AgentRoot",
         "type": "object"
       },
+      "AgentSourceStatus": {
+        "properties": {
+          "agent_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Name"
+          },
+          "last_seen": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen"
+          },
+          "measured_at": {
+            "format": "date-time",
+            "title": "Measured At",
+            "type": "string"
+          },
+          "reason_code": {
+            "title": "Reason Code",
+            "type": "string"
+          },
+          "site_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site Name"
+          },
+          "state": {
+            "enum": [
+              "online",
+              "offline",
+              "revoked",
+              "pending",
+              "expired",
+              "degraded",
+              "unavailable"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "reason_code",
+          "measured_at"
+        ],
+        "title": "AgentSourceStatus",
+        "type": "object"
+      },
       "AiMaskAcceptRequest": {
         "additionalProperties": false,
         "properties": {
@@ -13974,6 +14041,16 @@
       },
       "DatasetItemAvailability": {
         "properties": {
+          "agent_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentSourceStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "allowed_actions": {
             "items": {
               "type": "string"
@@ -16234,6 +16311,16 @@
       },
       "DatasetSourceOut": {
         "properties": {
+          "agent_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentSourceStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "cache_policy": {
             "enum": [
               "none",
