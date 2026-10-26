@@ -184,6 +184,65 @@ class FakeOwner:
 
 
 class ProvisionTests(unittest.TestCase):
+    def test_media_worker_uses_cached_image_current_source_and_only_application_env(
+        self,
+    ):
+        with tempfile.TemporaryDirectory() as temporary:
+            owner = Mock()
+            owner.private = Path(temporary)
+            owner.data = {"nonce": "a" * 32}
+            owner.service.return_value = {"id": "b" * 64}
+            owner.verified.return_value = {"State": {"Running": True}}
+            fixture = live.Cutover()
+            settings = SimpleNamespace(
+                model_fields={"database_url": None, "redis_url": None}
+            )
+            with (
+                patch.dict(
+                    "sys.modules", {"app.config": SimpleNamespace(Settings=settings)}
+                ),
+                patch.object(
+                    live,
+                    "command",
+                    side_effect=[
+                        json.dumps([{"Id": fixture.media_image}]),
+                        json.dumps({"vips": [8, 14, 1]}),
+                    ],
+                ),
+                patch.object(
+                    live.subprocess, "run", return_value=SimpleNamespace(returncode=0)
+                ),
+            ):
+                fixture.start_media_worker(
+                    owner,
+                    {
+                        "DATABASE_URL": "owned-db",
+                        "REDIS_URL": "owned-redis",
+                        "AAP_WORKTREE_MODE": "test",
+                        "AAP_SOURCE_FENCE_SECRET_KEY": "native-private",
+                        "AAP_TARGET_FENCE_SECRET_KEY": "native-private-b",
+                        "DOCKER_HOST": "unowned",
+                        "PATH": "/host/python",
+                    },
+                )
+            payload = (owner.private / "media-worker.env").read_text()
+            self.assertIn("DATABASE_URL=owned-db\n", payload)
+            self.assertIn("AAP_WORKTREE_MODE=test\n", payload)
+            self.assertNotIn("native-private", payload)
+            self.assertNotIn("DOCKER_HOST", payload)
+            self.assertNotIn("/host/python", payload)
+            self.assertIn(
+                "PYTHONPATH=/app:/_shared/task_contract/src:/_shared/protocol_v2/src:/_shared/training_contract\n",
+                payload,
+            )
+            self.assertEqual(fixture.media_vips, [8, 14, 1])
+            args = owner.service.call_args.kwargs["args"]
+            self.assertIn("--pull=never", args)
+            self.assertIn(str(base.ROOT / "apps/api") + ":/app:ro", args)
+            self.assertIn(str(base.ROOT / "apps/_shared") + ":/_shared:ro", args)
+            self.assertIn("/opt/venv/bin/python", args)
+            self.assertIn("--queues=media", owner.service.call_args.kwargs["cmd"])
+
     def test_gateway_config_keeps_required_mode_under_private_process_umask(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)

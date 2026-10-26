@@ -35,6 +35,7 @@ from verify_storage_migration_finalization import (
 )
 from verify_storage_migration_original_reads import OriginalReads
 from verify_storage_source_fence import fence_cli, object_facts, request
+from verify_storage_candidates import command
 from worktree_env import atomic_json
 
 
@@ -385,7 +386,139 @@ async def snapshot(input_path, output_path, *, wait_thumbnail=False):
 
 
 class Cutover(OriginalReads):
-    worker_queues = "default,media"
+    worker_queues = "default"
+    media_image = (
+        "sha256:93e7634e348d2874890d995ce0fdfa428699a094ef59ff306799900bdd6b8c4a"
+    )
+
+    def start_media_worker(self, owner, environment):
+        from app.config import Settings
+
+        require(
+            json.loads(command(["docker", "image", "inspect", self.media_image]))[0][
+                "Id"
+            ]
+            == self.media_image,
+            "cached_media_worker_image_required",
+        )
+        allowed = {name.upper() for name in Settings.model_fields}
+        child = {
+            key: value
+            for key, value in environment.items()
+            if key in allowed or key == "AAP_WORKTREE_MODE"
+        }
+        child.update(
+            PYTHONDONTWRITEBYTECODE="1",
+            PYTHONPATH="/app:/_shared/task_contract/src:/_shared/protocol_v2/src:/_shared/training_contract",
+        )
+        require(
+            all(
+                isinstance(value, str) and "\n" not in value and "\r" not in value
+                for value in child.values()
+            ),
+            "media_worker_environment_invalid",
+        )
+        env_file = owner.private / "media-worker.env"
+        private_write(
+            env_file,
+            "".join(
+                f"{key}={value}\n" for key, value in sorted(child.items())
+            ).encode(),
+        )
+        name = "cutover-media-" + owner.data["nonce"] + "@localhost"
+        worker = owner.service(
+            "media-worker",
+            self.media_image,
+            args=(
+                "--pull=never",
+                "--network",
+                "host",
+                "--env-file",
+                str(env_file),
+                "--volume",
+                str(ROOT / "apps/api") + ":/app:ro",
+                "--volume",
+                str(ROOT / "apps/_shared") + ":/_shared:ro",
+                "--entrypoint",
+                "/opt/venv/bin/python",
+            ),
+            cmd=(
+                "-m",
+                "celery",
+                "-A",
+                "app.workers.celery_app",
+                "worker",
+                "--pool=solo",
+                "--concurrency=1",
+                "--queues=media",
+                "--hostname=" + name,
+                "--loglevel=WARNING",
+                "--without-gossip",
+                "--without-mingle",
+            ),
+        )
+        probe = owner.private / "media-worker-probe.py"
+        private_write(
+            probe,
+            (
+                "import sys\n" + f"sys.path.insert(0,{str(ROOT / 'apps/api')!r})\n"
+                "from app.workers.celery_app import celery_app\n"
+                f"i=celery_app.control.inspect(destination=[{name!r}],timeout=2)\n"
+                f"assert 'app.workers.media.generate_task_thumbnail' in (i.registered() or {{}}).get({name!r},[])\n"
+                f"assert any(q['name']=='media' for q in (i.active_queues() or {{}}).get({name!r},[]))\n"
+            ).encode(),
+        )
+        deadline = time.monotonic() + 90
+        while time.monotonic() < deadline:
+            observed = owner.verified(worker)
+            require(observed["State"]["Running"], "media_worker_exited")
+            result = subprocess.run(
+                [sys.executable, str(probe)],
+                cwd=ROOT,
+                env=environment,
+                capture_output=True,
+                timeout=8,
+            )
+            if result.returncode == 0:
+                break
+            time.sleep(0.2)
+        else:
+            require(False, "media_worker_not_ready")
+        owner.verified(worker)
+        self.media_vips = json.loads(
+            command(
+                [
+                    "docker",
+                    "exec",
+                    worker["id"],
+                    "/opt/venv/bin/python",
+                    "-c",
+                    "import json,pyvips; print(json.dumps({'vips':[pyvips.version(i) for i in range(3)]}))",
+                ]
+            )
+        )["vips"]
+
+    def child(self, owner, environment, invocation):
+        from textwrap import indent
+
+        failure = owner.private / ("cutover-failure-" + uuid.uuid4().hex + ".json")
+        guarded = (
+            "try:\n" + indent(invocation, "    ") + "\nexcept BaseException as exc:\n"
+            "    import json,traceback\n"
+            "    from pathlib import Path\n"
+            "    from storage_s3_contract import safe_error\n"
+            "    from verify_storage_migration_finalization import private_write\n"
+            "    details={'type':type(exc).__name__,'code':safe_error(exc),'frames':[[Path(frame.filename).name,frame.lineno] for frame in traceback.extract_tb(exc.__traceback__)]}\n"
+            + f"    private_write({str(failure)!r},json.dumps(details).encode())\n"
+            "    raise\n"
+        )
+        try:
+            return super().child(owner, environment, guarded)
+        except BaseException:
+            if failure.is_file():
+                owner.data["retained_failure"] = json.loads(failure.read_bytes())
+                owner.save()
+            raise
 
     def provision_target(self, owner, credentials, env_file):
         from storage_source_fence_docker import (
@@ -882,6 +1015,8 @@ class Cutover(OriginalReads):
             )
         summary.update(
             stage="complete",
+            media_worker_image=self.media_image,
+            media_worker_vips=self.media_vips,
             atomic_binding_count=len(before),
             before_bindings=before,
             after_bindings=active["after_bindings"],

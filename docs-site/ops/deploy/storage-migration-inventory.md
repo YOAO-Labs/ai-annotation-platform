@@ -199,6 +199,8 @@ apps/api/.venv/bin/python scripts/finalize_storage_migration.py withdraw-reads \
 
 ## 九用途原子切换与新写入回滚
 
+回滚用于切换后无法及时修复的目标端故障，例如持续写入失败、关键权限不兼容或不可接受的读写性能，由运维明确发起。正常切换成功后进入观察和旧实例退役，不需要执行回滚。切换前失败只需暂停迁移并保留A服务；若B已有新对象，恢复A写入仍须保留这些对象及业务引用。B对象受损或不可读时，还需要按备份／副本恢复，回滚本身不能补回丢失内容。验收中的一次回滚演练用于证明上述恢复能力，不要求正常迁移反复回退。
+
 应用0264并刷新实际API／Worker后，由可信部署运维运行 `scripts/cutover_storage_migration.py`。切换范围是本次已封存A的完整九用途，目标为该Publication固定的B；A保持原生封闭及应用停止，读取发布处于active。单用途已提前漂移时整组拒绝，不将当前部分向量当成新的基线。历史未知继续单列，不增加全库补认门槛。当前双端原生回滚适配受控本机MinIO拓扑；其他供应商的原生封闭与部署资格仍须按实际目标实现和核实。
 
 ```sh
@@ -267,7 +269,7 @@ pnpm dev:worktree -- exec --mode test -- env PYTHONDONTWRITEBYTECODE=1 \
 
 媒体缓存扩展验收入口为 `scripts/verify_storage_migration_cache_reads.py`，参数和空test约束相同。它建立持久缩略图／金字塔／视频输出及通过正常store创建的原图缓存，源离线且目标有foreign latest／marker时，核对同源HEAD／完整GET／Range、独立Worker缓存读取与金字塔／视频物理读取计划、旧schema直接准确签名，以及真实打开Range GET的撤回排空。视频payload为合成传输字节，不作为编解码或播放资格；物理计划不代替业务权限／当前代际的SQL回归。
 
-九用途切换的实际入口为 `scripts/verify_storage_migration_cutover.py`，同样仅接受核验归属且业务为空的test模式和新的私有manifest／summary。它建立独立双端原生拓扑，以正常Task直传和独立Celery缩略图形成B新对象，切换并回滚后核对A旧／B新对象的认证读取、完整内容和保存回执；旧B签名仍有效时验证物理拒写，并核对未来分配回到A。其资源由原owner清理，launcher测试数据库／Redis／九桶另行销毁；结果不授予生产切换或退役资格。
+九用途切换的实际入口为 `scripts/verify_storage_migration_cutover.py`，同样仅接受核验归属且业务为空的test模式和新的私有manifest／summary。它建立独立双端原生拓扑，以正常Task直传和独立Celery缩略图形成B新对象，切换并回滚后核对A旧／B新对象的认证读取、完整内容和保存回执；旧B签名仍有效时验证物理拒写，并核对未来分配回到A。缩略图使用已有、固定内容摘要且含libvips的Worker镜像，只读挂载当前API源码及共享Python包，仅消费本次media队列；主机Worker负责default迁移队列，不重建镜像。其资源由原owner清理，launcher测试数据库／Redis／九桶另行销毁；结果不授予生产切换或退役资格。
 
 ## 执行与核对
 

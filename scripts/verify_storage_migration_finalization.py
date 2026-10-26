@@ -981,6 +981,8 @@ def run(owner, args, summary, backend, *, fixture=None):
             ROOT / "apps/api",
         )
         worker_ready(owner, worker, application, worker_name)
+        if fixture is not None and hasattr(fixture, "start_media_worker"):
+            fixture.start_media_worker(owner, application)
         http.token = http.call(
             "POST", "/api/v1/auth/login", {"email": email, "password": password}
         )["access_token"]
