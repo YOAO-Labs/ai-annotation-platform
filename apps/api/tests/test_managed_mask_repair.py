@@ -52,6 +52,7 @@ from app.services.raster_mask_storage import (
 )
 from app.utils.raster_mask_rle import encode_coco_rle
 from app.workers import mask_repair as worker
+from tests._owned_s3 import patch_owned_client
 from tests.managed_image_inference_fixtures import (
     _clone_business_schema,
     assert_inputs_retired,
@@ -118,6 +119,9 @@ async def repair_world(db_session, sync_world, super_admin, monkeypatch, request
     blobs = Objects()
     # The shared StorageService object remains real; its physical client alone
     # is an in-memory provider with conditional writes and complete byte reads.
+    # Owned conditional writes build a per-call transport from the saved client
+    # config, so that seam must forward to the same in-memory provider.
+    patch_owned_client(monkeypatch, blobs.client)
     from app.services.storage import storage_service
 
     monkeypatch.setattr(storage_service, "client", blobs.client)
