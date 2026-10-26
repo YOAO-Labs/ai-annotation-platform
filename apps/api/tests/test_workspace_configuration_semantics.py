@@ -11,6 +11,7 @@ from pathlib import Path
 import threading
 import uuid
 
+import httpx
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import delete, select, text
@@ -179,6 +180,16 @@ async def _setup_barrier():
         server.shutdown()
         server.server_close()
         thread.join(timeout=3)
+
+
+def _http_backend_probe(origin: str):
+    async def probe(registry_id, probe_subject, *, timeout, limits):
+        async with httpx.AsyncClient(trust_env=False, timeout=timeout) as client:
+            response = await client.get(origin + "/setup")
+        response.raise_for_status()
+        return ["image"]
+
+    return probe
 
 
 async def _cleanup_owned(test_engine, actor_id: uuid.UUID) -> None:
@@ -367,8 +378,11 @@ async def test_account_lock_contention_preserves_create_transaction_semantics(
             )
             actor_id = actor.id
 
+        # The caller stages an ORM user write, so this borrowed transaction needs
+        # the schema owner; the restricted runtime role has no direct users DML.
         runtime_engine = create_async_engine(
-            _legacy_runtime_dsn(test_engine), hide_parameters=True
+            test_engine.url.render_as_string(hide_password=False),
+            hide_parameters=True,
         )
         for operation in ("create_project", "create_template"):
             for autoflush in (False, True):
@@ -480,6 +494,10 @@ async def test_setup_authority_revocation_rolls_back_draft_and_pool_changes(
         )
         for source_project in (False, True):
             async with _setup_barrier() as (origin, entered, release):
+                monkeypatch.setattr(
+                    "app.services.inference_backend_probe.backend_probe",
+                    lambda: _http_backend_probe(origin),
+                )
                 async with owner.begin() as db:
                     backend, pool = await create_registry_with_pool(
                         db,

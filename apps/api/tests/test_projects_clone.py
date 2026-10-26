@@ -160,12 +160,19 @@ async def test_clone_explicit_field_overrides_source(
 
 
 async def test_clone_auto_derives_ml_backend_from_source(
-    httpx_client, super_admin, db_session
+    httpx_client, super_admin, db_session, monkeypatch
 ):
     user, token = super_admin
     src = await _seed_project(db_session, user.id, ai_enabled=True)
     backend, src_pool = await _seed_backend(
         db_session, src.id, name="auto-clone-backend"
+    )
+
+    async def probe(registry_id, probe_subject, *, timeout, limits):
+        return ["image"]
+
+    monkeypatch.setattr(
+        "app.services.inference_backend_probe.backend_probe", lambda: probe
     )
     # v0.23.3: 项目主绑定存 pool id (backend 经 _seed_backend 已有 singleton pool)。
     src.ml_backend_pool_id = src_pool.id
