@@ -279,7 +279,7 @@ class RecoveryImageTransport(unittest.IsolatedAsyncioTestCase):
         )
         self.patch.start()
         self.addCleanup(self.patch.stop)
-        self.public = patch.object(settings, "minio_public_url", None)
+        self.public = patch.object(settings, "minio_public_url", "")
         self.public.start()
         self.addCleanup(self.public.stop)
 
