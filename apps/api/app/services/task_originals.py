@@ -192,10 +192,11 @@ async def _persist(db, values):
             .one_or_none()
         )
         if existing is None:
+            # Every immutable identity is unique: the row id and the Creation
+            # that owns the receipt. A concurrent independent publisher of the
+            # same receipt must settle on that row, never surface an unknown.
             await connection.execute(
-                insert(table)
-                .values(**values)
-                .on_conflict_do_nothing(index_elements=[table.c.id])
+                insert(table).values(**values).on_conflict_do_nothing()
             )
             existing = (
                 (
@@ -204,8 +205,10 @@ async def _persist(db, values):
                     )
                 )
                 .mappings()
-                .one()
+                .one_or_none()
             )
+            if existing is None:
+                _reject("creation_conflict")
         if not same(existing, values) or existing["storage_ref"] != values.get(
             "storage_ref"
         ):
