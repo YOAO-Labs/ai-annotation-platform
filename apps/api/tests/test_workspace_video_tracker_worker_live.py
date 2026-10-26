@@ -94,14 +94,83 @@ class _VideoTrackerCeleryWorker(WorkspaceCeleryWorker):
         super().__init__(*args, **kwargs)
         # The production dispatcher targets the isolated verifier's gpu queue.
         self.queue = "gpu"
-        # The consumer keeps only the HTTP routing subject. The restricted routing
-        # LOGIN stays on the independent owner process that serves this worker.
+        # Only the owner process receives private Inference LOGINs; the worker
+        # uses distinct authenticated HTTP capabilities.
         self._routing_dsn = self._role_dsn(
             "AAP_MODULE_DATA_INFERENCE_ROUTING_URL", "inference_routing_client"
         )
         self._routing_token = secrets.token_urlsafe(32)
         self._routing_owner_url = f"http://127.0.0.1:{_ROUTING_OWNER_PORT}"
         self._routing_owner_served = False
+        self._inference_tokens = {
+            capability: secrets.token_urlsafe(32)
+            for capability in (
+                "MODEL_EXECUTION",
+                "BACKEND_CONTROL",
+                "HEALTH_OBSERVATION",
+            )
+        }
+        profiles = (
+            (
+                "BACKEND_ENDPOINT_SETUP",
+                "ENDPOINT_SETUP",
+                "inference_endpoint_setup_client",
+            ),
+            (
+                "BACKEND_ENDPOINT_HEALTH_OBSERVATION",
+                "ENDPOINT_HEALTH_OBSERVATION",
+                "inference_endpoint_health_client",
+            ),
+            (
+                "BACKEND_ENDPOINT_CATALOG_FALLBACK",
+                "ENDPOINT_CATALOG_FALLBACK",
+                "inference_endpoint_catalog_client",
+            ),
+            (
+                "BACKEND_ENDPOINT_STATS",
+                "ENDPOINT_STATS",
+                "inference_endpoint_stats_client",
+            ),
+            (
+                "BACKEND_ENDPOINT_BACKEND_READ",
+                "ENDPOINT_BACKEND_READ",
+                "inference_endpoint_read_client",
+            ),
+            (
+                "BACKEND_ENDPOINT_LIFECYCLE",
+                "ENDPOINT_LIFECYCLE",
+                "inference_endpoint_lifecycle_client",
+            ),
+            (
+                "BACKEND_ENDPOINT_EXECUTION",
+                "ENDPOINT_EXECUTION",
+                "inference_endpoint_execution_client",
+            ),
+            ("BACKEND_STATS", "BACKEND_STATS", "inference_backend_stats_client"),
+            ("GPU", "GPU", "inference_gpu_authority_client"),
+            (
+                "GPU_ENDPOINT_HEALTH_OBSERVATION",
+                "GPU_HEALTH_ENDPOINT",
+                "inference_gpu_health_endpoint_client",
+            ),
+            (
+                "GPU_ENDPOINT_GPU_CONTROL",
+                "GPU_CONTROL_ENDPOINT",
+                "inference_gpu_control_endpoint_client",
+            ),
+            ("HEALTH_DATA", "HEALTH_DATA", "inference_health_data_client"),
+            (
+                "HEALTH_OBSERVATION",
+                "HEALTH_OBSERVATION",
+                "inference_health_observation_client",
+            ),
+        )
+        self._inference_owner_databases = {
+            f"INFERENCE_{runtime}_DATABASE_URL": self._role_dsn(
+                f"AAP_MODULE_DATA_INFERENCE_{source}_URL", role
+            ).render_as_string(hide_password=False)
+            for runtime, source, role in profiles
+        }
         writer_dsn = self._role_dsn(
             "AAP_MODULE_DATA_LABELING_VIDEO_WRITER_URL",
             "labeling_video_writer_client",
@@ -127,6 +196,14 @@ class _VideoTrackerCeleryWorker(WorkspaceCeleryWorker):
             ),
             "LABELING_VIDEO_WRITER_DATABASE_URL_FILE": "",
         }
+        for capability, token in self._inference_tokens.items():
+            self._tracker_environment.update(
+                {
+                    f"INFERENCE_{capability}_URL": self._routing_owner_url,
+                    f"INFERENCE_{capability}_TOKEN": token,
+                    f"INFERENCE_{capability}_TOKEN_FILE": "",
+                }
+            )
 
     def restart(self) -> None:
         super().restart()
@@ -134,17 +211,24 @@ class _VideoTrackerCeleryWorker(WorkspaceCeleryWorker):
         self._routing_owner_served = False
 
     def _serve_routing_owner(self) -> None:
-        """Run the installed Inference routing owner beside the worker consumer.
-
-        The owner owns the durable authority and the restricted routing LOGIN; the
-        worker reaches it only through the authenticated HTTP routing subject.
-        """
+        """Run the installed routing, health and execution owner beside the worker."""
         if self._routing_owner_served:
             return
         environment_file = self.secret_directory / "routing-owner.env"
         super()._write_env_file(
             environment_file,
             {
+                **self._inference_owner_databases,
+                **{
+                    f"INFERENCE_{capability}_TOKEN": token
+                    for capability, token in self._inference_tokens.items()
+                },
+                "INFERENCE_GPU_REDIS_URL": self._redis_url,
+                "GPU_ARBITER_MODE": "off",
+                "GPU_ARBITER_RESOURCES_JSON": "{}",
+                "INFERENCE_REQUIRED_CAPABILITIES": "routing,execution,backend_control,health_observation",
+                "VIDEO_TRACKER_WINDOW_SIZE_FRAMES": "2",
+                "VIDEO_TRACKER_SAM3_WINDOW_SIZE_FRAMES": "2",
                 "INFERENCE_ROUTING_DATABASE_URL": self._routing_dsn.render_as_string(
                     hide_password=False
                 ),
