@@ -110,6 +110,8 @@ Segment 模式把 `selection` 改为
 
 创建任务前可调用 `POST /projects/{project_id}/exports/lidar:preflight`；批次使用 `POST /projects/{project_id}/batches/{batch_id}/exports/lidar:preflight`。请求体为 `{"targets":["kitti"],"lidar":{"kitti_camera_role":"camera_front"}}`；Multi-camera COCO 使用 `{"targets":["coco-multicamera"]}`，不需要选择单一相机。响应的 `camera_roles` 用于相机选择，`issues` 按 task / frame / camera 返回稳定 code；`ready=false` 时正式导出返回 409，且不会创建后台任务。
 
+首次请求 KITTI 预检可仅发送 `{"targets":["kitti"]}`。对可冻结的当前范围，响应仍为 HTTP 200，返回已登记的 `camera_roles`、`ready=false` 和 `kitti_camera_required`；客户端选定通道后重新预检。此发现步骤不绕过正式导出对所选相机、标定、媒体身份或文件路径冲突的核验。
+
 参数：
 
 | 参数                   | 取值                                                 | 说明                                                                                                                  |

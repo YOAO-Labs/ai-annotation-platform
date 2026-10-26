@@ -6,8 +6,15 @@ import os
 from types import SimpleNamespace
 
 
-def logical_sources(snapshot: dict) -> dict[str, dict[str, str]]:
-    """Map target-relative paths to canonical source keys without physical I/O."""
+def logical_sources(
+    snapshot: dict, *, allow_missing_kitti_camera: bool = False
+) -> dict[str, dict[str, str]]:
+    """Map target-relative paths to canonical source keys without physical I/O.
+
+    ``allow_missing_kitti_camera`` is preflight-only: until the user selects a
+    KITTI camera, the frozen scope deliberately has no camera binding, so path
+    planning must still validate the primary frames that the report uses.
+    """
     # Packaging owns the persisted naming conventions. Import at use time so
     # the collector and packaging can both consume this helper without a cycle.
     from app.services.exporting.packaging import (
@@ -153,7 +160,9 @@ def logical_sources(snapshot: dict) -> dict[str, dict[str, str]]:
             cameras = camera_links
             if target == "kitti":
                 cameras = [link for link in cameras if link.role == selected]
-                if not cameras:
+                if not cameras and not (
+                    allow_missing_kitti_camera and selected is None
+                ):
                     raise ValueError("lidar_media_camera_missing")
             for link in cameras:
                 binding = binding_for(task_id, link.role)

@@ -304,10 +304,33 @@ async def _rows(
     return rows
 
 
-async def collect(db, project_id, batch_id, targets, options, *, lock=False):
-    """Collect DB facts only. ``lock`` is exclusively for a short final fence."""
+async def collect(
+    db,
+    project_id,
+    batch_id,
+    targets,
+    options,
+    *,
+    lock=False,
+    allow_missing_kitti_camera=False,
+):
+    """Collect DB facts only. ``lock`` is exclusively for a short final fence.
+
+    ``allow_missing_kitti_camera`` lets preflight freeze the scope before the
+    user has picked a KITTI camera, so it can report the project's real camera
+    roles instead of discarding them with the required-selection error. Export
+    jobs keep the strict default and still reject a missing selection.
+    """
     try:
-        return await _collect(db, project_id, batch_id, targets, options, lock=lock)
+        return await _collect(
+            db,
+            project_id,
+            batch_id,
+            targets,
+            options,
+            lock=lock,
+            allow_missing_kitti_camera=allow_missing_kitti_camera,
+        )
     except DBAPIError as exc:
         if (
             storage_access.unavailable(exc)
@@ -317,7 +340,16 @@ async def collect(db, project_id, batch_id, targets, options, *, lock=False):
         raise
 
 
-async def _collect(db, project_id, batch_id, targets, options, *, lock):
+async def _collect(
+    db,
+    project_id,
+    batch_id,
+    targets,
+    options,
+    *,
+    lock,
+    allow_missing_kitti_camera=False,
+):
     budget = _Budget()
     projects = await _rows(
         db,
@@ -638,7 +670,8 @@ async def _collect(db, project_id, batch_id, targets, options, *, lock):
     counts = {kind: 0 for kind in ("image", "point_cloud", "raw_lidar", "map")}
     sizes = dict.fromkeys(counts, 0)
     selected_role = ((options or {}).get("lidar") or {}).get("kitti_camera_role")
-    if "kitti" in targets and not selected_role:
+    kitti_camera_pending = "kitti" in targets and not selected_role
+    if kitti_camera_pending and not allow_missing_kitti_camera:
         reject("kitti_camera_required", 422)
     for task in tasks:
         requested = []
@@ -651,8 +684,10 @@ async def _collect(db, project_id, batch_id, targets, options, *, lock):
                 "kitti" in targets and link.role == selected_role
             ):
                 requested.append((link.role, link.id))
-        if "kitti" in targets and not any(
-            role == selected_role for role, _ in requested
+        if (
+            "kitti" in targets
+            and not kitti_camera_pending
+            and not any(role == selected_role for role, _ in requested)
         ):
             reject("kitti_camera_role_not_found", 422)
         if "coco-multicamera" in targets and not any(
@@ -822,7 +857,7 @@ async def _collect(db, project_id, batch_id, targets, options, *, lock):
     from app.services.exporting.lidar_media_paths import logical_sources
 
     try:
-        logical_sources(frozen)
+        logical_sources(frozen, allow_missing_kitti_camera=allow_missing_kitti_camera)
     except (KeyError, TypeError, ValueError):
         reject("lidar_export_archive_path_conflict", 422)
     return Inputs(frozen, sources)

@@ -394,7 +394,7 @@ Point Mask 的 `.label` 长度严格为原 PCD 记录数乘四，使用小端 ui
 | nuScenes   | `v1.0-aap/*.json`、`media_manifest.json`、`fetch_nuscenes_media.py`                                 | 官方 13 表关键帧子集，保留原路径的点云、相机图和地图副本       |
 | Point Mask | `segmentation/<frame>.label`、`category_map.json`                                                   | `point_mask_3d` 逐点语义 label（little-endian uint32 类别 id） |
 
-KITTI 3D 必须在弹窗中显式选择一条相机通道。系统会逐任务核对主点云轴约定、所选相机图、内外参和真实宽高；任一缺口都会列出 task / frame / camera 并阻止创建后台任务。预检通过后，`label_2` 的 2D bbox 来自真实角点投影，`location` 是相机坐标下的 3D 框底面中心，`rotation_y`、`alpha` 与 `truncated` 也由同一投影计算。完全在相机后方或画面外的对象不会伪造 bbox，而会记录到 `export_report.json`。
+KITTI 3D 会先按当前范围列出已登记相机通道；未选择时提示 `kitti_camera_required` 并阻止导出，必须显式选定一条。系统会逐任务核对主点云轴约定、所选相机图、内外参和真实宽高；任一缺口都会列出 task / frame / camera 并阻止创建后台任务。预检通过后，`label_2` 的 2D bbox 来自真实角点投影，`location` 是相机坐标下的 3D 框底面中心，`rotation_y`、`alpha` 与 `truncated` 也由同一投影计算。完全在相机后方或画面外的对象不会伪造 bbox，而会记录到 `export_report.json`。
 
 nuScenes 会在入队前核对来源 scene / log / map、完整帧链、逐传感器时钟与位姿、标定指纹和原始资产指纹。批次截断 Scene、`--frame sensor`、历史数据未重跑导入器回填，或单次超过 1000 帧 / 30000 个有效 3D 框及 PCD / 精确点数统计资源预算时都会拒绝。解压后运行 `python fetch_nuscenes_media.py`，站内相对链接加 `--base-url https://平台地址`，即可物化为官方 devkit 可加载和查询的 `v1.0-aap` 目录树。原始五通道点云逐字节保留；平台 PCD 仅用于精确框内点统计。单独或混合导出都包含全部已关联相机和登记地图，不从当前默认桶猜测来源。该产物不是官方 benchmark split，也不会自动把项目类别映射到官方 ontology。历史缺少原件归属时，需用原始 NuScenes 数据显式重跑导入器；预检不会凭旧路径或 SHA 自动认领文件。删除 Dataset 后，独立交付副本仍受原截止保护；辅助原件归属保留，物理回收需另行核验。
 

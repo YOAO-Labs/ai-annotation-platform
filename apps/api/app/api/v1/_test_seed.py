@@ -2368,7 +2368,6 @@ async def seed_lidar(
             Body=pcd_bytes,
         )
         pcd_keys.append(pcd_key)
-    camera_key = f"{scope.lidar_storage_prefix}{suffix}-camera-front.svg"
     camera_svg = (
         '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480" '
         'viewBox="0 0 640 480">'
@@ -2376,12 +2375,23 @@ async def seed_lidar(
         '<path d="M0 240h640M320 0v480" stroke="#51616d" stroke-width="2"/>'
         "</svg>"
     ).encode()
-    storage_service.client.put_object(
-        Bucket=storage_service.datasets_bucket,
-        Key=camera_key,
-        Body=camera_svg,
-        ContentType="image/svg+xml",
-    )
+    # Delivery keys by camera channel and frame, mirroring the per-frame
+    # basenames KITTI archives fetch as `images/<channel>/<basename>`.
+    camera_keys = [
+        (
+            f"{scope.lidar_storage_prefix}e2e-lidar-{suffix}-{idx}-front.svg",
+            f"{scope.lidar_storage_prefix}e2e-lidar-{suffix}-{idx}-side.svg",
+        )
+        for idx in range(2)
+    ]
+    for front_key, side_key in camera_keys:
+        for key in (front_key, side_key):
+            storage_service.client.put_object(
+                Bucket=storage_service.datasets_bucket,
+                Key=key,
+                Body=camera_svg,
+                ContentType="image/svg+xml",
+            )
 
     # 建 lidar 项目(data_type 默认 image,必须显式 lidar;manifest 据此放行点云端点)。
     # tool_bindings 必须把类别落在 lidar_box_3d unit(前端 LIDAR_TOOL_UNIT 据此取 boxClasses /
@@ -2475,7 +2485,7 @@ async def seed_lidar(
         camera_item = DatasetItem(
             dataset_id=dataset.id,
             file_name=f"e2e-lidar-{suffix}-{idx}-front.svg",
-            file_path=camera_key,
+            file_path=camera_keys[idx][0],
             file_type="image",
             width=640,
             height=480,
@@ -2486,7 +2496,7 @@ async def seed_lidar(
         camera_side_item = DatasetItem(
             dataset_id=dataset.id,
             file_name=f"e2e-lidar-{suffix}-{idx}-side.svg",
-            file_path=camera_key,
+            file_path=camera_keys[idx][1],
             file_type="image",
             width=640,
             height=480,

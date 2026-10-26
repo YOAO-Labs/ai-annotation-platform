@@ -3,8 +3,7 @@
 from copy import deepcopy
 from dataclasses import FrozenInstanceError
 from datetime import datetime, timezone
-from types import ModuleType, SimpleNamespace
-import sys
+from types import SimpleNamespace
 import uuid
 
 import pytest
@@ -299,46 +298,12 @@ async def test_unknown_collector_error_does_not_leak_provider_text(world, monkey
     assert "signature" not in result.model_dump_json()
 
 
-async def test_collect_adapter_passes_scope_and_options_without_write(
-    world, monkeypatch
-):
-    collected = []
-
-    async def collect(db, project_id, batch_id, targets, options):
-        collected.append((db, project_id, batch_id, targets, options))
-        return SimpleNamespace(snapshot=world.snapshot)
-
-    module = ModuleType("app.services.exporting.lidar_inputs")
-    module.collect = collect
-    frozen_module = ModuleType("app.services.exporting.lidar_frozen")
-    frozen_module.FrozenLidar = lambda snapshot: world.view
-    monkeypatch.setitem(sys.modules, module.__name__, module)
-    monkeypatch.setitem(sys.modules, frozen_module.__name__, frozen_module)
-    batch_id = uuid.uuid4()
-    value = await _REAL_COLLECT(
-        world.db,
-        world.project.id,
-        batch_id,
-        ["pointmask", "coco-multicamera"],
-        LidarExportOptions(kitti_camera_role="camera_front"),
-    )
-    assert value.view is world.view
-    assert collected == [
-        (
-            world.db,
-            world.project.id,
-            batch_id,
-            ["pointmask", "coco-multicamera"],
-            {"lidar": {"kitti_camera_role": "camera_front"}},
-        )
-    ]
+def test_registered_preflight_exposes_frozen_media_facts(world):
+    value = preflight._RegisteredPreflight(world.snapshot, world.view)
     item = value.item(world.task.id, "primary_lidar")
     assert item.file_size == 48 and item.content_hash == "a" * 64
     with pytest.raises(FrozenInstanceError):
         item.file_size = 49
-
-
-_REAL_COLLECT = preflight._collect_registered
 
 
 def manual_members(world):

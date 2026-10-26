@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import type { Page, WebSocketRoute } from "@playwright/test";
 import { test, expect, type SeedAPI } from "../fixtures/seed";
 import { rangeValueForFrame } from "../helpers/video-timeline-seek";
 
@@ -164,41 +164,66 @@ test.describe("verified original native video", () => {
     seed,
   }) => {
     const data = await fixture(page, seed);
+    // Proxy the real notification socket, then inject the server's stale-token
+    // close code. The app must use its real POST /auth/refresh transition rather
+    // than a dev-only module import or a test-only token setter.
+    const sockets: WebSocketRoute[] = [];
+    await page.routeWebSocket(/\/ws\/notifications/, (socket) => {
+      socket.connectToServer();
+      sockets.push(socket);
+    });
     await page.goto(`/projects/${data.project_id}/annotate?task=${data.task_id}`);
     await ready(page);
+    await expect.poll(() => sockets.length).toBeGreaterThan(0);
     const first = (await source(page).getAttribute("src"))!;
-    const token = await seed.accessToken(data.admin_email);
-    expect(token).not.toBe(data.token);
     let fetching = false;
-    let allowAccess!: () => void;
-    const accessGate = new Promise<void>((resolve) => {
-      allowAccess = resolve;
-    });
+    const accessGate = Promise.withResolvers<void>();
     await page.route(`**/api/v1/projects/${data.project_id}/access`, async (route) => {
       fetching = true;
-      await accessGate;
+      await accessGate.promise;
       await route.continue();
     });
+    const renewed = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        new URL(response.url()).pathname === "/api/v1/auth/refresh",
+    );
     const released = page.waitForResponse(
       (response) =>
         response.request().method() === "DELETE" &&
         response.url().endsWith(first.split("/").at(-1)!),
     );
     try {
-      await page.evaluate(async (nextToken) => {
-        const modulePath = "/src/stores/authStore.ts";
-        const { useAuthStore } = await import(/* @vite-ignore */ modulePath);
-        useAuthStore.getState().setToken(nextToken);
-      }, token);
+      // Expire the sockets that exist now; the post-refresh reconnect is not ours to touch.
+      for (const socket of [...sockets])
+        await socket.close({ code: 1008, reason: "token expired" });
+      const renewal = await renewed;
+      expect(renewal.status()).toBe(200);
+      const renewalBody: unknown = await renewal.json();
+      if (
+        !renewalBody ||
+        typeof renewalBody !== "object" ||
+        !("access_token" in renewalBody) ||
+        typeof renewalBody.access_token !== "string"
+      )
+        throw new Error("auth refresh response carried no access token");
+      const nextToken = renewalBody.access_token;
+      expect(nextToken).not.toBe(data.token);
+      // The refreshed credential only becomes the session owner once the store adopted it.
+      await expect.poll(() => page.evaluate(() => localStorage.getItem("token"))).toBe(nextToken);
       await expect.poll(() => fetching).toBe(true);
       await expect(page.getByText("正在校验项目权限…")).toBeVisible();
       await expect(source(page)).toHaveCount(0);
+      // The retired lease is handed back before the refreshed permission settles.
       expect((await released).status()).toBe(204);
       expect(
         await page.evaluate(async (path) => (await fetch(path, { method: "HEAD" })).status, first),
       ).toBe(410);
     } finally {
-      allowAccess();
+      accessGate.resolve();
+      // Both waits settle so a failure above cannot leave a dangling rejection;
+      // the assertion that failed already owns the reported error.
+      await Promise.allSettled([renewed, released]);
     }
     await ready(page);
     await expect(source(page)).not.toHaveAttribute("src", first);

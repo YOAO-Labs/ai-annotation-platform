@@ -562,6 +562,19 @@ async def test_lidar_preflight_reports_axis_size_and_calibration_issues(
 
     await _register_metadata_sources(db_session, lidar_item, camera_item)
 
+    pending = await preflight_lidar_export(
+        db_session,
+        project_id=project.id,
+        batch_id=None,
+        targets=["kitti"],
+        options=None,
+    )
+    assert pending.ready is False
+    assert pending.camera_roles == ["camera_front"]
+    assert pending.selected_camera_role is None
+    assert pending.checked_tasks == 1
+    assert "kitti_camera_required" in {issue.code for issue in pending.issues}
+
     report = await preflight_lidar_export(
         db_session,
         project_id=project.id,
