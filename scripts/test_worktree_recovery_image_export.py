@@ -282,6 +282,29 @@ class RecoveryImageTransport(unittest.IsolatedAsyncioTestCase):
         self.public = patch.object(settings, "minio_public_url", None)
         self.public.start()
         self.addCleanup(self.public.stop)
+
+        # unittest discovery does not install the API suite's pytest allocation
+        # fixture. Keep this transport-only DB behind the same explicit boundary
+        # used by ExportMediaRecovery rather than querying live storage bindings.
+        async def allocate(db, row):
+            self.assertIs(db, self.db)
+            return {
+                "schema": 1,
+                "purpose": "export",
+                "location_id": str(physical.LEGACY_LOCATION_ID),
+                "config_revision": 1,
+                "binding_generation": 1,
+                "endpoint_url": self.endpoint,
+                "bucket": self.storage.export_bucket,
+                "object_key": export_storage.key_for(
+                    row.media, row.project_id, row.job_id, row.id
+                ),
+                "storage_identity": identity(self.endpoint, self.storage.export_bucket),
+            }
+
+        allocation = patch.object(export_storage, "allocate", allocate)
+        allocation.start()
+        self.addCleanup(allocation.stop)
         for state in STATES:
             receipt = await bundles.allocate(
                 self.db,

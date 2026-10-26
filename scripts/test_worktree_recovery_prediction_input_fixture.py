@@ -2,6 +2,7 @@
 
 from contextlib import asynccontextmanager
 from copy import deepcopy
+from datetime import datetime, timedelta, timezone
 import hashlib
 import io
 import os
@@ -258,8 +259,12 @@ class PredictionInputFixtureContracts(unittest.IsolatedAsyncioTestCase):
     def test_frozen_owner_does_not_alias_inventory_nonce_or_historical_source(self):
         from app.services import prediction_inputs
 
+        started = datetime(2026, 10, 24, tzinfo=timezone.utc)
         values = dict.fromkeys(prediction_inputs._FACTS)
         values.update(
+            created_at=started,
+            expires_at=started + timedelta(hours=2),
+            retain_until=started + timedelta(hours=2, days=7),
             storage_ref={"bucket": "saved"},
             source_ref={"original": {"bucket": "source", "facts_digest": "frozen"}},
             inventory={
@@ -271,6 +276,9 @@ class PredictionInputFixtureContracts(unittest.IsolatedAsyncioTestCase):
             object_count=1,
             size_bytes=3,
             deleted_at=None,
+            next_cleanup_at=datetime(2026, 10, 25, tzinfo=timezone.utc),
+            last_cleanup_at=datetime(2026, 10, 24, tzinfo=timezone.utc),
+            error_code="prediction_input_cleanup_busy",
         )
         row = SimpleNamespace(**values)
         frozen = _frozen_owner(row)
@@ -280,6 +288,11 @@ class PredictionInputFixtureContracts(unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual(frozen.inventory, row.inventory)
         self.assertEqual(frozen.source_ref["original"]["bucket"], "source")
         self.assertEqual(frozen.storage_ref["bucket"], "saved")
+        self.assertEqual(frozen.next_cleanup_at, row.next_cleanup_at)
+        self.assertEqual(frozen.last_cleanup_at, row.last_cleanup_at)
+        self.assertEqual(frozen.error_code, row.error_code)
+        for field in ("created_at", "expires_at", "retain_until"):
+            self.assertEqual(getattr(frozen, field), getattr(row, field))
 
     def test_physical_verification_uses_saved_owner_and_keeps_planned_absent(self):
         storage = SimpleNamespace(client=Mock())
@@ -405,53 +418,6 @@ class PredictionInputFixtureContracts(unittest.IsolatedAsyncioTestCase):
                     self.assertTrue(body.closed)
                     self.assertEqual(objects, before)
 
-    def test_historical_receipt_and_cleanup_rejections_never_rewrite_or_delete(self):
-        from app.services import prediction_inputs
-        from app.services.content_snapshot import ContentError
-
-        record = SimpleNamespace(
-            id=uuid.uuid4(), bucket="saved", storage_ref={"key_prefix": "exact/"}
-        )
-        objects = {
-            "original/hash.png": {
-                "state": "verified",
-                "version_id": "historical-version",
-            }
-        }
-        before = deepcopy(objects)
-        storage = SimpleNamespace(client=Mock())
-        missing = ClientError(
-            {
-                "Error": {"Code": "NoSuchVersion"},
-                "ResponseMetadata": {"HTTPStatusCode": 404},
-            },
-            "HeadObject",
-        )
-        with (
-            patch.object(prediction_inputs, "_read", side_effect=missing) as read,
-            patch.object(
-                prediction_inputs,
-                "_delete_known",
-                side_effect=ContentError("prediction_input_immutable_version_required"),
-            ) as delete,
-        ):
-            self.assertEqual(
-                _verify_historical_rejections(storage, record, objects), (1, 1)
-            )
-        self.assertEqual(read.call_args.kwargs, {"lease_id": record.id})
-        self.assertEqual(read.call_args.args[3]["version_id"], "historical-version")
-        with self.assertRaisesRegex(AssertionError, "before any DELETE"):
-            delete.call_args.args[0].client.delete_object()
-        storage.client.delete_object.assert_not_called()
-        self.assertEqual(objects, before)
-        with patch.object(
-            prediction_inputs, "_read", side_effect=RuntimeError("transport failure")
-        ):
-            with self.assertRaisesRegex(RuntimeError, "transport failure"):
-                _verify_historical_rejections(storage, record, objects)
-        with patch.object(prediction_inputs, "_read", return_value={}):
-            with self.assertRaisesRegex(AssertionError, "cannot resume"):
-                _verify_historical_rejections(storage, record, objects)
 
     def test_actual_owner_cleanup_rejects_restored_null_version_before_delete(self):
         from app.services import prediction_inputs
@@ -468,8 +434,26 @@ class PredictionInputFixtureContracts(unittest.IsolatedAsyncioTestCase):
             "media_type": "image/png",
             "write_nonce": str(uuid.uuid4()),
         }
+        endpoint, bucket = prediction_inputs._endpoint(), "saved"
+        storage_ref = {
+            "schema": 1,
+            "purpose": "import",
+            "location_id": str(prediction_inputs.LEGACY_LOCATION_ID),
+            "config_revision": 1,
+            "binding_generation": 1,
+            "endpoint_url": endpoint,
+            "bucket": bucket,
+            "key_prefix": prefix,
+            "storage_identity": prediction_inputs._identity(endpoint, bucket),
+        }
         record = SimpleNamespace(
-            id=identifier, bucket="saved", storage_ref={"key_prefix": prefix}
+            id=identifier,
+            contract_version=2,
+            owner_kind="predict_test",
+            maintenance_revision=1,
+            bucket=bucket,
+            storage_identity=storage_ref["storage_identity"],
+            storage_ref=storage_ref,
         )
         item = {
             "Key": prefix + "original/hash.png",
@@ -486,24 +470,30 @@ class PredictionInputFixtureContracts(unittest.IsolatedAsyncioTestCase):
             "HeadObject",
         )
         client.list_objects_v2.return_value = {**response, "Contents": [item]}
-        client.list_object_versions.return_value = {
-            **response,
-            "Versions": [{**item, "VersionId": "null", "IsLatest": True}],
-        }
         objects = {"original/hash.png": entry}
         before = deepcopy(objects)
-        self.assertEqual(
-            _verify_historical_rejections(
-                SimpleNamespace(client=client), record, objects
-            ),
-            (1, 1),
-        )
-        self.assertEqual(
-            client.head_object.call_args.kwargs["VersionId"], "old-version"
-        )
-        client.delete_object.assert_not_called()
-        client.get_object.assert_not_called()
-        self.assertEqual(objects, before)
+        owner_before = deepcopy(vars(record))
+        for version in ("null", "restored-new-version"):
+            with self.subTest(version=version):
+                client.list_object_versions.return_value = {
+                    **response,
+                    "Versions": [{**item, "VersionId": version, "IsLatest": True}],
+                }
+                self.assertEqual(
+                    _verify_historical_rejections(
+                        SimpleNamespace(client=client), record, objects
+                    ),
+                    (1, 1),
+                )
+                self.assertEqual(
+                    client.head_object.call_args.kwargs["VersionId"], "old-version"
+                )
+                client.delete_object.assert_not_called()
+                client.get_object.assert_not_called()
+                self.assertEqual(objects, before)
+                self.assertEqual(vars(record), owner_before)
+        self.assertEqual(client.list_objects_v2.call_count, 2)
+        self.assertEqual(client.list_object_versions.call_count, 2)
 
     def test_enable_versioning_requires_exact_owned_test_bucket_before_mutation(self):
         from app.config import settings

@@ -419,8 +419,11 @@ def _verify_historical_rejections(storage, record, objects):
                 )
             )
             rejected += 1
+    # Cleanup must reject during physical preparation, before accounting intents
+    # or deletion evidence exist. Never fabricate prepared observations from the
+    # restored current object to make an obsolete receipt eligible for DELETE.
     expect_rejection(
-        lambda: prediction_inputs._delete_known(
+        lambda: prediction_inputs._prepare_delete_known(
             SimpleNamespace(client=_NoDeleteClient(storage.client)),
             record,
             objects,

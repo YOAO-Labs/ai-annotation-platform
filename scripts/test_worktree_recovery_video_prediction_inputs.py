@@ -98,6 +98,11 @@ def fixture(*, state="verified", absent=False, corrupt=False):
         object_count=1,
         size_bytes=len(raw),
         state="cleanup_pending",
+        uncertain_write=state == "planned",
+        deleted_at=None,
+        next_cleanup_at=started + timedelta(hours=2, days=7),
+        last_cleanup_at=started + timedelta(hours=2),
+        error_code="prediction_input_immutable_version_required",
     )
     header = {
         "ContentLength": len(raw),
@@ -163,6 +168,12 @@ class VideoInputRecoveryContracts(unittest.TestCase):
         self.assertEqual(vars(row), before)
         self.assertTrue(all(body.closed for body in bodies))
         storage.client.delete_object.assert_not_called()
+        storage.client.list_objects_v2.assert_called_once()
+        storage.client.list_object_versions.assert_called_once()
+        self.assertEqual(
+            storage.client.head_object.call_args.kwargs["VersionId"],
+            "immutable-source-version",
+        )
 
     def test_planned_video_retains_absent_or_exact_owned_copy_without_publish(self):
         for absent in (True, False):
@@ -178,6 +189,10 @@ class VideoInputRecoveryContracts(unittest.TestCase):
             self.assertEqual(vars(row), before)
             self.assertTrue(all(body.closed for body in bodies))
             storage.client.delete_object.assert_not_called()
+            self.assertEqual(storage.client.list_objects_v2.call_count, int(not absent))
+            self.assertEqual(
+                storage.client.list_object_versions.call_count, int(not absent)
+            )
 
     def test_actual_corrupt_content_rejects_without_receipt_rewrite_or_delete(self):
         from app.services.content_snapshot import ContentError
