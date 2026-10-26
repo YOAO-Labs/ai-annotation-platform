@@ -6,7 +6,7 @@ import secrets
 import tempfile
 import time
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -28,6 +28,8 @@ from app.schemas.mask_format import (
 )
 from app.services import async_job as async_job_svc
 from app.services import storage_access
+from app.services import storage_migration_artifact_reads as migration_reads
+from app.services import storage_migration_read_publications as read_publications
 from app.services.mask_formats.contracts import StagedObject, canonical_digest
 from app.services.mask_formats.registry import registry
 from app.services.storage import storage_service
@@ -171,7 +173,41 @@ async def check_staging(db, object_key, staging_ref, *, revision=None, lock=Fals
     )
 
 
-def _materialize(target, owner, object_key, expected_sha256, local_path):
+async def _check_staging_read(
+    db, object_key, staging_ref, *, revision=None, read_route=None, lock=False
+):
+    """Recheck the captured read route without granting upload permission."""
+    if read_route is None:
+        return await check_staging(
+            db, object_key, staging_ref, revision=revision, lock=lock
+        )
+    owner = await staging_owner(db, object_key, staging_ref)
+    _, relative = staged_parts(object_key)
+    if (
+        read_route.source_location_id,
+        read_route.source_endpoint_url,
+        read_route.source_bucket,
+        read_route.source_object_key,
+    ) != (
+        owner.location_id,
+        owner.ref["endpoint_url"],
+        owner.bucket,
+        owner.key(relative),
+    ):
+        raise MaskFormatError("read_publication_changed", "暂存读取位置已变更")
+    await storage_call(read_publications.recheck, db, read_route, lock=lock)
+
+
+def read_staged_from_client(client, owner, object_key, expected_sha256, local_path):
+    """Read a published physical copy while retaining its logical saved owner."""
+    return _materialize(
+        None, owner, object_key, expected_sha256, local_path, reader=client
+    )
+
+
+def _materialize(
+    target, owner, object_key, expected_sha256, local_path, *, reader=None
+):
     from app.services import import_storage
 
     _, relative = staged_parts(object_key)
@@ -185,9 +221,14 @@ def _materialize(target, owner, object_key, expected_sha256, local_path):
             )
 
     try:
-        with import_storage.client_context(target) as client:
+        context = (
+            nullcontext(reader)
+            if reader is not None
+            else import_storage.client_context(target)
+        )
+        with context as client:
             budget()
-            if owner.ref["schema"] == 1:
+            if owner.ref["schema"] == 1 and reader is None:
                 # Preserve the old unversioned contract; SHA remains authoritative.
                 meta = storage_service.verify_upload(physical_key, bucket=owner.bucket)
             else:
@@ -285,30 +326,59 @@ async def materialize_staged_object(
     sessions = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
     async with sessions() as reading:
         owner = await staging_owner(reading, object_key, staging_ref)
-        target = await storage_call(import_storage.io_target, reading, owner)
-        revision = await storage_call(import_storage.check_location, reading, owner)
+        _, relative = staged_parts(object_key)
+        read_route = await storage_call(
+            migration_reads.resolve,
+            reading,
+            owner.ref,
+            owner.key(relative),
+            expected_sha256,
+            source_version_id=read_publications.ANY_VERSION,
+        )
+        target, revision = None, None
+        if read_route is None:
+            target = await storage_call(import_storage.io_target, reading, owner)
+            revision = await storage_call(import_storage.check_location, reading, owner)
         await reading.rollback()
         # No caller authority or batch row lock is held during physical I/O.
         with tempfile.TemporaryDirectory(prefix="aap-mask-format-") as temp_dir:
             local_path = Path(temp_dir) / "staged-object"
-            staged = await storage_call(
-                storage_access.run,
+            if read_route is None:
+                staged = await storage_call(
+                    storage_access.run,
+                    reading,
+                    owner.location_id,
+                    "mask_format_staging",
+                    _materialize,
+                    target,
+                    owner,
+                    object_key,
+                    expected_sha256,
+                    local_path,
+                    expected_revision=revision,
+                    timeout=STAGING_IO_SECONDS,
+                )
+            else:
+                staged = await storage_call(
+                    migration_reads.run,
+                    reading,
+                    read_route,
+                    "mask_format_staging",
+                    lambda client: read_staged_from_client(
+                        client, owner, object_key, expected_sha256, local_path
+                    ),
+                    timeout=STAGING_IO_SECONDS,
+                )
+            await _check_staging_read(
                 reading,
-                owner.location_id,
-                "mask_format_staging",
-                _materialize,
-                target,
-                owner,
                 object_key,
-                expected_sha256,
-                local_path,
-                expected_revision=revision,
-                timeout=STAGING_IO_SECONDS,
+                owner.ref,
+                revision=revision,
+                read_route=read_route,
             )
-            await check_staging(reading, object_key, owner.ref, revision=revision)
             await reading.rollback()
             if observation is not None:
-                observation.update(revision=revision)
+                observation.update(revision=revision, read_route=read_route)
             yield staged
 
 
@@ -394,11 +464,12 @@ async def preflight_import(
 
     if before_publish is not None:
         await before_publish()
-    await check_staging(
+    await _check_staging_read(
         db,
         staged_object_key,
         staging_ref,
         revision=observation["revision"],
+        read_route=observation.get("read_route"),
         lock=True,
     )
     current_ref, current_facts = await _upload_source(
