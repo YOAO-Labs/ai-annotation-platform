@@ -3570,7 +3570,7 @@ async def _run_tracker_job_claimed(
             else {}
         )
         if frozen_registry_id is not None:
-            backend = await ml_svc.get(uuid.UUID(str(frozen_registry_id)))
+            backend = await ml_svc.get_registry(uuid.UUID(str(frozen_registry_id)))
             if backend is None:
                 raise TrackerExecutionDeferred("checkpoint_backend_unavailable")
             tracker_pool_id = await ml_svc.pool_id_for_registry(backend.id)
@@ -3582,7 +3582,7 @@ async def _run_tracker_job_claimed(
                 tracker_pool_id = uuid.UUID(str(frozen_routing["backend_pool_id"]))
             except (KeyError, TypeError, ValueError) as exc:
                 raise ValueError("correction_routing_snapshot_invalid") from exc
-            backend = await ml_svc.get(requested_backend_id)
+            backend = await ml_svc.get_registry(requested_backend_id)
             if backend is None:
                 raise ValueError("correction_backend_missing")
             current_pool_id = await ml_svc.pool_id_for_registry(backend.id)
@@ -3650,7 +3650,7 @@ async def _run_tracker_job_claimed(
                     f"tracker route acquire rejected: {rejection.value}",
                 )
             tracker_lease = _sel.lease
-            selected_backend = await ml_svc.get(_sel.instance_id)
+            selected_backend = await ml_svc.get_registry(_sel.instance_id)
             if selected_backend is None:
                 raise RoutingError(
                     RejectionReason.POOL_UNAVAILABLE,

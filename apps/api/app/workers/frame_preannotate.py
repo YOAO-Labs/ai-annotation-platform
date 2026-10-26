@@ -950,7 +950,7 @@ async def _run_segment(
 
                 pred_svc: ApplyPredictionResultPort = PredictionService(db)
                 backend_service = MLBackendService(db)
-                backend = await backend_service.get(backend_uuid)
+                backend = await backend_service.get_registry(backend_uuid)
                 if backend is None:
                     await _fail_frame_job_in_session(
                         db, job_id, project_id, "ml_backend_unavailable"
