@@ -25,6 +25,12 @@ from app.services.managed_original_probe import ProbeResult
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.storage import storage_service
 from app.workers import managed_original_verification as worker
+from tests.storage_migration_isolation import (
+    db_session as db_session,
+    httpx_client as httpx_client,
+    project_admin as project_admin,
+    super_admin as super_admin,
+)
 from tests.test_dataset_content import headers
 from tests.test_managed_original_reclamation import (
     assertion,

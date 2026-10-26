@@ -17,7 +17,7 @@ from app.api.v1 import training_datasets as api
 from app.core.security import create_access_token
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
-from app.db.models.dataset import Dataset, DatasetItem
+from app.db.models.dataset import DatasetItem
 from app.db.models.dataset_asset import DatasetAsset, DatasetAssetLocation
 from app.db.models.project import Project
 from app.db.models.storage_maintenance import StorageMaintenanceGate
@@ -31,13 +31,20 @@ from app.services.content_snapshot import ContentError
 from app.services.training_dataset_bridge import TrainingDatasetError
 from tests.factory import create_user
 from tests.sample_evaluation_original_fixtures import Objects
+from tests.storage_migration_isolation import (
+    db_session as db_session,
+    httpx_client as httpx_client,
+    migration_engine as migration_engine,
+    super_admin as super_admin,
+)
 from tests.test_training_datasets import reviewed_project
 from tests.test_training_datasets import source_headers as source_headers
 
 
 @pytest.fixture
-async def committed_training(test_engine, monkeypatch):
-    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+async def committed_training(migration_engine, monkeypatch):
+    """Committed facts belong to this test's schema, never to shared data."""
+    maker = async_sessionmaker(migration_engine, expire_on_commit=False)
     objects = Objects().install(monkeypatch)
     async with maker() as db:
         owner = await create_user(
@@ -47,18 +54,6 @@ async def committed_training(test_engine, monkeypatch):
             db, "employee", f"training-{uuid.uuid4().hex}@example.test", "Other"
         )
         project, tasks = await reviewed_project(db, owner, original_objects=objects)
-        item_ids = [t.dataset_item_id for t in tasks]
-        dataset_ids = list(
-            await db.scalars(
-                select(DatasetItem.dataset_id).where(DatasetItem.id.in_(item_ids))
-            )
-        )
-        original_gate_revision = await db.scalar(
-            select(StorageMaintenanceGate.revision).where(
-                StorageMaintenanceGate.location_id
-                == originals.original_sources.LEGACY_LOCATION_ID
-            )
-        )
         await db.commit()
     world = SimpleNamespace(
         maker=maker,
@@ -71,23 +66,6 @@ async def committed_training(test_engine, monkeypatch):
     try:
         yield world
     finally:
-        async with maker() as db:
-            await db.execute(
-                update(StorageMaintenanceGate)
-                .where(
-                    StorageMaintenanceGate.location_id
-                    == originals.original_sources.LEGACY_LOCATION_ID
-                )
-                .values(revision=original_gate_revision)
-            )
-            await db.execute(
-                delete(Annotation).where(Annotation.project_id == project.id)
-            )
-            await db.execute(delete(Task).where(Task.project_id == project.id))
-            await db.execute(delete(Dataset).where(Dataset.id.in_(dataset_ids)))
-            await db.execute(delete(Project).where(Project.id == project.id))
-            await db.execute(delete(User).where(User.id.in_([owner.id, other.id])))
-            await db.commit()
         assert all(body.closed for body in objects.bodies)
 
 
@@ -137,7 +115,20 @@ async def test_late_changes_cannot_finish_preparation_and_do_not_wait_for_media_
                     result = await pending
                     pytest.fail(f"No image decoding: {result.report}")
             else:
-                await asyncio.wait_for(reached.wait(), 5)
+                staged = asyncio.ensure_future(reached.wait())
+                try:
+                    done, _ = await asyncio.wait(
+                        {staged, pending},
+                        timeout=5,
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                finally:
+                    staged.cancel()
+                if staged not in done:
+                    if pending in done:
+                        result = await pending
+                        pytest.fail(f"No staged media to close: {result.report}")
+                    pytest.fail("No staged media close within 5s")
             async with world.maker() as editor:
                 task = await editor.get(Task, captured["task_id"])
                 item = await editor.get(DatasetItem, task.dataset_item_id)
