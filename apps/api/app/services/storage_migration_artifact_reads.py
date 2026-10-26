@@ -48,11 +48,27 @@ def reject():
     raise ContentError("read_publication_changed", 409)
 
 
+class _ReadBody:
+    """Track physical close without closing a caller-closed body twice."""
+
+    def __init__(self, body):
+        self._body, self._closed = body, False
+
+    def __getattr__(self, name):
+        return getattr(self._body, name)
+
+    def close(self):
+        if not self._closed:
+            storage_access.close_registered(self._body)
+            self._closed = True
+
+
 class ReadClient:
     """A single-object, full-read facade; writes and listings are unavailable."""
 
     def __init__(self, client, route):
         self._client, self.route = client, route
+        self._bodies = []
 
     @property
     def meta(self):
@@ -85,6 +101,7 @@ class ReadClient:
                 response.get("ResponseMetadata", {}).get("HTTPStatusCode") != 200
                 or response.get("VersionId") != route.target_version_id
                 or response.get("ETag") != route.target_etag
+                or type(response.get("ContentLength")) is not int
                 or response.get("ContentLength") != route.size_bytes
                 or response.get("ContentRange") is not None
                 or response.get("DeleteMarker")
@@ -97,7 +114,7 @@ class ReadClient:
                 reject()
             # Keep strict business metadata comparisons intact. Only these
             # independently verified migration creation fields are transport facts.
-            return {
+            result = {
                 **response,
                 "Metadata": {
                     key: value
@@ -105,6 +122,11 @@ class ReadClient:
                     if key.lower() not in copy.RESERVED
                 },
             }
+            if response.get("Body") is not None:
+                body = _ReadBody(response["Body"])
+                self._bodies.append(body)
+                result["Body"] = body
+            return result
         except BaseException:
             if response.get("Body") is not None:
                 storage_access.close_registered(response["Body"])
@@ -127,12 +149,27 @@ class ReadClient:
             operation, Params=self._params(Params), ExpiresIn=ExpiresIn
         )
 
+    def close(self):
+        failure = None
+        for body in self._bodies:
+            try:
+                body.close()
+            except BaseException as exc:
+                if failure is None:
+                    failure = exc
+        if failure is not None:
+            raise failure
+
 
 @contextmanager
 def client(route, target):
     """Open only under the route's actual durable permits."""
     with target.client() as physical:
-        yield ReadClient(physical, route)
+        reader = ReadClient(physical, route)
+        try:
+            yield reader
+        finally:
+            reader.close()
 
 
 async def run(

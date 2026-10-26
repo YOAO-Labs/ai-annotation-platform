@@ -86,15 +86,21 @@ def reject(code, status=409):
 
 def _read_boundary(call):
     @wraps(call)
-    async def read(*args, **kwargs):
+    async def read(db, *args, **kwargs):
         try:
-            return await call(*args, **kwargs)
+            # Metadata reads must not flush unrelated caller-owned business work.
+            with db.no_autoflush:
+                return await call(db, *args, **kwargs)
         except HTTPException as exc:
             code = exc.detail.get("code") if isinstance(exc.detail, dict) else None
             raise ContentError(
                 code if isinstance(code, str) else "read_publication_changed",
                 exc.status_code,
             ) from None
+        except DBAPIError as exc:
+            if storage_access.unavailable(exc):
+                raise ContentError("read_publication_busy", 409) from None
+            raise
 
     return read
 
@@ -118,10 +124,10 @@ def item(row):
     )
 
 
-async def _owner(db, publication_id, *, lock=False):
+async def _owner(db, publication_id, *, lock=False, read=False):
     query = select(Publication).where(Publication.id == publication_id)
     if lock:
-        query = query.with_for_update(nowait=True)
+        query = query.with_for_update(read=read, nowait=True)
     try:
         return await db.scalar(query.execution_options(populate_existing=True))
     except DBAPIError as exc:
@@ -527,8 +533,8 @@ async def lookup(
     return _route(row, route, identity, revisions, gate_revision)
 
 
-async def _rechecked(db, route):
-    row = await _owner(db, route.publication_id)
+async def _rechecked(db, route, *, lock=False):
+    row = await _owner(db, route.publication_id, lock=lock, read=lock)
     if (
         row is None
         or row.state != "active"
@@ -541,7 +547,7 @@ async def _rechecked(db, route):
     if stored is None:
         reject("read_publication_changed")
     identity, revisions, gate_revision, access = await _physical(
-        db, row, expected_revision=route.maintenance_revision
+        db, row, lock=lock, expected_revision=route.maintenance_revision
     )
     if _route(row, stored, identity, revisions, gate_revision) != route:
         reject("read_publication_changed")
@@ -549,8 +555,8 @@ async def _rechecked(db, route):
 
 
 @_read_boundary
-async def recheck(db, route):
-    await _rechecked(db, route)
+async def recheck(db, route, *, lock=False):
+    await _rechecked(db, route, lock=lock)
 
 
 @_read_boundary

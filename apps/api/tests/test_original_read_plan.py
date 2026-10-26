@@ -9,6 +9,7 @@ import uuid
 
 import pytest
 
+from app import services
 from app.services import original_sources as sources
 from app.services import managed_original_reclaim_fence as reclaim
 from app.services.content_snapshot import ContentError
@@ -101,6 +102,9 @@ async def test_unrouted_structural_sources_keep_old_plan_and_add_no_recheck_io()
 
 def publication_stub(monkeypatch, **values):
     module = SimpleNamespace(**values)
+    monkeypatch.setattr(
+        services, "storage_migration_read_publications", module, raising=False
+    )
     monkeypatch.setitem(
         sys.modules, "app.services.storage_migration_read_publications", module
     )

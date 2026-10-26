@@ -177,18 +177,82 @@ async def test_same_content_versions_use_stable_source_id_when_no_latest(
     assert route.source_object_id == sealed.entries[0]["source_object_id"]
 
 
-async def test_locked_route_snapshot_preserves_unflushed_caller_work(
-    db_session, sealed
+@pytest.mark.parametrize(
+    "operation", ["lookup", "locked_lookup", "recheck", "locked_recheck", "target"]
+)
+async def test_route_snapshots_preserve_unflushed_caller_work(
+    db_session, sealed, operation
 ):
     await publish(db_session, sealed)
+    route = await lookup(db_session, sealed)
     pending = DatasetItem(
         id=uuid.uuid4(), dataset_id=uuid.uuid4(), file_name="not-flushed"
     )
     db_session.add(pending)
-    with db_session.no_autoflush:
-        assert await lookup(db_session, sealed, lock=True)
+    try:
+        if operation in {"lookup", "locked_lookup"}:
+            assert await lookup(
+                db_session, sealed, lock=operation == "locked_lookup", size_bytes=None
+            )
+        elif operation in {"recheck", "locked_recheck"}:
+            await service.recheck(db_session, route, lock=operation == "locked_recheck")
+        else:
+            assert await service.target_for_route(db_session, route)
         assert pending in db_session.new
-    db_session.expunge(pending)
+    finally:
+        db_session.expunge(pending)
+
+
+async def test_saved_exact_version_selects_nonlatest_even_without_saved_size(
+    db_session, sealed
+):
+    await publish(db_session, sealed)
+    route = await lookup(
+        db_session, sealed, source_version_id="source-0", size_bytes=None
+    )
+    assert route.source_version_id == "source-0" and route.is_latest is False
+    assert route.target_version_id == "target-0" and route.size_bytes == 4
+    assert (
+        await lookup(
+            db_session, sealed, source_version_id="source-missing", size_bytes=None
+        )
+        is None
+    )
+    assert (
+        await lookup(
+            db_session,
+            sealed,
+            source_version_id="source-0",
+            sha256="0" * 64,
+            size_bytes=None,
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize("selector", [service.ANY_VERSION, None, "null"])
+async def test_null_slot_and_absent_version_are_distinct_mapping_identities(
+    db_session, sealed, selector
+):
+    for number, entry in enumerate(sealed.entries):
+        entry["source_version_id"] = None if number == 0 else "null"
+        entry["is_latest"] = number == 1
+        entry["source_object_id"] = core.digest(
+            {
+                "endpoint_url": entry["source_endpoint_url"],
+                "bucket": entry["source_bucket"],
+                "key": entry["source_object_key"],
+                "version_id": entry["source_version_id"],
+            }
+        )
+    sealed.entries.sort(key=lambda entry: entry["source_object_id"])
+    await publish(db_session, sealed)
+    route = await lookup(
+        db_session, sealed, source_version_id=selector, size_bytes=None
+    )
+    expected = "null" if selector is service.ANY_VERSION else selector
+    assert route.source_version_id == expected
+    assert route.is_latest is (expected == "null")
 
 
 @pytest.mark.parametrize(
