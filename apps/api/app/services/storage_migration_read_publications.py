@@ -34,6 +34,7 @@ from app.services.storage_migration_read_evidence import mapping_digest
 SCHEMA = "aap.storage-migration-read-mapping/v1"
 TOKEN_SCHEMA = "aap.storage-migration-read-publication-token/v1"
 ACTIVE = ("active", "withdrawing")
+ANY_VERSION = object()
 ENTRY_FIELDS = {
     "source_object_id",
     "source_endpoint_url",
@@ -487,6 +488,7 @@ async def lookup(
     object_key,
     sha256,
     size_bytes,
+    source_version_id=ANY_VERSION,
     lock=False,
 ):
     query = select(Publication).where(
@@ -498,16 +500,23 @@ async def lookup(
     row = await db.scalar(query.execution_options(populate_existing=True))
     if row is None:
         return None
+    conditions = [
+        Route.publication_id == row.id,
+        Route.endpoint_url == endpoint_url,
+        Route.bucket == bucket,
+        Route.object_key == object_key,
+        Route.sha256 == sha256,
+    ]
+    # Some frozen members retain their hash but no independent byte length.
+    # Their complete logical address and saved content hash still identify the
+    # content; the sealed mapping supplies its verified size. Never omit SHA.
+    if size_bytes is not None:
+        conditions.append(Route.size_bytes == size_bytes)
+    if source_version_id is not ANY_VERSION:
+        conditions.append(Route.source_version_id == source_version_id)
     query = (
         select(Route)
-        .where(
-            Route.publication_id == row.id,
-            Route.endpoint_url == endpoint_url,
-            Route.bucket == bucket,
-            Route.object_key == object_key,
-            Route.sha256 == sha256,
-            Route.size_bytes == size_bytes,
-        )
+        .where(*conditions)
         .order_by(Route.is_latest.desc(), Route.source_object_id)
         .limit(1)
     )
