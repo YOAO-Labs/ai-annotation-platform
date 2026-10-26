@@ -10,6 +10,7 @@ from sqlalchemy import delete
 from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
+from app.services.storage import storage_service
 from app.services.task_dataset_link import get_linked_items, link_items
 from tests.factory import create_project
 
@@ -23,12 +24,10 @@ def _calib(extr_seed: float, intr_seed: float) -> dict:
 
 @pytest.fixture
 def _patch_presign(monkeypatch):
-    def _fake(key, expires_in=3600, bucket=None):
+    def _fake(*_args, **_kwargs):
         pytest.fail("point-cloud manifests must not sign original keys")
 
-    monkeypatch.setattr(
-        "app.api.v1.tasks.video.storage_service.generate_download_url", _fake
-    )
+    monkeypatch.setattr(storage_service, "generate_download_url", _fake)
 
 
 async def _seed_lidar_scene(db, owner_id):

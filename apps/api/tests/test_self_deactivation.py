@@ -5,9 +5,10 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.enums import UserRole
 from app.db.models.audit_log import AuditLog
 from app.db.models.user import User
 from app.services.deactivation_service import DeactivationService
@@ -68,8 +69,25 @@ async def test_cancel_clears_fields(httpx_client, annotator, db_session: AsyncSe
     assert refreshed.deactivation_reason is None
 
 
-async def test_last_super_admin_cannot_self_deactivate(httpx_client, super_admin):
-    _, token = super_admin
+async def test_last_super_admin_cannot_self_deactivate(
+    httpx_client, super_admin, db_session: AsyncSession
+):
+    user, token = super_admin
+    # Committed worlds from other suites can legitimately leave active super
+    # admins behind. This contract is about the actor being the only active
+    # super admin, so narrow the observation inside this rolled-back test
+    # transaction: teardown reverts it and no committed account is changed.
+    await db_session.execute(
+        update(User)
+        .where(
+            User.role == UserRole.SUPER_ADMIN.value,
+            User.id != user.id,
+            User.is_active.is_(True),
+        )
+        .values(is_active=False)
+    )
+    await db_session.flush()
+
     res = await httpx_client.post(
         "/api/v1/auth/me/deactivation-request",
         headers={"Authorization": f"Bearer {token}"},

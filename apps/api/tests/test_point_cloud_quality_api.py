@@ -364,7 +364,7 @@ async def test_quality_run_singleflight_and_worker_track_findings(
         [(100 + x, y, 0.0) for x in np.linspace(-3, 3, 12) for y in (-1.0, 0.0, 1.0)],
         dtype=np.float32,
     )
-    project, scene, tasks, track, _annotations = await _seed_quality_scene(
+    project, scene, _tasks, track, _annotations = await _seed_quality_scene(
         db_session, owner_id=user.id, original_objects=original_objects, points=ground
     )
     request = PointCloudQualityRunRequest(scope="scene_ids", scene_ids=[scene.id])
@@ -429,7 +429,8 @@ async def test_quality_run_singleflight_and_worker_track_findings(
     assert point_issue is not None
     assert point_issue.severity == "blocker"
     assert point_issue.evidence["axis_convention"] == "iso_8855"
-    item = await db_session.get(DatasetItem, tasks[0].dataset_item_id)
+    source_item_id = uuid.UUID(point_issue.evidence["pointcloud_item_id"])
+    item = await db_session.get(DatasetItem, source_item_id)
     assert item is not None
     item.content_hash = "changed-content"
     await db_session.flush()

@@ -4,6 +4,7 @@ import asyncio
 import copy
 import uuid
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
@@ -486,21 +487,37 @@ async def test_manual_creator_and_old_writer_request_replay_attach_atomically(
     project = await create_project(db_session, owner_id=owner.id)
     calls = []
 
-    async def freeze(*_args, **_kwargs):
-        calls.append("freeze")
-        return {**DETECTION_CONTRACT, "classes": ["car"]}, {
-            "ready": True,
-            "digest": "b" * 64,
-            "classes": ["car"],
-            "summary": {"images": 2},
-            "issues": [],
-            "excluded": [],
-        }
+    async def prepare(*_args, **_kwargs):
+        calls.append("prepare")
+        return SimpleNamespace(
+            snapshot={**DETECTION_CONTRACT, "classes": ["car"]},
+            report={
+                "ready": True,
+                "digest": "b" * 64,
+                "classes": ["car"],
+                "summary": {"images": 2},
+                "issues": [],
+                "excluded": [],
+            },
+            # A faked preparation still carries the caller's authority so the
+            # route's real clock check remains active instead of being skipped.
+            authority=SimpleNamespace(
+                project_id=project.id,
+                actor_id=owner.id,
+                key_id=None,
+                key=None,
+                proof=None,
+            ),
+        )
+
+    async def finalize(_db, prepared):
+        return prepared.snapshot, prepared.report
 
     async def no_dispatch(*_args, **_kwargs):
         pass
 
-    monkeypatch.setattr(frozen_datasets, "freeze_selection", freeze)
+    monkeypatch.setattr(frozen_datasets, "prepare_selection", prepare)
+    monkeypatch.setattr(frozen_datasets, "finalize_selection", finalize)
     monkeypatch.setattr(frozen_datasets, "enqueue_dataset", no_dispatch)
     monkeypatch.setattr(frozen_datasets, "dispatch_dataset", no_dispatch)
     headers = {"Authorization": f"Bearer {token}"}
@@ -517,7 +534,7 @@ async def test_manual_creator_and_old_writer_request_replay_attach_atomically(
     repeated = await httpx_client.post(path, headers=headers, json=payload)
     assert repeated.status_code == 202, repeated.text
     assert repeated.json()["version_ordinal"] == 1
-    assert calls == ["freeze"]
+    assert calls == ["prepare"]
 
     old = await add_version(db_session, project)
     replay = {
@@ -535,7 +552,7 @@ async def test_manual_creator_and_old_writer_request_replay_attach_atomically(
     assert (
         response.json()["id"] == str(old.id) and response.json()["version_ordinal"] == 2
     )
-    assert calls == ["freeze"]
+    assert calls == ["prepare"]
     await db_session.refresh(old)
     assert (old.snapshot, old.snapshot_digest, old.request_digest) == preserved
 
