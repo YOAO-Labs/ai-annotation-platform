@@ -705,15 +705,8 @@ async def _prepare_fixture_video_cleanup(db, scope):
         if busy is None:
             raise
         raise busy from None
-    await _fixture_video_source_operations(
-        db, [objects.snapshot(output) for output in outputs]
-    )
     await _fixture_video_foreign_refs(db, item_ids, [output.id for output in outputs])
     for output in outputs:
-        if await objects._in_use(db, output.id):
-            raise HTTPException(
-                409, detail={"code": "e2e_seed_video_operation_unsettled"}
-            )
         output.state = "retiring"
     await db.flush()
     plan = _FixtureVideoCleanup(
@@ -722,6 +715,16 @@ async def _prepare_fixture_video_cleanup(db, scope):
         tuple(objects.snapshot(output) for output in outputs),
     )
     await db.commit()
+    # A reader may allocate another output between the first snapshot and the
+    # ownership fence. Retire every locked owner before draining that newer
+    # work; holding Item locks here would prevent its final checks from exiting.
+    if not await _drain_fixture_video_operations(
+        db,
+        deadline,
+        locations=_fixture_video_source_locations(plan.receipts),
+        purposes=_fixture_video_purposes(plan.receipts),
+    ):
+        raise HTTPException(409, detail={"code": "e2e_seed_video_operation_unsettled"})
     return plan
 
 

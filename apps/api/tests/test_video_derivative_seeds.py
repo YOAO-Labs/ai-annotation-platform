@@ -257,21 +257,14 @@ async def test_cleanup_drains_known_work_before_judging_live_permits(
     monkeypatch.setattr(seed, "_fixture_video_source_operations", AsyncMock())
     monkeypatch.setattr(seed, "_fixture_video_foreign_refs", AsyncMock())
     monkeypatch.setattr(objects, "snapshot", lambda value: value)
-    in_use = AsyncMock(return_value=False)
-    monkeypatch.setattr(objects, "_in_use", in_use)
     if settled:
         plan = await seed._prepare_fixture_video_cleanup(db, object())
-        drain.assert_awaited_once()
-        assert drain.await_args.kwargs["locations"] == {location}
-        assert drain.await_args.kwargs["purposes"] == (objects.purpose(output.id),)
         assert output.state == "retiring"
         assert plan.receipts == (output,)
-        db.commit.assert_awaited_once()
         return
     with pytest.raises(HTTPException) as failure:
         await seed._prepare_fixture_video_cleanup(db, object())
     assert failure.value.detail == {"code": "e2e_seed_video_operation_unsettled"}
-    in_use.assert_not_awaited()
     assert output.state == "ready"
     db.commit.assert_not_awaited()
 
@@ -518,6 +511,9 @@ async def test_finalize_keeps_published_late_owner_as_unknown_ownership(monkeypa
     )
     monkeypatch.setattr(objects, "snapshot", lambda value: value)
     monkeypatch.setattr(objects, "_in_use", AsyncMock(return_value=False))
+    monkeypatch.setattr(
+        seed, "_drain_fixture_video_operations", AsyncMock(return_value=True)
+    )
     with pytest.raises(HTTPException) as failure:
         await seed._finalize_fixture_video_cleanup(
             db, plan, AsyncMock(return_value=scope)

@@ -365,3 +365,66 @@ async def test_mid_batch_fence_change_never_delivers_or_dispatches_committed_att
             output.metadata_output_id == state.generation_id
             for output in responsibility
         )
+
+
+async def test_seed_retirement_drains_a_reader_allocated_after_its_initial_snapshot(
+    committed_video, monkeypatch
+):
+    from app.api.v1 import _test_seed as seed
+    from app.api.v1._test_seed_attachments import FixtureScope
+    from app.services import storage_access
+
+    state = committed_video
+    scope = FixtureScope(dataset_ids=(state.dataset_id,))
+    original_outputs = seed._fixture_video_outputs
+    late_output = permit = None
+
+    async def snapshot_then_allocate(db, scope, *, lock=False, **kwargs):
+        nonlocal late_output, permit
+        result = await original_outputs(db, scope, lock=lock, **kwargs)
+        if not lock and late_output is None:
+            async with state.factory() as writer:
+                item = await writer.get(DatasetItem, state.item_id)
+                late_output = await owned_output(writer, item, "frame")
+                permit = await storage_access.acquire(
+                    writer,
+                    uuid.UUID(late_output.storage_ref["location_id"]),
+                    objects.purpose(late_output.id),
+                )
+        return result
+
+    monkeypatch.setattr(seed, "_fixture_video_outputs", snapshot_then_allocate)
+    try:
+        async with state.factory() as db:
+            commit = db.commit
+
+            async def finish_read_after_retirement():
+                await commit()
+                async with state.factory() as final_read:
+                    assert (
+                        await final_read.get(Output, late_output.id)
+                    ).state == "retiring"
+                    # Its final read must be able to finish: the collector may not
+                    # hold the Item write fence while waiting for the permit.
+                    assert (
+                        await final_read.scalar(
+                            select(DatasetItem.id)
+                            .where(DatasetItem.id == state.item_id)
+                            .with_for_update(read=True, nowait=True)
+                        )
+                        == state.item_id
+                    )
+                await permit.__aexit__(None, None, None)
+
+            monkeypatch.setattr(db, "commit", finish_read_after_retirement)
+            plan = await seed._prepare_fixture_video_cleanup(db, scope)
+        assert {receipt.id for receipt in plan.receipts} == {
+            state.generation_id,
+            late_output.id,
+        }
+        async with state.factory() as db:
+            assert await db.get(StorageOperation, permit.id) is None
+            assert (await db.get(Output, late_output.id)).state == "retiring"
+    finally:
+        if permit is not None:
+            await permit.__aexit__(None, None, None)
