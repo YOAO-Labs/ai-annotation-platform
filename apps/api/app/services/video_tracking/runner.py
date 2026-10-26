@@ -6,7 +6,7 @@ import json
 import logging
 import uuid
 from collections import defaultdict
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -286,7 +286,7 @@ async def _materialize_tracker_mask_result(
     geometry = result.geometry or {}
     if geometry.get("type") != "mask":
         return result
-    rle = geometry.get("rle")
+    rle = thaw_json(geometry.get("rle"))
     if not isinstance(rle, dict):
         raise ValueError("tracker mask result requires geometry.rle")
     reference = None
@@ -694,7 +694,7 @@ def apply_tracker_results(
         (
             result.geometry.get("type")
             for result in results
-            if not result.outside and isinstance(result.geometry, dict)
+            if not result.outside and isinstance(result.geometry, Mapping)
         ),
         None,
     )
@@ -740,11 +740,11 @@ def apply_tracker_results(
         if is_mask:
             reference = result.geometry.get("mask")
             bbox = result.geometry.get("bbox") or {}
-            if not isinstance(reference, dict) or float(bbox.get("w", 0)) <= 0:
+            if not isinstance(reference, Mapping) or float(bbox.get("w", 0)) <= 0:
                 outside_frames.append(result.frame_index)
                 prediction_by_frame.pop(result.frame_index, None)
                 continue
-            shape_field = {"mask": dict(reference)}
+            shape_field = {"mask": thaw_json(reference)}
         elif is_polygon:
             points = _normalize_points(result.geometry)
             if len(points) < 3:

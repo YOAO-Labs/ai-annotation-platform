@@ -1350,6 +1350,8 @@ async def _run_segment(
                                         if source_pool_id is not None
                                         else None
                                     ),
+                                    endpoint_registry_id=None,
+                                    required_instance_id=None,
                                     route_owner=f"frame:{job_id}:{task_id}",
                                     route_operation="frame_predict",
                                     correlation={
